@@ -425,7 +425,13 @@ the proof `NOT_PROVEN` even when that later non-turn commit is the permitted
 reset explanation. Missing sidecar, baseline-only, or unavailable git is
 also `NOT_PROVEN`. Hash drift, dirty authoritative paths, a committed
 `save/pending-turn.json`, unpaired receipts, or a wrong HEAD are `FAIL`.
-A worktree-only pending turn is not that committed-pending finding.
+A worktree-only pending turn is not that committed-pending finding. The tree
+proof drift-checks only the bounded authoritative subset (`campaign.json`,
+`save/world-state.json`, `logs/turn-finalizations.jsonl` after the first
+finalized turn, and the non-ignored `save/` prefix); other tracked paths are
+committed but not proven by it. Path helpers always return absolute paths —
+git runs with cwd at the worktree, so a root-relative `--git-dir` is a hard
+failure, never corruption.
 
 The ignore face is the Coordinator constant `IGNORE_PATHS`, written only to
 the bare repo `info/exclude` (never a campaign-tree `.gitignore`):

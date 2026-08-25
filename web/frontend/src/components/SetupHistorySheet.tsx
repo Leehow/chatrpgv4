@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import { fetchSetupTranscript } from "../api";
 import {
   setupHistoryDescription,
@@ -90,7 +90,17 @@ export function SetupHistorySheet({
         side="right"
         className="w-full gap-0 p-0 sm:max-w-lg"
         aria-label={title}
+        showCloseButton={false}
       >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="关闭建卡记录"
+          className="absolute top-3.5 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden"
+        >
+          <X className="size-4" />
+          <span className="sr-only">关闭建卡记录</span>
+        </button>
         <SheetHeader className="border-b border-border px-4 py-3 pr-12">
           <SheetTitle className="font-display text-lg font-semibold">{title}</SheetTitle>
           <SheetDescription>{description}</SheetDescription>

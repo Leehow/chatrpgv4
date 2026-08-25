@@ -32,6 +32,17 @@ This driver keeps the same CLI (``start``/``serve``/``set-model``/``turn``/
    and re-checks pi liveness after a timeout; when pi died mid-turn it prints
    the driver log tail plus resume guidance (campaign state is durable;
    restart the daemon and continue the campaign through ``session.resume``).
+5. **Settle classification**: a submitted turn succeeds only when the
+   settle window contains player-visible assistant text — tool activity is
+   not delivery. ``settle_class`` distinguishes ``settled`` (visible text),
+   ``undelivered_settle_with_tools`` (zero visible text but tool calls or
+   executions; exit 5), and ``empty_settle`` (zero visible text and zero
+   tool activity, the provider-successful thinking-only swallow; exit 4).
+   A hidden ``coc-empty-terminal-recovery`` follow-up marker keeps the
+   submit open until the recovered turn settles, so an in-flight
+   same-epoch recovery is not misread as an empty settle. The marker is
+   appended only after the recovery follow-up was actually sent, so a
+   scheduling failure never fabricates an in-flight recovery.
 
 The upstream pi gap (EPIPE on RPC stdout kills the whole agent) is reported
 separately; this driver makes the peer death survivable and diagnosable on the
@@ -93,6 +104,75 @@ def text_from(content: object) -> str:
             if isinstance(part, dict) and part.get("type") == "text"
         )
     return ""
+
+
+# Hidden same-epoch recovery marker appended by the pi-coc player transcript
+# gate when a provider-successful thinking-only terminal swallowed an
+# external player turn (plugins/coc-keeper/pi/extensions/index.ts,
+# deliverEmptyTerminalRecovery). One marker arms exactly one hidden
+# follow-up agent turn that settles after the swallowed one.
+EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE = "coc-empty-terminal-recovery"
+
+
+def _empty_terminal_recovery_markers(rows: list[dict]) -> int:
+    count = 0
+    for row in rows:
+        if row.get("type") != "entry_appended":
+            continue
+        entry = row.get("entry")
+        if (
+            isinstance(entry, dict)
+            and entry.get("customType") == EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE
+        ):
+            count += 1
+    return count
+
+
+def _turn_window_visible_output(rows: list[dict]) -> bool:
+    """True when an assistant message_end carried player-visible text.
+
+    The extension strips thinking-only content and tool framing text from
+    assistant ``message_end`` events before they reach this stream, so a
+    non-blank text part here is player-visible output. Tool activity is
+    deliberately NOT delivery: a settle with tools but no visible text did
+    not answer the player.
+    """
+    for row in rows:
+        if row.get("type") != "message_end":
+            continue
+        message = row.get("message")
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if (
+                isinstance(part, dict)
+                and part.get("type") == "text"
+                and str(part.get("text", "")).strip()
+            ):
+                return True
+    return False
+
+
+def _turn_window_has_tool_activity(rows: list[dict]) -> bool:
+    """True on any tool execution event or assistant toolCall part."""
+    for row in rows:
+        if row.get("type") in ("tool_execution_start", "tool_execution_end"):
+            return True
+        if row.get("type") != "message_end":
+            continue
+        message = row.get("message")
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "toolCall":
+                return True
+    return False
 
 
 def command_payload(kind: str, value: str | None = None) -> dict:
@@ -207,7 +287,13 @@ def submit(payload: dict, timeout: int) -> int:
         if payload["type"] == "set_model":
             completed = any(row.get("type") == "response" and row.get("id") == payload["id"] for row in rows)
         else:
-            completed = any(row.get("type") == "agent_settled" for row in rows)
+            settles = [row for row in rows if row.get("type") == "agent_settled"]
+            completed = bool(settles)
+            if completed and len(settles) <= _empty_terminal_recovery_markers(rows):
+                # A hidden empty-terminal recovery follow-up is in flight:
+                # its triggered agent turn settles after this one, so the
+                # submitted player turn is not finished yet.
+                completed = False
         if completed:
             break
         time.sleep(0.25)
@@ -235,11 +321,22 @@ def submit(payload: dict, timeout: int) -> int:
                 _print_driver_tail()
                 raise SystemExit(3)
     rows = collect_after(before) if not completed else rows
+    settle_class = "not_applicable"
+    if payload["type"] != "set_model":
+        if not completed:
+            settle_class = "not_settled"
+        elif _turn_window_visible_output(rows):
+            settle_class = "settled"
+        elif _turn_window_has_tool_activity(rows):
+            settle_class = "undelivered_settle_with_tools"
+        else:
+            settle_class = "empty_settle"
     record = {
         "submitted_at": time.time(),
         "request": payload,
         "timeout_seconds": timeout,
         "settled": completed,
+        "settle_class": settle_class,
         "events": rows,
     }
     out = EVIDENCE / f"turn-{payload['id']}.json"
@@ -251,7 +348,24 @@ def submit(payload: dict, timeout: int) -> int:
         if row.get("type") == "response":
             print("RPC response:", json.dumps(row, ensure_ascii=False))
     print(f"evidence={out}")
-    return 0 if record["settled"] else 2
+    if not record["settled"]:
+        return 2
+    if record["settle_class"] == "empty_settle":
+        print(
+            "empty settle: agent_settled with zero visible assistant text and "
+            "zero tool executions; recovery unavailable or exhausted — the "
+            "player turn was not delivered",
+            file=sys.stderr,
+        )
+        return 4
+    if record["settle_class"] == "undelivered_settle_with_tools":
+        print(
+            "undelivered settle: agent_settled after tool activity but with "
+            "zero visible assistant output; the player turn was not delivered",
+            file=sys.stderr,
+        )
+        return 5
+    return 0
 
 
 def serve() -> int:

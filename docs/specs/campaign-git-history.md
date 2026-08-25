@@ -61,7 +61,9 @@ commit 失败 = finalize 失败（与旧 copytree 失败语义对等，fail-clos
 | `restore_save_subset(root, campaign_id)` | 从 HEAD 的 **turn** commit checkout 旧 copytree 捕获的 `save/` 子集。HEAD 不是 turn commit 或无仓库时返回 `None`，不整树回滚。 |
 | `remove_repo(root, campaign_id)` | 只删 sidecar 仓库，永不碰战役 worktree。 |
 
-路径辅助：`repo_path_for` / `worktree_path_for`。trailer 解析走
+路径辅助：`repo_path_for` / `worktree_path_for`。二者一律返回**绝对**
+路径：git 子进程以 worktree 为 cwd，root 相对时 `--git-dir` 会按错误
+cwd 解析并报 `not a git repository`。trailer 解析走
 `parse_trailers`（`git interpret-trailers --parse`）。schema 代际字符串由
 `format_schema_generation` 按当前 `campaign/world/pacing/investigator`
 版本渲染，例如 `campaign-3/world-2/pacing-1/investigator-1`。
@@ -76,6 +78,9 @@ baseline：`COC-Commit-Type: baseline`、`Campaign-Id`、`Timeline-Id: tl-main`�
 turn：`COC-Commit-Type: turn`、`Campaign-Id`、`Timeline-Id`、`Turn-Number`、
 `Finalization-Id`、`Journal-Decision-Id`、`Settlement-Snapshot-Id`、
 `Rendered-Text-SHA256`、`Schema-Generation`。
+
+trailer 值与 subject 一律净化为单行（≤200 字符）：多行 git stderr
+不得注入伪 trailer。
 
 ### 3.3 追踪面与忽略面
 
@@ -111,6 +116,11 @@ canonical JSONL、`memory/`、scenario 绑定清单。
 | git 二进制缺失 | 战役创建与 finalize 明确硬失败，无降级。 |
 | 陈旧 `index.lock` | 清理后重试一次；再失败即硬失败。 |
 | 对象库损坏 | 原仓库改名保留为证据（不得删除任何战役文件），以带 `COC-History-Reset` 的 baseline 重初始化。 |
+| git-dir 路径解析失败（含 `not a git repository`） | **不是**损坏：硬失败，不触发改名/重置。 |
+
+`campaign.quick_start` 在发布完成后落同款 baseline；发布点之后失败不回滚
+（与 compiled archive 同级 maintenance），记 warning，历史由首次 turn
+commit 兜底（`commit_finalized_turn` 会先 `ensure_repo`）。
 
 git 调用不得依赖用户全局 config：固定
 `user.name=coc-keeper` / `user.email=coc-keeper@localhost` /
@@ -146,7 +156,12 @@ dirty_paths / missing_paths / drifted_paths), `history_reset`, `findings`
 
 `PASS` requires a healthy sidecar, `fsck --strict`, HEAD as the turn commit
 for the latest valid receipt, 1:1 receipt/commit pairing, and a clean tracked
-tree matching the campaign worktree. `FAIL` is a contradiction or corruption
+tree matching the campaign worktree. The tree proof checks only the bounded
+authoritative subset — `campaign.json`, `save/world-state.json`,
+`logs/turn-finalizations.jsonl` (after the first finalized turn), and the
+non-ignored `save/` prefix. Other tracked paths (e.g. `logs/rolls.jsonl`,
+`memory/`) are committed but not drift-checked by this proof. `FAIL` is a
+contradiction or corruption
 (wrong HEAD, unpaired receipts, hash drift, dirty authoritative paths,
 committed `save/pending-turn.json`, `repo_not_git`, `fsck_failed`). A
 worktree-only pending turn is not this finding; it follows the ordinary dirty

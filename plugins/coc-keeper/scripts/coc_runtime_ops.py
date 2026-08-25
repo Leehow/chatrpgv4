@@ -1056,13 +1056,28 @@ def _validate_module_init_l0(value: Any) -> dict[str, Any]:
         _module_init_text_or_none(handout["title"], f"{label}.title")
         _module_init_text_or_none(handout["when_to_give"], f"{label}.when_to_give")
         direct_body_fields = sorted(
-            {"text", "localized_text", "image_ref"}.intersection(handout)
+            {"text", "image_ref"}.intersection(handout)
         )
         if direct_body_fields:
             raise RuntimeOperationError(
                 f"{label} must leave {', '.join(direct_body_fields)} to the "
                 "deepen_handout closed contract"
             )
+        # Reviewed locale fields ride along into the canonical card — but
+        # only as explicit play_language-to-string maps. A bare string is
+        # still a direct body escape (the deepen_handout closed contract
+        # owns deciding which text belongs to the card); a localization that
+        # names its language is a structured reviewed fact.
+        for locale_field in ("localized_title", "localized_text"):
+            locale_value = handout.get(locale_field)
+            if locale_value is None:
+                continue
+            if not isinstance(locale_value, dict):
+                raise RuntimeOperationError(
+                    f"{label}.{locale_field} must be an explicit "
+                    "play_language-to-string map; a bare string is a direct "
+                    "body escape left to the deepen_handout closed contract"
+                )
         kind = handout.get("kind")
         if kind is not None and kind not in coc_scenario.HANDOUT_CARD_KINDS:
             raise RuntimeOperationError(
@@ -1072,6 +1087,20 @@ def _validate_module_init_l0(value: Any) -> dict[str, Any]:
         _module_init_text_or_none(
             handout.get("when_to_deliver"), f"{label}.when_to_deliver",
         )
+        # Map-shaped locale fields are validated by the same card contract
+        # that governs compiled packs (non-empty language keys and values,
+        # never fabricated here).
+        locale_probe: dict[str, Any] = {
+            "kind": kind if isinstance(kind, str) else "read_aloud",
+        }
+        for locale_field in ("localized_title", "localized_text"):
+            if handout.get(locale_field) is not None:
+                locale_probe[locale_field] = handout[locale_field]
+        locale_errors = coc_scenario.validate_handout_card(
+            locale_probe, prefix=label,
+        )
+        if locale_errors:
+            raise RuntimeOperationError("; ".join(locale_errors))
         source_refs = handout["source_refs"]
         if (
             not isinstance(source_refs, list)
@@ -1099,12 +1128,38 @@ def _module_init_verbatim_text_or_none(value: Any, label: str) -> None:
         )
 
 
+def _l0_handout_locale_copy(value: Any) -> dict[str, Any] | None:
+    """Deep-copy one reviewed locale map; None when it carries no content.
+
+    L0 handout locale fields are map-only by contract. This guard keeps the
+    pure lifter fail-safe on unvalidated input so a blank or malformed value
+    degrades to the stub instead of poisoning the canonical entity at
+    put_entity time.
+    """
+    if isinstance(value, dict) and any(
+        isinstance(localized, str) and localized.strip()
+        for localized in value.values()
+    ):
+        return json.loads(json.dumps(value))
+    return None
+
+
 def l0_opening_handout_cards(
     l0: dict[str, Any],
     *,
     scene_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Lift L0 discoveries into source stubs for the closed card compiler."""
+    """Lift L0 discoveries into source stubs for the closed card compiler.
+
+    Reviewed locale maps ride along verbatim: ``localized_title`` /
+    ``localized_text`` are copied from the reviewed L0 row when present —
+    never derived from the source ``title``. A row that already carries a
+    reviewed body translation (``localized_text``) is born ``body_parsed``
+    because its structured body exists; the verbatim source ``text`` and
+    ``image_ref`` still come only from the closed ``deepen_handout``
+    contract. Rows without a reviewed body stay ``named_only`` locator
+    stubs, so source-only prose never masquerades as a play-language card.
+    """
     cards: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     for handout in l0.get("opening_handouts") or []:
@@ -1119,6 +1174,9 @@ def l0_opening_handout_cards(
             for ref in handout["source_refs"]
         })
         source_refs = [f"pdf_index-{index}" for index in source_page_indices]
+        localized_title = _l0_handout_locale_copy(handout.get("localized_title"))
+        localized_text = _l0_handout_locale_copy(handout.get("localized_text"))
+        reviewed_body = localized_text is not None
         card: dict[str, Any] = {
             "handout_id": handout_id,
             "asset_id": handout_id,
@@ -1132,13 +1190,18 @@ def l0_opening_handout_cards(
             "opening_card": True,
             "source_refs": source_refs,
             "source_page_indices": source_page_indices,
-            "body_source_page_indices": source_page_indices,
             "player_visible": True,
-            "parse_state": "named_only",
+            "parse_state": "body_parsed" if reviewed_body else "named_only",
             "origin": "source",
             "scene_refs": [scene_id] if scene_id else [],
             "clue_refs": [],
         }
+        if localized_title is not None:
+            card["localized_title"] = localized_title
+        if localized_text is not None:
+            card["localized_text"] = localized_text
+        if not reviewed_body:
+            card["body_source_page_indices"] = source_page_indices
         cards.append(card)
     return cards
 

@@ -221,21 +221,39 @@ export function campaignDisplayTitle(
   return [moduleTitle, sceneOrStage, protagonist].filter(Boolean).join("-");
 }
 
+/** Canonical campaign.json lifecycle status, or null when unreadable.
+ * Post-setup values follow the plugin phase chain
+ * (module_preparation -> character_creation -> ready_for_table -> active). */
+export function campaignStatusOf(workspace, campaignId) {
+  const campaign = readJsonFile(
+    path.join(campaignDir(workspace, campaignId), "campaign.json"),
+  );
+  return typeof campaign?.status === "string" && campaign.status
+    ? campaign.status
+    : null;
+}
+
 /**
  * Character-setup pending is read from the authoritative `opening_phase`
  * projection (plugin derive_opening_phase), never from investigator-file
  * scanning: a linked placeholder sheet is not a confirmed investigator.
- * A missing projection normally fails closed. The one safe fallback is an
- * already-projected play session plus a resolved display character: both are
- * player-safe live-state facts, and treating that combination as chargen
- * would hide a real sheet after a host/model restart.
+ * A missing projection normally fails closed. The one safe fallback combines
+ * the canonical play signals already available to the Web bridge — the
+ * orchestrator's session_role, the on-disk campaign status, and a resolved
+ * display character: all are player-safe live-state facts, and treating that
+ * combination as chargen would hide a real sheet after a host/model restart
+ * (in-memory role row lost, opening-phase enrichment unavailable).
  */
 export function characterSetupPendingFromOpeningPhase(
   openingPhase,
-  { sessionRole = null, hasCharacter = false } = {},
+  { sessionRole = null, campaignStatus = null, hasCharacter = false } = {},
 ) {
   if (!openingPhase || typeof openingPhase !== "object") {
-    return !(sessionRole === "play" && hasCharacter === true);
+    const inPlay =
+      sessionRole === "play"
+      || campaignStatus === "ready_for_table"
+      || campaignStatus === "active";
+    return !(inPlay && hasCharacter === true);
   }
   return openingPhase.character_setup_confirmed !== true;
 }

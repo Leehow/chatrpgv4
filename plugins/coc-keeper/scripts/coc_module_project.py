@@ -3248,6 +3248,43 @@ def _opening_expected_seed_ir(start_location_id: str) -> dict[str, Any]:
     }
 
 
+def _l0_hook_locale_languages(hook: dict[str, Any], field: str) -> set[str]:
+    """Languages already covered by one L0 hook locale field.
+
+    Mirrors ``coc_module_assets._validate_location_read_aloud_locales``:
+    a locale map covers its non-empty keys; a tagged string covers only
+    ``localized_language``.  Source ``text`` / ``title`` never count.
+    """
+    value = hook.get(field)
+    if isinstance(value, dict) and value:
+        return {
+            language
+            for language, localized_value in value.items()
+            if isinstance(language, str)
+            and language.strip()
+            and isinstance(localized_value, str)
+            and localized_value.strip()
+        }
+    if isinstance(value, str) and value.strip():
+        tagged = str(hook.get("localized_language") or "").strip()
+        if tagged:
+            return {tagged}
+    return set()
+
+
+def _l0_player_hook_ready_for_read_aloud(hook: dict[str, Any]) -> bool:
+    """True when the hook already satisfies the player-language read_aloud contract.
+
+    A boxed passage is legal only when ``localized_title`` and
+    ``localized_text`` share at least one play language.  Thin source-only
+    L0 hooks stay on ``player_safe_summary``; they are not promoted and
+    never receive fabricated locale maps.
+    """
+    title_languages = _l0_hook_locale_languages(hook, "localized_title")
+    text_languages = _l0_hook_locale_languages(hook, "localized_text")
+    return bool(title_languages & text_languages)
+
+
 def build_l0_direct_opening_pack(
     l0: dict[str, Any],
     *,
@@ -3259,15 +3296,18 @@ def build_l0_direct_opening_pack(
     """Build the minimal source-bound opening location pack from module-init L0.
 
     The source-reviewed module-init L0 carries the authored opening text as
-    ``opening_hooks``: player hooks are boxed passages the Keeper reads out as
-    written and keeper hooks are Keeper-only notes.  This pack is the direct-
-    write equivalent of a foreground ``partial_opening`` slice without any
-    host-work claim/fulfill spine: same entity contract, same source-evidence
-    discipline, zero coordinator dependency.  Opening handout cards no longer
-    stay on the L0 document: the opening bootstrap lifts them into canonical
-    handout entities (``coc_runtime_ops.l0_opening_handout_cards``) that flow
-    through the same card store + delivery path as every other handout; this
-    pack lifts only the scene text and provenance the projection needs.
+    ``opening_hooks``: player hooks become boxed ``read_aloud`` only when
+    their locale maps already satisfy the player-language contract, and
+    keeper hooks are Keeper-only notes.  Thin source-only player hooks stay
+    on ``player_safe_summary`` so a partial pack can bootstrap without an
+    invalid boxed passage.  This pack is the direct-write equivalent of a
+    foreground ``partial_opening`` slice without any host-work claim/fulfill
+    spine: same entity contract, same source-evidence discipline, zero
+    coordinator dependency.  Opening handout cards no longer stay on the L0
+    document: the opening bootstrap lifts them into canonical handout
+    entities (``coc_runtime_ops.l0_opening_handout_cards``) that flow through
+    the same card store + delivery path as every other handout; this pack
+    lifts only the scene text and provenance the projection needs.
     """
     hooks = [
         row for row in (l0.get("opening_hooks") or []) if isinstance(row, dict)
@@ -3292,6 +3332,8 @@ def build_l0_direct_opening_pack(
         if not hook_id or hook_id in seen_read_ids:
             continue
         seen_read_ids.add(hook_id)
+        if not _l0_player_hook_ready_for_read_aloud(hook):
+            continue
         read_row = {
             "id": hook_id,
             "trigger": "on_enter",

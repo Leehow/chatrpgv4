@@ -53,6 +53,7 @@ test("setup-transcript route is a separate host-session projection", () => {
     SERVER_SOURCE.indexOf("async function handleSetupTranscript"),
   );
   assert.match(setupHandler, /hostedSetupHistory/);
+  assert.match(setupHandler, /campaignId: typeof info\.campaign_id/);
   assert.doesNotMatch(setupHandler, /tableTranscriptMessages/);
   assert.doesNotMatch(setupHandler, /transcriptPayload/);
 });

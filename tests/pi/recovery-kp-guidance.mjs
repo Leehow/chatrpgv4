@@ -28,6 +28,11 @@ const {
   PENDING_FINALIZATION_RECOVERY_GUIDANCE_AUDIT,
 } = guidanceMod;
 
+// This harness drives the root KP extension surface directly. A worker-shell
+// PI_SUBAGENT_CHILD=1 would silence applyKpActiveTools/setActiveTools and
+// make the active-tool quarantine unobservable.
+delete process.env.PI_SUBAGENT_CHILD;
+
 function resumeEnvelope(mode, extra = {}) {
   return {
     ok: true,
@@ -228,11 +233,13 @@ assert.deepEqual(
 
 const welcomeAgentDir = mkdtempSync(path.join(tmpdir(), "pi-coc-recovery-guide-"));
 
-function harness(responseForCall, startupCampaignId, workspaceCwd = root) {
+function harness(responseForCall, startupCampaignId, workspaceCwd = root, branch = []) {
   const registered = new Map();
   const handlers = new Map();
   const sent = [];
   const audits = [];
+  const activeTools = [];
+  const clientCalls = [];
   const fakePi = {
     registerTool: (tool) => registered.set(tool.name, tool),
     registerCommand: () => {},
@@ -248,13 +255,16 @@ function harness(responseForCall, startupCampaignId, workspaceCwd = root) {
     sendMessage: (message, options) => {
       sent.push({ message, options });
     },
-    setActiveTools: () => {},
+    setActiveTools: (tools) => {
+      activeTools.push([...tools]);
+    },
     getThinkingLevel: () => "off",
   };
   main.default(fakePi, {
     coordinatorEnabled: async () => false,
     createClient: () => {
       const callTool = async (name, params) => {
+        clientCalls.push({ name, params });
         if (name === "coc_capabilities") return { ok: true, host: "pi" };
         return responseForCall(name, params);
       };
@@ -283,6 +293,7 @@ function harness(responseForCall, startupCampaignId, workspaceCwd = root) {
     sessionManager: {
       getSessionId: () => "recovery-kp-guidance",
       getEntries: () => [],
+      getBranch: () => branch,
     },
     hasUI: false,
     ui: {
@@ -297,12 +308,22 @@ function harness(responseForCall, startupCampaignId, workspaceCwd = root) {
     registered,
     sent,
     audits,
+    activeTools,
+    clientCalls,
     ctx,
     async start() {
       await handlers.get("session_start").at(-1)({ reason: "startup" }, ctx);
       for (const handler of handlers.get("agent_start") || []) {
         await handler({ reason: "tool-test" }, ctx);
       }
+    },
+    async emit(name, message) {
+      let current = message;
+      for (const handler of handlers.get(name) || []) {
+        const updated = await handler({ message: current }, ctx);
+        if (updated?.message) current = updated.message;
+      }
+      return current;
     },
     async shutdown() {
       for (const handler of handlers.get("agent_end") || []) {
@@ -384,6 +405,32 @@ assert.equal(
   false,
   "guidance must stay on the tool result; no mid-pair custom message",
 );
+assert.ok(
+  recovery.activeTools.length > 0
+    && recovery.activeTools.at(-1).length > 0,
+  "open_turn_recovery must not quarantine the active tool surface",
+);
+const recoveryProse = await recovery.emit("message_end", {
+  role: "assistant",
+  content: [{ type: "text", text: "你重新执起守夜人的提灯，等待玩家的下一步。" }],
+  stopReason: "stop",
+});
+assert.equal(
+  recoveryProse.content.some((part) => part.type === "text"),
+  true,
+  "open_turn_recovery plain final stays visible (no quarantine)",
+);
+assert.equal(
+  recovery.sent.some((entry) => (
+    entry.options?.triggerTurn === true
+    || entry.options?.deliverAs === "followUp"
+    || entry.message?.customType === "coc-mechanical-output-gate"
+    || entry.message?.customType === "coc-settled-output-gate"
+    || entry.message?.customType === "coc-opening-setup-route"
+  )),
+  false,
+  "open_turn_recovery visible final must not arm a gate follow-up",
+);
 await recovery.shutdown();
 
 for (const [label, mode, next] of [
@@ -410,6 +457,40 @@ for (const [label, mode, next] of [
     false,
     label,
   );
+  if (label === "table_opening") {
+    assert.ok(
+      h.activeTools.length > 0 && h.activeTools.at(-1).length > 0,
+      "table_opening must not quarantine the active tool surface",
+    );
+    const openingProse = await h.emit("message_end", {
+      role: "assistant",
+      content: [{ type: "text", text: "你翻开手边的守则，准备宣布开场。" }],
+      stopReason: "stop",
+    });
+    assert.equal(
+      openingProse.content.some((part) => part.type === "text"),
+      false,
+      "table_opening plain final is adjudicated by the normal gate, not the quarantine",
+    );
+    assert.ok(
+      h.sent.some((entry) => (
+        entry.options?.triggerTurn === true
+        && entry.options?.deliverAs === "followUp"
+        && (
+          entry.message?.customType === "coc-settled-output-gate"
+          || entry.message?.customType === "coc-mechanical-output-gate"
+          || entry.message?.customType === "coc-opening-setup-route"
+        )
+      )),
+      "table_opening suppression flows through the normal output gate follow-up",
+    );
+  } else {
+    assert.deepEqual(
+      h.activeTools.at(-1),
+      [],
+      "awaiting_player must quarantine the same auto-open turn",
+    );
+  }
   await h.shutdown();
 }
 
@@ -526,7 +607,792 @@ assert.ok(
     && entry.value?.campaign_id === pendingCampaign
   )),
 );
+assert.ok(
+  pending.activeTools.length > 0 && pending.activeTools.at(-1).length > 0,
+  "pending_finalization must not quarantine the active tool surface",
+);
 await pending.shutdown();
+
+// Silent settled startup resume modes (already_acknowledged / awaiting_player)
+// acknowledge table state; they are not a new player turn. The remainder of
+// the same auto-open agent turn must be quarantined: empty active tools until
+// that turn's agent_end, tool-free finals (both non-empty mechanical-looking
+// and thinking-only/empty) hidden BEFORE
+// OpeningTerminalContinuationGate.acceptVisibleAssistantFinal (so no
+// state.journal / second resume / rules-state call can be issued, no settled
+// or mechanical output gate arms, no follow-up/prompt is sent — including the
+// concurrent coc-empty-terminal-recovery path over the historical player
+// epoch — and no prose or history replays), then the normal tool surface
+// returns after agent_end for the next genuine external player turn.
+const QUARANTINE_MECHANICAL_FINAL = "【明骰】D100=45，你听见远处教堂的钟声。";
+for (const mode of ["already_acknowledged", "awaiting_player"]) {
+  const campaignId = `startup-silent-${mode}`;
+  const h = harness((name, params) => {
+    if (params.operation !== "session.resume") {
+      throw new Error(`unexpected ${mode} quarantine operation ${params.operation}`);
+    }
+    return resumeEnvelope(mode, { campaign_id: campaignId });
+  }, campaignId);
+  await h.start();
+  assert.ok(
+    h.activeTools.length > 0,
+    `${mode}: startup pending gate arms a tool surface`,
+  );
+  // A silent settled resume replays a session whose transcript already
+  // holds the historical player turn; the replayed message_start marks the
+  // external player epoch before the auto-open resume settles silently.
+  await h.emit("message_start", {
+    role: "user",
+    content: [{ type: "text", text: "我推开了教堂的大门，里面一片漆黑。" }],
+  });
+  const toolsBeforeResume = h.activeTools.length;
+  const resumed = await invoke(
+    h,
+    `silent-${mode}-resume`,
+    resumeParams(campaignId),
+    "coc_setup",
+  );
+  assert.equal(resumed.ok, true, mode);
+  assert.equal(resumed.data.mode, mode, mode);
+  assert.equal(resumed.data.host_recovery_guidance, undefined, mode);
+  assert.ok(
+    h.activeTools.length > toolsBeforeResume,
+    `${mode}: silent resume reapplies the tool surface`,
+  );
+  assert.ok(
+    h.activeTools
+      .slice(toolsBeforeResume)
+      .every((tools) => Array.isArray(tools) && tools.length === 0),
+    `${mode}: every tool application after the silent resume is empty`,
+  );
+  const sentAtQuarantine = h.sent.length;
+  const clientCallsAtQuarantine = h.clientCalls.length;
+  const hiddenFinal = await h.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: QUARANTINE_MECHANICAL_FINAL }],
+    stopReason: "stop",
+  });
+  assert.equal(
+    hiddenFinal.content.some((part) => part.type === "text"),
+    false,
+    `${mode}: mechanical-looking tool-free final is hidden while quarantined`,
+  );
+  assert.equal(
+    h.sent.slice(sentAtQuarantine).some((entry) => (
+      entry.options?.triggerTurn === true
+      || entry.options?.deliverAs === "followUp"
+      || entry.message?.customType === "coc-mechanical-output-gate"
+      || entry.message?.customType === "coc-settled-output-gate"
+      || entry.message?.customType === "coc-settled-output-preflight"
+      || entry.message?.customType === "coc-opening-setup-route"
+      || entry.message?.customType === "coc-startup-resume-blocker"
+      || entry.message?.customType === "coc-startup-resume-required"
+    )),
+    false,
+    `${mode}: quarantine sends no recovery custom, follow-up, or prompt`,
+  );
+  assert.equal(
+    h.clientCalls.slice(clientCallsAtQuarantine).some((call) => (
+      call.name !== "coc_capabilities"
+      && (
+        call.params?.operation === "session.resume"
+        || (
+          typeof call.params?.operation === "string"
+          && (call.params.operation.startsWith("state.")
+            || call.params.operation.startsWith("rules.")
+            || call.params.operation.startsWith("turn."))
+        )
+      )
+    )),
+    false,
+    `${mode}: quarantine issues no second resume, state.journal, or rules-state call`,
+  );
+  assert.equal(
+    h.audits.some((entry) => (
+      entry.name === "coc-mechanical-output-gate"
+      || entry.name === OPEN_TURN_RECOVERY_GUIDANCE_AUDIT
+      || entry.name === PENDING_FINALIZATION_RECOVERY_GUIDANCE_AUDIT
+    )),
+    false,
+    `${mode}: quarantine arms no mechanical/settled/recovery gate`,
+  );
+  assert.deepEqual(
+    h.activeTools.at(-1),
+    [],
+    `${mode}: tools stay empty through the quarantined turn`,
+  );
+  // Thinking-only/empty tool-free final while the quarantine is still
+  // armed: it must be routed to the empty-terminal callback, hidden, and
+  // must NOT let the concurrent empty-terminal recovery path send its
+  // coc-empty-terminal-recovery follow-up and re-awaken the historical
+  // player epoch the quarantine just closed.
+  const thinkingOnlyFinal = await h.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "thinking", text: "盘点既有收据，不产出玩家正文。" }],
+    stopReason: "stop",
+  });
+  assert.equal(
+    thinkingOnlyFinal.content.some((part) => part.type === "text"),
+    false,
+    `${mode}: thinking-only tool-free final is hidden while quarantined`,
+  );
+  assert.equal(
+    h.sent.slice(sentAtQuarantine).some((entry) => (
+      entry.options?.triggerTurn === true
+      || entry.options?.deliverAs === "followUp"
+      || entry.message?.customType === main.EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE
+      || entry.message?.customType === "coc-mechanical-output-gate"
+      || entry.message?.customType === "coc-settled-output-gate"
+      || entry.message?.customType === "coc-settled-output-preflight"
+      || entry.message?.customType === "coc-opening-setup-route"
+      || entry.message?.customType === "coc-startup-resume-blocker"
+      || entry.message?.customType === "coc-startup-resume-required"
+    )),
+    false,
+    `${mode}: thinking-only final sends no recovery follow-up, custom, or prompt`,
+  );
+  assert.equal(
+    h.audits.some((entry) => (
+      entry.name === main.EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE
+      || entry.name === "coc-empty-terminal-recovery-delivery-failed"
+      || entry.name === main.TURN_PROCESSING_FAULT_CUSTOM_TYPE
+      || entry.name === "coc-mechanical-output-gate"
+      || entry.name === OPEN_TURN_RECOVERY_GUIDANCE_AUDIT
+      || entry.name === PENDING_FINALIZATION_RECOVERY_GUIDANCE_AUDIT
+    )),
+    false,
+    `${mode}: thinking-only final arms no recovery marker or fault audit`,
+  );
+  assert.equal(
+    h.clientCalls.slice(clientCallsAtQuarantine).some((call) => (
+      call.name !== "coc_capabilities"
+      && (
+        call.params?.operation === "session.resume"
+        || (
+          typeof call.params?.operation === "string"
+          && (call.params.operation.startsWith("state.")
+            || call.params.operation.startsWith("rules.")
+            || call.params.operation.startsWith("turn."))
+        )
+      )
+    )),
+    false,
+    `${mode}: thinking-only final triggers no second resume or rules-state call`,
+  );
+  assert.deepEqual(
+    h.activeTools.at(-1),
+    [],
+    `${mode}: tools stay empty after the thinking-only final`,
+  );
+  await h.shutdown();
+  assert.ok(
+    h.activeTools.at(-1).length > 0,
+    `${mode}: normal tool surface returns after agent_end`,
+  );
+  // The next genuine external player turn (a real role=user message, not a
+  // replay) must find the normal tool surface available and settle through
+  // the normal epoch machinery.
+  await h.emit("message_start", {
+    role: "user",
+    content: [{ type: "text", text: "我举灯走进正厅，检查讲坛后的暗门。" }],
+  });
+  assert.ok(
+    h.activeTools.at(-1).length > 0,
+    `${mode}: the next genuine external player turn keeps normal tools available`,
+  );
+  const sentAfterRelease = h.sent.length;
+  const interceptedFinal = await h.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: QUARANTINE_MECHANICAL_FINAL }],
+    stopReason: "stop",
+  });
+  assert.equal(
+    interceptedFinal.content.some((part) => part.type === "text"),
+    false,
+    `${mode}: control - the normal mechanical gate still intercepts after release`,
+  );
+  assert.ok(
+    h.sent.slice(sentAfterRelease).some((entry) => (
+      entry.options?.triggerTurn === true
+      && entry.options?.deliverAs === "followUp"
+      && (
+        entry.message?.customType === "coc-mechanical-output-gate"
+        || entry.message?.customType === "coc-settled-output-gate"
+      )
+    )),
+    `${mode}: control - interception after release delivers the gate follow-up`,
+  );
+  assert.equal(
+    h.sent.slice(sentAfterRelease).some((entry) => (
+      entry.message?.customType === "coc-startup-resume-blocker"
+      || entry.message?.customType === "coc-pi-table-open"
+    )),
+    false,
+    `${mode}: no startup blocker or table-open prompt at any boundary`,
+  );
+}
+
+// Startup-only trailing-unmatched-player refinement: the silent settled
+// quarantine must be armed from the persistent session branch read once at
+// initializeSession. A branch whose last player-visible role is an unmatched
+// real role=user message (a fresh setup answer whose provider finished
+// without a final, then a watchdog respawn) must NOT be quarantined — the
+// auto-open agent finishes that existing player epoch with the normal
+// tool/output surface and no resend. A fully settled branch (later visible
+// assistant output) keeps the quarantine. Structured roles only; hidden
+// custom entries and non-message entries never clear the pending user.
+const PLAYER_SETUP_ANSWER = "他叫托马斯·里德，是1890年代波士顿的一名记者。";
+let branchEntrySeq = 0;
+function branchEntry(role, content, extra = {}) {
+  branchEntrySeq += 1;
+  return {
+    type: "message",
+    id: `branch-entry-${branchEntrySeq}`,
+    parentId: `branch-entry-${branchEntrySeq - 1}`,
+    timestamp: "2026-08-24T17:38:00.000Z",
+    message: { role, content },
+    ...extra,
+  };
+}
+const settledAssistantBranch = () => [
+  branchEntry("user", [{ type: "text", text: PLAYER_SETUP_ANSWER }]),
+  branchEntry(
+    "assistant",
+    [{ type: "text", text: "已记录：托马斯·里德，记者。建卡继续。" }],
+    { stopReason: "stop" },
+  ),
+];
+const trailingUserBranch = () => [
+  branchEntry(
+    "assistant",
+    [{ type: "text", text: "请告诉我调查员的姓名、职业与年代。" }],
+    { stopReason: "stop" },
+  ),
+  branchEntry("user", [{ type: "text", text: PLAYER_SETUP_ANSWER }]),
+];
+const pendingAfterToolOnlyBranch = () => [
+  ...trailingUserBranch(),
+  branchEntry(
+    "assistant",
+    [
+      { type: "thinking", text: "整理姓名与职业，继续建卡。" },
+      {
+        type: "toolCall",
+        id: "call-branch-1",
+        name: "coc_setup",
+        arguments: { operation: "setup.investigator_contract" },
+      },
+    ],
+    { stopReason: "toolUse" },
+  ),
+  branchEntry("toolResult", [
+    { type: "text", text: "{\"ok\":true,\"tool\":\"setup.investigator_contract\"}" },
+  ], { toolCallId: "call-branch-1", toolName: "coc_setup" }),
+  branchEntry("assistant", [], { stopReason: "stop" }),
+  {
+    type: "custom_message",
+    customType: "coc-pi-loading",
+    content: "正在打开建卡引导……请稍候。",
+    display: true,
+  },
+  {
+    type: "custom",
+    customType: "coc-tool-telemetry",
+    data: { canonical_operation: "progressive.opening_bootstrap" },
+  },
+];
+const clearedByLaterVisibleAssistantBranch = () => [
+  ...pendingAfterToolOnlyBranch().slice(0, -2),
+  branchEntry(
+    "assistant",
+    [{ type: "text", text: "已记录：托马斯·里德，记者。请掷运气。" }],
+    { stopReason: "stop" },
+  ),
+];
+// String-content role=user turn (plain-text player input): content shape is
+// never a prerequisite, so it arms the pending external player fact exactly
+// like the array form — parity with the welcome.ts auto-open helper.
+const stringContentUserBranch = () => [
+  branchEntry(
+    "assistant",
+    [{ type: "text", text: "请告诉我调查员的姓名、职业与年代。" }],
+    { stopReason: "stop" },
+  ),
+  branchEntry("user", PLAYER_SETUP_ANSWER),
+];
+const stringClearedByVisibleAssistantBranch = () => [
+  ...stringContentUserBranch(),
+  branchEntry(
+    "assistant",
+    [{ type: "text", text: "已记录：托马斯·里德，记者。请掷运气。" }],
+    { stopReason: "stop" },
+  ),
+];
+// Image/attachment-only player turn: role=user with structured content but
+// no text part at all. It must still arm the pending external player fact.
+const attachmentOnlyUserBranch = () => [
+  branchEntry(
+    "assistant",
+    [{ type: "text", text: "把调查员的肖像照片发给我，我替你存档。" }],
+    { stopReason: "stop" },
+  ),
+  branchEntry("user", [
+    { type: "image", mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUg==" },
+  ]),
+];
+const attachmentClearedByVisibleAssistantBranch = () => [
+  ...attachmentOnlyUserBranch(),
+  branchEntry(
+    "assistant",
+    [{ type: "text", text: "肖像已收到并绑定到调查员卡，建卡继续。" }],
+    { stopReason: "stop" },
+  ),
+];
+const PLAIN_OPENING_PROSE = "你放下建卡表格，烛火在桌面摇曳，等待下一句叮嘱。";
+
+for (const mode of ["already_acknowledged", "awaiting_player"]) {
+  // Settled branch (last visible output is assistant): quarantine still arms.
+  const settledCampaignId = `startup-silent-settled-${mode}`;
+  const settled = harness((name, params) => {
+    if (params.operation !== "session.resume") {
+      throw new Error(`unexpected settled ${mode} operation ${params.operation}`);
+    }
+    return resumeEnvelope(mode, { campaign_id: settledCampaignId });
+  }, settledCampaignId, root, settledAssistantBranch());
+  await settled.start();
+  const settledToolsBeforeResume = settled.activeTools.length;
+  const settledResumed = await invoke(
+    settled,
+    `silent-settled-${mode}-resume`,
+    resumeParams(settledCampaignId),
+    "coc_setup",
+  );
+  assert.equal(settledResumed.ok, true, `settled ${mode}`);
+  assert.ok(
+    settled.activeTools.length > settledToolsBeforeResume,
+    `settled ${mode}: silent resume reapplies the tool surface`,
+  );
+  assert.ok(
+    settled.activeTools
+      .slice(settledToolsBeforeResume)
+      .every((tools) => Array.isArray(tools) && tools.length === 0),
+    `settled ${mode}: settled assistant history still quarantines`,
+  );
+  const settledHiddenFinal = await settled.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: QUARANTINE_MECHANICAL_FINAL }],
+    stopReason: "stop",
+  });
+  assert.equal(
+    settledHiddenFinal.content.some((part) => part.type === "text"),
+    false,
+    `settled ${mode}: quarantined final stays hidden`,
+  );
+  await settled.shutdown();
+
+  // Trailing real unmatched role=user: no quarantine, no prompt, no resend.
+  const trailingCampaignId = `startup-silent-trailing-${mode}`;
+  const trailing = harness((name, params) => {
+    if (params.operation !== "session.resume") {
+      throw new Error(`unexpected trailing ${mode} operation ${params.operation}`);
+    }
+    return resumeEnvelope(mode, { campaign_id: trailingCampaignId });
+  }, trailingCampaignId, root, trailingUserBranch());
+  await trailing.start();
+  const trailingToolsBeforeResume = trailing.activeTools.length;
+  const trailingSentBeforeResume = trailing.sent.length;
+  const trailingResumed = await invoke(
+    trailing,
+    `silent-trailing-${mode}-resume`,
+    resumeParams(trailingCampaignId),
+    "coc_setup",
+  );
+  assert.equal(trailingResumed.ok, true, `trailing ${mode}`);
+  assert.equal(trailingResumed.data.mode, mode, `trailing ${mode}`);
+  assert.ok(
+    trailing.activeTools.length > trailingToolsBeforeResume,
+    `trailing ${mode}: silent resume reapplies the tool surface`,
+  );
+  assert.ok(
+    trailing.activeTools
+      .slice(trailingToolsBeforeResume)
+      .every((tools) => Array.isArray(tools) && tools.length > 0),
+    `trailing ${mode}: unmatched player user keeps the normal tool surface`,
+  );
+  const trailingFinal = await trailing.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: PLAIN_OPENING_PROSE }],
+    stopReason: "stop",
+  });
+  const trailingFinalVisible = trailingFinal.content.some(
+    (part) => part.type === "text",
+  );
+  const trailingNormalGateFollowUp = trailing.sent
+    .slice(trailingSentBeforeResume)
+    .some((entry) => (
+      entry.options?.triggerTurn === true
+      && entry.options?.deliverAs === "followUp"
+      && (
+        entry.message?.customType === "coc-mechanical-output-gate"
+        || entry.message?.customType === "coc-settled-output-gate"
+        || entry.message?.customType === "coc-opening-setup-route"
+      )
+    ));
+  assert.ok(
+    trailingFinalVisible || trailingNormalGateFollowUp,
+    `trailing ${mode}: final flows through the normal output surface, not silent quarantine`,
+  );
+  assert.equal(
+    trailing.sent.slice(trailingSentBeforeResume).some((entry) => (
+      entry.message?.display === true
+      || entry.message?.customType === "coc-startup-resume-blocker"
+      || entry.message?.customType === "coc-pi-table-open"
+      || entry.message?.customType === "coc-startup-resume-required"
+    )),
+    false,
+    `trailing ${mode}: no player-visible prompt, blocker, or resend request`,
+  );
+  await trailing.shutdown();
+
+  // String-content role=user (plain-text input): same unmatched external
+  // player treatment — no quarantine, normal tool surface, no resend — and
+  // a later visible assistant settles it so the silent quarantine returns.
+  const stringCampaignId = `startup-silent-string-${mode}`;
+  const stringContent = harness((name, params) => {
+    if (params.operation !== "session.resume") {
+      throw new Error(`unexpected string ${mode} operation ${params.operation}`);
+    }
+    return resumeEnvelope(mode, { campaign_id: stringCampaignId });
+  }, stringCampaignId, root, stringContentUserBranch());
+  await stringContent.start();
+  const stringToolsBeforeResume = stringContent.activeTools.length;
+  const stringSentBeforeResume = stringContent.sent.length;
+  const stringResumed = await invoke(
+    stringContent,
+    `silent-string-${mode}-resume`,
+    resumeParams(stringCampaignId),
+    "coc_setup",
+  );
+  assert.equal(stringResumed.ok, true, `string ${mode}`);
+  assert.equal(stringResumed.data.mode, mode, `string ${mode}`);
+  assert.ok(
+    stringContent.activeTools.length > stringToolsBeforeResume,
+    `string ${mode}: silent resume reapplies the tool surface`,
+  );
+  assert.ok(
+    stringContent.activeTools
+      .slice(stringToolsBeforeResume)
+      .every((tools) => Array.isArray(tools) && tools.length > 0),
+    `string ${mode}: string-content player user keeps the normal tool surface`,
+  );
+  const stringFinal = await stringContent.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: PLAIN_OPENING_PROSE }],
+    stopReason: "stop",
+  });
+  const stringFinalVisible = stringFinal.content.some(
+    (part) => part.type === "text",
+  );
+  const stringNormalGateFollowUp = stringContent.sent
+    .slice(stringSentBeforeResume)
+    .some((entry) => (
+      entry.options?.triggerTurn === true
+      && entry.options?.deliverAs === "followUp"
+      && (
+        entry.message?.customType === "coc-mechanical-output-gate"
+        || entry.message?.customType === "coc-settled-output-gate"
+        || entry.message?.customType === "coc-opening-setup-route"
+      )
+    ));
+  assert.ok(
+    stringFinalVisible || stringNormalGateFollowUp,
+    `string ${mode}: final flows through the normal output surface, not silent quarantine`,
+  );
+  assert.equal(
+    stringContent.sent.slice(stringSentBeforeResume).some((entry) => (
+      entry.message?.display === true
+      || entry.message?.customType === "coc-startup-resume-blocker"
+      || entry.message?.customType === "coc-pi-table-open"
+      || entry.message?.customType === "coc-startup-resume-required"
+    )),
+    false,
+    `string ${mode}: no player-visible prompt, blocker, or resend request`,
+  );
+  await stringContent.shutdown();
+
+  // A later assistant entry with non-empty visible text settles that
+  // string-content player turn, and the silent quarantine returns.
+  const stringClearedCampaignId = `startup-silent-string-cleared-${mode}`;
+  const stringCleared = harness((name, params) => {
+    if (params.operation !== "session.resume") {
+      throw new Error(`unexpected string-cleared ${mode} operation ${params.operation}`);
+    }
+    return resumeEnvelope(mode, { campaign_id: stringClearedCampaignId });
+  }, stringClearedCampaignId, root, stringClearedByVisibleAssistantBranch());
+  await stringCleared.start();
+  const stringClearedToolsBeforeResume = stringCleared.activeTools.length;
+  const stringClearedSentBeforeResume = stringCleared.sent.length;
+  const stringClearedResumed = await invoke(
+    stringCleared,
+    `silent-string-cleared-${mode}-resume`,
+    resumeParams(stringClearedCampaignId),
+    "coc_setup",
+  );
+  assert.equal(stringClearedResumed.ok, true, `string-cleared ${mode}`);
+  assert.ok(
+    stringCleared.activeTools
+      .slice(stringClearedToolsBeforeResume)
+      .every((tools) => Array.isArray(tools) && tools.length === 0),
+    `string-cleared ${mode}: later visible assistant restores the silent quarantine`,
+  );
+  const stringClearedHiddenFinal = await stringCleared.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: QUARANTINE_MECHANICAL_FINAL }],
+    stopReason: "stop",
+  });
+  assert.equal(
+    stringClearedHiddenFinal.content.some((part) => part.type === "text"),
+    false,
+    `string-cleared ${mode}: quarantined final stays hidden`,
+  );
+  assert.equal(
+    stringCleared.sent.slice(stringClearedSentBeforeResume).some((entry) => (
+      entry.options?.triggerTurn === true
+      || entry.options?.deliverAs === "followUp"
+    )),
+    false,
+    `string-cleared ${mode}: quarantine sends no follow-up or prompt`,
+  );
+  await stringCleared.shutdown();
+
+  // Thinking-only/tool-only assistant entries after the user never clear the
+  // pending external player turn, so no quarantine arms for them either.
+  const pendingCampaignId = `startup-silent-pending-${mode}`;
+  const pendingBranch = harness((name, params) => {
+    if (params.operation !== "session.resume") {
+      throw new Error(`unexpected pending ${mode} operation ${params.operation}`);
+    }
+    return resumeEnvelope(mode, { campaign_id: pendingCampaignId });
+  }, pendingCampaignId, root, pendingAfterToolOnlyBranch());
+  await pendingBranch.start();
+  const pendingToolsBeforeResume = pendingBranch.activeTools.length;
+  const pendingSentBeforeResume = pendingBranch.sent.length;
+  const pendingResumed = await invoke(
+    pendingBranch,
+    `silent-pending-${mode}-resume`,
+    resumeParams(pendingCampaignId),
+    "coc_setup",
+  );
+  assert.equal(pendingResumed.ok, true, `pending ${mode}`);
+  assert.ok(
+    pendingBranch.activeTools
+      .slice(pendingToolsBeforeResume)
+      .every((tools) => Array.isArray(tools) && tools.length > 0),
+    `pending ${mode}: thinking/tool-only assistant after user stays pending (no quarantine)`,
+  );
+  assert.equal(
+    pendingBranch.sent.slice(pendingSentBeforeResume).some((entry) => (
+      entry.message?.display === true
+      || entry.message?.customType === "coc-startup-resume-blocker"
+      || entry.message?.customType === "coc-pi-table-open"
+      || entry.message?.customType === "coc-startup-resume-required"
+    )),
+    false,
+    `pending ${mode}: no player-visible prompt or resend request`,
+  );
+  await pendingBranch.shutdown();
+
+  // A later assistant entry with non-empty visible text clears the pending
+  // user, and the silent quarantine returns for that settled branch.
+  const clearedCampaignId = `startup-silent-cleared-${mode}`;
+  const cleared = harness((name, params) => {
+    if (params.operation !== "session.resume") {
+      throw new Error(`unexpected cleared ${mode} operation ${params.operation}`);
+    }
+    return resumeEnvelope(mode, { campaign_id: clearedCampaignId });
+  }, clearedCampaignId, root, clearedByLaterVisibleAssistantBranch());
+  await cleared.start();
+  const clearedToolsBeforeResume = cleared.activeTools.length;
+  const clearedSentBeforeResume = cleared.sent.length;
+  const clearedResumed = await invoke(
+    cleared,
+    `silent-cleared-${mode}-resume`,
+    resumeParams(clearedCampaignId),
+    "coc_setup",
+  );
+  assert.equal(clearedResumed.ok, true, `cleared ${mode}`);
+  assert.ok(
+    cleared.activeTools
+      .slice(clearedToolsBeforeResume)
+      .every((tools) => Array.isArray(tools) && tools.length === 0),
+    `cleared ${mode}: later visible assistant restores the silent quarantine`,
+  );
+  const clearedHiddenFinal = await cleared.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: QUARANTINE_MECHANICAL_FINAL }],
+    stopReason: "stop",
+  });
+  assert.equal(
+    clearedHiddenFinal.content.some((part) => part.type === "text"),
+    false,
+    `cleared ${mode}: quarantined final stays hidden`,
+  );
+  assert.equal(
+    cleared.sent.slice(clearedSentBeforeResume).some((entry) => (
+      entry.options?.triggerTurn === true
+      || entry.options?.deliverAs === "followUp"
+    )),
+    false,
+    `cleared ${mode}: quarantine sends no follow-up or prompt`,
+  );
+  await cleared.shutdown();
+
+  // An image/attachment-only role=user turn (structured content, zero text)
+  // still arms the pending external player turn: exact silent resume modes
+  // must NOT quarantine it, and the normal tool/output surface stays up.
+  const attachmentCampaignId = `startup-silent-attachment-${mode}`;
+  const attachment = harness((name, params) => {
+    if (params.operation !== "session.resume") {
+      throw new Error(`unexpected attachment ${mode} operation ${params.operation}`);
+    }
+    return resumeEnvelope(mode, { campaign_id: attachmentCampaignId });
+  }, attachmentCampaignId, root, attachmentOnlyUserBranch());
+  await attachment.start();
+  const attachmentToolsBeforeResume = attachment.activeTools.length;
+  const attachmentSentBeforeResume = attachment.sent.length;
+  const attachmentResumed = await invoke(
+    attachment,
+    `silent-attachment-${mode}-resume`,
+    resumeParams(attachmentCampaignId),
+    "coc_setup",
+  );
+  assert.equal(attachmentResumed.ok, true, `attachment ${mode}`);
+  assert.equal(attachmentResumed.data.mode, mode, `attachment ${mode}`);
+  assert.ok(
+    attachment.activeTools.length > attachmentToolsBeforeResume,
+    `attachment ${mode}: silent resume reapplies the tool surface`,
+  );
+  assert.ok(
+    attachment.activeTools
+      .slice(attachmentToolsBeforeResume)
+      .every((tools) => Array.isArray(tools) && tools.length > 0),
+    `attachment ${mode}: attachment-only player user keeps the normal tool surface`,
+  );
+  const attachmentFinal = await attachment.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: PLAIN_OPENING_PROSE }],
+    stopReason: "stop",
+  });
+  const attachmentFinalVisible = attachmentFinal.content.some(
+    (part) => part.type === "text",
+  );
+  const attachmentNormalGateFollowUp = attachment.sent
+    .slice(attachmentSentBeforeResume)
+    .some((entry) => (
+      entry.options?.triggerTurn === true
+      && entry.options?.deliverAs === "followUp"
+      && (
+        entry.message?.customType === "coc-mechanical-output-gate"
+        || entry.message?.customType === "coc-settled-output-gate"
+        || entry.message?.customType === "coc-opening-setup-route"
+      )
+    ));
+  assert.ok(
+    attachmentFinalVisible || attachmentNormalGateFollowUp,
+    `attachment ${mode}: final flows through the normal output surface, not silent quarantine`,
+  );
+  assert.equal(
+    attachment.sent.slice(attachmentSentBeforeResume).some((entry) => (
+      entry.message?.display === true
+      || entry.message?.customType === "coc-startup-resume-blocker"
+      || entry.message?.customType === "coc-pi-table-open"
+      || entry.message?.customType === "coc-startup-resume-required"
+    )),
+    false,
+    `attachment ${mode}: no player-visible prompt, blocker, or resend request`,
+  );
+  await attachment.shutdown();
+
+  // Once a later assistant entry with non-empty visible text settles that
+  // attachment-only player turn, the silent quarantine returns.
+  const attachmentClearedCampaignId = `startup-silent-attachment-cleared-${mode}`;
+  const attachmentCleared = harness((name, params) => {
+    if (params.operation !== "session.resume") {
+      throw new Error(`unexpected attachment-cleared ${mode} operation ${params.operation}`);
+    }
+    return resumeEnvelope(mode, { campaign_id: attachmentClearedCampaignId });
+  }, attachmentClearedCampaignId, root, attachmentClearedByVisibleAssistantBranch());
+  await attachmentCleared.start();
+  const attachmentClearedToolsBeforeResume = attachmentCleared.activeTools.length;
+  const attachmentClearedSentBeforeResume = attachmentCleared.sent.length;
+  const attachmentClearedResumed = await invoke(
+    attachmentCleared,
+    `silent-attachment-cleared-${mode}-resume`,
+    resumeParams(attachmentClearedCampaignId),
+    "coc_setup",
+  );
+  assert.equal(attachmentClearedResumed.ok, true, `attachment-cleared ${mode}`);
+  assert.ok(
+    attachmentCleared.activeTools
+      .slice(attachmentClearedToolsBeforeResume)
+      .every((tools) => Array.isArray(tools) && tools.length === 0),
+    `attachment-cleared ${mode}: later visible assistant restores the silent quarantine`,
+  );
+  const attachmentClearedHiddenFinal = await attachmentCleared.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: QUARANTINE_MECHANICAL_FINAL }],
+    stopReason: "stop",
+  });
+  assert.equal(
+    attachmentClearedHiddenFinal.content.some((part) => part.type === "text"),
+    false,
+    `attachment-cleared ${mode}: quarantined final stays hidden`,
+  );
+  assert.equal(
+    attachmentCleared.sent.slice(attachmentClearedSentBeforeResume).some((entry) => (
+      entry.options?.triggerTurn === true
+      || entry.options?.deliverAs === "followUp"
+    )),
+    false,
+    `attachment-cleared ${mode}: quarantine sends no follow-up or prompt`,
+  );
+  await attachmentCleared.shutdown();
+}
+
+// Non-silent startup resume modes never arm the quarantine, with or without a
+// trailing unmatched external player turn.
+for (const [mode, nextOperations] of [
+  ["open_turn_recovery", ["continue_current_turn_from_receipts"]],
+  ["pending_finalization", ["turn.finalize"]],
+  ["table_opening", ["evidence.table_opening"]],
+]) {
+  const campaignId = `startup-trailing-${mode}`;
+  const h = harness((name, params) => {
+    if (params.operation !== "session.resume") {
+      throw new Error(`unexpected trailing-user ${mode} operation ${params.operation}`);
+    }
+    return resumeEnvelope(mode, {
+      campaign_id: campaignId,
+      next_operations: nextOperations,
+    });
+  }, campaignId, root, trailingUserBranch());
+  await h.start();
+  const toolsBeforeResume = h.activeTools.length;
+  const resumed = await invoke(h, `trailing-${mode}-resume`, resumeParams(campaignId), "coc_setup");
+  assert.equal(resumed.ok, true, mode);
+  assert.equal(resumed.data.mode, mode, mode);
+  assert.ok(
+    h.activeTools.length > toolsBeforeResume,
+    `${mode}: resume reapplies the tool surface`,
+  );
+  assert.ok(
+    h.activeTools
+      .slice(toolsBeforeResume)
+      .every((tools) => Array.isArray(tools) && tools.length > 0),
+    `${mode}: trailing unmatched user never quarantines non-silent modes`,
+  );
+  await h.shutdown();
+}
 
 const { convertToLlm } = await import(
   pathToFileURL(embeddedPiFile(root, "pi-coding-agent", "dist/core/messages.js")).href
@@ -616,4 +1482,21 @@ process.stdout.write(JSON.stringify({
   skippedModes: ["table_opening", "awaiting_player", "pending_finalization"],
   noMidPairCustom: true,
   providerValid: true,
+  silentModesQuarantined: ["already_acknowledged", "awaiting_player"],
+  quarantineToolsEmptyUntilAgentEnd: true,
+  quarantineHidesMechanicalFinal: true,
+  quarantineHidesThinkingOnlyFinal: true,
+  quarantineNoEmptyTerminalRecovery: true,
+  quarantineNoFollowUpOrDuplicateCall: true,
+  quarantineToolsReturnAfterAgentEnd: true,
+  nextPlayerTurnAfterQuarantineKeepsNormalTools: true,
+  attachmentOnlyUserTurnArmsPending: true,
+  attachmentOnlyUserClearedByVisibleAssistant: true,
+  stringContentUserTurnArmsPending: true,
+  stringContentUserClearedByVisibleAssistant: true,
+  nonQuarantineModes: [
+    "open_turn_recovery",
+    "table_opening",
+    "pending_finalization",
+  ],
 }) + "\n");

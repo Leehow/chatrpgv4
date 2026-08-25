@@ -149,6 +149,64 @@ def _wait_for(predicate, timeout: float = 10.0) -> bool:
     return False
 
 
+def _latest_turn_record(daemon: DaemonFixture) -> dict:
+    records = sorted(daemon.evidence.glob("turn-p-*.json"))
+    assert records
+    return json.loads(records[-1].read_text(encoding="utf-8"))
+
+
+def test_driver_classifies_empty_settle_fail_closed(daemon: DaemonFixture):
+    """agent_settled with zero visible text and zero tools fails closed.
+
+    This is the T17 shape: a provider-successful thinking-only terminal
+    swallows the player turn. The settle is recorded as ``empty_settle`` and
+    the driver exits 4 instead of reporting a successful player turn.
+    """
+    completed = daemon.turn("__EMPTY_SETTLE__ 我划向艇索", timeout=60)
+    assert completed.returncode == 4
+    assert "empty settle" in completed.stderr
+    record = _latest_turn_record(daemon)
+    assert record["settled"] is True
+    assert record["settle_class"] == "empty_settle"
+    assert record["request"]["message"].startswith("__EMPTY_SETTLE__")
+
+
+def test_driver_classifies_undelivered_settle_with_tools(daemon: DaemonFixture):
+    """Tool activity without visible output is not a delivered player turn.
+
+    The settle window contains tool executions/toolCalls but zero visible
+    assistant text: the driver must record ``undelivered_settle_with_tools``
+    and exit nonzero (5) instead of reporting success from tool activity.
+    """
+    completed = daemon.turn("__EMPTY_TOOLS__ 我检查门后的动静", timeout=60)
+    assert completed.returncode == 5
+    assert "undelivered settle" in completed.stderr
+    assert "zero visible assistant output" in completed.stderr
+    record = _latest_turn_record(daemon)
+    assert record["settled"] is True
+    assert record["settle_class"] == "undelivered_settle_with_tools"
+
+
+def test_driver_waits_through_empty_terminal_recovery(daemon: DaemonFixture):
+    """A hidden empty-terminal recovery keeps the submit open.
+
+    The first agent_settled is the swallowed thinking-only terminal; the
+    ``coc-empty-terminal-recovery`` entry marker means a hidden follow-up
+    agent turn is still in flight. The driver must wait for its settle and
+    then report success from the recovered visible output.
+    """
+    completed = daemon.turn("__EMPTY_RECOVER__ 我划向艇索", timeout=60)
+    assert completed.returncode == 0, completed.stderr
+    assert "recovered KP text" in completed.stdout
+    record = _latest_turn_record(daemon)
+    assert record["settled"] is True
+    assert record["settle_class"] == "settled"
+    assert len([
+        event for event in record["events"]
+        if event.get("type") == "agent_settled"
+    ]) == 2
+
+
 def test_driver_set_model_and_turn_with_heartbeat_and_log(daemon: DaemonFixture):
     module = daemon.module
     result = subprocess.run(

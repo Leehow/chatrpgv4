@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   campaignListExtras,
+  campaignStatusOf,
   characterSetupPendingFromOpeningPhase,
   investigatorIdFromParty,
   combatInitiativeDisplay,
@@ -292,6 +293,85 @@ test("character_setup_pending prefers opening_phase and survives a missing proje
   );
   assert.equal(characterSetupPendingFromOpeningPhase(undefined), true);
   assert.equal(characterSetupPendingFromOpeningPhase("active"), true);
+});
+
+test("null opening phase falls back to canonical play signals, not chargen", () => {
+  // Reported live bug: campaign already ready_for_table / session_role=play
+  // with a resolved display character, but the sidecar opening-phase
+  // enrichment came back null — pending must not resurrect chargen UI.
+  assert.equal(
+    characterSetupPendingFromOpeningPhase(null, {
+      sessionRole: "play",
+      campaignStatus: "ready_for_table",
+      hasCharacter: true,
+    }),
+    false,
+  );
+  // Server restart: the in-memory orchestrator role row is gone; the on-disk
+  // canonical campaign status plus a real character still means playable.
+  assert.equal(
+    characterSetupPendingFromOpeningPhase(null, {
+      sessionRole: null,
+      campaignStatus: "ready_for_table",
+      hasCharacter: true,
+    }),
+    false,
+  );
+  assert.equal(
+    characterSetupPendingFromOpeningPhase(null, {
+      sessionRole: null,
+      campaignStatus: "active",
+      hasCharacter: true,
+    }),
+    false,
+  );
+  // No canonical play signal: fail closed (true setup stays pending)…
+  assert.equal(
+    characterSetupPendingFromOpeningPhase(null, {
+      sessionRole: "setup",
+      campaignStatus: "character_creation",
+      hasCharacter: true,
+    }),
+    true,
+  );
+  assert.equal(
+    characterSetupPendingFromOpeningPhase(null, {
+      sessionRole: null,
+      campaignStatus: null,
+      hasCharacter: true,
+    }),
+    true,
+  );
+  // …and play signals never rescue a missing character (no real sheet).
+  assert.equal(
+    characterSetupPendingFromOpeningPhase(null, {
+      sessionRole: "play",
+      campaignStatus: "ready_for_table",
+      hasCharacter: false,
+    }),
+    true,
+  );
+});
+
+test("campaignStatusOf reads the canonical campaign.json status", () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), "coc-campaign-status-"));
+  try {
+    const dir = path.join(ws, ".coc", "campaigns", "camp-1");
+    fs.mkdirSync(dir, { recursive: true });
+    assert.equal(campaignStatusOf(ws, "camp-1"), null);
+    fs.writeFileSync(
+      path.join(dir, "campaign.json"),
+      JSON.stringify({ status: "ready_for_table" }),
+    );
+    assert.equal(campaignStatusOf(ws, "camp-1"), "ready_for_table");
+    fs.writeFileSync(path.join(dir, "campaign.json"), JSON.stringify({}));
+    assert.equal(campaignStatusOf(ws, "camp-1"), null);
+    fs.writeFileSync(path.join(dir, "campaign.json"), "{not json");
+    assert.equal(campaignStatusOf(ws, "camp-1"), null);
+    assert.equal(campaignStatusOf(ws, "missing-campaign"), null);
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
 });
 
 test("investigatorIdFromParty prefers active party ids over leftover drafts", () => {

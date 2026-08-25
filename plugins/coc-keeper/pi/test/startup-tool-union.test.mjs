@@ -18,7 +18,7 @@ async function loadDomain() {
   return import(`${domainUrl}?t=${Date.now()}-${Math.random()}`);
 }
 
-test("phase activation never re-enables builtin read", async () => {
+test("phase activation keeps the restricted skill-doc read active and unrestricted builtins out", async () => {
   const mod = await loadDomain();
   const policy = await import(operationPolicyUrl);
   const roles = [null, ...policy.SESSION_ROLES];
@@ -27,7 +27,10 @@ test("phase activation never re-enables builtin read", async () => {
     for (const phase of policy.PLAY_PHASES) {
       const tools = mod.activeToolsForPhase(phase, role);
       const context = `role=${role ?? "legacy"} phase=${phase}`;
-      assert.ok(!tools.includes("read"), `${context} must keep builtin read disabled`);
+      assert.ok(tools.includes("read"), `${context} must keep the restricted canonical skill-doc read active`);
+      assert.ok(!tools.includes("bash"), `${context} must keep unrestricted builtin bash out`);
+      assert.ok(!tools.includes("edit"), `${context} must keep unrestricted builtin edit out`);
+      assert.ok(!tools.includes("write"), `${context} must keep unrestricted builtin write out`);
       assert.ok(tools.includes("subagent"), `${context} must keep subagent available`);
       assert.ok(tools.includes("subagent_wait"), `${context} must keep subagent_wait available`);
     }

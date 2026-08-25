@@ -40,12 +40,24 @@ test("建卡记录 button is only for an already-opened play session", () => {
     setupPending: false,
     transitioning: false,
   }), true);
+  // Unknown or missing role fails closed: the button must stay hidden.
   assert.equal(canViewSetupHistory({
     hasSession: true,
     sessionRole: null,
     setupPending: false,
     transitioning: false,
-  }), true);
+  }), false);
+  assert.equal(canViewSetupHistory({
+    hasSession: true,
+    sessionRole: undefined,
+    setupPending: false,
+    transitioning: false,
+  }), false);
+  assert.equal(canViewSetupHistory({
+    hasSession: true,
+    setupPending: false,
+    transitioning: false,
+  }), false);
 });
 
 test("titles stay honest when the host session has no machine boundary", () => {
@@ -70,4 +82,17 @@ test("App header wires a 建卡记录 entry that does not reuse /transcript", ()
   assert.doesNotMatch(buttonRegion, /fetchTranscript\(/);
   assert.match(api, /\/api\/sessions\/\$\{sessionId\}\/setup-transcript/);
   assert.match(api, /export function fetchSetupTranscript/);
+});
+
+test("setup history sheet closes with a player-visible Chinese control", () => {
+  const sheet = fs.readFileSync(
+    path.join(ROOT, "components", "SetupHistorySheet.tsx"),
+    "utf8",
+  );
+  // Shared sheet chrome (English "Close") is disabled for this drawer…
+  assert.match(sheet, /showCloseButton=\{false\}/);
+  // …and replaced by a local control labeled in table language.
+  assert.match(sheet, /aria-label="关闭建卡记录"/);
+  assert.match(sheet, /关闭建卡记录<\/span>/);
+  assert.doesNotMatch(sheet, /sr-only">Close<\/span>/);
 });

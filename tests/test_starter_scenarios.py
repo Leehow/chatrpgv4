@@ -18,6 +18,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 import coc_starter  # noqa: E402
 import coc_runtime_ops  # noqa: E402
+import coc_git_history  # noqa: E402
 
 
 def test_starter_investigation_affordances_bind_exact_clues_structurally():
@@ -821,6 +822,42 @@ def test_quick_start_installs_campaign_and_pregen(tmp_path):
     assert coc_starter.player_safe_opening(campaign_dir) == (
         "调查员会接受 Knott 的委托，并决定先从哪里着手调查吗？"
     )
+
+
+def test_quick_start_lands_campaign_git_baseline(tmp_path):
+    # Regression: quick_start publishes through its own staging path, which
+    # used to skip the campaign git-history baseline that create_campaign
+    # lands. Creation must leave exactly one baseline commit.
+    root = tmp_path / ".coc"
+    result = coc_starter.quick_start(
+        root, "the-haunting", None, campaign_id="haunting-git-baseline"
+    )
+    assert result["campaign_id"] == "haunting-git-baseline"
+    repo = root / "repos" / "campaigns" / "haunting-git-baseline.git"
+    assert repo.is_dir()
+    assert (root / "campaigns" / "haunting-git-baseline" / ".git").exists() is False
+    import subprocess
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            [
+                "git",
+                f"--git-dir={repo}",
+                f"--work-tree={root / 'campaigns' / 'haunting-git-baseline'}",
+                *args,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        ).stdout
+
+    assert git("rev-list", "--count", "HEAD").strip() == "1"
+    subject = git("log", "-1", "--format=%s").strip()
+    assert subject == "coc baseline: quick-start campaign generation"
+    trailers = coc_git_history.parse_trailers(git("log", "-1", "--format=%B"))
+    assert trailers["COC-Commit-Type"] == "baseline"
+    assert trailers["Campaign-Id"] == "haunting-git-baseline"
 
 
 def test_quick_start_without_pregen_ships_investigator_less_campaign(tmp_path):

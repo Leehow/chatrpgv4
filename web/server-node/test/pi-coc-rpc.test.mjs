@@ -1529,6 +1529,257 @@ test("attachOpening with play intent fails closed when resume continuation never
   );
 });
 
+test("attachOpening accepts a silent resume continuation that settled during the UI-intent wait", async () => {
+  // Live race: the current child's auto-open continuation
+  // (agent_start -> session.resume -> agent_settled) runs and settles while
+  // attachOpening is still awaiting UI intent — stdout events and the stderr
+  // auto-open marker are unordered streams, so the whole turn can complete
+  // before the marker is observed. The exact host-local resume receipt plus
+  // the settled agent turn is the canonical proof of the continuation.
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "coc-pi-resume-race-"));
+  try {
+    const sessionDir = path.join(agentDir, "sessions", "cwd");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    // Historical public assistant transcript: must never be replayed for a
+    // live-turn resume continuation.
+    fs.writeFileSync(
+      path.join(sessionDir, "2026-08-24T00-00-00Z_web-resume-race.jsonl"),
+      `${JSON.stringify({
+        type: "message",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "旧的开场叙述" }],
+        },
+      })}\n`,
+    );
+    const child = fakeChild();
+    const written = [];
+    child.stdin.on("data", (chunk) => written.push(String(chunk)));
+    const host = new PiCocRpcHost({
+      repoRoot: "/tmp/missing-repo",
+      workspace: "/tmp/ws",
+      campaignId: "resume-race",
+      sessionId: "web-resume-race",
+      agentDir,
+      tableIntent: "continue",
+      launcherPath: process.execPath,
+      spawnFn: () => child,
+    });
+    host.start();
+    const frames = [];
+    const attached = host.attachOpening({ onSse: (frame) => frames.push(frame) });
+    await new Promise((r) => setTimeout(r, 30));
+    // The continuation settles completely inside the UI-intent wait.
+    child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+    child.stdout.write(`${JSON.stringify({
+      type: "tool_execution_start",
+      toolName: "coc_session_resume",
+      toolCallId: "resume-race-1",
+      args: {},
+    })}\n`);
+    child.stdout.write(`${JSON.stringify({
+      type: "tool_execution_end",
+      toolName: "coc_session_resume",
+      toolCallId: "resume-race-1",
+      result: {
+        ok: true,
+        tool: "session.resume",
+        data: {
+          schema_version: 1,
+          campaign_id: "resume-race",
+          mode: "already_acknowledged",
+        },
+      },
+    })}\n`);
+    child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+    await new Promise((r) => setTimeout(r, 20));
+    // The auto-open marker lands after the continuation already settled.
+    child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+    assert.deepEqual(await attached, { opened: true });
+    assert.equal(frames.some((frame) => frame.event === "delta"), false);
+    assert.equal(JSON.stringify(frames).includes("旧的开场叙述"), false);
+    const commands = written.join("").split("\n").filter(Boolean)
+      .map((line) => JSON.parse(line));
+    assert.equal(commands.some((row) => row.type === "prompt"), false);
+    // Exactly one resume tool execution relayed; no mutation, finalization,
+    // or other tool activity appears.
+    assert.deepEqual(frames.filter((frame) => frame.event === "tool"), [
+      { event: "tool", data: { phase: "start", tool: "coc_session_resume", tool_call_id: "resume-race-1" } },
+      { event: "tool", data: { phase: "end", tool: "coc_session_resume", tool_call_id: "resume-race-1" } },
+    ]);
+    const again = await host.attachOpening();
+    assert.deepEqual(again, { opened: true });
+    assert.equal(
+      written.join("").split("\n").filter(Boolean)
+        .filter((line) => JSON.parse(line).type === "prompt").length,
+      0,
+    );
+  } finally {
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+test("attachOpening does not accept a settled silent resume for another campaign", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "resume-race",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const attached = host.attachOpening({ onSse: () => {} });
+  await new Promise((r) => setTimeout(r, 30));
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    result: {
+      ok: true,
+      tool: "session.resume",
+      data: {
+        schema_version: 1,
+        campaign_id: "other-campaign",
+        mode: "already_acknowledged",
+      },
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  child.stderr.write(`${UI_IDLE_MARKER}\n`);
+  await assert.rejects(
+    attached,
+    (error) => error.kind === "pi_coc_play_resume_not_started",
+  );
+  assert.equal(written.join("").includes('"type":"prompt"'), false);
+});
+
+test("attachOpening rejects an idle resume result legitimized only by an unrelated later turn", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "resume-race",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const attached = host.attachOpening({ onSse: () => {} });
+  await new Promise((r) => setTimeout(r, 30));
+  // Canonical successful resume envelope for the exact bound campaign, but
+  // received while no observed agent turn is streaming: it can never be
+  // bound to a producing turn.
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    result: {
+      ok: true,
+      tool: "session.resume",
+      data: {
+        schema_version: 1,
+        campaign_id: "resume-race",
+        mode: "already_acknowledged",
+      },
+    },
+  })}\n`);
+  // An unrelated later turn starts and settles; it must not adopt the idle
+  // receipt as proof of its own resume continuation.
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  child.stderr.write(`${UI_IDLE_MARKER}\n`);
+  await assert.rejects(
+    attached,
+    (error) => error.kind === "pi_coc_play_resume_not_started",
+  );
+  assert.equal(written.join("").includes('"type":"prompt"'), false);
+});
+
+test("attachOpening does not accept noncanonical resume receipts as silent proof", async () => {
+  // pending_finalization keeps its own finalize-or-fault contract; exact
+  // campaign identity and the canonical schema are mandatory — missing or
+  // non-string campaign_id and noncanonical schema_version never qualify.
+  for (const data of [
+    { schema_version: 1, campaign_id: "resume-race", mode: "pending_finalization" },
+    { schema_version: 1, campaign_id: "resume-race", mode: "table_opening" },
+    { schema_version: 1, mode: "already_acknowledged" },
+    { schema_version: 1, campaign_id: 123, mode: "awaiting_player" },
+    { schema_version: 2, campaign_id: "resume-race", mode: "awaiting_player" },
+    { campaign_id: "resume-race", mode: "awaiting_player" },
+  ]) {
+    const child = fakeChild();
+    const written = [];
+    child.stdin.on("data", (chunk) => written.push(String(chunk)));
+    const host = new PiCocRpcHost({
+      repoRoot: "/tmp/missing-repo",
+      workspace: "/tmp/ws",
+      campaignId: "resume-race",
+      tableIntent: "continue",
+      launcherPath: process.execPath,
+      spawnFn: () => child,
+    });
+    host.start();
+    const attached = host.attachOpening({ onSse: () => {} });
+    await new Promise((r) => setTimeout(r, 30));
+    child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+    child.stdout.write(`${JSON.stringify({
+      type: "tool_execution_end",
+      toolName: "coc_session_resume",
+      result: { ok: true, tool: "session.resume", data },
+    })}\n`);
+    child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+    child.stderr.write(`${UI_IDLE_MARKER}\n`);
+    await assert.rejects(
+      attached,
+      (error) => error.kind === "pi_coc_play_resume_not_started",
+    );
+    assert.equal(written.join("").includes('"type":"prompt"'), false);
+  }
+});
+
+test("attachOpening does not accept a failed resume envelope as silent proof", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "resume-race",
+    tableIntent: "continue",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const attached = host.attachOpening({ onSse: () => {} });
+  await new Promise((r) => setTimeout(r, 30));
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    result: {
+      ok: false,
+      tool: "session.resume",
+      data: {
+        schema_version: 1,
+        campaign_id: "resume-race",
+        mode: "already_acknowledged",
+      },
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  child.stderr.write(`${UI_IDLE_MARKER}\n`);
+  await assert.rejects(
+    attached,
+    (error) => error.kind === "pi_coc_play_resume_not_started",
+  );
+  assert.equal(written.join("").includes('"type":"prompt"'), false);
+});
+
 test("ordinary play reopen settles silently after resume awaiting_player", async () => {
   const child = fakeChild();
   const written = [];
@@ -2752,4 +3003,227 @@ test("prompt settles on exit 42 instead of throwing during turn", async () => {
   assert.equal(host.isHandoffShutdown(), true);
   assert.equal(frames.some((frame) => frame.event === "notice"), false);
   assert.deepEqual(frames.map((frame) => frame.event), ["coc_setup_handoff"]);
+});
+
+// ------------------------------------------- resume continuation patience
+//
+// Regression: a retained-turn play campaign opens through a real multi-step
+// session.resume continuation (recovery work can run for minutes). The
+// attach flow must keep waiting while the child keeps producing stdout RPC
+// progress and only fail after a true quiet window — and an abandoned settle
+// wait must never surface its late timer rejection as an unhandled rejection
+// that takes the whole server process down (both found in live browser
+// play against a retained-turn campaign).
+
+function trackUnhandledRejections() {
+  const seen = [];
+  const onUnhandled = (reason) => seen.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  return {
+    seen,
+    stop: () => process.off("unhandledRejection", onUnhandled),
+  };
+}
+
+function resumeToolEndEvent(mode, campaignId, callId) {
+  return {
+    type: "tool_execution_end",
+    toolName: "coc_session_resume",
+    toolCallId: callId,
+    result: {
+      ok: true,
+      tool: "session.resume",
+      data: {
+        schema_version: 1,
+        campaign_id: campaignId,
+        mode,
+      },
+    },
+  };
+}
+
+test("attachOpening keeps waiting for a recovery continuation while stdout progress flows", async () => {
+  const unhandled = trackUnhandledRejections();
+  try {
+    const child = fakeChild();
+    const written = [];
+    child.stdin.on("data", (chunk) => written.push(String(chunk)));
+    const host = new PiCocRpcHost({
+      repoRoot: "/tmp/missing-repo",
+      workspace: "/tmp/ws",
+      campaignId: "slow-recovery",
+      tableIntent: "continue",
+      launcherPath: process.execPath,
+      spawnFn: () => child,
+      uiIntentPatienceMs: 250,
+      resumeStartQuietMs: 600,
+    });
+    host.start();
+    const frames = [];
+    const attached = host.attachOpening({ onSse: (frame) => frames.push(frame) });
+    await new Promise((r) => setTimeout(r, 30));
+    // Turn 1 settles entirely inside the UI-intent wait: a silent-looking
+    // open_turn_recovery resume with no player text yet.
+    child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+    child.stdout.write(`${JSON.stringify(resumeToolEndEvent("open_turn_recovery", "slow-recovery", "r1"))}\n`);
+    child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+    // The follow-up recovery continuation starts only after a gap that has
+    // no streaming agent turn — exactly the window that used to trip the
+    // fixed one-minute start bound and fail the attach outright.
+    await new Promise((r) => setTimeout(r, 290));
+    child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+    const renderedText = "恢复后的开场叙述。";
+    child.stdout.write(`${JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: renderedText }],
+      },
+    })}\n`);
+    child.stdout.write(`${JSON.stringify({
+      type: "tool_execution_end",
+      toolName: "coc_turn_finalize",
+      result: {
+        ok: true,
+        tool: "turn.finalize",
+        data: {
+          finalization_id: "fin-slow-recovery-1",
+          rendered_text: renderedText,
+          rendered_sha256: canonicalTextSha256(renderedText),
+        },
+      },
+    })}\n`);
+    child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+    assert.deepEqual(await attached, { opened: true });
+    assert.equal(
+      frames.some((frame) => frame.event === "delta" && frame.data.text === renderedText),
+      true,
+    );
+    assert.equal(
+      written.join("").split("\n").filter(Boolean)
+        .some((line) => JSON.parse(line).type === "prompt"),
+      false,
+    );
+    await new Promise((r) => setTimeout(r, 250));
+    assert.deepEqual(unhandled.seen, []);
+    await host.close();
+  } finally {
+    unhandled.stop();
+  }
+});
+
+test("an abandoned turn settle wait keeps its late rejection observed", async () => {
+  const unhandled = trackUnhandledRejections();
+  try {
+    const child = fakeChild();
+    const written = [];
+    child.stdin.on("data", (chunk) => written.push(String(chunk)));
+    const host = new PiCocRpcHost({
+      repoRoot: "/tmp/missing-repo",
+      workspace: "/tmp/ws",
+      campaignId: "prompt-abandon",
+      launcherPath: process.execPath,
+      spawnFn: () => child,
+    });
+    host.start();
+    // The prompt RPC is rejected outright, so prompt() throws without
+    // awaiting its settle wait; the wait stays armed and later observes the
+    // recovery resume + settle, which rejects with the finalization fault.
+    const promptP = host.prompt("我检查罗盘。");
+    await new Promise((r) => setTimeout(r, 20));
+    const request = JSON.parse(written[written.length - 1].trim());
+    assert.equal(request.type, "prompt");
+    child.stdout.write(`${JSON.stringify({
+      id: request.id,
+      type: "response",
+      command: "prompt",
+      success: false,
+      error: "session busy",
+    })}\n`);
+    await assert.rejects(
+      promptP,
+      (error) => error.kind === "pi_coc_rpc_rejected",
+    );
+    child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+    child.stdout.write(`${JSON.stringify(resumeToolEndEvent("open_turn_recovery", "prompt-abandon", "r1"))}\n`);
+    child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+    // Past the settle quiescence the abandoned wait rejects with the fault;
+    // the guard must keep that rejection observed instead of unhandled.
+    await new Promise((r) => setTimeout(r, 400));
+    assert.deepEqual(unhandled.seen, []);
+    await host.close();
+  } finally {
+    unhandled.stop();
+  }
+});
+
+test("attachOpening still fails closed on a quiet wedged resume host", async () => {
+  const unhandled = trackUnhandledRejections();
+  try {
+    const child = fakeChild();
+    const written = [];
+    child.stdin.on("data", (chunk) => written.push(String(chunk)));
+    const host = new PiCocRpcHost({
+      repoRoot: "/tmp/missing-repo",
+      workspace: "/tmp/ws",
+      campaignId: "wedged-resume",
+      tableIntent: "continue",
+      launcherPath: process.execPath,
+      spawnFn: () => child,
+      uiIntentPatienceMs: 150,
+      resumeStartQuietMs: 250,
+    });
+    host.start();
+    await assert.rejects(
+      host.attachOpening(),
+      (error) => error.kind === "pi_coc_play_resume_not_started",
+    );
+    assert.equal(
+      written.join("").split("\n").filter(Boolean)
+        .some((line) => JSON.parse(line).type === "prompt"),
+      false,
+    );
+    await new Promise((r) => setTimeout(r, 300));
+    assert.deepEqual(unhandled.seen, []);
+    await host.close();
+  } finally {
+    unhandled.stop();
+  }
+});
+
+test("attachOpening surfaces an undelivered recovery finalization as a turn fault", async () => {
+  const unhandled = trackUnhandledRejections();
+  try {
+    const child = fakeChild();
+    const host = new PiCocRpcHost({
+      repoRoot: "/tmp/missing-repo",
+      workspace: "/tmp/ws",
+      campaignId: "recovery-fault",
+      tableIntent: "continue",
+      launcherPath: process.execPath,
+      spawnFn: () => child,
+      uiIntentPatienceMs: 200,
+    });
+    host.start();
+    const attached = host.attachOpening({ onSse: () => {} });
+    await new Promise((r) => setTimeout(r, 30));
+    // The continuation turn is still streaming when the attach flow enters
+    // its settle wait, so the resume below arms the recovery-finalization
+    // obligation inside that awaited wait.
+    child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+    await new Promise((r) => setTimeout(r, 250));
+    child.stdout.write(`${JSON.stringify(resumeToolEndEvent("open_turn_recovery", "recovery-fault", "r1"))}\n`);
+    child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+    // Settling without the retained turn's finalization delivery surfaces
+    // the structured turn fault through the attach request itself.
+    await assert.rejects(
+      attached,
+      (error) => error.kind === "pi_coc_turn_processing_fault",
+    );
+    await new Promise((r) => setTimeout(r, 250));
+    assert.deepEqual(unhandled.seen, []);
+    await host.close();
+  } finally {
+    unhandled.stop();
+  }
 });

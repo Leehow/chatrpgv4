@@ -13,7 +13,9 @@ export const SETUP_CHARACTER_OPENING_MARKER =
   "Host continuation: character-setup opening.";
 export const TURN_RECOVERY_MARKER =
   "Host continuation: interrupted-turn recovery.";
-/** Exact first sentence of PLAY_TABLE_OPENING_PROMPT in pi-coc-rpc.mjs. */
+/** Exact first sentence of PLAY_TABLE_OPENING_PROMPT in pi-coc-rpc.mjs.
+ *  Host-owned user-role continuation: hidden like the others, but NEVER
+ *  treated as a setup/play boundary — boundaries are structural only. */
 export const PLAY_TABLE_OPENING_MARKER =
   "Host continuation for a newly spawned selected play campaign.";
 /** Persisted Pi custom_message written at setup→play handoff. */
@@ -26,24 +28,53 @@ export function isHiddenSetupOpeningPrompt(text) {
 
 export function isHiddenHostPrompt(text) {
   const body = String(text || "").trim();
-  return isHiddenSetupOpeningPrompt(body) || body.includes(TURN_RECOVERY_MARKER);
-}
-
-export function isPlayOpeningPrompt(text) {
-  const body = String(text || "").trim();
-  return Boolean(body) && body.includes(PLAY_TABLE_OPENING_MARKER);
-}
-
-export function isSetupHandoffRow(row) {
-  if (!row || typeof row !== "object") return false;
-  if (row.customType === SETUP_HANDOFF_CUSTOM_TYPE) return true;
-  if (row.type === SETUP_HANDOFF_CUSTOM_TYPE) return true;
-  const details = row.details;
-  return Boolean(
-    details
-    && typeof details === "object"
-    && details.type === SETUP_HANDOFF_CUSTOM_TYPE,
+  if (!body) return false;
+  return (
+    isHiddenSetupOpeningPrompt(body)
+    || body.includes(TURN_RECOVERY_MARKER)
+    || body.includes(PLAY_TABLE_OPENING_MARKER)
   );
+}
+
+/** Payload of a persisted setup→play handoff row, or null when the row is
+ *  not one of the two real JSONL envelopes pi actually writes:
+ *  - `{type:"custom_message", customType:"coc_setup_handoff", details|content}`
+ *    (pi.sendMessage), and
+ *  - `{type:"custom", customType:"coc_setup_handoff", data}` (pi.appendEntry).
+ *  Any other shape — bare top-level type, details.type without the envelope,
+ *  player prose mentioning the type — is rejected. */
+function handoffPayloadFromRow(row) {
+  if (!row || typeof row !== "object") return null;
+  let payload = null;
+  if (row.type === "custom_message" && row.customType === SETUP_HANDOFF_CUSTOM_TYPE) {
+    if (row.details && typeof row.details === "object") {
+      payload = row.details;
+    } else if (typeof row.content === "string" && row.content.trim().startsWith("{")) {
+      try {
+        payload = JSON.parse(row.content);
+      } catch {
+        payload = null;
+      }
+    }
+  } else if (row.type === "custom" && row.customType === SETUP_HANDOFF_CUSTOM_TYPE) {
+    if (row.data && typeof row.data === "object") payload = row.data;
+  }
+  if (!payload || typeof payload !== "object") return null;
+  if (payload.type !== SETUP_HANDOFF_CUSTOM_TYPE) return null;
+  if (typeof payload.campaign_id !== "string" || !payload.campaign_id) return null;
+  return payload;
+}
+
+/** Structural handoff boundary. When `expectedCampaignId` is provided the
+ *  payload campaign must match, so a same-shaped event belonging to another
+ *  campaign never cuts this session's history. */
+export function isSetupHandoffRow(row, expectedCampaignId) {
+  const payload = handoffPayloadFromRow(row);
+  if (!payload) return false;
+  if (typeof expectedCampaignId === "string" && expectedCampaignId) {
+    return payload.campaign_id === expectedCampaignId;
+  }
+  return true;
 }
 
 export function assistantTextFromContent(content) {
@@ -168,8 +199,39 @@ export function hostedSessionMessages({ agentDir, agentDirs, workspace, sessionI
   return [];
 }
 
-/** Every `_${sessionId}.jsonl` under the agent sessions tree, oldest first.
- *  setup→play re-exec keeps the web session id but may start a new file. */
+/** First JSONL row of a file when it is a Pi `session` header, else null.
+ *  Only reads the leading bytes — the header is always the first line. */
+function sessionHeaderRow(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, "r");
+    const buf = Buffer.alloc(8192);
+    const { bytesRead } = fs.readSync(fd, buf, 0, buf.length, 0);
+    const text = buf.toString("utf8", 0, bytesRead);
+    const nl = text.indexOf("\n");
+    const first = (nl === -1 ? text : text.slice(0, nl)).trim();
+    if (!first) return null;
+    const row = JSON.parse(first);
+    if (row && typeof row === "object" && row.type === "session") return row;
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (fd != null) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* already closed */
+      }
+    }
+  }
+}
+
+/** `_${sessionId}.jsonl` files under the agent sessions tree that PROVE they
+ *  belong to this session: the first row is the Pi `session` header carrying
+ *  the same id. Ordered by recorded session-start time (header timestamp,
+ *  mtime fallback) then file name. Files without provable ownership are
+ *  excluded rather than guessed into the merge. */
 export function listSessionFiles(agentDir, sessionId) {
   const root = path.join(String(agentDir || ""), "sessions");
   const id = String(sessionId || "");
@@ -201,12 +263,26 @@ export function listSessionFiles(agentDir, sessionId) {
       found.push({ file: full, name: entry.name, mtime });
     }
   }
-  found.sort((left, right) => {
-    if (left.name < right.name) return -1;
-    if (left.name > right.name) return 1;
-    return left.mtime - right.mtime;
-  });
-  return found.map((item) => item.file);
+  const verified = [];
+  for (const item of found) {
+    const header = sessionHeaderRow(item.file);
+    if (!header || header.id !== id) continue;
+    const startAt = typeof header.timestamp === "string"
+      ? Date.parse(header.timestamp)
+      : Number.NaN;
+    verified.push({
+      file: item.file,
+      name: item.name,
+      mtime: item.mtime,
+      startAt: Number.isFinite(startAt) ? startAt : item.mtime,
+    });
+  }
+  verified.sort((left, right) => (
+    left.startAt - right.startAt
+      || (left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+      || left.mtime - right.mtime
+  ));
+  return verified.map((item) => item.file);
 }
 
 function visibleEntryFromMessageRow(row) {
@@ -218,7 +294,6 @@ function visibleEntryFromMessageRow(row) {
   const body = assistantTextFromContent(row.message.content);
   if (!body) return null;
   if (role === "user" && isHiddenHostPrompt(body)) return { kind: "hidden", body };
-  if (role === "user" && isPlayOpeningPrompt(body)) return { kind: "play_opening", body };
   const at = typeof row.timestamp === "string" ? Date.parse(row.timestamp) : Number.NaN;
   const entry = {
     kind: "visible",
@@ -229,11 +304,18 @@ function visibleEntryFromMessageRow(row) {
   return entry;
 }
 
-/** Read visible host-session turns until a machine setup/play boundary.
- *  Boundaries are only persisted handoff custom_message or the exact play
- *  opening host prompt. No prose keyword cut. Missing boundary → join scope. */
-export function setupHistoryFromSessionFiles(files) {
+/** Read visible host-session turns until the structural setup/play boundary:
+ *  only a persisted `coc_setup_handoff` envelope (optionally campaign-bound).
+ *  No prose cut: the play-opening host prompt is merely hidden, and a player
+ *  typing boundary-ish prose never truncates anything. Missing boundary →
+ *  honest join scope. Attribution is by recorded message role only.
+ *  Conservative dedup: same message row id, or same role+time+text, is kept
+ *  once across the merged files. */
+export function setupHistoryFromSessionFiles(files, { campaignId } = {}) {
+  const expected = typeof campaignId === "string" && campaignId ? campaignId : null;
   const messages = [];
+  const seenRowIds = new Set();
+  const seenContent = new Set();
   const paths = Array.isArray(files) ? files : [];
   for (const file of paths) {
     let text;
@@ -251,15 +333,20 @@ export function setupHistoryFromSessionFiles(files) {
       } catch {
         continue;
       }
-      if (isSetupHandoffRow(row)) {
+      if (isSetupHandoffRow(row, expected)) {
         return { messages, scope: "setup", boundary: "handoff" };
       }
       const parsed = visibleEntryFromMessageRow(row);
       if (!parsed) continue;
-      if (parsed.kind === "play_opening") {
-        return { messages, scope: "setup", boundary: "play_opening" };
-      }
       if (parsed.kind === "hidden") continue;
+      const rowId = typeof row.id === "string" && row.id ? row.id : null;
+      const contentKey = Number.isFinite(parsed.at)
+        ? `${parsed.role}|${parsed.at}|${parsed.text}`
+        : null;
+      if (rowId && seenRowIds.has(rowId)) continue;
+      if (contentKey && seenContent.has(contentKey)) continue;
+      if (rowId) seenRowIds.add(rowId);
+      if (contentKey) seenContent.add(contentKey);
       const entry = { role: parsed.role, text: parsed.text };
       if (Number.isFinite(parsed.at)) entry.at = parsed.at;
       messages.push(entry);
@@ -272,19 +359,20 @@ export function setupHistoryFromSessionFiles(files) {
   };
 }
 
-export function hostedSetupHistory({ agentDir, agentDirs, workspace, sessionId }) {
+export function hostedSetupHistory({ agentDir, agentDirs, workspace, sessionId, campaignId }) {
   const id = String(sessionId || "");
   const dirs = sessionAgentDirs({ agentDir, agentDirs, workspace });
   for (const dir of dirs) {
     const files = listSessionFiles(dir, id);
     if (!files.length) continue;
-    const extracted = setupHistoryFromSessionFiles(files);
+    const extracted = setupHistoryFromSessionFiles(files, { campaignId });
     return {
       messages: extracted.messages,
       source: "pi-host-session",
       session_id: id,
       scope: extracted.scope,
       boundary: extracted.boundary,
+      attribution: "message-role",
     };
   }
   return {
@@ -293,6 +381,7 @@ export function hostedSetupHistory({ agentDir, agentDirs, workspace, sessionId }
     session_id: id,
     scope: "setup",
     boundary: null,
+    attribution: "message-role",
   };
 }
 

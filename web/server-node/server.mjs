@@ -46,6 +46,7 @@ import { HandoutSessionDelivery } from "./handout-delivery.mjs";
 import {
   campaignDir,
   campaignDisplayTitle,
+  campaignStatusOf,
   characterSetupPendingFromOpeningPhase,
   combatInitiativeDisplay,
   cocRoot,
@@ -315,13 +316,6 @@ async function statePayload(info) {
   } else {
     state.character = null;
   }
-  state.character_setup_pending = characterSetupPendingFromOpeningPhase(
-    state.opening_phase,
-    {
-      sessionRole: state.session_role,
-      hasCharacter: Boolean(state.character),
-    },
-  );
   state.time = timeExtras(WORKSPACE, info.campaign_id, lang);
   const sceneId =
     resolvePlaySceneId(WORKSPACE, info.campaign_id) || state.active_scene_id;
@@ -357,6 +351,16 @@ async function statePayload(info) {
   const handoff = orchestrator.statusOf(info.campaign_id);
   state.session_role = handoff.session_role;
   state.transitioning = handoff.transitioning;
+  // Computed after the role overwrite: the sidecar projection carries no
+  // session_role, so an earlier read would always fail the play fallback.
+  state.character_setup_pending = characterSetupPendingFromOpeningPhase(
+    state.opening_phase,
+    {
+      sessionRole: state.session_role,
+      campaignStatus: campaignStatusOf(WORKSPACE, info.campaign_id),
+      hasCharacter: Boolean(state.character),
+    },
+  );
   return state;
 }
 
@@ -1100,6 +1104,7 @@ function setupTranscriptPayload(info) {
       agentDir: resolveProductAgentDir(),
     }),
     sessionId: info.session_id || webSessionId(info.campaign_id),
+    campaignId: typeof info.campaign_id === "string" ? info.campaign_id : null,
   });
 }
 
@@ -2284,6 +2289,16 @@ function main() {
   server.listen(port, host, () => {
     process.stdout.write(
       `coc-web (node) listening on http://${host}:${port}  workspace=${WORKSPACE}\n`,
+    );
+  });
+  // This is a local tabletop server: one stray late rejection from a
+  // per-campaign RPC wait must never take the whole table down. The turn
+  // layer keeps its waits observed; this net only logs what escapes it.
+  process.on("unhandledRejection", (reason) => {
+    process.stderr.write(
+      `[coc-web] unhandled rejection (kept alive): ${
+        reason instanceof Error ? reason.stack : String(reason)
+      }\n`,
     );
   });
   for (const signal of ["SIGINT", "SIGTERM"]) {

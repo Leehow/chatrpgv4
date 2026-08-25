@@ -368,3 +368,48 @@ test("setup and unset role expose coc_chargen_delegate; play does not", async ()
     );
   });
 });
+
+test("restricted canonical skill-doc read stays active in setup and play", async () => {
+  await withRole("setup", async () => {
+    const mod = await loadDomain();
+    for (const phase of [
+      "cold_start", "opening", "live_turn", "recovery", "ending",
+      "pending_finalization",
+    ]) {
+      assert.ok(
+        mod.activeToolsForPhase(phase, "setup").includes("read"),
+        `setup/${phase} must keep the restricted skill-doc read active`,
+      );
+    }
+    // Only the path-restricted skill-doc read joins the surface; unrestricted
+    // builtin filesystem tools stay out.
+    const setupTools = mod.activeToolsForPhase("opening", "setup");
+    assert.ok(!setupTools.includes("bash"));
+    assert.ok(!setupTools.includes("edit"));
+    assert.ok(!setupTools.includes("write"));
+  });
+  await withRole("play", async () => {
+    const mod = await loadDomain();
+    for (const phase of [
+      "cold_start", "opening", "live_turn", "recovery", "ending",
+      "pending_finalization",
+    ]) {
+      assert.ok(
+        mod.activeToolsForPhase(phase, "play").includes("read"),
+        `play/${phase} must keep the restricted skill-doc read active`,
+      );
+    }
+    const playTools = mod.activeToolsForPhase("live_turn", "play");
+    assert.ok(!playTools.includes("bash"));
+    assert.ok(!playTools.includes("edit"));
+    assert.ok(!playTools.includes("write"));
+    // The startup-resume projection keeps it through the pending boundary.
+    const startup = mod.activeToolsForStartupResumePending({
+      workspaceRoot: root,
+      campaignId: "skill-doc-read-startup",
+      fallbackPhase: "live_turn",
+      role: "play",
+    });
+    assert.ok(startup.includes("read"));
+  });
+});

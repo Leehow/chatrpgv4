@@ -238,6 +238,46 @@ export function sessionHasVisibleAssistant(
   return false;
 }
 
+/**
+ * Startup-only structured scan of the CURRENT persistent session branch
+ * (ctx.sessionManager.getBranch(), never historical/abandoned entries):
+ * does it end with an unmatched external player turn? Any role=user message
+ * arms the pending fact regardless of whether its content is an array, a
+ * string, attachment-only, empty, or absent; text presence is never a
+ * prerequisite. A later assistant message clears it only
+ * when assistantTextFromContent finds non-empty player-visible text.
+ * Thinking-only, tool-only, and empty assistant entries, tool results,
+ * custom/custom_message entries, and non-message entries never clear it,
+ * and prose content is never interpreted.
+ */
+export function sessionBranchHasTrailingPlayerUser(
+  ctx: Pick<ExtensionContext, "sessionManager">,
+): boolean {
+  const manager = ctx.sessionManager as { getBranch?: () => unknown } | undefined;
+  if (!manager || typeof manager.getBranch !== "function") return false;
+  const branch = manager.getBranch();
+  if (!Array.isArray(branch)) return false;
+  let pendingPlayerUser = false;
+  for (const raw of branch) {
+    if (!raw || typeof raw !== "object") continue;
+    const entry = raw as { type?: unknown; message?: unknown };
+    if (entry.type !== "message") continue;
+    const message = entry.message as Record<string, unknown> | undefined;
+    if (!message || typeof message !== "object") continue;
+    if (message.role === "user") {
+      pendingPlayerUser = true;
+      continue;
+    }
+    if (
+      message.role === "assistant"
+      && assistantTextFromContent(message.content) !== ""
+    ) {
+      pendingPlayerUser = false;
+    }
+  }
+  return pendingPlayerUser;
+}
+
 export function shouldAutoOpenTable(
   reason: WelcomeReason,
   fresh: boolean,
@@ -245,6 +285,8 @@ export function shouldAutoOpenTable(
     intent?: TableOpenIntent;
     hasVisibleAssistant?: boolean;
     startupCampaignSelected?: boolean;
+    /** Current session branch ends with an unmatched external role=user. */
+    trailingPlayerUser?: boolean;
   } = {},
 ): boolean {
   // Every newly spawned attached play host must establish current lifecycle
@@ -259,9 +301,17 @@ export function shouldAutoOpenTable(
   // Investigator-less reopen often already has hidden tool history (resume /
   // HUD), so the session is not "fresh", but the player never saw the first
   // coc-character question. Open the table once until that question exists.
+  // A preserved setup session may also end with a real unmatched external
+  // player answer after an already-visible question: that answer is pending
+  // processing and must never be resent, so the table must open and let the
+  // normal recovery turn complete it. Settled history (visible assistant, no
+  // trailing player user) stays idle.
   return (
     options.intent === "character-setup"
-    && options.hasVisibleAssistant === false
+    && (
+      options.hasVisibleAssistant === false
+      || options.trailingPlayerUser === true
+    )
   );
 }
 
@@ -345,6 +395,7 @@ export function registerCocWelcome(
     const fresh = sessionLooksFresh(ctx);
     const intent = tableOpenIntentFromEnv();
     const hasVisibleAssistant = sessionHasVisibleAssistant(ctx);
+    const trailingPlayerUser = sessionBranchHasTrailingPlayerUser(ctx);
     if (ctx.hasUI && ctx.mode === "tui") {
       ctx.ui.setHeader((_tui, theme) => ({
         render(_width: number) {
@@ -394,6 +445,7 @@ export function registerCocWelcome(
       && shouldAutoOpenTable(reason, fresh, {
         intent,
         hasVisibleAssistant,
+        trailingPlayerUser,
         startupCampaignSelected: startupCampaignId !== null,
       })
     );

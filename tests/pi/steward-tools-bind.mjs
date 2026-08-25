@@ -73,9 +73,9 @@ try {
   assert.deepEqual(unsetActive, [
     "subagent", "subagent_wait", "coc_source_assets",
     "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state",
-    "coc_chargen_delegate",
+    "coc_chargen_delegate", "read",
   ]);
-  assert.ok(!unsetActive.includes("read"), "legacy KP surface must keep builtin read disabled");
+  assert.ok(unsetActive.includes("read"), "legacy KP surface keeps the restricted canonical skill-doc read active");
   assert.ok(!unsetActive.includes("coc_rules_roll"), "unset legacy must not activate typed names");
   assert.ok(!unsetActive.includes("coc_discover"));
   assert.ok(!unsetActive.includes("coc_invoke"));
@@ -84,7 +84,7 @@ try {
   await fire();
   const setupActive = activeTools.at(-1);
   assertNoGenericWrappers(setupActive, "setup");
-  assert.ok(!setupActive.includes("read"), "setup KP surface must keep builtin read disabled");
+  assert.ok(setupActive.includes("read"), "setup KP surface keeps the restricted canonical skill-doc read active");
   assert.ok(setupActive.includes("coc_setup_inspect"));
   assert.ok(setupActive.includes("coc_session_resume"));
   assert.ok(setupActive.includes("coc_rules_roll_dice"));
@@ -98,7 +98,7 @@ try {
   await fire();
   const playActive = activeTools.at(-1);
   assertNoGenericWrappers(playActive, "play");
-  assert.ok(!playActive.includes("read"), "play KP surface must keep builtin read disabled");
+  assert.ok(playActive.includes("read"), "play KP surface keeps the restricted canonical skill-doc read active");
   assert.ok(playActive.includes("coc_source_assets"));
   assert.ok(playActive.includes("coc_session_resume"));
   assert.ok(playActive.includes("coc_setup_inspect"));

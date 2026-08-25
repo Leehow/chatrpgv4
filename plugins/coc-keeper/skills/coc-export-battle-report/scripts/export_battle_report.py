@@ -4196,7 +4196,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        report = export_battle_report(args.run_dir, allow_partial=args.allow_partial)
+        report = export_battle_report(
+            args.run_dir.resolve(), allow_partial=args.allow_partial
+        )
     except (ExportError, OSError) as exc:
         parser.exit(2, f"error: {exc}\n")
     print(

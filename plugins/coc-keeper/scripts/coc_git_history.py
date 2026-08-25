@@ -83,7 +83,11 @@ _CORRUPT_MARKERS = (
     "broken link",
     "invalid object",
     "object not found",
-    "fatal: not a git repository",
+    # "fatal: not a git repository" is deliberately absent: that error means
+    # the git-dir path did not resolve (caller cwd / relative root), not that
+    # the object database is damaged. Treating it as corruption renamed and
+    # reset healthy repos. Structural repo damage is still caught by
+    # ensure_repo's looks-like-repo probe and fsck health check.
 )
 
 _SCHEMA_GENERATION_KEYS = ("campaign", "world", "pacing", "investigator")
@@ -127,12 +131,16 @@ def _require_campaign_id(campaign_id: str) -> str:
 
 def _require_under(parent: Path, child: Path, *, label: str) -> Path:
     try:
-        child.resolve(strict=False).relative_to(parent.resolve(strict=False))
+        resolved = child.resolve(strict=False)
+        resolved.relative_to(parent.resolve(strict=False))
     except (OSError, ValueError) as exc:
         raise ValueError(f"{label} path is unsafe") from exc
     if child.is_symlink():
         raise ValueError(f"{label} path is unsafe")
-    return child
+    # Always hand back an absolute path: git subprocesses run with cwd at the
+    # worktree, so a root-relative --git-dir would resolve against the wrong
+    # directory and read as "not a git repository".
+    return resolved
 
 
 def repo_path_for(root: Path | str, campaign_id: str) -> Path:
@@ -326,11 +334,21 @@ def _head_sha(repo: Path, worktree: Path) -> str | None:
     return sha or None
 
 
+def _sanitize_single_line(value: str) -> str:
+    """Collapse whitespace to one line so a value (e.g. raw git stderr in a
+    ``COC-History-Reset`` reason) cannot inject forged trailers."""
+    return re.sub(r"\s+", " ", value).strip()[:200]
+
+
 def _format_commit_message(subject: str, trailers: list[tuple[str, str]]) -> str:
     args = ["interpret-trailers"]
     for key, value in trailers:
-        args.extend(["--trailer", f"{key}: {value}"])
-    completed = _run_git(args, input_text=f"{subject}\n", allow_lock_retry=False)
+        args.extend(["--trailer", f"{key}: {_sanitize_single_line(value)}"])
+    completed = _run_git(
+        args,
+        input_text=f"{_sanitize_single_line(subject)}\n",
+        allow_lock_retry=False,
+    )
     return completed.stdout
 
 

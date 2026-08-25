@@ -535,3 +535,56 @@ def test_no_global_git_identity_required(tmp_path):
     ident = _git(tmp_path, "log", "-1", "--format=%an <%ae>")
     assert ident.strip() == "coc-keeper <coc-keeper@localhost>"
     assert sha
+
+
+def test_relative_root_commits_without_false_corruption(tmp_path, monkeypatch):
+    # Regression: git subprocesses run with cwd at the worktree, so a
+    # root-relative --git-dir used to resolve against the wrong cwd, fail
+    # with "not a git repository", and rename-and-reset the healthy repo as
+    # if its object database were corrupt.
+    monkeypatch.chdir(tmp_path)
+    _seed_campaign_files(Path("."))
+    hist.commit_baseline(
+        ".", CAMPAIGN_ID, schema_generation=SCHEMA, note="relative root"
+    )
+    sha = _commit_turn(Path("."), 1, "fin-rel")
+    assert sha
+    assert hist.repo_path_for(".", CAMPAIGN_ID).is_absolute()
+    assert hist.worktree_path_for(".", CAMPAIGN_ID).is_absolute()
+    repos = tmp_path / ".coc" / "repos" / "campaigns"
+    assert [p.name for p in repos.iterdir()] == [f"{CAMPAIGN_ID}.git"]
+    assert _commit_count(tmp_path) == 2
+
+
+def test_not_a_git_repository_failure_is_not_corruption(tmp_path, monkeypatch):
+    # A git-dir path-resolution failure must hard-fail; rename-and-reset
+    # recovery is reserved for object-database damage.
+    _seed_campaign_files(tmp_path)
+    hist.commit_baseline(
+        tmp_path, CAMPAIGN_ID, schema_generation=SCHEMA, note="initial campaign generation"
+    )
+
+    def broken(repo, worktree, message):
+        raise hist.GitHistoryError(
+            "git commit -m ... failed: fatal: not a git repository: "
+            "'.coc/repos/campaigns/x.git'"
+        )
+
+    monkeypatch.setattr(hist, "_stage_and_commit", broken)
+    with pytest.raises(hist.GitHistoryError, match="not a git repository"):
+        _commit_turn(tmp_path, 1, "fin-pathfail")
+    repos = tmp_path / ".coc" / "repos" / "campaigns"
+    assert [p.name for p in repos.iterdir()] == [f"{CAMPAIGN_ID}.git"]
+    assert _commit_count(tmp_path) == 1
+
+
+def test_commit_message_trailers_are_single_line():
+    # Raw git stderr (e.g. a history-reset reason) must not be able to
+    # inject forged trailers through newlines.
+    message = hist._format_commit_message(
+        "coc baseline: subject\nForged: yes",
+        [("COC-History-Reset", "line one\nForged: injected")],
+    )
+    trailers = hist.parse_trailers(message)
+    assert "Forged" not in trailers
+    assert trailers["COC-History-Reset"] == "line one Forged: injected"

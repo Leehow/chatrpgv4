@@ -445,7 +445,7 @@ export interface SessionInfo {
 
 export type SetupHistoryScope = "setup" | "setup_and_table_join";
 
-export type SetupHistoryBoundary = "handoff" | "play_opening" | null;
+export type SetupHistoryBoundary = "handoff" | null;
 
 export interface SetupTranscriptPayload {
   messages: TranscriptMessage[];
@@ -453,6 +453,8 @@ export interface SetupTranscriptPayload {
   session_id: string;
   scope: SetupHistoryScope;
   boundary: SetupHistoryBoundary;
+  /** Player/keeper labels come from recorded host message roles, nothing else. */
+  attribution?: "message-role";
 }
 
 export interface TranscriptMessage {

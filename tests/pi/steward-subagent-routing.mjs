@@ -42,9 +42,9 @@ for (const handler of handlers.get("session_start") || []) {
 assert.deepEqual(activeTools.at(-1), [
   "subagent", "subagent_wait", "coc_source_assets",
   "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state",
-  "coc_chargen_delegate",
+  "coc_chargen_delegate", "read",
 ]);
-assert.ok(!activeTools.at(-1).includes("read"), "live KP surface must keep builtin read disabled");
+assert.ok(activeTools.at(-1).includes("read"), "live KP surface keeps the restricted canonical skill-doc read active");
 assert.match(
   await (await import("node:fs/promises")).readFile(
     path.join(root, "plugins/coc-keeper/pi/prompts/host-system.md"), "utf8",

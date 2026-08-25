@@ -523,6 +523,32 @@ function recoveryFinalizationModeFromToolEvent(event) {
     : null;
 }
 
+// Silent live-turn resume modes: the continuation legitimately settles with
+// no new narration. `pending_finalization`, `open_turn_recovery`, and
+// `table_opening` keep their own completion/evidence contracts and are never
+// accepted as silent.
+const SILENT_RESUME_MODES = new Set(["awaiting_player", "already_acknowledged"]);
+
+/**
+ * Host-local proof frame for one current-child successful `session.resume`
+ * in a silent live-turn mode. Exact campaign identity is mandatory: the
+ * envelope must carry the canonical schema (schema_version 1) and this host's
+ * exact bound campaign. A missing, non-string, or foreign campaign_id never
+ * qualifies (fail closed).
+ */
+function silentResumeReceiptFromToolEvent(event, campaignId) {
+  if (!event || event.type !== "tool_execution_end") return null;
+  const envelope = canonicalEnvelope(event.result ?? event.details);
+  if (envelope?.ok !== true || envelope.tool !== "session.resume") return null;
+  const data = envelope.data && typeof envelope.data === "object" ? envelope.data : null;
+  if (data?.schema_version !== 1) return null;
+  if (typeof data?.campaign_id !== "string") return null;
+  if (String(campaignId || "") !== data.campaign_id) return null;
+  const mode = typeof data.mode === "string" ? data.mode : "";
+  if (!SILENT_RESUME_MODES.has(mode)) return null;
+  return { mode, campaignId: data.campaign_id };
+}
+
 function recoveryFinalizationFault(campaignId, obligation) {
   const details = {
     schema_version: 1,
@@ -816,6 +842,8 @@ export class PiCocRpcHost {
     spawnFn = spawn,
     turnIdleTimeoutMs = DEFAULT_RPC_TURN_IDLE_TIMEOUT_MS,
     nowFn = Date.now,
+    uiIntentPatienceMs = 45_000,
+    resumeStartQuietMs = 60_000,
   }) {
     this.repoRoot = repoRoot;
     this.workspace = path.resolve(workspace);
@@ -840,6 +868,8 @@ export class PiCocRpcHost {
     this.spawnFn = spawnFn;
     this.turnIdleTimeoutMs = turnIdleTimeoutMs;
     this.nowFn = nowFn;
+    this.uiIntentPatienceMs = uiIntentPatienceMs;
+    this.resumeStartQuietMs = resumeStartQuietMs;
     this.child = null;
     this.ready = false;
     this.closed = false;
@@ -866,6 +896,9 @@ export class PiCocRpcHost {
     this.#openingAttachPromise = null;
     this.#processExitObserved = false;
     this.#processCloseObserved = false;
+    this.#silentResumeReceipt = null;
+    this.#agentTurnSeq = 0;
+    this.#lastStdoutEventAt = this.nowFn();
   }
 
   isHandoffShutdown() {
@@ -886,6 +919,20 @@ export class PiCocRpcHost {
   #openingAttachPromise;
   #processExitObserved;
   #processCloseObserved;
+  #silentResumeReceipt;
+  #agentTurnSeq;
+  #lastStdoutEventAt;
+
+  /**
+   * True when no stdout RPC event has been observed for `ms` (measured from
+   * host construction when nothing has arrived yet). Liveness signal for the
+   * resume-continuation start wait: a retained-turn recovery continuation is
+   * a legitimate multi-step model turn, and its tool activity keeps this
+   * false even between agent turns; only a genuinely wedged child goes quiet.
+   */
+  #stdoutQuietForMs(ms) {
+    return this.nowFn() - this.#lastStdoutEventAt >= ms;
+  }
 
   #noteStreamedText(text, accepted) {
     const pending = this.#pendingFinalizedDelivery;
@@ -1016,6 +1063,7 @@ export class PiCocRpcHost {
   }
 
   #emit(event) {
+    this.#lastStdoutEventAt = this.nowFn();
     this.#eventLog.push(event);
     if (this.#eventLog.length > 4000) {
       this.#eventLog.splice(0, this.#eventLog.length - 2000);
@@ -1028,11 +1076,31 @@ export class PiCocRpcHost {
       this.openingSourceReviewPending = false;
     }
     if (event?.type === "agent_start") {
+      this.#agentTurnSeq += 1;
+      // A pending (unsettled) silent-resume receipt can only be legitimized
+      // by the agent turn that executed the resume. A subsequent unrelated
+      // agent_start starts a fresh turn identity and rejects any older
+      // pending receipt instead of letting that turn adopt it.
+      if (this.#silentResumeReceipt !== null && !this.#silentResumeReceipt.settled) {
+        this.#silentResumeReceipt = null;
+      }
       this.streaming = true;
       this.lastSettledAt = 0;
       if (this.#abortBoundary === null) this.#abortCommandPending = false;
     }
     if (event?.type === "agent_settled") {
+      // The enclosing agent turn of a recorded silent resume settled: that is
+      // the "settled agent turn" half of the canonical resume proof. Only
+      // the exact turn that executed the resume (matching turn identity) may
+      // mark its receipt settled — never an unrelated later turn.
+      const receipt = this.#silentResumeReceipt;
+      if (
+        receipt !== null
+        && !receipt.settled
+        && receipt.turnSeq === this.#agentTurnSeq
+      ) {
+        receipt.settled = true;
+      }
       this.streaming = false;
       this.settleGeneration += 1;
       this.lastSettledAt = Date.now();
@@ -1049,6 +1117,17 @@ export class PiCocRpcHost {
     }
     const delivery = deliveryReceiptFromToolEvent(event);
     if (delivery !== null) this.#pendingFinalizedDelivery = delivery;
+    const silentResume = silentResumeReceiptFromToolEvent(event, this.campaignId);
+    if (silentResume !== null) {
+      // Exact host-local receipt, retained per host epoch and bound to the
+      // currently streaming observed agent turn. A resume result received
+      // outside any observed turn can never be bound to one and is rejected
+      // outright (fail closed). Historical Pi session transcript is never a
+      // receipt.
+      this.#silentResumeReceipt = this.streaming
+        ? { ...silentResume, turnSeq: this.#agentTurnSeq, settled: false }
+        : null;
+    }
     if (
       event?.type === "tool_execution_end"
       && containsOpeningSourceReviewGate(event.result)
@@ -1492,6 +1571,18 @@ export class PiCocRpcHost {
     }
   }
 
+  /**
+   * Current-child proof that the auto-open continuation already ran its
+   * single session.resume in a silent live-turn mode for the exact bound
+   * campaign (canonical schema) and that the exact agent turn which executed
+   * it settled. Null whenever no such exact successful receipt was observed
+   * in this host epoch (fail closed).
+   */
+  #settledSilentResumeReceipt() {
+    const receipt = this.#silentResumeReceipt;
+    return receipt !== null && receipt.settled === true ? receipt : null;
+  }
+
   async #runAttachOpening({
     onSse,
     timeoutMs = 900_000,
@@ -1593,18 +1684,52 @@ export class PiCocRpcHost {
       });
       return maybeSetupOpen(true);
     }
-    const intent = await this.waitForUiIntent(45_000);
-    if (intent === "auto-open" || this.streaming) {
+    const intent = await this.waitForUiIntent(this.uiIntentPatienceMs);
+    if (
+      this.tableIntent === "continue"
+      && !this.streaming
+      && this.#settledSilentResumeReceipt() !== null
+    ) {
+      // The auto-open continuation ran and settled while we were awaiting UI
+      // intent (stdout events and the stderr marker are unordered streams).
+      // Its host-local silent-resume receipt plus the settled agent turn is
+      // the canonical proof: succeed with no new narration, no replay of
+      // historical assistant text, no injected prompt, and no second resume.
+      if (!sawVisibleText) this.#replaySse(relay);
+      return finish(true);
+    }
+    // A retained-turn play host resumes through a real multi-step
+    // continuation (session.resume -> recovery work -> turn.finalize) that
+    // can run for minutes before any stderr intent marker or visible stream
+    // frame exists. With no explicit idle intent, keep waiting while the
+    // child keeps producing stdout RPC progress and only fail after a true
+    // quiet window; a fresh-table host keeps the fixed one-minute bound.
+    const continueTable = this.tableIntent === "continue";
+    if (
+      intent === "auto-open"
+      || this.streaming
+      || (continueTable && intent !== "idle")
+    ) {
       const startGen = this.settleGeneration;
       const abortAt = this.abortGeneration;
       const settled = this.#waitSettleAfter(startGen, relay, timeoutMs, {
         suppressSilentNotice: requireVisibleText,
         initialRecoveryFinalization: replayed.recoveryFinalization,
       });
-      const startDeadline = Date.now() + 60_000;
-      while (!this.streaming && this.settleGeneration === startGen
+      // If this flow falls through below without awaiting the wait, its late
+      // timer rejection must stay observed: an unhandled rejection from the
+      // settle timer takes the whole server process down.
+      settled.catch(() => {});
+      const startDeadline = this.nowFn() + 60_000;
+      while (
+        !this.streaming
+        && this.settleGeneration === startGen
         && this.abortGeneration === abortAt
-        && Date.now() < startDeadline && !this.closed) {
+        && !this.closed
+        && (continueTable
+          ? !this.#stdoutQuietForMs(this.resumeStartQuietMs)
+          : this.nowFn() < startDeadline)
+      ) {
         await new Promise((r) => setTimeout(r, 100));
       }
       if (this.abortGeneration > abortAt || this.streaming || this.settleGeneration > startGen) {
@@ -1662,7 +1787,12 @@ export class PiCocRpcHost {
         await this.#request(payload, 15_000);
         turnActivity.accepted = true;
       } catch (err) {
-        if (err?.kind !== "pi_coc_rpc_handoff") throw err;
+        if (err?.kind !== "pi_coc_rpc_handoff") {
+          // This early throw abandons the settle wait above; keep its
+          // eventual timer rejection observed instead of unhandled.
+          settled.catch(() => {});
+          throw err;
+        }
         const result = await settled;
         return { ...result, handoff: true };
       }

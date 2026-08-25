@@ -358,3 +358,197 @@ def test_l0_opening_handout_card_survives_put_entity(tmp_path):
     assert reloaded["source_refs"] == ["pdf_index-1"]
     assert reloaded["kind"] == "read_aloud"
     assert reloaded["parse_state"] == "named_only"
+
+
+# ---------------------------------------------- reviewed L0 locale fields
+
+
+def _module_init_l0_with_handouts(rows: list[dict]) -> dict:
+    return {
+        "schema_version": 1,
+        "secrecy": "keeper_only",
+        "module_meta": {
+            "title_zh": "开场组件",
+            "title_en": "Opening Component",
+            "authors": [],
+            "translator": [],
+            "era": "1920s",
+            "locale": "Boston",
+            "party_size": "1-4",
+            "duration_hint": "one session",
+            "tone_tags": ["mystery"],
+            "mythos_entities": [],
+            "campaign_hooks": ["opening"],
+            "warnings": [],
+            "safety_notes": None,
+            "structure_type": "linear_investigation",
+        },
+        "pregens": [],
+        "opening_hooks": [],
+        "chargen_deltas": [],
+        "opening_handouts": rows,
+    }
+
+
+def test_module_init_l0_accepts_reviewed_handout_locale_maps():
+    """Reviewed locale maps pass adoption validation under the card contract."""
+    l0 = _module_init_l0_with_handouts([
+        {
+            "id": "briefing", "title": "小卡片 1：好戏开场",
+            "when_to_give": "开场", "source_refs": ["pdf_index-12"],
+            "kind": "read_aloud",
+            "localized_title": {"zh-Hans": "开场简报"},
+            "localized_text": {"zh-Hans": "一段已审阅的开场译文。"},
+        },
+        {
+            "id": "letter", "title": "Unattributed Letter",
+            "when_to_give": "opening", "kind": "document",
+            "source_refs": ["pdf_index-3"],
+            "localized_title": {"zh-Hans": "未署名的信"},
+        },
+    ])
+    assert runtime_ops._validate_module_init_l0(l0) is not None
+
+
+def test_module_init_l0_rejects_handout_bodies_and_bad_locale_fields():
+    base_row = {
+        "id": "briefing", "title": "开场简报", "when_to_give": "开场",
+        "source_refs": ["pdf_index-1"],
+    }
+
+    def expect_rejected(row, *, field_note: str):
+        l0 = _module_init_l0_with_handouts([{**base_row, **row}])
+        with pytest.raises(runtime_ops.RuntimeOperationError, match=field_note):
+            runtime_ops._validate_module_init_l0(l0)
+
+    # The verbatim source body and image refs stay closed to deepen_handout.
+    expect_rejected({"text": "verbatim body"}, field_note="deepen_handout")
+    expect_rejected({"image_ref": "assets/map.png"}, field_note="deepen_handout")
+    # A bare locale string is still a direct body escape: only an explicit
+    # play_language-to-string map is a reviewed localization.
+    expect_rejected(
+        {"localized_text": "一段没有语言标签的正文。"},
+        field_note="deepen_handout",
+    )
+    expect_rejected(
+        {"localized_title": "没有语言标签的标题"},
+        field_note="deepen_handout",
+    )
+    # Blank map values never count as reviewed content.
+    expect_rejected(
+        {"localized_text": {"zh-Hans": "  "}},
+        field_note="localized_text",
+    )
+    expect_rejected(
+        {"localized_title": {}},
+        field_note="localized_title",
+    )
+
+
+def test_l0_opening_handout_cards_preserve_reviewed_locale_fields():
+    """Reviewed L0 locale fields ride into the canonical card verbatim."""
+    l0 = {"opening_handouts": [
+        {
+            "id": "briefing",
+            "title": "小卡片 1：好戏开场",
+            "when_to_give": "模组开场交给调查员",
+            "kind": "read_aloud",
+            "source_refs": ["pdf_index-1"],
+            "localized_title": {"zh-Hans": "开场简报"},
+            "localized_text": {"zh-Hans": "一段已审阅的开场译文。"},
+        },
+        # Tagged-string form rides along with its language tag.
+        {
+            "id": "letter",
+            "title": "Unattributed Letter",
+            "when_to_give": "opening",
+            "kind": "document",
+            "source_refs": ["pdf_index-2"],
+            "localized_title": {"zh-Hans": "未署名的信"},
+            "localized_text": {"zh-Hans": "未署名的信件全文。"},
+        },
+    ]}
+    cards = runtime_ops.l0_opening_handout_cards(l0, scene_id="opening")
+    reviewed = cards[0]
+    assert reviewed["parse_state"] == "body_parsed"
+    assert reviewed["localized_title"] == {"zh-Hans": "开场简报"}
+    assert reviewed["localized_text"] == {"zh-Hans": "一段已审阅的开场译文。"}
+    # A parsed body is a card, not a locator stub.
+    assert "body_source_page_indices" not in reviewed
+    assert reviewed["source_refs"] == ["pdf_index-1"]
+    assert "text" not in reviewed
+    assert "image_ref" not in reviewed
+    tagged = cards[1]
+    assert tagged["parse_state"] == "body_parsed"
+    assert tagged["localized_title"] == {"zh-Hans": "未署名的信"}
+    assert tagged["localized_text"] == {"zh-Hans": "未署名的信件全文。"}
+
+
+def test_l0_opening_handout_cards_do_not_fabricate_locales():
+    """Source-only rows stay named_only stubs; nothing becomes zh-Hans."""
+    l0 = {"opening_handouts": [
+        {
+            "id": "briefing", "title": "小卡片 1：好戏开场",
+            "when_to_give": "开场", "source_refs": ["pdf_index-1"],
+        },
+        # Title-only locale metadata carries no body: still a locator stub,
+        # but the reviewed title translation is preserved verbatim.
+        {
+            "id": "letter", "title": "Unattributed Letter",
+            "when_to_give": "opening", "kind": "document",
+            "source_refs": ["pdf_index-2"],
+            "localized_title": {"zh-Hans": "未署名的信"},
+        },
+    ]}
+    cards = runtime_ops.l0_opening_handout_cards(l0)
+    source_only = cards[0]
+    assert source_only["parse_state"] == "named_only"
+    assert source_only["body_source_page_indices"] == [1]
+    assert "localized_title" not in source_only
+    assert "localized_text" not in source_only
+    # Source-only prose never masquerades as a localization.
+    assert "zh-Hans" not in json.dumps(source_only, ensure_ascii=False)
+    title_only = cards[1]
+    assert title_only["parse_state"] == "named_only"
+    assert title_only["body_source_page_indices"] == [2]
+    assert title_only["localized_title"] == {"zh-Hans": "未署名的信"}
+    assert "localized_text" not in title_only
+
+
+def test_l0_reviewed_body_parsed_card_flows_into_campaign_ir(tmp_path):
+    """A reviewed body_parsed L0 card survives the store and IR projection."""
+    _put_source_bound_skeleton(tmp_path)
+    l0 = {"opening_handouts": [
+        {
+            "id": "briefing", "title": "Opening Briefing",
+            "when_to_give": "opening", "kind": "read_aloud",
+            "source_refs": ["pdf_index-1"],
+            "localized_title": {"zh-Hans": "开场简报"},
+            "localized_text": {"zh-Hans": "一段已审阅的开场译文。"},
+        },
+    ]}
+    card = runtime_ops.l0_opening_handout_cards(l0)[0]
+    stored = assets.put_entity(
+        tmp_path, "handout-proj", "handout", card["handout_id"], card,
+    )
+    assert stored is not None
+    reloaded = assets.get_entity(
+        tmp_path, "handout-proj", "handout", card["handout_id"],
+    )
+    assert reloaded["parse_state"] == "body_parsed"
+    assert reloaded["localized_title"] == {"zh-Hans": "开场简报"}
+    assert reloaded["localized_text"] == {"zh-Hans": "一段已审阅的开场译文。"}
+
+    camp = _make_campaign(tmp_path)
+    result = project.project_skeleton_to_campaign(
+        tmp_path, camp.name, "handout-proj",
+    )
+    assert "handout:briefing" in result["reapplied_deep_entities"]
+    store = json.loads(
+        (camp / "scenario" / "handouts.json").read_text(encoding="utf-8")
+    )
+    assert [row["asset_id"] for row in store["handouts"]] == ["briefing"]
+    ir_card = store["handouts"][0]
+    assert ir_card["parse_state"] == "body_parsed"
+    assert ir_card["localized_title"] == {"zh-Hans": "开场简报"}
+    assert ir_card["localized_text"] == {"zh-Hans": "一段已审阅的开场译文。"}

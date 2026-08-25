@@ -38,6 +38,7 @@ import coc_state
 import coc_character
 import coc_character_creation_briefing
 import coc_compiled_archive
+import coc_git_history
 import coc_investigator_guard
 import coc_scenario_compile
 
@@ -1223,6 +1224,25 @@ def quick_start(
                 except Exception as exc:  # cache maintenance never rolls back publication
                     post_commit_warnings.append(
                         "compiled archive publish deferred: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                # Campaign creation lands its git-history baseline. Publication
+                # is already committed, so like the archive cache this is
+                # maintenance-only: a failed baseline defers to the first
+                # turn commit instead of rolling the campaign back.
+                try:
+                    coc_git_history.ensure_repo(root, camp_id)
+                    coc_git_history.commit_baseline(
+                        root,
+                        camp_id,
+                        schema_generation=coc_git_history.format_schema_generation(
+                            coc_state.CURRENT_SCHEMA_VERSIONS
+                        ),
+                        note="quick-start campaign generation",
+                    )
+                except Exception as exc:
+                    post_commit_warnings.append(
+                        "campaign git baseline deferred: "
                         f"{type(exc).__name__}: {exc}"
                     )
             except BaseException as original:

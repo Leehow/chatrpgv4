@@ -672,3 +672,32 @@ def test_state_proof_repo_not_git_fails(tmp_path):
     assert proof.status == "FAIL"
     assert verify.CODE_REPO_NOT_GIT in _codes(proof)
     assert proof.history_enabled is False
+
+
+def test_relative_root_cli_and_proof_pass(tmp_path, monkeypatch):
+    # Regression: the documented `--root .` invocation must not misreport a
+    # healthy campaign as fsck_failed / missing_commit / wrong_head after
+    # the git subprocess cwd moves to the worktree.
+    _prepare_campaign(tmp_path)
+    _write_receipts(tmp_path, ["fin-0001"])
+    _commit_turn(tmp_path, 1, "fin-0001")
+    monkeypatch.chdir(tmp_path)
+    proof = verify.state_integrity_proof(".", CAMPAIGN_ID)
+    assert proof.status == verify.STATUS_PASS
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(VERIFY_SCRIPT),
+            "--root",
+            ".",
+            "--campaign",
+            CAMPAIGN_ID,
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "GIT HISTORY CHECK PASSED" in completed.stdout
