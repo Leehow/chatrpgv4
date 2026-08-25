@@ -43,7 +43,7 @@ ENTITY_KINDS = frozenset({
 })
 JOB_KINDS = frozenset({
     "deepen_location", "deepen_npc", "deepen_clue", "deepen_handout",
-    "deepen_threat", "deepen_item",
+    "deepen_threat", "deepen_item", "deepen_quest",
     "resolve_npc_mechanics", "resolve_item_mechanics",
     "resolve_threat_mechanics",
     "locate_mechanics_index",
@@ -155,6 +155,7 @@ JOB_KIND_FOR_ENTITY = {
     "clue": "deepen_clue",
     "handout": "deepen_handout",
     "threat": "deepen_threat",
+    "quest": "deepen_quest",
 }
 _ENTITY_ID_KEY = {
     "location": "location_id",
@@ -181,6 +182,23 @@ QUEST_PROVENANCE = frozenset({"source", "campaign-improvised"})
 QUEST_REF_KINDS = frozenset({"npc", "location", "item", "clue", "scene"})
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _QUEST_ID = re.compile(r"^quest-[a-z0-9-]+$")
+QUEST_ID_PREFIX = "quest-"
+
+
+def quest_slug(entity_id: str) -> str:
+    """Canonical store slug for one quest id; accept ``quest-<slug>`` too.
+
+    The durable store key is the bare slug (file ``quest-<slug>.json``), while
+    every model-facing surface — skeleton ``quest_index`` rows, structured
+    ``mentions`` ``ref_id``, the pack's own ``quest_id`` — uses the full
+    semantic id ``quest-<slug>`` (Model-Facing Identifier Law). Id arguments
+    in either form resolve to one canonical store key; a slug may never
+    itself start with the prefix (put_entity rejects ``quest-quest-*``).
+    """
+    value = str(entity_id)
+    if value.startswith(QUEST_ID_PREFIX):
+        value = value[len(QUEST_ID_PREFIX):]
+    return value
 _CACHED_PAGE_DRIFT_RE = re.compile(r"^cached (?:structured )?page (\d+) content drift")
 _HTML_TAG_RE = re.compile(r"<[^>]*>")
 _HEX = frozenset("0123456789abcdef")
@@ -189,6 +207,9 @@ _EXIT_CONDITION_KINDS = frozenset({
 })
 LOCATOR_PASS_STATUSES = frozenset({"pending", "complete"})
 SKELETON_MECHANICS_STATUSES = frozenset({"unresolved", "located", "not_authored"})
+# Tier 1B skeleton quest_index rows: a located row names authored quest body
+# pages; unresolved marks a quest the source names before its body is found.
+SKELETON_QUEST_STATUSES = frozenset({"unresolved", "located"})
 CLUE_DISCOVERY_MODES = frozenset({
     "automatic", "check", "conditional_check", "keeper_judgment",
 })
@@ -3325,6 +3346,73 @@ def validate_skeleton(skeleton: dict[str, Any]) -> list[str]:
         if item.get("parse_state") not in PARSE_STATES:
             errors.append(f"{prefix}.parse_state invalid")
 
+    # Tier 1B quest index: full semantic quest ids, structured giver refs,
+    # frozen importance, and located/unresolved source status. Rows are
+    # locator-thin — quest semantics live in the entity pack, never here.
+    seen_quest: set[str] = set()
+    for i, quest in enumerate(skeleton.get("quest_index") or []):
+        prefix = f"quest_index[{i}]"
+        if not isinstance(quest, dict):
+            errors.append(f"{prefix} must be an object")
+            continue
+        quest_id = str(quest.get("quest_id") or "")
+        if not _QUEST_ID.fullmatch(quest_id):
+            errors.append(
+                f"{prefix}.quest_id must match quest-[a-z0-9-]+ "
+                "(skeleton rows carry the full semantic id)"
+            )
+            continue
+        if quest_id in seen_quest:
+            errors.append(f"duplicate quest_id {quest_id!r}")
+        seen_quest.add(quest_id)
+        if not str(quest.get("title") or "").strip():
+            errors.append(f"{prefix}.title is required")
+        if quest.get("importance") not in QUEST_IMPORTANCE:
+            allowed = ", ".join(sorted(QUEST_IMPORTANCE))
+            errors.append(f"{prefix}.importance must be one of: {allowed}")
+        if quest.get("status") not in SKELETON_QUEST_STATUSES:
+            errors.append(f"{prefix}.status must be located or unresolved")
+        giver = quest.get("giver")
+        if giver is not None:
+            for message in _quest_giver_errors(giver):
+                errors.append(f"{prefix}: {message}")
+        indices = quest.get("source_page_indices")
+        if quest.get("status") == "located":
+            indices_valid = (
+                isinstance(indices, list)
+                and bool(indices)
+                and not any(
+                    isinstance(value, bool)
+                    or not isinstance(value, int)
+                    or value < 0
+                    for value in indices
+                )
+            )
+            if not indices_valid:
+                errors.append(f"{prefix}.source_page_indices required when located")
+            else:
+                if len(indices) != len(set(indices)):
+                    errors.append(
+                        f"{prefix}.source_page_indices must not contain duplicates"
+                    )
+                if source_page_count is not None and any(
+                    value >= source_page_count for value in indices
+                ):
+                    errors.append(
+                        f"{prefix}.source_page_indices must be within declared "
+                        "source.page_count"
+                    )
+        elif indices is not None:
+            errors.append(
+                f"{prefix}.source_page_indices is valid only when status=located"
+            )
+        refs = quest.get("source_refs")
+        if refs is not None and (
+            not isinstance(refs, list)
+            or any(not isinstance(ref, dict) for ref in refs)
+        ):
+            errors.append(f"{prefix}.source_refs must be a list of ref objects")
+
     # Skeleton-level locator pass: empty index must never look complete.
     global_pass = str(skeleton.get("mechanics_locator_pass_status") or "").strip()
     if global_pass not in LOCATOR_PASS_STATUSES:
@@ -5072,6 +5160,37 @@ def _validate_handout_entity_pack(doc: dict[str, Any]) -> None:
         raise ModuleAssetsError("; ".join(errors))
 
 
+def _quest_giver_errors(giver: Any) -> list[str]:
+    """Shape errors for one quest giver ref; pack and skeleton rows share it."""
+    if not isinstance(giver, dict):
+        return ["giver must be null or an object"]
+    if giver.get("kind") == "npc":
+        ref_id = giver.get("ref_id")
+        if (
+            set(giver) != {"kind", "ref_id"}
+            or not isinstance(ref_id, str)
+            or not ref_id.strip()
+        ):
+            return [
+                'giver kind=npc must be exactly {"kind","ref_id"} with a '
+                "non-empty npc ref_id"
+            ]
+        return []
+    if giver.get("kind") == "organization":
+        label = giver.get("label")
+        if (
+            set(giver) != {"kind", "label"}
+            or not isinstance(label, str)
+            or not label.strip()
+        ):
+            return [
+                'giver kind=organization must be exactly {"kind","label"} '
+                "with a non-empty label"
+            ]
+        return []
+    return ["giver.kind must be npc or organization"]
+
+
 def validate_quest_pack_contract(
     doc: dict[str, Any],
     *,
@@ -5146,32 +5265,8 @@ def validate_quest_pack_contract(
         err("brief must be a non-empty keeper-side string")
     giver = doc.get("giver")
     if giver is not None:
-        if not isinstance(giver, dict):
-            err("giver must be null or an object")
-        elif giver.get("kind") == "npc":
-            ref_id = giver.get("ref_id")
-            if (
-                set(giver) != {"kind", "ref_id"}
-                or not isinstance(ref_id, str)
-                or not ref_id.strip()
-            ):
-                err(
-                    'giver kind=npc must be exactly {"kind","ref_id"} with a '
-                    "non-empty npc ref_id"
-                )
-        elif giver.get("kind") == "organization":
-            label = giver.get("label")
-            if (
-                set(giver) != {"kind", "label"}
-                or not isinstance(label, str)
-                or not label.strip()
-            ):
-                err(
-                    'giver kind=organization must be exactly {"kind","label"} '
-                    "with a non-empty label"
-                )
-        else:
-            err("giver.kind must be npc or organization")
+        for message in _quest_giver_errors(giver):
+            err(message)
     target_refs = doc.get("target_refs")
     if target_refs is not None:
         if not isinstance(target_refs, list):
@@ -8571,7 +8666,22 @@ def put_entity(
     mod = _module_dir(workspace, asset_root_id)
     if not (mod / "identity.json").is_file():
         raise ModuleAssetsError("init_module_root before put_entity")
-    path = mod / "entities" / f"{kind}-{eid}.json"
+    if kind == QUEST_ENTITY_KIND:
+        # Quest ids are frozen semantic ids ``quest-<slug>``; the store key is
+        # the bare slug and the durable file is ``entities/quest-<slug>.json``.
+        # A model-facing caller may pass either the bare slug or the full
+        # ``quest-<slug>`` id (mentions, skeleton rows); both canonicalize to
+        # one store key. A double prefix is never ambiguous storage — reject.
+        slug = quest_slug(eid)
+        if not slug or slug.startswith(QUEST_ID_PREFIX):
+            raise ModuleAssetsError(
+                "quest entity id must be a bare slug or quest-<slug>, never "
+                "double-prefixed"
+            )
+        entity_file_id = slug
+    else:
+        entity_file_id = eid
+    path = mod / "entities" / f"{kind}-{entity_file_id}.json"
     doc = json.loads(json.dumps(payload))
     # The worker/request ID selects one live fulfillment transaction. It is
     # converted into the canonical ingest receipt below and never persisted as
@@ -8585,9 +8695,7 @@ def put_entity(
     doc["updated_at"] = received_at
     doc[_ENTITY_ID_KEY[kind]] = eid
     if kind == QUEST_ENTITY_KIND:
-        # Quest ids are frozen semantic ids ``quest-<slug>``; the store key is
-        # the bare slug and the durable file is ``entities/quest-<slug>.json``.
-        doc["quest_id"] = f"quest-{eid}"
+        doc["quest_id"] = f"quest-{entity_file_id}"
     allowed_read_aloud_indices, required_read_aloud_languages = (
         _put_entity_host_work_constraints(
             workspace,
@@ -8728,11 +8836,10 @@ def put_entity(
         "ingest_timing": doc.get("ingest_timing"),
     }
     # When a deep pack lands, re-enqueue high-priority merge and kick workers
-    # so campaigns update without blocking the host put path.
+    # so campaigns update without blocking the host put path. Quest packs ride
+    # the same shared deepen lane (deepen_quest); the merge job finishes
+    # entity_ready on the asset store until the campaign-IR quest merger lands.
     parse_state = str(doc.get("parse_state") or "")
-    # Quest packs are authored whole and have no queue deepen lane in v1, so
-    # the post-put merge kick and host-request supersede only fire for kinds
-    # that own one.
     deep_without_gap = (
         parse_state == "deep"
         and not doc.get("evidence_gap")
@@ -8954,6 +9061,7 @@ def classification_entity_catalog_snapshot(
         ("item", "item_roster", "item_id"),
         ("handout", "handouts", "handout_id"),
         ("threat", "threats", "threat_id"),
+        ("quest", "quest_index", "quest_id"),
     ):
         for row in skeleton.get(collection) or []:
             if isinstance(row, dict):
@@ -9004,8 +9112,12 @@ def get_entity(
 ) -> dict[str, Any] | None:
     if kind not in ENTITY_KINDS:
         raise ModuleAssetsError(f"unknown entity kind {kind!r}")
+    _require_id(entity_id, "entity_id")
+    # Quest lookups accept the bare slug or the full ``quest-<slug>`` id and
+    # always resolve to the one canonical ``quest-<slug>.json`` store file.
+    store_id = quest_slug(entity_id) if kind == QUEST_ENTITY_KIND else entity_id
     path = _module_dir(workspace, asset_root_id) / "entities" / (
-        f"{kind}-{_require_id(entity_id, 'entity_id')}.json"
+        f"{kind}-{_require_id(store_id, 'entity_id')}.json"
     )
     if not path.is_file():
         return None
@@ -9091,15 +9203,22 @@ def _skeleton_entity_source_scope(
         "location": ("locations", "location_id"),
         "npc": ("npc_roster", "npc_id"),
         "item": ("item_roster", "item_id"),
+        "quest": ("quest_index", "quest_id"),
     }.get(kind, (None, None))
     skeleton = get_skeleton(workspace, asset_root_id) or {}
     scopes: list[dict[str, Any]] = []
     if collection is not None and id_field is not None:
         for row in skeleton.get(collection) or []:
-            if (
-                isinstance(row, dict)
-                and str(row.get(id_field) or "").strip() == str(entity_id)
-            ):
+            if not isinstance(row, dict):
+                continue
+            row_id = str(row.get(id_field) or "")
+            if kind == QUEST_ENTITY_KIND:
+                # Skeleton quest rows carry the full ``quest-<slug>`` id while
+                # lookups may use either form; compare canonical slugs.
+                matched = quest_slug(row_id) == quest_slug(entity_id)
+            else:
+                matched = row_id.strip() == str(entity_id)
+            if matched:
                 scopes.append(row)
                 break
     for locator in skeleton.get("mechanics_index") or []:
@@ -9234,6 +9353,10 @@ def ensure_stub(
         payload["body_source_page_indices"] = body_source_indices
     if kind == "location" and title:
         payload["title"] = title
+    elif kind == QUEST_ENTITY_KIND:
+        # Quest packs name their working title; stub tiers skip the frozen
+        # semantic contract, but the field name stays canonical for the pack.
+        payload["title"] = title or entity_id
     elif kind == "npc":
         payload["names"] = [title] if title else [entity_id]
     elif kind == "item":

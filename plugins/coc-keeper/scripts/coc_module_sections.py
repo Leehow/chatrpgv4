@@ -52,10 +52,12 @@ PAYLOADS = frozenset({
     "narrative", "entity_stats", "procedure", "table", "handout",
     "character_sheet", "setting_lore",
 })
-# What the content attaches to.
+# What the content attaches to.  Quest bindings follow the skeleton
+# quest_index: a cataloged quest is a legitimate section subject (the
+# commission chapter), and the binding stays bookkeeping for extraction.
 BINDING_KINDS = frozenset({"global", "entity"})
 BINDING_ENTITY_KINDS = frozenset({
-    "location", "npc", "item", "clue", "handout", "threat",
+    "location", "npc", "item", "clue", "handout", "threat", "quest",
 })
 CONFIDENCE = frozenset({"low", "med", "high"})
 SECTION_STATES = frozenset({"indexed", "resolved", "not_needed", "failed"})

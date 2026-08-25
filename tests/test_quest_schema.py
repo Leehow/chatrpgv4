@@ -10,9 +10,14 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 import pytest
+
+# Deep quest packs ride the shared deepen lane and kick the background
+# worker on put; keep schema tests free of real background writers.
+os.environ["COC_DISABLE_QUEUE_WORKER"] = "1"
 
 SCRIPTS = Path("plugins/coc-keeper/scripts")
 
@@ -124,8 +129,9 @@ def test_put_entity_quest_roundtrip(tmp_path: Path):
     assert got["schema_version"] == 1
     assert got["parse_state"] == "deep"
     assert got["updated_at"]
-    # Quests have no queue deepen lane: the deep-pack worker kick stays absent.
-    assert "worker" not in stored
+    # Deep quest packs ride the shared deepen lane: the merge kick enqueues
+    # one deepen_quest job (fulfilled as entity_ready by the queue worker).
+    assert stored["worker"]["enqueue"]["job"]["kind"] == "deepen_quest"
     # Revalidation replays the same contract on the durable pack.
     revalidated = assets.revalidate_entity_pack(
         tmp_path, "demo-mod", "quest", "escort-macario",

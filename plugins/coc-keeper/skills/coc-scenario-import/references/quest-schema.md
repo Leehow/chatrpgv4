@@ -11,12 +11,32 @@ quest 有两层载体，同一冻结契约（`schema_version: 1`）：
    存储键是**不带前缀的 slug**（如 `escort-macario`），落盘文件为
    `entities/quest-escort-macario.json`，包内 `quest_id` 由 put_entity 规范化为
    `quest-<slug>`（Model-Facing Identifier Law：语义 id，禁随机 hex/uuid）。
+   id 参数接受裸 slug 或完整 `quest-<slug>` 两种写法（skeleton 行、mentions
+   ref_id 用完整形式），put_entity/get_entity 统一收敛到同一存储文件；
+   `quest-quest-*` 双前缀一律拒绝。
 2. **Scenario IR 第八文件**：`campaigns/<id>/scenario/quests.json`（**可选**）。
    缺省合法 = 无任务模组；存在则由 `coc_scenario_compile.py --validate`
    按本文硬断言校验（含跨文件引用完整性）。
 
 运行期状态（`save/quest-state.json` 状态机）见
 `plugins/coc-keeper/references/state-schema.md` 的 Quest State 一节。
+
+### 渐进解析侧接线（Tier 1B 索引 / 深化队列 / mentions）
+
+- **skeleton `quest_index[]`**（Tier 1B enrichment 产出）：locator-thin 索引行，
+  字段冻结为 `quest_id`（完整 `quest-<slug>`）、`title`、`giver`（同 §2 结构化
+  ref，可 null）、`importance`、`status`（`located` | `unresolved`）、
+  `source_page_indices`（仅 `located` 必填非空、去重、页内）与可选
+  `source_refs`。`put-skeleton` 同步校验；行不携带任务语义（那是实体包的事）。
+- **深化队列**：quest 实体复用既有共享 deepen lane ——
+  `JOB_KIND_FOR_ENTITY["quest"] = "deepen_quest"`，与 npc/item/clue 同一路
+  enqueue → claim → host-work request → `put_entity` 闭环；深包落库后同样
+  kick 合并 job。队列 worker 对就绪 quest 包以 `entity_ready` 收束在资产库
+  （campaign scenario-IR 投影待 `coc_module_project` 侧 quest merger，另波次）。
+- **mentions**：pack 的 `mentions[]` 允许 `{"kind":"quest","ref_id":"quest-<slug>",
+  "source_refs": [...]}`，与 location/npc 同等纪律——结构化输出 + 精确页证据，
+  绝不关键词扫描；follow 后 canonical 化为 named_only stub 并入队
+  `deepen_quest`。
 
 ---
 

@@ -232,7 +232,10 @@ well-formed 64-hex digest, a foreign page, or an uncached appendix is not proof.
   `player_safe_summary`, every source-authored clue or actionable route needed
   to play the current beat, structured mentions for named people/places that
   are referenced but not materially present, and source-supported materially
-  present NPC pairs. For an authored briefing, commission, or explanation,
+  present NPC pairs. A quest the reviewed source names or offers may be a
+  mention target too: `{"kind":"quest","ref_id":"quest-<slug>", ...}`
+  with its own exact `source_refs`, the same structured discipline as
+  location/npc mentions — never a keyword scan. For an authored briefing, commission, or explanation,
   `player_safe_summary` covers the complete current player-facing substance,
   not only the opening teaser. A structured mention may include a concise
   source-authored `note` needed to understand that substance; the repository
@@ -280,6 +283,33 @@ well-formed 64-hex digest, a foreign page, or an uncached appendix is not proof.
   trigger a replacement opening pack or a blocking NPC deep scan before play.
 - Locations: nested clues use **`player_safe_summary` only** (never bare
   `summary`). Affordances use `id` (not `affordance_id`).
+- For `kind=deepen_quest`, compile exactly one module-authored action quest
+  into the direct quest entity pack (never a wrapper) following the frozen
+  quest v1 contract
+  (`plugins/coc-keeper/skills/coc-scenario-import/references/quest-schema.md`).
+  Only quests the reviewed source actually authors exist: a commission,
+  escort/delivery, rescue/protection, retrieval/collection,
+  prevention/disruption, survival/escape, negotiation, restoration, or
+  visit/exploration job offered to or pursuable by the investigators.
+  `quest_kinds` uses only those nine tokens (`timed` is a deadline attribute,
+  never a kind); a cognitive goal such as “find out the truth” is a
+  clue-graph conclusion, never a quest — leave it to the clue lanes. Every
+  semantic field stays structured: `giver` is `{kind:npc,ref_id}` or
+  `{kind:organization,label}`; `target_refs`, `destination_scene_id`, and
+  `deadline` follow the frozen shapes; `completion`/`failure` condition
+  groups reuse only the exit-condition kinds `clue_discovered`, `flag_set`,
+  `clock_reaches`, `always`, `narrative` — a free-text condition kind is a
+  hard rejection, and `narrative` marks Keeper-side semantic closure. A
+  `secret=true` quest never carries `player_safe_summary` (physical
+  isolation before it is offered). Select only exact `source_refs` from this
+  request's `cached_page_refs` and return `parse_state=deep`,
+  `evidence_gap=false`, `provenance=source`. Player-visible strings
+  (`localized_title`, `player_safe_summary`, `deadline.display`) must be
+  written for every `play_languages` entry; `brief` stays Keeper-side.
+  Never invent a quest, giver, reward, deadline, or condition the module
+  did not author — pipeline fabrication is source pollution. If the
+  reviewed pages do not author this quest, return `status=abstain` with
+  `results=[]`.
 - For `kind=deepen_handout`, follow the closed
   `coc.handout-card-pack.v1` object in `request.result_contract`. Return the
   handout entity itself with `handout_id` and `asset_id` both copied from

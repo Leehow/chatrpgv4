@@ -468,6 +468,60 @@
         "submit status=abstain with results=[] when required fields cannot be supplied; never ask the parent to repair a usable result"
       ]
     },
+    "quest_deepen": {
+      "request_kind": "deepen_quest",
+      "source_aspect": "body",
+      "required_request_fields": [
+        "job_id",
+        "target_id",
+        "play_languages",
+        "requested_pdf_indices",
+        "cached_page_refs"
+      ],
+      "contract_authority": "plugins/coc-keeper/skills/coc-scenario-import/references/quest-schema.md",
+      "worker_result_pack_shape": "direct quest entity; never nest it under a quest key",
+      "quest_kinds_values": [
+        "commission", "escort-deliver", "rescue-protect", "retrieve-collect",
+        "prevent-disrupt", "survive-escape", "negotiate", "restore",
+        "visit-explore"
+      ],
+      "timed_is_a_deadline_attribute_not_a_kind": true,
+      "cognitive_goals": "clue-graph conclusions, never quests",
+      "condition_kind_values": [
+        "clue_discovered", "flag_set", "clock_reaches", "always", "narrative"
+      ],
+      "required_semantic_fields": [
+        "title",
+        "quest_kinds",
+        "importance",
+        "brief",
+        "completion",
+        "secret",
+        "provenance"
+      ],
+      "structured_fields": {
+        "giver": "{kind:npc,ref_id} | {kind:organization,label} | null",
+        "target_refs": "{kind,ref_id} rows",
+        "deadline": "{kind:clock,clock_id} | {kind:game_time,at,display} | null",
+        "completion_and_failure": "all/any/narrative condition groups"
+      },
+      "fixed_fields": {
+        "parse_state": "deep",
+        "evidence_gap": false,
+        "provenance": "source"
+      },
+      "secret_isolation": "secret=true never carries player_safe_summary",
+      "play_language_fields": [
+        "localized_title", "player_safe_summary", "deadline.display"
+      ],
+      "rules": [
+        "compile only a quest the reviewed cached pages actually author; pipeline fabrication is source pollution",
+        "select only exact source_refs from this request's cached_page_refs",
+        "free-text completion/failure condition kinds are hard-rejected; reuse only condition_kind_values",
+        "player-visible strings must be written for every play_languages entry; brief stays keeper-side",
+        "submit status=abstain with results=[] when the reviewed pages do not author this quest"
+      ]
+    },
     "handout_card": {
       "request_kind": "deepen_handout",
       "source_aspect": "body",

@@ -1363,6 +1363,7 @@ def _target_source_scope(
         "item": ("item_roster", "item_id"),
         "handout": ("handouts", "handout_id"),
         "threat": ("threats", "threat_id"),
+        "quest": ("quest_index", "quest_id"),
     }.get(entity_kind or "")
     scopes: list[dict[str, Any]] = []
     mechanics_job = str(job_kind or "").startswith("resolve_")
@@ -1374,7 +1375,19 @@ def _target_source_scope(
     if collection_and_key is not None and not mechanics_job:
         collection, key = collection_and_key
         for row in skeleton.get(collection) or []:
-            if isinstance(row, dict) and str(row.get(key) or "") == target_id:
+            if not isinstance(row, dict):
+                continue
+            row_id = str(row.get(key) or "")
+            if entity_kind == "quest":
+                # Skeleton quest rows carry the full ``quest-<slug>`` id;
+                # queue targets may use either form. Compare canonical slugs.
+                matched = (
+                    coc_module_assets.quest_slug(row_id)
+                    == coc_module_assets.quest_slug(target_id)
+                )
+            else:
+                matched = row_id == target_id
+            if matched:
                 # named_only/toc_only scopes establish source authorization and
                 # identity, but do not prove that the selected pages contain
                 # the target body. Urgency never changes that evidence boundary.
@@ -1978,6 +1991,33 @@ def _write_host_work_request(
         payload.pop("consumer_refs")
     if dependency_ref is not None:
         payload["dependency_ref"] = dependency_ref
+    if job_kind == "deepen_quest":
+        payload["instruction"] = (
+            "Host PDF skill: read cached_page_refs first. If cached_scope_complete "
+            "is true, do not reopen the PDF for this scope. Compile exactly one "
+            "module-authored action quest into a deep quest pack following the "
+            "frozen quest v1 contract (plugins/coc-keeper/skills/"
+            "coc-scenario-import/references/quest-schema.md). quest_kinds may "
+            "use only the nine action kinds commission, escort-deliver, "
+            "rescue-protect, retrieve-collect, prevent-disrupt, survive-escape, "
+            "negotiate, restore, visit-explore (timed is a deadline attribute, "
+            "never a kind); a cognitive goal such as finding out the truth is a "
+            "clue-graph conclusion, never a quest. giver, target_refs, "
+            "destination_scene_id, and deadline stay structured; "
+            "completion/failure condition groups reuse only the exit-condition "
+            "kinds clue_discovered, flag_set, clock_reaches, always, narrative — "
+            "free-text condition kinds are hard-rejected. A secret=true quest "
+            "carries no player_safe_summary. Player-visible strings "
+            "(localized_title, player_safe_summary, deadline.display) must be "
+            "written for every play_languages entry. Select only exact "
+            "source_refs from this request's cached_page_refs and return the "
+            "direct quest entity with parse_state=deep, evidence_gap=false, "
+            "provenance=source. Never invent a quest, giver, reward, deadline, "
+            "or condition the module did not author: if the reviewed pages do "
+            "not author this quest, return status=abstain with results=[]. "
+            "Submit the complete outer result through the named source "
+            "transport, or return it unchanged to the exact fallback parent."
+        )
     if job_kind == "deepen_handout":
         # Annotated refs carry the image annotation lane's semantic layer
         # (description, kind, player_visible, when_to_show) alongside the
@@ -2636,6 +2676,7 @@ def process_claimed_job(
 
         if kind in {
             "deepen_npc", "deepen_item", "deepen_clue", "deepen_handout", "deepen_threat",
+            "deepen_quest",
             "resolve_npc_mechanics", "resolve_item_mechanics",
             "resolve_threat_mechanics",
         }:
@@ -2645,6 +2686,7 @@ def process_claimed_job(
                 "deepen_clue": "clue",
                 "deepen_handout": "handout",
                 "deepen_threat": "threat",
+                "deepen_quest": "quest",
                 "resolve_npc_mechanics": "npc",
                 "resolve_item_mechanics": "item",
                 "resolve_threat_mechanics": "threat",
@@ -2661,18 +2703,27 @@ def process_claimed_job(
             )
             if mechanics_ready or (not mechanics_job and _is_pack_ready(pack)):
                 # Handouts are delivered from the asset store by their normal
-                # consumer. NPCs, clues, and threats must enter the campaign
-                # IR used by live scene/NPC/Director queries.
-                if entity_kind == "handout":
+                # consumer. Quest packs are the same shape in this wave: the
+                # durable pack is the canonical surface, and the campaign
+                # scenario-IR projection (merge_deep_quest_into_ir in
+                # coc_module_project) is not wired yet — flagged to the Boss,
+                # not improvised here. NPCs, clues, and threats must enter
+                # the campaign IR used by live scene/NPC/Director queries.
+                if entity_kind in {"handout", "quest"}:
+                    ready_detail = {"entity_kind": entity_kind, "target_id": tid}
+                    if entity_kind == "quest":
+                        ready_detail["campaign_projection"] = (
+                            "pending_quest_merger"
+                        )
                     _finish_job(
                         workspace, asset_root_id, job,
                         result="entity_ready",
-                        detail={"entity_kind": entity_kind, "target_id": tid},
+                        detail=ready_detail,
                     )
                     return {
                         "ok": True,
                         "result": "entity_ready",
-                        "target_id": tid,
+                        **ready_detail,
                     }
                 camps = campaigns_using_asset(workspace, asset_root_id)
                 merged_for: list[str] = []
