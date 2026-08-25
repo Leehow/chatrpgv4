@@ -38,6 +38,10 @@ jobs:
           fi
           PYTHONDONTWRITEBYTECODE=1 uv run --frozen python \
             scripts/check_staged_files.py --base "$base_sha" --head HEAD
+      - name: Verify generated operation projections
+        run: >-
+          uv run --frozen python
+          plugins/coc-keeper/scripts/coc_mcp_contract_archive.py check
       - name: Run deterministic contracts
         run: PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests/ -q -p no:cacheprovider
 

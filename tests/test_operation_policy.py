@@ -1,6 +1,7 @@
 """Structured audience/phase/contract metadata for every toolbox operation."""
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 import importlib.util
 from pathlib import Path
 
@@ -20,6 +21,48 @@ def _load(name: str, path: Path):
 
 coc_toolbox = _load("coc_toolbox_operation_policy", SCRIPTS / "coc_toolbox.py")
 coc_operation_policy = coc_toolbox.coc_operation_policy
+
+
+def test_registry_owns_immutable_normalized_specs_per_toolbox_instance():
+    registry = coc_toolbox.OPERATION_REGISTRY
+    assert isinstance(coc_toolbox.TOOLS, dict)
+    assert set(registry.specs) == set(coc_toolbox.TOOLS)
+
+    finalizer = registry.get("turn.finalize")
+    assert finalizer.name == "turn.finalize"
+    assert finalizer.handler is coc_toolbox.TOOLS["turn.finalize"]["handler"]
+    assert finalizer.policy.public() == coc_toolbox.operation_policy(
+        "turn.finalize"
+    )
+    assert finalizer.execution_class == "serial_campaign"
+    assert finalizer.params["decision_id"]["required"] is True
+    with pytest.raises(FrozenInstanceError):
+        finalizer.name = "turn.changed"
+    with pytest.raises(TypeError):
+        finalizer.params["decision_id"] = {"type": "string"}
+
+    second = _load(
+        "coc_toolbox_operation_policy_isolated",
+        SCRIPTS / "coc_toolbox.py",
+    )
+    assert second.OPERATION_REGISTRY is not registry
+    assert second.TOOLS is not coc_toolbox.TOOLS
+    assert set(second.OPERATION_REGISTRY.specs) == set(registry.specs)
+
+
+def test_temporary_legacy_registration_is_removed_from_registry_with_dict_entry():
+    name = "test.registry_cleanup"
+
+    @coc_toolbox.tool(name, "temporary", {}, needs_campaign=False)
+    def _temporary(_ctx, _args):
+        return {}, [], []
+
+    try:
+        assert name in coc_toolbox.TOOLS
+        assert name in coc_toolbox.OPERATION_REGISTRY.specs
+    finally:
+        del coc_toolbox.TOOLS[name]
+    assert name not in coc_toolbox.OPERATION_REGISTRY.specs
 
 
 def test_every_registered_operation_has_valid_policy():
