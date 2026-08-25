@@ -47,6 +47,7 @@ JOB_KINDS = frozenset({
     "locate_mechanics_index",
     "partial_neighbor", "partial_opening", "ensure_stub",
     "full_parse", "classify_sections", "extract_section",
+    "annotate_images",
 })
 FULL_PARSE_BATCH_LIMIT = 32
 # How many work groups one claim may lease.  Leases are disjoint and taken
@@ -72,6 +73,8 @@ MECHANICS_LOCATOR_TARGET_ID = "mechanics-index"
 CLASSIFY_SECTIONS_KIND = "classify_sections"
 EXTRACT_SECTION_KIND = "extract_section"
 SECTION_INDEX_TARGET_ID = "section-index"
+ANNOTATE_IMAGES_KIND = "annotate_images"
+IMAGE_ANNOTATION_TARGET_ID = "image-annotations"
 SECTION_INDEX_NAME = "section-index.json"
 SECTIONS_DIR = "sections"
 HOST_WORK_SCHEMA_VERSION = 2
@@ -2264,6 +2267,9 @@ def close_full_parse_request(
         _enqueue_section_pass_if_needed(
             workspace, asset_root_id, consumer_refs=inherited_consumers,
         )
+        _enqueue_image_annotation_if_needed(
+            workspace, asset_root_id, consumer_refs=inherited_consumers,
+        )
         return update_full_parse_state(
             workspace, asset_root_id, status="complete", job_id=job_id,
         )
@@ -2306,6 +2312,206 @@ def _enqueue_section_pass_if_needed(
         )
     except ModuleAssetsError:
         return None
+
+
+def _enqueue_image_annotation_if_needed(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    consumer_refs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Queue the one image annotation pass for this source, once.
+
+    After full_parse extracts images from the PDF, this pass reads each
+    image's surrounding page text and produces a semantic annotation:
+    what the image depicts, its kind, and whether it is player-facing.
+    Annotations are stored in ``image-annotations.json`` in the module
+    root and augment ``allowed_registered_asset_refs`` for deepen jobs,
+    so the KP can deliver the right illustration at the right scene.
+    """
+    if read_image_annotations(workspace, asset_root_id) is not None:
+        return None
+    assets = _module_dir(workspace, asset_root_id) / "source-assets.json"
+    if not assets.is_file():
+        return None
+    try:
+        doc = json.loads(assets.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not (doc.get("assets") or []):
+        return None
+    try:
+        return enqueue_job(
+            workspace,
+            asset_root_id,
+            kind=ANNOTATE_IMAGES_KIND,
+            target_id=IMAGE_ANNOTATION_TARGET_ID,
+            priority=55,
+            reason="full_parse_complete",
+            consumer_refs=consumer_refs or None,
+        )
+    except ModuleAssetsError:
+        return None
+
+
+IMAGE_ANNOTATION_SCHEMA_VERSION = 1
+IMAGE_ANNOTATION_KINDS = frozenset({
+    "illustration", "map", "portrait", "diagram", "other",
+})
+
+
+def read_image_annotations(
+    workspace: Path, asset_root_id: str,
+) -> dict[str, Any] | None:
+    """Read existing image annotations; None when absent or invalid."""
+    path = _module_dir(workspace, asset_root_id) / "image-annotations.json"
+    if not path.is_file():
+        return None
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(doc, dict) or doc.get("schema_version") != IMAGE_ANNOTATION_SCHEMA_VERSION:
+        return None
+    annotations = doc.get("annotations")
+    if not isinstance(annotations, list):
+        return None
+    return doc
+
+
+def merge_image_annotation_pack(
+    workspace: Path,
+    asset_root_id: str,
+    pack: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge one annotation pack into the durable image-annotations file.
+
+    Each annotation binds a page's image to a semantic description,
+    kind, and player-visibility judgment.  The repository, never the
+    worker, writes the file to disk.
+    """
+    mod = _module_dir(workspace, asset_root_id)
+    annotations_by_key: dict[str, dict[str, Any]] = {}
+    existing = read_image_annotations(workspace, asset_root_id)
+    if existing is not None:
+        for row in existing.get("annotations") or []:
+            if isinstance(row, dict):
+                key = str(row.get("asset_key") or "")
+                if key:
+                    annotations_by_key[key] = row
+    incoming = pack.get("annotations")
+    if not isinstance(incoming, list) or not incoming:
+        raise ModuleAssetsError("image annotation pack has no annotations")
+    for row in incoming:
+        if not isinstance(row, dict):
+            raise ModuleAssetsError("image annotation must be an object")
+        required = ("asset_key", "pdf_index", "description", "kind", "player_visible")
+        for field in required:
+            if field not in row:
+                raise ModuleAssetsError(
+                    f"image annotation missing required field {field!r}"
+                )
+        asset_key = str(row.get("asset_key") or "").strip()
+        if not asset_key:
+            raise ModuleAssetsError("image annotation asset_key is empty")
+        if str(row.get("kind") or "") not in IMAGE_ANNOTATION_KINDS:
+            raise ModuleAssetsError(
+                f"image annotation kind must be one of {sorted(IMAGE_ANNOTATION_KINDS)}"
+            )
+        pdf_index = row.get("pdf_index")
+        if (
+            isinstance(pdf_index, bool)
+            or not isinstance(pdf_index, int)
+            or pdf_index < 0
+        ):
+            raise ModuleAssetsError("image annotation pdf_index is invalid")
+        clean = {
+            "asset_key": asset_key,
+            "pdf_index": pdf_index,
+            "description": str(row.get("description") or "").strip(),
+            "kind": str(row.get("kind")),
+            "player_visible": bool(row.get("player_visible")),
+            "linked_scene_hint": str(row.get("linked_scene_hint") or "").strip() or None,
+            "when_to_show": str(row.get("when_to_show") or "").strip() or None,
+        }
+        annotations_by_key[asset_key] = clean
+    doc = {
+        "schema_version": IMAGE_ANNOTATION_SCHEMA_VERSION,
+        "annotations": sorted(
+            annotations_by_key.values(), key=lambda r: (r["pdf_index"], r["asset_key"]),
+        ),
+    }
+    path = mod / "image-annotations.json"
+    path.write_text(
+        json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+    )
+    return doc
+
+
+def fulfill_and_close_host_work(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    host_work_job_id: str,
+) -> dict[str, Any]:
+    """Mark one host-work job as fulfilled after its pack was persisted."""
+    module_dir = _module_dir(workspace, asset_root_id)
+    path = (
+        module_dir / "host-work"
+        / f"{_require_id(host_work_job_id, 'host_work_job_id')}.json"
+    )
+    if not path.is_file():
+        raise ModuleAssetsError("host-work request is missing")
+    with coc_fileio.advisory_file_lock(module_dir / "host-work.lock"):
+        request = json.loads(path.read_text(encoding="utf-8"))
+        if request.get("status") in {"fulfilled", "cancelled", "superseded"}:
+            raise ModuleAssetsError(
+                f"host-work request is already {request.get('status')}"
+            )
+        request["status"] = "fulfilled"
+        request["dispatch_state"] = "fulfilled"
+        _write_json(path, request)
+    return request
+
+
+def annotated_asset_refs(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    requested_pdf_indices: list[int] | None = None,
+) -> list[dict[str, Any]]:
+    """Registered asset refs augmented with their semantic annotations.
+
+    This is the KP-facing view of extracted images: the raw hash/path
+    binding from ``source-assets.json`` enriched with the annotation
+    lane's description, kind, and delivery hint.  When the annotation
+    pass has not run, the un-annotated refs are returned unchanged so
+    deepen jobs still see the images (just without semantics).
+    """
+    raw = registered_source_asset_refs(
+        workspace, asset_root_id,
+        requested_pdf_indices=requested_pdf_indices,
+    )
+    annotations = read_image_annotations(workspace, asset_root_id)
+    if annotations is None:
+        return raw
+    by_asset = {
+        str(row.get("asset_key") or ""): row
+        for row in (annotations.get("annotations") or [])
+        if isinstance(row, dict)
+    }
+    augmented = []
+    for ref in raw:
+        key = str(ref.get("image_ref") or "")
+        annotation = by_asset.get(key)
+        augmented_ref = dict(ref)
+        if annotation is not None:
+            augmented_ref["description"] = annotation.get("description")
+            augmented_ref["annotation_kind"] = annotation.get("kind")
+            augmented_ref["player_visible"] = annotation.get("player_visible")
+            augmented_ref["when_to_show"] = annotation.get("when_to_show")
+        augmented.append(augmented_ref)
+    return augmented
 
 
 def _close_full_parse_queue_row(
@@ -6801,6 +7007,11 @@ def host_work_operational_class(request: dict[str, Any]) -> str:
         # an index that cannot yet bind authored entity sections.
         if _classification_catalog_is_empty(request):
             return "awaiting_scope"
+        return "runnable"
+    if str(request.get("kind") or "") == ANNOTATE_IMAGES_KIND:
+        # The annotation pass carries its own packet of image assets + page
+        # refs, so it holds no page window and can never satisfy the
+        # cached-scope gate below.
         return "runnable"
     if str(request.get("kind") or "") == "full_parse":
         # Whole-book background parse is dispatchable while pages are still
