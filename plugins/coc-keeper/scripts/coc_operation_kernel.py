@@ -386,6 +386,8 @@ coc_storylets = _load_sibling("coc_storylets", "coc_storylets.py")
 
 coc_belief_state = _load_sibling("coc_belief_state_toolbox", "coc_belief_state.py")
 
+coc_quest_state = _load_sibling("coc_quest_state_toolbox", "coc_quest_state.py")
+
 coc_exceptional_effects = _load_sibling(
     "coc_exceptional_effects", "coc_exceptional_effects.py"
 )
@@ -7997,9 +7999,18 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         # advanced — the only pacing signal that reached transition scoring was
         # "play has stalled". Advisory, and never a gate: the Keeper moves the
         # story wherever the fiction goes and reads this while deciding.
-        "story_progress": coc_belief_state.core_objective_progress(
-            ctx.clue_graph, world.get("discovered_clue_ids"),
-        ),
+        "story_progress": {
+            # Where the main line stands, now with the action-quest board
+            # riding beside it: which offered/active quests exist and which
+            # are machine-ready. Same facts as quest.map, compressed to the
+            # planning summary; still advisory and never a gate.
+            **coc_belief_state.core_objective_progress(
+                ctx.clue_graph, world.get("discovered_clue_ids"),
+            ),
+            "quests": coc_quest_state.quest_progress_summary(
+                ctx.campaign_dir, world=world, root=ctx.root,
+            ),
+        },
         "npcs_present": npcs,
         "clues_here": clues,
         "discovered_clue_count": len(discovered),
@@ -10163,6 +10174,66 @@ def _story_thread(ctx: Ctx) -> list[dict[str, Any]]:
             "in_this_scene": in_reach[:4],
             "one_move_away": one_move[:4],
             "elsewhere": max(0, len(wanted) - len(in_reach) - len(one_move)),
+        })
+
+    # Action quests ride the same chain. An offered or active quest is a live
+    # thread the story is holding, and what it still wants is its unmet
+    # machine conditions — for clue conditions, chained to the same
+    # here/one-move-away reachability the objectives above already use. Zero
+    # new information: the identical quest.map facts in planning order.
+    try:
+        quest_definitions = coc_quest_state.read_quest_definitions(
+            ctx.campaign_dir, root=ctx.root,
+        )
+        quest_state = coc_quest_state.read_quest_state(ctx.campaign_dir)
+    except coc_quest_state.QuestStateError:
+        quest_definitions, quest_state = {}, None
+    flags_now = _flags_set(ctx)
+    clock_now = coc_quest_state.clock_reached_reader(ctx.campaign_dir)
+    for quest_id in sorted(quest_definitions):
+        record = ((quest_state or {}).get("quests") or {}).get(quest_id) or {}
+        status = record.get("status") or "authored"
+        if status not in ("offered", "active"):
+            continue
+        definition = quest_definitions[quest_id]
+        completion = coc_quest_state.evaluate_condition_group(
+            definition.get("completion"),
+            discovered_clue_ids=discovered,
+            clock_reached=clock_now,
+            flags_set=flags_now,
+        )
+        if completion is None:
+            continue
+        unmet = [
+            row for row in [*completion.get("all", []), *completion.get("any", [])]
+            if not row.get("met")
+        ]
+        wanted_clues = [
+            str(row.get("clue_id")) for row in unmet if row.get("kind") == "clue_discovered"
+        ]
+        grouped_moves: dict[str, dict[str, Any]] = {}
+        for clue_id in wanted_clues:
+            if clue_id in here or clue_id not in nearby:
+                continue
+            destination, transition = nearby[clue_id]
+            move = grouped_moves.setdefault(destination, {
+                "scene_id": destination,
+                "transition": transition,
+                "clues": [],
+            })
+            move["clues"].append(clue_id)
+        rows.append({
+            "quest": quest_id,
+            "title": definition.get("title"),
+            "importance": definition.get("importance"),
+            "status": status,
+            "still_wants": [
+                {key: row[key] for key in ("kind", "clue_id", "flag_id", "clock_id", "threshold") if key in row}
+                for row in unmet
+            ],
+            "narrative_closure": bool(completion.get("narrative_required")),
+            "clues_in_this_scene": [c for c in wanted_clues if c in here][:4],
+            "clues_one_move_away": list(grouped_moves.values())[:4],
         })
     return rows
 

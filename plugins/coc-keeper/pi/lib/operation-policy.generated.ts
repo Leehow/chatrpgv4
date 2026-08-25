@@ -461,6 +461,66 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "recovery"
     ]
   },
+  "quest.activate": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "state",
+    "execution_class": "serial_campaign",
+    "kp_surface": "state",
+    "phases": [
+      "opening",
+      "live_turn",
+      "pending_finalization"
+    ]
+  },
+  "quest.improvise": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "state",
+    "execution_class": "serial_campaign",
+    "kp_surface": "state",
+    "phases": [
+      "opening",
+      "live_turn",
+      "pending_finalization"
+    ]
+  },
+  "quest.map": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "state",
+    "execution_class": "serial_campaign",
+    "kp_surface": "state",
+    "phases": [
+      "opening",
+      "live_turn",
+      "pending_finalization"
+    ]
+  },
+  "quest.offer": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "state",
+    "execution_class": "serial_campaign",
+    "kp_surface": "state",
+    "phases": [
+      "opening",
+      "live_turn",
+      "pending_finalization"
+    ]
+  },
+  "quest.settle": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "state",
+    "execution_class": "serial_campaign",
+    "kp_surface": "state",
+    "phases": [
+      "opening",
+      "live_turn",
+      "pending_finalization"
+    ]
+  },
   "rules.build_scale": {
     "advisory": false,
     "audience": "keeper",
@@ -1456,6 +1516,11 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
   "state": [
     "memory.resolve_hook",
     "memory.write",
+    "quest.activate",
+    "quest.improvise",
+    "quest.map",
+    "quest.offer",
+    "quest.settle",
     "state.advance_time",
     "state.assets_liquidate",
     "state.backstory_corruption_add",
