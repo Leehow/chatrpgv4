@@ -4,7 +4,8 @@
   "active_implementation_track": "pi-coc",
   "opposite_track_off_limits": "codex",
   "baseline": {
-    "commit": "affeedc3a78ac6da82e0c47ce5dafa95bf12d7fd",
+    "commit": "ff8f21f5ca98f84cef26ae2cdc42a7229dd94958",
+    "migration_source_commit": "affeedc3a78ac6da82e0c47ce5dafa95bf12d7fd",
     "verified_on": "2026-08-25",
     "canonical_operation_source": "plugins/coc-keeper/scripts/coc_toolbox.py",
     "canonical_operation_count": 125

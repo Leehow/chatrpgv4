@@ -313,13 +313,17 @@ integration-owned files. The integrator validates A-then-B and B-then-A.
 
 Baseline and every shared-kernel slice:
 
-    PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest +      tests/test_plugin_metadata.py -q -p no:cacheprovider
+    PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest \
+      tests/test_plugin_metadata.py -q -p no:cacheprovider
 
 Operation registry and projection slices:
 
-    PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest +      tests/test_operation_policy.py tests/test_pi_package.py +      tests/test_plugin_mcp.py -q -p no:cacheprovider
+    PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest \
+      tests/test_operation_policy.py tests/test_pi_package.py \
+      tests/test_plugin_mcp.py -q -p no:cacheprovider
 
-    uv run --frozen python +      plugins/coc-keeper/scripts/coc_mcp_contract_archive.py check
+    uv run --frozen python \
+      plugins/coc-keeper/scripts/coc_mcp_contract_archive.py check
 
 Each module adds its focused target test. Pi extraction uses the existing
 Node test files named in the ownership manifest. Full validation is serialized
@@ -406,3 +410,20 @@ Stop when:
 - focused behavior changes before the structural slice is complete;
 - an ownership or import check requires a new dependency rather than using the
   current Python/Node toolchain.
+
+## 11. Implementation record
+
+The migration is complete on the Pi-Coc track:
+
+- all 125 operations are normalized once and assigned to 17 explicit Python
+  registrars; `coc_toolbox.py` retains the CLI/envelope composition surface;
+- domain behavior tests moved with their operation cells, while shared
+  interface and vertical tests remain integration-owned;
+- current-dependency, turn-output, and opening-setup state and method bodies
+  moved behind the unchanged `OpeningTerminalContinuationGate` facade;
+- both generated projections are produced by one deterministic command and CI
+  runs its explicit `check` mode;
+- finance and handouts lanes started at `ab463b58`, modified only their owned
+  tests, and integrated cleanly in both orders. Both orders produced tree
+  `d43b978da4101e6147ad3d9a2667a8d4f3820fa7` and passed identical ownership,
+  projection, Python, and Pi-machine checks.

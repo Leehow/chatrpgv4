@@ -88,6 +88,26 @@ def test_pi_machine_owns_implementation_and_facade_keeps_only_delegation(row):
         )
 
 
+@pytest.mark.parametrize("row", manifest["pi_modules"], ids=lambda row: row["module_id"])
+def test_pi_machine_does_not_import_facade_or_forbidden_peer(row):
+    implementation_path = ROOT / row["owned_paths"][0]
+    source = implementation_path.read_text(encoding="utf-8")
+    imports = set(re.findall(r'from\s+["\']([^"\']+)["\']', source))
+    assert not {
+        value for value in imports if "/extensions/" in value or value.startswith("../extensions")
+    }
+    pi_module_by_filename = {
+        Path(candidate["owned_paths"][0]).name: candidate["module_id"]
+        for candidate in manifest["pi_modules"]
+    }
+    peer_dependencies = {
+        pi_module_by_filename[Path(value).name]
+        for value in imports
+        if Path(value).name in pi_module_by_filename
+    }
+    assert peer_dependencies <= set(row["may_depend_on"])
+
+
 def test_facade_has_no_product_handler_and_each_operation_registers_once():
     facade_tree = ast.parse((SCRIPTS / "coc_toolbox.py").read_text(encoding="utf-8"))
     assert not [
