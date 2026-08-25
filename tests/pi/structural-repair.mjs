@@ -644,14 +644,29 @@ try {
     ], task1),
     (error) => error instanceof runtime.LeafStageError && error.failureClass === "leaf_result_not_bare",
   ));
-  check("leaf binding remains validation failure", rejects(
-    () => runtime.parseStrictWorkerResult(
+  {
+    // Model-Facing Identifier Law: a leaf that mis-transcribes the envelope
+    // binding is machine-repaired from task truth, never failed.
+    const repaired = runtime.parseStrictWorkerResult(
       terminal({ ...result1, packet_id: "wrong-packet" }), task1,
+    );
+    check("leaf envelope binding machine-repaired", (
+      repaired.packet_id === task1.packet.packet_id
+      && repaired.work_group_id === task1.packet.work_group_id
+      && repaired.status === "usable"
+    ));
+  }
+  check("leaf foreign row binding still validation failure", rejects(
+    () => runtime.parseStrictWorkerResult(
+      terminal({
+        ...result1,
+        results: result1.results.map((row, i) => ({ ...row, job_id: `job-9x${i}` })),
+      }),
+      task1,
     ),
     (error) => error instanceof runtime.LeafStageError
       && error.failureClass === "leaf_result_invalid"
-      && error.diagnostic.code === "leaf_result_packet_binding_drift"
-      && error.diagnostic.path === "$.packet_id|$.work_group_id",
+      && error.diagnostic.code === "leaf_result_job_binding_drift",
   ));
 
   const partial = await runtime.runCoordinatorLifecycle(coordinatorTask(), {
@@ -699,7 +714,10 @@ try {
       return { data: { accepted: true } };
     },
     spawnLeaf: async (task) => task.packet.packet_id === "packet-1"
-      ? success({ ...result1, packet_id: "wrong-packet" })
+      ? success({
+        ...result1,
+        results: result1.results.map((row, i) => ({ ...row, job_id: `job-9x${i}` })),
+      })
       : success(result2),
   });
 
@@ -714,7 +732,7 @@ try {
     ...terminal(result1),
   ];
   const framingRun = { child: {}, terminate: async () => {}, activation: Promise.resolve({ type: "agent_start" }), completion: Promise.resolve(toolCallThenTerminalEvents) };
-  const invalidRun = { child: {}, terminate: async () => {}, activation: Promise.resolve({ type: "agent_start" }), completion: Promise.resolve(terminal({ ...result1, packet_id: "wrong" })) };
+  const invalidRun = { child: {}, terminate: async () => {}, activation: Promise.resolve({ type: "agent_start" }), completion: Promise.resolve(terminal({ ...result1, results: result1.results.map((row, i) => ({ ...row, job_id: `job-9x${i}` })) })) };
   const activationRun = { child: {}, terminate: async () => {}, activation: Promise.reject(new Error("activation")), completion: Promise.resolve([]) };
   const productionOwned = new Set();
   const productionFailures = [

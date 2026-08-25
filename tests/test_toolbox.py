@@ -13478,18 +13478,20 @@ def test_opening_bootstrap_is_idempotent_and_auto_projects_exact_watch(
     assert _opening_state_bytes_without_audit(ws["workspace"]) == before_repeat
 
 
-def _l0_direct_opening_l0() -> dict:
+def _l0_direct_opening_l0(*, localized: bool = True) -> dict:
     """L0 with one player hook, one keeper hook, and handout refs."""
     l0 = _minimal_module_init_l0()
+    player_hook = {
+        "id": "opening-player",
+        "audience": "player",
+        "text": "A bounded authored opening.",
+        "variant_of": None,
+    }
+    if localized:
+        player_hook["localized_title"] = {"zh-Hans": "开场"}
+        player_hook["localized_text"] = {"zh-Hans": "一段有明确边界的原作开场。"}
     l0["opening_hooks"] = [
-        {
-            "id": "opening-player",
-            "audience": "player",
-            "text": "A bounded authored opening.",
-            "localized_title": {"zh-Hans": "开场"},
-            "localized_text": {"zh-Hans": "一段有明确边界的原作开场。"},
-            "variant_of": None,
-        },
+        player_hook,
         {
             "id": "opening-keeper",
             "audience": "keeper",
@@ -13753,7 +13755,8 @@ def test_raw_bundle_opening_naturally_queues_and_compiles_media_cards(
             "kind": "read_aloud",
             "source_refs": ["pdf_index-2"],
             "text": "Accepted extra source page.",
-            "localized_text": "已验收的额外来源页。",
+            "localized_title": {"zh-Hans": "档案原文"},
+            "localized_text": {"zh-Hans": "已验收的额外来源页。"},
         },
     }
     for card_id, request in requests.items():
@@ -13869,6 +13872,568 @@ def test_l0_direct_opening_pack_is_equivalent_partial_structure():
     }
     assert pack["keeper_only"][0]["note"] == "Keeper-only opening note."
     assert pack["source_page_indices"] == [0]
+
+
+def _assert_source_text_not_substituted_as_zh_hans(pack: dict, source_text: str) -> None:
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "zh-Hans":
+                    assert value != source_text
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+    walk(pack)
+
+
+def test_l0_direct_opening_pack_omits_thin_player_hook_read_aloud():
+    """A source-only L0 hook is not a boxed passage and is not localized."""
+    project = coc_toolbox.coc_module_project
+    l0 = _l0_direct_opening_l0(localized=False)
+    source_text = l0["opening_hooks"][0]["text"]
+    pack = project.build_l0_direct_opening_pack(
+        l0,
+        location_id="opening",
+        title="Opening",
+        source_refs=[{
+            "source_id": "pdf:opening-component",
+            "pdf_index": 0,
+            "text_sha256": "a" * 64,
+            "bundle_sha256s": ["b" * 64],
+        }],
+        scope_pdf_indices=[0],
+    )
+    assert pack["read_aloud"] == []
+    assert pack["player_safe_summary"] == source_text
+    assert pack["keeper_only"][0]["note"] == "Keeper-only opening note."
+    assert pack["parse_state"] == "partial"
+    _assert_source_text_not_substituted_as_zh_hans(pack, source_text)
+
+    incomplete = _l0_direct_opening_l0(localized=False)
+    incomplete["opening_hooks"][0]["localized_title"] = {"zh-Hans": "开场"}
+    incomplete_pack = project.build_l0_direct_opening_pack(
+        incomplete,
+        location_id="opening",
+        title="Opening",
+        source_refs=[{
+            "source_id": "pdf:opening-component",
+            "pdf_index": 0,
+            "text_sha256": "a" * 64,
+            "bundle_sha256s": ["b" * 64],
+        }],
+        scope_pdf_indices=[0],
+    )
+    assert incomplete_pack["read_aloud"] == []
+    _assert_source_text_not_substituted_as_zh_hans(incomplete_pack, source_text)
+
+
+def test_opening_bootstrap_l0_direct_write_omits_thin_hook_read_aloud(
+    tmp_path: Path, monkeypatch,
+):
+    """Thin L0 still bootstraps; incomplete locale does not become read_aloud."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(tmp_path)
+    l0 = _l0_direct_opening_l0(localized=False)
+    source_text = l0["opening_hooks"][0]["text"]
+    _scenario_path, staged_facts = _stage_reviewed_facts_transport(
+        ws, module_init_l0=l0,
+    )
+    adopted = _run(ws, "setup.adopt_source_facts", {
+        "campaign_id": ws["campaign_id"],
+        "facts": staged_facts,
+    })
+    assert adopted["ok"] is True, adopted
+    boot = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {
+            "location_id": "opening",
+            "title": "Opening",
+        },
+        "opening_pdf_indices": [0],
+    })
+    assert boot["ok"] is True, boot
+    assert boot["data"]["status"] == "complete"
+    assert boot["data"]["source_work"]["direct_write"] is True
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    pack = assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+    )
+    assert pack["parse_state"] == "partial"
+    assert pack["read_aloud"] == []
+    assert pack["player_safe_summary"] == source_text
+    assert [row["note"] for row in pack["keeper_only"]] == [
+        "Keeper-only opening note."
+    ]
+    _assert_source_text_not_substituted_as_zh_hans(pack, source_text)
+    readiness = coc_toolbox.coc_module_project.opening_source_readiness(
+        ws["campaign_dir"],
+    )
+    assert readiness["state"] == "ready", readiness
+
+
+def test_opening_bootstrap_delivers_reviewed_handout_locale_end_to_end(
+    tmp_path: Path, monkeypatch,
+):
+    """Reviewed L0 handout locale fields reach permission-controlled player
+    delivery through the normal bootstrap path; source-only rows never
+    masquerade as localized cards."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(tmp_path)
+    l0 = _l0_direct_opening_l0()
+    source_title = "小卡片#1"
+    l0["opening_handouts"] = [
+        {
+            "id": "handout-1",
+            "title": source_title,
+            "when_to_give": "开场简报",
+            "kind": "read_aloud",
+            "source_refs": ["pdf_index-0"],
+            "localized_title": {"zh-Hans": "开场简报卡"},
+            "localized_text": {"zh-Hans": "一段已审阅的开场译文。"},
+        },
+        {
+            "id": "handout-2",
+            "title": "Source-only note",
+            "when_to_give": "later",
+            "source_refs": ["pdf_index-0"],
+        },
+    ]
+    _scenario_path, staged_facts = _stage_reviewed_facts_transport(
+        ws, module_init_l0=l0,
+    )
+    adopted = _run(ws, "setup.adopt_source_facts", {
+        "campaign_id": ws["campaign_id"],
+        "facts": staged_facts,
+    })
+    assert adopted["ok"] is True, adopted
+    boot = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {
+            "location_id": "opening",
+            "title": "Opening",
+        },
+        "opening_pdf_indices": [0],
+    })
+    assert boot["ok"] is True, boot
+    assert boot["data"]["status"] == "complete"
+    assert boot["data"]["source_work"]["direct_write"] is True
+
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    reviewed = assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "handout", "handout-1",
+    )
+    assert reviewed["parse_state"] == "body_parsed"
+    assert reviewed["localized_title"] == {"zh-Hans": "开场简报卡"}
+    assert reviewed["localized_text"] == {"zh-Hans": "一段已审阅的开场译文。"}
+    assert "body_source_page_indices" not in reviewed
+    source_only = assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "handout", "handout-2",
+    )
+    assert source_only["parse_state"] == "named_only"
+    assert "localized_title" not in source_only
+    assert "localized_text" not in source_only
+    # Source-only prose never masquerades as a localization anywhere in the
+    # canonical entity.
+    assert "zh-Hans" not in json.dumps(source_only, ensure_ascii=False)
+
+    # The canonical campaign card store carries the reviewed locale fields
+    # through the opening projection.
+    store = json.loads((
+        ws["campaign_dir"] / "scenario" / "handouts.json"
+    ).read_text(encoding="utf-8"))
+    cards = {row["asset_id"]: row for row in store["handouts"]}
+    assert cards["handout-1"]["localized_title"] == {"zh-Hans": "开场简报卡"}
+    assert cards["handout-1"]["localized_text"] == {
+        "zh-Hans": "一段已审阅的开场译文。",
+    }
+    assert cards["handout-1"]["parse_state"] == "body_parsed"
+    assert "handout-2" not in cards
+
+    # Permission-controlled delivery hands the player the reviewed title and
+    # body; the source-only stub stays fail-closed.
+    delivered = _run(ws, "state.deliver_handout", {
+        "handout_id": "handout-1",
+        "decision_id": "opening-handout-1",
+        "scene_id": "opening",
+        "reason": "开场简报交付",
+    })
+    assert delivered["ok"] is True, delivered
+    assert delivered["data"]["card"]["title"] == "开场简报卡"
+    assert delivered["data"]["card"]["text"] == "一段已审阅的开场译文。"
+    world = json.loads((
+        ws["campaign_dir"] / "save" / "world-state.json"
+    ).read_text(encoding="utf-8"))
+    assert world["delivered_handout_ids"] == ["handout-1"]
+    refused = _run(ws, "state.deliver_handout", {
+        "handout_id": "handout-2",
+        "decision_id": "opening-handout-2",
+    })
+    assert refused["ok"] is False, refused
+    assert refused["error"]["code"] == "unknown_handout"
+
+
+def test_deepen_handout_queue_lifecycle_keeps_table_language_title(
+    tmp_path: Path, monkeypatch,
+):
+    """Queue-enabled regression: the real deepen_handout host-work request
+    carries a closed contract that permits (and for read_aloud requires) the
+    full play-language title/body maps, so deep fulfillment cannot drop the
+    table-language title that player delivery projects from.
+
+    The env toggle only suppresses the detached auto-kick subprocess; the
+    real queue worker below is driven in-process so the lifecycle stays
+    deterministic."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(tmp_path)
+    l0 = _l0_direct_opening_l0()
+    l0["opening_handouts"] = [
+        {
+            "id": "handout-1",
+            "title": "小卡片#1",
+            "when_to_give": "开场简报",
+            "kind": "read_aloud",
+            "source_refs": ["pdf_index-0"],
+        },
+    ]
+    _scenario_path, staged_facts = _stage_reviewed_facts_transport(
+        ws, module_init_l0=l0,
+    )
+    adopted = _run(ws, "setup.adopt_source_facts", {
+        "campaign_id": ws["campaign_id"],
+        "facts": staged_facts,
+    })
+    assert adopted["ok"] is True, adopted
+    boot = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {
+            "location_id": "opening",
+            "title": "Opening",
+        },
+        "opening_pdf_indices": [0],
+    })
+    assert boot["ok"] is True, boot
+    assert boot["data"]["source_work"]["direct_write"] is True
+
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_locale_lifecycle",
+        "coc_module_queue_worker.py",
+    )
+    produced = worker.run_worker_once(ws["workspace"], parallel=1)
+    assert produced["claimed"] >= 1
+
+    queue = assets.list_queue(ws["workspace"], ws["asset_root_id"])
+    deepen_rows = [
+        row
+        for row in [
+            *list(queue.get("pending") or []),
+            *list(queue.get("in_flight") or []),
+            *list(queue.get("done") or []),
+        ]
+        if isinstance(row, dict)
+        and row.get("kind") == "deepen_handout"
+        and str(row.get("target_id") or "") == "handout-1"
+    ]
+    assert deepen_rows, produced
+    job_id = str(deepen_rows[0]["job_id"])
+    request = assets.get_host_work_request(
+        ws["workspace"], ws["asset_root_id"], job_id,
+    )
+    assert request is not None
+    contract = request["result_contract"]
+    assert contract["contract_id"] == "coc.handout-card-pack.v1"
+    # The closed contract and the queue instruction now agree: the deep pack
+    # may (and for read_aloud must) carry the table-language title.
+    assert "localized_title" in contract["allowed_pack_fields"]
+    assert "localized_text" in contract["allowed_pack_fields"]
+    assert request["play_languages"] == ["zh-Hans"]
+
+    claimed = assets.claim_host_work_requests(
+        ws["workspace"],
+        ws["asset_root_id"],
+        executor_id="queue-locale-lifecycle-test",
+        limit=10,
+    )
+    claimed_requests = [
+        req
+        for packet in claimed["packets"]
+        for req in packet["requests"]
+    ]
+    assert any(str(req.get("job_id") or "") == job_id for req in claimed_requests)
+
+    stub = assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "handout", "handout-1",
+    )
+    deep_pack = {
+        "handout_id": "handout-1",
+        "asset_id": "handout-1",
+        "kind": "read_aloud",
+        "title": "小卡片#1",
+        "text": "A bounded authored opening.",
+        "localized_title": {"zh-Hans": "开场简报卡（深掘）"},
+        "localized_text": {"zh-Hans": "深掘后的完整开场译文。"},
+        "when_to_deliver": "开场简报交付时",
+        "source_refs": ["pdf_index-0"],
+        "scene_refs": list(stub.get("scene_refs") or []),
+        "clue_refs": [],
+        "player_visible": True,
+        "parse_state": "deep",
+        "evidence_gap": False,
+        "origin": "source",
+        "provenance": {"authority": "source_authored", "basis": "host_pack"},
+    }
+    locale_dropped = json.loads(json.dumps(deep_pack))
+    del locale_dropped["localized_title"]
+    rejected = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": job_id,
+            "pack": locale_dropped,
+            "related_packs": [],
+        },
+    })
+    assert rejected["ok"] is False, rejected
+    assert "lacks full active play_language" in rejected["error"]["message"]
+    # The rejected pack never overwrote the honest named-only stub.
+    still_stub = assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "handout", "handout-1",
+    )
+    assert still_stub["parse_state"] == "named_only"
+    assert "localized_title" not in still_stub
+
+    fulfilled = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": job_id,
+            "pack": deep_pack,
+            "related_packs": [],
+        },
+    })
+    assert fulfilled["ok"] is True, fulfilled
+
+    deep_entity = assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "handout", "handout-1",
+    )
+    assert deep_entity["parse_state"] == "deep"
+    assert deep_entity["localized_title"] == {"zh-Hans": "开场简报卡（深掘）"}
+    assert deep_entity["localized_text"] == {"zh-Hans": "深掘后的完整开场译文。"}
+
+    delivered = _run(ws, "state.deliver_handout", {
+        "handout_id": "handout-1",
+        "decision_id": "deepen-locale-deliver-1",
+        "scene_id": "opening",
+        "reason": "深掘后开场简报交付",
+    })
+    assert delivered["ok"] is True, delivered
+    assert delivered["data"]["card"]["title"] == "开场简报卡（深掘）"
+    assert delivered["data"]["card"]["text"] == "深掘后的完整开场译文。"
+
+    # Canonical reprojection re-merges the stored deep card into the
+    # campaign card store (the same path skeleton refresh takes) without
+    # losing the authoritative delivery.
+    projected = coc_toolbox.coc_module_project.project_skeleton_to_campaign(
+        ws["workspace"], ws["campaign_id"], ws["asset_root_id"],
+    )
+    assert "handout:handout-1" in projected["reapplied_deep_entities"]
+    store = json.loads((
+        ws["campaign_dir"] / "scenario" / "handouts.json"
+    ).read_text(encoding="utf-8"))
+    card = next(
+        row for row in store["handouts"] if row["asset_id"] == "handout-1"
+    )
+    assert card["parse_state"] == "deep"
+    assert card["localized_title"] == {"zh-Hans": "开场简报卡（深掘）"}
+    assert card["localized_text"] == {"zh-Hans": "深掘后的完整开场译文。"}
+    world = json.loads((
+        ws["campaign_dir"] / "save" / "world-state.json"
+    ).read_text(encoding="utf-8"))
+    assert world["delivered_handout_ids"] == ["handout-1"]
+
+
+def test_deepen_handout_body_parsed_card_refs_publish_and_complete(
+    tmp_path: Path, monkeypatch,
+):
+    """A reviewed body_parsed opening card carries canonical compact
+    pdf_index-N source_refs; the real queue worker must publish its
+    deepen_handout request from that exact scope (previously it died on
+    "source_refs[0] must be an object") and the fulfilled deep card must
+    keep the required table-language title/body.
+
+    COC_DISABLE_QUEUE_WORKER is deliberately unset: it only gates the
+    detached auto-kick, so bootstrap's enqueue kicks the real detached
+    worker while this test also drives the same worker code in-process as
+    a deterministic fallback for CI environments without process spawn."""
+    monkeypatch.delenv("COC_DISABLE_QUEUE_WORKER", raising=False)
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(tmp_path)
+    l0 = _l0_direct_opening_l0()
+    l0["opening_handouts"] = [
+        {
+            "id": "handout-1",
+            "title": "小卡片#1",
+            "when_to_give": "开场简报",
+            "kind": "read_aloud",
+            "source_refs": ["pdf_index-0"],
+            "localized_title": {"zh-Hans": "开场简报卡"},
+            "localized_text": {"zh-Hans": "一段已审阅的开场译文。"},
+        },
+    ]
+    _scenario_path, staged_facts = _stage_reviewed_facts_transport(
+        ws, module_init_l0=l0,
+    )
+    adopted = _run(ws, "setup.adopt_source_facts", {
+        "campaign_id": ws["campaign_id"],
+        "facts": staged_facts,
+    })
+    assert adopted["ok"] is True, adopted
+    boot = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {
+            "location_id": "opening",
+            "title": "Opening",
+        },
+        "opening_pdf_indices": [0],
+    })
+    assert boot["ok"] is True, boot
+    assert boot["data"]["source_work"]["direct_write"] is True
+
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_body_parsed_refs",
+        "coc_module_queue_worker.py",
+    )
+    reviewed = assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "handout", "handout-1",
+    )
+    assert reviewed["parse_state"] == "body_parsed"
+    assert reviewed["source_refs"] == ["pdf_index-0"]
+    assert reviewed["localized_title"] == {"zh-Hans": "开场简报卡"}
+
+    # The bootstrap enqueue auto-kicked the detached worker (disable flag
+    # unset); poll for the published request and run one in-process worker
+    # pass per poll so the test cannot hang on environments where the
+    # detached spawn is unavailable.
+    hw_dir = (
+        assets._module_dir(ws["workspace"], ws["asset_root_id"])
+        / "host-work"
+    )
+    request: dict | None = None
+    for _attempt in range(25):
+        if hw_dir.is_dir():
+            for path in sorted(hw_dir.glob("*.json")):
+                try:
+                    row = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if (
+                    isinstance(row, dict)
+                    and row.get("kind") == "deepen_handout"
+                    and str(row.get("target_id") or "") == "handout-1"
+                ):
+                    request = row
+                    break
+        if request is not None:
+            break
+        worker.run_worker_once(ws["workspace"], parallel=1)
+        time.sleep(0.2)
+    assert request is not None, (
+        "deepen_handout request for the body_parsed card was never published"
+    )
+
+    job_id = str(request["job_id"])
+    contract = request["result_contract"]
+    assert contract["contract_id"] == "coc.handout-card-pack.v1"
+    assert "localized_title" in contract["allowed_pack_fields"]
+    assert "localized_text" in contract["allowed_pack_fields"]
+    assert request["play_languages"] == ["zh-Hans"]
+    # The exact compact-ref scope became the request's page window.
+    assert request["requested_pdf_indices"] == [0]
+    assert {
+        row["card_source_ref"]
+        for row in contract["allowed_exact_source_refs"]
+    } == {"pdf_index-0"}
+
+    assets.claim_host_work_requests(
+        ws["workspace"],
+        ws["asset_root_id"],
+        executor_id="body-parsed-refs-test",
+        limit=10,
+    )
+    deep_pack = {
+        "handout_id": "handout-1",
+        "asset_id": "handout-1",
+        "kind": "read_aloud",
+        "title": "小卡片#1",
+        "text": "A bounded authored opening.",
+        "localized_title": {"zh-Hans": "开场简报卡（深掘）"},
+        "localized_text": {"zh-Hans": "深掘后的完整开场译文。"},
+        "when_to_deliver": "开场简报交付时",
+        "source_refs": ["pdf_index-0"],
+        "scene_refs": list(reviewed.get("scene_refs") or []),
+        "clue_refs": [],
+        "player_visible": True,
+        "parse_state": "deep",
+        "evidence_gap": False,
+        "origin": "source",
+        "provenance": {"authority": "source_authored", "basis": "host_pack"},
+    }
+    locale_dropped = json.loads(json.dumps(deep_pack))
+    del locale_dropped["localized_title"]
+    rejected = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": job_id,
+            "pack": locale_dropped,
+            "related_packs": [],
+        },
+    })
+    assert rejected["ok"] is False, rejected
+    assert "lacks full active play_language" in rejected["error"]["message"]
+    # The rejected pack never clobbered the reviewed body_parsed card.
+    still_reviewed = assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "handout", "handout-1",
+    )
+    assert still_reviewed["parse_state"] == "body_parsed"
+    assert still_reviewed["localized_title"] == {"zh-Hans": "开场简报卡"}
+
+    fulfilled = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": job_id,
+            "pack": deep_pack,
+            "related_packs": [],
+        },
+    })
+    assert fulfilled["ok"] is True, fulfilled
+    deep_entity = assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "handout", "handout-1",
+    )
+    assert deep_entity["parse_state"] == "deep"
+    assert deep_entity["localized_title"] == {"zh-Hans": "开场简报卡（深掘）"}
+    assert deep_entity["localized_text"] == {"zh-Hans": "深掘后的完整开场译文。"}
+
+    delivered = _run(ws, "state.deliver_handout", {
+        "handout_id": "handout-1",
+        "decision_id": "body-parsed-deepen-deliver-1",
+        "scene_id": "opening",
+        "reason": "深掘后开场简报交付",
+    })
+    assert delivered["ok"] is True, delivered
+    assert delivered["data"]["card"]["title"] == "开场简报卡（深掘）"
+    assert delivered["data"]["card"]["text"] == "深掘后的完整开场译文。"
+
+    projected = coc_toolbox.coc_module_project.project_skeleton_to_campaign(
+        ws["workspace"], ws["campaign_id"], ws["asset_root_id"],
+    )
+    assert "handout:handout-1" in projected["reapplied_deep_entities"]
+    store = json.loads((
+        ws["campaign_dir"] / "scenario" / "handouts.json"
+    ).read_text(encoding="utf-8"))
+    card = next(
+        row for row in store["handouts"] if row["asset_id"] == "handout-1"
+    )
+    assert card["parse_state"] == "deep"
+    assert card["localized_title"] == {"zh-Hans": "开场简报卡（深掘）"}
+    world = json.loads((
+        ws["campaign_dir"] / "save" / "world-state.json"
+    ).read_text(encoding="utf-8"))
+    assert world["delivered_handout_ids"] == ["handout-1"]
 
 
 def test_opening_bootstrap_l0_direct_write_falls_back_without_module_init(

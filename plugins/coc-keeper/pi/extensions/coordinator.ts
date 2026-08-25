@@ -253,7 +253,15 @@ export async function autoDispatchCoordinator(
       options.exactTask !== undefined,
       options.priority ?? "background",
     );
-  } catch {
+  } catch (error) {
+    // The submit failure class alone is not diagnosable: surface the thrown
+    // detail in the audit stream without widening the terminal receipt
+    // contract (its fields stay exactly validated downstream).
+    deps.audit({
+      status: "submit_failed_detail",
+      dispatch_key: key,
+      detail: error instanceof Error ? error.message : String(error),
+    });
     const existing = ownedManager.state(key);
     if (options.waitForTerminal && existing) {
       return await ownedManager.waitForTerminal(key, options.signal);

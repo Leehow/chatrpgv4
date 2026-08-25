@@ -300,6 +300,30 @@ def test_pi_open_turn_recovery_host_guidance_is_structured_and_pairing_safe():
         ],
         "noMidPairCustom": True,
         "providerValid": True,
+        # Silent settled startup-resume modes quarantine the remainder of
+        # the auto-open agent turn: empty tools until agent_end, no
+        # empty-terminal recovery, no follow-up or duplicate call, then the
+        # next player turn gets the normal tool surface back.
+        "silentModesQuarantined": [
+            "already_acknowledged",
+            "awaiting_player",
+        ],
+        "quarantineToolsEmptyUntilAgentEnd": True,
+        "quarantineHidesMechanicalFinal": True,
+        "quarantineHidesThinkingOnlyFinal": True,
+        "quarantineNoEmptyTerminalRecovery": True,
+        "quarantineNoFollowUpOrDuplicateCall": True,
+        "quarantineToolsReturnAfterAgentEnd": True,
+        "nextPlayerTurnAfterQuarantineKeepsNormalTools": True,
+        "attachmentOnlyUserTurnArmsPending": True,
+        "attachmentOnlyUserClearedByVisibleAssistant": True,
+        "stringContentUserTurnArmsPending": True,
+        "stringContentUserClearedByVisibleAssistant": True,
+        "nonQuarantineModes": [
+            "open_turn_recovery",
+            "table_opening",
+            "pending_finalization",
+        ],
     }
 
 
@@ -312,6 +336,8 @@ def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():
             "coc_source_assets",
             "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state",
             "coc_chargen_delegate",
+            # Path-restricted canonical skill-doc read (skill-doc-read.ts).
+            "read",
         ],
     }
 
@@ -2164,6 +2190,99 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
             "stalePreviousEpochAllowed": True,
             "openingExactAllowed": True,
             "openingWakeConsumed": True,
+        },
+    }
+
+
+def test_pi_empty_terminal_recovery_is_bounded_and_fail_closed():
+    result = _node(ROOT / "tests/pi/empty-terminal-recovery.mjs", str(ROOT))
+    assert result == {
+        "noEpoch": {
+            "thinkingStripped": True,
+            "sends": 0,
+            "appends": 0,
+        },
+        "errorAborted": {
+            "noRecoveryOnErrorAborted": True,
+            "recoveryOnStop": True,
+        },
+        "firstEpoch": {
+            "firstTerminalThinkingStripped": True,
+            "recoverySends": 1,
+            "recoveryOptions": {"triggerTurn": True, "deliverAs": "followUp"},
+            "recoveryHidden": True,
+            "recoveryDetails": {
+                "kind": "empty_terminal_recovery",
+                "playerTurnEpoch": 1,
+            },
+            "recoveryAppended": 1,
+            "playerInputNotDuplicated": True,
+            "secondTerminalNoNewRecovery": True,
+            "faultSends": 1,
+            "faultOptions": {"triggerTurn": False},
+            "faultFailureClass": "empty_terminal_no_player_output",
+            "faultAppended": 1,
+            "thirdTerminalNoLoop": True,
+        },
+        "newEpoch": {
+            "recoverySends": 2,
+            "epochs": [1, 2],
+        },
+        "answeredEpoch": {
+            "sends": 0,
+            "appends": 0,
+        },
+        "toolBearing": {
+            "sends": 0,
+            "toolCallPreserved": True,
+        },
+        "visibleNormal": {
+            "passThroughUntransformed": True,
+            "textPreserved": True,
+            "sends": 0,
+        },
+        "sendFailure": {
+            "thinkingStripped": True,
+            "recoverySends": 0,
+            "scheduledMarkers": 0,
+            "deliveryFailedMarkers": 1,
+            "faultSends": 1,
+            "faultFailureClass": "empty_terminal_recovery_delivery_failed",
+            "faultOptions": {"triggerTurn": False},
+            "playerInputNotDuplicated": True,
+        },
+        "staleFault": {
+            "epoch1FaultCount": 1,
+            "sameEpochSuppressed": True,
+            "staleFaultRetained": True,
+            "narrationPassed": True,
+            "newFaultCount": 2,
+            "newFaultEpoch": 3,
+            "newFaultFailureClass": "empty_terminal_no_player_output",
+        },
+        "noResend": {
+            "recoverySaysNoResend": True,
+            "recoverySaysNoRerun": True,
+            "recoveryInspectsExistingState": True,
+            "recoveryOnlyMissingWork": True,
+            "recoveryAllowsCompletedMechanics": True,
+            "recoveryNotClaimingWhollyUnsettled": True,
+            "finalizationBranchKeepsContract": True,
+            "faultSaysNoResend": True,
+            "faultSaysNoRerun": True,
+            "faultPointsToResume": True,
+            "noResendGuidance": True,
+        },
+        "startupResume": {
+            "recoverySends": 0,
+            "recoveryAppends": 0,
+            "faultSends": 0,
+        },
+        "finalizedReplacement": {
+            "armed": True,
+            "replacedWithExact": True,
+            "sends": 0,
+            "appends": 0,
         },
     }
 

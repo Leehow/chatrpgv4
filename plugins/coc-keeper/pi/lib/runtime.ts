@@ -44,7 +44,7 @@ export const MAX_RESULTS_PER_LEAF = 128;
 // One same-task repair may correct a structurally invalid source-worker pack.
 // A second model pass would be a cold retry rather than a bounded repair.
 export const MAX_SOURCE_PACK_REPAIR_ATTEMPTS = 1;
-export const ACTIVATION_TIMEOUT_MS = 20_000;
+export const ACTIVATION_TIMEOUT_MS = 120_000;
 export const MCP_TIMEOUT_MS = 30_000;
 export const LEASE_RENEW_INTERVAL_MS = 120_000;
 export const LEASE_RENEW_SECONDS = 600;
@@ -1161,6 +1161,8 @@ export type LeafExecutionOutcome =
     stage: LeafFailureStage;
     failure_class: LeafFailureClass;
     diagnostic?: ValidationFailure;
+    /** Non-contract cause message (task inflation, digest, internals). */
+    detail?: string;
   };
 
 export type LeaseLifecycleObservation = {
@@ -1256,8 +1258,12 @@ export function parseStrictWorkerResult(events: JsonObject[], taskValue: unknown
     "leaf_result_not_bare",
     { code: "leaf_framing_not_one_text", path: "assistant.messages" },
   );
-  try { return validateWorkerObject(terminals[0], taskValue); }
-  catch (error) {
+  try {
+    return validateWorkerObject(
+      completeLeafResultEnvelope(terminals[0], taskValue),
+      taskValue,
+    );
+  } catch (error) {
     throw new LeafStageError(
       "validation",
       "leaf_result_invalid",
@@ -1269,6 +1275,37 @@ export function parseStrictWorkerResult(events: JsonObject[], taskValue: unknown
         },
     );
   }
+}
+
+/**
+ * Machine completion of the leaf result envelope, per the Model-Facing
+ * Identifier Law: the packet/work-group bindings, fixed wrapper fields, and
+ * single-job row ids are machine truth injected here — the model's echo of
+ * random ids is never trusted and never required. Rows keep their semantic
+ * payload untouched; a multi-job packet with drifted row ids stays
+ * ambiguous and still fails validation.
+ */
+export function completeLeafResultEnvelope(
+  result: JsonObject,
+  taskValue: unknown,
+): JsonObject {
+  const expected = expectedBinding(taskValue);
+  const completed: JsonObject = { ...result };
+  completed.schema_version = 1;
+  completed.contract_id = "coc.source-pack-worker.v1";
+  completed.packet_id = expected.packetId;
+  completed.work_group_id = expected.workGroupId;
+  completed.status = "usable";
+  if (Array.isArray(completed.results) && expected.jobIds.length === 1) {
+    const onlyJobId = expected.jobIds[0];
+    completed.results = (completed.results as unknown[]).map((row) => {
+      if (!row || typeof row !== "object" || Array.isArray(row)) return row;
+      const rowObject = { ...(row as JsonObject) };
+      if (rowObject.job_id !== onlyJobId) rowObject.job_id = onlyJobId;
+      return rowObject;
+    });
+  }
+  return completed;
 }
 
 const COORDINATOR_STATUSES = new Set(["fulfilled", "partial", "idle", "failed"]);
@@ -1520,16 +1557,28 @@ export function parseStrictCoordinatorResultWithDiagnostics(
   if (lifecycleResults.length !== 1) throw new Error("Pi coordinator must emit exactly one lifecycle tool result event");
   if (terminals.length !== 1) throw new Error("Pi coordinator must emit exactly one terminal assistant JSON event");
   const terminalParts = splitPiPrivateRepairDiagnostics(terminals[0]);
-  const terminal = validateCoordinatorResult(terminalParts.receipt, taskValue);
   const lifecycle = lifecycleResults[0];
+  // The lifecycle tool result is machine-produced truth and is the receipt
+  // this parser returns. The model's terminal echo only proves the child
+  // acknowledged its own receipt; demanding canonical byte-equality makes
+  // the whole dispatch fail whenever the model mis-transcribes one opaque
+  // hash id — exactly what large models reliably get wrong. The echo is
+  // validated loosely on its two short identity fields and is never trusted
+  // over the tool result; the machine receipt carries the full contract.
+  validateCoordinatorResult(lifecycle.receipt, taskValue);
+  const echo = asObject(terminalParts.receipt, "coordinator terminal echo");
+  const echoPacketId = echo.packet_id;
+  const echoStatus = echo.status;
   if (
-    jsonCanonical(terminal) !== jsonCanonical(lifecycle.receipt)
-    || (
-      terminalParts.diagnostics.length > 0
-      && jsonCanonical(terminalParts.diagnostics)
-        !== jsonCanonical(lifecycle.repair_diagnostics)
-    )
-  ) throw new Error("coordinator terminal receipt diverges from lifecycle tool result");
+    typeof echoPacketId !== "string"
+    || typeof echoStatus !== "string"
+    || echoPacketId !== lifecycle.receipt.packet_id
+    || echoStatus !== lifecycle.receipt.status
+  ) {
+    throw new Error(
+      "coordinator terminal echo does not acknowledge the lifecycle tool receipt",
+    );
+  }
   return lifecycle;
 }
 
@@ -1699,7 +1748,10 @@ export function spawnPiChild(options: {
       }
       if (!activationSettled) {
         activationSettled = true;
-        const error = new Error(`Pi child exited before activation (${code ?? signal ?? "unknown"})`);
+        const error = new Error(
+          `Pi child exited before activation (${code ?? signal ?? "unknown"}); `
+          + `stderr tail: ${stderr.slice(-400) || "<empty>"}`,
+        );
         rejectActivation(error);
         completionSettled = true;
         rejectCompletion(error);
@@ -1747,7 +1799,15 @@ export async function collectLeafExecution(
           ...(error.diagnostic ? { diagnostic: error.diagnostic } : {}),
         };
       }
-      return { kind: "failure", stage: "validation", failure_class: "leaf_result_invalid" };
+      // A non-contract throw (task inflation, spilled-field digest, parser
+      // internals) carries the only real cause in its message; keep it in
+      // the failure outcome instead of swallowing it into a bare class.
+      return {
+        kind: "failure",
+        stage: "validation",
+        failure_class: "leaf_result_invalid",
+        detail: error instanceof Error ? error.message : String(error),
+      };
     }
   } finally {
     owned.delete(run);
@@ -2917,6 +2977,21 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
           settled.value.diagnostic,
           bindings[index],
         );
+      } else if (settled.value.detail) {
+        // Non-contract cause: surface it in the audit stream so the
+        // failure class alone never hides the actual defect.
+        dependencies.onSourcePackRepairDiagnostic?.({
+          schema_version: 1,
+          contract_id: "coc.pi-source-pack-repair-diagnostic.v1",
+          campaign_id: campaignId,
+          job_id: bindings[index].jobIds[0] ?? "",
+          failure_class: `leaf_execution_detail: ${settled.value.detail.slice(0, 200)}`,
+          field_paths: [],
+          invalid_binding_count: 0,
+          repair_attempt: 0,
+          retry_terminal: true,
+          retry_exhausted: false,
+        });
       }
       continue;
     }

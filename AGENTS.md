@@ -336,6 +336,36 @@ Players may guess, speculate, or bait a spoiler. **KP owns the intercept.**
   end/consumption. Never use prose keywords or quotas; the first receipt stays
   immutable.
 
+## Model-Facing Identifier Law (Semantic IDs Only)
+
+Large models mis-transcribe random identifiers — uuids, hex digests, hash
+ids, base62 noise — at very high rates. This is a protocol-design law, not
+a prompt-tuning problem; it binds code, schemas, prompts, worker
+instructions, and reviews on every host.
+
+- Any identifier a model must read, copy, echo, choose, or emit on a
+  contract surface is a **semantic id**: human-readable, meaning-bearing
+  tokens (kind, entity slug, page scope, ordinal) that stay stable across
+  retries. Example: `deepen-handout:small-card-1:page-13`, never
+  `job-75caedf23af6`.
+- Random digests are **machine-internal integrity evidence**. Code owns
+  their generation, attachment, and verification end-to-end. A protocol
+  must never require a model to relay a random id between messages: the
+  machine re-attaches identity after the model's semantic payload, and
+  anti-drift is enforced by digest checks in code — never by asking the
+  model to echo opaque bytes.
+- Where an id is both machine-created and model-visible (job ids, dispatch
+  keys, lease ids, packet ids), it is semantic by construction with a
+  designed namespace — kind prefix + entity slug + scope + revision
+  ordinal — so ids cannot collide across kinds, campaigns, or asset roots.
+  Uniqueness comes from namespace architecture, not randomness.
+- New contracts, schemas, prompts, and instructions must not introduce
+  random-id transcription for models. Existing surfaces that demand it
+  (`job-<hex>` ids, `source-lease-<hex>`, hash-derived dispatch keys,
+  byte-equal receipt echoes) are technical debt: convert the lane
+  systemically when it is touched, and never copy the pattern into new
+  work.
+
 ## Feature Integration And Repair Discipline
 
 ### Feature Integration Is Part Of Implementation

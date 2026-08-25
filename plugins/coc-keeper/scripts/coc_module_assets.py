@@ -57,6 +57,14 @@ MAX_CLAIM_LIMIT = 32
 # A turn-blocking dependency still claims exactly its one job; batching is for
 # work nobody is waiting on.
 CURRENT_DEPENDENCY_CLAIM_LIMIT = 1
+# The Pi claim wire projects the whole leased batch inside one bounded inline
+# envelope (coc_mcp_wire.MAX_INLINE_BYTES). Keep both values in sync: a claim
+# leases only as many groups as this budget can carry, so a valid claim can
+# never void its own projection at transport time. The headroom covers the
+# packet-level fields, lease bindings, and wire envelope outside the
+# per-request bodies (measured ~3 KiB; 4 leaves margin).
+CLAIM_WIRE_BUDGET_BYTES = 16 * 1024
+CLAIM_WIRE_ENVELOPE_HEADROOM_BYTES = 4 * 1024
 FULL_PARSE_MAX_RENDER_FAILURES = 3
 FOREGROUND_OPENING_PURPOSE = "foreground_opening_slice"
 MECHANICS_LOCATOR_PURPOSE = "mechanics_locator_pass"
@@ -478,9 +486,10 @@ def handout_card_result_contract(
         },
         "allowed_pack_fields": [
             "handout_id", "asset_id", "kind", "title", "summary",
-            "text", "localized_text", "when_to_deliver", "image_ref",
-            "source_refs", "scene_refs", "clue_refs", "player_visible",
-            "parse_state", "evidence_gap", "origin", "provenance",
+            "text", "localized_title", "localized_text", "when_to_deliver",
+            "image_ref", "source_refs", "scene_refs", "clue_refs",
+            "player_visible", "parse_state", "evidence_gap", "origin",
+            "provenance",
         ],
         "required_pack_fields": [
             "handout_id", "asset_id", "kind", "title", "source_refs",
@@ -518,6 +527,7 @@ def handout_card_result_contract(
             "an image_ref asset pdf_index must be one of the card source_refs pages",
             "scene_refs and clue_refs are unique subsets of the exact allowed request ids; when the allowed set is empty the result field is absent or empty",
             "player_visible is true; Keeper-only material is not a handout result",
+            "a read_aloud card carries full localized_title/localized_text play_language-to-string maps covering every request play_languages entry",
             "when_to_deliver is semantic advice for Keeper judgment, never a machine condition",
             "no aliases, extra fields, prose scan, keyword classification, or parent repair",
         ],
@@ -1410,6 +1420,41 @@ def _validate_location_read_aloud_locales(
                     f"{field}.{localized_field} lacks full active play_language "
                     f"values: {missing}"
                 )
+
+
+def _validate_deep_handout_read_aloud_locales(
+    doc: dict[str, Any], required_languages: set[str]
+) -> None:
+    """A deep read-aloud handout card must carry full table-language maps.
+
+    Player delivery projects a read-aloud card straight from its
+    ``localized_title`` / ``localized_text`` fields, so a deep pack without
+    the full play-language maps would overwrite the opening card's reviewed
+    localization with a card that can never deliver
+    (``handout_locale_missing``).  The ``deepen_handout`` queue instruction
+    already requires these maps for every source-backed read-aloud; this is
+    the same rule closed into pack ingest.
+    """
+    field = (
+        f"handout {str(doc.get('handout_id') or '').strip() or '<missing id>'}"
+    )
+    for localized_field in ("localized_title", "localized_text"):
+        value = doc.get(localized_field)
+        if isinstance(value, dict):
+            missing = sorted(required_languages - set(value))
+        elif isinstance(value, str):
+            tagged = str(doc.get("localized_language") or "").strip()
+            missing = sorted(
+                language for language in required_languages
+                if language != tagged
+            )
+        else:
+            missing = sorted(required_languages)
+        if missing:
+            raise ModuleAssetsError(
+                f"{field}.{localized_field} lacks full active play_language "
+                f"values: {missing}"
+            )
 
 
 def _validate_location_keeper_only(doc: dict[str, Any]) -> None:
@@ -5870,6 +5915,16 @@ def _canonicalize_entity_source_evidence(
         # A handout pack is a verbatim info card; the kind enum and the
         # text⇒source_refs tracing rule are hard pack requirements.
         _validate_handout_entity_pack(doc)
+        # A deep read-aloud card is delivered from its localized fields, so
+        # the deep pack must carry the full table-language maps instead of
+        # silently dropping the opening card's reviewed localization.
+        if (
+            str(doc.get("parse_state") or "") == "deep"
+            and str(doc.get("kind") or "") == "read_aloud"
+        ):
+            _validate_deep_handout_read_aloud_locales(
+                doc, required_read_aloud_languages or set()
+            )
     if kind == "location":
         for position, clue in enumerate(doc.get("clues") or []):
             if not isinstance(clue, dict):
@@ -6984,6 +7039,54 @@ def _quarantine_host_work_request(
     return record
 
 
+def _host_work_packet_request(request: dict[str, Any]) -> dict[str, Any]:
+    """Pure per-request claim projection shared by the lease and budget paths."""
+    packet_request = {
+        key: request.get(key)
+        for key in (
+            "job_id", "kind", "target_id", "priority", "reason",
+            "instruction", "requested_pdf_indices", "cached_page_refs",
+            "cached_scope_complete", "batch_subjects",
+            "request_purpose", "requested_source_scope",
+            "source_scope_signature", "result_contract",
+            "allowed_registered_asset_refs",
+            "allowed_scene_refs", "allowed_clue_refs",
+            "work_level", "consumer_refs", "consumer_state",
+            "play_languages",
+        )
+    }
+    # Structure work carries its own evidence: the whole input is a
+    # repository-produced packet of headings and bounded previews,
+    # not a page window to read.  Attach it only when present so
+    # every other request keeps its exact existing shape.
+    for structure_key in (
+        "classification_request", "extraction_request",
+    ):
+        if request.get(structure_key) is not None:
+            packet_request[structure_key] = json.loads(
+                json.dumps(request[structure_key])
+            )
+    if request.get("work_level") == "current_dependency":
+        packet_request["dependency_ref"] = json.loads(
+            json.dumps(request["dependency_ref"])
+        )
+    return packet_request
+
+
+def _projected_group_wire_bytes(members: list[tuple[Path, dict[str, Any]]]) -> int:
+    """Estimate one leased group's wire bytes before any lease is taken.
+
+    Mirrors the packet body `claim_host_work_requests` will build, with a
+    per-packet field overhead; compact JSON keeps the estimate an upper bound
+    close to the transport encoder's own output.
+    """
+    total = 1_500
+    for _path, request in members:
+        projected = _host_work_packet_request(request)
+        total += len(json.dumps(projected, ensure_ascii=False)) + 250
+    return total
+
+
 def claim_host_work_requests(
     workspace: Path,
     asset_root_id: str,
@@ -6995,6 +7098,7 @@ def claim_host_work_requests(
     result_delivery: str = "named_submit",
     max_dispatch_attempts: int | None = None,
     exact_job_id: str | None = None,
+    max_projected_wire_bytes: int | None = None,
 ) -> dict[str, Any]:
     """Atomically lease bounded source-page work groups for host subagents.
 
@@ -7003,6 +7107,12 @@ def claim_host_work_requests(
     cached pages. The packet's explicit result transport determines whether
     the child submits directly or returns exact rows to a lifecycle manager;
     the repository remains the sole canonical fulfillment boundary.
+
+    ``max_projected_wire_bytes`` bounds how many groups one claim leases by
+    the projected transport size of their packets, so a valid batch can never
+    void itself against the bounded inline wire envelope at projection time.
+    At least one group is always leased when any is runnable; overflow groups
+    simply stay unleased for the next claim.
     """
     executor = str(executor_id or "").strip()
     if not executor or len(executor) > 128:
@@ -7036,6 +7146,14 @@ def claim_host_work_requests(
     ):
         raise ModuleAssetsError(
             "max_dispatch_attempts must be null or an integer from 1 through 100"
+        )
+    if max_projected_wire_bytes is not None and (
+        isinstance(max_projected_wire_bytes, bool)
+        or not isinstance(max_projected_wire_bytes, int)
+        or max_projected_wire_bytes <= 0
+    ):
+        raise ModuleAssetsError(
+            "max_projected_wire_bytes must be null or a positive integer"
         )
     if exact_job_id is not None:
         if (
@@ -7200,7 +7318,29 @@ def claim_host_work_requests(
         )[:limit]
 
         packets: list[dict[str, Any]] = []
+        projected_wire_bytes = 0
+        budget_after_headroom = (
+            None
+            if max_projected_wire_bytes is None
+            else max(
+                1,
+                int(max_projected_wire_bytes)
+                - CLAIM_WIRE_ENVELOPE_HEADROOM_BYTES,
+            )
+        )
         for (group_id, _contract_family), members in selected_groups:
+            if (
+                budget_after_headroom is not None
+                and packets
+                and projected_wire_bytes
+                + _projected_group_wire_bytes(members)
+                > budget_after_headroom
+            ):
+                # This group would push the claim past the bounded inline
+                # envelope; leave it unleased for the next claim instead of
+                # voiding the whole batch at wire-projection time.
+                break
+            projected_wire_bytes += _projected_group_wire_bytes(members)
             lease_material = (
                 f"{executor}:{group_id}:{now.isoformat()}:"
                 + ",".join(str(row[1].get("job_id") or "") for row in members)
@@ -7218,36 +7358,7 @@ def claim_host_work_requests(
                 request["leased_at"] = now.isoformat()
                 request["lease_expires_at"] = expires_at.isoformat()
                 _write_json(path, request)
-                packet_request = {
-                    key: request.get(key)
-                    for key in (
-                        "job_id", "kind", "target_id", "priority", "reason",
-                        "instruction", "requested_pdf_indices", "cached_page_refs",
-                        "cached_scope_complete", "batch_subjects",
-                        "request_purpose", "requested_source_scope",
-                        "source_scope_signature", "result_contract",
-                        "allowed_registered_asset_refs",
-                        "allowed_scene_refs", "allowed_clue_refs",
-                        "work_level", "consumer_refs", "consumer_state",
-                        "play_languages",
-                    )
-                }
-                # Structure work carries its own evidence: the whole input is a
-                # repository-produced packet of headings and bounded previews,
-                # not a page window to read.  Attach it only when present so
-                # every other request keeps its exact existing shape.
-                for structure_key in (
-                    "classification_request", "extraction_request",
-                ):
-                    if request.get(structure_key) is not None:
-                        packet_request[structure_key] = json.loads(
-                            json.dumps(request[structure_key])
-                        )
-                if request["work_level"] == "current_dependency":
-                    packet_request["dependency_ref"] = json.loads(
-                        json.dumps(request["dependency_ref"])
-                    )
-                packet_requests.append(packet_request)
+                packet_requests.append(_host_work_packet_request(request))
             exemplar = members[0][1]
             packets.append({
                 "schema_version": 1,

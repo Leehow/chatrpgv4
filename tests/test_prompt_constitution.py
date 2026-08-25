@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -144,15 +145,25 @@ def test_play_prompt_clue_discover_requires_record_before_prose() -> None:
     assert "coc_state_record_clue" not in _constitution(play)
 
 
-def test_legacy_host_system_md_unmodified() -> None:
-    import subprocess
-
-    result = subprocess.run(
-        ["git", "diff", "--", str(LEGACY.relative_to(REPO_ROOT))],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
+def test_host_prompts_and_role_manifest_align_on_restricted_skill_doc_read() -> None:
+    """The three Pi host prompts must state the read boundary accurately and
+    the role manifest must keep the restricted `read` active for both roles
+    (Pi's native skill progressive disclosure addresses the `read` tool)."""
+    legacy = LEGACY.read_text(encoding="utf-8")
+    setup = SETUP.read_text(encoding="utf-8")
+    play = PLAY.read_text(encoding="utf-8")
+    restricted = (
+        "The one `read` tool in your list is path-restricted to this session's "
+        "canonical COC skill/reference documentation"
     )
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == ""
+    for name, text in (("legacy", legacy), ("setup", setup), ("play", play)):
+        assert restricted in text, name
+        # The old blanket ban is gone; unrestricted filesystem read stays denied.
+        assert "Built-in read/bash/edit/write tools are disabled" not in text, name
+        assert "Unrestricted filesystem tools are disabled" in text, name
+    manifest = json.loads(
+        (REPO_ROOT / "plugins" / "coc-keeper" / "pi" / "session-roles.json")
+        .read_text(encoding="utf-8")
+    )
+    assert "read" in manifest["setup"]["tools"]
+    assert "read" in manifest["play"]["tools"]

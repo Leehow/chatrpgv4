@@ -18505,6 +18505,10 @@ def _tool_progressive_claim_host_work(ctx: Ctx, args: dict[str, Any]):
             result_delivery=packet_delivery,
             max_dispatch_attempts=args.get("max_dispatch_attempts"),
             exact_job_id=exact_job_id,
+            # Lease only as many groups as the bounded inline claim wire can
+            # carry; a larger batch would void its own projection at
+            # transport time and release every lease it just took.
+            max_projected_wire_bytes=assets_mod.CLAIM_WIRE_BUDGET_BYTES,
         )
     except assets_mod.ModuleAssetsError as exc:
         raise ToolError("invalid_param", str(exc)) from exc
@@ -31572,7 +31576,8 @@ def _commit_finalized_turn_history(ctx: Ctx, receipt: dict[str, Any]) -> str:
         raise ToolError("missing_campaign", "turn history commit requires a campaign")
     turn_number = _finalization_turn_number(ctx, receipt)
     try:
-        coc_git_history.ensure_repo(ctx.root, campaign_id)
+        # commit_finalized_turn ensures the repo itself; a second ensure_repo
+        # here only paid another full fsck per finalize.
         return coc_git_history.commit_finalized_turn(
             ctx.root,
             campaign_id,

@@ -1382,6 +1382,12 @@ def _target_source_scope(
             coc_module_assets._source_indices(
                 scope,
                 field=f"host_work.{entity_kind or 'entity'}.scope[{position}]",
+                # A handout card pack carries canonical compact
+                # "pdf_index-N" string source_refs (the closed card
+                # contract's own representation), so only the handout path
+                # may read them; every other entity kind stays strict
+                # object-ref validation.
+                allow_string_refs=(entity_kind == "handout"),
             )
         )
     if not requested_indices:
@@ -1738,8 +1744,14 @@ def _write_host_work_request(
             "than guessing; an unclassified heading can be revisited, a "
             "mislabeled one silently misroutes play. An entity binding may name "
             "only an exact same-kind ID from classification_request.entity_catalog; "
-            "never invent an ID. A truly global section may stay global, but when "
-            "an entity binding is uncertain omit the candidate. When the packet "
+            "never invent an ID. Binding is the default, not the exception: "
+            "when a catalog entity's scope clearly covers a section (for "
+            "example a scene that happens in, describes, or directly concerns "
+            "a cataloged location, NPC, or clue), bind that section to it — "
+            "a pass that leaves every section global is a failed pass. A "
+            "truly book-wide section (rules appendix, cover, credits) may "
+            "stay global, but when an entity binding is genuinely uncertain "
+            "omit the candidate. When the packet "
             "declares a chunk of a larger book, classify only what that slice shows "
             "and never infer that an absent section does not exist."
             if job_kind == coc_module_assets.CLASSIFY_SECTIONS_KIND
@@ -1892,10 +1904,13 @@ def _write_host_work_request(
             "cached page refs as pdf_index-N strings and use image_ref only "
             "from allowed_registered_asset_refs whose pdf_index is one of "
             "the selected source-ref pages. Source-language verbatim "
-            "text must occur in the cited cached page bytes; localized_text "
-            "is the play-language translation. scene_refs and clue_refs must "
-            "be subsets of allowed_scene_refs and allowed_clue_refs. Card "
-            "identification, kind, "
+            "text must occur in the cited cached page bytes. For a "
+            "read_aloud card, localized_title and localized_text are full "
+            "play_language-to-string maps (for example "
+            '{"zh-Hans": "…"}) covering every play_languages entry — never '
+            "bare strings; other kinds may omit them. scene_refs and "
+            "clue_refs must be subsets of allowed_scene_refs and "
+            "allowed_clue_refs. Card identification, kind, "
             "and when_to_deliver are semantic readings of these pages; never "
             "scan prose with keywords or regex. Return player_visible=true "
             "source material only, related_packs=[], and no aliases, extra "

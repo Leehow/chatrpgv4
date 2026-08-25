@@ -66,6 +66,7 @@ import {
   SOURCE_ASSET_TOOL_NAME,
   SOURCE_ASSET_TOOL_SCHEMA,
 } from "../lib/source-asset-catalog.ts";
+import { registerSkillDocRead } from "../lib/skill-doc-read.ts";
 import {
   KEEPER_BRIEFING_CUSTOM_TYPE,
   keeperBriefingMessage,
@@ -490,6 +491,43 @@ function visibleAssistantText(message: AssistantContentMessage): string | null {
     .filter((part) => part.type === "text" && typeof part.text === "string")
     .map((part) => part.text as string);
   return texts.length > 0 ? texts.join("") : null;
+}
+
+/**
+ * Startup-only structured scan of the persistent session branch: does it end
+ * with a real unmatched external player turn? Any structured user message
+ * arms the pending fact regardless of whether its content is an array, a
+ * string, attachment-only, empty, or absent — the same explicit contract as
+ * the welcome.ts sessionBranchHasTrailingPlayerUser helper; text presence
+ * is never a prerequisite. A later assistant message clears it only when it
+ * carries non-empty player-visible text. Thinking-only, tool-only, and empty
+ * assistant entries, tool results, hidden custom messages, and non-message
+ * entries (compaction, telemetry, steering) never clear it, and prose
+ * content is never interpreted.
+ */
+function branchEndsWithUnmatchedPlayerUser(branch: unknown): boolean {
+  if (!Array.isArray(branch)) return false;
+  let pendingPlayerUser = false;
+  for (const raw of branch) {
+    if (!raw || typeof raw !== "object") continue;
+    const entry = raw as { type?: unknown; message?: unknown };
+    if (entry.type !== "message") continue;
+    const message = entry.message;
+    if (!message || typeof message !== "object") continue;
+    const structured = message as { role?: unknown };
+    if (structured.role === "user") {
+      pendingPlayerUser = true;
+      continue;
+    }
+    const assistant = assistantContentMessage(message);
+    if (
+      assistant !== null
+      && (visibleAssistantText(assistant) ?? "").trim().length > 0
+    ) {
+      pendingPlayerUser = false;
+    }
+  }
+  return pendingPlayerUser;
 }
 
 function canonicalJsonValueSha256(value: unknown): string {
@@ -1127,6 +1165,8 @@ export class OpeningTerminalContinuationGate {
     recoveryConsumed: boolean;
   } | null = null;
   private preInferenceFinalizationSteerEpoch = 0;
+  private emptyTerminalRecoveryEpoch = 0;
+  private epochPlayerOutputDelivered = 0;
   private nonblockingContinuation: {
     epoch: number;
     dispatchKey: string;
@@ -5751,9 +5791,16 @@ export class OpeningTerminalContinuationGate {
   }
 
   armTurnProcessingFault(base: JsonObject): { fault: JsonObject; first: boolean } {
-    if (this.turnProcessingFault !== null) {
+    if (
+      this.turnProcessingFault !== null
+      && this.turnProcessingFault.epoch === this.playerTurnEpoch
+    ) {
       return { fault: this.turnProcessingFault.fault, first: false };
     }
+    // A fault retained from an older epoch is superseded, not deduplicated:
+    // it must not block the new epoch's own fault. The superseded fault's
+    // pending turn stays preserved campaign-side; the narration.review
+    // latch keeps failing closed under the new retained fault.
     const fault: JsonObject = {
       ...base,
       player_turn_epoch: this.playerTurnEpoch,
@@ -5963,6 +6010,39 @@ export class OpeningTerminalContinuationGate {
     const envelope = this.pendingMechanicalOutputGateEnvelope;
     this.pendingMechanicalOutputGateEnvelope = null;
     return envelope;
+  }
+
+  hasAnswerPendingExternalPlayerInput(): boolean {
+    return (
+      this.playerTurnEpoch > 0
+      && this.currentExternalPlayerText !== null
+      && this.epochPlayerOutputDelivered !== this.playerTurnEpoch
+    );
+  }
+
+  markEpochPlayerOutputDelivered(): void {
+    this.epochPlayerOutputDelivered = this.playerTurnEpoch;
+  }
+
+  takeEmptyTerminalRecovery(): JsonObject | null {
+    const pendingText = this.currentExternalPlayerText;
+    if (
+      this.playerTurnEpoch <= 0
+      || pendingText === null
+      || this.epochPlayerOutputDelivered === this.playerTurnEpoch
+      || this.emptyTerminalRecoveryEpoch === this.playerTurnEpoch
+    ) {
+      return null;
+    }
+    this.emptyTerminalRecoveryEpoch = this.playerTurnEpoch;
+    return {
+      schema_version: 1,
+      kind: "empty_terminal_recovery",
+      status: "scheduled",
+      player_turn_epoch: this.playerTurnEpoch,
+      action: "answer_pending_player_input",
+      pending_player_input_sha256: canonicalJsonValueSha256(pendingText),
+    };
   }
 
   takePreInferenceFinalizationSteer(
@@ -6235,7 +6315,14 @@ export class OpeningTerminalContinuationGate {
       return false;
     }
     const currentSuppression = this.currentDependencySuppression;
-    if (this.currentTurnProcessingFault() !== null) {
+    if (
+      this.turnProcessingFault !== null
+      && this.turnProcessingFault.epoch === this.playerTurnEpoch
+    ) {
+      // Only a current-epoch terminal fault suppresses further visible
+      // output. A fault retained from an older epoch (for example the
+      // narration.review latch) must not suppress this new epoch's
+      // player-visible delivery.
       this.pendingMechanicalOutputGateEnvelope = null;
       return false;
     }
@@ -6452,6 +6539,8 @@ export class OpeningTerminalContinuationGate {
     this.pendingMechanicalOutputGateEnvelope = null;
     this.turnProcessingFault = null;
     this.preInferenceFinalizationSteerEpoch = 0;
+    this.emptyTerminalRecoveryEpoch = 0;
+    this.epochPlayerOutputDelivered = 0;
     this.clearOpeningSetupRoute();
     this.openingSetupGenerationSequence = 0;
     this.openingSetupAgentTurn = 0;
@@ -6475,6 +6564,7 @@ export function registerPlayerTranscriptGate(
   ) => VisibleAssistantFinalDecision | void,
   onMessageStart?: (message: unknown) => void,
   allowEmptyFinalReplacement?: () => boolean,
+  onEmptyAssistantFinal?: () => void,
 ): void {
   pi.on("message_start", (event) => {
     onMessageStart?.(event.message);
@@ -6501,7 +6591,11 @@ export function registerPlayerTranscriptGate(
         && allowEmptyFinalReplacement?.() !== true
       ) {
         // Thinking-only and empty tool-free terminals carry no player output
-        // to settle. In particular, they must not arm a finalization follow-up.
+        // to settle. In particular, they must not arm a finalization
+        // follow-up — but the host gets the empty-terminal callback so one
+        // bounded same-epoch recovery can answer a swallowed external
+        // player turn without duplicating the player's message.
+        onEmptyAssistantFinal?.();
         return { message: withoutAssistantText(event.message) };
       }
       {
@@ -6671,6 +6765,58 @@ export function deliverPreInferenceFinalizationSteer(
   } catch {
     return false;
   }
+}
+
+export const EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE = (
+  "coc-empty-terminal-recovery"
+);
+
+export function buildEmptyTerminalRecoveryInstruction(
+  finalizationRequired: boolean,
+): string {
+  return (
+    "你的上一条终态是 provider 成功返回但零可见正文、零工具调用（只有推理），"
+    + "当前外部玩家输入仍未获得玩家可见回答。"
+    + "不要重发、复述或改写玩家消息——它已在对话中恰好一次，不得重复。"
+    + "本回合的规则与状态写入可能已部分或全部完成：先盘点本回合已有的权威收据"
+    + "（roll_id／decision_id）与已落账状态；凡已由收据或状态体现的规则、状态、"
+    + "工具调用一律不得重跑、重放或改写，只补做确实缺失的部分。"
+    + (finalizationRequired
+      ? "若尚缺结算边界，按本回合已武装的 settled-output 契约补齐缺失的 canonical "
+        + "步骤与 turn.finalize，最后只输出 turn.finalize 返回的 rendered_text。"
+      : "然后像正常 KP 回合一样给出玩家可见回答。")
+  );
+}
+
+export function deliverEmptyTerminalRecovery(
+  pi: Pick<ExtensionAPI, "appendEntry" | "sendMessage">,
+  envelope: JsonObject,
+  instruction: string,
+): boolean {
+  try {
+    pi.sendMessage({
+      customType: EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE,
+      content: instruction,
+      display: false,
+      details: envelope,
+    }, { triggerTurn: true, deliverAs: "followUp" });
+  } catch {
+    // No scheduled marker may exist without a sent follow-up: the RPC
+    // driver's in-flight wait counts only the scheduled marker, so a
+    // failed send must not look like a pending recovery turn. Audit the
+    // failure under a distinct marker the driver ignores.
+    try {
+      pi.appendEntry(
+        "coc-empty-terminal-recovery-delivery-failed",
+        envelope,
+      );
+    } catch { /* delivery-failure audit is best effort */ }
+    return false;
+  }
+  try {
+    pi.appendEntry(EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE, envelope);
+  } catch { /* recovery audit is best effort */ }
+  return true;
 }
 
 export function deliverPendingPreInferenceFinalizationSteer(
@@ -8301,6 +8447,16 @@ type StartupResumeGate = {
   hiddenRepromptDelivery: "pending" | "sending" | "delivered";
 };
 
+// A successful silent settled startup resume (already_acknowledged /
+// awaiting_player) acknowledges existing table state; it is not a new player
+// turn. The remainder of the auto-open agent turn that performed the resume
+// must not journal, re-resume, call rules/state, or replay prose/history, so
+// the host quarantines that same agent turn until its agent_end.
+type StartupSilentResumeQuarantine = {
+  campaignId: string;
+  mode: "already_acknowledged" | "awaiting_player";
+};
+
 export default function mainExtension(pi: ExtensionAPI, overrides: MainExtensionOverrides = {}) {
   let mcp: McpJsonlClient | null = null;
   let turnTelemetry: TurnTelemetry | null = null;
@@ -8317,7 +8473,22 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let rawPdfBindBundleRuns = new Set<Promise<unknown>>();
   let pendingStewardRefillStates = new Map<string, JsonObject>();
   let pendingStewardRefillRuns = new Set<Promise<unknown>>();
+  // Idle-boundary source takeover bookkeeping: one bounded background
+  // coordinator dispatch per agent_end when pending host work is claimable.
+  let idleTakeoverAttempts = new Map<string, number>();
+  let idleTakeoverBusy = false;
+  let idleTakeoverContext: ExtensionContext | null = null;
   let startupResumeGate: StartupResumeGate | null = null;
+  let startupSilentResumeQuarantine: StartupSilentResumeQuarantine | null = null;
+  // Startup-only fact from the persistent session branch (read once in
+  // initializeSession): the branch ends with a real unmatched external
+  // player turn. While true, a silent settled startup resume
+  // (already_acknowledged / awaiting_player) must not arm the same-turn
+  // quarantine — the auto-open agent has to finish that existing player
+  // epoch with the normal tool/output/empty-final surface instead of
+  // orphaning the input behind a resend. Consumed after the one startup
+  // resume classification; recomputed on initialize, cleared on shutdown.
+  let startupBranchTrailingPlayerUser = false;
   const openingContinuationGate = new OpeningTerminalContinuationGate();
   const nonRetryableFailureCircuit = new NonRetryableFailureCircuit();
   const stateClaimCompiler = (
@@ -8347,14 +8518,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     // while pending) and startupResumeToolError still hard-rejects non-resume.
     const tools = openingContinuationGate.hasPendingFinalizedOutput()
       ? []
-      : gate !== null && gate.phase === "pending"
-        ? activeToolsForStartupResumePending({
-            workspaceRoot: gate.workspaceRoot,
-            campaignId: gate.campaignId,
-            fallbackPhase: kpPlayPhase,
-            role,
-          })
-        : activeToolsForPhase(resolveAclPhase(), role);
+      : startupSilentResumeQuarantine !== null
+        // Silent settled startup resume: the quarantined remainder of the
+        // auto-open agent turn must not reach any canonical tool.
+        ? []
+        : gate !== null && gate.phase === "pending"
+          ? activeToolsForStartupResumePending({
+              workspaceRoot: gate.workspaceRoot,
+              campaignId: gate.campaignId,
+              fallbackPhase: kpPlayPhase,
+              role,
+            })
+          : activeToolsForPhase(resolveAclPhase(), role);
     pi.setActiveTools(tools);
   };
   const queueSetupHandoffExit = () => {
@@ -8654,6 +8829,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   const initializeSession = (ctx: ExtensionContext): string | null => {
     sessionEpoch += 1;
     sessionClosing = false;
+    startupSilentResumeQuarantine = null;
+    startupBranchTrailingPlayerUser = branchEndsWithUnmatchedPlayerUser(
+      typeof ctx.sessionManager?.getBranch === "function"
+        ? ctx.sessionManager.getBranch()
+        : null,
+    );
     openingContinuationGate.reset();
     nonRetryableFailureCircuit.reset();
     stateClaimCompiler.clear();
@@ -8669,6 +8850,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     rawPdfBindBundleRuns = new Set<Promise<unknown>>();
     pendingStewardRefillStates = new Map<string, JsonObject>();
     pendingStewardRefillRuns = new Set<Promise<unknown>>();
+    idleTakeoverAttempts = new Map<string, number>();
+    idleTakeoverBusy = false;
     const startupCampaignId = overrides.startupCampaignId === undefined
       ? explicitPiStartupCampaignId()
       : overrides.startupCampaignId();
@@ -8907,7 +9090,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     value: unknown,
     campaignId: string,
     openingObservation: OpeningSetupObservationDisposition,
-  ): { accepted: true } | { accepted: false; failureClass: string } => {
+  ): { accepted: true; mode: string | null } | { accepted: false; failureClass: string } => {
     if (
       openingObservation.reason === "prebound_opening_selection"
       || openingObservation.reason
@@ -8919,7 +9102,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       || openingObservation.reason
         === "prebound_opening_source_review_required"
     ) {
-      return { accepted: true };
+      return { accepted: true, mode: null };
     }
     if (openingObservation.reason === "source_contract_invalid") {
       return {
@@ -8962,7 +9145,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             : "startup_resume_result_invalid",
         };
       }
-      return { accepted: true };
+      return { accepted: true, mode: data.mode };
     }
     const error = objectOrNull(envelope.error);
     const details = objectOrNull(error?.details);
@@ -8976,7 +9159,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       && typeof openingPhase === "string"
       && OPENING_LIFECYCLE_PHASES.has(openingPhase)
     ) {
-      return { accepted: true };
+      return { accepted: true, mode: null };
     }
     return {
       accepted: false,
@@ -10105,7 +10288,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               : "startup_resume_transport_failed",
           );
         }
-        if (isCanonicalInvokeSurface(name) && !directResumeRecovery) {
+        const visible = error instanceof CanonicalToolError
+          ? attachExpectedSchema(
+            modelVisibleCanonicalToolResult(error),
+            typeof params.operation === "string" ? params.operation : null,
+          )
+          : null;
+        // Observable canonical envelopes stay live for observe. Finalizing
+        // here deletes the admitted attempt and the later observe of the
+        // same _id becomes unowned_result. Transport/non-envelope failures
+        // still have no result to observe, so they finalize here.
+        if (
+          isCanonicalInvokeSurface(name)
+          && !directResumeRecovery
+          && visible === null
+        ) {
           openingContinuationGate.markOpeningSetupRouteAttemptFailure(
             _id,
             params,
@@ -10128,12 +10325,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             });
           }
         }
-        const visible = error instanceof CanonicalToolError
-          ? attachExpectedSchema(
-            modelVisibleCanonicalToolResult(error),
-            typeof params.operation === "string" ? params.operation : null,
-          )
-          : null;
         if (visible === null) throw error;
         value = visible;
       }
@@ -10257,6 +10448,22 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           openingObservation,
         );
         if (disposition.accepted) {
+          if (
+            disposition.mode === "already_acknowledged"
+            || disposition.mode === "awaiting_player"
+          ) {
+            if (!startupBranchTrailingPlayerUser) {
+              // Arm the same-turn quarantine BEFORE clearing the startup gate
+              // so the tool set applied here is already empty. A trailing
+              // unmatched external player turn keeps it disarmed: the
+              // auto-open agent must finish that existing player epoch with
+              // normal tools, output, and empty-final recovery — no resend.
+              startupSilentResumeQuarantine = {
+                campaignId: selectedCampaignId,
+                mode: disposition.mode,
+              };
+            }
+          }
           startupResumeGate = null;
           applyKpActiveTools();
         } else if (
@@ -10267,6 +10474,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         } else {
           terminalizeStartupResume(disposition.failureClass);
         }
+        // The startup branch fact served its one resume classification;
+        // any later resume is no longer the startup boundary.
+        startupBranchTrailingPlayerUser = false;
       }
       if (startupFreshSetupAttempt) {
         const selectedCampaignId = startupResumeGate?.campaignId ?? "";
@@ -10313,6 +10523,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         const bootstrapSourceStatus = String(
           bootstrapSourceWork?.status ?? bootstrapData?.status ?? "",
         );
+        const ownershipRejected = (
+          openingObservation.reason === "unowned_result"
+          || openingObservation.reason === "invocation_or_campaign_mismatch"
+          || openingObservation.reason === "stale_generation_or_revision"
+          || openingObservation.reason === "duplicate_invocation_identity"
+        );
         if (
           (
             task !== null
@@ -10321,6 +10537,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           )
           || (
             !openingObservation.accepted
+            && ownershipRejected
             && task === null
             && !objectOrNull(bootstrapSourceWork?.background_takeover)
             && bootstrapSourceStatus !== "queued"
@@ -11026,6 +11243,30 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     (ctx) => client(ctx),
     agentDir,
   );
+  const armAndDeliverEmptyTerminalFault = (code: string, message: string) => {
+    const armed = openingContinuationGate.armTurnProcessingFault({
+      schema_version: 1,
+      contract_id: "coc.pi-turn-processing-fault.v1",
+      kind: "turn_processing_fault",
+      status: "terminal",
+      stage: "player_output_delivery",
+      code,
+      message,
+      retryable: false,
+      will_retry: false,
+      recovery_attempted: 1,
+      failure_class: code,
+    });
+    if (armed.first) {
+      try {
+        pi.appendEntry(TURN_PROCESSING_FAULT_CUSTOM_TYPE, armed.fault);
+      } catch { /* fault audit is best effort */ }
+      const deliverable = (
+        openingContinuationGate.takeTurnProcessingFaultForDelivery()
+      );
+      if (deliverable !== null) deliverTurnProcessingFault(deliverable);
+    }
+  };
   registerPlayerTranscriptGate(
     pi,
     (visibleText) => {
@@ -11064,10 +11305,30 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         }
         return false;
       }
+      if (startupSilentResumeQuarantine !== null) {
+        // Quarantined auto-open remainder: hide before the continuation
+        // gate sees the final, so no settled/mechanical gate, follow-up,
+        // fault delivery, or prose/history replay can arm from the silent
+        // settled resume output.
+        return false;
+      }
       const decision = openingContinuationGate.acceptVisibleAssistantFinal(
         visibleText,
         turnFinalizationRequiredForPhase(kpPlayPhase),
       );
+      if (
+        decision === true
+        || (
+          decision
+          && typeof decision === "object"
+          && typeof decision.replacementText === "string"
+        )
+      ) {
+        // Any player-visible delivery answers the epoch's external input;
+        // later same-epoch empty terminals are background wakes, not
+        // swallowed player turns, and must not arm recovery or a fault.
+        openingContinuationGate.markEpochPlayerOutputDelivered();
+      }
       const deliveredBlocker = (
         openingContinuationGate.takeDeliveredOpeningSetupTerminalBlocker()
       );
@@ -11138,6 +11399,60 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       applyKpActiveTools();
     },
     () => openingContinuationGate.hasPendingFinalizedOutput(),
+    () => {
+      // Thinking-only provider-successful terminal (stopReason "stop",
+      // zero visible text, zero tool calls). Startup-resume sessions keep
+      // their own reprompt flow, and a silent settled startup resume keeps
+      // its quarantine: neither may reach the concurrent empty-terminal
+      // recovery path, whose follow-up would re-awaken the historical
+      // player epoch the quarantine just closed.
+      if (startupResumeGate !== null || startupSilentResumeQuarantine !== null) {
+        return;
+      }
+      const recovery = openingContinuationGate.takeEmptyTerminalRecovery();
+      if (recovery !== null) {
+        const scheduled = deliverEmptyTerminalRecovery(
+          pi,
+          recovery,
+          buildEmptyTerminalRecoveryInstruction(
+            turnFinalizationRequiredForPhase(kpPlayPhase),
+          ),
+        );
+        if (scheduled) return;
+        // Scheduling failed: no recovery turn exists and none will arrive.
+        // Fail closed now instead of waiting for another settle that cannot
+        // come. Never tell anyone to resend the player input; canonical
+        // rules/state writes may already exist for this epoch.
+        armAndDeliverEmptyTerminalFault(
+          "empty_terminal_recovery_delivery_failed",
+          "回合处理失败：空终态恢复指令投递失败，本回合外部玩家输入仍未回答。"
+            + "不要重发玩家输入，也不要重放或重跑本回合已执行的规则与状态操作；"
+            + "本回合可能已有 canonical 写入。保留现有证据与收据，经 "
+            + "session.resume 核对既有收据后，仅补齐缺失的 finalization 与"
+            + "玩家输出。",
+        );
+        return;
+      }
+      if (!openingContinuationGate.hasAnswerPendingExternalPlayerInput()) {
+        return;
+      }
+      // The epoch's single hidden recovery is already spent and the external
+      // player input is still unanswered: fail closed through the structured
+      // turn-processing fault channel. Never loop hidden re-prompts and never
+      // let the swallowed turn pass as a successful player-visible settle.
+      // The recovery turn may already have performed canonical rules/state
+      // writes, so the fault must forbid resending input and rerunning
+      // mechanics; reconciliation happens through session.resume and the
+      // existing receipts.
+      armAndDeliverEmptyTerminalFault(
+        "empty_terminal_no_player_output",
+        "回合处理失败：本回合外部玩家输入已受理，但助手终态仍未产生任何"
+          + "玩家可见输出。不要重发玩家输入，也不要重放或重跑本回合已执行的"
+          + "规则与状态操作；本回合可能已有 canonical 写入。保留现有证据与"
+          + "收据，经 session.resume 核对既有收据后，仅补齐缺失的 "
+          + "finalization 与玩家输出。",
+      );
+    },
   );
   // Forced raw-PDF bind injection: the KP must not need to read coc-module-init
   // to know the first call after a player PDF path is scenario.bind_pdf.
@@ -11160,7 +11475,79 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   pi.on("agent_start", () => {
     openingContinuationGate.markAgentStart();
   });
+  // Mid-turn coordinator dispatches defer on turn_pending_finalization by
+  // design, and nothing re-armed between player turns, so pending host work
+  // (deepen_handout cards and their images among it) never fulfilled in live
+  // play. agent_end is the true idle boundary — the player turn is settled,
+  // no finalization is pending, and the durable open requests are claimable.
+  // One bounded background takeover here completes before the next player
+  // turn needs the material; every guard fails closed to "no dispatch".
+  const IDLE_TAKEOVER_MAX_ATTEMPTS_PER_PACKET = 3;
+  const armIdleSourceTakeover = () => {
+    if (idleTakeoverBusy) return;
+    const campaignId = overrides.startupCampaignId === undefined
+      ? explicitPiStartupCampaignId()
+      : overrides.startupCampaignId();
+    if (
+      campaignId === null
+      || idleTakeoverContext === null
+      || startupResumeGate !== null
+      || startupSilentResumeQuarantine !== null
+      || openingContinuationGate.hasActiveOpeningSetup()
+      || kpPlayPhase !== "live_turn"
+    ) return;
+    const epoch = sessionEpoch;
+    idleTakeoverBusy = true;
+    void (async () => {
+      try {
+        const response = await client(idleTakeoverContext).callTool(
+          "coc_invoke",
+          {
+            operation: "progressive.status",
+            campaign: campaignId,
+            arguments: {},
+          },
+        );
+        if (sessionEpoch !== epoch) return;
+        const envelope = objectOrNull(response);
+        if (envelope?.ok !== true) return;
+        const task = findAutoDispatchTask(envelope);
+        const packet = objectOrNull(task?.packet);
+        const dispatchKey = typeof packet?.packet_id === "string"
+          ? packet.packet_id.trim()
+          : "";
+        if (task === null || !dispatchKey) return;
+        const attempts = idleTakeoverAttempts.get(dispatchKey) ?? 0;
+        if (attempts >= IDLE_TAKEOVER_MAX_ATTEMPTS_PER_PACKET) return;
+        if (supplyCoordinator.activeManager()?.state(dispatchKey)) return;
+        idleTakeoverAttempts.set(dispatchKey, attempts + 1);
+        try {
+          pi.appendEntry("coc-idle-source-takeover", {
+            status: "submitted",
+            dispatch_key: dispatchKey,
+            campaign_id: campaignId,
+            attempt: attempts + 1,
+          });
+        } catch { /* takeover audit is best effort */ }
+        await supplyCoordinator.autoDispatch("coc_invoke", envelope, {
+          exactTask: task,
+          priority: "background",
+        });
+      } catch {
+        // Best effort only: the next idle boundary re-arms with a fresh
+        // status probe; live play is never blocked by this takeover.
+      } finally {
+        idleTakeoverBusy = false;
+      }
+    })();
+  };
   pi.on("agent_end", () => {
+    if (startupSilentResumeQuarantine !== null) {
+      // The quarantined auto-open agent turn has ended; the next turn (a
+      // real player message or table opening) gets the normal tool surface.
+      startupSilentResumeQuarantine = null;
+      applyKpActiveTools();
+    }
     openingContinuationGate.markAgentEnd();
     // Terminal-delivery retries are bookkeeping recovery, not part of the
     // player turn's settlement boundary. Run them after this lifecycle hook
@@ -11168,6 +11555,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     queueMicrotask(() => {
       const fault = openingContinuationGate.takeTurnProcessingFaultForDelivery();
       if (fault !== null) deliverTurnProcessingFault(fault);
+      armIdleSourceTakeover();
       void (async () => {
         const ownedContinuedDispatches = supplyCoordinator.terminalDedupe();
         for (
@@ -11208,8 +11596,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       });
     });
   });
+  // Canonical skill-doc read. Pi's native skill progressive disclosure tells
+  // the model to "use the read tool" to load SKILL.md bodies and routed
+  // references, but canonical pi-coc launches with --no-builtin-tools, so
+  // that instruction would name a missing tool. Registered on session_start
+  // BEFORE initializeSession applies the KP active set: the guard must see
+  // the session's own initial tools, so a generic Pi session whose built-in
+  // read is still active keeps it (no override), while a --no-builtin-tools
+  // session gains only this path-restricted canonical-doc read. Activation
+  // then flows through the manifest-driven applyKpActiveTools.
+  pi.on("session_start", async () => {
+    registerSkillDocRead(pi);
+  });
   pi.on("session_start", async (event, ctx) => {
     sceneSupplyDispatches.clear();
+    idleTakeoverContext = ctx;
     const startupCampaignId = initializeSession(ctx);
     if (startupCampaignId !== null) {
       await refreshKeeperBriefing(ctx, startupCampaignId, "session_start");
@@ -11220,6 +11621,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sessionClosing = true;
     sessionEpoch += 1;
     startupResumeGate = null;
+    startupSilentResumeQuarantine = null;
+    startupBranchTrailingPlayerUser = false;
     sceneSupplyDispatches.clear();
     openingContinuationGate.reset();
     stateClaimCompiler.clear();

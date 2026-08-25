@@ -2292,17 +2292,39 @@ def test_claim_selects_one_urgent_family_per_original_group_before_limit(
         },
     )
     assert claimed["ready_group_count"] == 2
-    assert claimed["leased_group_count"] == 2
-    assert claimed["dispatch_task_count"] == 2
+    # The bounded claim wire carries only one of these two full-contract
+    # groups at a time (each projects to roughly half the inline envelope),
+    # so one claim leases one urgent family and leaves the other group for
+    # the following claim instead of voiding the batch at projection time.
+    assert claimed["leased_group_count"] == 1
+    assert claimed["dispatch_task_count"] == 1
     tasks = claimed["dispatch_tasks"]
-    assert {
+    first_targets = {
         task["packet"]["requests"][0]["target_id"]
         for task in tasks
-    } == selected_targets
+    }
+    assert first_targets <= selected_targets
     assert all(len(task["packet"]["requests"]) == 1 for task in tasks)
-    assert len({
-        task["packet"]["work_group_id"] for task in tasks
-    }) == 2
+
+    # The overflow group stays unleased and fully runnable: the next claim
+    # takes it without any lease churn in between.
+    claimed_next, _w, _h = toolbox.TOOLS[
+        "progressive.claim_host_work"
+    ]["handler"](
+        toolbox.Ctx(tmp_path, cid),
+        {
+            "executor_id": "pi:two-group-families",
+            "limit": 2,
+            "lease_seconds": 600,
+            "result_delivery": "task_return_to_parent",
+        },
+    )
+    assert claimed_next["leased_group_count"] == 1
+    next_targets = {
+        task["packet"]["requests"][0]["target_id"]
+        for task in claimed_next["dispatch_tasks"]
+    }
+    assert first_targets | next_targets == selected_targets
 
     siblings = [
         row for row in assets.list_host_work_requests(tmp_path, "qw-demo")

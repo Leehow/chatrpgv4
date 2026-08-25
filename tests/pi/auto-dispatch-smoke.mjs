@@ -8570,6 +8570,124 @@ for (const terminalCase of [
   await harness.shutdown();
 }
 
+// An admitted bootstrap whose MCP returns CanonicalToolError(ok:false)
+// stays owned through observe. The gateway must not finalize the attempt
+// before observation, and must not rewrite the canonical L0 code into
+// opening_bootstrap_result_rejected / unowned_result. A later foreign
+// packet still fail-closes.
+{
+  const campaignId = "gateway-owned-l0-fail";
+  const ownedId = "owned-canonical-bootstrap-fail";
+  const foreignId = "foreign-never-registered-bootstrap";
+  const wrongTask = coordinatorTask("gateway-owned-l0-foreign", {
+    campaignId: "gateway-owned-l0-foreign",
+  });
+  let bootstrapCalls = 0;
+  const l0Envelope = {
+    ok: false,
+    tool: "progressive.opening_bootstrap",
+    error: {
+      code: "opening_l0_direct_write_invalid",
+      message: "opening L0 direct write invalid",
+      details: { reason: "module_init_hook_locale" },
+    },
+  };
+  const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) {
+      return boundOpeningSetupResult(campaignId);
+    }
+    if (params.operation === "progressive.prepare_opening") {
+      return preparedOpeningSetupResult();
+    }
+    if (params.operation === "progressive.opening_bootstrap") {
+      bootstrapCalls += 1;
+      if (bootstrapCalls === 1) {
+        throw new runtime.CanonicalToolError(
+          "coc_invoke",
+          "opening_l0_direct_write_invalid",
+          (
+            "canonical coc_invoke failed: opening_l0_direct_write_invalid: "
+            + "opening L0 direct write invalid"
+          ),
+          l0Envelope.error.details,
+          l0Envelope,
+        );
+      }
+      return openingBootstrapResult(wrongTask);
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  await armOpeningBootstrapRoute(harness, campaignId);
+  const owned = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    ownedId,
+    bootstrapOpeningParams(campaignId),
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  const ownedBlocker = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "owned l0 failure prose" }],
+  });
+  const hiddenBlocker = harness.appended.find((entry) => (
+    entry.name === "coc-opening-setup-terminal-blocker"
+  ))?.value;
+  check("admitted CanonicalToolError bootstrap stays owned with L0 code",
+    owned.ok === false
+    && owned.error.code === "opening_l0_direct_write_invalid"
+    && owned.error.code !== "opening_bootstrap_result_rejected"
+    && owned.error.code !== "opening_setup_route_call_failed"
+    && harness.launches.length === 0
+    && !harness.appended.some((entry) => (
+      entry.name === "coc-opening-setup-route-audit"
+      && entry.value.invocation_id === ownedId
+      && entry.value.reason === "unowned_result"
+    ))
+    && hiddenBlocker?.error_code === "opening_l0_direct_write_invalid"
+    && hiddenBlocker?.failure_class !== "opening_bootstrap_result_rejected"
+    && ownedBlocker.content.some((part) => (
+      part.type === "text"
+      && part.text.includes("开场资料解析失败")
+    )));
+  const foreign = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    foreignId,
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: campaignId,
+      arguments: {
+        start_location: { location_id: "opening-foreign", title: "Foreign" },
+        opening_pdf_indices: [1],
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  check("foreign bootstrap packet still fail-closes after owned L0 failure",
+    foreign.ok === false
+    && foreign.error.code === "opening_bootstrap_result_rejected"
+    && harness.launches.length === 0
+    && harness.appended.some((entry) => (
+      entry.name === "coc-opening-setup-route-audit"
+      && entry.value.reason === "invocation_or_campaign_mismatch"
+      && entry.value.invocation_id === foreignId
+    ))
+    && !harness.appended.some((entry) => (
+      entry.name === "coc-opening-setup-route-audit"
+      && entry.value.invocation_id === ownedId
+      && entry.value.reason === "unowned_result"
+    )));
+  await harness.shutdown();
+}
+
 // Dispatch ownership is revalidated after the asynchronous capability check.
 // A concurrent contract-invalid result can supersede the admitted bootstrap
 // while enabled() is pending; the old packet must never reach launch.
@@ -10775,13 +10893,17 @@ await exerciseFailureDrain("framing");
     && queue.lifecycle.every((entry) => entry.failure_class === "coordinator_shutdown"));
 }
 
-// Submit failure is swallowed and recorded, never thrown.
+// Submit failure is swallowed and recorded, never thrown. The observability
+// audit (submit_failed_detail) precedes the bounded failure entry.
 {
   const task = coordinatorTask();
   const { deps, audit } = harness({ failSubmit: true });
   await autoDispatchCoordinator(deps, "coc_invoke", directTakeoverResult(task));
-  check("submit failure swallowed", audit.length === 1 && audit[0].status === "submit_failed" && audit[0].dispatch_key === task.packet.packet_id);
-  check("submit failure is bounded", !Object.hasOwn(audit[0], "error"));
+  const bounded = audit.filter((entry) => entry.status === "submit_failed");
+  const detail = audit.filter((entry) => entry.status === "submit_failed_detail");
+  check("submit failure swallowed", bounded.length === 1 && bounded[0].dispatch_key === task.packet.packet_id);
+  check("submit failure detail recorded", detail.length === 1 && detail[0].dispatch_key === task.packet.packet_id && typeof detail[0].detail === "string");
+  check("submit failure is bounded", !Object.hasOwn(bounded[0], "error"));
 }
 
 // Validation failure is recorded without a submit.
