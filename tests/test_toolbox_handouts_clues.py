@@ -1,6 +1,22 @@
 """Behavior tests owned by the handouts-clues operation cell."""
 from toolbox_test_support import *
 
+
+def test_handouts_clues_cell_registry_surface_is_local():
+    module_name = coc_toolbox.OPERATION_MODULES["handouts-clues"].__name__
+    registered = {
+        name
+        for name, spec in coc_toolbox.TOOLS.items()
+        if spec["handler"].__module__ == module_name
+    }
+    assert registered == {
+        "clues.query",
+        "state.deliver_handout",
+        "state.record_clue",
+        "state.replay_handout",
+    }
+
+
 def test_state_record_clue_idempotent_on_decision_id(campaign_ws):
     clue_id = _first_clue_id(campaign_ws["campaign_dir"])
     decision_id = "toolbox-clue-once"
