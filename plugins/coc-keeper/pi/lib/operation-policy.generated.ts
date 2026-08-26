@@ -183,6 +183,30 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "opening"
     ]
   },
+  "history.diff": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "none",
+    "execution_class": "serial_campaign",
+    "kp_surface": "context",
+    "phases": [
+      "live_turn",
+      "pending_finalization",
+      "recovery"
+    ]
+  },
+  "history.query": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "none",
+    "execution_class": "serial_campaign",
+    "kp_surface": "context",
+    "phases": [
+      "live_turn",
+      "pending_finalization",
+      "recovery"
+    ]
+  },
   "mechanics.ensure": {
     "advisory": false,
     "audience": "keeper",
@@ -191,6 +215,28 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     "kp_surface": "subsystem",
     "phases": [
       "live_turn"
+    ]
+  },
+  "memory.adjudicate": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "state",
+    "execution_class": "serial_campaign",
+    "kp_surface": "state",
+    "phases": [
+      "live_turn"
+    ]
+  },
+  "memory.recall": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "none",
+    "execution_class": "serial_campaign",
+    "kp_surface": "context",
+    "phases": [
+      "opening",
+      "live_turn",
+      "pending_finalization"
     ]
   },
   "memory.resolve_hook": {
@@ -1420,6 +1466,48 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "pending_finalization"
     ]
   },
+  "timeline.confluence_confirm": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "state",
+    "execution_class": "serial_campaign",
+    "kp_surface": "state",
+    "phases": [
+      "live_turn"
+    ]
+  },
+  "timeline.confluence_query": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "none",
+    "execution_class": "serial_campaign",
+    "kp_surface": "context",
+    "phases": [
+      "live_turn",
+      "pending_finalization",
+      "recovery"
+    ]
+  },
+  "timeline.fork_confirm": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "state",
+    "execution_class": "serial_campaign",
+    "kp_surface": "state",
+    "phases": [
+      "live_turn"
+    ]
+  },
+  "timeline.fork_request": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "state",
+    "execution_class": "serial_campaign",
+    "kp_surface": "state",
+    "phases": [
+      "live_turn"
+    ]
+  },
   "turn.finalize": {
     "advisory": false,
     "audience": "keeper",
@@ -1462,6 +1550,9 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "epistemic.query",
     "evidence.record_adoption",
     "evidence.table_opening",
+    "history.diff",
+    "history.query",
+    "memory.recall",
     "memory.search",
     "personal_horror.query",
     "scene.context",
@@ -1470,7 +1561,8 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "steward.deliveries",
     "steward.notebook",
     "steward.scene_supply",
-    "threat.query"
+    "threat.query",
+    "timeline.confluence_query"
   ],
   "npc": [
     "npc.query",
@@ -1514,6 +1606,7 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "setup.quick_start"
   ],
   "state": [
+    "memory.adjudicate",
     "memory.resolve_hook",
     "memory.write",
     "quest.activate",
@@ -1555,7 +1648,10 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "state.supersede_settlement",
     "state.threat_tick",
     "state.time_appearance",
-    "state.time_marker"
+    "state.time_marker",
+    "timeline.confluence_confirm",
+    "timeline.fork_confirm",
+    "timeline.fork_request"
   ],
   "subsystem": [
     "chase.context",

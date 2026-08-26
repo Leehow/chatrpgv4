@@ -9040,7 +9040,18 @@ def _fulfill_host_work_for_asset_unlocked(
                                 sc_data = json.loads(sc.read_text(encoding="utf-8"))
                             except (OSError, ValueError):
                                 continue
-                            if str(sc_data.get("asset_root_id") or "") != root_id:
+                            # The campaign binds the module root under its
+                            # cache/progressive pointers; there is no plain
+                            # asset_root_id field on the scenario.
+                            bound_roots = {
+                                str(sc_data.get(key) or "").strip()
+                                for key in (
+                                    "asset_root_id",
+                                    "source_cache_asset_root_id",
+                                    "progressive_asset_root_id",
+                                )
+                            }
+                            if root_id not in bound_roots:
                                 continue
                             try:
                                 ir = coc_module_project.load_campaign_ir(camp)

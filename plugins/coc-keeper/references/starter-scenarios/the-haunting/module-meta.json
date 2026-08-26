@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "scenario_id": "the-haunting",
+  "handout_asset_root_id": "the-haunting-keeper-rulebook-40th",
   "title": "The Haunting",
   "localized_text": {
     "zh-Hans": {

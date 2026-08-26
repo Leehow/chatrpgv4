@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Tool } from "@earendil-works/pi-ai";
 import type { JsonObject } from "./runtime.ts";
@@ -213,6 +215,64 @@ export function draftParagraphs(draft: string): string[] {
   }
   if (lines.length > 0) paragraphs.push(lines.join("\n"));
   return paragraphs;
+}
+
+function loadDurableCompilation(
+  ctx: ExtensionContext,
+  campaignId: string,
+  inputDigest: string,
+  retained: RetainedContext,
+): InferenceOutcome | null {
+  const cwd = typeof ctx.cwd === "string" ? ctx.cwd : "";
+  if (!cwd) return null;
+  let text = "";
+  try {
+    text = readFileSync(
+      join(cwd, ".coc", "campaigns", campaignId, "logs", "narration-reviews.jsonl"),
+      "utf8",
+    );
+  } catch {
+    return null;
+  }
+  const rows = text.split(/\r?\n/).filter((line) => line.trim());
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    try {
+      const row = JSON.parse(rows[index]) as JsonObject;
+      const compilation = row.state_claim_compilation;
+      if (!compilation || typeof compilation !== "object" || Array.isArray(compilation)) {
+        continue;
+      }
+      const receipt = compilation as JsonObject;
+      if (
+        receipt.status !== "completed"
+        || receipt.semantic_input_digest !== inputDigest
+      ) continue;
+      const binding = receipt.binding;
+      if (!binding || typeof binding !== "object" || Array.isArray(binding)) continue;
+      const bound = binding as JsonObject;
+      if (
+        bound.turn_id !== retained.turnId
+        || bound.source_digest !== retained.sourceDigest
+        || bound.settlement_snapshot_id !== retained.settlementSnapshotId
+        || bound.mechanics_bundle_sha256 !== retained.mechanicsBundleSha256
+      ) continue;
+      const result = receipt.result;
+      const responseModelValue = receipt.response_model;
+      if (!result || typeof result !== "object" || Array.isArray(result)) continue;
+      if (
+        !responseModelValue
+        || typeof responseModelValue !== "object"
+        || Array.isArray(responseModelValue)
+      ) continue;
+      return {
+        result: result as JsonObject,
+        responseModel: responseModelValue as JsonObject,
+      };
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 function candidateClaims(review: JsonObject): JsonObject[] {
@@ -552,6 +612,15 @@ export class PiStateClaimCompiler {
     const latchedFailure = this.failures.get(failureKey);
     if (latchedFailure) throw latchedFailure;
     let compiled = this.cache.get(inputDigest);
+    if (!compiled) {
+      const durable = loadDurableCompilation(
+        options.ctx, options.campaignId, inputDigest, retained,
+      );
+      if (durable) {
+        compiled = durable;
+        this.cache.set(inputDigest, durable);
+      }
+    }
     if (!compiled) {
       let entry = this.inflight.get(inputDigest);
       if (!entry) {

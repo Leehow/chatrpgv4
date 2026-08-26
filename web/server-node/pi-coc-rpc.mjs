@@ -49,6 +49,21 @@ export const HANDOFF_EXIT_CODE = 42;
 // genuinely idle window.
 export const AGENT_SETTLE_QUIESCENCE_MS = 100;
 
+/** After a silent auto-open settle, wait this long for the next agent_start
+ *  before injecting a competing setup prompt. Live Pi often queues that
+ *  follow-up after `agent_settled` but before stdout shows `agent_start`. */
+export const SETUP_OPENING_FOLLOWUP_MS = 1_500;
+
+/** After an `idle` marker, wait this long for a flip to `auto-open`.
+ *  The extension can emit both; last-writer-wins used to inject into a
+ *  child that had already started its opening turn. */
+export const UI_INTENT_CONFIRM_MS = 200;
+
+export function isAgentAlreadyProcessingError(err) {
+  if (!err || err.kind !== "pi_coc_rpc_rejected") return false;
+  return /already processing/i.test(String(err.message || ""));
+}
+
 /** Host-owned continuation for a respawned play RPC child. */
 export const PLAY_TABLE_OPENING_PROMPT = [
   "Host continuation for a newly spawned selected play campaign.",
@@ -513,6 +528,113 @@ export function deliveryReceiptFromToolEvent(event) {
   };
 }
 
+function toolEnvelopeFromEvent(event) {
+  if (!event || event.type !== "tool_execution_end") return null;
+  return canonicalEnvelope(event.result ?? event.details);
+}
+
+export const TOOL_RETRY_LIMIT = 3;
+export const TOOL_RETRY_EXHAUSTED_KIND = "pi_coc_tool_retry_exhausted";
+
+function emptyToolFailureStreak() {
+  return { tool: null, code: null, message: null, count: 0 };
+}
+
+function toolFailureIdentity(event) {
+  const envelope = toolEnvelopeFromEvent(event);
+  if (!envelope && event?.isError !== true) return null;
+  const tool = typeof envelope?.tool === "string" && envelope.tool
+    ? envelope.tool
+    : toolLabel(event);
+  if (!tool || tool === "tool") return null;
+  const error = envelope?.error;
+  const code = typeof error === "string" && error
+    ? error
+    : typeof error?.code === "string" && error.code
+      ? error.code
+      : event?.isError === true
+        ? "tool_failed"
+        : null;
+  if (!code) return null;
+  const message = typeof error === "string"
+    ? error
+    : typeof error?.message === "string" && error.message.trim()
+      ? error.message.trim()
+      : null;
+  return { tool, code, message };
+}
+
+/** Same-turn identical tool+code failures. A different tool/code or a success resets. */
+export function observeToolFailureStreak(event, state = emptyToolFailureStreak()) {
+  if (!event || event.type !== "tool_execution_end") return state;
+  const envelope = toolEnvelopeFromEvent(event);
+  if (envelope?.ok === true) {
+    if (state.tool && envelope.tool === state.tool) return emptyToolFailureStreak();
+    return state;
+  }
+  const failure = toolFailureIdentity(event);
+  if (!failure) return state;
+  if (state.tool === failure.tool && state.code === failure.code) {
+    return {
+      ...failure,
+      count: state.count + 1,
+    };
+  }
+  return { ...failure, count: 1 };
+}
+
+export function isToolRetryExhausted(state = emptyToolFailureStreak()) {
+  return Number(state.count) >= TOOL_RETRY_LIMIT && Boolean(state.tool) && Boolean(state.code);
+}
+
+export function toolRetryExhaustedFault(state = emptyToolFailureStreak()) {
+  const tool = state.tool || "unknown";
+  const code = state.code || "tool_failed";
+  const detail = state.message ? `（${state.message}）` : "";
+  return {
+    event: "error",
+    data: {
+      message: `工具 ${tool} 连续失败 ${TOOL_RETRY_LIMIT} 次后已中断：${code}${detail}。请刷新后恢复。`,
+      code: TOOL_RETRY_EXHAUSTED_KIND,
+      retryable: false,
+      details: {
+        kind: "tool_retry_exhausted",
+        status: "terminal",
+        tool,
+        error_code: code,
+        attempts: Number(state.count) || TOOL_RETRY_LIMIT,
+        pending_turn_preserved: true,
+      },
+    },
+  };
+}
+
+/** A player turn wrote journal/state or failed finalize, but never delivered. */
+export function observeUnfinalizedTurn(event, state = {}) {
+  const next = {
+    journaled: state.journaled === true,
+    failedFinalize: state.failedFinalize === true,
+    finalized: state.finalized === true,
+  };
+  const envelope = toolEnvelopeFromEvent(event);
+  if (!envelope) return next;
+  if (envelope.tool === "state.journal" && envelope.ok === true) {
+    next.journaled = true;
+  }
+  if (envelope.tool === "turn.finalize") {
+    if (envelope.ok === true && deliveryReceiptFromToolEvent(event)) {
+      next.finalized = true;
+    } else if (envelope.ok === false) {
+      next.failedFinalize = true;
+    }
+  }
+  return next;
+}
+
+export function isUnfinalizedSilentTurn(state = {}) {
+  return Boolean((state.journaled || state.failedFinalize) && !state.finalized);
+}
+
 function recoveryFinalizationModeFromToolEvent(event) {
   if (!event || event.type !== "tool_execution_end") return null;
   const envelope = canonicalEnvelope(event.result ?? event.details);
@@ -618,9 +740,15 @@ export function parseSetupHandoffEvent(event) {
 }
 
 function turnProcessingFaultDetails(event) {
-  if (!event || event.type !== "custom_message"
-    || event.customType !== "coc-turn-processing-fault") return null;
+  if (
+    !event
+    || event.customType !== "coc-turn-processing-fault"
+    || (event.type !== "custom_message" && event.type !== "custom")
+  ) return null;
   let source = event.details;
+  if ((!source || typeof source !== "object") && event.data && typeof event.data === "object") {
+    source = event.data;
+  }
   if ((!source || typeof source !== "object") && typeof event.content === "string") {
     try {
       source = JSON.parse(event.content);
@@ -844,6 +972,8 @@ export class PiCocRpcHost {
     nowFn = Date.now,
     uiIntentPatienceMs = 45_000,
     resumeStartQuietMs = 60_000,
+    setupOpeningFollowUpMs = SETUP_OPENING_FOLLOWUP_MS,
+    uiIntentConfirmMs = UI_INTENT_CONFIRM_MS,
   }) {
     this.repoRoot = repoRoot;
     this.workspace = path.resolve(workspace);
@@ -870,6 +1000,8 @@ export class PiCocRpcHost {
     this.nowFn = nowFn;
     this.uiIntentPatienceMs = uiIntentPatienceMs;
     this.resumeStartQuietMs = resumeStartQuietMs;
+    this.setupOpeningFollowUpMs = setupOpeningFollowUpMs;
+    this.uiIntentConfirmMs = uiIntentConfirmMs;
     this.child = null;
     this.ready = false;
     this.closed = false;
@@ -932,6 +1064,73 @@ export class PiCocRpcHost {
    */
   #stdoutQuietForMs(ms) {
     return this.nowFn() - this.#lastStdoutEventAt >= ms;
+  }
+
+  /**
+   * Send-window races this host must not reopen:
+   * R1 auto-open is busy before the first `agent_start` (streaming still false)
+   * R2 first silent `agent_settled` then a queued follow-up before `agent_start`
+   * R3 host-owned play/recovery prompt while that same child is opening
+   * R10 `idle` marker / intent timeout while auto-open is about to start
+   * already-processing is the safety net, not the primary gate.
+   * Player prompts retry after idle so the message is not dropped.
+   * Host-owned prompts join; they never followUp into a live Keeper turn.
+   */
+  #piHasInFlightAgent() {
+    if (this.streaming) return true;
+    return this.uiIntent === "auto-open" && this.settleGeneration === 0;
+  }
+
+  async #sleep(ms) {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async #waitUntilAgentIdle(timeoutMs) {
+    const deadline = this.nowFn() + Math.max(0, Number(timeoutMs) || 0);
+    while (this.nowFn() < deadline && !this.closed) {
+      if (this.#abortBoundary !== null) {
+        throw new PiCocRpcError(
+          "pi-coc abort is awaiting agent_settled",
+          { kind: "pi_coc_rpc_abort_pending" },
+        );
+      }
+      if (!this.#piHasInFlightAgent()) return "idle";
+      await this.#sleep(40);
+    }
+    return this.#piHasInFlightAgent() ? "busy" : "idle";
+  }
+
+  async #awaitHostPromptWindow({
+    allowWhenAutoOpenPending = false,
+  } = {}) {
+    if (this.streaming) return "busy";
+    if (!allowWhenAutoOpenPending && this.#piHasInFlightAgent()) return "busy";
+    if (this.settleGeneration === 0) return "idle";
+    if (!this.#stdoutQuietForMs(this.setupOpeningFollowUpMs)) {
+      const deadline = this.nowFn() + this.setupOpeningFollowUpMs;
+      while (this.nowFn() < deadline && !this.closed && !this.streaming) {
+        await this.#sleep(40);
+      }
+    }
+    return this.streaming ? "busy" : "idle";
+  }
+
+  async #confirmOpeningIntent(intent) {
+    if (this.uiIntent === "auto-open" || intent === "auto-open") {
+      return "auto-open";
+    }
+    // Only an explicit idle claim can flip to auto-open a moment later.
+    // A timed-out null intent must not grow another confirm window — play
+    // recovery continuations keep producing work after that timeout.
+    if (intent !== "idle") return this.uiIntent || intent;
+    const deadline = this.nowFn() + this.uiIntentConfirmMs;
+    while (this.nowFn() < deadline && !this.closed) {
+      if (this.uiIntent === "auto-open" || this.streaming) {
+        return this.uiIntent || "auto-open";
+      }
+      await this.#sleep(40);
+    }
+    return this.uiIntent || intent;
   }
 
   #noteStreamedText(text, accepted) {
@@ -1042,24 +1241,78 @@ export class PiCocRpcHost {
     }));
   }
 
+  async #waitForSetupFollowUp(onSse, timeoutMs, requireVisibleText) {
+    await this.#waitForQueuedFollowUp(onSse, timeoutMs, {
+      suppressSilentNotice: requireVisibleText,
+    });
+    if (this.streaming) {
+      await this.#waitSettleAfter(this.settleGeneration, onSse, timeoutMs, {
+        suppressSilentNotice: requireVisibleText,
+      });
+      return;
+    }
+    const baseGeneration = this.settleGeneration;
+    const deadline = this.nowFn() + this.setupOpeningFollowUpMs;
+    while (
+      !this.streaming
+      && this.settleGeneration === baseGeneration
+      && !this.closed
+      && this.nowFn() < deadline
+    ) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (this.streaming) {
+      await this.#waitSettleAfter(this.settleGeneration, onSse, timeoutMs, {
+        suppressSilentNotice: requireVisibleText,
+      });
+    } else if (this.settleGeneration > baseGeneration) {
+      this.#replaySse(onSse);
+    }
+  }
+
+  async #joinInFlightTurn(onSse, timeoutMs, failIfSilent) {
+    // Subscribe immediately. Waiting for `streaming` first misses a turn
+    // that starts and settles in one stdout burst (auto-open before the
+    // first `agent_start` flag is visible to this host).
+    return this.#waitSettleAfter(this.settleGeneration, onSse, timeoutMs, {
+      turnActivity: { accepted: true },
+      failIfSilent,
+    });
+  }
+
   async #promptSetupOpeningIfSilent({ onSse, timeoutMs, requireVisibleText, sawVisibleText }) {
     if (this.tableIntent !== "character-setup") return null;
     if (sawVisibleText || this.#hasRecordedVisibleOpening()) return null;
+    if (this.#setupOpeningPrompted) return null;
+    if (this.settleGeneration > 0) {
+      await this.#waitForSetupFollowUp(onSse, timeoutMs, requireVisibleText);
+      if (sawVisibleText || this.#hasRecordedVisibleOpening()) return null;
+    }
     if (this.#setupOpeningPrompted) return null;
     this.#setupOpeningPrompted = true;
     const message = setupCharacterOpeningPrompt({
       campaignId: this.campaignId,
       workspace: this.workspace,
     });
-    const result = await this.prompt(message, {
-      onSse,
-      timeoutMs,
-      failIfSilent: false,
-    });
-    if (requireVisibleText && !sawVisibleText) {
-      // prompt() already streamed via onSse; caller tracks sawVisibleText.
+    try {
+      const result = await this.prompt(message, {
+        onSse,
+        timeoutMs,
+        failIfSilent: false,
+        hostOwned: true,
+        allowWhenAutoOpenPending: true,
+      });
+      if (result?.attachedToInFlight && !sawVisibleText && !this.#hasRecordedVisibleOpening()) {
+        this.#setupOpeningPrompted = false;
+      }
+      if (requireVisibleText && !sawVisibleText) {
+        // prompt() already streamed via onSse; caller tracks sawVisibleText.
+      }
+      return { ...result, opened: true, setupOpeningPrompted: !result?.attachedToInFlight };
+    } catch (err) {
+      this.#setupOpeningPrompted = false;
+      throw err;
     }
-    return { ...result, opened: true, setupOpeningPrompted: true };
   }
 
   #emit(event) {
@@ -1168,7 +1421,9 @@ export class PiCocRpcHost {
       this.#stderr = this.#stderr.slice(-32 * 1024);
     }
     if (text.includes(UI_AUTO_OPEN_MARKER)) this.uiIntent = "auto-open";
-    if (text.includes(UI_IDLE_MARKER)) this.uiIntent = "idle";
+    else if (text.includes(UI_IDLE_MARKER) && this.uiIntent !== "auto-open") {
+      this.uiIntent = "idle";
+    }
   }
 
   start() {
@@ -1384,6 +1639,7 @@ export class PiCocRpcHost {
       // opening, recovery, and setup-handoff keep failIfSilent off. A setup
       // exit-42 is not settled player output: its play-session continuation
       // owns the still-open turn instead.
+      let finished = false;
       let sawPlayerText = false;
       let sawError = false;
       let sawHandoff = false;
@@ -1396,6 +1652,9 @@ export class PiCocRpcHost {
             delivered: initialRecoveryFinalization.delivered === true,
           };
       let acceptedObserved = false;
+      let unfinalized = { journaled: false, failedFinalize: false, finalized: false };
+      let toolFailures = emptyToolFailureStreak();
+      let toolRetryFault = null;
       let timer = null;
       const notifyIfSilent = () => {
         if (
@@ -1403,6 +1662,7 @@ export class PiCocRpcHost {
           || this.openingSourceReviewPending
           || sawPlayerText
           || sawError
+          || isUnfinalizedSilentTurn(unfinalized)
         ) return;
         onSse?.({
           event: "notice",
@@ -1410,16 +1670,33 @@ export class PiCocRpcHost {
         });
       };
       const finish = (err, result = {}) => {
+        if (finished) return;
+        finished = true;
         off();
         if (timer !== null) clearInterval(timer);
         if (err) reject(err);
-        else resolve({ sawPlayerText, sawError, sawHandoff, ...result });
+        else {
+          resolve({
+            sawPlayerText,
+            sawError,
+            sawHandoff,
+            unfinalizedTurn: isUnfinalizedSilentTurn(unfinalized),
+            ...result,
+          });
+        }
       };
       const settle = (result = {}) => {
         if (terminalTurnFault !== null) {
           finish(new PiCocRpcError(terminalTurnFault.message, {
             kind: "pi_coc_turn_processing_fault",
             details: terminalTurnFault.details,
+          }));
+          return;
+        }
+        if (toolRetryFault !== null) {
+          finish(new PiCocRpcError(toolRetryFault.message, {
+            kind: TOOL_RETRY_EXHAUSTED_KIND,
+            details: toolRetryFault.details,
           }));
           return;
         }
@@ -1443,6 +1720,10 @@ export class PiCocRpcHost {
           return;
         }
         if (failIfSilent && !sawPlayerText && !sawError) {
+          if (isUnfinalizedSilentTurn(unfinalized)) {
+            finish(null, { unfinalizedTurn: true });
+            return;
+          }
           finish(new PiCocRpcError(EMPTY_PLAYER_TURN_MESSAGE, {
             kind: EMPTY_PLAYER_TURN_KIND,
           }));
@@ -1459,6 +1740,16 @@ export class PiCocRpcHost {
             delivery: null,
             delivered: false,
           };
+        }
+        unfinalized = observeUnfinalizedTurn(event, unfinalized);
+        toolFailures = observeToolFailureStreak(event, toolFailures);
+        if (toolRetryFault === null && isToolRetryExhausted(toolFailures)) {
+          const frame = toolRetryExhaustedFault(toolFailures);
+          toolRetryFault = frame.data;
+          onSse?.(frame);
+          sawError = true;
+          void this.#beginAbort().finally(() => settle());
+          return;
         }
         const eventDelivery = deliveryReceiptFromToolEvent(event);
         if (recoveryFinalization !== null && eventDelivery !== null) {
@@ -1501,6 +1792,13 @@ export class PiCocRpcHost {
               recoveryFinalization.delivered = true;
             }
           }
+        }
+        if (terminalTurnFault !== null) {
+          // A latched compiler fault is terminal for this child. Waiting for
+          // agent_settled lets the KP keep calling tools and reset the idle
+          // watchdog for minutes. Abort and surface the typed fault now.
+          void this.#beginAbort().finally(() => settle());
+          return;
         }
         // Do not resolve directly from the `agent_settled` listener. A hidden
         // follow-up may be queued by the extension in the same lifecycle turn.
@@ -1684,7 +1982,23 @@ export class PiCocRpcHost {
       });
       return maybeSetupOpen(true);
     }
-    const intent = await this.waitForUiIntent(this.uiIntentPatienceMs);
+    const intent = await this.#confirmOpeningIntent(
+      await this.waitForUiIntent(this.uiIntentPatienceMs),
+    );
+    // Intent wait is not subscribed to stdout. Character-setup auto-open
+    // can start and settle while we confirm idle→auto-open; replay that
+    // turn instead of waiting another minute for a start that already
+    // happened. Play continue still requires a valid silent-resume receipt
+    // or a live/follow-up continuation — a generic settle is not proof.
+    if (
+      this.tableIntent !== "continue"
+      && this.settleGeneration > 0
+      && !this.streaming
+    ) {
+      if (!sawVisibleText) this.#replaySse(relay);
+      if (!sawVisibleText) this.#replaySessionAssistant(relay);
+      return maybeSetupOpen(true);
+    }
     if (
       this.tableIntent === "continue"
       && !this.streaming
@@ -1708,6 +2022,7 @@ export class PiCocRpcHost {
     if (
       intent === "auto-open"
       || this.streaming
+      || this.#piHasInFlightAgent()
       || (continueTable && intent !== "idle")
     ) {
       const startGen = this.settleGeneration;
@@ -1763,7 +2078,33 @@ export class PiCocRpcHost {
     }
   }
 
-  async prompt(message, { onSse, timeoutMs = 900_000, failIfSilent = true } = {}) {
+  #recoverUnfinalizedSilentIfNeeded(result, {
+    failIfSilent,
+    hostOwned,
+    onSse,
+    timeoutMs,
+  }) {
+    if (
+      failIfSilent
+      && !hostOwned
+      && result?.unfinalizedTurn
+      && !result.sawPlayerText
+      && !result.sawError
+      && !result.handoff
+      && !result.sawHandoff
+    ) {
+      return this.promptTurnRecovery({ onSse, timeoutMs });
+    }
+    return result;
+  }
+
+  async prompt(message, {
+    onSse,
+    timeoutMs = 900_000,
+    failIfSilent = true,
+    hostOwned = false,
+    allowWhenAutoOpenPending = false,
+  } = {}) {
     if (this.#abortBoundary !== null) {
       throw new PiCocRpcError(
         "pi-coc abort is awaiting agent_settled",
@@ -1772,6 +2113,19 @@ export class PiCocRpcHost {
     }
     this.#activePromptCount += 1;
     try {
+      if (hostOwned) {
+        const window = await this.#awaitHostPromptWindow({
+          allowWhenAutoOpenPending,
+        });
+        if (window !== "idle") {
+          return {
+            ...(await this.#joinInFlightTurn(onSse, timeoutMs, failIfSilent)),
+            attachedToInFlight: true,
+          };
+        }
+      } else if (this.#piHasInFlightAgent()) {
+        await this.#waitUntilAgentIdle(Math.min(Number(timeoutMs) || 30_000, 30_000));
+      }
       const startGen = this.settleGeneration;
       const turnActivity = { accepted: false };
       const settled = this.#waitSettleAfter(startGen, onSse, timeoutMs, {
@@ -1782,21 +2136,64 @@ export class PiCocRpcHost {
         type: "prompt",
         message: String(message ?? ""),
       };
-      if (this.streaming) payload.streamingBehavior = "followUp";
+      if (!hostOwned && this.streaming) payload.streamingBehavior = "followUp";
       try {
         await this.#request(payload, 15_000);
         turnActivity.accepted = true;
       } catch (err) {
-        if (err?.kind !== "pi_coc_rpc_handoff") {
-          // This early throw abandons the settle wait above; keep its
-          // eventual timer rejection observed instead of unhandled.
-          settled.catch(() => {});
-          throw err;
+        if (err?.kind === "pi_coc_rpc_handoff") {
+          const result = await settled;
+          return { ...result, handoff: true };
         }
-        const result = await settled;
-        return { ...result, handoff: true };
+        // This early throw abandons the settle wait above; keep its
+        // eventual timer rejection observed instead of unhandled.
+        settled.catch(() => {});
+        if (isAgentAlreadyProcessingError(err)) {
+          if (!hostOwned && !payload.streamingBehavior) {
+            await this.#waitUntilAgentIdle(Math.min(Number(timeoutMs) || 30_000, 30_000));
+            if (!this.#piHasInFlightAgent() && this.#abortBoundary === null) {
+              try {
+                await this.#request({
+                  type: "prompt",
+                  message: payload.message,
+                }, 15_000);
+                turnActivity.accepted = true;
+                return await this.#recoverUnfinalizedSilentIfNeeded(await settled, {
+                  failIfSilent,
+                  hostOwned,
+                  onSse,
+                  timeoutMs,
+                });
+              } catch (retryErr) {
+                if (retryErr?.kind === "pi_coc_rpc_handoff") {
+                  return { ...(await settled), handoff: true };
+                }
+                if (!isAgentAlreadyProcessingError(retryErr)) {
+                  settled.catch(() => {});
+                  throw retryErr;
+                }
+              }
+            }
+          }
+          settled.catch(() => {});
+          return await this.#recoverUnfinalizedSilentIfNeeded({
+            ...(await this.#joinInFlightTurn(onSse, timeoutMs, failIfSilent)),
+            attachedToInFlight: true,
+          }, {
+            failIfSilent,
+            hostOwned,
+            onSse,
+            timeoutMs,
+          });
+        }
+        throw err;
       }
-      return await settled;
+      return await this.#recoverUnfinalizedSilentIfNeeded(await settled, {
+        failIfSilent,
+        hostOwned,
+        onSse,
+        timeoutMs,
+      });
     } finally {
       this.#activePromptCount -= 1;
     }
@@ -1807,6 +2204,7 @@ export class PiCocRpcHost {
     const result = await this.prompt(PLAY_TABLE_OPENING_PROMPT, {
       timeoutMs,
       failIfSilent: false,
+      hostOwned: true,
       onSse: (frame) => {
         if (frame?.event === "delta" && String(frame.data?.text || "").trim()) {
           sawVisibleText = true;
@@ -1827,6 +2225,7 @@ export class PiCocRpcHost {
     const result = await this.prompt(PLAY_TURN_RECOVERY_PROMPT, {
       timeoutMs,
       failIfSilent: false,
+      hostOwned: true,
       onSse: (frame) => {
         if (frame?.event === "delta" && String(frame.data?.text || "").trim()) {
           sawVisibleText = true;
@@ -1835,8 +2234,15 @@ export class PiCocRpcHost {
       },
     });
     if (!sawVisibleText) {
-      throw new PiCocRpcError("pi-coc recovery produced no visible output", {
+      const frame = recoveryFinalizationFault(this.campaignId, {
+        mode: "open_turn_recovery",
+        delivery: null,
+        delivered: false,
+      });
+      onSse?.(frame);
+      throw new PiCocRpcError(frame.data.message, {
         kind: "pi_coc_recovery_not_visible",
+        details: frame.data.details,
       });
     }
     return { ...result, recovered: true };

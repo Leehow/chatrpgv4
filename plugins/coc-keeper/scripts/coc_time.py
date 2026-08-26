@@ -1253,25 +1253,68 @@ def build_time_signals(
 
 
 # --------------------------------------------------------------------------- #
-# Fork (IF branch) — not part of the public API (stub retained for experiments)
+# Fork (IF branch) — Coordinator-backed; not a public toolbox API
 # --------------------------------------------------------------------------- #
+def _load_git_history():
+    spec = importlib.util.spec_from_file_location(
+        "coc_git_history", _SCRIPT_DIR / "coc_git_history.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
 def _fork_timeline(
     campaign_dir: Path,
     *,
     new_branch_id: str,
     forked_from: dict[str, Any],
-) -> None:
-    """Internal stub: create a timeline branch marker. Not a public API.
+) -> dict[str, Any]:
+    """Create a timeline fork via the Commit Coordinator. Not a public API.
 
-    Full IF-branch support would generate a new timeline_id, copy campaign
-    state from a snapshot, and mark ``forked_from``. Callers must not rely on
-    this helper until that lands; the former public ``fork_timeline`` name was
-    removed from the export surface in N8.
+    The campaign directory must be the sidecar worktree
+    ``.coc/campaigns/<id>``. Clock metadata is updated after the Coordinator
+    write; Git refs are never mutated from this module directly.
     """
     path = _time_state_path(campaign_dir)
     state = _read_json(path)
     if not state:
-        return
+        return {}
+    campaign_dir = Path(campaign_dir)
+    hist = _load_git_history()
+    campaign_id = str(state.get("campaign_id") or campaign_dir.name)
+    if (
+        campaign_dir.parent.name != "campaigns"
+        or campaign_dir.parent.parent.name != ".coc"
+    ):
+        raise hist.GitHistoryError(
+            "timeline fork requires a campaign worktree at .coc/campaigns/<id>"
+        )
+    root = campaign_dir.parent.parent.parent
+    timeline_id = new_branch_id
+    if not timeline_id.startswith("tl-"):
+        timeline_id = f"tl-{new_branch_id}"
+    source = forked_from if isinstance(forked_from, dict) else {}
+    source_timeline = str(source.get("timeline_id") or state.get("timeline_id") or "tl-main")
+    source_turn = source.get("turn", source.get("turn_number"))
+    source_commit = source.get("commit")
+    game_reason = str(
+        source.get("game_reason") or source.get("reason") or "timeline fork"
+    )
+    created = hist.fork_timeline(
+        root,
+        campaign_id,
+        timeline_id=timeline_id,
+        source_timeline_id=source_timeline,
+        source_turn=int(source_turn) if source_turn is not None else None,
+        source_commit=str(source_commit) if source_commit else None,
+        game_reason=game_reason,
+        created_by="kp_decision",
+        activate=True,
+    )
     state["branch_id"] = new_branch_id
+    state["timeline_id"] = timeline_id
     state["forked_from"] = forked_from
     _write_json(path, state)
+    return created

@@ -53,6 +53,9 @@ from coc_operation_kernel_runtime import (
     tool,
 )
 
+import coc_history_projection
+import coc_temporal_memory
+
 _SESSION_RESUME_DATA_MAX_BYTES = 40 * 1024
 
 def _wire_bytes(value: Any) -> int:
@@ -186,6 +189,18 @@ def _bound_session_resume_data(data: dict[str, Any]) -> dict[str, Any]:
                     for index, summary in enumerate(kept)
                 ]
                 reductions.append("recent_semantic_summaries_to_typed_refs")
+
+    temporal = bounded.get("temporal_capsule")
+    if over() and isinstance(temporal, dict):
+        for field in (
+            "recent_episodes", "active_assertions", "open_hooks",
+            "pending_candidates", "session_summaries",
+        ):
+            rows = temporal.get(field)
+            if isinstance(rows, list) and rows:
+                temporal[field + "_count"] = len(rows)
+                temporal[field] = []
+        reductions.append("temporal_capsule_to_counts")
 
     if over() and bounded.get("pending_output_context") is not None:
         bounded["pending_output_context"] = {
@@ -1091,6 +1106,180 @@ def _session_resume_ending_output(ctx: Ctx) -> dict[str, Any] | None:
         "rendered_sha256": finalized["text_sha256"],
     }
 
+# Closed model-facing projections of temporal capsule rows. Machine-internal
+# integrity evidence (commit shas, text/blob digests, covers_commits) stays
+# out of the recovery working set: identity and semantics travel, opaque
+# bytes never do.
+_TEMPORAL_EPISODE_FIELDS = (
+    "episode_id", "campaign_id", "timeline_id", "turn_number",
+    "finalization_receipt", "subjects_present", "entities",
+)
+_TEMPORAL_ASSERTION_FIELDS = (
+    "assertion_id", "kind", "scope", "campaign_id", "timeline_id",
+    "subject_id", "knowers", "privacy", "state", "statement", "entities",
+    "occurred_turn", "valid_from_turn", "valid_until_turn",
+    "superseded_by", "contradicts", "confirms", "transfer_ref",
+    "source_turn", "source_receipts",
+)
+_TEMPORAL_HOOK_FIELDS = (
+    "memory_id", "assertion_id", "kind", "status", "introduced_at",
+    "possible_payoff",
+)
+
+def _temporal_rows(rows: Any, fields: tuple[str, ...]) -> list[dict[str, Any]]:
+    return [
+        {key: deepcopy(row[key]) for key in fields if key in row}
+        for row in rows or []
+        if isinstance(row, dict)
+    ]
+
+def _empty_temporal_capsule(campaign_id: str) -> dict[str, Any]:
+    """Explicit absent state; absent history is never summarized."""
+    return {
+        "schema_version": 1,
+        "status": "no_finalized_history",
+        "authority": "advisory",
+        "hard_gate": False,
+        "campaign_id": campaign_id,
+        "timeline_id": None,
+        "current_finalized_turn": None,
+        "recent_episodes": [],
+        "active_assertions": [],
+        "open_hooks": [],
+        "pending_candidates": [],
+        "session_summaries": [],
+    }
+
+def _recover_temporal_history_for_resume(
+    ctx: Ctx,
+) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+    """History-projection maintenance + bounded advisory temporal capsule.
+
+    Recovery-only consumer of the Git/history/temporal-memory subsystem:
+
+    1. ``rebuild_history_projection`` refreshes the deletable projection
+       cache from Git history. A rebuild failure leaves the previous cache,
+       Git history, and campaign evidence untouched, so it only downgrades
+       the reported status with a warning — it never blocks recovery.
+    2. The active timeline and current finalized turn are resolved through
+       the Git history coordinator from semantic ids only. Commit shas stay
+       machine-internal; the model is never asked to relay one.
+    3. The capsule is built from the canonical temporal store for exactly
+       the active timeline / current finalized turn, using the component's
+       own bounded limits. No finalized history, no temporal store, or no
+       assertions project explicit empty state. A corrupt canonical
+       temporal store fails closed with a structured error instead of
+       fabricating memory. Legacy Markdown memory cards are never read.
+    """
+    root = ctx.root
+    campaign_id = str(ctx.campaign_id)
+    warnings: list[str] = []
+    history: dict[str, Any] = {
+        "status": "rebuilt",
+        "schema_generation": coc_history_projection.SCHEMA_GENERATION,
+        "commit_count": 0,
+        "canonical_sources_unchanged": True,
+    }
+    capsule = _empty_temporal_capsule(campaign_id)
+    try:
+        envelope = coc_history_projection.rebuild_history_projection(
+            root, campaign_id,
+        )
+        history["commit_count"] = int(envelope.get("commit_count") or 0)
+    except coc_history_projection.HistoryProjectionError as exc:
+        history = {
+            "status": "rebuild_failed",
+            "schema_generation": coc_history_projection.SCHEMA_GENERATION,
+            "reason": str(exc),
+            "canonical_sources_unchanged": True,
+        }
+        warnings.append(
+            "history projection rebuild failed; the previous projection "
+            "cache, Git history, and campaign evidence are unchanged, and "
+            "the temporal capsule is built without the projection cache: "
+            + str(exc)
+        )
+
+    # A successful zero-commit scan proves the campaign has no Git history
+    # at all yet (a deferred quick-start baseline included): report explicit
+    # empty state instead of resolving refs that cannot exist.
+    if (
+        history.get("status") == "rebuilt"
+        and int(history.get("commit_count") or 0) == 0
+    ):
+        return history, capsule, warnings
+    try:
+        active = coc_git_history.active_timeline_id(root, campaign_id)
+        resolved = coc_git_history.resolve_history_selector(
+            root, campaign_id, {"timeline_id": active},
+        )
+    except coc_git_history.GitHistoryUnavailableError as exc:
+        raise ToolError(
+            "git_history_unavailable",
+            "campaign history recovery requires the git binary; there is no "
+            "degraded mode: " + str(exc),
+            details={"campaign_id": campaign_id},
+        ) from exc
+    except coc_git_history.GitHistoryError as exc:
+        raise ToolError(
+            "history_resolution_failed",
+            "cannot resolve the active timeline and current finalized turn "
+            "for campaign " + campaign_id + ": " + str(exc),
+            details={"campaign_id": campaign_id},
+        ) from exc
+    capsule["timeline_id"] = active
+    turn_raw = str(resolved.get("turn_number") or "")
+    if resolved.get("commit_type") != "turn" or not turn_raw.isdigit():
+        # History exists but the active timeline ref has no finalized turn
+        # head yet (baseline-only or a fresh confluence timeline).
+        return history, capsule, warnings
+    turn = int(turn_raw)
+    capsule["current_finalized_turn"] = turn
+    # Reading never bootstraps the canonical store: an absent store is
+    # reported as explicit empty state, not created during recovery.
+    if not (
+        coc_temporal_memory.temporal_dir(ctx.campaign_dir) / "schema.json"
+    ).exists():
+        capsule["status"] = "no_temporal_store"
+        return history, capsule, warnings
+    try:
+        built = coc_temporal_memory.build_resume_projection(
+            campaign_id,
+            turn,
+            campaign_dir=ctx.campaign_dir,
+            timeline_id=active,
+        )
+    except (ValueError, OSError) as exc:
+        raise ToolError(
+            "temporal_store_corrupt",
+            "the canonical temporal store for campaign " + campaign_id
+            + " failed to load; resume fails closed rather than guessing "
+            "memory: " + str(exc),
+            details={
+                "campaign_id": campaign_id,
+                "timeline_id": active,
+                "turn_number": turn,
+            },
+        ) from exc
+    capsule.update({
+        "status": "ready",
+        "schema_generation": built.get("schema_generation"),
+        "recent_episodes": _temporal_rows(
+            built.get("recent_episodes"), _TEMPORAL_EPISODE_FIELDS,
+        ),
+        "active_assertions": _temporal_rows(
+            built.get("active_assertions"), _TEMPORAL_ASSERTION_FIELDS,
+        ),
+        "open_hooks": _temporal_rows(
+            built.get("open_hooks"), _TEMPORAL_HOOK_FIELDS,
+        ),
+        "pending_candidates": _temporal_rows(
+            built.get("pending_candidates"), _TEMPORAL_ASSERTION_FIELDS,
+        ),
+        "session_summaries": deepcopy(built.get("session_summaries") or []),
+    })
+    return history, capsule, warnings
+
 def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
     current_host_marker = coc_host_context.current_marker(
         ctx.root, session_id=args.get("host_session_id")
@@ -1156,6 +1345,9 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
     archive_recovery, archive_warnings = _recover_compiled_archive_for_resume(
         ctx.campaign_dir
     )
+    history_recovery, temporal_capsule, temporal_warnings = (
+        _recover_temporal_history_for_resume(ctx)
+    )
     revision_vector, revision_token = _continuation_revision(ctx)
     checkpoint, checkpoint_warnings = coc_continuation.ensure_latest_checkpoint(
         ctx.campaign_dir,
@@ -1191,7 +1383,7 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
         scene_id=str(ctx.world().get("active_scene_id") or "") or None,
     )
 
-    warnings = [*checkpoint_warnings, *archive_warnings]
+    warnings = [*checkpoint_warnings, *archive_warnings, *temporal_warnings]
     hints: list[str] = []
     scene_context: dict[str, Any] | None = None
     pending_output_context: dict[str, Any] | None = None
@@ -1273,6 +1465,12 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
         hints.append(
             "resume preserved an unresolved ordinary failure: prefer its exact Push opportunity, a changed goal, or structured reset evidence instead of repeating the same check"
         )
+    hints.append(
+        "temporal_capsule is advisory per-timeline memory through the current "
+        "finalized turn; rules receipts and canonical state stay authoritative, "
+        "keeper_only rows never reach the player, and absent history is "
+        "reported as absent rather than summarized"
+    )
 
     data: dict[str, Any] = {
         "schema_version": 1,
@@ -1310,6 +1508,8 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
         },
         "operation_opportunities": attempt_opportunities,
         "compiled_archive_recovery": archive_recovery,
+        "history_projection_recovery": history_recovery,
+        "temporal_capsule": temporal_capsule,
         "turn_tail_quarantine": turn_tail_quarantine,
         "next_operations": next_operations,
         "recovery_contract": {
@@ -2258,6 +2458,7 @@ OPERATION_EXPORTS = (
     '_quarantine_unbound_turn_tail',
     '_recently_created_campaigns',
     '_recover_compiled_archive_for_resume',
+    '_recover_temporal_history_for_resume',
     '_require_projected_opening_source',
     '_session_resume_ending_output',
     '_tool_evidence_table_opening',

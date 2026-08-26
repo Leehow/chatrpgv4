@@ -11,6 +11,12 @@ copy is an Apache-2.0 original in-world prop derived only from this starter's
 structured facts, explicitly marked `starter-original-derivative`; it is not a
 transcription or paraphrased substitute for Chaosium source prose.
 
+On this installation, `module-meta.json.handout_asset_root_id` optionally
+overlays the local source-bound root `the-haunting-keeper-rulebook-40th`.
+When that root exists, its validated Rulebook cards and player map replace or
+extend the built-in derivative card by semantic `asset_id`; when it is absent,
+the open starter remains fully playable without source prose or images.
+
 Mechanical hooks (Flesh Ward, floating knife, own-dagger exception) align with
 `../../../rulesets/coc7/rules-json/the-haunting.json`. Walter Corbitt presentation/stats are
 referenced from `../../../rulesets/coc7/rules-json/monsters.json`.

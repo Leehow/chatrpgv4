@@ -54,7 +54,7 @@ STARTER_SCENARIO_FILES = (
     "pacing-map.json",
     "improvisation-boundaries.json",
 )
-STARTER_OPTIONAL_SCENARIO_FILES = ("handouts.json",)
+STARTER_OPTIONAL_SCENARIO_FILES = ("handouts.json", "quests.json")
 
 _QUICK_START_RECEIPT_RELATIVE_PATH = Path(
     "logs/setup-quick-start-receipt.json"

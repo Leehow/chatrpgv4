@@ -10,6 +10,7 @@ import {
   parseSetupHandoffEvent,
   PiCocRpcError,
   PiCocRpcHost,
+  TOOL_RETRY_EXHAUSTED_KIND,
   webSessionId,
 } from "./pi-coc-rpc.mjs";
 
@@ -46,7 +47,10 @@ export async function consumeDeliveredTurnProcessingFault({
   expectedHost,
   orchestrator,
 } = {}) {
-  if (error?.kind !== "pi_coc_turn_processing_fault") return false;
+  if (
+    error?.kind !== "pi_coc_turn_processing_fault"
+    && error?.kind !== TOOL_RETRY_EXHAUSTED_KIND
+  ) return false;
   await orchestrator.retireExactHost(campaignId, expectedHost);
   return true;
 }

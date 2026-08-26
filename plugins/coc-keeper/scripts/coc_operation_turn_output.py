@@ -544,6 +544,106 @@ def _review_has_agency_violation(review: dict[str, Any]) -> bool:
         for finding in review.get("findings") or []
     )
 
+_SPAN_REPAIR_INSTRUCTION = (
+    "Only change the listed excerpts. Leave every other sentence byte-stable. "
+    "Do not regenerate the scene."
+)
+
+
+def _span_repairs_for_review(
+    *,
+    draft: str,
+    state_authority_review: dict[str, Any] | None,
+    state_claim_compilation: dict[str, Any] | None,
+    state_authority_gate: str,
+    agency_gate: str,
+) -> dict[str, Any] | None:
+    if (
+        state_authority_gate != "rewrite_required"
+        and agency_gate != "rewrite_required"
+    ):
+        return None
+    kp_claims = (
+        state_authority_review.get("claims")
+        if isinstance(state_authority_review, dict) else None
+    ) or []
+    kp_by_id = {
+        str(claim.get("claim_id")): claim
+        for claim in kp_claims
+        if isinstance(claim, dict) and claim.get("claim_id")
+    }
+    spans: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add_span(excerpt: str, kind: str, reason: str) -> None:
+        key = (excerpt, kind)
+        if not excerpt or excerpt not in draft or key in seen:
+            return
+        seen.add(key)
+        spans.append({
+            "exact_excerpt": excerpt,
+            "claim_kind": kind,
+            "reason": reason,
+            "repair": "rephrase_or_remove",
+        })
+
+    result = (
+        state_claim_compilation.get("result")
+        if isinstance(state_claim_compilation, dict) else None
+    )
+    for claim in (result.get("claims") if isinstance(result, dict) else []) or []:
+        if not isinstance(claim, dict):
+            continue
+        matched_id = claim.get("matched_review_claim_id")
+        matched = kp_by_id.get(matched_id) if isinstance(matched_id, str) else None
+        grounded = (
+            isinstance(matched, dict)
+            and matched.get("subject_ref") == claim.get("subject_ref")
+            and matched.get("claim_kind") == claim.get("claim_kind")
+            and matched.get("source_effect_id")
+        )
+        if grounded:
+            continue
+        add_span(
+            str(claim.get("exact_excerpt") or ""),
+            str(claim.get("claim_kind") or ""),
+            str(claim.get("reason") or ""),
+        )
+    for claim in kp_claims:
+        if not isinstance(claim, dict) or claim.get("source_effect_id"):
+            continue
+        add_span(
+            str(claim.get("exact_excerpt") or ""),
+            str(claim.get("claim_kind") or ""),
+            str(claim.get("reason") or ""),
+        )
+    if not spans:
+        return None
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.span-repairs.v1",
+        "mode": "excerpt_only",
+        "spans": spans,
+        "instruction": _SPAN_REPAIR_INSTRUCTION,
+    }
+
+
+def _latest_span_repairs(
+    ctx: Ctx, *, turn_id: str, source_digest: str
+) -> dict[str, Any] | None:
+    latest: dict[str, Any] | None = None
+    for row in _jsonl_rows(ctx.campaign_dir / "logs" / "narration-reviews.jsonl"):
+        if (
+            row.get("turn_id") != turn_id
+            or row.get("source_digest") != source_digest
+        ):
+            continue
+        repairs = row.get("span_repairs")
+        if isinstance(repairs, dict) and repairs.get("spans"):
+            latest = deepcopy(repairs)
+    return latest
+
+
 def _review_requires_rewrite(review: dict[str, Any]) -> bool:
     return (
         _review_has_agency_violation(review)
@@ -648,6 +748,64 @@ def _pending_authority_review_revision(
         and _valid_narration_review_digest(row)
     ]
     return 2 if any(_review_requires_rewrite(row) for row in prior_rows) else 1
+
+def _clear_review_replay_identity(
+    *,
+    turn_id: str,
+    source_digest: str,
+    revision: int,
+    draft: str,
+    findings: list[dict[str, Any]],
+    kp_review: dict[str, Any] | None,
+    settled: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "turn_id": turn_id,
+        "source_digest": source_digest,
+        "revision": revision,
+        "draft_sha256": _canonical_digest(draft),
+        "findings_digest": _canonical_digest(findings),
+        "kp_review_digest": _canonical_digest(kp_review),
+        "settlement_snapshot_id": settled.get("settlement_snapshot_id"),
+        "mechanics_bundle_sha256": settled.get("mechanics_bundle_sha256"),
+    }
+
+
+def _row_clear_review_replay_identity(row: dict[str, Any]) -> dict[str, Any] | None:
+    compilation = row.get("state_claim_compilation")
+    binding = compilation.get("binding") if isinstance(compilation, dict) else None
+    if not isinstance(binding, dict):
+        return None
+    snapshot = binding.get("settlement_snapshot_id")
+    mechanics = binding.get("mechanics_bundle_sha256")
+    if not snapshot or not mechanics:
+        return None
+    return {
+        "turn_id": row.get("turn_id"),
+        "source_digest": row.get("source_digest"),
+        "revision": row.get("revision"),
+        "draft_sha256": row.get("draft_sha256"),
+        "findings_digest": _canonical_digest(row.get("findings") or []),
+        "kp_review_digest": _canonical_digest(row.get("state_authority_review")),
+        "settlement_snapshot_id": snapshot,
+        "mechanics_bundle_sha256": mechanics,
+    }
+
+
+def _lookup_clear_review_replay(
+    ctx: Ctx, identity: dict[str, Any]
+) -> dict[str, Any] | None:
+    matches: list[dict[str, Any]] = []
+    for row in _jsonl_rows(ctx.campaign_dir / "logs" / "narration-reviews.jsonl"):
+        if row.get("agency_gate") != "clear":
+            continue
+        if row.get("state_authority_gate") != "clear":
+            continue
+        if _row_clear_review_replay_identity(row) != identity:
+            continue
+        matches.append(row)
+    return matches[0] if matches else None
+
 
 def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
     bound_fields = ("turn_id", "source_digest", "revision")
@@ -787,6 +945,32 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
                 required=_pi_play_agency_review_required(),
             )
         )
+        if _pi_play_agency_review_required():
+            prior_clear = _lookup_clear_review_replay(
+                ctx,
+                _clear_review_replay_identity(
+                    turn_id=str(args["turn_id"]),
+                    source_digest=str(args["source_digest"]),
+                    revision=revision,
+                    draft=draft,
+                    findings=findings,
+                    kp_review=state_authority_review,
+                    settled=settled,
+                ),
+            )
+            if prior_clear is not None:
+                data = deepcopy(prior_clear)
+                data.pop("ts", None)
+                ctx.ledger_record(args["decision_id"], "narration.review", {
+                    **data,
+                    "decision_id": decision_id,
+                    "request_digest": request_digest,
+                    "replayed_from_review_id": data.get("review_id"),
+                })
+                return data, [], [
+                    "replayed existing clear review_id for this exact draft and KP review; host compiler was not required",
+                    "bind this review_id and every authorized PC proposition as an agency_claim in turn.finalize",
+                ]
         state_claim_compilation, compiler_gate = (
             coc_state_authority.normalize_compiler_receipt(
                 args.get("state_claim_compilation"),
@@ -842,6 +1026,15 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         data["recommendation"] = "consider_revision"
     else:
         data["recommendation"] = "no_revision_suggested"
+    span_repairs = _span_repairs_for_review(
+        draft=draft,
+        state_authority_review=state_authority_review,
+        state_claim_compilation=state_claim_compilation,
+        state_authority_gate=str(state_authority_gate),
+        agency_gate=str(data["agency_gate"]),
+    )
+    if span_repairs is not None:
+        data["span_repairs"] = span_repairs
     data["review_digest"] = _canonical_digest(data)
     ctx.ledger_record(args["decision_id"], "narration.review", data)
     coc_state.append_jsonl(
@@ -858,6 +1051,10 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
     if data["state_authority_gate"] == "rewrite_required":
         hints.append(
             "player-state authority is ungrounded: do not finalize or mutate the frozen settlement; remove/defer the claim in narration-only revision 2"
+        )
+    if data.get("span_repairs"):
+        hints.append(
+            "span_repairs lists the only excerpts to change; leave every other sentence byte-stable and do not regenerate the scene"
         )
     if (
         data["agency_gate"] != "rewrite_required"
@@ -1310,6 +1507,43 @@ def _record_finalized_advisory_uptake(
     })
     return warnings, hints
 
+def _recompute_state_authority_gate(
+    ctx: Ctx,
+    *,
+    row: dict[str, Any],
+    draft: str,
+    settled: dict[str, Any],
+    turn_id: str,
+    source_digest: str,
+    revision: int,
+) -> str:
+    """Re-evaluate the bound review against current settlement, not its stamp."""
+    try:
+        review, kp_gate = coc_state_authority.normalize_review(
+            row.get("state_authority_review"),
+            draft=draft,
+            settled=settled,
+            party_ids=ctx.party_ids(),
+            required=True,
+        )
+        _compilation, compiler_gate = coc_state_authority.normalize_compiler_receipt(
+            row.get("state_claim_compilation"),
+            draft=draft,
+            settled=settled,
+            party_ids=ctx.party_ids(),
+            turn_id=turn_id,
+            source_digest=source_digest,
+            revision=revision,
+            kp_review=review,
+            required=True,
+        )
+    except coc_state_authority.StateAuthorityError:
+        return str(row.get("state_authority_gate") or "rewrite_required")
+    if kp_gate == "rewrite_required" or compiler_gate == "rewrite_required":
+        return "rewrite_required"
+    return "clear"
+
+
 def _resolve_bound_narration_review(
     ctx: Ctx,
     *,
@@ -1374,7 +1608,15 @@ def _resolve_bound_narration_review(
             "narration review does not bind this exact turn/source/revision/draft",
         )
     if agency_review_required:
-        if row.get("state_authority_gate") == "rewrite_required":
+        if _recompute_state_authority_gate(
+            ctx,
+            row=row,
+            draft=draft,
+            settled=current,
+            turn_id=str(expected_turn),
+            source_digest=str(expected_source),
+            revision=revision,
+        ) == "rewrite_required":
             raise ToolError(
                 "state_authority_review_blocked",
                 "the bound review identifies a player-state claim without a matching current frozen effect; keep the settlement frozen, rewrite narration only, and review revision 2",
@@ -1397,6 +1639,67 @@ def _resolve_bound_narration_review(
         "draft_sha256": str(row.get("draft_sha256") or ""),
     }
 
+_DRAFTING_INJECTION_PUBLIC_KEYS = (
+    "effect_id",
+    "effect_kind",
+    "investigator_id",
+    "resource",
+    "before",
+    "after",
+    "delta",
+    "label",
+    "item_id",
+    "action",
+    "quantity",
+    "condition",
+    "amount",
+    "currency",
+    "charged_amount",
+    "balance_before",
+    "balance_after",
+    "player_time_after",
+    "delta_minutes",
+    "rest_kind",
+)
+
+_DRAFTING_INJECTION_RULE = (
+    "Finalize will insert these settled player-state changes as mechanical "
+    "blocks keyed by effect_id. Narrate the fictional beat; do not assert a "
+    "second current completion of the same cash, item, condition, time, rest, "
+    "or scalar change unless that excerpt is bound to the listed effect_id in "
+    "state_authority_review."
+)
+
+
+def _drafting_injection_brief(settled: dict[str, Any]) -> dict[str, Any]:
+    """Project finalize-inserted player-state effects for drafting, not keywords."""
+    bundle = settled.get("mechanics_bundle")
+    rows: list[dict[str, Any]] = []
+    if isinstance(bundle, dict):
+        for bucket in ("state_delta", "asset_delta"):
+            for raw in bundle.get(bucket) or []:
+                if not isinstance(raw, dict):
+                    continue
+                effect_id = str(raw.get("effect_id") or "").strip()
+                effect_kind = str(raw.get("effect_kind") or "").strip()
+                if not effect_id or not effect_kind:
+                    continue
+                injection = {
+                    key: deepcopy(raw[key])
+                    for key in _DRAFTING_INJECTION_PUBLIC_KEYS
+                    if key in raw and raw[key] is not None
+                }
+                injection["effect_id"] = effect_id
+                injection["effect_kind"] = effect_kind
+                rows.append(injection)
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.drafting-injection-brief.v1",
+        "injections": rows,
+        "drafting_rule": _DRAFTING_INJECTION_RULE,
+    }
+
+
 def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
     try:
         data = coc_turn_finalization.build_output_context(ctx.campaign_dir)
@@ -1409,6 +1712,7 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
     data["narrative_opportunity"] = _latest_narrative_opportunity(
         current_window
     )
+    data["drafting_injection_brief"] = _drafting_injection_brief(data)
     contract_projection = _turn_contract_projection(ctx, data)
     data["contract_projection"] = contract_projection
     data["contract_projection_sha256"] = _canonical_digest(contract_projection)
@@ -1435,6 +1739,13 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
             "hard_gate_scope": "agency_and_player_state_authority_only",
             "host_state_claim_compiler_required": True,
         }
+        prior_span_repairs = _latest_span_repairs(
+            ctx,
+            turn_id=str(data["turn_id"]),
+            source_digest=str(data["source_digest"]),
+        )
+        if prior_span_repairs is not None:
+            data["agency_review_operation"]["span_repairs"] = prior_span_repairs
     required_obligation_ids = [
         str(obligation_id)
         for obligation_id in data.get("required_obligation_ids") or []
@@ -1471,6 +1782,7 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
         "missing_substantive_effects and pending_modifier_consumptions are hard blockers proving settlement was incomplete; never disguise them in prose",
         "split the draft into causal paragraphs and normally omit mechanics_placements: the finalizer inserts each public roll before its coverage result paragraph and groups later changes exactly once; provide explicit placements only when deliberate interleaving improves the scene",
         "mechanics_bundle text and arithmetic are deterministic; do not copy, recompute, or paraphrase their numbers in fictional paragraphs",
+        "draft from drafting_injection_brief: those effect_id rows are finalize-inserted; do not assert a second current completion unless bound in state_authority_review",
         "if narrative_opportunity actually shaped the draft, pass advisory_uptake with an exact draft excerpt to turn.finalize; only then is the Storylet ledger updated",
         *(
             [

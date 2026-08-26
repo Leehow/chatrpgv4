@@ -1458,7 +1458,7 @@ def test_pi_state_claim_compiler_rejects_duplicate_kp_match(
     ) == []
 
 
-def test_pi_state_claim_compiler_requires_every_kp_claim_exactly_once(
+def test_pi_state_claim_compiler_allows_extra_grounded_kp_claims(
     campaign_ws, monkeypatch
 ):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
@@ -1512,8 +1512,17 @@ def test_pi_state_claim_compiler_requires_every_kp_claim_exactly_once(
         compiled_claims=[claims[0]],
     )
     assert review["ok"] is True, review
-    assert review["data"]["state_authority_gate"] == "rewrite_required"
-    assert review["data"]["state_claim_review_disagreement"] is True
+    assert review["data"]["state_authority_gate"] == "clear"
+    assert review["data"]["state_claim_review_disagreement"] is False
+    finalized = _finalize_agency_turn(
+        campaign_ws,
+        draft=draft,
+        revision=1,
+        review_id=review["data"]["review_id"],
+        decision_id="finalize-compiler-extra-grounded-kp",
+        mechanics_placements=None,
+    )
+    assert finalized["ok"] is True, finalized
 
 
 @pytest.mark.parametrize("bound", ["result_reason", "claim_reason", "claims"])
@@ -1913,3 +1922,221 @@ def test_pi_finalization_requires_exact_bound_agency_review(campaign_ws, monkeyp
         decision_id="finalize-soft-finding",
     )
     assert accepted["ok"] is True, accepted
+
+
+def test_output_context_lists_finalize_injections_before_drafting(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    investigator = campaign_ws["investigator_id"]
+    granted = _run(campaign_ws, "state.item_grant", {
+        "investigator": investigator,
+        "kind": "gear",
+        "label": "黄铜钥匙",
+        "item_id": "corbitt-house-key",
+        "note": "托马斯·诺特交付的科比特宅钥匙",
+        "decision_id": "grant-drafting-brief-key",
+    })
+    assert granted["ok"] is True, granted
+    opened = _run(
+        campaign_ws,
+        "state.journal",
+        {
+            "summary": "调查员接过钥匙。",
+            "player_action": "我接过钥匙。",
+            "player_text": "我接过钥匙。",
+            "run_id": "pi-agency-review-run",
+            "decision_id": "journal-drafting-brief",
+        },
+    )
+    assert opened["ok"] is True, opened
+    context = _run(campaign_ws, "turn.output_context")
+    assert context["ok"] is True, context
+    data = context["data"]
+    item = next(
+        row
+        for row in data["mechanics_bundle"]["state_delta"]
+        if row["effect_kind"] == "item" and row["item_id"] == "corbitt-house-key"
+    )
+    brief = data["drafting_injection_brief"]
+    assert brief["contract_id"] == "coc.drafting-injection-brief.v1"
+    injection = next(
+        row for row in brief["injections"] if row["effect_id"] == item["effect_id"]
+    )
+    assert injection["effect_kind"] == "item"
+    assert injection["label"] == "黄铜钥匙"
+    assert injection["action"] == "acquired"
+    assert "effect_id" in brief["drafting_rule"]
+    assert any(
+        "drafting_injection_brief" in hint for hint in context.get("hints") or []
+    )
+
+
+def test_clear_review_replays_same_draft_without_recompile(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我留在原地。",
+        decision_id="journal-clear-replay",
+    )
+    draft = "诺特仍坐在桌后，没有把任何东西交到你手里。"
+    first = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-clear-replay-first",
+    )
+    assert first["ok"] is True, first
+    assert first["data"]["agency_gate"] == "clear"
+    assert first["data"]["state_authority_gate"] == "clear"
+    replay = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-clear-replay-second",
+        compiler_receipt_mutator=lambda receipt: receipt.__setitem__(
+            "status", "broken-must-be-ignored"
+        ),
+    )
+    assert replay["ok"] is True, replay
+    assert replay["data"]["review_id"] == first["data"]["review_id"]
+    assert replay["data"]["review_digest"] == first["data"]["review_digest"]
+    assert any("replay" in hint.lower() for hint in replay.get("hints") or [])
+    rows = _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "narration-reviews.jsonl"
+    )
+    assert [row["review_id"] for row in rows] == [first["data"]["review_id"]]
+    finalized = _finalize_agency_turn(
+        campaign_ws,
+        draft=draft,
+        revision=1,
+        review_id=replay["data"]["review_id"],
+        decision_id="finalize-clear-replay",
+    )
+    assert finalized["ok"] is True, finalized
+
+
+def test_changed_kp_review_does_not_replay_clear_draft(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我留在原地。",
+        decision_id="journal-no-replay-reason",
+    )
+    draft = "诺特仍坐在桌后，没有把任何东西交到你手里。"
+    first = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-no-replay-first",
+        state_authority_review={
+            "disposition": "no_player_state_change_claimed",
+            "reason": "草稿没有声称当前调查员的权威状态发生变化。",
+            "claims": [],
+        },
+    )
+    assert first["ok"] is True, first
+    assert first["data"]["state_authority_gate"] == "clear"
+    changed = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-no-replay-second",
+        state_authority_review={
+            "disposition": "no_player_state_change_claimed",
+            "reason": "KP 改写了审查理由，因此不能复用上一份 clear 回执。",
+            "claims": [],
+        },
+        compiler_receipt_mutator=lambda receipt: receipt.__setitem__(
+            "status", "broken-must-not-replay"
+        ),
+    )
+    assert changed["ok"] is False
+    assert changed["error"]["code"] == "state_claim_compiler_malformed"
+    rows = _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "narration-reviews.jsonl"
+    )
+    assert [row["review_id"] for row in rows] == [first["data"]["review_id"]]
+
+
+def test_rewrite_required_returns_excerpt_only_span_repairs(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我接受委托。请把预付定金、钥匙和地址便签现在交给我。",
+        decision_id="journal-span-repairs",
+    )
+    draft = (
+        "诺特把那串黄铜钥匙推过桌面。"
+        "预付的钞票压到你手边，写着科比特宅地址的便签也一并交给了你。"
+    )
+    excerpts = [
+        "预付的钞票压到你手边",
+        "诺特把那串黄铜钥匙推过桌面",
+        "写着科比特宅地址的便签也一并交给了你",
+    ]
+    review = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-span-repairs",
+        state_authority_review={
+            "disposition": "no_player_state_change_claimed",
+            "reason": "桌面交付动作没有改变调查员的账本或物品栏。",
+            "claims": [],
+        },
+        compiled_claims=[
+            {
+                "claim_id": "compiled-prepayment",
+                "subject_ref": f"pc:{campaign_ws['investigator_id']}",
+                "claim_kind": "cash",
+                "exact_excerpt": excerpts[0],
+                "source_effect_id": None,
+                "reason": "NPC 将预付款交给调查员。",
+            },
+            {
+                "claim_id": "compiled-brass-key",
+                "subject_ref": f"pc:{campaign_ws['investigator_id']}",
+                "claim_kind": "item",
+                "exact_excerpt": excerpts[1],
+                "source_effect_id": None,
+                "reason": "NPC 将钥匙交给调查员。",
+            },
+            {
+                "claim_id": "compiled-address-note",
+                "subject_ref": f"pc:{campaign_ws['investigator_id']}",
+                "claim_kind": "item",
+                "exact_excerpt": excerpts[2],
+                "source_effect_id": None,
+                "reason": "NPC 将写有委托地址的信息卡交给调查员。",
+            },
+        ],
+    )
+    assert review["ok"] is True, review
+    assert review["data"]["state_authority_gate"] == "rewrite_required"
+    repairs = review["data"]["span_repairs"]
+    assert repairs["contract_id"] == "coc.span-repairs.v1"
+    assert repairs["mode"] == "excerpt_only"
+    assert {row["exact_excerpt"] for row in repairs["spans"]} == set(excerpts)
+    assert all(row["repair"] == "rephrase_or_remove" for row in repairs["spans"])
+    assert "byte-stable" in repairs["instruction"]
+    assert any(
+        "span" in hint.lower() or "excerpt" in hint.lower()
+        for hint in review.get("hints") or []
+    )
+    resume = _run(campaign_ws, "turn.output_context")
+    assert resume["ok"] is True, resume
+    operation = resume["data"]["agency_review_operation"]
+    assert operation["prefilled_arguments"]["revision"] == 2
+    assert operation["span_repairs"]["spans"] == repairs["spans"]

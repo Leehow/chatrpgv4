@@ -840,9 +840,9 @@ function handoutStringList(value) {
 /** The campaign's entity card root, mirroring the plugin resolver exactly
  *  (coc_module_project.campaign_asset_root_id): scenario.json
  *  progressive_asset_root_id, else module-meta.json progressive
- *  module_identity.canonical_module_id | scenario_id. source_cache_asset_root_id
- *  is deliberately NOT a card root — only a progressive-projection campaign
- *  carries handout entities, so Web and KP resolve the same card bodies. */
+ *  module_identity.canonical_module_id | scenario_id, plus the optional
+ *  module-meta.json handout_asset_root_id used by complete local starters.
+ *  source_cache_asset_root_id is deliberately NOT a card root. */
 export function campaignBoundAssetRootIds(workspace, campaignId) {
   const dir = campaignDir(workspace, campaignId);
   const ids = [];
@@ -851,8 +851,8 @@ export function campaignBoundAssetRootIds(workspace, campaignId) {
     const id = handoutString(scenario.progressive_asset_root_id);
     if (id) ids.push(id);
   }
+  const meta = readJsonFile(path.join(dir, "scenario", "module-meta.json"));
   if (!ids.length) {
-    const meta = readJsonFile(path.join(dir, "scenario", "module-meta.json"));
     if (meta && typeof meta === "object" && meta.progressive) {
       const identity = meta.module_identity && typeof meta.module_identity === "object"
         ? meta.module_identity
@@ -861,6 +861,8 @@ export function campaignBoundAssetRootIds(workspace, campaignId) {
       if (id) ids.push(id);
     }
   }
+  const handoutOverlayId = handoutString(meta?.handout_asset_root_id);
+  if (handoutOverlayId && !ids.includes(handoutOverlayId)) ids.push(handoutOverlayId);
   // One safe path segment per root id (defense in depth).
   return ids
     .map((id) => id.split("/")[0])

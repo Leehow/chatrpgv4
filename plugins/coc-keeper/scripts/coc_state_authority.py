@@ -257,8 +257,11 @@ def normalize_compiler_receipt(
                 )
             matched_ids.add(matched_id)
         compiled_claims.append(dict(claim))
-    if matched_ids != set(kp_by_id):
-        gate = "rewrite_required"
+    # Compiler extras that the KP did not bind remain rewrite_required.
+    # Extra KP claims that already passed normalize_review (excerpt in draft +
+    # frozen source_effect_id) must not block: two independent compilers will
+    # not emit identical claim sets, and dying/HP-zero prose routinely lists
+    # more grounded conditions than the compiler rediscovers.
 
     coverage = result.get("paragraph_coverage")
     draft_parts = _draft_paragraphs(draft)

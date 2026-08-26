@@ -191,6 +191,24 @@ test("campaignBoundAssetRootIds mirrors the plugin resolver (progressive pointer
   assert.deepEqual(campaignBoundAssetRootIds(ws, "camp-1"), []);
 });
 
+test("campaignBoundAssetRootIds adds a nonprogressive handout overlay", () => {
+  const ws = makeWorkspace();
+  const campaignDir = seedCampaign(ws);
+  writeJson(path.join(campaignDir, "scenario", "scenario.json"), {
+    schema_version: 1,
+    scenario_id: "the-haunting",
+  });
+  writeJson(path.join(campaignDir, "scenario", "module-meta.json"), {
+    schema_version: 1,
+    scenario_id: "the-haunting",
+    handout_asset_root_id: "the-haunting-keeper-rulebook-40th",
+  });
+
+  assert.deepEqual(campaignBoundAssetRootIds(ws, "camp-1"), [
+    "the-haunting-keeper-rulebook-40th",
+  ]);
+});
+
 // --------------------------------------------------------- card resolution
 
 test("loadHandoutCards merges the three stores with entity > scenario > index priority", () => {

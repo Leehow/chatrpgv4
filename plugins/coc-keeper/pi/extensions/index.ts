@@ -146,6 +146,10 @@ import {
   PENDING_FINALIZATION_RECOVERY_GUIDANCE_AUDIT,
 } from "../lib/recovery-guidance.ts";
 import {
+  bindStartupResumeParams,
+  isExactStartupResumeParams,
+} from "../lib/startup-resume-gate.ts";
+import {
   applyRetainedAdoptSourceFacts,
   attachExpectedSchema,
   bindRetainedTypedToolArguments,
@@ -5345,48 +5349,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   const exactStartupResumeInvocation = (
     name: string,
     params: JsonObject,
-  ): boolean => {
-    const gate = startupResumeGate;
-    const args = objectOrNull(params.arguments);
-    const retryableRoleNullHandoff = (
-      gate?.origin === "role_null_handoff"
-      && gate.phase === "terminal_failure"
-    );
-    return (
-      gate !== null
-      && (gate.phase === "pending" || retryableRoleNullHandoff)
-      && isCanonicalInvokeSurface(name)
-      && params.operation === "session.resume"
-      && params.root === gate.workspaceRoot
-      && params.campaign === gate.campaignId
-      && args !== null
-      && Object.keys(args).length === 0
-    );
-  };
+  ): boolean => isExactStartupResumeParams(name, params, startupResumeGate);
   const bindStartupResumeInvocation = (
     name: string,
     params: JsonObject,
-  ): JsonObject => {
-    const gate = startupResumeGate;
-    const args = objectOrNull(params.arguments);
-    const retryableRoleNullHandoff = (
-      gate?.origin === "role_null_handoff"
-      && gate.phase === "terminal_failure"
-    );
-    if (
-      gate === null
-      || (gate.phase !== "pending" && !retryableRoleNullHandoff)
-      || !isCanonicalInvokeSurface(name)
-      || params.operation !== "session.resume"
-      || args === null
-      || Object.keys(args).length !== 0
-    ) return params;
-    return {
-      ...params,
-      root: gate.workspaceRoot,
-      campaign: gate.campaignId,
-    };
-  };
+  ): JsonObject => bindStartupResumeParams(name, params, startupResumeGate);
   const exactStartupFreshQuickStartInvocation = (
     name: string,
     params: JsonObject,

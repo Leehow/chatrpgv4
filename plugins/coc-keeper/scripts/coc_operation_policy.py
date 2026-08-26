@@ -155,10 +155,34 @@ _DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
         "advisory": False,
         "kp_surface": "context",
     },
+    # history.* reads the committed git-backed authority history through
+    # the rebuildable projection. Pure context reads: live turns, turn
+    # settlement checks, and recovery diagnosis all need them, and the
+    # projection never gates or mutates play.
+    "history": {
+        "audience": "keeper",
+        "phases": ("live_turn", "pending_finalization", "recovery"),
+        "contract": "none",
+        "advisory": False,
+        "kp_surface": "context",
+    },
     # memory.* is the KP-facing long-term story memory surface. Writes are
     # state-contract card mutations on the coc_state domain tool; the search
     # query lives on coc_context beside the other read projections.
     "memory": {
+        "audience": "keeper",
+        "phases": ("live_turn",),
+        "contract": "state",
+        "advisory": False,
+        "kp_surface": "state",
+    },
+    # timeline.* is the KP worldline surface over the campaign git timeline
+    # coordinator: fork_request records a receipt, fork_confirm creates and
+    # activates a new timeline, confluence_confirm merges two worldlines into
+    # a third two-parent line, and confluence_query is the strict read-only
+    # conflict enumeration feeding it. State-contract mutations executed
+    # under the campaign lock; parent history stays immutable.
+    "timeline": {
         "audience": "keeper",
         "phases": ("live_turn",),
         "contract": "state",
@@ -243,6 +267,24 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
         "contract": "none",
         "kp_surface": "context",
         "phases": ("opening", "live_turn", "pending_finalization"),
+    },
+    # memory.recall is the temporal-memory narrowing query: a strict
+    # read-only context read beside the other recall projections, while
+    # memory.adjudicate keeps the domain's state contract below.
+    "memory.recall": {
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": ("opening", "live_turn", "pending_finalization"),
+    },
+    # timeline.confluence_query is the read-only conflict enumeration for
+    # a KP worldline merge: a context read over the history projection,
+    # needed wherever the KP might weigh or replay a confluence (live
+    # turns, settlement checks, recovery diagnosis), while
+    # timeline.confluence_confirm keeps the domain's state contract below.
+    "timeline.confluence_query": {
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": ("live_turn", "pending_finalization", "recovery"),
     },
     "actions.list": {
         "contract": "none",

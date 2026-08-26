@@ -374,9 +374,13 @@ const recovery = harness((name, params) => {
         settlement_snapshot_id: "turn-settlement-v1:recovery-startup",
         mechanics_bundle_sha256: `sha256:${"b".repeat(64)}`,
         contract_projection: {
+          agency_review_required: false,
           agency_authority: { pc_subject_refs: ["pc:recovery-startup"] },
         },
-        agency_review_operation: { prefilled_arguments: { revision: 1 } },
+        finalize_operation: {
+          operation: "turn.finalize",
+          prefilled_arguments: { revision: 1 },
+        },
       },
     };
   }

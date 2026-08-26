@@ -137,8 +137,10 @@ class HandoutCatalog:
                 if isinstance(asset_id, str) and asset_id.strip():
                     cards[asset_id.strip()] = card
 
-        asset_root_id = coc_module_project.campaign_asset_root_id(ctx.campaign_dir)
-        if asset_root_id:
+        asset_root_ids = coc_module_project.campaign_handout_asset_root_ids(
+            ctx.campaign_dir
+        )
+        for asset_root_id in asset_root_ids:
             entities_dir = (
                 coc_module_project.coc_module_assets.assets_root(ctx.root)
                 / asset_root_id

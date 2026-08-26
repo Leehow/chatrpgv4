@@ -65,7 +65,7 @@ node web/server-node/server.mjs --workspace . --port 8765
   public state）。
 - `web/server/app.py` — 旧版 Python 桥，**不是**产品回合通道。
 - `POST /api/sessions/<sid>/turns` — SSE：`status` → `tool`* / `delta`* →
-  `turn` / `error` / `notice`；`{ attach: true }` 接开桌流。回合由全局锁串行。
+  `turn` / `error` / `notice`；`{ attach: true }` 接开桌流。同一战役的回合串行；不同战役互不阻塞。
   pi 侧 `stopReason=error` 的结算会映射为 `error` 帧；回合结束但没有任何
   玩家可见文本时发 `notice` 帧（透明提示，不拦截回合）。
 
