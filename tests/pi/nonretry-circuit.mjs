@@ -168,6 +168,24 @@ assert.equal(
   "nonretryable_repeat_blocked",
   "a stale/regressive projection cannot erase the current block",
 );
+const sameRevisionReceiptConflict = {
+  ...progressedCall,
+  canonicalProgress: {
+    ...progressedCall.canonicalProgress,
+    campaignRevision: "campaign-revision-conflict",
+    journalRevision: "journal-revision-conflict",
+  },
+};
+assert.equal(
+  scopedCircuit.preflight(sameRevisionReceiptConflict)?.error?.code,
+  "canonical_progress_rejected",
+  "same revision cannot identify conflicting accepted receipts",
+);
+assert.equal(
+  scopedCircuit.preflight(progressedCall)?.error?.code,
+  "nonretryable_repeat_blocked",
+  "same-revision receipt conflict cannot erase the retained block",
+);
 
 const finalizedCall = {
   ...progressedCall,

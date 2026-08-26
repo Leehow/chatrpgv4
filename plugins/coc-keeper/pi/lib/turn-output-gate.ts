@@ -169,6 +169,25 @@ export function canonicalTurnProgressToken(
   ]);
 }
 
+function canonicalTurnProgressInternalIdentity(
+  progress: CanonicalTurnProgress,
+): string {
+  const normalized = normalizeCanonicalTurnProgress(progress);
+  // Host-only equality identity. Unlike the model-visible liveness token,
+  // this retains exact receipt identities so one monotonic revision cannot
+  // silently name two contradictory accepted snapshots.
+  return JSON.stringify([
+    normalized.playerTurnEpoch,
+    normalized.canonicalProgressRevision,
+    normalized.stage,
+    normalized.campaignRevision,
+    normalized.journalRevision,
+    normalized.reviewRevision,
+    normalized.finalizedRenderedSha256,
+    normalized.closedObligationCount,
+  ]);
+}
+
 export function compareCanonicalTurnProgress(
   currentValue: CanonicalTurnProgress,
   candidateValue: CanonicalTurnProgress,
@@ -191,8 +210,8 @@ export function compareCanonicalTurnProgress(
     candidate.canonicalProgressRevision
     === current.canonicalProgressRevision
   ) {
-    return canonicalTurnProgressToken(candidate)
-      === canonicalTurnProgressToken(current)
+    return canonicalTurnProgressInternalIdentity(candidate)
+      === canonicalTurnProgressInternalIdentity(current)
       ? { order: "equal", reason: "same_canonical_progress" }
       : { order: "regressive", reason: "same_revision_projection_conflict" };
   }
@@ -772,7 +791,9 @@ export function createTurnOutputGateMethods(
             failure_class: "canonical_progress_rejected",
             last_error_class: normalizedLastErrorClass,
             progress_rejection_reason: comparison.reason,
-            canonical_progress: projectedCanonicalProgress(normalized),
+            canonical_progress: projectedCanonicalProgress(previous),
+            rejected_candidate_progress:
+              projectedCanonicalProgress(normalized),
           },
         };
       }

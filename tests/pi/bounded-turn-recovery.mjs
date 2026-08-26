@@ -138,6 +138,32 @@ assert.equal(
   progressGate.claimSettledOutputRecovery(sameStageR1).status,
   "claimed",
 );
+const sameRevisionConflict = progressGate.claimSettledOutputRecovery({
+  ...sameStageR1,
+  campaignRevision: "campaign-conflict",
+  journalRevision: "journal-conflict",
+});
+assert.equal(sameRevisionConflict.status, "progress_rejected");
+assert.equal(
+  sameRevisionConflict.fault.progress_rejection_reason,
+  "same_revision_projection_conflict",
+);
+assert.equal(
+  sameRevisionConflict.fault.canonical_progress.canonical_progress_revision,
+  5,
+  "fault reports the last accepted canonical progress",
+);
+assert.equal(sameRevisionConflict.fault.canonical_progress.stage, "review_ready");
+assert.equal(
+  sameRevisionConflict.fault.rejected_candidate_progress
+    .canonical_progress_revision,
+  5,
+);
+assert.equal(
+  progressGate.settledOutputCanonicalProgress.journalRevision,
+  "journal-a",
+  "same-revision conflict cannot replace retained host progress",
+);
 const acceptedSameStage = progressGate.claimSettledOutputRecovery(sameStageR2);
 assert.equal(acceptedSameStage.status, "claimed");
 assert.equal(
