@@ -49,7 +49,7 @@ export type TurnFinalizeBindingCard = {
 export type SceneRouteCandidate = {
   candidate_id: string;
   scene_id: string;
-  travel_minutes: number | null;
+  travel_minutes?: number;
 };
 
 export type SceneMoveBindingCard = {
@@ -508,12 +508,12 @@ function validateSceneCandidates(value: readonly SceneRouteCandidate[]): void {
     nonEmptyString(candidate.scene_id, "candidates.scene_id");
     const travel = candidate.travel_minutes;
     if (
-      travel !== null
+      Object.hasOwn(candidate, "travel_minutes")
       && (!Number.isInteger(travel) || Number(travel) < 0)
     ) {
       throw new ToolContractProjectionError(
         "binding_context_invalid",
-        "retained travel_minutes must be a non-negative integer or null",
+        "retained travel_minutes must be absent or a non-negative integer",
         { field: "candidates.travel_minutes" },
       );
     }
@@ -880,7 +880,10 @@ export function bindRetainedTypedToolArguments(
     }
     delete result.candidate_id;
     result.scene_id = candidate.scene_id;
-    result.travel_minutes = candidate.travel_minutes;
+    delete result.travel_minutes;
+    if (Object.hasOwn(candidate, "travel_minutes")) {
+      result.travel_minutes = candidate.travel_minutes;
+    }
   }
   if (valid.operation === "combat.resolve") {
     const candidateId = valid.candidates.length === 1

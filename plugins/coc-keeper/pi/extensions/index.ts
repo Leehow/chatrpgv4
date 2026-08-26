@@ -3604,7 +3604,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sceneCandidates: Array<{
       candidate_id: string;
       scene_id: string;
-      travel_minutes: number | null;
+      travel_minutes?: number;
     }>;
     clockPrecision: "precise" | "imprecise";
     npcIds: string[];
@@ -4308,10 +4308,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const sceneId = typeof exit?.to === "string" ? exit.to.trim() : "";
       if (!sceneId || exit?.open !== true) continue;
       const rawTravel = exit.travel_minutes;
-      const travelMinutes = Number.isFinite(rawTravel)
-        && Number(rawTravel) >= 0
-        ? Number(rawTravel)
-        : null;
+      const hasTravelMinutes = Object.hasOwn(exit, "travel_minutes");
+      if (
+        hasTravelMinutes
+        && (!Number.isInteger(rawTravel) || Number(rawTravel) < 0)
+      ) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          "structured scene context travel_minutes must be absent or a non-negative integer",
+          { field: "data.exits.travel_minutes" },
+        );
+      }
+      const travelMinutes = hasTravelMinutes ? Number(rawTravel) : undefined;
       const kind = typeof exit.kind === "string" && exit.kind.trim()
         ? exit.kind.trim()
         : "route";
@@ -4323,7 +4331,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const exactIdentity = JSON.stringify({
         scene_id: sceneId,
         kind,
-        travel_minutes: travelMinutes,
+        ...(travelMinutes === undefined ? {} : { travel_minutes: travelMinutes }),
         when: exit.when ?? null,
         source_identity: sourceIdentity ?? null,
       });
@@ -4344,7 +4352,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       sceneCandidates.push({
         candidate_id: candidateId,
         scene_id: sceneId,
-        travel_minutes: travelMinutes,
+        ...(travelMinutes === undefined ? {} : { travel_minutes: travelMinutes }),
       });
     }
     const npcIds = (Array.isArray(data.npcs_present) ? data.npcs_present : [])

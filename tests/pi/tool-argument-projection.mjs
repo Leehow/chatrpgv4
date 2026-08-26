@@ -442,7 +442,7 @@ test("state.move_scene projects retained semantic routes and host-binds exact tr
   ), "binding_context_stale");
 });
 
-test("same-destination scene routes project semantic candidate ids and bind exact nullable travel", () => {
+test("same-destination scene routes preserve exact optional travel shape", () => {
   const binding = {
     schema_version: 1,
     operation: "state.move_scene",
@@ -456,7 +456,6 @@ test("same-destination scene routes project semantic candidate ids and bind exac
       {
         candidate_id: "scene-route:archive:door:1",
         scene_id: "archive",
-        travel_minutes: null,
       },
       {
         candidate_id: "scene-route:archive:travel:1",
@@ -484,7 +483,7 @@ test("same-destination scene routes project semantic candidate ids and bind exac
     current,
   );
   assert.equal(untimed.scene_id, "archive");
-  assert.equal(untimed.travel_minutes, null);
+  assert.equal(Object.hasOwn(untimed, "travel_minutes"), false);
   assert.equal(Object.hasOwn(untimed, "candidate_id"), false);
   const timed = typed.bindRetainedTypedToolArguments(
     binding.operation,
