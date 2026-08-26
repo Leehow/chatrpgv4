@@ -31,12 +31,18 @@ export type TurnProgressStage =
  */
 export type CanonicalTurnProgress = {
   playerTurnEpoch: number;
+  canonicalProgressRevision: number;
   stage: TurnProgressStage;
   campaignRevision: string | null;
   journalRevision: string | null;
   reviewRevision: number | null;
   finalizedRenderedSha256: string | null;
   closedObligationCount: number;
+};
+
+export type CanonicalProgressComparison = {
+  order: "equal" | "forward" | "stale" | "regressive";
+  reason: string;
 };
 
 export type SettledOutputRecoveryDecision =
@@ -48,6 +54,12 @@ export type SettledOutputRecoveryDecision =
     }
   | {
       status: "exhausted";
+      scheduleFollowUp: false;
+      envelope: null;
+      fault: JsonObject;
+    }
+  | {
+      status: "progress_rejected";
       scheduleFollowUp: false;
       envelope: null;
       fault: JsonObject;
@@ -63,6 +75,17 @@ const TURN_PROGRESS_STAGES: ReadonlySet<TurnProgressStage> = new Set([
   "delivered",
   "faulted",
 ]);
+
+const TURN_PROGRESS_STAGE_ORDINAL: Readonly<Record<TurnProgressStage, number>> = {
+  awaiting_player: 0,
+  acting: 1,
+  journaled: 2,
+  output_context_ready: 3,
+  review_ready: 4,
+  finalized: 5,
+  delivered: 6,
+  faulted: 7,
+};
 
 function requireNonNegativeInteger(value: number, field: string): number {
   if (!Number.isInteger(value) || value < 0) {
@@ -82,6 +105,13 @@ function requireNullableNonEmptyString(
   return value;
 }
 
+function requireRecoveryErrorClass(value: string): string {
+  if (!/^[a-z][a-z0-9_.-]*$/u.test(value)) {
+    throw new TypeError("lastErrorClass must be a semantic error-class token");
+  }
+  return value;
+}
+
 export function normalizeCanonicalTurnProgress(
   progress: CanonicalTurnProgress,
 ): CanonicalTurnProgress {
@@ -92,6 +122,10 @@ export function normalizeCanonicalTurnProgress(
     playerTurnEpoch: requireNonNegativeInteger(
       progress.playerTurnEpoch,
       "playerTurnEpoch",
+    ),
+    canonicalProgressRevision: requireNonNegativeInteger(
+      progress.canonicalProgressRevision,
+      "canonicalProgressRevision",
     ),
     stage: progress.stage,
     campaignRevision: requireNullableNonEmptyString(
@@ -125,6 +159,7 @@ export function canonicalTurnProgressToken(
   // only liveness-bearing values.
   return JSON.stringify([
     normalized.playerTurnEpoch,
+    normalized.canonicalProgressRevision,
     normalized.stage,
     normalized.campaignRevision !== null,
     normalized.journalRevision !== null,
@@ -134,12 +169,71 @@ export function canonicalTurnProgressToken(
   ]);
 }
 
+export function compareCanonicalTurnProgress(
+  currentValue: CanonicalTurnProgress,
+  candidateValue: CanonicalTurnProgress,
+): CanonicalProgressComparison {
+  const current = normalizeCanonicalTurnProgress(currentValue);
+  const candidate = normalizeCanonicalTurnProgress(candidateValue);
+  if (candidate.playerTurnEpoch < current.playerTurnEpoch) {
+    return { order: "stale", reason: "player_epoch_regressed" };
+  }
+  if (candidate.playerTurnEpoch > current.playerTurnEpoch) {
+    return { order: "forward", reason: "new_player_epoch" };
+  }
+  if (
+    candidate.canonicalProgressRevision
+    < current.canonicalProgressRevision
+  ) {
+    return { order: "stale", reason: "canonical_revision_regressed" };
+  }
+  if (
+    candidate.canonicalProgressRevision
+    === current.canonicalProgressRevision
+  ) {
+    return canonicalTurnProgressToken(candidate)
+      === canonicalTurnProgressToken(current)
+      ? { order: "equal", reason: "same_canonical_progress" }
+      : { order: "regressive", reason: "same_revision_projection_conflict" };
+  }
+  if (
+    TURN_PROGRESS_STAGE_ORDINAL[candidate.stage]
+    < TURN_PROGRESS_STAGE_ORDINAL[current.stage]
+  ) {
+    return { order: "regressive", reason: "turn_stage_regressed" };
+  }
+  if (
+    candidate.closedObligationCount < current.closedObligationCount
+    || (
+      current.reviewRevision !== null
+      && (
+        candidate.reviewRevision === null
+        || candidate.reviewRevision < current.reviewRevision
+      )
+    )
+  ) {
+    return { order: "regressive", reason: "accepted_ordinal_regressed" };
+  }
+  if (
+    (current.campaignRevision !== null && candidate.campaignRevision === null)
+    || (current.journalRevision !== null && candidate.journalRevision === null)
+    || (
+      current.finalizedRenderedSha256 !== null
+      && candidate.finalizedRenderedSha256 === null
+    )
+  ) {
+    return { order: "regressive", reason: "accepted_receipt_disappeared" };
+  }
+  return { order: "forward", reason: "canonical_revision_advanced" };
+}
+
 function projectedCanonicalProgress(
   progress: CanonicalTurnProgress,
 ): JsonObject {
   const normalized = normalizeCanonicalTurnProgress(progress);
   return {
     player_turn_epoch: normalized.playerTurnEpoch,
+    canonical_progress_revision: normalized.canonicalProgressRevision,
     stage: normalized.stage,
     campaign_revision_present: normalized.campaignRevision !== null,
     journal_revision_present: normalized.journalRevision !== null,
@@ -164,7 +258,7 @@ export type TurnOutputGateStateSurface = {
   emptyTerminalRecoveryEpoch: number;
   settledOutputRecoveryEpoch: number;
   settledOutputRecoveryAttempts: number;
-  settledOutputRecoveryProgressToken: string | null;
+  settledOutputCanonicalProgress: CanonicalTurnProgress | null;
   epochPlayerOutputDelivered: number;
   nonblockingContinuation: any | null;
 };
@@ -186,7 +280,7 @@ function stateFor(host: object): TurnOutputGateStateSurface {
       emptyTerminalRecoveryEpoch: 0,
       settledOutputRecoveryEpoch: 0,
       settledOutputRecoveryAttempts: 0,
-      settledOutputRecoveryProgressToken: null,
+      settledOutputCanonicalProgress: null,
       epochPlayerOutputDelivered: 0,
       nonblockingContinuation: null,
     };
@@ -207,7 +301,7 @@ export function installTurnOutputGateState(prototype: object): void {
     "emptyTerminalRecoveryEpoch",
     "settledOutputRecoveryEpoch",
     "settledOutputRecoveryAttempts",
-    "settledOutputRecoveryProgressToken",
+    "settledOutputCanonicalProgress",
     "epochPlayerOutputDelivered",
     "nonblockingContinuation",
   ] as const;
@@ -220,7 +314,13 @@ export function installTurnOutputGateState(prototype: object): void {
     descriptors[key] = {
       get(this: object) { return stateFor(this)[key]; },
       set(this: object, value: TurnOutputGateStateSurface[typeof key]) {
-        stateFor(this)[key] = value as never;
+        const state = stateFor(this);
+        state[key] = value as never;
+        if (key === "playerTurnEpoch" && value === 0) {
+          state.settledOutputRecoveryEpoch = 0;
+          state.settledOutputRecoveryAttempts = 0;
+          state.settledOutputCanonicalProgress = null;
+        }
       },
     };
   }
@@ -480,7 +580,7 @@ export function createTurnOutputGateMethods(
     this.pendingMechanicalOutputGateEnvelope = null;
     this.settledOutputRecoveryEpoch = this.playerTurnEpoch;
     this.settledOutputRecoveryAttempts = 0;
-    this.settledOutputRecoveryProgressToken = null;
+    this.settledOutputCanonicalProgress = null;
   },
 
 
@@ -630,8 +730,10 @@ export function createTurnOutputGateMethods(
 
   claimSettledOutputRecovery(this: any,
     progress: CanonicalTurnProgress,
+    lastErrorClass = "missing_finalization_receipt",
   ): SettledOutputRecoveryDecision {
     const normalized = normalizeCanonicalTurnProgress(progress);
+    const normalizedLastErrorClass = requireRecoveryErrorClass(lastErrorClass);
     if (
       this.playerTurnEpoch <= 0
       || normalized.playerTurnEpoch !== this.playerTurnEpoch
@@ -643,11 +745,39 @@ export function createTurnOutputGateMethods(
     if (this.settledOutputRecoveryEpoch !== this.playerTurnEpoch) {
       this.settledOutputRecoveryEpoch = this.playerTurnEpoch;
       this.settledOutputRecoveryAttempts = 0;
-      this.settledOutputRecoveryProgressToken = null;
+      this.settledOutputCanonicalProgress = null;
     }
 
-    const progressToken = canonicalTurnProgressToken(normalized);
-    this.settledOutputRecoveryProgressToken = progressToken;
+    const previous = this.settledOutputCanonicalProgress;
+    if (previous !== null) {
+      const comparison = compareCanonicalTurnProgress(previous, normalized);
+      if (comparison.order === "stale" || comparison.order === "regressive") {
+        return {
+          status: "progress_rejected",
+          scheduleFollowUp: false,
+          envelope: null,
+          fault: {
+            schema_version: 1,
+            contract_id: "coc.pi-turn-processing-fault.v1",
+            kind: "turn_processing_fault",
+            status: "terminal",
+            stage: "finalization_repair",
+            code: "canonical_progress_rejected",
+            message: "stale or regressive canonical progress was refused",
+            retryable: false,
+            will_retry: false,
+            pending_turn_preserved: true,
+            recovery_attempted: this.settledOutputRecoveryAttempts,
+            recovery_budget: MAX_SETTLED_OUTPUT_HIDDEN_RECOVERIES,
+            failure_class: "canonical_progress_rejected",
+            last_error_class: normalizedLastErrorClass,
+            progress_rejection_reason: comparison.reason,
+            canonical_progress: projectedCanonicalProgress(normalized),
+          },
+        };
+      }
+    }
+    this.settledOutputCanonicalProgress = normalized;
     if (
       this.settledOutputRecoveryAttempts
       >= MAX_SETTLED_OUTPUT_HIDDEN_RECOVERIES
@@ -669,9 +799,11 @@ export function createTurnOutputGateMethods(
           ),
           retryable: false,
           will_retry: false,
+          pending_turn_preserved: true,
           recovery_attempted: this.settledOutputRecoveryAttempts,
           recovery_budget: MAX_SETTLED_OUTPUT_HIDDEN_RECOVERIES,
           failure_class: "settled_output_recovery_exhausted",
+          last_error_class: normalizedLastErrorClass,
           canonical_progress: projectedCanonicalProgress(normalized),
         },
       };

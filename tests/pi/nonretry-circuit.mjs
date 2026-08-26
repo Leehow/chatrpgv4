@@ -38,6 +38,7 @@ assert.equal(circuit.preflight(call), null);
 
 const progress = (playerTurnEpoch, stage, overrides = {}) => ({
   playerTurnEpoch,
+  canonicalProgressRevision: 0,
   stage,
   campaignRevision: null,
   journalRevision: null,
@@ -53,6 +54,7 @@ const scopedCall = {
   phase: "pending_finalization",
   playerTurnEpoch: 7,
   canonicalProgress: progress(7, "review_ready", {
+    canonicalProgressRevision: 10,
     campaignRevision: "campaign-revision-a",
     journalRevision: "journal-revision-a",
     reviewRevision: 1,
@@ -119,26 +121,70 @@ assert.equal(
 
 const progressedCall = {
   ...identityAndWhitespaceChurn,
-  canonicalProgress: progress(7, "finalized", {
-    reviewRevision: 2,
-    finalizedRenderedSha256: "sha256:finalized-receipt",
-    closedObligationCount: 1,
+  canonicalProgress: progress(7, "review_ready", {
+    canonicalProgressRevision: 11,
+    campaignRevision: "campaign-revision-b",
+    journalRevision: "journal-revision-b",
+    reviewRevision: 1,
   }),
 };
-assert.equal(
-  scopedCircuit.preflight(progressedCall),
-  null,
-  "successful canonical progress gives the call a new scope",
-);
 scopedCircuit.observe({
   ...progressedCall,
   envelope: { ok: true, data: {} },
 });
 assert.equal(
-  scopedCircuit.preflight(identityAndWhitespaceChurn),
+  scopedCircuit.preflight(progressedCall),
   null,
-  "observed canonical progress invalidates stale failure blocks",
+  "same-stage accepted canonical revision advance invalidates stale blocks",
 );
+
+scopedCircuit.observe({
+  ...progressedCall,
+  envelope: {
+    ok: false,
+    error: {
+      code: "default_mechanics_placement_unavailable",
+      class: "finalization_repair",
+    },
+    retryable: false,
+    will_retry: false,
+  },
+});
+const regressedCall = {
+  ...progressedCall,
+  canonicalProgress: progress(7, "acting", {
+    canonicalProgressRevision: 10,
+    campaignRevision: "campaign-revision-a",
+    closedObligationCount: 0,
+  }),
+};
+assert.equal(
+  scopedCircuit.preflight(regressedCall)?.error?.code,
+  "canonical_progress_rejected",
+  "a stale/regressive projection is refused",
+);
+assert.equal(
+  scopedCircuit.preflight(progressedCall)?.error?.code,
+  "nonretryable_repeat_blocked",
+  "a stale/regressive projection cannot erase the current block",
+);
+
+const finalizedCall = {
+  ...progressedCall,
+  canonicalProgress: progress(7, "finalized", {
+    canonicalProgressRevision: 12,
+    campaignRevision: "campaign-revision-c",
+    journalRevision: "journal-revision-b",
+    reviewRevision: 2,
+    finalizedRenderedSha256: "sha256:finalized-receipt",
+    closedObligationCount: 1,
+  }),
+};
+scopedCircuit.observe({
+  ...finalizedCall,
+  envelope: { ok: true, data: {} },
+});
+assert.equal(scopedCircuit.preflight(finalizedCall), null);
 
 assert.throws(
   () => scopedCircuit.preflight({
@@ -146,6 +192,13 @@ assert.throws(
     playerTurnEpoch: 8,
   }),
   /canonical progress must belong/,
+);
+
+scopedCircuit.reset();
+assert.equal(
+  scopedCircuit.preflight(regressedCall),
+  null,
+  "reset clears retained progress ordering and failure blocks",
 );
 
 process.stdout.write(JSON.stringify({ ok: true }));

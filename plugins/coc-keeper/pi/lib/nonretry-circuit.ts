@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import {
   canonicalTurnProgressToken,
+  compareCanonicalTurnProgress,
+  normalizeCanonicalTurnProgress,
   type CanonicalTurnProgress,
 } from "./turn-output-gate.ts";
 
@@ -126,9 +128,11 @@ export class NonRetryableFailureCircuit {
     playerTurnEpoch: number;
     canonicalProgressToken: string;
   }>();
+  #latestProgress = new Map<string, CanonicalTurnProgress>();
 
   reset(): void {
     this.#failures.clear();
+    this.#latestProgress.clear();
   }
 
   preflight(args: {
@@ -139,11 +143,33 @@ export class NonRetryableFailureCircuit {
   } & OptionalFailureScope): JsonRecord | null {
     const scope = resolveScope(args);
     if (args.canonicalProgress !== undefined) {
-      this.#advanceResolved({
-        campaignId: args.campaignId,
-        playerTurnEpoch: scope.playerTurnEpoch,
-        canonicalProgressToken: scope.canonicalProgressToken,
-      });
+      const progressDecision = this.#acceptProgress(
+        args.campaignId,
+        args.canonicalProgress,
+      );
+      if (!progressDecision.accepted) {
+        return {
+          ok: false,
+          tool: args.operation,
+          error: {
+            code: "canonical_progress_rejected",
+            class: "host_progress",
+            message: "stale or regressive canonical progress was refused",
+            details: {
+              player_turn_epoch: scope.playerTurnEpoch,
+              candidate_revision:
+                args.canonicalProgress.canonicalProgressRevision,
+              candidate_stage: args.canonicalProgress.stage,
+              latest_revision:
+                progressDecision.current?.canonicalProgressRevision ?? null,
+              latest_stage: progressDecision.current?.stage ?? null,
+              reason: progressDecision.reason,
+            },
+          },
+          retryable: false,
+          will_retry: false,
+        };
+      }
     }
     for (const [fingerprint, failure] of this.#failures) {
       const candidate = nonRetryableFailureFingerprint({
@@ -184,6 +210,13 @@ export class NonRetryableFailureCircuit {
     envelope: unknown;
   } & OptionalFailureScope): void {
     const scope = resolveScope(args);
+    if (args.canonicalProgress !== undefined) {
+      const progressDecision = this.#acceptProgress(
+        args.campaignId,
+        args.canonicalProgress,
+      );
+      if (!progressDecision.accepted) return;
+    }
     const envelope = args.envelope && typeof args.envelope === "object"
       ? args.envelope as JsonRecord
       : null;
@@ -243,13 +276,43 @@ export class NonRetryableFailureCircuit {
         "canonical progress must belong to the supplied player turn epoch",
       );
     }
+    this.#acceptProgress(args.campaignId, args.canonicalProgress);
+  }
+
+  #acceptProgress(
+    campaignId: string,
+    candidateValue: CanonicalTurnProgress,
+  ): {
+    accepted: boolean;
+    current: CanonicalTurnProgress | null;
+    reason: string;
+  } {
+    const candidate = normalizeCanonicalTurnProgress(candidateValue);
+    const current = this.#latestProgress.get(campaignId) ?? null;
+    if (current !== null) {
+      const comparison = compareCanonicalTurnProgress(current, candidate);
+      if (comparison.order === "stale" || comparison.order === "regressive") {
+        return {
+          accepted: false,
+          current,
+          reason: comparison.reason,
+        };
+      }
+      if (comparison.order === "equal") {
+        return { accepted: true, current, reason: comparison.reason };
+      }
+    }
+    this.#latestProgress.set(campaignId, candidate);
     this.#advanceResolved({
-      campaignId: args.campaignId,
-      playerTurnEpoch: args.playerTurnEpoch,
-      canonicalProgressToken: canonicalTurnProgressToken(
-        args.canonicalProgress,
-      ),
+      campaignId,
+      playerTurnEpoch: candidate.playerTurnEpoch,
+      canonicalProgressToken: canonicalTurnProgressToken(candidate),
     });
+    return {
+      accepted: true,
+      current: candidate,
+      reason: current === null ? "initial_canonical_progress" : "forward",
+    };
   }
 
   #advanceResolved(args: {
