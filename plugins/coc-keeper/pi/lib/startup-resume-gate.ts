@@ -34,18 +34,32 @@ function objectOrNull(value: unknown): JsonObject | null {
     : null;
 }
 
-function identityArgsMatch(
-  args: JsonObject,
-  gate: StartupResumeIdentity,
+export function startupResumeIdentityArgumentsMatch(
+  value: unknown,
+  gate: Pick<StartupResumeIdentity, "workspaceRoot" | "campaignId">,
 ): boolean {
+  const args = objectOrNull(value);
+  if (args === null) return false;
   for (const key of Object.keys(args)) {
     if (!IDENTITY_ARG_KEYS.has(key)) return false;
   }
-  const campaign = args.campaign ?? args.campaign_id;
-  if (typeof campaign === "string" && campaign !== gate.campaignId) return false;
-  if (typeof args.root === "string" && args.root !== gate.workspaceRoot) {
-    return false;
+  for (const key of ["campaign", "campaign_id"] as const) {
+    if (
+      Object.hasOwn(args, key)
+      && (typeof args[key] !== "string" || args[key] !== gate.campaignId)
+    ) return false;
   }
+  if (
+    Object.hasOwn(args, "root")
+    && (typeof args.root !== "string" || args.root !== gate.workspaceRoot)
+  ) return false;
+  for (const key of ["investigator", "host_session_id"] as const) {
+    if (Object.hasOwn(args, key) && typeof args[key] !== "string") return false;
+  }
+  if (
+    Object.hasOwn(args, "context_epoch")
+    && (!Number.isInteger(args.context_epoch) || Number(args.context_epoch) < 1)
+  ) return false;
   return true;
 }
 
@@ -61,8 +75,7 @@ export function isExactStartupResumeParams(
   if (params.root !== gate.workspaceRoot || params.campaign !== gate.campaignId) {
     return false;
   }
-  const args = objectOrNull(params.arguments);
-  return args !== null && identityArgsMatch(args, gate);
+  return startupResumeIdentityArgumentsMatch(params.arguments, gate);
 }
 
 export function bindStartupResumeParams(
@@ -74,8 +87,17 @@ export function bindStartupResumeParams(
   if (!isCanonicalInvokeSurface(name) || params.operation !== "session.resume") {
     return params;
   }
-  const args = objectOrNull(params.arguments);
-  if (args === null || !identityArgsMatch(args, gate)) return params;
+  const rejectVisibleIdentityDrift = (
+    gate.origin === "role_null_handoff" && gate.phase === "terminal_failure"
+  );
+  if (
+    rejectVisibleIdentityDrift
+    && (
+      (params.root !== undefined && params.root !== gate.workspaceRoot)
+      || (params.campaign !== undefined && params.campaign !== gate.campaignId)
+    )
+  ) return params;
+  if (!startupResumeIdentityArgumentsMatch(params.arguments, gate)) return params;
   return {
     ...params,
     root: gate.workspaceRoot,

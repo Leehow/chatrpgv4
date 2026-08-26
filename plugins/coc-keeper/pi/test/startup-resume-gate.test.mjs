@@ -59,7 +59,7 @@ test("typed session.resume with empty arguments still binds root and campaign", 
 });
 
 test("a different campaign or non-identity argument is not an exact startup resume", async () => {
-  const { isExactStartupResumeParams } = await loadGate();
+  const { isExactStartupResumeParams, bindStartupResumeParams } = await loadGate();
   assert.equal(isExactStartupResumeParams("coc_session_resume", {
     operation: "session.resume",
     root: GATE.workspaceRoot,
@@ -72,6 +72,24 @@ test("a different campaign or non-identity argument is not an exact startup resu
     campaign: GATE.campaignId,
     arguments: { extra: true },
   }, GATE), false);
+  for (const drifted of [
+    { campaign: "other-campaign" },
+    { root: "/tmp/other-sandbox" },
+  ]) {
+    const invocation = {
+      operation: "session.resume",
+      ...drifted,
+      arguments: { investigator: "investigator-thomas-hayes" },
+    };
+    assert.deepEqual(
+      bindStartupResumeParams("coc_session_resume", invocation, {
+        ...GATE,
+        origin: "role_null_handoff",
+        phase: "terminal_failure",
+      }),
+      invocation,
+    );
+  }
 });
 
 test("only a role-null handoff may retry an exact resume after terminal failure", async () => {
@@ -106,4 +124,32 @@ test("only a role-null handoff may retry an exact resume after terminal failure"
     }),
     invocation,
   );
+});
+
+test("resume identity arguments share one closed schema and exact campaign/root match", async () => {
+  const { startupResumeIdentityArgumentsMatch } = await loadGate();
+  assert.equal(startupResumeIdentityArgumentsMatch({
+    campaign: GATE.campaignId,
+    campaign_id: GATE.campaignId,
+    root: GATE.workspaceRoot,
+    investigator: "investigator-thomas-hayes",
+    host_session_id: "pi-session-haunting-1",
+    context_epoch: 41,
+  }, GATE), true);
+  for (const argumentsObject of [
+    { campaign: "other-campaign" },
+    { campaign: GATE.campaignId, campaign_id: "other-campaign" },
+    { root: "/tmp/other-sandbox" },
+    { investigator: 41 },
+    { host_session_id: false },
+    { context_epoch: 0 },
+    { context_epoch: 1.5 },
+    { unsupported: "drift" },
+  ]) {
+    assert.equal(
+      startupResumeIdentityArgumentsMatch(argumentsObject, GATE),
+      false,
+      JSON.stringify(argumentsObject),
+    );
+  }
 });

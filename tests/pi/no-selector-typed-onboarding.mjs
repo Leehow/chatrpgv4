@@ -350,6 +350,8 @@ async function assertRoleNullResumeGateCase({
   expectFirstResumeAccepted = false,
   omitQuickStartCampaignId = false,
   loseQuickStartResponseAfterCommit = false,
+  terminalRetryArguments = {},
+  verifyTerminalRetryRejections = false,
 }) {
   const caseCampaign = `no-selector-${label}`;
   const caseInvestigator = `investigator-${label}`;
@@ -719,9 +721,45 @@ async function assertRoleNullResumeGateCase({
   assert.equal(caseCalls.length, callsBeforeBlockedPlay, label);
 
   const callsBeforeRetry = caseCalls.length;
+  if (verifyTerminalRetryRejections) {
+    for (const [suffix, argumentsObject] of [
+      ["campaign-mismatch", {
+        ...terminalRetryArguments,
+        campaign: `${caseCampaign}-drifted`,
+      }],
+      ["forbidden-argument", {
+        ...terminalRetryArguments,
+        unsupported: "drift",
+      }],
+    ]) {
+      let rejected = null;
+      let blocked = null;
+      try {
+        blocked = await caseTools.get("coc_session_resume").execute(
+          `resume-retry-${label}-${suffix}`,
+          argumentsObject,
+          undefined,
+          undefined,
+          caseCtx,
+        );
+      } catch (error) {
+        rejected = error;
+      }
+      if (rejected !== null) {
+        assert.match(
+          String(rejected),
+          /session.resume|terminally blocked|hard-gated/,
+        );
+      } else {
+        const projected = JSON.parse(blocked.content[0].text);
+        assert.equal(projected.ok, false, `${label}:${suffix}`);
+      }
+      assert.equal(caseCalls.length, callsBeforeRetry, `${label}:${suffix}`);
+    }
+  }
   const retried = JSON.parse((await caseTools.get("coc_session_resume").execute(
     `resume-retry-${label}`,
-    {},
+    terminalRetryArguments,
     undefined,
     undefined,
     caseCtx,
@@ -732,7 +770,7 @@ async function assertRoleNullResumeGateCase({
     operation: "session.resume",
     root: path.resolve(caseWorkspace),
     campaign: caseCampaign,
-    arguments: {},
+    arguments: terminalRetryArguments,
   }, label);
   const postRetryTools = caseActive.at(-1);
   assertNoGenericWrappers(postRetryTools);
@@ -1126,6 +1164,12 @@ try {
         campaign_id: caseCampaign,
         mode: "table_opening",
       }),
+      terminalRetryArguments: {
+        investigator: "investigator-missing-next-operations",
+        host_session_id: "pi-session-missing-next-operations",
+        context_epoch: 41,
+      },
+      verifyTerminalRetryRejections: true,
     },
     {
       label: "wrong-next-operation",

@@ -152,6 +152,7 @@ export function createOpeningSetupMachineMethods(
     resolve,
     result,
     sessionRoleFromEnv,
+    startupResumeIdentityArgumentsMatch,
     typedToolNameForOperation,
     validOpeningTransportFacts,
     zhHansChargenRoleplaySummary,
@@ -2303,8 +2304,10 @@ export function createOpeningSetupMachineMethods(
     if (
       state.phase === "handoff_complete_waiting_resume"
       && operation === "session.resume"
-      && argumentsObject !== null
-      && Object.keys(argumentsObject).length === 0
+      && startupResumeIdentityArgumentsMatch(argumentsObject, {
+        workspaceRoot: typeof params.root === "string" ? params.root : "",
+        campaignId,
+      })
     ) {
       this.registerOpeningSetupAttempt(invocationId, params, "probe", state);
       return null;

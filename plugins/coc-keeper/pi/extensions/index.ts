@@ -148,6 +148,7 @@ import {
 import {
   bindStartupResumeParams,
   isExactStartupResumeParams,
+  startupResumeIdentityArgumentsMatch,
 } from "../lib/startup-resume-gate.ts";
 import {
   applyRetainedAdoptSourceFacts,
@@ -8699,6 +8700,7 @@ const openingTerminalMachineEnvironment: Record<string, any> = {
   resolve,
   result,
   sessionRoleFromEnv,
+  startupResumeIdentityArgumentsMatch,
   typedToolNameForOperation,
   validOpeningTransportFacts,
   zhHansChargenRoleplaySummary,
