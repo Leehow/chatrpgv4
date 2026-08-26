@@ -3602,6 +3602,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sourceRevision: string;
     sourceDigest: string;
     activeSceneId: string;
+    sceneSelectionMode: "current_candidates" | "manual_scene";
     sceneCandidates: Array<{
       candidate_id: string;
       scene_id: string;
@@ -4284,6 +4285,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     decision_id: semanticDecisionId("state.move_scene"),
     source_revision: facts.sourceRevision,
     source_digest: facts.sourceDigest,
+    selection_mode: facts.sceneSelectionMode,
     candidates: structuredClone(facts.sceneCandidates),
   });
   const advanceTimeCardFromFacts = (
@@ -4327,13 +4329,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       revokeSceneDerivedBindings();
       return;
     }
-    const sceneCandidates: SceneBindingFacts["sceneCandidates"] = [];
+    const openSceneCandidates: SceneBindingFacts["sceneCandidates"] = [];
+    const allSceneRoutes: SceneBindingFacts["sceneCandidates"] = [];
     const routeOrdinals = new Map<string, number>();
     const exactRoutes = new Set<string>();
-    for (const row of Array.isArray(data.exits) ? data.exits : []) {
+    const sceneExitRows = Array.isArray(data.exits) ? data.exits : [];
+    const hasOpenSceneRoute = sceneExitRows.some((row) => {
+      const exit = objectOrNull(row);
+      return exit?.open === true
+        && typeof exit.to === "string"
+        && Boolean(exit.to.trim());
+    });
+    for (const row of sceneExitRows) {
       const exit = objectOrNull(row);
       const sceneId = typeof exit?.to === "string" ? exit.to.trim() : "";
-      if (!sceneId || exit?.open !== true) continue;
+      if (!sceneId || (hasOpenSceneRoute && exit?.open !== true)) continue;
       const rawTravel = exit.travel_minutes;
       const hasTravelMinutes = Object.hasOwn(exit, "travel_minutes");
       if (
@@ -4380,11 +4390,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const candidateId = typeof sourceIdentity === "string"
         ? `scene-route:${sceneId}:${sourceIdentity.trim()}`
         : `scene-route:${sceneId}:${kind}:${ordinal}`;
-      sceneCandidates.push({
+      const candidate = {
         candidate_id: candidateId,
         scene_id: sceneId,
         ...(travelMinutes === undefined ? {} : { travel_minutes: travelMinutes }),
-      });
+      };
+      allSceneRoutes.push(candidate);
+      if (exit?.open === true) openSceneCandidates.push(candidate);
     }
     const npcIds = (Array.isArray(data.npcs_present) ? data.npcs_present : [])
       .flatMap((row) => {
@@ -4411,6 +4423,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       || rawPrecision === "exact"
       || (typeof time.local_datetime === "string" && time.local_datetime.trim())
     ) ? "precise" as const : "imprecise" as const;
+    const sceneSelectionMode = openSceneCandidates.length > 0
+      ? "current_candidates" as const
+      : "manual_scene" as const;
     const facts: SceneBindingFacts = {
       sessionEpoch,
       playerTurnEpoch: canonicalProgress.playerTurnEpoch,
@@ -4423,7 +4438,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       sourceRevision: identity.revision,
       sourceDigest: identity.digest,
       activeSceneId,
-      sceneCandidates,
+      sceneSelectionMode,
+      sceneCandidates: sceneSelectionMode === "current_candidates"
+        ? openSceneCandidates
+        : allSceneRoutes,
       clockPrecision,
       npcIds: [...new Set(npcIds)].sort(),
       combatAffordanceIds: [...new Set(combatAffordanceIds)].sort(),
@@ -4431,22 +4449,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     beginSceneDerivedBindingReplacement();
     try {
       currentSceneBindingFacts = facts;
-      if (facts.sceneCandidates.length > 0) {
-        armTypedBinding(sceneMoveCardFromFacts(facts), () => {
-          const current = currentSceneBindingFacts;
-          return current !== null
-            ? sceneMoveCardFromFacts({
-                ...current,
-                sessionEpoch,
-                playerTurnEpoch: canonicalProgress.playerTurnEpoch,
-                stage: canonicalProgress.stage,
-                phase: resolveAclPhase(current.campaign),
-              })
-            : null;
-        });
-      } else {
-        refreshTypedToolDefinition("state.move_scene");
-      }
+      armTypedBinding(sceneMoveCardFromFacts(facts), () => {
+        const current = currentSceneBindingFacts;
+        return current !== null
+          ? sceneMoveCardFromFacts({
+              ...current,
+              sessionEpoch,
+              playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+              stage: canonicalProgress.stage,
+              phase: resolveAclPhase(current.campaign),
+            })
+          : null;
+      });
       armTypedBinding(advanceTimeCardFromFacts(facts), () => {
         const current = currentSceneBindingFacts;
         return current !== null

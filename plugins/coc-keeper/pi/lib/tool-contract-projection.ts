@@ -61,6 +61,7 @@ export type SceneMoveBindingCard = {
   decision_id: string;
   source_revision: string;
   source_digest: string;
+  selection_mode?: "current_candidates" | "manual_scene";
   candidates: readonly SceneRouteCandidate[];
 };
 
@@ -476,11 +477,16 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
-function validateSceneCandidates(value: readonly SceneRouteCandidate[]): void {
-  if (!Array.isArray(value) || value.length === 0) {
+function validateSceneCandidates(
+  value: readonly SceneRouteCandidate[],
+  allowEmpty = false,
+): void {
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) {
     throw new ToolContractProjectionError(
       "binding_context_invalid",
-      "retained scene candidates must be a non-empty array",
+      allowEmpty
+        ? "retained scene candidates must be an array"
+        : "retained scene candidates must be a non-empty array",
       { field: "candidates" },
     );
   }
@@ -621,7 +627,15 @@ function validateBindingShape(binding: TypedToolBindingCard): void {
   } else if (binding.operation === "state.move_scene") {
     nonEmptyString(binding.source_revision, "source_revision");
     nonEmptyString(binding.source_digest, "source_digest");
-    validateSceneCandidates(binding.candidates);
+    const selectionMode = binding.selection_mode ?? "current_candidates";
+    if (selectionMode !== "current_candidates" && selectionMode !== "manual_scene") {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "scene selection_mode must be current_candidates or manual_scene",
+        { field: "selection_mode" },
+      );
+    }
+    validateSceneCandidates(binding.candidates, selectionMode === "manual_scene");
   } else if (binding.operation === "state.advance_time") {
     nonEmptyString(binding.clock_revision, "clock_revision");
     nonEmptyString(binding.clock_digest, "clock_digest");
@@ -745,8 +759,13 @@ function bindingValues(binding: TypedToolBindingCard): Record<string, unknown> {
 function hostOwnedFields(binding: TypedToolBindingCard): string[] {
   const fields = [...HOST_OWNED_FIELDS[binding.operation]];
   if (binding.operation === "state.move_scene") {
-    if (sceneNeedsRouteChoice(binding.candidates)) fields.push("scene_id");
-    else fields.push("candidate_id");
+    if ((binding.selection_mode ?? "current_candidates") === "manual_scene") {
+      fields.push("candidate_id");
+    } else if (sceneNeedsRouteChoice(binding.candidates)) {
+      fields.push("scene_id");
+    } else {
+      fields.push("candidate_id");
+    }
   }
   if (
     binding.operation === "state.advance_time"
@@ -808,7 +827,12 @@ export function projectBoundTypedToolParameters(
     for (const field of owned) delete cloned.properties[field];
   }
   if (valid.operation === "state.move_scene") {
-    if (sceneNeedsRouteChoice(valid.candidates)) {
+    const selectionMode = valid.selection_mode ?? "current_candidates";
+    if (selectionMode === "manual_scene") {
+      // Keep the archive's semantic scene_id string unconstrained. A manual
+      // destination is still KP-owned; only identity and derived travel are
+      // host-owned from the current receipt.
+    } else if (sceneNeedsRouteChoice(valid.candidates)) {
       setEnumProperty(
         cloned,
         "candidate_id",
@@ -861,6 +885,28 @@ export function bindRetainedTypedToolArguments(
     ...bindingValues(valid),
   };
   if (valid.operation === "state.move_scene") {
+    const selectionMode = valid.selection_mode ?? "current_candidates";
+    if (selectionMode === "manual_scene") {
+      const sceneId = typeof result.scene_id === "string" ? result.scene_id.trim() : "";
+      const matches = valid.candidates.filter((row) => row.scene_id === sceneId);
+      const travelShapes = new Map<string, SceneRouteCandidate>();
+      for (const candidate of matches) {
+        const key = Object.hasOwn(candidate, "travel_minutes")
+          ? `timed:${candidate.travel_minutes}`
+          : "absent";
+        if (!travelShapes.has(key)) travelShapes.set(key, candidate);
+      }
+      delete result.candidate_id;
+      result.scene_id = sceneId;
+      delete result.travel_minutes;
+      const exactRoute = travelShapes.size === 1
+        ? travelShapes.values().next().value as SceneRouteCandidate | undefined
+        : undefined;
+      if (exactRoute && Object.hasOwn(exactRoute, "travel_minutes")) {
+        result.travel_minutes = exactRoute.travel_minutes;
+      }
+      return result;
+    }
     const routeChoice = sceneNeedsRouteChoice(valid.candidates);
     const candidate = routeChoice
       ? valid.candidates.find((row) => (

@@ -529,6 +529,86 @@ test("projected same-destination scene routes preserve exact optional travel thr
   });
 });
 
+test("zero-open scene receipt keeps move host-bound while canonical owns manual destination", async () => {
+  const forwarded = [];
+  const sceneEnvelope = contextReceipt("closed-only", {
+    active_scene_id: "commission-briefing",
+    exits: [{
+      to: "newspaper-morgue",
+      kind: "unlock",
+      open: false,
+      when: { kind: "clue_discovered", clue_id: "clue-knott-research-leads" },
+    }],
+    time: { time_precision: "precise", local_datetime: "1920-10-12T10:00:00" },
+    npcs_present: [],
+    action_routes: [],
+  });
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我离开办公室，直接去报馆门口。" }],
+    });
+    await invokeCompat(h, "closed-scene", "scene.context");
+    const discovery = JSON.parse((await h.tools.get("coc_discover").execute(
+      "discover-manual-move",
+      { operation: "state.move_scene" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(discovery.ok, true);
+    const properties = discovery.data.operation_card.parameters.properties;
+    for (const field of ["root", "campaign", "decision_id", "travel_minutes"]) {
+      assert.equal(Object.hasOwn(properties, field), false, field);
+    }
+    assert.equal(Object.hasOwn(properties.scene_id, "enum"), false);
+    assert.equal(latestWorkingSetAudit(h).schema_bytes, actualActiveSchemaBytes(h));
+
+    const forged = JSON.parse((await h.tools.get("coc_state_move_scene").execute(
+      "manual-move-forged",
+      { scene_id: "newspaper-morgue", reason: "猜测耗时", travel_minutes: 35 },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(forged.ok, false);
+    assert.equal(forged.isError, true);
+    assert.equal(forged.error.code, "forged_host_argument");
+    assert.equal(forwarded.length, 0, "forged travel must fail before MCP");
+
+    const moved = JSON.parse((await h.tools.get("coc_state_move_scene").execute(
+      "manual-move",
+      { scene_id: "newspaper-morgue", reason: "去报馆门口" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(moved.ok, true);
+    assert.equal(forwarded.length, 1);
+    assert.equal(forwarded[0].arguments.scene_id, "newspaper-morgue");
+    assert.equal(Object.hasOwn(forwarded[0].arguments, "travel_minutes"), false);
+    assert.equal(forwarded[0].campaign, "tool-affordance-campaign");
+    assert.match(forwarded[0].arguments.decision_id, /^pi-state-move_scene:/);
+  }, (_name, params) => {
+    if (params.operation === "scene.context") return sceneEnvelope;
+    if (params.operation === "state.move_scene") {
+      forwarded.push(structuredClone(params));
+      return {
+        ok: true,
+        tool: params.operation,
+        data: {
+          from_scene_id: "commission-briefing",
+          to_scene_id: params.arguments.scene_id,
+          travel_minutes: 0,
+          travel_time_source: "none",
+        },
+        warnings: ["authored gate is advisory; canonical movement accepted"],
+      };
+    }
+    return { ok: true, tool: params.operation, data: {} };
+  });
+});
+
 test("new invalid scene context revokes prior scene bindings before surfacing failure", async () => {
   const forwarded = [];
   let sceneEnvelope = contextReceipt("scene-valid", {

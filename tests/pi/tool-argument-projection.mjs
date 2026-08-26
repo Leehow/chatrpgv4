@@ -442,6 +442,104 @@ test("state.move_scene projects retained semantic routes and host-binds exact tr
   ), "binding_context_stale");
 });
 
+test("state.move_scene manual binding hides host fields and never invents travel", () => {
+  const binding = {
+    schema_version: 1,
+    operation: "state.move_scene",
+    binding_revision: "scene:commission-briefing:revision-8",
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-allan-ward",
+    decision_id: "move:allan-ward:turn-4:revision-1",
+    source_revision: "scene-context:commission-briefing:revision-8",
+    source_digest: "sha256:1313131313131313131313131313131313131313131313131313131313131313",
+    selection_mode: "manual_scene",
+    candidates: [
+      {
+        candidate_id: "scene-route:newspaper-morgue:unlock:1",
+        scene_id: "newspaper-morgue",
+      },
+      {
+        candidate_id: "scene-route:central-library:unlock:1",
+        scene_id: "central-library",
+        travel_minutes: 35,
+      },
+    ],
+  };
+  const current = independentCurrent(binding);
+  const schema = typed.projectBoundTypedToolParameters(
+    binding.operation,
+    catalog.byOperation.get(binding.operation).parameters,
+    binding,
+    current,
+  );
+  for (const field of ["root", "campaign", "decision_id", "travel_minutes"]) {
+    assert.equal(Object.hasOwn(schema.properties, field), false, field);
+  }
+  assert.equal(Object.hasOwn(schema.properties, "candidate_id"), false);
+  assert.equal(Object.hasOwn(schema.properties.scene_id, "enum"), false);
+
+  const untimed = typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    { scene_id: "newspaper-morgue", reason: "去报馆" },
+    binding,
+    current,
+  );
+  assert.equal(untimed.scene_id, "newspaper-morgue");
+  assert.equal(Object.hasOwn(untimed, "travel_minutes"), false);
+  const timed = typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    { scene_id: "central-library", reason: "去图书馆" },
+    binding,
+    current,
+  );
+  assert.equal(timed.travel_minutes, 35);
+  const improvised = typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    { scene_id: "improvised-cafe", reason: "先去咖啡馆" },
+    binding,
+    current,
+  );
+  assert.equal(improvised.scene_id, "improvised-cafe");
+  assert.equal(Object.hasOwn(improvised, "travel_minutes"), false);
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    { scene_id: "newspaper-morgue", reason: "猜耗时", travel_minutes: 35 },
+    binding,
+    current,
+  ), "forged_host_argument");
+
+  const ambiguous = {
+    ...binding,
+    candidates: [
+      {
+        candidate_id: "scene-route:archive:travel:1",
+        scene_id: "archive",
+        travel_minutes: 5,
+      },
+      {
+        candidate_id: "scene-route:archive:travel:2",
+        scene_id: "archive",
+        travel_minutes: 10,
+      },
+    ],
+  };
+  const ambiguousBound = typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    { scene_id: "archive", reason: "路线不明确" },
+    ambiguous,
+    independentCurrent(ambiguous),
+  );
+  assert.equal(ambiguousBound.scene_id, "archive");
+  assert.equal(Object.hasOwn(ambiguousBound, "travel_minutes"), false);
+
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    { scene_id: "newspaper-morgue", reason: "旧收据" },
+    binding,
+    { ...current, source_revision: "scene-context:newer" },
+  ), "binding_context_stale");
+});
+
 test("same-destination scene routes preserve exact optional travel shape", () => {
   const binding = {
     schema_version: 1,
