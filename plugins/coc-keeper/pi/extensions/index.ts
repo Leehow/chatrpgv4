@@ -4930,11 +4930,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         data?.agency_review_operation,
         "narration.review",
       );
+      const agencyReviewCardPresent = data !== null
+        && Object.hasOwn(data, "agency_review_operation");
       const operationChainComplete = agencyReviewRequired === true
         ? reviewRevision !== null
           && finalizeRevision !== null
           && reviewRevision === finalizeRevision
-        : agencyReviewRequired === false && finalizeRevision !== null;
+        : agencyReviewRequired === false
+          && !agencyReviewCardPresent
+          && finalizeRevision !== null;
       const complete = (
         data !== null
         && typeof data.turn_id === "string" && data.turn_id.length > 0

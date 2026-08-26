@@ -1472,18 +1472,35 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
         if isinstance(obligation_id, str) and obligation_id
     ]
     journal_decision_id = value.get("journal_decision_id")
-    agency_review_operation = value.get("agency_review_operation")
-    agency_review_required = isinstance(agency_review_operation, dict)
-    agency_review_revision = (
-        int((agency_review_operation.get("prefilled_arguments") or {}).get("revision") or 1)
-        if agency_review_required else 1
+    contract_projection = value.get("contract_projection")
+    agency_review_required = (
+        isinstance(contract_projection, dict)
+        and contract_projection.get("agency_review_required") is True
     )
-    if agency_review_required:
+    agency_review_operation = value.get("agency_review_operation")
+    if "agency_review_operation" in value:
         projected["agency_review_operation"] = deepcopy(agency_review_operation)
+    source_finalize_operation = value.get("finalize_operation")
+    source_finalize_prefilled = (
+        source_finalize_operation.get("prefilled_arguments")
+        if isinstance(source_finalize_operation, dict) else None
+    )
+    source_finalize_revision = (
+        source_finalize_prefilled.get("revision")
+        if isinstance(source_finalize_prefilled, dict) else None
+    )
+    finalize_revision = (
+        source_finalize_revision
+        if isinstance(source_finalize_revision, int)
+        and not isinstance(source_finalize_revision, bool)
+        and source_finalize_revision > 0
+        else None
+    )
     prefilled: dict[str, Any] = {}
     if isinstance(journal_decision_id, str) and journal_decision_id:
         prefilled["decision_id"] = f"{journal_decision_id}:finalize"
-    prefilled["revision"] = agency_review_revision
+    if finalize_revision is not None:
+        prefilled["revision"] = finalize_revision
     missing = ["draft"]
     if required_obligation_ids:
         missing.append("coverage")
@@ -1552,12 +1569,12 @@ _OUTPUT_CONTEXT_TIGHT_DROP = (
 
 
 def _project_output_context_review_card(value: Any) -> Any:
-    """Keep the Pi observe card when ordinary compact exceeds the budget.
+    """Keep the exact Pi continuation cards when compact output is oversized.
 
-    ``observeOutputContext`` needs ``agency_review_operation``,
-    ``contract_projection.agency_authority`` (including supplied
-    ``pc_subject_refs``), and turn/source/revision identity. Do not invent
-    those fields, and do not copy drafting bulk or secrets onto the wire.
+    The explicit ``agency_review_required`` boolean selects either the review
+    plus finalize chain or the direct finalize chain. Keep that mode, the
+    applicable operation cards, bounded agency authority, and turn/source
+    identity without inventing fields or copying drafting bulk and secrets.
     """
     if not isinstance(value, dict):
         return deepcopy(value)
@@ -1570,6 +1587,9 @@ def _project_output_context_review_card(value: Any) -> Any:
         authority = contract.get("agency_authority")
         if isinstance(authority, dict):
             slim_contract["agency_authority"] = deepcopy(authority)
+        agency_review_required = contract.get("agency_review_required")
+        if isinstance(agency_review_required, bool):
+            slim_contract["agency_review_required"] = agency_review_required
         projected["contract_projection"] = slim_contract
     else:
         projected.pop("contract_projection", None)
@@ -2869,16 +2889,25 @@ def project_envelope(
         transport_bytes(result) > MAX_INLINE_BYTES
         and operation == "turn.output_context"
     ):
+        tight_output_context = _project_output_context_review_card(data)
         result["data"] = _decorate_cards(
-            _project_output_context_review_card(data),
+            tight_output_context,
             contract_digest=contract_digest,
             argument_schemas=argument_schemas,
         )
         result["wire"]["payload_projected"] = True
         result["wire"]["tight_projection"] = True
+        tight_contract = tight_output_context.get("contract_projection")
+        review_required = (
+            isinstance(tight_contract, dict)
+            and tight_contract.get("agency_review_required") is True
+        )
         result["hints"] = [
             "the output context exceeded the transport budget; continue from "
-            "the returned agency_review_operation and agency_authority",
+            + (
+                "the returned agency_review_operation and finalize_operation"
+                if review_required else "the returned finalize_operation"
+            ),
             *result["hints"][:2],
         ]
         result["warnings"] = result["warnings"][:3]

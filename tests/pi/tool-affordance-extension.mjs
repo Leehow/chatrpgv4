@@ -135,13 +135,13 @@ async function withPlayHarness(fn, callTool = (_name, params) => (
         },
       }
     : { ok: true, tool: params.operation, data: {} }
-), hostFaults = {}) {
+), hostFaults = {}, compiler = undefined) {
   const priorRole = process.env[ROLE_ENV];
   const priorCampaign = process.env[CAMPAIGN_ENV];
   process.env[ROLE_ENV] = "play";
   process.env[CAMPAIGN_ENV] = "tool-affordance-campaign";
   try {
-    const harness = makeHarness(callTool, undefined, hostFaults);
+    const harness = makeHarness(callTool, compiler, hostFaults);
     await harness.start();
     await harness.tools.get("coc_invoke").execute(
       "resume-live",
@@ -1203,6 +1203,11 @@ const completeOutputContextData = ({
 });
 
 test("non-review output-context accepts the canonical finalize-card revision", async () => {
+  let compilerObservations = 0;
+  const compiler = new PiStateClaimCompiler(async () => {
+    throw new Error("non-review output must not compile review state claims");
+  });
+  compiler.observeOutputContext = () => { compilerObservations += 1; };
   await withPlayHarness(async (h) => {
     await h.emit("message_start", {
       role: "user",
@@ -1222,6 +1227,11 @@ test("non-review output-context accepts the canonical finalize-card revision", a
       .map((row) => row.value.stage);
     assert.equal(stages.at(-1), "output_context_ready");
     assert.equal(stages.includes("faulted"), false);
+    assert.equal(compilerObservations, 0);
+    assert.equal(h.appended.some((row) => (
+      row.type === "coc-typed-tool-binding"
+      && row.value.operation === "narration.review"
+    )), false);
   }, (_name, params) => {
     if (params.operation === "state.journal") {
       return { ok: true, tool: params.operation, data: { turn_id: "turn-non-review" } };
@@ -1237,7 +1247,7 @@ test("non-review output-context accepts the canonical finalize-card revision", a
       };
     }
     return { ok: true, tool: params.operation, data: {} };
-  });
+  }, {}, compiler);
 });
 
 test("review-required output-context without its review card faults closed", async () => {
@@ -1312,6 +1322,119 @@ test("review-required output-context rejects mismatched operation-card revisions
     }
     return { ok: true, tool: params.operation, data: {} };
   });
+});
+
+test("non-review output-context rejects any agency-review card presence", async (t) => {
+  for (const [name, agencyReviewOperation] of [
+    ["object-valued", {
+      operation: "narration.review",
+      prefilled_arguments: { revision: 1 },
+    }],
+    ["malformed", "unexpected-review-card"],
+  ]) {
+    await t.test(name, async () => {
+      await withPlayHarness(async (h) => {
+        await h.emit("message_start", {
+          role: "user",
+          content: [{ type: "text", text: `验证非审查回执拒绝 ${name} 审查卡。` }],
+        });
+        await invokeCompat(h, `extra-review-journal-${name}`, "state.journal");
+        const response = JSON.parse((await invokeCompat(
+          h, `extra-review-context-${name}`, "turn.output_context",
+        )).content[0].text);
+        assert.equal(response.ok, false);
+        assert.equal(response.error.code, "output_context_receipt_invalid");
+        assert.equal(
+          h.appended
+            .filter((row) => row.type === "coc-canonical-turn-progress")
+            .at(-1)?.value.stage,
+          "faulted",
+        );
+      }, (_name, params) => {
+        if (params.operation === "state.journal") {
+          return { ok: true, tool: params.operation, data: { turn_id: `turn-${name}` } };
+        }
+        if (params.operation === "turn.output_context") {
+          const data = completeOutputContextData({
+            turnId: `turn-${name}`,
+            agencyReviewRequired: false,
+          });
+          data.agency_review_operation = agencyReviewOperation;
+          return { ok: true, tool: params.operation, data };
+        }
+        return { ok: true, tool: params.operation, data: {} };
+      });
+    });
+  }
+});
+
+test("output-context operation cards require exact names and positive integer revisions", async (t) => {
+  const cases = [
+    {
+      name: "wrong-finalize-operation",
+      agencyReviewRequired: false,
+      mutate(data) { data.finalize_operation.operation = "turn.output_context"; },
+    },
+    {
+      name: "wrong-review-operation",
+      agencyReviewRequired: true,
+      mutate(data) { data.agency_review_operation.operation = "turn.finalize"; },
+    },
+    {
+      name: "string-revision",
+      agencyReviewRequired: true,
+      mutate(data) {
+        data.agency_review_operation.prefilled_arguments.revision = "1";
+        data.finalize_operation.prefilled_arguments.revision = "1";
+      },
+    },
+    {
+      name: "zero-revision",
+      agencyReviewRequired: false,
+      mutate(data) { data.finalize_operation.prefilled_arguments.revision = 0; },
+    },
+    {
+      name: "negative-revision",
+      agencyReviewRequired: true,
+      mutate(data) {
+        data.agency_review_operation.prefilled_arguments.revision = -1;
+        data.finalize_operation.prefilled_arguments.revision = -1;
+      },
+    },
+  ];
+  for (const probe of cases) {
+    await t.test(probe.name, async () => {
+      await withPlayHarness(async (h) => {
+        await h.emit("message_start", {
+          role: "user",
+          content: [{ type: "text", text: `验证严格回执：${probe.name}。` }],
+        });
+        await invokeCompat(h, `strict-journal-${probe.name}`, "state.journal");
+        const response = JSON.parse((await invokeCompat(
+          h, `strict-context-${probe.name}`, "turn.output_context",
+        )).content[0].text);
+        assert.equal(response.ok, false);
+        assert.equal(response.error.code, "output_context_receipt_invalid");
+      }, (_name, params) => {
+        if (params.operation === "state.journal") {
+          return {
+            ok: true,
+            tool: params.operation,
+            data: { turn_id: `turn-${probe.name}` },
+          };
+        }
+        if (params.operation === "turn.output_context") {
+          const data = completeOutputContextData({
+            turnId: `turn-${probe.name}`,
+            agencyReviewRequired: probe.agencyReviewRequired,
+          });
+          probe.mutate(data);
+          return { ok: true, tool: params.operation, data };
+        }
+        return { ok: true, tool: params.operation, data: {} };
+      });
+    });
+  }
 });
 
 test("faulted turn advances only through the exact session-resume recovery receipt", async () => {

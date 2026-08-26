@@ -5140,6 +5140,13 @@ def test_mcp_wire_projects_hot_turn_receipts_without_repeating_full_payloads():
                     "concealed_consequence": [],
                 },
                 "mechanics_bundle_sha256": "sha256:bundle",
+                "contract_projection": {
+                    "agency_review_required": False,
+                },
+                "finalize_operation": {
+                    "operation": "turn.finalize",
+                    "prefilled_arguments": {"revision": 1},
+                },
                 "npc_performance_constraints": [],
                 "missing_substantive_effects": [],
                 "pending_modifier_consumptions": [],
@@ -5249,6 +5256,13 @@ def test_mcp_wire_finalize_card_matches_archive_and_never_prefills_semantics():
             "tool": "turn.output_context",
             "data": {
                 "journal_decision_id": "journal-with-obligations",
+                "contract_projection": {
+                    "agency_review_required": False,
+                },
+                "finalize_operation": {
+                    "operation": "turn.finalize",
+                    "prefilled_arguments": {"revision": 1},
+                },
                 "obligations": [
                     {"obligation_id": "obligation-a"},
                     {"obligation_id": "obligation-b"},
@@ -5280,6 +5294,77 @@ def test_mcp_wire_finalize_card_matches_archive_and_never_prefills_semantics():
     assert server.wire_projection.transport_bytes(projected) <= (
         server.wire_projection.MAX_INLINE_BYTES
     )
+
+
+def test_mcp_wire_tight_output_context_preserves_explicit_review_mode():
+    server = _load_server()
+    for agency_review_required, revision in ((False, 1), (True, 2)):
+        data = {
+            "schema_version": 1,
+            "turn_id": f"turn-tight-{revision}",
+            "journal_decision_id": f"journal-tight-{revision}",
+            "source_digest": f"sha256:source-tight-{revision}",
+            "settlement_snapshot_id": f"turn-settlement-v1:tight-{revision}",
+            "mechanics_bundle_sha256": f"sha256:mechanics-tight-{revision}",
+            "required_obligation_ids": [],
+            "contract_projection": {
+                "agency_review_required": agency_review_required,
+                "agency_authority": {
+                    "pc_subject_refs": ["pc:tight-probe"],
+                },
+            },
+            "finalize_operation": {
+                "operation": "turn.finalize",
+                "prefilled_arguments": {"revision": revision},
+            },
+            "candidate_factors": [{
+                "padding": "tight-projection-padding" * 10_000,
+            }],
+        }
+        if agency_review_required:
+            data["agency_review_operation"] = {
+                "operation": "narration.review",
+                "prefilled_arguments": {"revision": revision},
+            }
+
+        projected = server.wire_projection.project_envelope(
+            "turn.output_context",
+            {
+                "ok": True,
+                "tool": "turn.output_context",
+                "data": data,
+                "warnings": [],
+                "hints": [],
+            },
+            contract_digest=server.CONTRACTS["content_sha256"],
+        )
+
+        assert projected["ok"] is True
+        assert projected["wire"]["tight_projection"] is True
+        tight = projected["data"]
+        assert (
+            tight["contract_projection"]["agency_review_required"]
+            is agency_review_required
+        )
+        assert tight["finalize_operation"]["operation"] == "turn.finalize"
+        assert (
+            tight["finalize_operation"]["prefilled_arguments"]["revision"]
+            == revision
+        )
+        if agency_review_required:
+            assert (
+                tight["agency_review_operation"]["operation"]
+                == "narration.review"
+            )
+            assert (
+                tight["agency_review_operation"]["prefilled_arguments"]["revision"]
+                == revision
+            )
+        else:
+            assert "agency_review_operation" not in tight
+        assert server.wire_projection.transport_bytes(projected) <= (
+            server.wire_projection.MAX_INLINE_BYTES
+        )
 
 
 
