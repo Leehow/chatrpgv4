@@ -1198,7 +1198,6 @@ class TestModuleBoundary:
             SCRIPTS / "coc_history_projection_query.py",
         )
         assert sorted(module.__all__) == [
-            "AUTHORITY_PROJECTION_FIELDS",
             "ProjectionQueryError",
             "SCHEMA_GENERATION",
             "query_authority_projection",
@@ -1214,6 +1213,13 @@ class TestModuleBoundary:
                 "coc_history_projection_state_contract",
                 SCRIPTS / "coc_history_projection_state.py",
             ).ENTITY_FIELDS
+        )
+        # the duplicated projection contract stays in sync with confluence
+        assert tuple(module.AUTHORITY_PROJECTION_FIELDS) == tuple(
+            _load(
+                "coc_timeline_confluence_contract",
+                SCRIPTS / "coc_timeline_confluence.py",
+            ).PROJECTION_FIELDS
         )
 
 

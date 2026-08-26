@@ -100,7 +100,6 @@ class ProjectionQueryError(HistoryProjectionError):
 
 __all__ = [
     "SCHEMA_GENERATION",
-    "AUTHORITY_PROJECTION_FIELDS",
     "ProjectionQueryError",
     "resolve_selector",
     "query_authority_projection",
