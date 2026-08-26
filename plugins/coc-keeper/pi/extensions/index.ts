@@ -3647,17 +3647,29 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     currentTypedBindingFactories.delete(operation);
     if (existed) refreshTypedToolDefinition(operation);
   };
+  const beginSceneDerivedBindingReplacement = (): void => {
+    currentSceneBindingFacts = null;
+    for (const operation of ["state.move_scene", "state.advance_time"]) {
+      revokedSceneBindingOperations.add(operation);
+      retainedTypedBindings.delete(operation);
+      currentTypedBindingFactories.delete(operation);
+    }
+  };
   const revokeSceneDerivedBindings = (): void => {
     currentSceneBindingFacts = null;
     for (const operation of ["state.move_scene", "state.advance_time"]) {
       revokedSceneBindingOperations.add(operation);
-      clearTypedBinding(operation);
+      retainedTypedBindings.delete(operation);
+      currentTypedBindingFactories.delete(operation);
+      try { refreshTypedToolDefinition(operation); }
+      catch { /* the revoked gateway remains authoritative if schema cleanup fails */ }
     }
     loadedOperations = loadedOperations.filter((grant) => (
       grant.operation !== "state.move_scene"
       && grant.operation !== "state.advance_time"
     ));
-    applyKpActiveTools();
+    try { applyKpActiveTools(); }
+    catch { /* best-effort projection must not replace the primary receipt error */ }
   };
   const clearTurnTypedBindings = (): void => {
     retainedOutputContextFacts = null;
@@ -4416,14 +4428,29 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       npcIds: [...new Set(npcIds)].sort(),
       combatAffordanceIds: [...new Set(combatAffordanceIds)].sort(),
     };
-    revokedSceneBindingOperations.delete("state.move_scene");
-    revokedSceneBindingOperations.delete("state.advance_time");
-    currentSceneBindingFacts = facts;
-    if (facts.sceneCandidates.length > 0) {
-      armTypedBinding(sceneMoveCardFromFacts(facts), () => {
+    beginSceneDerivedBindingReplacement();
+    try {
+      currentSceneBindingFacts = facts;
+      if (facts.sceneCandidates.length > 0) {
+        armTypedBinding(sceneMoveCardFromFacts(facts), () => {
+          const current = currentSceneBindingFacts;
+          return current !== null
+            ? sceneMoveCardFromFacts({
+                ...current,
+                sessionEpoch,
+                playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+                stage: canonicalProgress.stage,
+                phase: resolveAclPhase(current.campaign),
+              })
+            : null;
+        });
+      } else {
+        refreshTypedToolDefinition("state.move_scene");
+      }
+      armTypedBinding(advanceTimeCardFromFacts(facts), () => {
         const current = currentSceneBindingFacts;
         return current !== null
-          ? sceneMoveCardFromFacts({
+          ? advanceTimeCardFromFacts({
               ...current,
               sessionEpoch,
               playerTurnEpoch: canonicalProgress.playerTurnEpoch,
@@ -4432,22 +4459,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             })
           : null;
       });
-    } else {
-      clearTypedBinding("state.move_scene");
+      applyKpActiveTools();
+      revokedSceneBindingOperations.delete("state.move_scene");
+      revokedSceneBindingOperations.delete("state.advance_time");
+    } catch (error) {
+      revokeSceneDerivedBindings();
+      throw error;
     }
-    armTypedBinding(advanceTimeCardFromFacts(facts), () => {
-      const current = currentSceneBindingFacts;
-      return current !== null
-        ? advanceTimeCardFromFacts({
-            ...current,
-            sessionEpoch,
-            playerTurnEpoch: canonicalProgress.playerTurnEpoch,
-            stage: canonicalProgress.stage,
-            phase: resolveAclPhase(current.campaign),
-          })
-        : null;
-    });
-    applyKpActiveTools();
   };
   const armStructuredCombatBinding = (
     campaignId: string,
@@ -6126,6 +6144,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     const epoch = sessionEpoch;
     const typedDefinition = typedToolDefinitions.find((tool) => tool.name === name);
     if (typedDefinition !== undefined) {
+      if (revokedSceneBindingOperations.has(typedDefinition.operation)) {
+        return hostFailureResult(hostBindingFailure(
+          typedDefinition.operation,
+          new ToolContractProjectionError(
+            "binding_context_missing",
+            `no retained host binding is armed for ${typedDefinition.operation}`,
+            { operation: typedDefinition.operation },
+          ),
+        ));
+      }
       const binding = retainedTypedBindings.get(typedDefinition.operation);
       if (binding !== undefined) {
         try {
@@ -6139,15 +6167,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           if (!(error instanceof ToolContractProjectionError)) throw error;
           return hostFailureResult(hostBindingFailure(typedDefinition.operation, error));
         }
-      } else if (revokedSceneBindingOperations.has(typedDefinition.operation)) {
-        return hostFailureResult(hostBindingFailure(
-          typedDefinition.operation,
-          new ToolContractProjectionError(
-            "binding_context_missing",
-            `no retained host binding is armed for ${typedDefinition.operation}`,
-            { operation: typedDefinition.operation },
-          ),
-        ));
       }
     }
     params = wrapTypedToolInvokeParams(name, params) as JsonObject;

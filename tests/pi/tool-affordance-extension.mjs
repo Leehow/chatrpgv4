@@ -25,7 +25,7 @@ const exactTextSha256 = (text) => (
   `sha256:${createHash("sha256").update(JSON.stringify(text), "utf8").digest("hex")}`
 );
 
-function makeHarness(callTool, compiler = undefined) {
+function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
   const tools = new Map();
   const handlers = new Map();
   const active = [];
@@ -33,7 +33,10 @@ function makeHarness(callTool, compiler = undefined) {
   const appended = [];
   let hideRead = false;
   const pi = {
-    registerTool(tool) { tools.set(tool.name, tool); },
+    registerTool(tool) {
+      hostFaults.beforeRegisterTool?.(tool);
+      tools.set(tool.name, tool);
+    },
     registerCommand() {},
     registerShortcut() {},
     on(type, handler) {
@@ -43,7 +46,10 @@ function makeHarness(callTool, compiler = undefined) {
     },
     appendEntry(type, value) { appended.push({ type, value }); },
     sendMessage(message, options) { sent.push({ message, options }); return true; },
-    setActiveTools(names) { active.push([...names]); },
+    setActiveTools(names) {
+      hostFaults.beforeSetActiveTools?.(names);
+      active.push([...names]);
+    },
     getAllTools() {
       return [...tools.values()]
         .filter((tool) => !hideRead || tool.name !== "read")
@@ -129,13 +135,13 @@ async function withPlayHarness(fn, callTool = (_name, params) => (
         },
       }
     : { ok: true, tool: params.operation, data: {} }
-)) {
+), hostFaults = {}) {
   const priorRole = process.env[ROLE_ENV];
   const priorCampaign = process.env[CAMPAIGN_ENV];
   process.env[ROLE_ENV] = "play";
   process.env[CAMPAIGN_ENV] = "tool-affordance-campaign";
   try {
-    const harness = makeHarness(callTool);
+    const harness = makeHarness(callTool, undefined, hostFaults);
     await harness.start();
     await harness.tools.get("coc_invoke").execute(
       "resume-live",
@@ -662,6 +668,148 @@ test("initial invalid scene context keeps scene-derived tools unarmed", async ()
     if (params.operation === "state.move_scene") forwardedMoves += 1;
     return { ok: true, tool: params.operation, data: { accepted: true } };
   });
+});
+
+test("scene binding re-arm rolls back atomically across host presentation failures", async (t) => {
+  for (const stage of ["move-schema", "time-schema", "active-tools"]) {
+    await t.test(stage, async () => {
+      let faultArmed = false;
+      let failureCount = 0;
+      const fail = () => {
+        failureCount += 1;
+        throw new Error(failureCount === 1 ? `REGFAIL:${stage}` : `CLEANFAIL:${stage}`);
+      };
+      const hostFaults = {
+        beforeRegisterTool(tool) {
+          if (!faultArmed || failureCount >= 2) return;
+          if (stage === "move-schema" && tool.name === "coc_state_move_scene") fail();
+          if (stage === "time-schema" && tool.name === "coc_state_advance_time") fail();
+        },
+        beforeSetActiveTools() {
+          if (faultArmed && failureCount < 2 && stage === "active-tools") fail();
+        },
+      };
+      const forwarded = [];
+      let sceneEnvelope = contextReceipt(`atomic-valid-${stage}`, {
+        active_scene_id: "hall",
+        exits: [{ to: "archive", open: true, travel_minutes: 5 }],
+        time: { time_precision: "precise", local_datetime: "1920-10-12T10:00:00" },
+        npcs_present: [],
+        action_routes: [],
+      });
+      await withPlayHarness(async (h) => {
+        await h.emit("message_start", {
+          role: "user",
+          content: [{ type: "text", text: "我重新核对路线与时间。" }],
+        });
+        await invokeCompat(h, `atomic-valid-${stage}`, "scene.context");
+        for (const operation of ["state.move_scene", "state.advance_time"]) {
+          await h.tools.get("coc_discover").execute(
+            `atomic-discover-${stage}-${operation}`,
+            { operation },
+            undefined,
+            undefined,
+            h.ctx,
+          );
+        }
+        const staleMoveTool = h.tools.get("coc_state_move_scene");
+        const staleTimeTool = h.tools.get("coc_state_advance_time");
+
+        sceneEnvelope = contextReceipt(`atomic-invalid-${stage}`, {
+          active_scene_id: "hall",
+          exits: [{ to: "archive", open: true, travel_minutes: "5" }],
+          time: { time_precision: "precise", local_datetime: "1920-10-12T10:01:00" },
+          npcs_present: [],
+          action_routes: [],
+        });
+        await assert.rejects(
+          invokeCompat(h, `atomic-invalid-${stage}`, "scene.context"),
+          (error) => error?.code === "binding_context_invalid",
+        );
+
+        sceneEnvelope = contextReceipt(`atomic-rearm-fails-${stage}`, {
+          active_scene_id: "hall",
+          exits: [{ to: "archive", open: true, travel_minutes: 7 }],
+          time: { time_precision: "precise", local_datetime: "1920-10-12T10:02:00" },
+          npcs_present: [],
+          action_routes: [],
+        });
+        faultArmed = true;
+        await assert.rejects(
+          invokeCompat(h, `atomic-rearm-fails-${stage}`, "scene.context"),
+          (error) => error?.message === `REGFAIL:${stage}`,
+        );
+        faultArmed = false;
+        assert.equal(failureCount, 2, "primary and cleanup fault must both be exercised");
+
+        const beforeMutation = forwarded.filter((row) => (
+          row.operation === "state.move_scene" || row.operation === "state.advance_time"
+        )).length;
+        for (const [tool, id, args] of [
+          [staleMoveTool, `atomic-stale-move-${stage}`, { scene_id: "archive", reason: "旧 schema" }],
+          [staleTimeTool, `atomic-stale-time-${stage}`, { minutes: 5, reason: "旧 schema" }],
+        ]) {
+          const rejected = JSON.parse((await tool.execute(
+            id,
+            args,
+            undefined,
+            undefined,
+            h.ctx,
+          )).content[0].text);
+          assert.equal(rejected.error.code, "binding_context_missing");
+        }
+        assert.equal(forwarded.filter((row) => (
+          row.operation === "state.move_scene" || row.operation === "state.advance_time"
+        )).length, beforeMutation, "partial re-arm must not reach MCP");
+        assert.equal(h.active.at(-1).includes("coc_state_move_scene"), false);
+        assert.equal(h.active.at(-1).includes("coc_state_advance_time"), false);
+        for (const name of ["coc_state_move_scene", "coc_state_advance_time"]) {
+          const schema = h.tools.get(name).parameters;
+          assert.ok(Object.hasOwn(schema.properties, "campaign"));
+          assert.ok(Object.hasOwn(schema.properties, "decision_id"));
+        }
+
+        sceneEnvelope = contextReceipt(`atomic-rearm-success-${stage}`, {
+          active_scene_id: "hall",
+          exits: [{ to: "archive", open: true, travel_minutes: 9 }],
+          time: { time_precision: "precise", local_datetime: "1920-10-12T10:03:00" },
+          npcs_present: [],
+          action_routes: [],
+        });
+        await invokeCompat(h, `atomic-rearm-success-${stage}`, "scene.context");
+        for (const operation of ["state.move_scene", "state.advance_time"]) {
+          const discovery = JSON.parse((await h.tools.get("coc_discover").execute(
+            `atomic-rediscover-${stage}-${operation}`,
+            { operation },
+            undefined,
+            undefined,
+            h.ctx,
+          )).content[0].text);
+          assert.equal(discovery.ok, true);
+          assert.equal(Object.hasOwn(
+            discovery.data.operation_card.parameters.properties,
+            "campaign",
+          ), false);
+        }
+        await h.tools.get("coc_state_move_scene").execute(
+          `atomic-move-success-${stage}`,
+          { scene_id: "archive", reason: "完整 re-arm 后执行" },
+          undefined,
+          undefined,
+          h.ctx,
+        );
+        assert.equal(
+          forwarded.filter((row) => row.operation === "state.move_scene").at(-1)
+            .arguments.travel_minutes,
+          9,
+        );
+      }, (_name, params) => {
+        forwarded.push(structuredClone(params));
+        if (params.operation === "scene.context") return sceneEnvelope;
+        return { ok: true, tool: params.operation, data: { accepted: true } };
+      }, hostFaults);
+    });
+  }
 });
 
 test("scene, precise-clock, and combat cards bind discovered production tools and reject stale use", async () => {
