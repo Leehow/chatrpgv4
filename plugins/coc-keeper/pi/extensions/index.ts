@@ -3601,7 +3601,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sourceRevision: string;
     sourceDigest: string;
     activeSceneId: string;
-    sceneCandidates: Array<{ scene_id: string; travel_minutes: number | null }>;
+    sceneCandidates: Array<{
+      candidate_id: string;
+      scene_id: string;
+      travel_minutes: number | null;
+    }>;
     clockPrecision: "precise" | "imprecise";
     npcIds: string[];
     combatAffordanceIds: string[];
@@ -3689,23 +3693,54 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ? "scene.context"
         : operation
   );
+  const hostVisibleFailure = (
+    tool: string,
+    code: string,
+    message: string,
+    details: JsonObject,
+    recovery: {
+      class: string;
+      recoverableBy: string;
+      allowedNextActions?: JsonObject[];
+      automaticAction?: string;
+    },
+  ): JsonObject => ({
+    ok: false,
+    tool,
+    isError: true,
+    error: {
+      code,
+      message,
+      details,
+      retryable: false,
+      class: recovery.class,
+      recoverable_by: recovery.recoverableBy,
+      allowed_next_actions: recovery.allowedNextActions ?? [],
+      ...(recovery.automaticAction === undefined
+        ? {}
+        : { automatic_action: recovery.automaticAction }),
+    },
+    retryable: false,
+    will_retry: false,
+  });
+  const hostFailureResult = (visible: JsonObject) => ({
+    ...result(visible),
+    isError: true,
+  });
   const hostBindingFailure = (
     operation: string,
     error: ToolContractProjectionError,
   ): JsonObject => {
-    const visible: JsonObject = {
-      ok: false,
-      tool: operation,
-      isError: true,
-      error: {
-        code: error.code,
-        message: error.message,
-        details: error.details,
-        retryable: false,
+    const visible = hostVisibleFailure(
+      operation,
+      error.code,
+      error.message,
+      error.details,
+      {
+        class: "invariant_terminal",
+        recoverableBy: "none",
       },
-      retryable: false,
-      will_retry: false,
-    };
+    );
     const projected = projectPiToolFailure(visible, operation) ?? visible;
     const projectedError = objectOrNull(projected.error) ?? {};
     const refreshOperation = hostBindingRefreshOperation(operation);
@@ -3742,6 +3777,57 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       };
     }
     return { ...projected, ok: false, isError: true };
+  };
+  const discoveryFailure = (
+    code: string,
+    message: string,
+    details: JsonObject = {},
+  ) => {
+    const recovery = code === "namespace_too_large"
+      ? {
+          class: "dynamic_candidate",
+          recoverableBy: "model_next_action",
+          allowedNextActions: [{
+            operation: "coc_discover",
+            action: "select_exact_operation",
+            reason: "request one exact semantic dotted operation instead of the oversized namespace",
+            host_bound: false,
+          }],
+        }
+      : code === "unknown_operation"
+        ? {
+            class: "dynamic_candidate",
+            recoverableBy: "model_next_action",
+            allowedNextActions: [{
+              operation: "coc_discover",
+              action: "list_available_namespaces",
+              reason: "call coc_discover without selectors, then choose one advertised exact operation",
+              host_bound: true,
+            }],
+          }
+        : code === "invalid_snapshot"
+          ? {
+              class: "business_precondition",
+              recoverableBy: "host_binding_refresh",
+              automaticAction: "refresh_registered_tool_schemas",
+            }
+          : {
+              class: "schema_validation",
+              recoverableBy: "model_next_action",
+              allowedNextActions: [{
+                operation: "coc_discover",
+                action: "correct_discovery_selector",
+                reason: "supply exactly one valid operation or namespace selector",
+                host_bound: false,
+              }],
+            };
+    return hostFailureResult(hostVisibleFailure(
+      "coc_discover",
+      code,
+      message,
+      details,
+      recovery,
+    ));
   };
   const bindingScopeMatches = (scope: StructuredBindingScope): boolean => (
     scope.sessionEpoch === sessionEpoch
@@ -4214,18 +4300,53 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (data === null || identity === null || !activeSceneId || time === null) {
       return;
     }
-    const sceneCandidates = (Array.isArray(data.exits) ? data.exits : [])
-      .flatMap((row) => {
-        const exit = objectOrNull(row);
-        const sceneId = typeof exit?.to === "string" ? exit.to.trim() : "";
-        if (!sceneId || exit?.open !== true) return [];
-        const rawTravel = exit?.travel_minutes;
-        const travelMinutes = Number.isFinite(rawTravel)
-          && Number(rawTravel) >= 0
-          ? Number(rawTravel)
-          : null;
-        return [{ scene_id: sceneId, travel_minutes: travelMinutes }];
+    const sceneCandidates: SceneBindingFacts["sceneCandidates"] = [];
+    const routeOrdinals = new Map<string, number>();
+    const exactRoutes = new Set<string>();
+    for (const row of Array.isArray(data.exits) ? data.exits : []) {
+      const exit = objectOrNull(row);
+      const sceneId = typeof exit?.to === "string" ? exit.to.trim() : "";
+      if (!sceneId || exit?.open !== true) continue;
+      const rawTravel = exit.travel_minutes;
+      const travelMinutes = Number.isFinite(rawTravel)
+        && Number(rawTravel) >= 0
+        ? Number(rawTravel)
+        : null;
+      const kind = typeof exit.kind === "string" && exit.kind.trim()
+        ? exit.kind.trim()
+        : "route";
+      const sourceIdentity = [exit.route_id, exit.edge_id, exit.id]
+        .find((candidate) => (
+          typeof candidate === "string"
+          && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate.trim())
+        ));
+      const exactIdentity = JSON.stringify({
+        scene_id: sceneId,
+        kind,
+        travel_minutes: travelMinutes,
+        when: exit.when ?? null,
+        source_identity: sourceIdentity ?? null,
       });
+      if (exactRoutes.has(exactIdentity)) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          "structured scene context contains an exact duplicate authored route",
+          { field: "data.exits" },
+        );
+      }
+      exactRoutes.add(exactIdentity);
+      const routeScope = `${sceneId}\u0000${kind}`;
+      const ordinal = (routeOrdinals.get(routeScope) ?? 0) + 1;
+      routeOrdinals.set(routeScope, ordinal);
+      const candidateId = typeof sourceIdentity === "string"
+        ? `scene-route:${sceneId}:${sourceIdentity.trim()}`
+        : `scene-route:${sceneId}:${kind}:${ordinal}`;
+      sceneCandidates.push({
+        candidate_id: candidateId,
+        scene_id: sceneId,
+        travel_minutes: travelMinutes,
+      });
+    }
     const npcIds = (Array.isArray(data.npcs_present) ? data.npcs_present : [])
       .flatMap((row) => {
         const npc = objectOrNull(row);
@@ -5778,11 +5899,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     waitKey: string,
     supply: JsonObject,
     signal: AbortSignal | undefined,
-  ): Promise<SceneSupplyDispatchStatus> => {
+    expectedSessionEpoch: number,
+  ): Promise<SceneSupplyDispatchStatus | null> => {
+    if (!isCurrent(expectedSessionEpoch)) return null;
     const retained = sceneSupplyDispatches.get(waitKey);
     if (retained?.status === "active") {
       const state = supplyCoordinator.activeManager()?.state(retained.dispatchKey);
       const current = classifySceneSupplyDispatch(state, retained.dispatchKey);
+      if (!isCurrent(expectedSessionEpoch)) return null;
       sceneSupplyDispatches.set(waitKey, current);
       return current;
     }
@@ -5799,6 +5923,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ? "scene_supply_dispatch_task_unavailable"
           : "scene_supply_dispatch_task_invalid",
       };
+      if (!isCurrent(expectedSessionEpoch)) return null;
       sceneSupplyDispatches.set(waitKey, unavailable);
       return unavailable;
     }
@@ -5816,7 +5941,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         dispatch_key: dispatchKey,
       };
     }
+    if (!isCurrent(expectedSessionEpoch)) return null;
     const classified = classifySceneSupplyDispatch(submission, dispatchKey);
+    if (!isCurrent(expectedSessionEpoch)) return null;
     sceneSupplyDispatches.set(waitKey, classified);
     return classified;
   };
@@ -5826,10 +5953,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     initialSupply: JsonObject,
     signal: AbortSignal | undefined,
     checkMinimal: () => Promise<JsonObject | null>,
+    expectedSessionEpoch: number,
   ) => {
+    if (!isCurrent(expectedSessionEpoch)) return null;
     const campaignId = String(params.campaign ?? "").trim();
     const waitKey = `${campaignId}\u0000${sceneId}`;
     if (initialSupply.enforced !== true || initialSupply.ready === true) {
+      if (!isCurrent(expectedSessionEpoch)) return null;
       sceneSupplyDispatches.delete(waitKey);
       return {
         supply: publicSceneSupply(initialSupply),
@@ -5840,24 +5970,36 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         dispatch: null,
       };
     }
-    const dispatch = await sceneSupplyDispatchStatus(waitKey, initialSupply, signal);
+    const dispatch = await sceneSupplyDispatchStatus(
+      waitKey,
+      initialSupply,
+      signal,
+      expectedSessionEpoch,
+    );
+    if (!isCurrent(expectedSessionEpoch) || dispatch === null) return null;
     let supply = initialSupply;
     let decision = decideSceneSupply(supply, dispatch);
     if (decision.action === "retry_with_minimal") {
       const minimal = await checkMinimal();
+      if (!isCurrent(expectedSessionEpoch)) return null;
       if (minimal !== null) {
         supply = minimal;
         decision = decideSceneSupply(supply, dispatch);
       }
     }
-    if (decision.action === "allow") sceneSupplyDispatches.delete(waitKey);
+    if (decision.action === "allow") {
+      if (!isCurrent(expectedSessionEpoch)) return null;
+      sceneSupplyDispatches.delete(waitKey);
+    }
     return { supply: publicSceneSupply(supply), decision, dispatch };
   };
   const sceneSupplyPreflight = async (
     params: JsonObject,
     signal: AbortSignal | undefined,
     ctx: ExtensionContext,
+    expectedSessionEpoch: number,
   ): Promise<{ supply: JsonObject | null; blocked: JsonObject | null }> => {
+    if (!isCurrent(expectedSessionEpoch)) return { supply: null, blocked: null };
     if (
       process.env.COC_PI_SCENE_SUPPLY !== "1"
       || params.operation !== "state.move_scene"
@@ -5880,6 +6022,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             ...(allowMinimalFallback ? { allow_minimal_fallback: true } : {}),
           },
         }, signal);
+        if (!isCurrent(expectedSessionEpoch)) return null;
         const envelope = objectOrNull(response);
         return envelope?.ok === true ? objectOrNull(envelope.data) : null;
       } catch {
@@ -5890,6 +6033,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
     };
     const initialSupply = await check(false);
+    if (!isCurrent(expectedSessionEpoch)) return { supply: null, blocked: null };
     if (initialSupply === null) return { supply: null, blocked: null };
     const resolved = await resolveSceneSupply(
       params,
@@ -5897,7 +6041,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       initialSupply,
       signal,
       () => check(true),
+      expectedSessionEpoch,
     );
+    if (!isCurrent(expectedSessionEpoch) || resolved === null) {
+      return { supply: null, blocked: null };
+    }
     if (resolved.decision.action === "allow") {
       return { supply: resolved.supply, blocked: null };
     }
@@ -5915,14 +6063,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       instruction: resolved.decision.instruction,
     };
     try {
+      if (!isCurrent(expectedSessionEpoch)) return { supply: null, blocked: null };
       pi.sendMessage({
         customType: isBlocked ? "coc-scene-supply-blocked" : "coc-scene-supply-wait",
         content: JSON.stringify(content),
         display: false,
         details: content,
       }, { triggerTurn: false });
+      if (!isCurrent(expectedSessionEpoch)) return { supply: null, blocked: null };
       pi.appendEntry("coc-scene-supply-gate", content);
     } catch { /* hidden scene-supply guidance/audit is best effort */ }
+    if (!isCurrent(expectedSessionEpoch)) return { supply: null, blocked: null };
     return {
       supply: resolved.supply,
       blocked: {
@@ -5957,7 +6108,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ) as JsonObject;
         } catch (error) {
           if (!(error instanceof ToolContractProjectionError)) throw error;
-          return result(hostBindingFailure(typedDefinition.operation, error));
+          return hostFailureResult(hostBindingFailure(typedDefinition.operation, error));
         }
       }
     }
@@ -6313,7 +6464,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     let preparedSceneSupply: JsonObject | null = null;
     if (isCanonicalInvokeSurface(name) && params.operation === "state.move_scene") {
-      const preflight = await sceneSupplyPreflight(params, signal, ctx);
+      const preflight = await sceneSupplyPreflight(params, signal, ctx, epoch);
+      if (!isCurrent(epoch)) {
+        return hostFailureResult(hostVisibleFailure(
+          "state.move_scene",
+          "session_closed",
+          "the originating Pi session closed before scene-supply preflight settled",
+          {},
+          { class: "business_precondition", recoverableBy: "none" },
+        ));
+      }
       if (preflight.blocked !== null) return result(preflight.blocked);
       preparedSceneSupply = preflight.supply;
     }
@@ -6373,8 +6533,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
                   : null;
               } catch { return null; }
             },
+            epoch,
           );
-          if (!isCurrent(epoch)) {
+          if (!isCurrent(epoch) || resolved === null) {
             return gatewayResult(asObject(value, "late canonical result"));
           }
           const terminal = resolved.decision.action === "blocked";
@@ -7245,16 +7406,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     const operation = typeof params.operation === "string" ? params.operation : null;
     const domain = typeof params.domain === "string" ? params.domain : null;
     if (operation !== null && domain !== null) {
-      return result({
-        ok: false,
-        tool: "coc_discover",
-        error: {
-          code: "invalid_request",
-          message: "choose exactly one of operation or domain",
-        },
-        retryable: false,
-        will_retry: false,
-      });
+      return discoveryFailure(
+        "invalid_request",
+        "choose exactly one of operation or domain",
+        { selectors: ["operation", "domain"] },
+      );
     }
     const snapshot = workingSetSnapshot(role);
     if (operation === null && domain === null) {
@@ -7286,32 +7442,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         : { kind: "namespace", namespace: domain as WorkingSetNamespace },
     );
     if (!loaded.ok) {
-      return result({
-        ok: false,
-        tool: "coc_discover",
-        error: {
-          code: loaded.code,
-          message: loaded.message,
-          details: loaded.details,
-        },
-        retryable: false,
-        will_retry: false,
-      });
+      return discoveryFailure(loaded.code, loaded.message, loaded.details);
     }
     const actualWorkingSet = withActualRegisteredSchemas(loaded.workingSet);
     if (!actualWorkingSet.ok) {
-      return result({
-        ok: false,
-        tool: "coc_discover",
-        error: {
-          code: actualWorkingSet.error?.code ?? "invalid_snapshot",
-          message: actualWorkingSet.error?.message
-            ?? "registered tool schema projection failed closed",
-          details: actualWorkingSet.error?.details ?? {},
-        },
-        retryable: false,
-        will_retry: false,
-      });
+      return discoveryFailure(
+        actualWorkingSet.error?.code ?? "invalid_snapshot",
+        actualWorkingSet.error?.message
+          ?? "registered tool schema projection failed closed",
+        actualWorkingSet.error?.details ?? {},
+      );
     }
     const typed = operation === null ? null : typedToolByOperation.get(operation) ?? null;
     let parameters = typed?.parameters ?? null;
@@ -7327,7 +7467,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           );
         } catch (error) {
           if (!(error instanceof ToolContractProjectionError)) throw error;
-          return result(hostBindingFailure(typed.operation, error));
+          return hostFailureResult(hostBindingFailure(typed.operation, error));
         }
       }
     }

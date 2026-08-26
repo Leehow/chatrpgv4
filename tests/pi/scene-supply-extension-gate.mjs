@@ -12,10 +12,19 @@ const extension = await import(path.join(root, "plugins/coc-keeper/pi/extensions
 const handlers = new Map();
 const tools = new Map();
 const hidden = [];
+const appended = [];
 const calls = [];
 const managerStates = new Map();
 let submissions = 0;
 let coordinatorCapability = true;
+let releaseLateSupply;
+let markLateSupplyRequested;
+const lateSupplyRequested = new Promise((resolve) => {
+  markLateSupplyRequested = resolve;
+});
+const lateSupplyResponse = new Promise((resolve) => {
+  releaseLateSupply = resolve;
+});
 
 function coordinatorTask(packetId) {
   return {
@@ -97,6 +106,15 @@ const supplies = new Map([
     source_cache_path: "pages",
     background_takeover: takeover(coordinatorTask("scene-offline-1")),
   }],
+  ["late", {
+    schema_version: 1,
+    scene_id: "late",
+    enforced: true,
+    status: "blocked",
+    ready: false,
+    fallback_available: false,
+    source_cache_path: "pages",
+  }],
 ]);
 
 async function canonical(name, params) {
@@ -109,6 +127,13 @@ async function canonical(name, params) {
     };
   }
   if (params.operation === "steward.scene_supply") {
+    if (
+      params.arguments?.scene_id === "late"
+      && params.arguments?.allow_minimal_fallback !== true
+    ) {
+      markLateSupplyRequested();
+      return lateSupplyResponse;
+    }
     const current = supplies.get(params.arguments?.scene_id);
     assert.ok(current, `missing supply fixture ${params.arguments?.scene_id}`);
     return { ok: true, tool: "steward.scene_supply", data: structuredClone(current) };
@@ -139,7 +164,7 @@ const fakePi = {
   registerCommand() {},
   registerShortcut() {},
   on: (name, handler) => handlers.set(name, [...(handlers.get(name) || []), handler]),
-  appendEntry() {},
+  appendEntry(type, value) { appended.push({ type, value }); },
   sendMessage: (message) => hidden.push(message),
   setActiveTools() {},
   getThinkingLevel: () => "off",
@@ -254,6 +279,36 @@ const moved = await move("tower");
 assert.equal(moved.details.ok, true);
 assert.equal(moved.details.data.scene_supply.cache_hit, true);
 assert.equal(calls.filter((call) => call.params.operation === "state.move_scene").length, 1);
+
+// A readiness result owned by the old session must become inert if it settles
+// after shutdown/restart: no dispatch cache write, hidden message, audit, or
+// blocked scene result may leak into the new session.
+const movedBeforeLate = calls.filter((call) => (
+  call.params.operation === "state.move_scene"
+)).length;
+const lateMove = move("late");
+await lateSupplyRequested;
+for (const handler of handlers.get("session_shutdown") || []) {
+  await handler({ type: "session_shutdown", reason: "late-preflight-probe" }, ctx);
+}
+for (const handler of handlers.get("session_start") || []) {
+  await handler({ type: "session_start", reason: "late-preflight-probe" }, ctx);
+}
+const hiddenAfterRestart = hidden.length;
+const appendedAfterRestart = appended.length;
+releaseLateSupply({
+  ok: true,
+  tool: "steward.scene_supply",
+  data: structuredClone(supplies.get("late")),
+});
+const lateResult = await lateMove;
+assert.equal(lateResult.isError, true);
+assert.equal(lateResult.details.error.code, "session_closed");
+assert.equal(hidden.length, hiddenAfterRestart);
+assert.equal(appended.length, appendedAfterRestart);
+assert.equal(calls.filter((call) => (
+  call.params.operation === "state.move_scene"
+)).length, movedBeforeLate);
 
 const hiddenText = JSON.stringify(hidden);
 for (const forbidden of [

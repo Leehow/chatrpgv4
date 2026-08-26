@@ -380,8 +380,16 @@ test("state.move_scene projects retained semantic routes and host-binds exact tr
     source_revision: "scene-context:central-library:revision-7",
     source_digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
     candidates: [
-      { scene_id: "newspaper-morgue", travel_minutes: 45 },
-      { scene_id: "neighborhood-gossip", travel_minutes: 25 },
+      {
+        candidate_id: "scene-route:newspaper-morgue:travel:1",
+        scene_id: "newspaper-morgue",
+        travel_minutes: 45,
+      },
+      {
+        candidate_id: "scene-route:neighborhood-gossip:travel:1",
+        scene_id: "neighborhood-gossip",
+        travel_minutes: 25,
+      },
     ],
   };
   const current = independentCurrent(binding);
@@ -424,10 +432,80 @@ test("state.move_scene projects retained semantic routes and host-binds exact tr
     catalog.byOperation.get(binding.operation).parameters,
     {
       ...binding,
-      candidates: [{ scene_id: "newspaper-morgue", travel_minutes: 40 }],
+      candidates: [{
+        candidate_id: "scene-route:newspaper-morgue:travel:1",
+        scene_id: "newspaper-morgue",
+        travel_minutes: 40,
+      }],
     },
     current,
   ), "binding_context_stale");
+});
+
+test("same-destination scene routes project semantic candidate ids and bind exact nullable travel", () => {
+  const binding = {
+    schema_version: 1,
+    operation: "state.move_scene",
+    binding_revision: "scene:study:revision-8",
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-allan-ward",
+    decision_id: "move:allan-ward:turn-4:revision-1",
+    source_revision: "scene-context:study:revision-8",
+    source_digest: "sha256:1212121212121212121212121212121212121212121212121212121212121212",
+    candidates: [
+      {
+        candidate_id: "scene-route:archive:door:1",
+        scene_id: "archive",
+        travel_minutes: null,
+      },
+      {
+        candidate_id: "scene-route:archive:travel:1",
+        scene_id: "archive",
+        travel_minutes: 10,
+      },
+    ],
+  };
+  const current = independentCurrent(binding);
+  const schema = typed.projectBoundTypedToolParameters(
+    binding.operation,
+    catalog.byOperation.get(binding.operation).parameters,
+    binding,
+    current,
+  );
+  assert.equal(Object.hasOwn(schema.properties, "scene_id"), false);
+  assert.deepEqual(schema.properties.candidate_id.enum, [
+    "scene-route:archive:door:1",
+    "scene-route:archive:travel:1",
+  ]);
+  const untimed = typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    { candidate_id: "scene-route:archive:door:1", reason: "走侧门" },
+    binding,
+    current,
+  );
+  assert.equal(untimed.scene_id, "archive");
+  assert.equal(untimed.travel_minutes, null);
+  assert.equal(Object.hasOwn(untimed, "candidate_id"), false);
+  const timed = typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    { candidate_id: "scene-route:archive:travel:1", reason: "沿长廊前往" },
+    binding,
+    current,
+  );
+  assert.equal(timed.scene_id, "archive");
+  assert.equal(timed.travel_minutes, 10);
+  assertProjectionError(() => typed.projectBoundTypedToolParameters(
+    binding.operation,
+    catalog.byOperation.get(binding.operation).parameters,
+    {
+      ...binding,
+      candidates: [binding.candidates[0], { ...binding.candidates[0] }],
+    },
+    independentCurrent({
+      ...binding,
+      candidates: [binding.candidates[0], { ...binding.candidates[0] }],
+    }),
+  ), "binding_context_invalid");
 });
 
 test("precise clock hides day_phase_after while imprecise clock leaves the semantic choice", () => {

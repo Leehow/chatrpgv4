@@ -1,6 +1,7 @@
 // Real Pi gateway/transcript regression for the canonical
 // turn.finalize string digest used by the live FIX7 receipt.
 import "./_lib/preload-embedded-pi.mjs";
+import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
@@ -103,6 +104,7 @@ const fakePi = {
 };
 main.default(fakePi, {
   coordinatorEnabled: () => false,
+  startupCampaignId: () => null,
   createClient: () => {
     const callTool = async (name, params) => {
       clientCalls.push({ name, params });
@@ -128,6 +130,31 @@ const ctx = {
   },
   hasUI: false,
 };
+
+for (const handler of handlers.get("session_start") || []) {
+  await handler({ type: "session_start", reason: "probe" }, ctx);
+}
+clientEnvelope = {
+  ok: true,
+  tool: "session.resume",
+  data: {
+    schema_version: 1,
+    campaign_id: "hoyk-pi-grok-fix7-20260727",
+    mode: "awaiting_player",
+    next_operations: [],
+  },
+};
+await tools.get("coc_invoke").execute(
+  "resume-live-fixture",
+  {
+    operation: "session.resume",
+    campaign: "hoyk-pi-grok-fix7-20260727",
+    arguments: {},
+  },
+  undefined,
+  undefined,
+  ctx,
+);
 
 for (const handler of handlers.get("message_start") || []) {
   await handler({
@@ -291,7 +318,7 @@ clientEnvelope = {
     rendered_text_sha256: rawDigest,
   },
 };
-await tools.get("coc_invoke").execute(
+const rawGatewayResult = await tools.get("coc_invoke").execute(
   "finalize-raw-digest-fixture",
   {
     operation: "turn.finalize",
@@ -328,6 +355,28 @@ const rawFollowUpResult = await emit("message_end", {
 
 const types = (message) => message.content.map((part) => part.type);
 const returnedEnvelope = JSON.parse(gatewayResult.content[0].text);
+const rawReturnedEnvelope = JSON.parse(rawGatewayResult.content[0].text);
+assert.equal(returnedEnvelope.ok, true);
+assert.equal(returnedEnvelope.tool, "turn.finalize");
+assert.equal(returnedEnvelope.wire?.canonical_operation, "turn.finalize");
+assert.equal(returnedEnvelope.data?.rendered_text, renderedText);
+assert.equal(returnedEnvelope.data?.rendered_text_sha256, renderedSha256);
+assert.equal(canonicalDigest, renderedSha256);
+assert.notEqual(rawDigest, renderedSha256);
+assert.equal(finals.length, 2);
+assert.equal(
+  finals[0].content.find((part) => part.type === "text")?.text,
+  renderedText,
+);
+assert.deepEqual(types(finals[1]), []);
+assert.ok(eventTrace.includes(
+  "message_start:custom:coc-source-coordinator-terminal-continuation",
+));
+assert.equal(rawReturnedEnvelope.ok, false);
+assert.equal(rawReturnedEnvelope.isError, true);
+assert.equal(rawReturnedEnvelope.error?.code, "finalization_receipt_invalid");
+assert.equal(rawExactResult === undefined, false);
+assert.equal(rawFollowUpResult === undefined, false);
 process.stdout.write(JSON.stringify({
   piVersion: "0.81.1",
   gatewayCalls: clientCalls,
@@ -352,7 +401,8 @@ process.stdout.write(JSON.stringify({
     "message_start:custom:coc-source-coordinator-terminal-continuation",
   ),
   rawGatewayRejected: {
-    exactVisible: rawExactResult === undefined,
-    followUpVisible: rawFollowUpResult === undefined,
+    code: rawReturnedEnvelope.error?.code,
+    exactSuppressed: rawExactResult !== undefined,
+    followUpSuppressed: rawFollowUpResult !== undefined,
   },
 }));

@@ -191,14 +191,51 @@ test("Pi host projects a bounded role-manifest set and exact discovery load", as
     assert.equal(loadedEnvelope.data.operation_card.operation, "state.move_scene");
     assert.ok(h.active.at(-1).includes("coc_state_move_scene"));
     assert.ok(h.active.at(-1).length <= 20);
+    const granted = [...h.active.at(-1)];
+
+    const invalidResult = await h.tools.get("coc_discover").execute(
+      "discover-invalid",
+      { operation: "state.move_scene", domain: "state" },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const invalidEnvelope = JSON.parse(invalidResult.content[0].text);
+    assert.equal(invalidResult.isError, true);
+    assert.equal(invalidEnvelope.ok, false);
+    assert.equal(invalidEnvelope.isError, true);
+    assert.equal(invalidEnvelope.error.code, "invalid_request");
+    assert.equal(invalidEnvelope.error.class, "schema_validation");
+    assert.equal(invalidEnvelope.error.recoverable_by, "model_next_action");
+    assert.equal(invalidEnvelope.error.allowed_next_actions[0].action, "correct_discovery_selector");
+    assert.deepEqual(h.active.at(-1), granted);
+
+    const unknownResult = await h.tools.get("coc_discover").execute(
+      "discover-unknown",
+      { operation: "state.does_not_exist" },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const unknownEnvelope = JSON.parse(unknownResult.content[0].text);
+    assert.equal(unknownResult.isError, true);
+    assert.equal(unknownEnvelope.isError, true);
+    assert.equal(unknownEnvelope.error.code, "unknown_operation");
+    assert.equal(unknownEnvelope.error.class, "dynamic_candidate");
+    assert.equal(unknownEnvelope.error.allowed_next_actions[0].action, "list_available_namespaces");
+    assert.deepEqual(h.active.at(-1), granted);
 
     const tooLarge = await h.tools.get("coc_discover").execute(
       "discover-state", { domain: "state" }, undefined, undefined, h.ctx,
     );
     const tooLargeEnvelope = JSON.parse(tooLarge.content[0].text);
+    assert.equal(tooLarge.isError, true);
     assert.equal(tooLargeEnvelope.ok, false);
+    assert.equal(tooLargeEnvelope.isError, true);
     assert.equal(tooLargeEnvelope.error.code, "namespace_too_large");
-    assert.ok(h.active.at(-1).includes("coc_state_move_scene"));
+    assert.equal(tooLargeEnvelope.error.class, "dynamic_candidate");
+    assert.equal(tooLargeEnvelope.error.allowed_next_actions[0].action, "select_exact_operation");
+    assert.deepEqual(h.active.at(-1), granted);
 
     h.hideRead();
     await h.emit("message_start", {
@@ -382,6 +419,77 @@ const latestWorkingSetAudit = (h) => h.appended
 const actualActiveSchemaBytes = (h) => h.active.at(-1).reduce((total, name) => (
   total + Buffer.byteLength(JSON.stringify(h.tools.get(name).parameters), "utf8")
 ), 0);
+
+test("same-destination scene routes expose semantic candidates and bind exact travel cards", async () => {
+  const forwarded = [];
+  const sceneEnvelope = contextReceipt("multi-route", {
+    active_scene_id: "study",
+    exits: [
+      { to: "archive", kind: "travel", open: true, travel_minutes: 5 },
+      { to: "archive", kind: "travel", open: true, travel_minutes: 10 },
+    ],
+    time: { time_precision: "precise", local_datetime: "1920-10-12T10:00:00" },
+    npcs_present: [],
+    action_routes: [],
+  });
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我选择去档案室的具体路线。" }],
+    });
+    await invokeCompat(h, "multi-scene", "scene.context");
+    const discovery = JSON.parse((await h.tools.get("coc_discover").execute(
+      "discover-multi-move",
+      { operation: "state.move_scene" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(discovery.ok, true);
+    assert.equal(Object.hasOwn(
+      discovery.data.operation_card.parameters.properties,
+      "scene_id",
+    ), false);
+    assert.deepEqual(
+      discovery.data.operation_card.parameters.properties.candidate_id.enum,
+      ["scene-route:archive:travel:1", "scene-route:archive:travel:2"],
+    );
+    await h.tools.get("coc_state_move_scene").execute(
+      "multi-route-ten",
+      { candidate_id: "scene-route:archive:travel:2", reason: "走较长的回廊" },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    assert.equal(forwarded.at(-1).arguments.scene_id, "archive");
+    assert.equal(forwarded.at(-1).arguments.travel_minutes, 10);
+    assert.equal(Object.hasOwn(forwarded.at(-1).arguments, "candidate_id"), false);
+
+    await invokeCompat(h, "multi-scene-refresh", "scene.context");
+    await h.tools.get("coc_discover").execute(
+      "discover-multi-move-refresh",
+      { operation: "state.move_scene" },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    await h.tools.get("coc_state_move_scene").execute(
+      "multi-route-five",
+      { candidate_id: "scene-route:archive:travel:1", reason: "走近路" },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    assert.equal(forwarded.at(-1).arguments.scene_id, "archive");
+    assert.equal(forwarded.at(-1).arguments.travel_minutes, 5);
+  }, (_name, params) => {
+    if (params.operation === "scene.context") return sceneEnvelope;
+    if (params.operation === "state.move_scene") {
+      forwarded.push(structuredClone(params));
+    }
+    return { ok: true, tool: params.operation, data: { accepted: true } };
+  });
+});
 
 test("scene, precise-clock, and combat cards bind discovered production tools and reject stale use", async () => {
   const forwarded = [];

@@ -47,6 +47,7 @@ export type TurnFinalizeBindingCard = {
 };
 
 export type SceneRouteCandidate = {
+  candidate_id: string;
   scene_id: string;
   travel_minutes: number | null;
 };
@@ -483,7 +484,7 @@ function validateSceneCandidates(value: readonly SceneRouteCandidate[]): void {
       { field: "candidates" },
     );
   }
-  const seen = new Set<string>();
+  const seenCandidates = new Set<string>();
   for (const candidate of value) {
     if (!isPlainObject(candidate)) {
       throw new ToolContractProjectionError(
@@ -492,15 +493,19 @@ function validateSceneCandidates(value: readonly SceneRouteCandidate[]): void {
         { field: "candidates" },
       );
     }
-    const sceneId = nonEmptyString(candidate.scene_id, "candidates.scene_id");
-    if (seen.has(sceneId)) {
+    const candidateId = nonEmptyString(
+      candidate.candidate_id,
+      "candidates.candidate_id",
+    );
+    if (seenCandidates.has(candidateId)) {
       throw new ToolContractProjectionError(
         "binding_context_invalid",
         "retained scene candidate ids must be unique",
-        { field: "candidates.scene_id" },
+        { field: "candidates.candidate_id" },
       );
     }
-    seen.add(sceneId);
+    seenCandidates.add(candidateId);
+    nonEmptyString(candidate.scene_id, "candidates.scene_id");
     const travel = candidate.travel_minutes;
     if (
       travel !== null
@@ -739,6 +744,10 @@ function bindingValues(binding: TypedToolBindingCard): Record<string, unknown> {
 
 function hostOwnedFields(binding: TypedToolBindingCard): string[] {
   const fields = [...HOST_OWNED_FIELDS[binding.operation]];
+  if (binding.operation === "state.move_scene") {
+    if (sceneNeedsRouteChoice(binding.candidates)) fields.push("scene_id");
+    else fields.push("candidate_id");
+  }
   if (
     binding.operation === "state.advance_time"
     && binding.clock_precision === "precise"
@@ -748,6 +757,15 @@ function hostOwnedFields(binding: TypedToolBindingCard): string[] {
     && binding.candidates.length === 1
   ) fields.push("candidate_id");
   return fields;
+}
+
+function sceneNeedsRouteChoice(candidates: readonly SceneRouteCandidate[]): boolean {
+  const destinations = new Set<string>();
+  for (const candidate of candidates) {
+    if (destinations.has(candidate.scene_id)) return true;
+    destinations.add(candidate.scene_id);
+  }
+  return false;
 }
 
 function setEnumProperty(
@@ -790,12 +808,21 @@ export function projectBoundTypedToolParameters(
     for (const field of owned) delete cloned.properties[field];
   }
   if (valid.operation === "state.move_scene") {
-    setEnumProperty(
-      cloned,
-      "scene_id",
-      valid.candidates.map((candidate) => candidate.scene_id),
-      "Choose one current source-authored semantic scene id; the host binds exact travel time.",
-    );
+    if (sceneNeedsRouteChoice(valid.candidates)) {
+      setEnumProperty(
+        cloned,
+        "candidate_id",
+        valid.candidates.map((candidate) => candidate.candidate_id),
+        "Choose one current source-authored semantic route; the host binds its exact destination and travel time.",
+      );
+    } else {
+      setEnumProperty(
+        cloned,
+        "scene_id",
+        valid.candidates.map((candidate) => candidate.scene_id),
+        "Choose one current source-authored semantic scene id; the host binds exact travel time.",
+      );
+    }
   }
   if (valid.operation === "combat.resolve" && valid.candidates.length > 1) {
     setEnumProperty(
@@ -834,16 +861,26 @@ export function bindRetainedTypedToolArguments(
     ...bindingValues(valid),
   };
   if (valid.operation === "state.move_scene") {
-    const sceneId = typeof result.scene_id === "string" ? result.scene_id : "";
-    const candidate = valid.candidates.find((row) => row.scene_id === sceneId);
+    const routeChoice = sceneNeedsRouteChoice(valid.candidates);
+    const candidate = routeChoice
+      ? valid.candidates.find((row) => (
+          row.candidate_id === (typeof result.candidate_id === "string"
+            ? result.candidate_id
+            : "")
+        ))
+      : valid.candidates.find((row) => (
+          row.scene_id === (typeof result.scene_id === "string" ? result.scene_id : "")
+        ));
     if (!candidate) {
       throw new ToolContractProjectionError(
         "semantic_candidate_stale",
-        "selected scene is not in the current retained semantic candidates",
-        { operation, candidate_field: "scene_id" },
+        "selected scene route is not in the current retained semantic candidates",
+        { operation, candidate_field: routeChoice ? "candidate_id" : "scene_id" },
       );
     }
-    if (candidate.travel_minutes !== null) result.travel_minutes = candidate.travel_minutes;
+    delete result.candidate_id;
+    result.scene_id = candidate.scene_id;
+    result.travel_minutes = candidate.travel_minutes;
   }
   if (valid.operation === "combat.resolve") {
     const candidateId = valid.candidates.length === 1
