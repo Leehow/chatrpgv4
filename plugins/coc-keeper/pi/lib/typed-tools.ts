@@ -18,6 +18,25 @@ import {
   type JsonSchema,
   type OperationContractCatalog,
 } from "./operation-contracts.ts";
+import {
+  projectBoundTypedToolParameters,
+  projectPiToolFailure,
+  type TypedToolBindingCard,
+} from "./tool-contract-projection.ts";
+
+export {
+  ToolContractProjectionError,
+  bindRetainedTypedToolArguments,
+  projectBoundTypedToolParameters,
+  projectPiToolFailure,
+  type NarrationReviewBindingCard,
+  type PiAllowedNextAction,
+  type PiFailureClass,
+  type PiFailureRecovery,
+  type StateJournalBindingCard,
+  type TurnFinalizeBindingCard,
+  type TypedToolBindingCard,
+} from "./tool-contract-projection.ts";
 
 const TOOL_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,127}$/;
 const OPERATION_RE = /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/;
@@ -261,24 +280,42 @@ const SCHEMA_ATTACH_CODES = new Set([
   "invalid_param_type",
 ]);
 
+export type ExpectedSchemaBindingContext = {
+  binding: TypedToolBindingCard;
+  current_binding_revision: string;
+};
+
 /** Attach archive inputSchema beside canonical error details. Never overwrite details. */
 export function attachExpectedSchema(
   visible: Record<string, unknown> | null,
   operation: string | null | undefined,
   catalog = defaultTypedToolCatalog(),
+  bindingContext?: ExpectedSchemaBindingContext,
 ): Record<string, unknown> | null {
-  if (!visible || !operation) return visible;
-  const error = visible.error;
+  const projected = projectPiToolFailure(visible, operation);
+  if (!projected || !operation) return projected;
+  const error = projected.error;
   if (!isPlainObject(error)) return visible;
   const code = typeof error.code === "string" ? error.code : "";
-  if (!SCHEMA_ATTACH_CODES.has(code)) return visible;
+  if (
+    !SCHEMA_ATTACH_CODES.has(code)
+    && !(operation === "state.advance_time" && code === "invalid_request")
+  ) return projected;
   const contract = catalog.contracts.operations.get(operation);
-  if (!contract) return visible;
+  if (!contract) return projected;
+  const expectedSchema = bindingContext === undefined
+    ? structuredClone(contract.inputSchema)
+    : projectBoundTypedToolParameters(
+      operation,
+      contract.inputSchema,
+      bindingContext.binding,
+      bindingContext.current_binding_revision,
+    );
   return {
-    ...visible,
+    ...projected,
     error: {
       ...error,
-      expected_schema: structuredClone(contract.inputSchema),
+      expected_schema: expectedSchema,
     },
   };
 }
