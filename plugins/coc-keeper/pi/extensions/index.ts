@@ -3988,6 +3988,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       canonicalProgress.playerTurnEpoch
     }:revision-${revision}`
   );
+  const operationCardRevision = (
+    value: unknown,
+    operation: string,
+  ): number | null => {
+    const card = objectOrNull(value);
+    const prefilled = objectOrNull(card?.prefilled_arguments);
+    const revision = prefilled?.revision;
+    if (typeof revision !== "number") return null;
+    return (
+      card?.operation === operation
+      && Number.isInteger(revision)
+      && revision > 0
+    ) ? revision : null;
+  };
   const armJournalBinding = (campaignId: string): void => {
     const playerText = openingContinuationGate.currentExternalPlayerText;
     if (
@@ -4050,13 +4064,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       return;
     }
     if (operation === "turn.output_context" && typeof data.turn_id === "string") {
+      const contractProjection = objectOrNull(data.contract_projection);
+      const agencyReviewRequired = contractProjection?.agency_review_required === true;
       const reviewCard = objectOrNull(data.agency_review_operation);
-      const prefilled = objectOrNull(reviewCard?.prefilled_arguments);
-      const revision = Number(prefilled?.revision ?? data.revision ?? 1);
+      const revision = agencyReviewRequired
+        ? operationCardRevision(reviewCard, "narration.review")
+        : operationCardRevision(data.finalize_operation, "turn.finalize");
       const sourceDigest = typeof data.source_digest === "string"
         ? data.source_digest
         : "";
-      if (sourceDigest && Number.isInteger(revision) && revision > 0) {
+      if (sourceDigest && revision !== null) {
         const journalDecisionId = typeof data.journal_decision_id === "string"
           ? data.journal_decision_id
           : semanticDecisionId("state.journal", 1);
@@ -4072,34 +4089,36 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           finalizeDecisionId: null,
           narrationReviewId: null,
         };
-        const retainedReviewBinding: TypedToolBindingCard = {
-          schema_version: 1,
-          operation: "narration.review",
-          binding_revision: `narration-review:${data.turn_id}:revision-${revision}`,
-          root: retainedOutputContextFacts.root,
-          campaign: campaignId,
-          decision_id: semanticDecisionId("narration.review", revision),
-          turn_id: data.turn_id,
-          source_digest: sourceDigest,
-          revision,
-          state_claim_compilation: {},
-        };
-        armTypedBinding(retainedReviewBinding, () => {
-          const current = retainedOutputContextFacts;
-          if (current === null || current.turnId !== data.turn_id) return null;
-          return {
+        if (agencyReviewRequired) {
+          const retainedReviewBinding: TypedToolBindingCard = {
             schema_version: 1,
             operation: "narration.review",
-            binding_revision: `narration-review:${current.turnId}:revision-${current.revision}`,
-            root: current.root,
-            campaign: current.campaign,
-            decision_id: semanticDecisionId("narration.review", current.revision),
-            turn_id: current.turnId,
-            source_digest: current.sourceDigest,
-            revision: current.revision,
+            binding_revision: `narration-review:${data.turn_id}:revision-${revision}`,
+            root: retainedOutputContextFacts.root,
+            campaign: campaignId,
+            decision_id: semanticDecisionId("narration.review", revision),
+            turn_id: data.turn_id,
+            source_digest: sourceDigest,
+            revision,
             state_claim_compilation: {},
           };
-        });
+          armTypedBinding(retainedReviewBinding, () => {
+            const current = retainedOutputContextFacts;
+            if (current === null || current.turnId !== data.turn_id) return null;
+            return {
+              schema_version: 1,
+              operation: "narration.review",
+              binding_revision: `narration-review:${current.turnId}:revision-${current.revision}`,
+              root: current.root,
+              campaign: current.campaign,
+              decision_id: semanticDecisionId("narration.review", current.revision),
+              turn_id: current.turnId,
+              source_digest: current.sourceDigest,
+              revision: current.revision,
+              state_claim_compilation: {},
+            };
+          });
+        }
       }
       advanceCanonicalProgress(campaignId, {
         stage: "output_context_ready",
@@ -4901,9 +4920,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (envelope.ok !== true) return { value: envelope, accepted: false };
     const data = objectOrNull(envelope.data);
     if (operation === "turn.output_context") {
-      const review = objectOrNull(data?.agency_review_operation);
-      const prefilled = objectOrNull(review?.prefilled_arguments);
-      const revision = Number(prefilled?.revision ?? data?.revision);
+      const contractProjection = objectOrNull(data?.contract_projection);
+      const agencyReviewRequired = contractProjection?.agency_review_required;
+      const finalizeRevision = operationCardRevision(
+        data?.finalize_operation,
+        "turn.finalize",
+      );
+      const reviewRevision = operationCardRevision(
+        data?.agency_review_operation,
+        "narration.review",
+      );
+      const operationChainComplete = agencyReviewRequired === true
+        ? reviewRevision !== null
+          && finalizeRevision !== null
+          && reviewRevision === finalizeRevision
+        : agencyReviewRequired === false && finalizeRevision !== null;
       const complete = (
         data !== null
         && typeof data.turn_id === "string" && data.turn_id.length > 0
@@ -4912,8 +4943,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         && data.settlement_snapshot_id.length > 0
         && typeof data.mechanics_bundle_sha256 === "string"
         && data.mechanics_bundle_sha256.length > 0
-        && objectOrNull(data.contract_projection) !== null
-        && Number.isInteger(revision) && revision > 0
+        && contractProjection !== null
+        && operationChainComplete
       );
       if (!complete) {
         return {
@@ -6802,11 +6833,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         value,
       );
       value = accepted.value;
+      const acceptedData = objectOrNull(objectOrNull(value)?.data);
+      const acceptedContractProjection = objectOrNull(
+        acceptedData?.contract_projection,
+      );
       if (
         accepted.accepted
         && params.operation === "turn.output_context"
         && typeof params.campaign === "string"
         && sessionRoleFromEnv() === "play"
+        && acceptedContractProjection?.agency_review_required === true
       ) {
         stateClaimCompiler.observeOutputContext(params.campaign, value);
       }

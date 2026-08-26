@@ -347,9 +347,17 @@ test("extension nonretry scope ignores host identity churn and clears on real pr
           settlement_snapshot_id: "turn-settlement-v1:affordance-1",
           mechanics_bundle_sha256: "sha256:mechanics-affordance-1",
           contract_projection: {
+            agency_review_required: true,
             agency_authority: { pc_subject_refs: ["pc:affordance"] },
           },
-          agency_review_operation: { prefilled_arguments: { revision: 1 } },
+          agency_review_operation: {
+            operation: "narration.review",
+            prefilled_arguments: { revision: 1 },
+          },
+          finalize_operation: {
+            operation: "turn.finalize",
+            prefilled_arguments: { revision: 1 },
+          },
         },
       };
     }
@@ -1165,6 +1173,147 @@ test("malformed output-context and finalization successes fault without progress
   }
 });
 
+const completeOutputContextData = ({
+  turnId,
+  agencyReviewRequired,
+  reviewRevision = 1,
+  finalizeRevision = 1,
+  includeReviewCard = agencyReviewRequired,
+}) => ({
+  turn_id: turnId,
+  source_digest: `sha256:source-${turnId}`,
+  settlement_snapshot_id: `turn-settlement-v1:${turnId}`,
+  mechanics_bundle_sha256: `sha256:mechanics-${turnId}`,
+  contract_projection: {
+    agency_review_required: agencyReviewRequired,
+    agency_authority: { pc_subject_refs: ["pc:receipt-probe"] },
+  },
+  ...(includeReviewCard
+    ? {
+        agency_review_operation: {
+          operation: "narration.review",
+          prefilled_arguments: { revision: reviewRevision },
+        },
+      }
+    : {}),
+  finalize_operation: {
+    operation: "turn.finalize",
+    prefilled_arguments: { revision: finalizeRevision },
+  },
+});
+
+test("non-review output-context accepts the canonical finalize-card revision", async () => {
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "验证无需审查的结算上下文。" }],
+    });
+    const journal = JSON.parse((await invokeCompat(
+      h, "non-review-journal", "state.journal",
+    )).content[0].text);
+    assert.equal(journal.ok, true);
+
+    const outputContext = JSON.parse((await invokeCompat(
+      h, "non-review-context", "turn.output_context",
+    )).content[0].text);
+    assert.equal(outputContext.ok, true, JSON.stringify(outputContext));
+    const stages = h.appended
+      .filter((row) => row.type === "coc-canonical-turn-progress")
+      .map((row) => row.value.stage);
+    assert.equal(stages.at(-1), "output_context_ready");
+    assert.equal(stages.includes("faulted"), false);
+  }, (_name, params) => {
+    if (params.operation === "state.journal") {
+      return { ok: true, tool: params.operation, data: { turn_id: "turn-non-review" } };
+    }
+    if (params.operation === "turn.output_context") {
+      return {
+        ok: true,
+        tool: params.operation,
+        data: completeOutputContextData({
+          turnId: "turn-non-review",
+          agencyReviewRequired: false,
+        }),
+      };
+    }
+    return { ok: true, tool: params.operation, data: {} };
+  });
+});
+
+test("review-required output-context without its review card faults closed", async () => {
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "验证审查卡缺失。" }],
+    });
+    await invokeCompat(h, "missing-review-journal", "state.journal");
+    const response = JSON.parse((await invokeCompat(
+      h, "missing-review-context", "turn.output_context",
+    )).content[0].text);
+    assert.equal(response.ok, false);
+    assert.equal(response.error.code, "output_context_receipt_invalid");
+    const stages = h.appended
+      .filter((row) => row.type === "coc-canonical-turn-progress")
+      .map((row) => row.value.stage);
+    assert.equal(stages.at(-1), "faulted");
+    assert.equal(stages.includes("output_context_ready"), false);
+  }, (_name, params) => {
+    if (params.operation === "state.journal") {
+      return { ok: true, tool: params.operation, data: { turn_id: "turn-missing-review" } };
+    }
+    if (params.operation === "turn.output_context") {
+      return {
+        ok: true,
+        tool: params.operation,
+        data: completeOutputContextData({
+          turnId: "turn-missing-review",
+          agencyReviewRequired: true,
+          includeReviewCard: false,
+        }),
+      };
+    }
+    return { ok: true, tool: params.operation, data: {} };
+  });
+});
+
+test("review-required output-context rejects mismatched operation-card revisions", async () => {
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "验证审查与终结版本不一致。" }],
+    });
+    await invokeCompat(h, "mismatch-review-journal", "state.journal");
+    const response = JSON.parse((await invokeCompat(
+      h, "mismatch-review-context", "turn.output_context",
+    )).content[0].text);
+    assert.equal(response.ok, false);
+    assert.equal(response.error.code, "output_context_receipt_invalid");
+    assert.equal(
+      h.appended
+        .filter((row) => row.type === "coc-canonical-turn-progress")
+        .at(-1)?.value.stage,
+      "faulted",
+    );
+  }, (_name, params) => {
+    if (params.operation === "state.journal") {
+      return { ok: true, tool: params.operation, data: { turn_id: "turn-revision-mismatch" } };
+    }
+    if (params.operation === "turn.output_context") {
+      return {
+        ok: true,
+        tool: params.operation,
+        data: completeOutputContextData({
+          turnId: "turn-revision-mismatch",
+          agencyReviewRequired: true,
+          reviewRevision: 2,
+          finalizeRevision: 1,
+        }),
+      };
+    }
+    return { ok: true, tool: params.operation, data: {} };
+  });
+});
+
 test("faulted turn advances only through the exact session-resume recovery receipt", async () => {
   let recoveryResume = false;
   await withPlayHarness(async (h) => {
@@ -1238,8 +1387,18 @@ test("state-claim compiler terminal failure enters the same narrow fault working
             source_digest: `sha256:${"d".repeat(64)}`,
             settlement_snapshot_id: "turn-settlement-v1:compiler-fault",
             mechanics_bundle_sha256: `sha256:${"e".repeat(64)}`,
-            contract_projection: { agency_authority: { pc_subject_refs: ["pc:probe"] } },
-            agency_review_operation: { prefilled_arguments: { revision: 1 } },
+            contract_projection: {
+              agency_review_required: true,
+              agency_authority: { pc_subject_refs: ["pc:probe"] },
+            },
+            agency_review_operation: {
+              operation: "narration.review",
+              prefilled_arguments: { revision: 1 },
+            },
+            finalize_operation: {
+              operation: "turn.finalize",
+              prefilled_arguments: { revision: 1 },
+            },
           },
         };
       }
