@@ -19,20 +19,31 @@ import {
   type OperationContractCatalog,
 } from "./operation-contracts.ts";
 import {
+  isPiSchemaFailure,
   projectBoundTypedToolParameters,
+  projectPiTypedToolParameters,
   projectPiToolFailure,
+  type CurrentTypedToolHostContext,
   type TypedToolBindingCard,
 } from "./tool-contract-projection.ts";
 
 export {
   ToolContractProjectionError,
   bindRetainedTypedToolArguments,
+  isPiSchemaFailure,
   projectBoundTypedToolParameters,
+  projectPiTypedToolParameters,
   projectPiToolFailure,
+  type AdvanceTimeBindingCard,
+  type CombatResolveBindingCard,
+  type CombatTargetCandidate,
+  type CurrentTypedToolHostContext,
   type NarrationReviewBindingCard,
   type PiAllowedNextAction,
   type PiFailureClass,
   type PiFailureRecovery,
+  type SceneMoveBindingCard,
+  type SceneRouteCandidate,
   type StateJournalBindingCard,
   type TurnFinalizeBindingCard,
   type TypedToolBindingCard,
@@ -161,8 +172,9 @@ function presentedTypedToolParameters(
   operation: string,
   inputSchema: JsonSchema,
 ): JsonSchema {
+  const presented = projectPiTypedToolParameters(operation, inputSchema);
   if (operation === "narration.review") {
-    const cloned = structuredClone(inputSchema);
+    const cloned = structuredClone(presented);
     cloned.required = (cloned.required ?? []).filter(
       (key) => key !== "state_claim_compilation",
     );
@@ -172,7 +184,7 @@ function presentedTypedToolParameters(
     return cloned;
   }
   if (operation === "progressive.prepare_opening") {
-    const cloned = structuredClone(inputSchema);
+    const cloned = structuredClone(presented);
     cloned.required = (cloned.required ?? []).filter((key) => key !== "campaign");
     const campaign = cloned.properties?.campaign;
     if (isPlainObject(campaign)) {
@@ -183,8 +195,8 @@ function presentedTypedToolParameters(
     }
     return cloned;
   }
-  if (operation !== "setup.adopt_source_facts") return inputSchema;
-  const cloned = structuredClone(inputSchema);
+  if (operation !== "setup.adopt_source_facts") return presented;
+  const cloned = structuredClone(presented);
   cloned.required = ["campaign_id"];
   const properties = cloned.properties;
   if (isPlainObject(properties) && isPlainObject(properties.facts)) {
@@ -272,17 +284,9 @@ export function typedToolsForSurfacePhase(
   return names;
 }
 
-const SCHEMA_ATTACH_CODES = new Set([
-  "missing_param",
-  "invalid_param",
-  "missing_parameters",
-  "invalid_arguments",
-  "invalid_param_type",
-]);
-
 export type ExpectedSchemaBindingContext = {
   binding: TypedToolBindingCard;
-  current_binding_revision: string;
+  current_host_context: CurrentTypedToolHostContext;
 };
 
 /** Attach archive inputSchema beside canonical error details. Never overwrite details. */
@@ -297,19 +301,17 @@ export function attachExpectedSchema(
   const error = projected.error;
   if (!isPlainObject(error)) return visible;
   const code = typeof error.code === "string" ? error.code : "";
-  if (
-    !SCHEMA_ATTACH_CODES.has(code)
-    && !(operation === "state.advance_time" && code === "invalid_request")
-  ) return projected;
+  if (!isPiSchemaFailure(operation, code)) return projected;
   const contract = catalog.contracts.operations.get(operation);
   if (!contract) return projected;
+  const presented = presentedTypedToolParameters(operation, contract.inputSchema);
   const expectedSchema = bindingContext === undefined
-    ? structuredClone(contract.inputSchema)
+    ? structuredClone(presented)
     : projectBoundTypedToolParameters(
       operation,
-      contract.inputSchema,
+      presented,
       bindingContext.binding,
-      bindingContext.current_binding_revision,
+      bindingContext.current_host_context,
     );
   return {
     ...projected,

@@ -41,12 +41,22 @@ const SPOTLIGHT = [
 
 const catalog = typed.defaultTypedToolCatalog();
 
-test("spotlight tool schemas deep-equal archive inputSchema", () => {
+test("spotlight tool schemas match the archive except explicit Pi presentation overlays", () => {
   for (const operation of SPOTLIGHT) {
     const tool = catalog.byOperation.get(operation);
     assert.ok(tool, operation);
-    assert.deepEqual(tool.parameters, archive.operations[operation].inputSchema);
-    assert.ok(!JSON.stringify(tool.parameters).includes('"oneOf"'));
+    if (operation === "rules.social_adjudicate") {
+      assert.notDeepEqual(tool.parameters, archive.operations[operation].inputSchema);
+      assert.equal(tool.parameters.properties.motive.oneOf.length, 2);
+      const evidenced = tool.parameters.properties.motive.oneOf.find(
+        (branch) => Array.isArray(branch.properties.intensity.enum),
+      );
+      assert.deepEqual(evidenced.properties.intensity.enum, [1, 2]);
+      assert.equal(evidenced.properties.evidence_refs.minItems, 1);
+    } else {
+      assert.deepEqual(tool.parameters, archive.operations[operation].inputSchema);
+      assert.ok(!JSON.stringify(tool.parameters).includes('"oneOf"'));
+    }
     const required = tool.parameters.required || [];
     assert.ok(Array.isArray(required));
     assert.equal(tool.description, archive.operations[operation].description);
@@ -323,7 +333,7 @@ test("structured missing/invalid errors attach expected_schema", () => {
     assert.deepEqual(attached.error.details.missing_parameters, ["campaign"], operation);
     assert.deepEqual(
       attached.error.expected_schema,
-      archive.operations[operation].inputSchema,
+      catalog.byOperation.get(operation).parameters,
       operation,
     );
     const invalid = runtime.modelVisibleCanonicalToolResult(new runtime.CanonicalToolError(
@@ -346,7 +356,7 @@ test("structured missing/invalid errors attach expected_schema", () => {
     assert.equal(invalidAttached.error.details.field, "operation", operation);
     assert.deepEqual(
       invalidAttached.error.expected_schema,
-      archive.operations[operation].inputSchema,
+      catalog.byOperation.get(operation).parameters,
       operation,
     );
   }
