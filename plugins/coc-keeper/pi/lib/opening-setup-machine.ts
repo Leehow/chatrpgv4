@@ -4442,6 +4442,65 @@ export function createOpeningSetupMachineMethods(
   },
 
 
+  adoptNoSelectorQuickStartResultOwnership(
+    this: any,
+    params: JsonObject,
+    resultValue: unknown,
+    invocationId: string,
+  ): JsonObject {
+    // A no-selector quick start may let the canonical backend create the
+    // semantic campaign id, so pre-execution admission cannot own the result.
+    // Adopt only that exact typed success here; the normal observer below
+    // still validates the complete receipt, paths, scenario, and generation.
+    const args = objectOrNull(params.arguments);
+    const envelope = objectOrNull(resultValue);
+    const data = objectOrNull(envelope?.data);
+    const quickStartResult = objectOrNull(data?.result);
+    const campaignId = typeof quickStartResult?.campaign_id === "string"
+      ? quickStartResult.campaign_id.trim()
+      : "";
+    if (
+      params.operation !== "setup.quick_start"
+      || params.campaign !== undefined
+      || args === null
+      || args.campaign_id !== undefined
+      || typeof args.scenario_id !== "string"
+      || !args.scenario_id.trim()
+      || envelope?.ok !== true
+      || envelope.tool !== "setup.quick_start"
+      || data?.schema_version !== 1
+      || data.status !== "PASS"
+      || data.kind !== "campaign.quick_start"
+      || !isCanonicalCampaignId(campaignId)
+      || quickStartResult?.scenario_id !== args.scenario_id
+      || this.openingSetupStates.size !== 0
+      || this.pendingBindExists()
+      || this.openingSetupAttempts.has(invocationId)
+    ) return params;
+    const ownedParams = {
+      ...params,
+      campaign: campaignId,
+      arguments: {
+        ...args,
+        campaign_id: campaignId,
+      },
+    };
+    this.registerOpeningSetupAttempt(
+      invocationId,
+      ownedParams,
+      "probe",
+      null,
+    );
+    this.recordOpeningSetupAudit({
+      status: "transitioned",
+      transition: "canonical_no_selector_quick_start_identity_adopted",
+      campaign_id: campaignId,
+      invocation_id: invocationId,
+    });
+    return ownedParams;
+  },
+
+
   observeOpeningSourceReviewTransport(this: any,
     receipt: JsonObject,
   ): OpeningSetupRoute | null {

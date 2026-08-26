@@ -7051,10 +7051,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       if (!isCurrent(epoch)) {
         return gatewayResult(asObject(value, "late canonical result"));
       }
+      const openingObservationParams = (
+        launcherRole === null
+        && typedDefinition?.operation === "setup.quick_start"
+      )
+        ? openingContinuationGate.adoptNoSelectorQuickStartResultOwnership(
+            params,
+            value,
+            _id,
+          )
+        : params;
       const openingObservation = (
         openingContinuationGate.observeOpeningSetupInvocation(
           String(params.operation),
-          params,
+          openingObservationParams,
           value,
           _id,
           setupVisibleOutput,

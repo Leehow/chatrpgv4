@@ -241,6 +241,14 @@ const canonicalCall = async (name, params) => {
 
 const pi = {
   registerTool(tool) { tools.set(tool.name, tool); },
+  getAllTools() {
+    return [
+      ...tools.values(),
+      { name: "subagent", parameters: { type: "object", properties: {} } },
+      { name: "subagent_wait", parameters: { type: "object", properties: {} } },
+      { name: "read", parameters: { type: "object", properties: {} } },
+    ];
+  },
   registerCommand() {},
   registerShortcut() {},
   on(type, handler) {
@@ -335,7 +343,12 @@ const assertNoGenericWrappers = (names) => {
   ]) assert.ok(!names.includes(name), name);
 };
 
-async function assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign) {
+async function assertRoleNullResumeGateCase(
+  label,
+  resumeDataForCampaign,
+  expectFirstResumeAccepted = false,
+  omitQuickStartCampaignId = false,
+) {
   const caseCampaign = `no-selector-${label}`;
   const caseInvestigator = `investigator-${label}`;
   const caseWorkspace = mkdtempSync(
@@ -347,6 +360,7 @@ async function assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign
   const caseTools = new Map();
   const caseHandlers = new Map();
   const caseActive = [];
+  const caseAppended = [];
   const caseCalls = [];
   const caseCanonical = async (name, params) => {
     assert.equal(name, "coc_invoke");
@@ -390,6 +404,11 @@ async function assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign
       return {
         ok: true,
         tool: "setup.complete",
+        wire: {
+          schema_version: 1,
+          profile: "keeper_hot_v1",
+          canonical_operation: "setup.complete",
+        },
         data: {
           schema_version: 1,
           status: "PASS",
@@ -404,11 +423,17 @@ async function assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign
               decision_id: params.arguments.decision_id,
               investigator_ids: [caseInvestigator],
               completed_at: "2026-08-26T00:00:00Z",
-              opening_projection_ref: null,
+              opening_projection_ref: {
+                kind: "opening_source_readiness",
+                state: "not_source_gated",
+                reason: "no_source_binding",
+              },
               lane_interrupted_at_handoff: false,
             },
           },
         },
+        warnings: [],
+        hints: ["retain this handoff receipt"],
       };
     }
     if (params.operation === "session.resume") {
@@ -432,6 +457,14 @@ async function assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign
   };
   const casePi = {
     registerTool(tool) { caseTools.set(tool.name, tool); },
+    getAllTools() {
+      return [
+        ...caseTools.values(),
+        { name: "subagent", parameters: { type: "object", properties: {} } },
+        { name: "subagent_wait", parameters: { type: "object", properties: {} } },
+        { name: "read", parameters: { type: "object", properties: {} } },
+      ];
+    },
     registerCommand() {},
     registerShortcut() {},
     on(type, handler) {
@@ -439,7 +472,7 @@ async function assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign
       list.push(handler);
       caseHandlers.set(type, list);
     },
-    appendEntry() {},
+    appendEntry(type, value) { caseAppended.push({ type, value }); },
     sendMessage() {},
     setActiveTools(names) { caseActive.push([...names]); },
     getThinkingLevel: () => "off",
@@ -483,7 +516,7 @@ async function assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign
   const quickResult = JSON.parse((await caseTools.get("coc_setup_quick_start").execute(
     `quick-${label}`,
     {
-      campaign_id: caseCampaign,
+      ...(omitQuickStartCampaignId ? {} : { campaign_id: caseCampaign }),
       scenario_id: "the-haunting",
       pregen_id: caseInvestigator,
       title: "The Haunting",
@@ -493,6 +526,19 @@ async function assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign
     caseCtx,
   )).content[0].text);
   assert.equal(quickResult.ok, true, `${label}: ${JSON.stringify(quickResult)}`);
+  if (omitQuickStartCampaignId) {
+    const routeAudits = caseAppended
+      .filter(({ type }) => type === "coc-opening-setup-route-audit")
+      .map(({ value }) => value);
+    assert.ok(routeAudits.some((audit) => (
+      audit.transition === "canonical_no_selector_quick_start_identity_adopted"
+      && audit.campaign_id === caseCampaign
+    )), `${label}: ${JSON.stringify(routeAudits)}`);
+    assert.ok(!routeAudits.some((audit) => (
+      audit.reason === "unowned_result"
+      && audit.operation === "setup.quick_start"
+    )), `${label}: ${JSON.stringify(routeAudits)}`);
+  }
   await caseEmit("message_start", {
     type: "message_start",
     message: {
@@ -500,6 +546,18 @@ async function assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign
       content: [{ type: "text", text: "确认打开游戏桌。" }],
     },
   });
+  const discoveredSetupComplete = JSON.parse((await caseTools.get("coc_discover").execute(
+    `discover-complete-${label}`,
+    { operation: "setup.complete" },
+    undefined,
+    undefined,
+    caseCtx,
+  )).content[0].text);
+  assert.equal(
+    discoveredSetupComplete.ok,
+    true,
+    `${label}: ${JSON.stringify(discoveredSetupComplete)}`,
+  );
   const completeResult = JSON.parse((await caseTools.get("coc_setup_complete").execute(
     `complete-${label}`,
     {
@@ -522,13 +580,40 @@ async function assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign
     ["coc_session_resume"],
     `${label}: ${JSON.stringify(caseActive)}`,
   );
-  await caseTools.get("coc_session_resume").execute(
+  const firstResume = JSON.parse((await caseTools.get("coc_session_resume").execute(
     `resume-${label}`,
     {},
     undefined,
     undefined,
     caseCtx,
-  );
+  )).content[0].text);
+  if (expectFirstResumeAccepted) {
+    assert.equal(firstResume.ok, true, `${label}: ${JSON.stringify(firstResume)}`);
+    assert.ok(caseActive.at(-1).includes("coc_evidence_table_opening"), label);
+    const resumedWorkingSet = caseAppended
+      .filter(({ type }) => type === "coc-tool-working-set")
+      .at(-1)?.value;
+    assert.equal(
+      resumedWorkingSet?.role,
+      "play",
+      `${label}: ${JSON.stringify(caseAppended)}`,
+    );
+    const npcDiscovery = JSON.parse((await caseTools.get("coc_discover").execute(
+      `discover-npc-reaction-${label}`,
+      { operation: "npc.reaction" },
+      undefined,
+      undefined,
+      caseCtx,
+    )).content[0].text);
+    assert.equal(npcDiscovery.ok, false, `${label}: ${JSON.stringify(npcDiscovery)}`);
+    assert.equal(npcDiscovery.error.code, "phase_forbidden", label);
+    assert.equal(
+      caseCalls.filter((call) => call.operation === "session.resume").length,
+      1,
+      label,
+    );
+    return;
+  }
   assert.deepEqual(caseActive.at(-1), ["coc_session_resume"], label);
   assertNoGenericWrappers(caseActive.at(-1));
   assert.ok(!caseActive.at(-1).includes("coc_evidence_table_opening"), label);
@@ -585,6 +670,14 @@ async function assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign
   assert.ok(!postRetryTools.includes("coc_setup_quick_start"), label);
   assert.ok(!postRetryTools.includes("coc_setup_complete"), label);
   assert.ok(!postRetryTools.includes("coc_state_journal"), label);
+  const resumedWorkingSet = caseAppended
+    .filter(({ type }) => type === "coc-tool-working-set")
+    .at(-1)?.value;
+  assert.equal(
+    resumedWorkingSet?.role,
+    "play",
+    `${label}: ${JSON.stringify(caseAppended)}`,
+  );
 }
 
 try {
@@ -949,7 +1042,12 @@ try {
     0,
   );
 
-  for (const [label, resumeDataForCampaign] of [
+  for (const [
+    label,
+    resumeDataForCampaign,
+    expectFirstResumeAccepted,
+    omitQuickStartCampaignId,
+  ] of [
     [
       "missing-next-operations",
       (caseCampaign) => ({
@@ -997,8 +1095,24 @@ try {
         next_operations: ["evidence.table_opening"],
       }),
     ],
+    [
+      "valid-role-transition",
+      (caseCampaign) => ({
+        schema_version: 1,
+        campaign_id: caseCampaign,
+        mode: "table_opening",
+        next_operations: ["evidence.table_opening"],
+      }),
+      true,
+      true,
+    ],
   ]) {
-    await assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign);
+    await assertRoleNullResumeGateCase(
+      label,
+      resumeDataForCampaign,
+      expectFirstResumeAccepted === true,
+      omitQuickStartCampaignId === true,
+    );
   }
 } finally {
   process.exit = originalExit;
