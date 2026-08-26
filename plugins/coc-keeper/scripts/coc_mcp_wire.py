@@ -1003,7 +1003,18 @@ def _compact_scene(
                 projected.pop(empty_field, None)
     if tight:
         projected["exits"] = [
-            _pick(row, ("to", "kind", "open", "when", "label", "cue"))
+            _pick(
+                row,
+                (
+                    "to",
+                    "kind",
+                    "open",
+                    "when",
+                    "label",
+                    "cue",
+                    "travel_minutes",
+                ),
+            )
             for row in value.get("exits") or []
             if isinstance(row, dict)
         ]
@@ -1850,7 +1861,7 @@ def _project_scene_recovery_index(scene: Any) -> dict[str, Any] | None:
             if isinstance(row, dict)
         ],
         "exit_index": [
-            _pick(row, ("to", "kind", "open"))
+            _pick(row, ("to", "kind", "open", "travel_minutes"))
             for row in exits[:24]
             if isinstance(row, dict)
         ],

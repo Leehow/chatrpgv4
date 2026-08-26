@@ -3502,6 +3502,89 @@ def test_mcp_wire_combat_resolve_preserves_receipt_and_next_step_under_budget():
     }
 
 
+def test_mcp_wire_scene_context_preserves_exact_optional_route_travel_minutes():
+    server = _load_server()
+    projected = server.wire_projection.project_envelope(
+        "scene.context",
+        {
+            "ok": True,
+            "tool": "scene.context",
+            "data": {
+                "campaign_id": "scene-route-wire",
+                "active_scene_id": "foyer",
+                "scene": {
+                    "scene_type": "investigation",
+                    "player_safe_summary": "Three routes leave the foyer.",
+                },
+                "exits": [
+                    {
+                        "to": "archive",
+                        "kind": "travel",
+                        "open": True,
+                        "travel_minutes": 5,
+                        "operation_opportunity": {
+                            "operation": "state.move_scene",
+                            "prefilled_arguments": {
+                                "scene_id": "archive",
+                                "travel_minutes": 5,
+                            },
+                        },
+                    },
+                    {
+                        "to": "archive",
+                        "kind": "travel",
+                        "open": True,
+                        "travel_minutes": 10,
+                        "operation_opportunity": {
+                            "operation": "state.move_scene",
+                            "prefilled_arguments": {
+                                "scene_id": "archive",
+                                "travel_minutes": 10,
+                            },
+                        },
+                    },
+                    {
+                        "to": "side-door",
+                        "kind": "door",
+                        "open": True,
+                        "operation_opportunity": {
+                            "operation": "state.move_scene",
+                            "prefilled_arguments": {"scene_id": "side-door"},
+                        },
+                    },
+                ],
+            },
+            "warnings": [],
+            "hints": [],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+
+    assert projected["wire"]["payload_projected"] is True
+    assert projected["wire"].get("identity_only") is not True
+    assert server.wire_projection.transport_bytes(projected) <= (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    assert projected["data"]["exits"] == [
+        {
+            "to": "archive",
+            "kind": "travel",
+            "open": True,
+            "travel_minutes": 5,
+        },
+        {
+            "to": "archive",
+            "kind": "travel",
+            "open": True,
+            "travel_minutes": 10,
+        },
+        {"to": "side-door", "kind": "door", "open": True},
+    ]
+    assert "operation_opportunity" not in projected["data"]["exits"][0]
+    assert "travel_minutes" not in projected["data"]["exits"][2]
+
+
 def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only():
     server = _load_server()
     progressive = {
@@ -3617,12 +3700,20 @@ def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only()
             "difficulty": None,
             "player_safe_summary": "localized clue substance " * 20,
         } for index in range(30)],
-        "exits": [{
-            "to": f"scene-{index}",
-            "kind": "travel",
-            "open": True,
-            "cue": "bounded exit cue " * 20,
-        } for index in range(30)],
+        "exits": [
+            {
+                "to": f"scene-{index}",
+                "kind": "travel",
+                "open": True,
+                "cue": "bounded exit cue " * 20,
+                **(
+                    {"travel_minutes": travel_minutes}
+                    if travel_minutes is not None
+                    else {}
+                ),
+            }
+            for index, travel_minutes in enumerate([5, 10, None, *range(27)])
+        ],
         "party": ["investigator-a"],
         "continuity": {
             "schema_version": 1,
@@ -3680,6 +3771,22 @@ def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only()
     assert len(scene_index["route_index"]) == 16
     assert len(scene_index["clue_index"]) == 24
     assert len(scene_index["exit_index"]) == 24
+    assert scene_index["exit_index"][:3] == [
+        {
+            "to": "scene-0",
+            "kind": "travel",
+            "open": True,
+            "travel_minutes": 5,
+        },
+        {
+            "to": "scene-1",
+            "kind": "travel",
+            "open": True,
+            "travel_minutes": 10,
+        },
+        {"to": "scene-2", "kind": "travel", "open": True},
+    ]
+    assert "travel_minutes" not in scene_index["exit_index"][2]
     assert "continuity" not in scene_index
     assert "agenda" not in scene_index["npc_index"][0]
     assert "cue" not in scene_index["route_index"][0]
