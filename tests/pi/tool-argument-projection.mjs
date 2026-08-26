@@ -379,6 +379,7 @@ test("state.move_scene projects retained semantic routes and host-binds exact tr
     decision_id: "move:allan-ward:turn-3:revision-1",
     source_revision: "scene-context:central-library:revision-7",
     source_digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    selection_mode: "current_candidates",
     candidates: [
       {
         candidate_id: "scene-route:newspaper-morgue:travel:1",
@@ -440,6 +441,14 @@ test("state.move_scene projects retained semantic routes and host-binds exact tr
     },
     current,
   ), "binding_context_stale");
+  const missingSelectionMode = { ...binding };
+  delete missingSelectionMode.selection_mode;
+  assertProjectionError(() => typed.projectBoundTypedToolParameters(
+    binding.operation,
+    catalog.byOperation.get(binding.operation).parameters,
+    missingSelectionMode,
+    independentCurrent(missingSelectionMode),
+  ), "binding_context_invalid");
 });
 
 test("state.move_scene manual binding hides host fields and never invents travel", () => {
@@ -550,6 +559,7 @@ test("same-destination scene routes preserve exact optional travel shape", () =>
     decision_id: "move:allan-ward:turn-4:revision-1",
     source_revision: "scene-context:study:revision-8",
     source_digest: "sha256:1212121212121212121212121212121212121212121212121212121212121212",
+    selection_mode: "current_candidates",
     candidates: [
       {
         candidate_id: "scene-route:archive:door:1",

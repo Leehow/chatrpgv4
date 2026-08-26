@@ -61,7 +61,7 @@ export type SceneMoveBindingCard = {
   decision_id: string;
   source_revision: string;
   source_digest: string;
-  selection_mode?: "current_candidates" | "manual_scene";
+  selection_mode: "current_candidates" | "manual_scene";
   candidates: readonly SceneRouteCandidate[];
 };
 
@@ -627,7 +627,7 @@ function validateBindingShape(binding: TypedToolBindingCard): void {
   } else if (binding.operation === "state.move_scene") {
     nonEmptyString(binding.source_revision, "source_revision");
     nonEmptyString(binding.source_digest, "source_digest");
-    const selectionMode = binding.selection_mode ?? "current_candidates";
+    const selectionMode = binding.selection_mode;
     if (selectionMode !== "current_candidates" && selectionMode !== "manual_scene") {
       throw new ToolContractProjectionError(
         "binding_context_invalid",
@@ -759,7 +759,7 @@ function bindingValues(binding: TypedToolBindingCard): Record<string, unknown> {
 function hostOwnedFields(binding: TypedToolBindingCard): string[] {
   const fields = [...HOST_OWNED_FIELDS[binding.operation]];
   if (binding.operation === "state.move_scene") {
-    if ((binding.selection_mode ?? "current_candidates") === "manual_scene") {
+    if (binding.selection_mode === "manual_scene") {
       fields.push("candidate_id");
     } else if (sceneNeedsRouteChoice(binding.candidates)) {
       fields.push("scene_id");
@@ -827,7 +827,7 @@ export function projectBoundTypedToolParameters(
     for (const field of owned) delete cloned.properties[field];
   }
   if (valid.operation === "state.move_scene") {
-    const selectionMode = valid.selection_mode ?? "current_candidates";
+    const selectionMode = valid.selection_mode;
     if (selectionMode === "manual_scene") {
       // Keep the archive's semantic scene_id string unconstrained. A manual
       // destination is still KP-owned; only identity and derived travel are
@@ -885,7 +885,7 @@ export function bindRetainedTypedToolArguments(
     ...bindingValues(valid),
   };
   if (valid.operation === "state.move_scene") {
-    const selectionMode = valid.selection_mode ?? "current_candidates";
+    const selectionMode = valid.selection_mode;
     if (selectionMode === "manual_scene") {
       const sceneId = typeof result.scene_id === "string" ? result.scene_id.trim() : "";
       const matches = valid.candidates.filter((row) => row.scene_id === sceneId);
