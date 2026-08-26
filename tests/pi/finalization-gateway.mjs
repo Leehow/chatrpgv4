@@ -8,6 +8,7 @@ import process from "node:process";
 import { embeddedPiFile } from "./_lib/embedded-pi-path.mjs";
 
 const root = path.resolve(process.argv[2] || process.cwd());
+process.env.COC_PI_SESSION_ROLE = "play";
 const dependencyRoot = path.resolve(process.env.PI_TEST_REPO_ROOT || root);
 const main = await import(path.join(
   root,

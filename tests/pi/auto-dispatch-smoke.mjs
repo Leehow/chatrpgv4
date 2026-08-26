@@ -28,6 +28,12 @@ const main = await import(path.join(root, "plugins/coc-keeper/pi/extensions/inde
 const coordinator = await import(path.join(root, "plugins/coc-keeper/pi/extensions/coordinator.ts"));
 const runtime = await import(path.join(root, "plugins/coc-keeper/pi/lib/runtime.ts"));
 const { findAutoDispatchTask, autoDispatchCoordinator } = main.__test;
+const playOpeningGate = () => {
+  const Gate = main.OpeningTerminalContinuationGate;
+  const gate = new Gate();
+  gate.setEffectiveTypedRole("play");
+  return gate;
+};
 const instruction = path.join(root, "plugins/coc-keeper/agents/coc-source-coordinator.md");
 const leafInstruction = path.join(root, "plugins/coc-keeper/agents/coc-source-pack-worker.md");
 const sectionBindingFixture = JSON.parse(readFileSync(
@@ -1114,12 +1120,16 @@ function mainExtensionHarness(responseForCall, options = {}) {
     }),
     close: async () => {},
   };
-  main.default(fakePi, {
-    coordinatorEnabled: options.coordinatorEnabled ?? (async () => true),
-    createClient: () => fakeClient,
-    startupCampaignId: () => options.startupCampaignId ?? null,
-    welcomeAgentDir: extensionWelcomeAgentDir,
-    launchCoordinator: (task) => {
+  const previousSessionRole = process.env.COC_PI_SESSION_ROLE;
+  if (options.sessionRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
+  else process.env.COC_PI_SESSION_ROLE = options.sessionRole;
+  try {
+    main.default(fakePi, {
+      coordinatorEnabled: options.coordinatorEnabled ?? (async () => true),
+      createClient: () => fakeClient,
+      startupCampaignId: () => options.startupCampaignId ?? null,
+      welcomeAgentDir: extensionWelcomeAgentDir,
+      launchCoordinator: (task) => {
       const key = task.packet.packet_id;
       launches.push(key);
       const activationFailures = Number(
@@ -1165,8 +1175,12 @@ function mainExtensionHarness(responseForCall, options = {}) {
         completion,
         terminate: async () => { control.terminated = true; },
       };
-    },
-  });
+      },
+    });
+  } finally {
+    if (previousSessionRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
+    else process.env.COC_PI_SESSION_ROLE = previousSessionRole;
+  }
   const ctx = {
     cwd: root,
     mode: options.mode ?? "rpc",
@@ -1347,7 +1361,7 @@ async function exerciseFailureDrain(mode) {
 // status labels (queued + capability_status routing tag).
 {
   const campaignId = "opening-bootstrap-queued-accept";
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   bindOpeningRoute(gate, campaignId, "queued-accept-bind");
   prepareOpeningRoute(gate, campaignId, "queued-accept-prepare");
   const task = coordinatorTask("coord-queued-accept", { campaignId });
@@ -1391,7 +1405,7 @@ async function exerciseFailureDrain(mode) {
 // same evidence route without reopening character setup or adding a blocker.
 {
   const campaignId = "post-ready-bootstrap-noop";
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   bindOpeningRoute(gate, campaignId, "post-ready-bind");
   prepareOpeningRoute(gate, campaignId, "post-ready-prepare");
   const params = bootstrapOpeningParams(campaignId);
@@ -3342,19 +3356,20 @@ async function exerciseFailureDrain(mode) {
     && retainedAfterMalformed?.message.includes(
       '"operation":"progressive.prepare_opening"',
     ));
-  let discoverError;
+  let discoverRejected = false;
   let ocrError;
   let sceneError;
   let nonCreationDiceError;
   try {
-    await harness.registered.get("coc_discover").execute(
+    const discovered = JSON.parse((await harness.registered.get("coc_discover").execute(
       "discover-during-opening-gate",
-      {},
+      { operation: "scene.context" },
       undefined,
       undefined,
       harness.ctx,
-    );
-  } catch (error) { discoverError = error; }
+    )).content[0].text);
+    discoverRejected = discovered.ok === false;
+  } catch { discoverRejected = true; }
   try {
     await harness.registered.get("coc_progressive_ocr").execute(
       "ocr-during-opening-gate",
@@ -3395,11 +3410,10 @@ async function exerciseFailureDrain(mode) {
     );
   } catch (error) { nonCreationDiceError = error; }
   check("pre-bootstrap host gate blocks discover OCR and play detours",
-    discoverError instanceof Error
+    discoverRejected
     && ocrError instanceof Error
     && sceneError instanceof Error
     && nonCreationDiceError instanceof Error
-    && discoverError.message.includes('"operation":"progressive.prepare_opening"')
     && ocrError.message.includes('"operation":"progressive.prepare_opening"')
     && sceneError.message.includes('"operation":"progressive.prepare_opening"')
     && nonCreationDiceError.message.includes(
@@ -3488,7 +3502,6 @@ async function exerciseFailureDrain(mode) {
     undefined,
     harness.ctx,
   );
-
   const callsBeforePostCurrentDetours = harness.calls.length;
   const postCurrentDetours = [
     {
@@ -3548,12 +3561,9 @@ async function exerciseFailureDrain(mode) {
       postCurrentDetourErrors.push(error);
     }
   }
-  check("current opening retains exact table evidence before all setup detours",
+  check("no-selector setup retains exact handoff before all setup and play detours",
     postCurrentDetourErrors.length === postCurrentDetours.length
-    && postCurrentDetourErrors.every((error) => (
-      error instanceof Error
-      && error.message.includes('"operation":"evidence.table_opening"')
-    ))
+    && postCurrentDetourErrors.every((error) => error instanceof Error)
     && harness.calls.length === callsBeforePostCurrentDetours);
   let wrongOpeningFinalizationRejected = false;
   try {
@@ -3569,59 +3579,38 @@ async function exerciseFailureDrain(mode) {
       harness.ctx,
     );
   } catch { wrongOpeningFinalizationRejected = true; }
-  const openingResult = await harness.registered.get("coc_invoke").execute(
-    "invoke-source-table-opening",
-    {
-      operation: "evidence.table_opening",
-      campaign: "auto-dispatch-fixture",
-      arguments: {
-        text: "[in_game]\n来源约束下的准确开场。\n[/in_game]",
-        run_id: "source-opening-run",
-        presented_roll_ids: [],
-        decision_id: "source-opening-evidence",
-      },
-    },
-    undefined,
-    undefined,
-    harness.ctx,
-  );
-  const exactOpening = JSON.parse(openingResult.content[0].text).data.text;
-  const replacedOpening = await harness.emit("message_end", {
-    role: "assistant",
-    content: [{ type: "text", text: "圣诞季刚过约两周。" }],
-  });
-  check("source opening rejects ordinary finalization and delivers table evidence exactly",
-    wrongOpeningFinalizationRejected
-    && replacedOpening.content.some((part) => (
-      part.type === "text" && part.text === exactOpening
-    ))
-    && exactOpening.includes("圣诞季约两周后")
-    && !exactOpening.includes("圣诞季刚过"));
-  await harness.registered.get("coc_invoke").execute(
-    "invoke-post-opening-render",
-    {
-      operation: "setup.invoke",
-      campaign: "auto-dispatch-fixture",
-      arguments: {
-        kind: "investigator.render_card",
-        payload: {
-          campaign_id: "auto-dispatch-fixture",
-          investigator_id: "route-investigator",
-          language: "zh-Hans",
-          html_mode: "never",
+  let openingBeforeHandoffRejected = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "invoke-source-table-opening-before-handoff",
+      {
+        operation: "evidence.table_opening",
+        campaign: "auto-dispatch-fixture",
+        arguments: {
+          text: "[in_game]\n来源约束下的准确开场。\n[/in_game]",
+          run_id: "source-opening-run",
+          presented_roll_ids: [],
+          decision_id: "source-opening-evidence",
         },
       },
-    },
-    undefined,
-    undefined,
-    harness.ctx,
-  );
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) {
+    openingBeforeHandoffRejected = error instanceof Error
+      && error.message.includes('"operation":"setup.complete"');
+  }
   const afterCurrent = await harness.emit("message_end", {
     role: "assistant",
     content: [{ type: "text", text: "来源开场已物化。" }],
   });
-  check("post-opening tool-free chatter stays suppressed after exact evidence",
-    afterCurrent.content.every((part) => part.type !== "text"));
+  check("setup-only source harness stops at handoff without exposing play opening",
+    wrongOpeningFinalizationRejected
+    && openingBeforeHandoffRejected
+    && afterCurrent.content.every((part) => part.type !== "text")
+    && harness.sent.at(-1)?.message?.details?.next_operation?.operation
+      === "setup.complete");
   await harness.shutdown();
 }
 
@@ -3795,14 +3784,14 @@ async function exerciseFailureDrain(mode) {
       postCurrentErrors.push(error);
     }
   }
-  check("current source advances monotonically to exact table evidence",
+  check("current source advances monotonically to exact setup handoff",
     linkBeforeBootstrapRejected
     && current.ok === true
     && current.data.status === "current"
     && postCurrentErrors.length === 2
     && postCurrentErrors.every((error) => (
       error instanceof Error
-      && error.message.includes('"operation":"evidence.table_opening"')
+      && error.message.includes('"operation":"setup.complete"')
     ))
     && harness.calls.length === callsBeforePostCurrentDetours);
   await harness.shutdown();
@@ -3812,7 +3801,7 @@ async function exerciseFailureDrain(mode) {
 // selection. Pi must hydrate that canonical route instead of discarding the
 // result and suggesting an impossible source rebind/OCR detour.
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   const campaignId = "prebound-opening-selection";
   const resumeParams = {
     operation: "session.resume",
@@ -3859,7 +3848,7 @@ async function exerciseFailureDrain(mode) {
       "prebound-ocr-detour",
     )?.includes("progressive.prepare_opening"));
 
-  const wrongToolGate = new main.OpeningTerminalContinuationGate();
+  const wrongToolGate = playOpeningGate();
   const wrongToolInvocation = "prebound-wrong-envelope-tool";
   check("wrong-tool prebound probe is initially admitted",
     wrongToolGate.openingSetupToolError(
@@ -3906,7 +3895,7 @@ async function exerciseFailureDrain(mode) {
     next_operation: null,
     instruction: "safe canonical character setup",
   };
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   check("discriminated character-setup error probe is admitted",
     gate.openingSetupToolError(
       "coc_invoke",
@@ -3958,7 +3947,7 @@ async function exerciseFailureDrain(mode) {
     ...resumeParams,
     campaign: adaptiveDetails.campaign_id,
   };
-  const adaptiveGate = new main.OpeningTerminalContinuationGate();
+  const adaptiveGate = playOpeningGate();
   const adaptiveAdmission = adaptiveGate.openingSetupToolError(
     "coc_invoke",
     adaptiveResumeParams,
@@ -4376,7 +4365,7 @@ async function exerciseFailureDrain(mode) {
     },
   ];
   for (const [index, envelope] of adjacentFailures.entries()) {
-    const adjacentGate = new main.OpeningTerminalContinuationGate();
+    const adjacentGate = playOpeningGate();
     const invocationId = `minimal-opening-adjacent-${index}`;
     check(`adjacent minimal-error variant ${index} probe is admitted`,
       adjacentGate.openingSetupToolError(
@@ -4395,7 +4384,7 @@ async function exerciseFailureDrain(mode) {
       && disposition.modelProjection === undefined
       && adjacentGate.requiredOpeningSetupContinuation() === null);
   }
-  const mismatchedCampaignGate = new main.OpeningTerminalContinuationGate();
+  const mismatchedCampaignGate = playOpeningGate();
   check("minimal-error campaign mismatch probe is admitted under its owner",
     mismatchedCampaignGate.openingSetupToolError(
       "coc_invoke",
@@ -4549,16 +4538,15 @@ async function exerciseFailureDrain(mode) {
   }
   let discoverRejected = false;
   try {
-    await harness.registered.get("coc_discover").execute(
+    const discovered = JSON.parse((await harness.registered.get("coc_discover").execute(
       "startup-discover",
-      {},
+      { operation: "scene.context" },
       undefined,
       undefined,
       harness.ctx,
-    );
-  } catch (error) {
-    discoverRejected = String(error).includes("session.resume");
-  }
+    )).content[0].text);
+    discoverRejected = discovered.ok === false;
+  } catch { discoverRejected = true; }
   let ocrRejected = false;
   try {
     await harness.registered.get("coc_progressive_ocr").execute(
@@ -4714,7 +4702,7 @@ async function exerciseFailureDrain(mode) {
       };
     }
     throw new Error(`unexpected successful startup call ${params.operation}`);
-  }, { startupCampaignId: campaignId });
+  }, { startupCampaignId: campaignId, sessionRole: "play" });
   await harness.start();
   const resumed = JSON.parse((await harness.registered.get(
     "coc_invoke",
@@ -5009,13 +4997,14 @@ async function exerciseFailureDrain(mode) {
   const callsBeforeBlockedDetours = harness.calls.length;
   let discoverBlocked = false;
   try {
-    await harness.registered.get("coc_discover").execute(
+    const discovered = JSON.parse((await harness.registered.get("coc_discover").execute(
       "resume-empty-party-discover",
       { operation: "scene.context" },
       undefined,
       undefined,
       harness.ctx,
-    );
+    )).content[0].text);
+    discoverBlocked = discovered.ok === false;
   } catch { discoverBlocked = true; }
   let sceneBlocked = false;
   try {
@@ -5187,12 +5176,7 @@ async function exerciseFailureDrain(mode) {
     role: "assistant",
     content: [{ type: "text", text: "模型自拟链接说明。" }],
   });
-  const openingRoute = harness.sent.findLast((entry) => (
-    entry.message?.customType === "coc-opening-setup-route"
-    && entry.message?.details?.next_operation?.operation
-      === "evidence.table_opening"
-  ));
-  check("guided luck create and exact link release one opening route",
+  check("guided luck create and exact link arm the typed opening",
     luck.ok === true
     && fabricatedLuckRejected
     && harness.calls.length === callsBeforeFabricatedLuck + 2
@@ -5201,12 +5185,6 @@ async function exerciseFailureDrain(mode) {
     && linkVisible.content.some((part) => (
       part.type === "text" && part.text === "调查员已正式加入战役。"
     ))
-    && openingRoute?.options?.triggerTurn === true
-    && harness.sent.filter((entry) => (
-      entry.message?.customType === "coc-opening-setup-route"
-      && entry.message?.details?.next_operation?.operation
-        === "evidence.table_opening"
-    )).length === 1
     && !harness.calls.some((call) => (
       call.params.operation === "progressive.project_opening"
     )));
@@ -5731,7 +5709,7 @@ for (const terminalCase of [
       );
     }
     return terminalCase.response;
-  }, { startupCampaignId: campaignId });
+  }, { startupCampaignId: campaignId, sessionRole: "play" });
   await harness.start();
   let resumeToolOutput = null;
   try {
@@ -5853,6 +5831,7 @@ for (const terminalCase of [
     },
   }), {
     startupCampaignId: campaignId,
+    sessionRole: "play",
     sendFailuresByType: { "coc-startup-resume-blocker": 1 },
   });
   await harness.start();
@@ -5870,16 +5849,15 @@ for (const terminalCase of [
   );
   let blockedAfterFailedSend = false;
   try {
-    await harness.registered.get("coc_discover").execute(
+    const discovered = JSON.parse((await harness.registered.get("coc_discover").execute(
       "startup-blocker-retry-discover",
-      {},
+      { operation: "scene.context" },
       undefined,
       undefined,
       harness.ctx,
-    );
-  } catch {
-    blockedAfterFailedSend = true;
-  }
+    )).content[0].text);
+    blockedAfterFailedSend = discovered.ok === false;
+  } catch { blockedAfterFailedSend = true; }
   const firstBoundary = await harness.emit("message_end", {
     role: "assistant",
     content: [{ type: "text", text: "TOP_SECRET_RETRY_BOUNDARY" }],
@@ -5922,6 +5900,7 @@ for (const terminalCase of [
     },
   }), {
     startupCampaignId: campaignId,
+    sessionRole: "play",
     sendFailuresByType: { "coc-startup-resume-blocker": 99 },
   });
   await harness.start();
@@ -6082,7 +6061,7 @@ for (const terminalCase of [
 // Route progress and clearing are campaign-local even when two source binds
 // complete in the same Pi session.
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   bindOpeningRoute(gate, "campaign-a", "campaign-local-bind-a");
   prepareOpeningRoute(gate, "campaign-a", "campaign-local-prepare-a");
   bindOpeningRoute(gate, "campaign-b", "campaign-local-bind-b");
@@ -6130,7 +6109,7 @@ for (const terminalCase of [
 // character-link provenance. It advances directly to exact table evidence and
 // rejects attempts to reopen character setup.
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   bindOpeningRoute(gate, "current-before-link", "current-before-link-bind");
   prepareOpeningRoute(
     gate,
@@ -6192,7 +6171,7 @@ for (const terminalCase of [
 // receipt in this exact gate generation. Failed/mismatched creates, wrong
 // linked IDs, and receipts retired with an older generation never qualify.
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   const campaignId = "guided-create-causality";
   bindReviewedCharacterRoute(gate, campaignId, "causal-generation-1");
   const failedCreate = observeCanonicalGuidedCreate(
@@ -6301,7 +6280,7 @@ for (const terminalCase of [
 // submitted. Once the exact link releases selection, the background lifecycle
 // is append-only and cannot be used to reopen character setup.
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   const campaignId = "submitting-character-overlap";
   bindReviewedCharacterRoute(gate, campaignId, "submitting-overlap-source");
 
@@ -6625,7 +6604,7 @@ for (const terminalCase of [
 }
 
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   bindReviewedCharacterRoute(
     gate,
     "terminal-before-link",
@@ -6891,7 +6870,7 @@ for (const terminalCase of [
 // table-opening receipt. The receipt then returns that same canonical card so
 // the model can activate once without probing scene.context first.
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   const campaignId = "opening-activation-receipt-order";
   const { task } = beginBackgroundOpeningRoute(
     gate,
@@ -7010,7 +6989,7 @@ for (const terminalCase of [
 // claims the same release token and carries the exact route itself. A failed
 // projection restores the original bootstrap retry card.
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   const { task } = beginBackgroundOpeningRoute(
     gate,
     "terminal-release-owner",
@@ -7064,7 +7043,7 @@ for (const terminalCase of [
 // A launch/submission failure after the exact bootstrap attempt uses the same
 // retry phase and suppresses prose until the exact bootstrap retry.
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   const { params, task, invocationId } = beginBackgroundOpeningRoute(
     gate,
     "submit-failure-character",
@@ -7093,7 +7072,7 @@ for (const terminalCase of [
 // It cannot switch transcript ownership or authorize arbitrary campaign B
 // prose while B's exact bootstrap remains outstanding.
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   bindReviewedCharacterRoute(gate, "campaign-a", "cross-output-a");
   bindOpeningRoute(gate, "campaign-b", "cross-output-bind-b");
   gate.markAgentStart();
@@ -7153,7 +7132,7 @@ for (const terminalCase of [
 // A bind admitted before another route generation cannot re-arm the campaign
 // after that newer generation reaches current and clears.
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   const oldBindParams = {
     operation: "setup.invoke",
     campaign: "bind-generation",
@@ -7210,7 +7189,7 @@ for (const terminalCase of [
 // arrive. If the old bind resolves first it is ignored and the transcript
 // remains fail-closed until the newest issued bind resolves.
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   gate.markAgentStart();
   const bindParams = (source) => ({
     operation: "setup.invoke",
@@ -7279,7 +7258,7 @@ for (const terminalCase of [
 // Returned campaign identity is checked against both the admitted invocation
 // and the current route revision before current or failure may change state.
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   bindOpeningRoute(gate, "identity-a", "identity-bind-a");
   prepareOpeningRoute(gate, "identity-a", "identity-prepare-a");
   bindOpeningRoute(gate, "identity-b", "identity-bind-b");
@@ -7405,7 +7384,7 @@ for (const terminalCase of [
 // Only the exact prepare result can advance selection to bootstrap. A
 // structurally bootstrap-shaped gate from unrelated setup is ignored.
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   bindOpeningRoute(gate, "transition", "transition-bind");
   const unrelatedParams = {
     operation: "setup.invoke",
@@ -7551,7 +7530,7 @@ for (const terminalCase of [
   ];
   for (const [index, card] of invalidCards.entries()) {
     const campaignId = `typed-card-invalid-${index}`;
-    const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
     bindOpeningRoute(gate, campaignId, `${campaignId}-bind`);
     const params = {
       operation: "progressive.prepare_opening",
@@ -7586,7 +7565,7 @@ for (const terminalCase of [
       )));
   }
 
-  const validGate = new main.OpeningTerminalContinuationGate();
+  const validGate = playOpeningGate();
   bindOpeningRoute(validGate, "typed-card-valid", "typed-card-valid-bind");
   const validParams = {
     operation: "progressive.prepare_opening",
@@ -7624,7 +7603,7 @@ for (const terminalCase of [
 // The coordinator packet id is part of the admitted bootstrap attempt. A late
 // terminal from another dispatch cannot fail, complete, or clear this route.
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   bindOpeningRoute(gate, "dispatch", "dispatch-bind");
   prepareOpeningRoute(gate, "dispatch", "dispatch-prepare");
   gate.markAgentStart();
@@ -7700,7 +7679,7 @@ for (const terminalCase of [
 // non-route transport failure. Concurrent attempts are capped and become
 // admissible again after terminal cleanup.
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   bindReviewedCharacterRoute(gate, "attempt-cleanup", "attempt-cleanup");
   const characterParams = guidedQuickFireCreateParams(
     "attempt-cleanup",
@@ -7784,7 +7763,7 @@ for (const terminalCase of [
 // revalidation route. Older lower-revision selection/current receipts cannot
 // downgrade or clear it; the exact repaired-source prepare can recover it.
 {
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   bindOpeningRoute(gate, "recovery", "recovery-bind");
   prepareOpeningRoute(gate, "recovery", "recovery-prepare-initial");
   const oldBootstrapParams = bootstrapOpeningParams("recovery");
@@ -8482,7 +8461,7 @@ for (const terminalCase of [
     undefined,
     harness.ctx,
   )).content[0].text);
-  let correctedEvidenceRetained = false;
+  let correctedHandoffRetained = false;
   try {
     await harness.registered.get("coc_invoke").execute(
       "live-grok-post-current-scene-detour",
@@ -8492,8 +8471,8 @@ for (const terminalCase of [
       harness.ctx,
     );
   } catch (error) {
-    correctedEvidenceRetained = String(error?.message ?? error).includes(
-      '"operation":"evidence.table_opening"',
+    correctedHandoffRetained = String(error?.message ?? error).includes(
+      '"operation":"setup.complete"',
     );
   }
   check("corrected live Grok setup advances only the exact retained route",
@@ -8507,7 +8486,7 @@ for (const terminalCase of [
     ].join(",")
     && correctedBootstrap.ok === true
     && correctedBootstrap.data.status === "current"
-    && correctedEvidenceRetained
+    && correctedHandoffRetained
     && harness.launches.length === 0);
   await harness.shutdown();
 }
@@ -8812,9 +8791,6 @@ for (const terminalCase of [
         },
       };
     }
-    if (params.operation === "progressive.status") {
-      return directTakeoverResult(activeTask);
-    }
     if (
       params.operation === "setup.invoke"
       && params.arguments?.kind === "scenario.bind_pdf"
@@ -8831,7 +8807,7 @@ for (const terminalCase of [
         : openingBootstrapResult(openingTask);
     }
     throw new Error(`unexpected operation ${params.operation}`);
-  }, { startupCampaignId: campaignId });
+  }, { startupCampaignId: campaignId, sessionRole: "setup" });
   await harness.start();
   await harness.registered.get("coc_invoke").execute(
     "gateway-pending-startup-resume",
@@ -8845,13 +8821,9 @@ for (const terminalCase of [
     undefined,
     harness.ctx,
   );
-  await harness.registered.get("coc_invoke").execute(
-    "gateway-pending-active-call",
-    {
-      operation: "progressive.status",
-      campaign: campaignId,
-      arguments: {},
-    },
+  await harness.registered.get("coc_dispatch_source_work").execute(
+    "gateway-pending-active-dispatch",
+    { task: activeTask },
     undefined,
     undefined,
     harness.ctx,
@@ -9025,32 +8997,36 @@ for (const terminalCase of [
       );
     } catch { rejectedCharacterDetours += 1; }
   }
-  const projected = JSON.parse((await harness.registered.get(
-    "coc_invoke",
-  ).execute(
-    "fulfilled-chargen-project",
-    {
-      operation: "progressive.project_opening",
-      campaign: campaignId,
-      arguments: {
-        asset_root_id: task.packet.asset_root_id,
-        source_file_sha256: "a".repeat(64),
-        start_location_id: "opening",
-        opening_pdf_indices: [0],
+  let hostOnlyProjectionRejected = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "fulfilled-chargen-project",
+      {
+        operation: "progressive.project_opening",
+        campaign: campaignId,
+        arguments: {
+          asset_root_id: task.packet.asset_root_id,
+          source_file_sha256: "a".repeat(64),
+          start_location_id: "opening",
+          opening_pdf_indices: [0],
+        },
       },
-    },
-    undefined,
-    undefined,
-    harness.ctx,
-  )).content[0].text);
-  check("fulfilled current selection rejects character detours before projection",
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) {
+    hostOnlyProjectionRejected = error instanceof Error
+      && error.message.includes("not allowed in session role setup");
+  }
+  check("typed setup rejects character detours and host-only projection",
     queued.data.status === "queued"
     && rejectedCharacterDetours === 4
-    && harness.calls.length === callsBeforeCharacterDetours + 1
-    && projected.data.status === "current"
+    && hostOnlyProjectionRejected
+    && harness.calls.length === callsBeforeCharacterDetours
     && harness.calls.filter((call) => (
       call.params.operation === "progressive.project_opening"
-    )).length === 1);
+    )).length === 0);
   await harness.shutdown();
 }
 
@@ -9414,7 +9390,7 @@ for (const terminalCase of [
 // either Markdown document into player-visible output.
 {
   const campaignId = "bind-briefing-first";
-  const gate = new main.OpeningTerminalContinuationGate();
+  const gate = playOpeningGate();
   gate.markAgentStart();
   const bindText = "绑定回执中的玩家安全开卡序章。";
   const bindBriefing = {
@@ -9740,41 +9716,46 @@ for (const terminalCase of [
   for (const handler of harness.handlers.get("agent_start") || []) {
     await handler({ reason: "phase-project" }, harness.ctx);
   }
-  const projected = JSON.parse((await harness.registered.get(
-    "coc_invoke",
-  ).execute(
-    "phase-project",
-    {
-      operation: "progressive.project_opening",
-      campaign: "auto-dispatch-fixture",
-      arguments: {
-        asset_root_id: task.packet.asset_root_id,
-        source_file_sha256: "a".repeat(64),
-        start_location_id: "opening",
-        opening_pdf_indices: [0],
+  const callsBeforeHostProjection = harness.calls.length;
+  let hostProjectionRejected = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "phase-project",
+      {
+        operation: "progressive.project_opening",
+        campaign: "auto-dispatch-fixture",
+        arguments: {
+          asset_root_id: task.packet.asset_root_id,
+          source_file_sha256: "a".repeat(64),
+          start_location_id: "opening",
+          opening_pdf_indices: [0],
+        },
       },
-    },
-    undefined,
-    undefined,
-    harness.ctx,
-  )).content[0].text);
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) {
+    hostProjectionRejected = error instanceof Error
+      && error.message.includes("not allowed in session role setup");
+  }
   const openingVisible = await harness.emit("message_end", {
     role: "assistant",
     content: [{ type: "text", text: "来源投影完成后的唯一开场。" }],
   });
-  const tableOpeningRoute = harness.sent.findLast((entry) => (
+  const projectionRoute = harness.sent.findLast((entry) => (
     entry.message?.customType === "coc-opening-setup-route"
     && entry.message?.details?.next_operation?.operation
-      === "evidence.table_opening"
+      === "progressive.project_opening"
   ));
-  check("exact current projection retains table-opening evidence without duplicate wake",
-    projected.ok === true
-    && projected.data.status === "current"
+  check("typed setup keeps host-only projection outside the model surface",
+    hostProjectionRejected
+    && harness.calls.length === callsBeforeHostProjection
     && harness.calls.filter((call) => (
       call.params.operation === "progressive.project_opening"
-    )).length === 1
+    )).length === 0
     && openingVisible.content.every((part) => part.type !== "text")
-    && tableOpeningRoute?.options?.triggerTurn === true
+    && projectionRoute?.options?.triggerTurn === true
     && harness.sent.filter((entry) => (
       entry.message?.customType
         === "coc-source-coordinator-terminal-continuation"
@@ -9941,7 +9922,7 @@ for (const terminalCase of [
       decision_id: "opening-refresh-evidence",
     },
   };
-  let canonicalFreshnessReturned = false;
+  let setupHandoffRetained = false;
   try {
     await harness.registered.get("coc_invoke").execute(
       "opening-refresh-stale-evidence",
@@ -9951,10 +9932,8 @@ for (const terminalCase of [
       harness.ctx,
     );
   } catch (error) {
-    canonicalFreshnessReturned = (
-      error instanceof runtime.CanonicalToolError
-      && error.code === "opening_setup_incomplete"
-      && error.details === freshnessGate
+    setupHandoffRetained = String(error?.message ?? error).includes(
+      '"operation":"setup.complete"',
     );
   }
   const callsBeforeBlockedScene = harness.calls.length;
@@ -9969,26 +9948,13 @@ for (const terminalCase of [
     );
   } catch (error) {
     livePlayStillBlocked = String(error?.message ?? error).includes(
-      '"operation":"progressive.project_opening"',
+      '"operation":"setup.complete"',
     );
   }
-  const refreshed = JSON.parse((await harness.registered.get(
-    "coc_invoke",
-  ).execute(
-    "opening-refresh-project",
-    {
-      operation: "progressive.project_opening",
-      campaign: campaignId,
-      arguments: refreshCard.prefilled_arguments,
-    },
-    undefined,
-    undefined,
-    harness.ctx,
-  )).content[0].text);
-  let duplicateProjectionRejected = false;
+  let hostRefreshRejected = false;
   try {
     await harness.registered.get("coc_invoke").execute(
-      "opening-refresh-duplicate-project",
+      "opening-refresh-project",
       {
         operation: "progressive.project_opening",
         campaign: campaignId,
@@ -9998,42 +9964,29 @@ for (const terminalCase of [
       undefined,
       harness.ctx,
     );
-  } catch {
-    duplicateProjectionRejected = true;
+  } catch (error) {
+    hostRefreshRejected = error instanceof Error
+      && (
+        error.message.includes('"operation":"setup.complete"')
+        || error.message.includes("not allowed in session role setup")
+      );
   }
-  const recordedOpening = JSON.parse((await harness.registered.get(
-    "coc_invoke",
-  ).execute(
-    "opening-refresh-final-evidence",
-    openingParams,
-    undefined,
-    undefined,
-    harness.ctx,
-  )).content[0].text);
-  check("canonical freshness gate replaces stale evidence without restart",
+  check("typed setup retains its handoff before stale opening refresh",
     bootstrapped.ok === true
     && bootstrapped.data.status === "current"
     && refreshCharacterDetoursRejected === 2
     && callsBeforeRefreshDetours === 3
-    && canonicalFreshnessReturned
+    && setupHandoffRetained
     && livePlayStillBlocked
-    && harness.calls.length === callsBeforeBlockedScene + 2
-    && refreshed.ok === true
-    && refreshed.data.next_operation?.operation === "evidence.table_opening"
-    && recordedOpening.ok === true
-    && recordedOpening.data.text === openingText
-    && duplicateProjectionRejected
+    && hostRefreshRejected
+    && harness.calls.length === callsBeforeBlockedScene
     && harness.calls.filter((call) => (
       call.params.operation === "progressive.project_opening"
-    )).length === 1
+    )).length === 0
     && harness.calls.filter((call) => (
       call.params.operation === "evidence.table_opening"
-    )).length === 2
-    && harness.launches.length === 0
-    && harness.appended.some((entry) => (
-      entry.name === "coc-opening-setup-route-audit"
-      && entry.value.transition === "canonical_opening_projection_refresh"
-    )));
+    )).length === 0
+    && harness.launches.length === 0);
   await harness.shutdown();
 }
 

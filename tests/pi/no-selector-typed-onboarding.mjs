@@ -36,6 +36,21 @@ const clientCalls = [];
 const sent = [];
 const appended = [];
 const exitCodes = [];
+const observedCompilerContexts = [];
+const compiledReviews = [];
+const hostCompilationReceipt = {
+  schema_version: 1,
+  contract_id: "coc.pi-state-claim-compilation-receipt.v1",
+  status: "completed",
+  binding: {
+    campaign_id: campaign,
+    turn_id: "turn-no-selector-review-1",
+    source_digest: "sha256:no-selector-source-1",
+    mechanics_bundle_sha256: "sha256:no-selector-mechanics-1",
+  },
+  disposition: "no_claims_detected",
+  claims: [],
+};
 
 const canonicalJsonSha256 = (value) => (
   `sha256:${createHash("sha256").update(JSON.stringify(value), "utf8").digest("hex")}`
@@ -145,6 +160,72 @@ const canonicalCall = async (name, params) => {
   if (params.operation === "state.cash_grant" || params.operation === "state.item_grant") {
     return { ok: true, tool: params.operation, data: { changed: true } };
   }
+  if (params.operation === "state.journal") {
+    return {
+      ok: true,
+      tool: "state.journal",
+      data: { turn_id: "turn-no-selector-review-1" },
+    };
+  }
+  if (params.operation === "turn.output_context") {
+    return {
+      ok: true,
+      tool: "turn.output_context",
+      data: {
+        schema_version: 1,
+        turn_id: "turn-no-selector-review-1",
+        source_digest: "sha256:no-selector-source-1",
+        settlement_snapshot_id: "turn-settlement-v1:no-selector-review-1",
+        mechanics_bundle_sha256: "sha256:no-selector-mechanics-1",
+        contract_projection: {
+          agency_review_required: true,
+          agency_authority: { pc_subject_refs: [`pc:${investigator}`] },
+        },
+        agency_review_operation: {
+          operation: "narration.review",
+          prefilled_arguments: { revision: 1 },
+        },
+        finalize_operation: {
+          operation: "turn.finalize",
+          prefilled_arguments: { revision: 1 },
+        },
+      },
+    };
+  }
+  if (params.operation === "narration.review") {
+    assert.deepEqual(
+      params.arguments.state_claim_compilation,
+      hostCompilationReceipt,
+    );
+    return {
+      ok: true,
+      tool: "narration.review",
+      data: {
+        schema_version: 1,
+        accepted: true,
+        review_id: "narration-review:no-selector-review-1",
+        revision: 1,
+        state_claim_compilation: { private: "must-be-scrubbed" },
+      },
+    };
+  }
+  if (params.operation === "turn.finalize") {
+    assert.equal(
+      params.arguments.narration_review_id,
+      "narration-review:no-selector-review-1",
+    );
+    const renderedText = "档案合拢时，远处教堂的钟声正好响起。";
+    return {
+      ok: true,
+      tool: "turn.finalize",
+      data: {
+        schema_version: 1,
+        rendered_text: renderedText,
+        rendered_text_sha256: canonicalJsonSha256(renderedText),
+        obligation_ids: [],
+      },
+    };
+  }
   throw new Error(`unexpected canonical call ${params.operation}`);
 };
 
@@ -167,6 +248,27 @@ extension.default(pi, {
   coordinatorEnabled: () => false,
   startupCampaignId: () => null,
   welcomeAgentDir,
+  createStateClaimCompiler: () => ({
+    clear() {},
+    beginExternalTurn() {},
+    observeOutputContext(campaignId, envelope) {
+      observedCompilerContexts.push({
+        campaignId,
+        envelope: structuredClone(envelope),
+      });
+    },
+    async compileReview(options) {
+      compiledReviews.push({
+        campaignId: options.campaignId,
+        arguments: structuredClone(options.arguments),
+      });
+      assert.equal(
+        Object.hasOwn(options.arguments, "state_claim_compilation"),
+        false,
+      );
+      return structuredClone(hostCompilationReceipt);
+    },
+  }),
   createClient: () => ({
     callTool: canonicalCall,
     async callToolWithTransportMeta(name, params) {
@@ -222,6 +324,220 @@ const assertNoGenericWrappers = (names) => {
     "coc_subsystem",
   ]) assert.ok(!names.includes(name), name);
 };
+
+async function assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign) {
+  const caseCampaign = `no-selector-${label}`;
+  const caseInvestigator = `investigator-${label}`;
+  const caseWorkspace = mkdtempSync(
+    path.join(tmpdir(), `pi-coc-${label}-`),
+  );
+  const caseAgentDir = mkdtempSync(
+    path.join(tmpdir(), `pi-coc-${label}-agent-`),
+  );
+  const caseTools = new Map();
+  const caseHandlers = new Map();
+  const caseActive = [];
+  const caseCalls = [];
+  const caseCanonical = async (name, params) => {
+    assert.equal(name, "coc_invoke");
+    caseCalls.push(structuredClone(params));
+    if (params.operation === "setup.quick_start") {
+      return {
+        ok: true,
+        tool: "setup.quick_start",
+        data: {
+          schema_version: 1,
+          status: "PASS",
+          kind: "campaign.quick_start",
+          result: {
+            campaign_id: caseCampaign,
+            investigator_id: caseInvestigator,
+            needs_investigator: false,
+            scenario_id: "the-haunting",
+            pregen_id: caseInvestigator,
+            character_path: path.join(
+              caseWorkspace,
+              ".coc",
+              "investigators",
+              caseInvestigator,
+              "character.json",
+            ),
+            campaign_dir: path.join(
+              caseWorkspace,
+              ".coc",
+              "campaigns",
+              caseCampaign,
+            ),
+          },
+          state_refs: [
+            `.coc/campaigns/${caseCampaign}`,
+            `.coc/investigators/${caseInvestigator}/character.json`,
+          ],
+        },
+      };
+    }
+    if (params.operation === "setup.complete") {
+      return {
+        ok: true,
+        tool: "setup.complete",
+        data: {
+          schema_version: 1,
+          status: "PASS",
+          kind: "campaign.complete",
+          result: {
+            campaign_id: caseCampaign,
+            ready_for_table: true,
+            next: "table_opening",
+            handoff: {
+              schema_version: 1,
+              campaign_id: caseCampaign,
+              decision_id: params.arguments.decision_id,
+              investigator_ids: [caseInvestigator],
+              completed_at: "2026-08-26T00:00:00Z",
+              opening_projection_ref: null,
+              lane_interrupted_at_handoff: false,
+            },
+          },
+        },
+      };
+    }
+    if (params.operation === "session.resume") {
+      return {
+        ok: true,
+        tool: "session.resume",
+        data: resumeDataForCampaign(caseCampaign),
+      };
+    }
+    throw new Error(`malformed resume ${label} escaped to ${params.operation}`);
+  };
+  const casePi = {
+    registerTool(tool) { caseTools.set(tool.name, tool); },
+    registerCommand() {},
+    registerShortcut() {},
+    on(type, handler) {
+      const list = caseHandlers.get(type) ?? [];
+      list.push(handler);
+      caseHandlers.set(type, list);
+    },
+    appendEntry() {},
+    sendMessage() {},
+    setActiveTools(names) { caseActive.push([...names]); },
+    getThinkingLevel: () => "off",
+  };
+  extension.default(casePi, {
+    coordinatorEnabled: () => false,
+    startupCampaignId: () => null,
+    welcomeAgentDir: caseAgentDir,
+    createClient: () => ({
+      callTool: caseCanonical,
+      async callToolWithTransportMeta(name, params) {
+        return { value: await caseCanonical(name, params), transport: null };
+      },
+      async close() {},
+    }),
+  });
+  const caseCtx = {
+    cwd: caseWorkspace,
+    mode: "rpc",
+    model: { provider: "xai", id: "grok-4.5" },
+    sessionManager: {
+      getSessionId: () => `malformed-resume-${label}`,
+      getEntries: () => [],
+      getBranch: () => [],
+    },
+    hasUI: false,
+  };
+  const caseEmit = async (type, event) => {
+    for (const handler of caseHandlers.get(type) ?? []) {
+      await handler(event, caseCtx);
+    }
+  };
+  await caseEmit("session_start", { type: "session_start" });
+  await caseEmit("message_start", {
+    type: "message_start",
+    message: {
+      role: "user",
+      content: [{ type: "text", text: "开始快速开桌。" }],
+    },
+  });
+  const quickResult = JSON.parse((await caseTools.get("coc_setup_quick_start").execute(
+    `quick-${label}`,
+    {
+      campaign_id: caseCampaign,
+      scenario_id: "the-haunting",
+      pregen_id: caseInvestigator,
+      title: "The Haunting",
+    },
+    undefined,
+    undefined,
+    caseCtx,
+  )).content[0].text);
+  assert.equal(quickResult.ok, true, `${label}: ${JSON.stringify(quickResult)}`);
+  await caseEmit("message_start", {
+    type: "message_start",
+    message: {
+      role: "user",
+      content: [{ type: "text", text: "确认打开游戏桌。" }],
+    },
+  });
+  const completeResult = JSON.parse((await caseTools.get("coc_setup_complete").execute(
+    `complete-${label}`,
+    {},
+    undefined,
+    undefined,
+    caseCtx,
+  )).content[0].text);
+  assert.equal(
+    completeResult.ok,
+    true,
+    `${label}: ${JSON.stringify(completeResult)}`,
+  );
+  assert.deepEqual(
+    caseActive.at(-1),
+    ["coc_session_resume"],
+    `${label}: ${JSON.stringify(caseActive)}`,
+  );
+  await caseTools.get("coc_session_resume").execute(
+    `resume-${label}`,
+    {},
+    undefined,
+    undefined,
+    caseCtx,
+  );
+  assert.deepEqual(caseActive.at(-1), ["coc_session_resume"], label);
+  assertNoGenericWrappers(caseActive.at(-1));
+  assert.ok(!caseActive.at(-1).includes("coc_evidence_table_opening"), label);
+  assert.ok(!caseActive.at(-1).includes("coc_state_journal"), label);
+
+  const callsBeforeBlockedPlay = caseCalls.length;
+  await assert.rejects(
+    caseTools.get("coc_evidence_table_opening").execute(
+      `blocked-opening-${label}`,
+      {
+        campaign: caseCampaign,
+        text: "不应抵达 MCP 的开场。",
+        run_id: `run-${label}`,
+        presented_roll_ids: [],
+        decision_id: `opening-${label}`,
+      },
+      undefined,
+      undefined,
+      caseCtx,
+    ),
+    /session.resume|terminally blocked|hard-gated/,
+  );
+  await assert.rejects(
+    caseTools.get("coc_state_journal").execute(
+      `blocked-journal-${label}`,
+      { summary: "不应抵达 MCP。" },
+      undefined,
+      undefined,
+      caseCtx,
+    ),
+    /session.resume|terminally blocked|hard-gated/,
+  );
+  assert.equal(caseCalls.length, callsBeforeBlockedPlay, label);
+}
 
 try {
   process.exit = (code) => { exitCodes.push(code); };
@@ -379,6 +695,91 @@ try {
     investigator,
   });
 
+  await emit("message_start", {
+    type: "message_start",
+    message: {
+      role: "user",
+      content: [{ type: "text", text: "我把刚才发现的线索记进调查日志。" }],
+    },
+  });
+  await invokeValidated("coc_state_journal", "journal", {
+    summary: "调查员记录了墙纸后发现的旧账页。",
+  });
+  const context = await invokeValidated(
+    "coc_turn_output_context",
+    "output-context",
+    { campaign },
+  );
+  assert.equal(context.ok, true, JSON.stringify(context));
+  assert.equal(observedCompilerContexts.length, 1);
+  assert.equal(observedCompilerContexts[0].campaignId, campaign);
+  assert.equal(
+    observedCompilerContexts[0].envelope.data.turn_id,
+    "turn-no-selector-review-1",
+  );
+
+  const reviewDraft = "我把潮湿墙纸后露出的旧账页逐行抄进笔记本。";
+  const reviewArgs = {
+    draft_text: reviewDraft,
+    findings: [],
+    state_authority_review: {
+      disposition: "no_player_state_change_claimed",
+      reason: "叙述没有声称调查员数值或物品发生变化。",
+      claims: [],
+    },
+  };
+  const reviewTool = tools.get("coc_narration_review");
+  const callsBeforeForgedCompilation = clientCalls.length;
+  const forgedCompilation = JSON.parse((await reviewTool.execute(
+    "forged-state-claim-compilation",
+    {
+      ...reviewArgs,
+      state_claim_compilation: { forged: true },
+    },
+    undefined,
+    undefined,
+    ctx,
+  )).content[0].text);
+  assert.equal(forgedCompilation.ok, false);
+  assert.match(
+    forgedCompilation.error.code,
+    /forged_host_argument|bound_argument_supplied/,
+  );
+  assert.equal(clientCalls.length, callsBeforeForgedCompilation);
+
+  const review = await invokeValidated(
+    "coc_narration_review",
+    "review",
+    reviewArgs,
+  );
+  assert.equal(review.ok, true, JSON.stringify(review));
+  assert.equal(Object.hasOwn(review.data, "state_claim_compilation"), false);
+  assert.equal(compiledReviews.length, 1);
+  assert.equal(compiledReviews[0].campaignId, campaign);
+  assert.equal(compiledReviews[0].arguments.turn_id, "turn-no-selector-review-1");
+  assert.equal(
+    compiledReviews[0].arguments.source_digest,
+    "sha256:no-selector-source-1",
+  );
+  assert.equal(compiledReviews[0].arguments.revision, 1);
+  assert.equal(compiledReviews[0].arguments.draft_text, reviewDraft);
+
+  const finalized = await invokeValidated(
+    "coc_turn_finalize",
+    "finalize",
+    {
+      draft: reviewDraft,
+      coverage: [],
+      agency_claims: [],
+    },
+  );
+  assert.equal(finalized.ok, true, JSON.stringify(finalized));
+  assert.equal(
+    finalized.data.rendered_text,
+    "档案合拢时，远处教堂的钟声正好响起。",
+  );
+  assert.ok(!activeSnapshots.at(-1).includes("coc_turn_finalize"));
+
   assertNoGenericWrappers(activeSnapshots.at(-1));
   assert.equal(
     clientCalls.filter((call) => call.operation === "setup.quick_start").length,
@@ -404,6 +805,58 @@ try {
     sent.filter(({ message }) => message.customType === "coc_setup_handoff").length,
     0,
   );
+
+  for (const [label, resumeDataForCampaign] of [
+    [
+      "missing-next-operations",
+      (caseCampaign) => ({
+        schema_version: 1,
+        campaign_id: caseCampaign,
+        mode: "table_opening",
+      }),
+    ],
+    [
+      "wrong-next-operation",
+      (caseCampaign) => ({
+        schema_version: 1,
+        campaign_id: caseCampaign,
+        mode: "table_opening",
+        next_operations: ["scene.context"],
+      }),
+    ],
+    [
+      "duplicate-next-operation",
+      (caseCampaign) => ({
+        schema_version: 1,
+        campaign_id: caseCampaign,
+        mode: "table_opening",
+        next_operations: [
+          "evidence.table_opening",
+          "evidence.table_opening",
+        ],
+      }),
+    ],
+    [
+      "wrong-mode",
+      (caseCampaign) => ({
+        schema_version: 1,
+        campaign_id: caseCampaign,
+        mode: "awaiting_player",
+        next_operations: ["evidence.table_opening"],
+      }),
+    ],
+    [
+      "wrong-campaign",
+      (caseCampaign) => ({
+        schema_version: 1,
+        campaign_id: `${caseCampaign}-wrong`,
+        mode: "table_opening",
+        next_operations: ["evidence.table_opening"],
+      }),
+    ],
+  ]) {
+    await assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign);
+  }
 } finally {
   process.exit = originalExit;
   if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;

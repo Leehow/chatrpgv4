@@ -2587,7 +2587,8 @@ export function createOpeningSetupMachineMethods(
         && data?.schema_version === 1
         && data.campaign_id === attempt.campaignId
         && data.mode === "table_opening"
-        && nextOperations.includes("evidence.table_opening")
+        && nextOperations.length === 1
+        && nextOperations[0] === "evidence.table_opening"
       ) {
         this.armOpeningEvidenceRoute(state);
         return {

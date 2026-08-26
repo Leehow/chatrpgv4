@@ -4746,16 +4746,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         // Silent settled startup resume: the quarantined remainder of the
         // auto-open agent turn must not reach any canonical tool.
         ? []
-        : gate !== null && gate.phase === "pending"
-          ? gate.origin === "role_null_handoff"
-            ? [typedToolNameForOperation("session.resume")]
-            : activeToolsForStartupResumePending({
+        : gate?.origin === "role_null_handoff"
+          ? [typedToolNameForOperation("session.resume")]
+          : gate !== null && gate.phase === "pending"
+            ? activeToolsForStartupResumePending({
                 workspaceRoot: gate.workspaceRoot,
                 campaignId: gate.campaignId,
                 fallbackPhase: kpPlayPhase,
                 role,
               })
-          : null;
+            : null;
     if (tools !== null) {
       pi.setActiveTools(tools);
       return;
@@ -6442,7 +6442,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (
       isCanonicalInvokeSurface(name)
       && params.operation === "narration.review"
-      && sessionRoleFromEnv() === "play"
+      && effectiveTypedRole === "play"
     ) {
       const retainedFault = openingContinuationGate.currentTurnProcessingFault();
       const campaignId = typeof params.campaign === "string" ? params.campaign.trim() : "";
@@ -6928,7 +6928,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         accepted.accepted
         && params.operation === "turn.output_context"
         && typeof params.campaign === "string"
-        && sessionRoleFromEnv() === "play"
+        && effectiveTypedRole === "play"
         && acceptedContractProjection?.agency_review_required === true
       ) {
         stateClaimCompiler.observeOutputContext(params.campaign, value);
@@ -7068,7 +7068,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           selectedCampaignId,
           openingObservation,
         );
-        if (disposition.accepted) {
+        const exactRoleNullResume = (
+          startupGateOrigin !== "role_null_handoff"
+          || (
+            openingObservation.accepted
+            && openingObservation.reason === "role_null_handoff_resumed"
+          )
+        );
+        if (disposition.accepted && exactRoleNullResume) {
           if (
             launcherRole === null
             && effectiveTypedRole === "setup"
@@ -7104,6 +7111,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           if (startupGateOrigin === "role_null_handoff") {
             refreshTypedToolDefinition("session.resume");
           }
+          applyKpActiveTools();
+        } else if (startupGateOrigin === "role_null_handoff") {
+          terminalizeStartupResume(
+            disposition.accepted
+              ? "role_null_handoff_resume_invalid"
+              : disposition.failureClass,
+          );
           applyKpActiveTools();
         } else if (
           disposition.failureClass === "unknown_campaign"
