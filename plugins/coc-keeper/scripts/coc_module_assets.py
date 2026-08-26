@@ -77,6 +77,14 @@ EXTRACT_SECTION_KIND = "extract_section"
 SECTION_INDEX_TARGET_ID = "section-index"
 ANNOTATE_IMAGES_KIND = "annotate_images"
 IMAGE_ANNOTATION_TARGET_ID = "image-annotations"
+# One job per module root serves every campaign bound to it.  The binding sha
+# changes when the skeleton projection stamps the root (and on review rebinds),
+# so stale per-campaign consumer refs must never supersede these kinds.  They
+# describe the source (whole book, section index, image set), not a campaign,
+# and close only through completion or their bounded failure cap.
+ROOT_SCOPED_HOST_WORK_KINDS = frozenset({
+    "full_parse", CLASSIFY_SECTIONS_KIND, ANNOTATE_IMAGES_KIND,
+})
 SECTION_INDEX_NAME = "section-index.json"
 SECTIONS_DIR = "sections"
 HOST_WORK_SCHEMA_VERSION = 2
@@ -5088,7 +5096,20 @@ def register_source_bundle(
         # Content-drift auto-recovery stages into a fresh family member. The
         # superseded root stays byte-identical prior extraction evidence.
         referencing = _campaigns_referencing_asset_root(workspace, root_id)
-        if referencing:
+        # The refusal message promises an explicit escape hatch: stage this
+        # extraction under the caller's explicit unused asset root id instead
+        # of failing, so a producer-fixed re-extraction can be registered
+        # while older campaigns keep their superseded evidence root.
+        explicit_fresh_root_id = (
+            requested_root_id
+            if requested_root_id is not None
+            and requested_root_id not in {current_root_id, family_root_id}
+            and not (
+                _module_dir(workspace, requested_root_id) / "identity.json"
+            ).is_file()
+            else None
+        )
+        if referencing and explicit_fresh_root_id is None:
             raise ModuleAssetsError(
                 f"cached page {drifted_pdf_index} content drift; bind a different "
                 "PDF identity instead of overwriting page evidence. Auto-recovery "
@@ -5097,12 +5118,16 @@ def register_source_bundle(
                 "Re-point or retire those campaigns first, or register this "
                 "extraction under an explicit unused asset root id."
             )
-        fresh_root_id, reused_family_member = _allocate_drift_recovery_root_id(
-            workspace,
-            family_root_id=family_root_id,
-            file_sha256=file_sha256,
-            pages=bundle["pages"],
-        )
+        if explicit_fresh_root_id is not None:
+            fresh_root_id = explicit_fresh_root_id
+            reused_family_member = False
+        else:
+            fresh_root_id, reused_family_member = _allocate_drift_recovery_root_id(
+                workspace,
+                family_root_id=family_root_id,
+                file_sha256=file_sha256,
+                pages=bundle["pages"],
+            )
         recovery_identity = dict(module_identity or {})
         recovery_identity.setdefault("canonical_module_id", fresh_root_id)
         recovery_identity.setdefault(
@@ -7543,17 +7568,7 @@ def _refresh_host_work_lifecycle(
             if live:
                 request["consumer_refs"] = live
             else:
-                if str(request.get("kind") or "") in {
-                    "full_parse", CLASSIFY_SECTIONS_KIND,
-                }:
-                    # These are root-scoped: one job per module root serves
-                    # every campaign bound to it.  The binding sha changes when
-                    # the skeleton projection stamps the root (and on review
-                    # rebinds), so stale per-campaign refs must never supersede
-                    # them.  A section index describes the book, not a
-                    # campaign, exactly as the whole-book parse does.  The
-                    # request closes only through completion or its bounded
-                    # failure cap.
+                if str(request.get("kind") or "") in ROOT_SCOPED_HOST_WORK_KINDS:
                     request["consumer_state"] = "owned"
                     request["root_scoped_consumer"] = True
                 else:
@@ -7564,9 +7579,7 @@ def _refresh_host_work_lifecycle(
             not live
             and str(request.get("status") or "open")
             not in HOST_WORK_CLOSED_STATUSES
-            and str(request.get("kind") or "") not in {
-                "full_parse", CLASSIFY_SECTIONS_KIND,
-            }
+            and str(request.get("kind") or "") not in ROOT_SCOPED_HOST_WORK_KINDS
         ):
             request["status"] = "superseded"
             request["superseded_at"] = now.isoformat()

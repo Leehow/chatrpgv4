@@ -1242,6 +1242,64 @@ def test_register_source_bundle_drift_recovery_is_idempotent(tmp_path: Path):
     assert not assets._module_dir(tmp_path, f"{old_root}-r3").exists()
 
 
+def test_register_source_bundle_explicit_root_stages_despite_referencing_campaigns(
+    tmp_path: Path,
+):
+    """The refusal message promises an explicit-root escape hatch; honor it.
+
+    A producer-fixed re-extraction of the same PDF must be registerable
+    under an explicit unused asset root id even while older campaigns still
+    reference the superseded root: the fresh root receives the new pages,
+    the superseded root stays byte-identical evidence, and the registry
+    pointer moves so new binds resolve to the fixed extraction.
+    """
+    old_bundle, file_sha, _page_sha = _write_host_bundle(tmp_path)
+    old_root = assets.register_source_bundle(tmp_path, old_bundle)[
+        "asset_root_id"
+    ]
+    old_mod = assets._module_dir(tmp_path, old_root)
+    old_page_before = (old_mod / "pages" / "0000.md").read_bytes()
+
+    scenario_dir = tmp_path / ".coc" / "campaigns" / "old-camp" / "scenario"
+    scenario_dir.mkdir(parents=True)
+    (scenario_dir / "scenario.json").write_text(json.dumps({
+        "source_cache_asset_root_id": old_root,
+        "progressive_asset_root_id": old_root,
+        "source": {},
+    }), encoding="utf-8")
+
+    fixed_bundle = _write_reextracted_bundle(
+        tmp_path,
+        name="producer-fixed-source",
+        file_sha=file_sha,
+        page_text=b"# Hospital\n\nA column-aware extraction of the same page.\n",
+    )
+
+    # Without an explicit root the registration refuses to auto-recover.
+    with pytest.raises(assets.ModuleAssetsError, match="still.*reference"):
+        assets.register_source_bundle(tmp_path, fixed_bundle)
+
+    staged = assets.register_source_bundle(
+        tmp_path, fixed_bundle, asset_root_id="explicit-fresh-root",
+    )
+    assert staged["asset_root_id"] == "explicit-fresh-root"
+    assert staged["auto_recovered_from_drift"] == {
+        "requested_asset_root_id": "explicit-fresh-root",
+        "superseded_asset_root_id": old_root,
+        "fresh_asset_root_id": "explicit-fresh-root",
+        "drifted_pdf_index": 0,
+    }
+    # The superseded root is untouched prior evidence.
+    assert (old_mod / "pages" / "0000.md").read_bytes() == old_page_before
+    # The explicit root carries the producer-fixed extraction.
+    fixed_mod = assets._module_dir(tmp_path, "explicit-fresh-root")
+    assert (fixed_mod / "pages" / "0000.md").read_text(encoding="utf-8") == (
+        "# Hospital\n\nA column-aware extraction of the same page.\n"
+    )
+    registry = assets.load_registry(tmp_path)
+    assert registry["by_file_sha256"][file_sha] == "explicit-fresh-root"
+
+
 def test_failed_second_page_recovery_never_moves_current_registry_pointer(
     tmp_path: Path,
 ):

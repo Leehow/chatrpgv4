@@ -418,24 +418,27 @@ def registered_asset_refs(
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise SourceMediaError("registered source asset index is unreadable") from exc
     requested = set(requested_pdf_indices)
-    eligible_bundles = {
-        str(row.get("bundle_sha256") or "")
-        for row in identity.get("source_bundles") or []
-        if isinstance(row, dict)
-        and requested <= {
+    # Per-bundle page coverage: later windows register into the same
+    # content-addressed root, so the request's pages can be covered jointly
+    # by several bundles. An asset is served when one of the bundles it
+    # cites covers that asset's own page — no single bundle has to span the
+    # whole request.
+    bundle_page_coverage: dict[str, set[int]] = {}
+    for row in identity.get("source_bundles") or []:
+        if not isinstance(row, dict):
+            continue
+        bundle_sha = str(row.get("bundle_sha256") or "")
+        if not bundle_sha:
+            continue
+        bundle_page_coverage[bundle_sha] = {
             value
             for value in row.get("pdf_indices") or []
             if isinstance(value, int) and not isinstance(value, bool)
         }
-        and str(row.get("bundle_sha256") or "")
-    }
     refs: list[dict[str, Any]] = []
     for row in manifest["assets"]:
         if not isinstance(row, dict):
             raise SourceMediaError("registered source asset row is invalid")
-        matching_bundles = sorted(
-            eligible_bundles.intersection(row.get("bundle_sha256s") or [])
-        )
         pdf_index = row.get("pdf_index")
         if (
             isinstance(pdf_index, bool)
@@ -445,7 +448,15 @@ def registered_asset_refs(
             raise SourceMediaError(
                 "registered source asset page association is invalid"
             )
-        if not matching_bundles or pdf_index not in requested:
+        if pdf_index not in requested:
+            continue
+        matching_bundles = sorted(
+            bundle_sha
+            for bundle_sha in row.get("bundle_sha256s") or []
+            if bundle_sha in bundle_page_coverage
+            and pdf_index in bundle_page_coverage[bundle_sha]
+        )
+        if not matching_bundles:
             continue
         image_ref = _portable_asset_ref(row.get("image_ref"), "image_ref")
         expected_sha256 = _require_sha256(
