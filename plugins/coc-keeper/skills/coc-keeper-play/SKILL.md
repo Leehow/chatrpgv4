@@ -263,6 +263,18 @@ opening procedure is normative in
   handouts deliver right after the table opening through the same path.
   Delivery timing is your semantic judgment — no quota, no fixed pipeline;
   the deliver tool records state and never gates narration.
+  **Annotated image cards** (`annotated-*` ids) carry `when_to_deliver`
+  hints from the image annotation pass (for example "调查员亲眼看到磨坊时
+  展示"). When the current scene or player action semantically matches an
+  undelivered annotated card's delivery hint — the player sees, approaches,
+  enters, or asks about the thing the image depicts — prefer calling
+  `state.deliver_handout` for that card in the same turn, before narrating
+  the scene, so the player sees the image at the exact narrative moment
+  it becomes relevant. A player description alone never replaces the
+  delivery write; the card must go through `state.deliver_handout` to
+  become player-visible. Check for matching annotated cards whenever the
+  player enters a new location, encounters a described person or landmark,
+  or reviews a map/layout of the area.
   Document, read-aloud, image, and player-visible map cards all use this same
   material path. Automatic delivery presents a card only once. Call
   `state.replay_handout` only when the card is already player-visible and the

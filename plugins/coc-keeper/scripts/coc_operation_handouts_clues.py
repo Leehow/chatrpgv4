@@ -75,6 +75,11 @@ def _tool_clues_query(ctx: Ctx, args: dict[str, Any]):
         "undelivered handout card bodies are keeper-only; deliver via "
         "state.deliver_handout when the fiction earns it, then present the "
         "registered card body exactly",
+        "when a handout's when_to_deliver matches the current scene or player "
+        "action — especially annotated image cards (annotated-* ids with "
+        "image_ref and a when_to_show hint) — call state.deliver_handout for "
+        "that card in the same turn so the player sees it at the exact "
+        "narrative moment it becomes relevant",
     ]
 
 def _tool_state_deliver_handout(ctx: Ctx, args: dict[str, Any]):
