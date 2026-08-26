@@ -161,6 +161,12 @@ test("P0 progress stages share one monotonic capability table", () => {
       assert.deepEqual(projected.activeToolNames, [], stage);
     }
   }
+
+  const obsoleteParallelStage = workingSet.projectToolWorkingSet(snapshot({
+    stage: "output_context",
+  }));
+  assert.equal(obsoleteParallelStage.ok, false);
+  assert.equal(obsoleteParallelStage.error.code, "invalid_snapshot");
 });
 
 test("output_context_ready exposes both review and finalize plus exact context refresh", () => {

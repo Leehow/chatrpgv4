@@ -15,37 +15,12 @@ import {
   type SessionRole,
 } from "./operation-policy.ts";
 import type { JsonSchema } from "./operation-contracts.ts";
+import type { TurnProgressStage } from "./turn-output-gate.ts";
 import {
   defaultTypedToolCatalog,
   typedToolForOperation,
   type TypedToolCatalog,
 } from "./typed-tools.ts";
-
-/**
- * Structural compatibility with the P0 TurnProgressStage contract.
- * The integration lane can replace this alias with a type-only import from
- * turn-output-gate.ts after the P0 commit lands; no stage translation is needed.
- */
-export type ToolWorkingSetStage =
-  | "awaiting_player"
-  | "acting"
-  | "journaled"
-  | "output_context_ready"
-  | "review_ready"
-  | "finalized"
-  | "delivered"
-  | "faulted";
-
-export const TOOL_WORKING_SET_STAGES: readonly ToolWorkingSetStage[] = [
-  "awaiting_player",
-  "acting",
-  "journaled",
-  "output_context_ready",
-  "review_ready",
-  "finalized",
-  "delivered",
-  "faulted",
-];
 
 export type WorkingSetNamespace = Exclude<KpSurface, "none">;
 
@@ -81,7 +56,7 @@ export type ModelVisibleHostTool = {
 type LoadScope = {
   role: SessionRole;
   phase: PlayPhase;
-  stage: ToolWorkingSetStage;
+  stage: TurnProgressStage;
   playerTurnEpoch: number;
 };
 
@@ -214,7 +189,7 @@ function closedStage(
 }
 
 /** One authority for each progress stage's baseline, visibility, and budget. */
-const STAGE_CAPABILITIES: Readonly<Record<ToolWorkingSetStage, StageCapability>> = {
+const STAGE_CAPABILITIES: Readonly<Record<TurnProgressStage, StageCapability>> = {
   awaiting_player: closedStage([], { advertiseHostTools: false }),
   acting: {
     operations: [],
@@ -271,8 +246,8 @@ function validPhase(value: unknown): value is PlayPhase {
   return (PLAY_PHASES as readonly unknown[]).includes(value);
 }
 
-function validStage(value: unknown): value is ToolWorkingSetStage {
-  return (TOOL_WORKING_SET_STAGES as readonly unknown[]).includes(value);
+function validStage(value: unknown): value is TurnProgressStage {
+  return typeof value === "string" && Object.hasOwn(STAGE_CAPABILITIES, value);
 }
 
 function validNamespace(value: unknown): value is WorkingSetNamespace {
