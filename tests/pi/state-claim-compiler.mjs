@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
@@ -770,4 +772,44 @@ test("timeout stays a single bounded attempt and is not retried", async () => {
   const elapsed = Date.now() - startedAt;
   assert.equal(calls, 1);
   assert.ok(elapsed < 80, `timeout retried or unbounded: ${elapsed}ms`);
+});
+
+test("durable campaign review log skips inference after a cache miss", async () => {
+  const workspace = mkdtempSync(path.join(tmpdir(), "state-claim-durable-"));
+  mkdirSync(
+    path.join(workspace, ".coc", "campaigns", campaignId, "logs"),
+    { recursive: true },
+  );
+  let calls = 0;
+  const first = new PiStateClaimCompiler(async (input) => {
+    calls += 1;
+    return noClaimsOutcome(input);
+  });
+  first.observeOutputContext(campaignId, contextEnvelope());
+  const options = {
+    ...runtime,
+    ctx: { ...runtime.ctx, cwd: workspace },
+    arguments: reviewArguments("No state change."),
+  };
+  const receipt = await first.compileReview(options);
+  assert.equal(calls, 1);
+  writeFileSync(
+    path.join(
+      workspace, ".coc", "campaigns", campaignId, "logs", "narration-reviews.jsonl",
+    ),
+    `${JSON.stringify({
+      agency_gate: "clear",
+      state_authority_gate: "clear",
+      state_claim_compilation: receipt,
+    })}\n`,
+  );
+
+  const second = new PiStateClaimCompiler(async () => {
+    throw new Error("durable replay must not infer");
+  });
+  second.observeOutputContext(campaignId, contextEnvelope());
+  const replayed = await second.compileReview(options);
+  assert.equal(replayed.status, "completed");
+  assert.equal(replayed.semantic_input_digest, receipt.semantic_input_digest);
+  assert.deepEqual(replayed.result, receipt.result);
 });
