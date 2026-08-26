@@ -1462,6 +1462,10 @@ def _assemble_confluence_tree(
             entries.append((path, right[path]))
         elif source == "none":
             continue
+        elif source == "additive":
+            entries.append(
+                (path, _additive_blob(repo, worktree, path, left.get(path), right.get(path)))
+            )
         else:
             content = content_by_path.get(path)
             if content is None:
@@ -1538,6 +1542,15 @@ def check_confluence_tree_binding(
                 f"{path}: disposition choose_right must carry the right "
                 "parent blob"
             )
+        elif source == "additive":
+            expected = _additive_blob(
+                repo, worktree, path, left.get(path), right.get(path)
+            )
+            if merge_blob != expected:
+                problems.append(
+                    f"{path}: additive resolution must carry the additive "
+                    "union of both parent blobs"
+                )
     return problems
 
 

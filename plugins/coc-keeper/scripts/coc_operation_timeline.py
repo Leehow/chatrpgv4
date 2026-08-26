@@ -913,7 +913,6 @@ def _tool_timeline_confluence_confirm(ctx: Ctx, args: dict[str, Any]):
     try:
         result = coc_git_history.confluence_timelines(
             ctx.root,
-            ctx.campaign_id,
             **plan["git_history_arguments"],
         )
     except coc_git_history.GitHistoryError as exc:
