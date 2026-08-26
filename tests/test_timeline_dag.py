@@ -296,6 +296,7 @@ def _run_confluence(
     path_resolutions=None,
     timeline_id: str = "tl-merged",
     game_reason: str = "timeline confluence",
+    activate: bool = False,
 ):
     return hist.confluence_timelines(
         root,
@@ -309,6 +310,7 @@ def _run_confluence(
         path_resolutions=path_resolutions,
         confluence_id=confluence_id,
         game_reason=game_reason,
+        activate=activate,
     )
 
 
@@ -326,6 +328,90 @@ def _ref_exists(root: Path, ref: str) -> bool:
         text=True,
     )
     return completed.returncode == 0
+
+
+def test_confluence_additively_merges_unclaimed_additions(tmp_path):
+    """Differing paths no conflict claims resolve additively, not by error.
+
+    One-sided growth keeps its side (each parent's own new file); growth on
+    both sides unions (JSONL by lines). The KP already saw every such
+    addition in the enumeration; a shared leaf with different values still
+    fails closed (test_confluence_uncovered_tree_diff_fails_closed).
+    """
+    _prepare_confluence_parents(
+        tmp_path,
+        left_extra=(
+            "logs/events.jsonl",
+            '{"event": "left-only"}\n',
+        ),
+        right_extra=(
+            "logs/events.jsonl",
+            '{"event": "right-only"}\n',
+        ),
+    )
+    # Both sides also own distinct one-sided files from their turns.
+    confluence_id = f"confluence-{CAMPAIGN_ID}-tl-merged"
+    conflicts = _confluence_conflicts(confluence_id)  # world-state only
+    merged = _run_confluence(tmp_path, confluence_id, conflicts)
+    tree = merged["merge_commit"] + "^{tree}"
+    listed = _git(tmp_path, "ls-tree", "-r", "--name-only", tree)
+    assert "logs/events.jsonl" in listed
+    assert "save/world-state.json" in listed
+    union_log = _git(
+        tmp_path, "show", f"{merged['merge_commit']}:logs/events.jsonl"
+    )
+    assert '{"event": "left-only"}' in union_log
+    assert '{"event": "right-only"}' in union_log
+    problems = hist.check_confluence_tree_binding(
+        _repo(tmp_path),
+        _worktree(tmp_path),
+        merge_sha=merged["merge_commit"],
+        left_sha=_git(
+            tmp_path, "rev-parse", "refs/heads/timelines/tl-left"
+        ).strip(),
+        right_sha=_git(
+            tmp_path, "rev-parse", "refs/heads/timelines/tl-right"
+        ).strip(),
+        conflicts=conflicts,
+    )
+    assert problems == []
+
+
+def test_confluence_activate_materializes_merged_tree_for_next_turn(tmp_path):
+    """An activating merge carries its resolved tree into the worktree.
+
+    Without the sync, the next finalized turn would snapshot whatever
+    stale parent content the campaign directory happened to hold,
+    silently reverting the KP's dispositions.
+    """
+    _prepare_confluence_parents(tmp_path)
+    confluence_id = f"confluence-{CAMPAIGN_ID}-tl-merged"
+    conflicts = _confluence_conflicts(confluence_id)  # choose_left
+    merged = _run_confluence(tmp_path, confluence_id, conflicts, activate=True)
+    assert merged["idempotent"] is False
+
+    worktree = _worktree(tmp_path)
+    live = json.loads(
+        (worktree / "save" / "world-state.json").read_text(encoding="utf-8")
+    )
+    assert live["branch"] == "left"
+
+    # Next finalized turn commits without touching the resolved file.
+    next_sha = _commit_turn(tmp_path, 3, "fin-merged-3")
+    committed = _git(
+        tmp_path, "show", f"{next_sha}:save/world-state.json"
+    )
+    assert json.loads(committed)["branch"] == "left"
+    message = _git(tmp_path, "log", "-1", "--format=%B", next_sha)
+    assert "Timeline-Id: tl-merged" in message
+    assert "Turn-Number: 3" in message
+
+    state = hist.load_timeline_state(tmp_path, CAMPAIGN_ID)
+    merged_row = next(
+        row for row in state["timelines"] if row["timeline_id"] == "tl-merged"
+    )
+    assert merged_row["kind"] == "confluence"
+    assert merged_row["parents"] == ["tl-left", "tl-right"]
 
 
 def test_confluence_rejects_resolutions_contradicting_manifest(tmp_path):

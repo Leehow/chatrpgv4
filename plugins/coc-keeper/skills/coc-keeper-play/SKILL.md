@@ -26,6 +26,7 @@ routed**, not optional; ordinary turns stay here and do not re-read them all.
 | Investigator selection / parameters in play; personal horror weaving; first contact, multi-NPC engagement, live relationships | `references/investigators-horror-npc.md` |
 | Style, Table Wit, foreign-language dialogue, action-prompt shape, scene craft | `references/style-scene-craft.md` |
 | Action-shaped quests (`quest.*`): offering, accepting, settling, improvising | `references/turn-tooling-and-typed-ops.md` |
+| Temporal memory (`memory.recall` / `memory.adjudicate`); `history.query` / `history.diff`; rewind / fork / counterfactual / worldline-merge requests (`timeline.*`) | `references/turn-tooling-and-typed-ops.md` |
 | Failed SAN table performance; horror craft; content boundaries; ending a story / `state.end_session` | `references/horror-san-content-endings.md` |
 | Pi-Coc source-backed建卡期间的后台管家解析、resume、完成通知 | `../coc-steward-parse/SKILL.md` |
 | Full ordinary-turn tool walkthrough, combat/dying/recovery chains, typed non-turn operations | `references/turn-tooling-and-typed-ops.md` |
@@ -61,6 +62,10 @@ each turn. Prefer a known tool, then describe only it if parameters are unclear.
 `session.resume` is prior-context recovery; never use it after create/setup in the current initial request. Keep receipts; do not reopen saves/context/transcript/catalog.
 
 Call it **once per host context epoch**, not per turn; reuse its working set/receipts until a new epoch. A missed resume is soft advice, not a fifth gate. Retain `ordinary_turn_operations` and exact schemas. A `recovery_index_projection` uses only exact cards needed now—never files, Bash, or reassurance discovery.
+Its `temporal_capsule` is the bounded per-timeline memory working set (advisory;
+rules receipts and canonical state stay authoritative): reuse its recent
+episodes, active assertions, and open hooks as your temporal baseline — never
+rescan files or replay full history to rebuild memory context.
 
 - `pending_finalization`: repair only the returned `pending_output_context` blocker, then finalize; never reroll, replay mutation, accept another action, or redraft deterministic mechanics.
 - `open_turn_recovery`: continue successful `current_turn.rows` in order, reuse returned identities/opportunities, and settle only missing work; do not reroll, rediscover, or ask the player to restate intent.
@@ -342,18 +347,22 @@ opening procedure is normative in
   or downgraded substitute. Keep distinct information layers and choose
   semantically, never by keyword.
   Operational detail is in the typed-ops reference.
-- **Long-term story memory (advisory, never truth).** `memory.search` /
-  `memory.write` / `memory.resolve_hook` keep campaign-scale continuity:
-  proactively `memory.search` when an NPC reunion occurs, pacing lulls and a
-  callback could land, or the player references old events; filter by
-  structured `kinds`/`statuses`/entities, then judge relevance semantically.
-  Write `unresolved_hook` / `foreshadowing` cards when planting threads,
-  `player_preference` when the player states a durable preference, and
-  `keeper_correction` when a KP mistake is corrected and adopted; close hooks
-  through `memory.resolve_hook` when they pay off. Memory cards are context
-  only — `state.*` / `rules.*` own facts, and keeper-only cards never become
-  player prose without earned play. `director.advise.callback_candidates`
-  surfaces open hooks for the current scene; adopt, modify, or ignore.
+- **Temporal story memory (advisory, never truth).** `memory.recall`
+  deterministically narrows candidate memory assertions (subject knower,
+  timeline, valid-time, entities, scene, privacy); you judge relevance
+  semantically and weave only what earns its place — proactively recall on
+  NPC reunions, pacing lulls where a callback could land, or the player
+  referencing old events. `memory.adjudicate` settles candidates and player
+  assertions: a player's claim (「馆长早就认识我」) stays an unadjudicated
+  candidate until you rule on it, intercepted per the player knowledge
+  boundary without leaking module truth. Memory is context only —
+  `state.*` / `rules.*` own facts; keeper-only rows never become player
+  prose without earned play; there is no per-turn recall quota. Player
+  meta-knowledge from another worldline is player knowledge, not character
+  memory: absent an explicit recorded transfer, never invent cross-line
+  recall. Rewind / fork / counterfactual and worldline-confluence play, and
+  semantic `history.query` / `history.diff` anchors, are normative in
+  `references/turn-tooling-and-typed-ops.md`.
 - **No free-prose keyword/regex decisions** for player intent, hostility,
   clue relevance, storylet fit, or similar meaning-bearing choices.
 - **No mandatory Director/Storylet calls.** `director.advise`,

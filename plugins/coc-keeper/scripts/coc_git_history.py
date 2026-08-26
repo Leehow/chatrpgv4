@@ -1479,6 +1479,56 @@ def _assemble_confluence_tree(
     return _write_tree_from_entries(repo, worktree, entries)
 
 
+def _sync_worktree_to_tree(repo: Path, worktree: Path, commit_sha: str) -> None:
+    """Materialize one commit's tree into the campaign worktree.
+
+    Used after a fresh confluence registration with activation: the merged
+    tree is the new canonical state of the active line, so the worktree
+    (campaign directory) must carry exactly it — otherwise the next
+    finalized turn snapshots whatever stale parent content happened to be
+    lying around, silently reverting the KP's dispositions. Mirrors
+    ``restore_save_subset``: tracked paths are checked out in batches;
+    paths tracked in the index but absent from the tree (sacrificed or
+    paradoxed content) are removed from the worktree and index; ignore-face
+    files are untracked and never touched. Only safe while the line owns
+    no commits beyond ``commit_sha``.
+    """
+    listed = _run_git(
+        ["ls-tree", "-r", "--name-only", commit_sha],
+        repo=repo,
+        worktree=worktree,
+    )
+    tree_paths = [name for name in listed.stdout.splitlines() if name]
+    index_listed = _run_git(
+        ["ls-files", "-z"], repo=repo, worktree=worktree, check=False
+    )
+    index_paths = {
+        name for name in index_listed.stdout.split("\0") if name
+    }
+    for relpath in sorted(index_paths - set(tree_paths)):
+        _run_git(
+            ["rm", "--cached", "--ignore-unmatch", "--", relpath],
+            repo=repo,
+            worktree=worktree,
+        )
+        target = worktree / relpath
+        try:
+            if target.is_file() or target.is_symlink():
+                target.unlink()
+        except OSError as exc:
+            raise GitHistoryError(
+                f"cannot remove sacrificed confluence path {relpath}: {exc}"
+            ) from exc
+    batch_size = 200
+    for start in range(0, len(tree_paths), batch_size):
+        batch = tree_paths[start : start + batch_size]
+        _run_git(
+            ["checkout", commit_sha, "--", *batch],
+            repo=repo,
+            worktree=worktree,
+        )
+
+
 def check_confluence_tree_binding(
     repo: Path,
     worktree: Path,
@@ -2242,6 +2292,8 @@ def confluence_timelines(
                     state["active_timeline_id"] = timeline_id
                 _validate_state_timelines(state)
                 _write_timeline_state(worktree, state)
+                if activate:
+                    _sync_worktree_to_tree(repo, worktree, ref_sha)
                 return {
                     "timeline_id": timeline_id,
                     "confluence_id": confluence_id,
@@ -2282,6 +2334,20 @@ def confluence_timelines(
                         f"failed: {rollback_error}"
                     ) from exc
                 raise
+            if activate:
+                # The worktree now represents the freshly activated merged
+                # line: carry its resolved tree into the campaign directory
+                # so the next finalized turn commits the dispositions, not
+                # stale parent content. Failure here leaves refs and state
+                # registered — the campaign files simply stay stale until a
+                # repair, which is reported rather than silently accepted.
+                try:
+                    _sync_worktree_to_tree(repo, worktree, merge_sha)
+                except GitHistoryError as exc:
+                    raise GitHistoryError(
+                        "confluence registered but the campaign worktree "
+                        f"could not be synced to the merged tree: {exc}"
+                    ) from exc
             return {
                 "timeline_id": timeline_id,
                 "confluence_id": confluence_id,

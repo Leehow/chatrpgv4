@@ -1,6 +1,6 @@
 # 时态记忆契约（temporal-memory-1）
 
-> **Status:** Contract layer implemented (`coc_temporal_memory_contract.py`); runtime (Git DAG storage, projection rebuild, retrieval, background extraction, confluence runtime) 是后续计划任务——本模块当前 `unintegrated`，不得宣称产品支持。
+> **Status:** 实现状态（不宣称未发生的完成）：契约层（`coc_temporal_memory_contract.py`）、时态记忆核心（`coc_temporal_memory.py` + 时间线 DAG）、SQLite 历史投影（`coc_history_projection*.py`）、检索分层（`coc_temporal_retrieval.py`）与范围/隐私切片均已在主分支实现并配确定性测试。Host 集成（正常游玩中 KP 对全部 canonical 消费面的可发现性、玩家自然语言入口）与插件验收（plugin-acceptance）尚未完成；按 Feature Integration 纪律整个特性仍为 `unintegrated`，不得宣称产品支持或验收完成。
 > **ID:** `temporal-memory-contract`
 > **Scope:** 共享记忆内核契约层（`plugins/coc-keeper/scripts/coc_temporal_memory_contract.py`）。契约冻结：实现 worker 只消费，不在此层外重定义。
 > **Tracks:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`；Codex-host 专属文件 off-limits。

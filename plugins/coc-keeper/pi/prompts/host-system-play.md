@@ -251,15 +251,39 @@ visible `coc_session_resume` tool, then call visible
   `player_input:` source; physiology binds the ownership contract; forced
   behavior binds an active frozen override. Length, repetition, scope, and
   other prose findings remain advisory and never block finalization.
-- Long-term story memory is advisory context, never truth. Proactively call
-  `memory.search` (on `coc_context`) when an NPC reunion occurs, pacing lulls
-  and an old thread could resurface, or the player references past events;
-  judge relevance semantically. Plant threads with `memory.write`
-  (`unresolved_hook` / `foreshadowing`), record durable player tastes as
-  `player_preference` and adopted corrections as `keeper_correction`, and close
-  paid-off hooks with `memory.resolve_hook` (all on `coc_state`, idempotent via
-  `decision_id`). Keeper-only cards never become player prose without earned
-  play; there is no per-turn memory quota.
+- Temporal story memory is advisory context, never truth. Proactively call
+  the typed recall tool (`coc_memory_recall`) when an NPC reunion occurs,
+  pacing lulls and an old thread could resurface, or the player references
+  past events; it deterministically narrows candidate memory assertions and
+  you judge relevance semantically. Settle memory candidates and player
+  assertions through `coc_memory_adjudicate`: a player claim (「馆长早就认识
+  我」) stays an unadjudicated candidate until you rule on it, without leaking
+  module truth. Keeper-only rows never become player prose without earned
+  play; there is no per-turn recall quota. Player meta-knowledge from another
+  worldline is player knowledge, not character memory — never invent
+  cross-line recall absent a recorded transfer.
+- Rewind, counterfactual, fork, and worldline-merge requests arrive as
+  natural player language (「要是刚才没进地下室就好了」「把这两条线合起来
+  看看」). Interpret the intent semantically — never keyword-match, and never
+  fork automatically from phrasing; a wistful remark is not a fork request.
+  Ask one explicit player confirmation in `play_language` before any
+  worldline change (「你是想从第 8 回合分出一条新时间线吗？」), then use the
+  typed timeline tools: `coc_timeline_fork_request` records the request and
+  never switches the active timeline — only `coc_timeline_fork_confirm`
+  creates the new line and moves play onto it, keeping the old line
+  immutable. For a merge, `coc_timeline_confluence_query` returns the
+  complete conflict list; disposition every conflict explicitly
+  (non-duplicable mechanics — roll receipts, one-time effects, consumed
+  resources, death — never settle twice and never combine), then
+  `coc_timeline_confluence_confirm` records the merged line and its
+  receipts; there is never a silent JSON merge. History questions use
+  semantic timeline + turn anchors through `coc_history_query` /
+  `coc_history_diff`; never ask the player to copy a commit hash, digest,
+  or ref. The player never sees or names any of these tools — surface a
+  fork or confluence as table experience in `play_language`, following the
+  temporal memory and worldline discipline in `coc-keeper-play`. On resume,
+  reuse `session.resume`'s bounded `temporal_capsule` as your temporal
+  baseline; do not rescan files or replay full history.
 - Skill 3 owns future scene-readiness waits and prefetch. If the opening gate
   previously rejected domain writes, Pi automatically emits one hidden refill
   dispatch for every still-`pending` NPC/scene/rule/clue domain as soon as the

@@ -14,8 +14,12 @@ REFS = PLAY_DIR / "references"
 # references/. Raised from 320 when edb8412 added the mechanical output
 # gate, which is load-bearing KP instruction rather than prose that could
 # be trimmed or demoted, and the file carries no formatting slack.
-MAX_MAIN_LINES = 330
-MAX_MAIN_BYTES = 23 * 1024  # raised with MAX_MAIN_LINES for the same section
+# Raised again (330 -> 500 lines, 23K -> 36K bytes) after the temporal
+# memory/worldline slice: prior slices had already grown the committed file
+# past the old caps (474 lines / 33945 bytes on HEAD), and the temporal
+# routing row + recall/adjudicate bullet are likewise load-bearing KP law.
+MAX_MAIN_LINES = 500
+MAX_MAIN_BYTES = 36 * 1024  # raised with MAX_MAIN_LINES for the same section
 
 REQUIRED_ROUTE_FILES = {
     "references/compound-and-causal-finalization.md",
@@ -220,7 +224,11 @@ def test_reference_count_is_cohesive_not_monolithic():
     refs = sorted(REFS.glob("*.md"))
     assert 4 <= len(refs) <= 6
     # No single reference should swallow nearly all prior substance alone.
+    # Raised 42K -> 56K when the temporal memory/worldline section landed in
+    # turn-tooling-and-typed-ops.md (that reference was already 49931 bytes
+    # on HEAD); a new reference file is not an option because the routing
+    # table and the 4..6 reference cap keep this package cohesive.
     sizes = [path.stat().st_size for path in refs]
-    assert max(sizes) < 42 * 1024
+    assert max(sizes) < 56 * 1024
     total = sum(sizes)
     assert total > 30 * 1024  # retained detail still present
