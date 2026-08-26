@@ -414,6 +414,138 @@ def test_confluence_activate_materializes_merged_tree_for_next_turn(tmp_path):
     assert merged_row["parents"] == ["tl-left", "tl-right"]
 
 
+def test_confluence_retry_recovers_failed_active_tree_materialization(
+    tmp_path, monkeypatch
+):
+    """Same-decision retry finishes a registered but unsynced activation."""
+    worktree, _source, _left, _right = _prepare_confluence_parents(tmp_path)
+    confluence_id = f"confluence-{CAMPAIGN_ID}-tl-merged"
+    conflicts = _confluence_conflicts(confluence_id)
+    real_sync = hist._sync_worktree_to_tree
+    sync_attempts = 0
+
+    def fail_first_sync(repo, campaign_worktree, commit_sha):
+        nonlocal sync_attempts
+        sync_attempts += 1
+        if sync_attempts == 1:
+            raise hist.GitHistoryError("injected: active tree sync failed")
+        return real_sync(repo, campaign_worktree, commit_sha)
+
+    monkeypatch.setattr(hist, "_sync_worktree_to_tree", fail_first_sync)
+    with pytest.raises(
+        hist.GitHistoryError,
+        match="registered but the campaign worktree could not be synced",
+    ):
+        _run_confluence(
+            tmp_path,
+            confluence_id,
+            conflicts,
+            activate=True,
+        )
+    state = hist.load_timeline_state(tmp_path, CAMPAIGN_ID)
+    assert state["active_timeline_id"] == "tl-merged"
+    registered = next(
+        row for row in state["confluences"]
+        if row["confluence_id"] == confluence_id
+    )
+    assert _git(
+        tmp_path, "rev-parse", "refs/heads/timelines/tl-merged"
+    ).strip() == registered["merge_commit"]
+    assert json.loads(
+        (worktree / "save" / "world-state.json").read_text(encoding="utf-8")
+    )["branch"] == "right"
+
+    recovered = _run_confluence(
+        tmp_path,
+        confluence_id,
+        conflicts,
+        activate=True,
+    )
+    assert recovered["idempotent"] is True
+    assert sync_attempts == 2
+    assert json.loads(
+        (worktree / "save" / "world-state.json").read_text(encoding="utf-8")
+    )["branch"] == "left"
+
+    next_sha = _commit_turn(tmp_path, 3, "fin-merged-recovered-3")
+    committed = json.loads(
+        _git(tmp_path, "show", f"{next_sha}:save/world-state.json")
+    )
+    assert committed["branch"] == "left"
+
+
+def test_confluence_retry_refuses_unrelated_dirty_worktree_after_sync_failure(
+    tmp_path, monkeypatch
+):
+    """Recovery never overwrites tracked edits unrelated to merge residue."""
+    worktree, _source, _left, _right = _prepare_confluence_parents(tmp_path)
+    confluence_id = f"confluence-{CAMPAIGN_ID}-tl-merged"
+    conflicts = _confluence_conflicts(confluence_id)
+    real_sync = hist._sync_worktree_to_tree
+    first = True
+
+    def fail_first_sync(repo, campaign_worktree, commit_sha):
+        nonlocal first
+        if first:
+            first = False
+            raise hist.GitHistoryError("injected: active tree sync failed")
+        return real_sync(repo, campaign_worktree, commit_sha)
+
+    monkeypatch.setattr(hist, "_sync_worktree_to_tree", fail_first_sync)
+    with pytest.raises(hist.GitHistoryError, match="registered but"):
+        _run_confluence(tmp_path, confluence_id, conflicts, activate=True)
+
+    dirty_text = json.dumps({
+        "campaign_id": CAMPAIGN_ID,
+        "title": "unrelated dirty edit",
+    }) + "\n"
+    (worktree / "campaign.json").write_text(dirty_text, encoding="utf-8")
+    with pytest.raises(
+        hist.GitHistoryError,
+        match="unsafe.*worktree|worktree.*unsafe|unrelated.*change",
+    ):
+        _run_confluence(tmp_path, confluence_id, conflicts, activate=True)
+    assert (worktree / "campaign.json").read_text(encoding="utf-8") == dirty_text
+
+
+def test_confluence_retry_refuses_to_rewind_later_active_commit(
+    tmp_path, monkeypatch
+):
+    """An old retry cannot overwrite a commit made after registration."""
+    worktree, _source, _left, _right = _prepare_confluence_parents(tmp_path)
+    confluence_id = f"confluence-{CAMPAIGN_ID}-tl-merged"
+    conflicts = _confluence_conflicts(confluence_id)
+    real_sync = hist._sync_worktree_to_tree
+    first = True
+
+    def fail_first_sync(repo, campaign_worktree, commit_sha):
+        nonlocal first
+        if first:
+            first = False
+            raise hist.GitHistoryError("injected: active tree sync failed")
+        return real_sync(repo, campaign_worktree, commit_sha)
+
+    monkeypatch.setattr(hist, "_sync_worktree_to_tree", fail_first_sync)
+    with pytest.raises(hist.GitHistoryError, match="registered but"):
+        _run_confluence(tmp_path, confluence_id, conflicts, activate=True)
+
+    later_text = json.dumps({
+        "status": "active",
+        "turn": 3,
+        "branch": "later",
+    }) + "\n"
+    world_state = worktree / "save" / "world-state.json"
+    world_state.write_text(later_text, encoding="utf-8")
+    later_sha = _commit_turn(tmp_path, 3, "fin-after-failed-sync-3")
+
+    with pytest.raises(hist.GitHistoryError, match="advanced beyond"):
+        _run_confluence(tmp_path, confluence_id, conflicts, activate=True)
+    assert _git(
+        tmp_path, "rev-parse", "refs/heads/timelines/tl-merged"
+    ).strip() == later_sha
+    assert world_state.read_text(encoding="utf-8") == later_text
+
+
 def test_confluence_rejects_resolutions_contradicting_manifest(tmp_path):
     _prepare_confluence_parents(tmp_path)
     confluence_id = f"confluence-{CAMPAIGN_ID}-tl-merged"

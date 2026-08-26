@@ -1529,6 +1529,141 @@ def _sync_worktree_to_tree(repo: Path, worktree: Path, commit_sha: str) -> None:
         )
 
 
+def _index_blobs(
+    repo: Path, worktree: Path
+) -> tuple[dict[str, tuple[str, str]], list[str]]:
+    """Current stage-0 index entries plus any unsafe unmerged-stage findings."""
+    listed = _run_git(
+        ["ls-files", "-s", "-z"], repo=repo, worktree=worktree
+    )
+    blobs: dict[str, tuple[str, str]] = {}
+    problems: list[str] = []
+    for entry in listed.stdout.split("\0"):
+        if not entry or "\t" not in entry:
+            continue
+        meta, path = entry.split("\t", 1)
+        parts = meta.split()
+        if len(parts) != 3 or not path:
+            problems.append("campaign index contains an unreadable entry")
+            continue
+        mode, blob, stage = parts
+        if stage != "0":
+            problems.append(f"{path}: campaign index is unmerged at stage {stage}")
+            continue
+        blobs[path] = (mode, blob)
+    return blobs, problems
+
+
+def _worktree_blob(
+    repo: Path,
+    worktree: Path,
+    relpath: str,
+) -> tuple[str, str] | None:
+    """Read-only Git blob identity for one on-disk tracked path."""
+    target = worktree / relpath
+    try:
+        target.parent.resolve(strict=False).relative_to(
+            worktree.resolve(strict=False)
+        )
+    except (OSError, ValueError) as exc:
+        raise GitHistoryError(
+            f"unsafe campaign worktree path while recovering confluence: {relpath}"
+        ) from exc
+    if target.is_symlink():
+        mode = "120000"
+        data = os.readlink(target).encode("utf-8", errors="surrogateescape")
+    elif target.is_file():
+        try:
+            stat_result = target.stat()
+            data = target.read_bytes()
+        except OSError as exc:
+            raise GitHistoryError(
+                f"cannot inspect campaign worktree path {relpath}: {exc}"
+            ) from exc
+        mode = "100755" if stat_result.st_mode & 0o111 else "100644"
+    elif target.exists():
+        raise GitHistoryError(
+            f"campaign worktree path {relpath} is not a file or symlink"
+        )
+    else:
+        return None
+    completed = subprocess.run(
+        [
+            _git_executable(),
+            *_GIT_CONFIG_ARGS,
+            f"--git-dir={repo}",
+            "hash-object",
+            "--stdin",
+        ],
+        input=data,
+        cwd=str(worktree),
+        env=_isolated_git_env(),
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        stderr = (completed.stderr or b"").decode("utf-8", errors="replace")
+        raise GitHistoryError(
+            f"cannot hash campaign worktree path {relpath}: {stderr.strip()}"
+        )
+    blob = completed.stdout.decode("ascii", errors="strict").strip()
+    if not blob:
+        raise GitHistoryError(
+            f"cannot hash campaign worktree path {relpath}: empty object id"
+        )
+    return mode, blob
+
+
+def _confluence_materialization_recovery_problems(
+    repo: Path,
+    worktree: Path,
+    *,
+    merge_sha: str,
+) -> list[str]:
+    """Why replay cannot safely finish a previously failed tree sync.
+
+    A failed checkout can leave the index/worktree wholly on either parent or
+    partially on the merge tree. Recovery is safe only while every tracked
+    path is byte/mode-identical to one of those three immutable trees and no
+    non-ignored untracked path exists. Any third value is unrelated campaign
+    work and must never be overwritten by an old idempotent retry.
+    """
+    parents = _run_git(
+        ["rev-list", "--no-walk", "--parents", merge_sha],
+        repo=repo,
+        worktree=worktree,
+    ).stdout.strip().split()
+    if len(parents) != 3 or parents[0] != merge_sha:
+        return ["registered confluence commit no longer has exactly two parents"]
+    trees = [
+        _ls_tree_blobs(repo, worktree, sha)
+        for sha in (merge_sha, parents[1], parents[2])
+    ]
+    paths = set().union(*(tree.keys() for tree in trees))
+    index, problems = _index_blobs(repo, worktree)
+    paths.update(index)
+    untracked = _run_git(
+        ["ls-files", "--others", "--exclude-standard", "-z"],
+        repo=repo,
+        worktree=worktree,
+    )
+    for path in sorted(
+        item
+        for item in untracked.stdout.split("\0")
+        if item and item != ".campaign.lock"
+    ):
+        problems.append(f"{path}: unrelated untracked campaign worktree path")
+    for path in sorted(paths):
+        allowed = {tree.get(path) for tree in trees}
+        indexed = index.get(path)
+        if indexed not in allowed:
+            problems.append(f"{path}: unrelated index change")
+        on_disk = _worktree_blob(repo, worktree, path)
+        if on_disk not in allowed:
+            problems.append(f"{path}: unrelated worktree change")
+    return problems
+
+
 def check_confluence_tree_binding(
     repo: Path,
     worktree: Path,
@@ -2098,7 +2233,10 @@ def confluence_timelines(
     unregistered confluence commit is silently registered. A ref left by a
     hard crash in that window is recovered (registered) only when it is
     exactly the commit this call would create and its tree still binds to
-    the manifest; otherwise the call fails closed.
+    the manifest; otherwise the call fails closed. An activated idempotent
+    retry also finishes a previously failed worktree materialization, but only
+    while the registered ref has not advanced and every live path is still an
+    immutable merge/parent-tree value; unrelated work fails closed.
     """
     campaign_id = _require_campaign_id(campaign_id)
     timeline_id = _require_timeline_id(timeline_id)
@@ -2139,6 +2277,35 @@ def confluence_timelines(
                 None,
             )
             if existing is not None:
+                if activate:
+                    existing_timeline = str(existing.get("timeline_id") or "")
+                    existing_merge = str(existing.get("merge_commit") or "")
+                    if state.get("active_timeline_id") != existing_timeline:
+                        raise GitHistoryError(
+                            "cannot recover confluence worktree materialization: "
+                            "the registered confluence is no longer the active "
+                            "timeline"
+                        )
+                    existing_ref = timeline_ref_name(existing_timeline)
+                    if _rev_sha(repo, worktree, existing_ref) != existing_merge:
+                        raise GitHistoryError(
+                            "cannot recover confluence worktree materialization: "
+                            "the active timeline advanced beyond the registered "
+                            "merge commit"
+                        )
+                    recovery_problems = (
+                        _confluence_materialization_recovery_problems(
+                            repo,
+                            worktree,
+                            merge_sha=existing_merge,
+                        )
+                    )
+                    if recovery_problems:
+                        raise GitHistoryError(
+                            "unsafe confluence worktree materialization recovery: "
+                            + "; ".join(recovery_problems)
+                        )
+                    _sync_worktree_to_tree(repo, worktree, existing_merge)
                 return {
                     "timeline_id": existing["timeline_id"],
                     "confluence_id": confluence_id,
