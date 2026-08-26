@@ -29,6 +29,9 @@ def load_module(name: str, path: Path):
 hist = load_module("coc_git_history", SCRIPTS / "coc_git_history.py")
 verify = load_module("coc_git_history_verify", VERIFY_SCRIPT)
 coc_state = load_module("coc_state", SCRIPTS / "coc_state.py")
+proj = load_module(
+    "coc_history_projection", SCRIPTS / "coc_history_projection.py"
+)
 tm = load_module(
     "coc_temporal_memory_contract", SCRIPTS / "coc_temporal_memory_contract.py"
 )
@@ -176,6 +179,7 @@ def _prepare_campaign(root: Path) -> Path:
         schema_generation=SCHEMA,
         note="initial campaign generation",
     )
+    proj.rebuild_history_projection(root, CAMPAIGN_ID)
     return _worktree(root)
 
 
@@ -202,6 +206,7 @@ def test_clean_history_exit_0(tmp_path):
     _write_receipts(tmp_path, ["fin-0001", "fin-0002"])
     sha1 = _commit_turn(tmp_path, 1, "fin-0001")
     sha2 = _commit_turn(tmp_path, 2, "fin-0002")
+    proj.rebuild_history_projection(tmp_path, CAMPAIGN_ID)
 
     code, stdout, stderr = _run_verify(tmp_path)
     assert code == 0, stdout + stderr
@@ -314,6 +319,7 @@ def test_verify_writes_nothing(tmp_path):
     _prepare_campaign(tmp_path)
     _write_receipts(tmp_path, ["fin-0001"])
     _commit_turn(tmp_path, 1, "fin-0001")
+    proj.rebuild_history_projection(tmp_path, CAMPAIGN_ID)
     before = _workspace_fingerprint(tmp_path)
 
     code, stdout, stderr = _run_verify(tmp_path)
@@ -351,6 +357,9 @@ PROOF_TOP_KEYS = {
     "head_matches_latest_receipt",
     "later_non_turn_commit",
     "counts",
+    "worldline_counts",
+    "projection_status",
+    "projection_findings",
     "tree",
     "history_reset",
     "findings",
@@ -366,6 +375,7 @@ def _healthy_two_turns(root: Path) -> tuple[str, str]:
     _write_receipts(root, ["fin-0001", "fin-0002"])
     sha1 = _commit_turn(root, 1, "fin-0001")
     sha2 = _commit_turn(root, 2, "fin-0002")
+    proj.rebuild_history_projection(root, CAMPAIGN_ID)
     return sha1, sha2
 
 
@@ -604,6 +614,7 @@ def test_state_proof_history_reset_later_non_turn_is_not_proven(tmp_path):
     )
     _git(tmp_path, "commit", "--allow-empty", "-m", message)
     head = _git(tmp_path, "rev-parse", "HEAD").stdout.strip()
+    proj.rebuild_history_projection(tmp_path, CAMPAIGN_ID)
     proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
     assert proof.status == "NOT_PROVEN"
     assert proof.history_reset is True
@@ -684,6 +695,7 @@ def test_relative_root_cli_and_proof_pass(tmp_path, monkeypatch):
     _prepare_campaign(tmp_path)
     _write_receipts(tmp_path, ["fin-0001"])
     _commit_turn(tmp_path, 1, "fin-0001")
+    proj.rebuild_history_projection(tmp_path, CAMPAIGN_ID)
     monkeypatch.chdir(tmp_path)
     proof = verify.state_integrity_proof(".", CAMPAIGN_ID)
     assert proof.status == verify.STATUS_PASS

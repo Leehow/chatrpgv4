@@ -276,6 +276,21 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
         "kp_surface": "context",
         "phases": ("opening", "live_turn", "pending_finalization"),
     },
+    # memory.extraction_status is the strict read-only extraction-backlog
+    # listing: a context read over the temporal store's backlog, available
+    # wherever the KP might settle recovery debt (live turns, settlement
+    # checks, resume/recovery diagnosis).
+    "memory.extraction_status": {
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": ("live_turn", "pending_finalization", "recovery"),
+    },
+    # memory.extraction_settle keeps the memory domain's state contract and
+    # only widens phases: clearing extraction backlog is not turn-scoped —
+    # it can land mid-turn or during post-resume recovery.
+    "memory.extraction_settle": {
+        "phases": ("live_turn", "pending_finalization", "recovery"),
+    },
     # timeline.confluence_query is the read-only conflict enumeration for
     # a KP worldline merge: a context read over the history projection,
     # needed wherever the KP might weigh or replay a confluence (live

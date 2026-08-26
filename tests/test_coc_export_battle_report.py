@@ -1413,7 +1413,7 @@ def test_audit_channel_written_with_hashes_and_no_leak_into_evidence(tmp_path):
         "settlements.json", "dispositions.json", "report-validation.json",
         "transcript.jsonl", "rule-decisions.jsonl", "social-resolutions.jsonl",
         "psychology-hidden.jsonl", "scene-budget.jsonl",
-        "narration-revisions.jsonl", "state-diffs.jsonl",
+        "narration-revisions.jsonl", "state-diffs.jsonl", "worldlines.json",
         "manifest.json", "hashes.sha256",
     }
     assert expected == {path.name for path in audit_dir.iterdir()}
@@ -2540,3 +2540,489 @@ def test_exporter_and_finalizer_share_valid_and_invalid_state_proof():
     assert module._state_effect_authority().state_delta_proof_reason(
         effect, original_and_replay, registry=module._toolbox_registry(),
     ) is None
+
+
+# ---------------------------------------------------------------------------
+# Worldline / fork / confluence / transfer evidence
+# ---------------------------------------------------------------------------
+
+TIMELINE_STATE_REL = "save/timeline-state.json"
+WORLDLINES_AUDIT_REL = "artifacts/audit/worldlines.json"
+
+
+def _worldline_contract():
+    return _load_script(
+        "coc_temporal_memory_contract_worldline_test",
+        SCRIPTS / "coc_temporal_memory_contract.py",
+    )
+
+
+def _root_timeline_record():
+    return {
+        "timeline_id": "tl-main",
+        "campaign_id": "case-1",
+        "kind": "root",
+        "parents": [],
+        "fork_point": None,
+        "created_by": "initial",
+    }
+
+
+def _fork_timeline_record(timeline_id, *, source="tl-main", turn=8):
+    return {
+        "timeline_id": timeline_id,
+        "campaign_id": "case-1",
+        "kind": "fork",
+        "parents": [source],
+        "fork_point": {
+            "commit": "a" * 40,
+            "turn": turn,
+            "episode_id": f"episode-case-1-{source}-turn-{turn}",
+        },
+        "created_by": "kp_decision",
+    }
+
+
+def _confluence_timeline_record(timeline_id, parents, *, merge_turn=9):
+    return {
+        "timeline_id": timeline_id,
+        "campaign_id": "case-1",
+        "kind": "confluence",
+        "parents": list(parents),
+        "fork_point": {
+            "commit": "b" * 40,
+            "turn": merge_turn,
+            "episode_id": f"episode-case-1-{parents[0]}-turn-{merge_turn}",
+        },
+        "created_by": "kp_decision",
+    }
+
+
+def _conflict_side(timeline, refs_value):
+    refs, value = refs_value
+    return {"timeline": timeline, "refs": refs, "value": value}
+
+
+def _confluence_record(conflicts, *, timeline_id="tl-merged", parents=("tl-a", "tl-b")):
+    confluence_id = f"confluence-case-1-{timeline_id}"
+    record = {
+        "confluence_id": confluence_id,
+        "campaign_id": "case-1",
+        "timeline_id": timeline_id,
+        "parents": list(parents),
+        "merge_commit": "c" * 40,
+        "receipt": "confluence-receipt-1",
+        "conflicts": conflicts,
+    }
+    _worldline_contract().validate_confluence(record)
+    return record
+
+
+def _resolved_state_conflict(confluence_id, ordinal=1):
+    prefix = confluence_id.replace("confluence-", "conflict-", 1)
+    return {
+        "conflict_id": f"{prefix}-state-current-hp-{ordinal}",
+        "class": "stat_value",
+        "left": _conflict_side("tl-a", ([f"receipt/state-left-{ordinal}"], {"current_hp": 606})),
+        "right": _conflict_side("tl-b", ([f"receipt/state-right-{ordinal}"], {"current_hp": 808})),
+        "disposition": {
+            "mode": "choose_left",
+            "receipt": f"disp-choose-left-{ordinal}",
+            "resolver_receipt": "resolver-hp-evidence",
+        },
+    }
+
+
+def _one_sided_death_conflict(confluence_id):
+    prefix = confluence_id.replace("confluence-", "conflict-", 1)
+    return {
+        "conflict_id": f"{prefix}-rolls-death-flag-2",
+        "class": "death",
+        "left": _conflict_side("tl-a", (["receipt/death-left"], {"deceased": True})),
+        "right": _conflict_side("tl-b", (["receipt/death-right"], {"absent": True})),
+        "disposition": {
+            "mode": "sacrifice",
+            "receipt": "disp-sacrifice-death",
+            "resolver_receipt": "resolver-death-evidence",
+            "note": "the merged world keeps everyone alive",
+        },
+    }
+
+
+def _semantic_paradox_conflict(confluence_id):
+    prefix = confluence_id.replace("confluence-", "conflict-", 1)
+    return {
+        "conflict_id": f"{prefix}-mem-belief-rival-3",
+        "class": "memory_belief",
+        "left": _conflict_side("tl-a", (["receipt/belief-left"], "the cellar door was locked")),
+        "right": _conflict_side("tl-b", (["receipt/belief-right"], "the cellar door stood open")),
+        "disposition": {
+            "mode": "paradox",
+            "receipt": "disp-paradox-door",
+            "note": "both are true and nobody agrees why",
+        },
+    }
+
+
+def _write_worldline_state(campaign, *, timelines, confluences=(), active="tl-main", game_reasons=None):
+    payload = {
+        "schema_generation": "timeline-state-1",
+        "campaign_id": campaign.name,
+        "active_timeline_id": active,
+        "timelines": list(timelines),
+        "confluences": list(confluences),
+        "game_reasons": game_reasons or {},
+    }
+    _write_json(campaign / TIMELINE_STATE_REL, payload)
+    return payload
+
+
+def _canonical_cost_envelope(cause, costs):
+    return json.dumps(
+        {"cause": cause, "costs": costs}, sort_keys=True, separators=(",", ":")
+    )
+
+
+def _transfer_record(*, entries, source="tl-a", target="tl-main", anchor_turn=12):
+    record = {
+        "transfer_id": f"transfer-case-1-{source}-to-{target}",
+        "campaign_id": "case-1",
+        "from_timeline": source,
+        "to_timeline": target,
+        "receipt": "kp-transfer-decision",
+        "source_commit": "d" * 40,
+        "source_turn": anchor_turn,
+        "entries": entries,
+        "play_cost": _canonical_cost_envelope(
+            "梦见另一条世界线的阁楼低语",
+            [{"kind": "san_loss", "amount": "1D4", "note": "KP_NOTE_AUDIT_ONLY"}],
+        ),
+    }
+    _worldline_contract().validate_transfer(record)
+    return record
+
+
+def _assertion_row(assertion_id, *, timeline, state, privacy="player_safe", transfer_ref=None, occurred=6):
+    row = {
+        "assertion_id": assertion_id,
+        "kind": "knowledge",
+        "scope": "campaign",
+        "campaign_id": "case-1",
+        "timeline_id": timeline,
+        "subject_id": "subject-investigator-ada",
+        "knowers": ["subject-investigator-ada"],
+        "privacy": privacy,
+        "state": state,
+        "statement": "那条世界线的阁楼里有低语",
+        "entities": [],
+        "occurred_turn": occurred,
+        "valid_from_turn": 12,
+        "valid_until_turn": None,
+        "superseded_by": [],
+        "contradicts": [],
+        "confirms": [],
+        "covers_commits": [],
+        "transfer_ref": transfer_ref,
+        "source_commit": "d" * 40,
+        "source_turn": occurred,
+        "source_receipts": ["roll/source-receipt"],
+    }
+    _worldline_contract().validate_assertion(row)
+    return row
+
+
+def _worldlines_evidence(run):
+    return json.loads((run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8"))["worldlines"]
+
+
+def test_no_worldline_campaign_reports_explicit_zero(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    _prove_git_state(run)
+    report = module.export_battle_report(run)
+
+    worldlines = _worldlines_evidence(run)
+    assert worldlines["present"] is False
+    assert worldlines["counts"]["timelines"] == 0
+    assert worldlines["counts"]["forks"] == 0
+    assert worldlines["counts"]["confluences"] == 0
+    assert worldlines["counts"]["conflicts"] == 0
+    assert worldlines["counts"]["transfer_events"] == 0
+    assert worldlines["counts"]["echo_assertions"] == 0
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    assert (
+        "No worldline timeline records were found; this campaign played "
+        "on a single worldline." in markdown
+    )
+    # Pre-existing sections stay authoritative and complete.
+    assert report["public_rolls"]["required_count"] == 1
+    assert report["completeness"]["classification"] == "COMPLETE"
+
+
+def test_one_fork_renders_divergence_and_counts(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _fixture(run)
+    _prove_git_state(run)
+    _write_worldline_state(
+        campaign,
+        timelines=[_root_timeline_record(), _fork_timeline_record("tl-attic")],
+        active="tl-attic",
+        game_reasons={"tl-attic": "回到进宅子之前再看一次"},
+    )
+    module.export_battle_report(run)
+    worldlines = _worldlines_evidence(run)
+    assert worldlines["present"] is True
+    assert worldlines["counts"]["timelines"] == 2
+    assert worldlines["counts"]["forks"] == 1
+    assert worldlines["counts"]["confluences"] == 0
+    assert worldlines["counts"]["conflicts"] == 0
+    assert worldlines["active_timeline"] == "tl-attic"
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    assert "- Diverged from: `tl-main` at turn **8** → `tl-attic`" in markdown
+
+
+def test_confluence_dispositions_render_per_conflict_and_stay_secret_where_needed(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _fixture(run)
+    _prove_git_state(run)
+    confluence_record = _confluence_record([
+        _resolved_state_conflict("confluence-case-1-tl-merged"),
+        _one_sided_death_conflict("confluence-case-1-tl-merged"),
+        _semantic_paradox_conflict("confluence-case-1-tl-merged"),
+    ])
+    _write_worldline_state(
+        campaign,
+        timelines=[
+            _root_timeline_record(),
+            _fork_timeline_record("tl-a", turn=6),
+            _fork_timeline_record("tl-b", turn=6),
+            _confluence_timeline_record("tl-merged", ("tl-a", "tl-b")),
+        ],
+        confluences=[confluence_record],
+        active="tl-merged",
+        game_reasons={"tl-a": "CP_KEEPER_GAME_REASON_A"},
+    )
+
+    _prove_git_state(run)
+    module.export_battle_report(run)
+    worldlines = _worldlines_evidence(run)
+    assert worldlines["counts"]["confluences"] == 1
+    assert worldlines["counts"]["conflicts"] == 3
+    assert worldlines["counts"]["dispositions_with_resolver_receipt"] == 2
+    section = worldlines["confluences"][0]
+    assert section["modes"] == {"choose_left": 1, "paradox": 1, "sacrifice": 1}
+    assert section["items"][1]["mode"] == "sacrifice"
+
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    assert "- Conflicts resolved: **3** (modes: choose_left ×1, paradox ×1, sacrifice ×1)" in markdown
+    assert "[death, one-sided] → sacrifice (receipt: `disp-sacrifice-death`; "
+    "resolver receipt: `resolver-death-evidence`)" in markdown
+    assert "resolver receipt: `resolver-hp-evidence`" in markdown
+
+    # Raw conflict values and KP free-text stay audit-only.
+    evidence_text = (run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8")
+    audit_text = (run / "artifacts" / "audit" / "worldlines.json").read_text(encoding="utf-8")
+    assert "606" not in evidence_text and "808" not in evidence_text
+    assert "606" not in markdown and "808" not in markdown
+    assert "CP_KEEPER_GAME_REASON_A" not in evidence_text
+    assert "CP_KEEPER_GAME_REASON_A" not in markdown
+    assert "606" in audit_text
+    assert "CP_KEEPER_GAME_REASON_A" in audit_text
+    full = _audit_completeness(run)
+    assert full["dimensions"]["worldlines"]["status"] == "PASS"
+    payload_full = json.loads((run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8"))
+    assert payload_full["worldlines"]["counts"]["conflicts"] == 3
+
+
+def test_transfer_and_echo_records_reported_with_privacy_boundary(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _fixture(run)
+    safe_entry = {
+        "source_assertion": "mem-case-1-attic-whispers",
+        "target_assertion": "mem-case-1-echo-tl-a-to-tl-main-attic-whispers",
+        "state": "distorted",
+        "credibility": 0.3,
+        "distortion": "阁楼被记成了地下室",
+        "privacy": "player_safe",
+    }
+    keeper_entry = {
+        "source_assertion": "mem-case-1-keeper-design",
+        "target_assertion": "mem-case-1-echo-tl-a-to-tl-main-keeper-design",
+        "state": "uncertain",
+        "credibility": 0.2,
+        "distortion": "KEEPER_ECHO_DISTORTION_SENTINEL",
+        "privacy": "keeper_only",
+    }
+    transfer_record = _transfer_record(entries=[safe_entry, keeper_entry], anchor_turn=12)
+    _write_jsonl(campaign / "memory" / "temporal" / "transfers.jsonl", [transfer_record])
+    assertions = [
+        _assertion_row(
+            "mem-case-1-echo-tl-a-to-tl-main-attic-whispers",
+            timeline="tl-main",
+            state="cross_timeline_echo",
+            privacy="player_safe",
+            transfer_ref=transfer_record["transfer_id"],
+        ),
+        _assertion_row(
+            "mem-case-1-echo-tl-a-to-tl-main-keeper-design",
+            timeline="tl-main",
+            state="cross_timeline_echo",
+            privacy="keeper_only",
+            transfer_ref=transfer_record["transfer_id"],
+        ),
+    ]
+    _write_jsonl(campaign / "memory" / "temporal" / "assertions.jsonl", assertions)
+    _write_worldline_state(
+        campaign,
+        timelines=[_root_timeline_record(), _fork_timeline_record("tl-a")],
+    )
+
+    module.export_battle_report(run)
+    worldlines = _worldlines_evidence(run)
+    assert worldlines["counts"]["transfer_events"] == 1
+    assert worldlines["counts"]["transfer_entries"] == 2
+    assert worldlines["counts"]["keeper_only_transfer_entries"] == 1
+    assert worldlines["counts"]["echo_assertions"] == 2
+    player_section = worldlines["transfers"][0]
+    assert player_section["anchor_turn"] == 12
+    assert player_section["costs"] == [{"kind": "san_loss", "amount": "1D4"}]
+    items = player_section["items"]
+    assert items[0]["distortion"] == "阁楼被记成了地下室"
+    assert items[1]["distortion"] is None
+
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    evidence_text = (run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8")
+    assert "- Transfer `" in markdown.replace("- 记忆转移 `", "- Transfer `")
+    assert "anchor turn **12**" in markdown or "锚定回合 **12**" in markdown
+    assert "- Play cost: san_loss 1D4" in markdown.replace("  - 玩法代价:", "  - Play cost:")
+    assert "阁楼被记成了地下室" in markdown
+    assert "KEEPER_ECHO_DISTORTION_SENTINEL" not in markdown
+    assert "KEEPER_ECHO_DISTORTION_SENTINEL" not in evidence_text
+    audit_payload = json.loads(
+        (run / "artifacts" / "audit" / "worldlines.json").read_text(encoding="utf-8")
+    )
+    audit_rows = audit_payload["worldlines_audit"]
+    assert "KEEPER_ECHO_DISTORTION_SENTINEL" in json.dumps(audit_rows, ensure_ascii=False)
+    concealed = set(audit_rows["concealed_player_only_ids"])
+    assert "mem-case-1-echo-tl-a-to-tl-main-keeper-design" in concealed
+    # KP free-text cause and cost notes never reach the player face.
+    assert "梦见另一条世界线的阁楼低语" not in evidence_text
+    assert "KP_NOTE_AUDIT_ONLY" not in evidence_text
+
+
+def test_worldline_provenance_damage_is_a_hard_completeness_finding(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _fixture(run)
+    (campaign / TIMELINE_STATE_REL).write_text("{not json", encoding="utf-8")
+
+    module.export_battle_report(run)
+    full = _audit_completeness(run)
+    worldline_dim = full["dimensions"]["worldlines"]
+    assert worldline_dim["status"] == "FAIL"
+    joined = " ".join(worldline_dim["findings"])
+    assert "cannot be read as canonical evidence" in joined
+    payload = json.loads((run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8"))
+    assert payload["completeness"]["classification"] == "INCOMPLETE"
+
+
+def test_wrong_worldline_schema_generation_is_incomplete(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _fixture(run)
+    _write_worldline_state(
+        campaign, timelines=[_root_timeline_record()]
+    )
+    state_path = campaign / TIMELINE_STATE_REL
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    payload["schema_generation"] = "timeline-state-0"
+    state_path.write_text(json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    module.export_battle_report(run)
+    full = _audit_completeness(run)
+    assert full["dimensions"]["worldlines"]["status"] == "FAIL"
+    payload_out = json.loads((run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8"))
+    assert payload_out["completeness"]["classification"] == "INCOMPLETE"
+
+
+def test_orphan_echo_claim_without_authoritative_transfer_fails(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _fixture(run)
+    orphan = _assertion_row(
+        "mem-case-1-ghost-echo",
+        timeline="tl-main",
+        state="cross_timeline_echo",
+        transfer_ref="transfer-case-1-tl-x-to-tl-main",
+    )
+    _write_jsonl(campaign / "memory" / "temporal" / "assertions.jsonl", [orphan])
+
+    module.export_battle_report(run)
+    full = _audit_completeness(run)
+    joined = " ".join(full["dimensions"]["worldlines"]["findings"])
+    assert "no authoritative transfer record" in joined
+    payload = json.loads((run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8"))
+    assert payload["completeness"]["classification"] == "INCOMPLETE"
+
+
+def test_missing_derived_echo_target_fails_closed(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _fixture(run)
+    entry = {
+        "source_assertion": "mem-case-1-attic-whispers",
+        "target_assertion": "mem-case-1-echo-tl-a-to-tl-main-attic-whispers",
+        "state": "cross_timeline_echo",
+        "credibility": 1.0,
+        "distortion": None,
+        "privacy": "player_safe",
+    }
+    transfer_record = _transfer_record(entries=[entry])
+    _write_jsonl(campaign / "memory" / "temporal" / "transfers.jsonl", [transfer_record])
+    _write_jsonl(campaign / "memory" / "temporal" / "assertions.jsonl", [])
+
+    module.export_battle_report(run)
+    full = _audit_completeness(run)
+    joined = " ".join(full["dimensions"]["worldlines"]["findings"])
+    assert "missing from the assertion store" in joined
+
+
+def test_worldline_export_is_deterministic_across_runs(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _fixture(run)
+    _prove_git_state(run)
+    confluence_record = _confluence_record([
+        _resolved_state_conflict("confluence-case-1-tl-merged"),
+    ])
+    _write_worldline_state(
+        campaign,
+        timelines=[
+            _root_timeline_record(),
+            _fork_timeline_record("tl-a"),
+            _fork_timeline_record("tl-b"),
+            _confluence_timeline_record("tl-merged", ("tl-a", "tl-b")),
+        ],
+        confluences=[confluence_record],
+        active="tl-merged",
+    )
+    _prove_git_state(run)
+    first_bytes = None
+    for _ in range(2):
+        module.export_battle_report(run)
+        current = (run / "artifacts" / "audit" / "worldlines.json").read_bytes()
+        if first_bytes is None:
+            first_bytes = current
+        assert current == first_bytes

@@ -44,6 +44,21 @@ The same cell also carries the two-step KP worldline confluence surface:
   fingerprint; and a post-commit history-projection rebuild failure never
   rolls back or rewrites canonical Git history — it returns an explicit
   warning so ``session.resume`` can rebuild later.
+- ``timeline.transfer`` — the serial cross-timeline memory mutation over
+  the reviewed ``coc_timeline_memory_transfer`` core: move chosen source
+  assertions of one timeline onto another line as one authoritative
+  transfer event plus derived ``cross_timeline_echo`` assertions with
+  independent lifecycles. Semantic inputs only (from/to timelines, entry
+  list, KP cause, optional typed play-cost descriptor); source commit and
+  turn anchors are machine-resolved from the temporal store under the
+  newest-evidence rule. The event persists to
+  ``memory/temporal/transfers.jsonl`` through the transfer store facade;
+  echo assertions record through ``coc_temporal_memory.record_assertion``
+  so a byte-equal replay stays idempotent while semantic decision reuse
+  fails closed on the request fingerprint. Play costs are returned as
+  advisory structured requests (``applied: false``); applying mechanics is
+  the KP's job through canonical ``rules.*`` / ``state.*`` operations —
+  this operation never touches hard state itself.
 """
 from __future__ import annotations
 
@@ -79,8 +94,18 @@ coc_timeline_confluence = _load_sibling(
 
 coc_state = _load_sibling("coc_state", "coc_state.py")
 
+coc_temporal_memory = _load_sibling("coc_temporal_memory", "coc_temporal_memory.py")
+
 coc_temporal_memory_contract = _load_sibling(
     "coc_temporal_memory_contract", "coc_temporal_memory_contract.py"
+)
+
+coc_temporal_transfer_store = _load_sibling(
+    "coc_temporal_transfer_store", "coc_temporal_transfer_store.py"
+)
+
+coc_timeline_memory_transfer = _load_sibling(
+    "coc_timeline_memory_transfer", "coc_timeline_memory_transfer.py"
 )
 
 _TIMELINE_RE = re.compile(r"^tl-[A-Za-z0-9][A-Za-z0-9._:-]{0,80}$")
@@ -91,6 +116,7 @@ _FORK_REQUEST_TOOL = "timeline.fork_request"
 _FORK_CONFIRM_TOOL = "timeline.fork_confirm"
 _CONFLUENCE_QUERY_TOOL = "timeline.confluence_query"
 _CONFLUENCE_CONFIRM_TOOL = "timeline.confluence_confirm"
+_TRANSFER_TOOL = "timeline.transfer"
 
 _FORK_REQUEST_HINTS = [
     "fork_request only records the intent: no branch, ref, or state "
@@ -124,6 +150,22 @@ _CONFLUENCE_CONFIRM_HINTS = [
     "a disposition may only choose a parent side, sacrifice/defer/paradox, "
     "or (hard state only, with resolver evidence) transform content — "
     "numbers are never re-settled here",
+]
+
+_TRANSFER_ENTRY_FIELDS = (
+    "source_assertion",
+    "state",
+    "credibility",
+    "distortion",
+    "privacy",
+)
+
+_TRANSFER_HINTS = [
+    "timeline.transfer only records the authoritative cross-timeline echo "
+    "and its derived memories: it never applies mechanics itself",
+    "apply every returned cost request yourself through its canonical "
+    "rules.* / state.* operation — cost_requests come back advisory with "
+    "applied=false until you do",
 ]
 
 
@@ -990,6 +1032,264 @@ def _tool_timeline_confluence_confirm(ctx: Ctx, args: dict[str, Any]):
     return receipt, warnings, list(_CONFLUENCE_CONFIRM_HINTS)
 
 
+def _transfer_request_fingerprint(
+    *,
+    campaign_id: str,
+    from_timeline_id: str,
+    to_timeline_id: str,
+    entries: list[dict[str, Any]],
+    cause: str,
+    play_cost: Any,
+) -> str:
+    """Machine-attached canonical digest of the whole transfer request.
+
+    Integrity evidence only: the machine stores and compares it; the model
+    never reads, echoes, or produces it.
+    """
+    payload = json.dumps(
+        [
+            "timeline-transfer-request-1",
+            campaign_id,
+            from_timeline_id,
+            to_timeline_id,
+            entries,
+            cause,
+            play_cost if isinstance(play_cost, (list, type(None))) else [play_cost],
+        ],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _known_timelines(ctx: Ctx) -> set[str]:
+    state = _timeline_state(ctx)
+    return {
+        _ROOT_TIMELINE_ID,
+        *(
+            str(row.get("timeline_id"))
+            for row in state.get("timelines") or []
+            if isinstance(row, dict) and row.get("timeline_id")
+        ),
+    }
+
+
+def _require_known_transfer_line(ctx: Ctx, timeline: str, label: str) -> str:
+    known = _known_timelines(ctx)
+    if timeline not in known:
+        raise ToolError(
+            "invalid_state",
+            f"{label} {timeline!r} is not a registered timeline of this "
+            "campaign; cross-timeline memory moves only between existing "
+            "worldlines",
+        )
+    return timeline
+
+
+def _require_entries(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not value:
+        raise ToolError(
+            "invalid_param",
+            "entries must be a non-empty array of transfer entries, each a "
+            "mapping with at least source_assertion",
+        )
+    normalized: list[dict[str, Any]] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            raise ToolError(
+                "invalid_param",
+                "each transfer entry must be a mapping",
+            )
+        unknown = sorted(set(entry) - set(_TRANSFER_ENTRY_FIELDS))
+        if unknown:
+            raise ToolError(
+                "invalid_param",
+                f"transfer entry has unknown fields {unknown}; allowed: "
+                f"{list(_TRANSFER_ENTRY_FIELDS)}",
+            )
+        source = entry.get("source_assertion")
+        if not isinstance(source, str) or not source.strip():
+            raise ToolError(
+                "invalid_param",
+                "each transfer entry requires a semantic source_assertion id",
+            )
+        normalized.append(dict(entry))
+    return normalized
+
+
+def _require_cause(value: Any) -> str:
+    cause = str(value or "").strip()
+    if not cause:
+        raise ToolError("invalid_param", "cause is required")
+    if len(cause) > coc_timeline_memory_transfer.MAX_CAUSE_CHARS:
+        raise ToolError(
+            "invalid_param",
+            "cause must be concise (<= "
+            f"{coc_timeline_memory_transfer.MAX_CAUSE_CHARS} chars)",
+        )
+    return cause
+
+
+def _tool_timeline_transfer(ctx: Ctx, args: dict[str, Any]):
+    decision_id = _require_decision_id(args.get("decision_id"), "decision_id")
+    from_timeline = _require_source_timeline(args.get("from_timeline"))
+    to_timeline = _require_source_timeline(args.get("to_timeline"))
+    if from_timeline == to_timeline:
+        raise ToolError(
+            "invalid_param",
+            "cross-timeline transfer requires distinct timelines; got "
+            f"{from_timeline!r} twice",
+        )
+    entries = _require_entries(args.get("entries"))
+    cause = _require_cause(args.get("cause"))
+    play_cost = args.get("play_cost")
+
+    fingerprint = _transfer_request_fingerprint(
+        campaign_id=ctx.campaign_id,
+        from_timeline_id=from_timeline,
+        to_timeline_id=to_timeline,
+        entries=entries,
+        cause=cause,
+        play_cost=play_cost,
+    )
+    prior = ctx.ledger_lookup(_TRANSFER_TOOL, decision_id)
+    if prior is not None:
+        prior_data = prior.get("data")
+        if (
+            not isinstance(prior_data, dict)
+            or prior_data.get("request_fingerprint") != fingerprint
+        ):
+            raise ToolError(
+                "idempotency_conflict",
+                f"decision_id {decision_id!r} is already bound to a "
+                "different timeline.transfer request; a decision is "
+                "immutable once recorded — use a fresh decision_id",
+            )
+        receipt = prior_data.get("receipt")
+        if not isinstance(receipt, dict):
+            raise ToolError("invalid_state", "stored transfer receipt is malformed")
+        return receipt, [
+            "duplicate decision_id: returning the previous receipt"
+        ], list(_TRANSFER_HINTS)
+
+    # Both worldlines must exist before anything moves between them.
+    _require_known_transfer_line(ctx, from_timeline, "from_timeline")
+    _require_known_transfer_line(ctx, to_timeline, "to_timeline")
+
+    assertions_index = coc_temporal_memory.load_assertions(ctx.campaign_dir)
+    ordered_sources: list[str] = []
+    for entry in entries:
+        sid = entry["source_assertion"]
+        if sid not in assertions_index:
+            raise ToolError(
+                "invalid_state",
+                f"unknown source assertion {sid!r}: no such temporal memory "
+                "assertion in this campaign; sources must exist on the "
+                "source timeline already",
+            )
+        if sid not in ordered_sources:
+            ordered_sources.append(sid)
+    source_assertions = [assertions_index[sid] for sid in ordered_sources]
+
+    # Deterministic provenance label: independent of the caller's
+    # decision_id so a byte-equal semantic replay under a fresh decision is
+    # canonically identical and stays idempotent through the store. Per-
+    # decision immutability is enforced above on the operation ledger.
+    receipt_name = (
+        f"timeline.transfer {ctx.campaign_id} "
+        f"{from_timeline}-to-{to_timeline}"
+    )
+    if len(receipt_name) > 200:
+        raise ToolError(
+            "invalid_param", "decision_id is too long to bind a receipt name"
+        )
+    try:
+        plan = coc_timeline_memory_transfer.build_transfer_event(
+            ctx.campaign_id,
+            from_timeline,
+            to_timeline,
+            source_assertions,
+            entries,
+            cause,
+            play_cost=play_cost,
+            receipt=receipt_name,
+        )
+        # Source provenance anchors (commit/turn) are machine-resolved from
+        # the canonical temporal store under the newest-evidence rule; they
+        # never travel on the model-facing input surface.
+        targets = coc_timeline_memory_transfer.derive_target_assertions(
+            plan["transfer"], source_assertions
+        )
+        report = coc_timeline_memory_transfer.validate_transfer_plan(
+            plan,
+            source_assertions,
+            targets,
+            existing_assertions=list(assertions_index.values()),
+            existing_event_lookup=
+                lambda tid: coc_temporal_transfer_store.lookup_transfer(
+                    ctx.campaign_dir, tid
+                ),
+        )
+    except coc_temporal_memory_contract.TemporalMemoryContractError as exc:
+        raise ToolError("invalid_param", f"transfer plan rejected: {exc}") from exc
+    except ValueError as exc:
+        raise ToolError("invalid_state", f"transfer plan rejected: {exc}") from exc
+
+    try:
+        stored = coc_temporal_transfer_store.append_transfer(
+            ctx.campaign_dir, plan["transfer"]
+        )
+    except coc_temporal_transfer_store.TransferStoreError as exc:
+        raise ToolError("invalid_state", str(exc)) from exc
+
+    recorded: list[str] = []
+    try:
+        for target in targets:
+            coc_temporal_memory.record_assertion(
+                target, campaign_dir=ctx.campaign_dir
+            )
+            recorded.append(target["assertion_id"])
+    except (coc_temporal_memory.TemporalMemoryError, OSError) as exc:
+        raise ToolError(
+            "invalid_state",
+            f"transfer event landed but recording an echo assertion failed: "
+            f"{exc}; replay the same transfer with a fresh decision_id to "
+            "complete the missing echoes",
+        ) from exc
+
+    receipt = {
+        "schema_version": 1,
+        "tool": _TRANSFER_TOOL,
+        "decision_id": decision_id,
+        "transfer_id": stored["transfer_id"],
+        "from_timeline": from_timeline,
+        "to_timeline": to_timeline,
+        "entry_count": len(stored["entries"]),
+        "target_ids": recorded,
+        "idempotent": bool(report.get("idempotent_transfer")),
+        "cost_requests": report.get("cost_requests") or [],
+    }
+    ctx.ledger_record(
+        decision_id,
+        _TRANSFER_TOOL,
+        {
+            "schema_version": 1,
+            "request_fingerprint": fingerprint,
+            "receipt": receipt,
+        },
+    )
+    warnings = (
+        [
+            "this authoritative transfer event was already persisted: "
+            "replayed byte-identically, derived echo assertions unchanged"
+        ]
+        if report.get("idempotent_transfer")
+        else []
+    )
+    return receipt, warnings, list(_TRANSFER_HINTS)
+
+
 def register_operations(registry) -> None:
     global TOOLS
     TOOLS = registry.legacy_tools
@@ -1065,6 +1365,25 @@ def register_operations(registry) -> None:
     audit_mode="full",
     execution_class="serial_campaign",
 )(_tool_timeline_confluence_confirm)
+    registry.tool(
+    "timeline.transfer",
+    "Move chosen character memories from one campaign worldline onto another as one authoritative cross-timeline transfer event, deriving new cross_timeline_echo assertions with preserved provenance and their own lifecycle. Semantic inputs only (source/target timelines, entries with credibility/distortion/privacy, KP cause); source commit/turn anchors are machine-resolved. Returns advisory cost_requests — apply each through its canonical rules.*/state.* operation; this operation never applies mechanics itself. Idempotent per decision_id on byte-equal replay.",
+    {
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key; immutable once bound to a transfer"},
+        "from_timeline": {"type": "string", "required": True, "desc": "source worldline whose memories move (tl-<slug>)"},
+        "to_timeline": {"type": "string", "required": True, "desc": "destination worldline receiving the echoes (tl-<slug>); must differ from from_timeline"},
+        "entries": {"type": "array", "required": True, "items": {"type": "object"}, "desc": "non-empty array of {source_assertion, credibility?, state?, distortion?, privacy?}; privacy may only tighten"},
+        "cause": {"type": "string", "required": True, "desc": "KP-semantic reason the memory bleeds across worldlines (durable evidence)"},
+        "play_cost": {"type": "array", "items": {"type": "object"}, "desc": "optional advisory play-cost descriptors {kind, amount?, subject_id?, note?} returned as unapplied requests for canonical rules.*/state.* application"},
+    },
+    access="mutation",
+    read_domains=("history", "memory"),
+    write_domains=("timeline",),
+    recovery_domains=(),
+    response_mode="full",
+    audit_mode="full",
+    execution_class="serial_campaign",
+)(_tool_timeline_transfer)
 
 
 OPERATION_EXPORTS = (
@@ -1076,15 +1395,22 @@ OPERATION_EXPORTS = (
     '_FORK_CONFIRM_TOOL',
     '_FORK_REQUEST_HINTS',
     '_FORK_REQUEST_TOOL',
+    '_TRANSFER_ENTRY_FIELDS',
+    '_TRANSFER_HINTS',
+    '_TRANSFER_TOOL',
     '_confluence_confirm_fingerprint',
     '_confluence_parents',
     '_fork_confirm_fingerprint',
     '_fork_request_fingerprint',
+    '_known_timelines',
     '_lineage_projection',
     '_own_latest_turn',
     '_public_conflict',
     '_require_confluence_id',
     '_require_dispositions',
+    '_require_entries',
+    '_require_cause',
+    '_require_known_transfer_line',
     '_require_path_resolutions',
     '_require_decision_id',
     '_require_game_reason',
@@ -1098,6 +1424,8 @@ OPERATION_EXPORTS = (
     '_tool_timeline_confluence_query',
     '_tool_timeline_fork_confirm',
     '_tool_timeline_fork_request',
+    '_tool_timeline_transfer',
+    '_transfer_request_fingerprint',
     '_validate_free_target',
     '_validate_source_selector',
     'coc_git_history',
@@ -1105,6 +1433,9 @@ OPERATION_EXPORTS = (
     'coc_history_projection_query',
     'coc_history_projection_schema',
     'coc_state',
-    'coc_timeline_confluence',
+    'coc_temporal_memory',
     'coc_temporal_memory_contract',
+    'coc_temporal_transfer_store',
+    'coc_timeline_confluence',
+    'coc_timeline_memory_transfer',
 )

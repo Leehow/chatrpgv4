@@ -85,6 +85,13 @@ for _runtime_export in coc_operation_kernel.OPERATION_RUNTIME_EXPORTS:
     globals()[_runtime_export] = getattr(coc_operation_kernel, _runtime_export)
 coc_scenario = _load_sibling("coc_scenario_toolbox", "coc_scenario.py")
 
+# Temporal-memory finalize-hook modules. Shared module instances: operation
+# adapters importing the same filenames get the identical cached object.
+coc_temporal_memory = _load_sibling("coc_temporal_memory", "coc_temporal_memory.py")
+coc_memory_extraction = _load_sibling(
+    "coc_memory_extraction", "coc_memory_extraction.py"
+)
+
 SCENARIO_FILES = (
     "story-graph.json",
     "clue-graph.json",
@@ -1213,6 +1220,20 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                             _commit_finalized_turn_history(ctx, data)
                         except ToolError as exc:
                             _fail_history_commit(exc)
+                        else:
+                            extraction_evidence = (
+                                _enqueue_finalized_turn_memory_extraction(
+                                    ctx, data
+                                )
+                            )
+                            if isinstance(extraction_evidence, dict):
+                                data["memory_extraction"] = deepcopy(
+                                    extraction_evidence
+                                )
+                            elif isinstance(extraction_evidence, str):
+                                envelope.setdefault("warnings", []).append(
+                                    extraction_evidence
+                                )
             except coc_fileio.CampaignLockError as exc:
                 if has_receipt:
                     _fail_history_commit(
@@ -2699,6 +2720,86 @@ def _finalization_turn_number(ctx: Ctx, receipt: dict[str, Any]) -> int:
     raise ToolError("state_corrupt", "finalization receipt has no turn_number")
 
 
+def _enqueue_finalized_turn_memory_extraction(
+    ctx: Ctx, receipt: dict[str, Any]
+) -> dict[str, Any] | str | None:
+    """Enqueue the deterministic memory-extraction entry for a settled turn.
+
+    Runs only after ``_commit_finalized_turn_history`` succeeded: the turn
+    result and Git commit are already authoritative, so an enqueue failure
+    NEVER fails ``turn.finalize`` (extraction core contract). Episode
+    recording goes through ``coc_temporal_memory.record_turn_episode``
+    (semantic campaign/timeline/turn/receipt in, machine-attached commit
+    out); with no candidates this enqueues the explicit pending ``extract``
+    backlog row through the canonical temporal facade store, and the job
+    identity comes from ``coc_memory_extraction.build_extraction_job``.
+    Job/backlog/episode ids are derived from (campaign, timeline, turn)
+    only — never wall-clock — so they are byte-stable across finalize
+    replay and the entry stays rebuildable from Git history.
+
+    Returns a small model-facing evidence mapping (semantic ids only), or a
+    bounded warning string on recoverable failure, or ``None`` when this
+    finalized turn carries no extractable binding (missing campaign /
+    receipt, or turn 0).
+    """
+    campaign_id = ctx.campaign_id
+    finalization_id = str(receipt.get("finalization_id") or "").strip()
+    if not isinstance(campaign_id, str) or not campaign_id or not finalization_id:
+        return None
+    try:
+        turn_number = int(_finalization_turn_number(ctx, receipt))
+        if turn_number < 1:
+            # Episodes/backlog rows bind finalized turns >= 1 only.
+            return None
+        timeline_id = coc_git_history.active_timeline_id(ctx.root, campaign_id)
+        episode = coc_temporal_memory.record_turn_episode(
+            ctx.root,
+            campaign_id,
+            timeline_id,
+            turn_number,
+            [finalization_id],
+            None,
+            None,
+            subjects_present=[],
+            entities=[],
+            finalization_receipt=finalization_id,
+        )
+        episode_core = {
+            key: value for key, value in episode.items() if key != "evidence"
+        }
+        # Binding record from the git-resolved truth (resolve_turn_commit
+        # validated commit_type/timeline/turn): exactly the closed fields
+        # build_extraction_job consumes; parents/tree/files stay Git-side.
+        commit_record = {
+            "sha": str(episode.get("commit") or ""),
+            "campaign_id": campaign_id,
+            "timeline_id": timeline_id,
+            "turn_number": turn_number,
+            "finalization_id": finalization_id,
+            "commit_type": "turn",
+        }
+        job = coc_memory_extraction.build_extraction_job(
+            ctx.campaign_dir,
+            commit_record,
+            finalization_id,
+            episode_core,
+        )
+        return {
+            "job_id": job["job_id"],
+            "episode_id": str(episode["episode_id"]),
+            "timeline_id": timeline_id,
+            "backlog_id": coc_temporal_memory.contract.backlog_id_for(
+                campaign_id, turn_number, coc_memory_extraction.BACKLOG_SLOT
+            ),
+        }
+    except Exception as exc:  # hard fail-open by contract
+        return (
+            "turn finalization is durable, but its deterministic memory-"
+            "extraction enqueue failed and stays rebuildable from Git "
+            f"history: {exc}"
+        )
+
+
 def _commit_finalized_turn_history(ctx: Ctx, receipt: dict[str, Any]) -> str:
     """Commit one settled turn after every authoritative post-finalization write."""
     campaign_id = ctx.campaign_id
@@ -2790,6 +2891,7 @@ _load_operation_module('npc-world', 'coc_operation_npc_world.py')
 _load_operation_module('continuity-memory', 'coc_operation_continuity_memory.py')
 _load_operation_module('temporal-history', 'coc_operation_temporal_history.py')
 _load_operation_module('timeline', 'coc_operation_timeline.py')
+_load_operation_module('memory-extraction', 'coc_operation_memory_extraction.py')
 _load_operation_module('world-time-effects', 'coc_operation_world_time_effects.py')
 _load_operation_module('turn-output', 'coc_operation_turn_output.py')
 _load_operation_module('steward', 'coc_operation_steward.py')
@@ -2853,9 +2955,11 @@ _MUTATING_TOOLS = frozenset({
     "memory.write",
     "memory.resolve_hook",
     "memory.adjudicate",
+    "memory.extraction_settle",
     "timeline.fork_request",
     "timeline.fork_confirm",
     "timeline.confluence_confirm",
+    "timeline.transfer",
     "steward.domain_put",
     "steward.deliver",
     "steward.notebook_put",

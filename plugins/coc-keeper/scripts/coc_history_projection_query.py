@@ -32,12 +32,9 @@ Contract:
 - ``query_authority_projection`` builds the closed authority-projection
   shape consumed by the timeline-confluence conflict core: flattened state
   leaves of the tip commit plus lineage-bound event/receipt/roll/effect/
-  transaction/relation/entity/assertion rows. Still a strict projection
-  read; source-path attribution for the canonical roll/effect/transaction
-  tables re-runs the pure events extractor over commit file texts already
-  stored in the ``commits`` table (one additional intra-projection import,
-  ``coc_history_projection_events`` — a pure module, no Git/SQLite access
-  of its own), so no hidden duplication of the extractor's classification.
+  transaction/relation/entity/assertion rows (canonical identities +
+  payload digests/texts + wherever the owning table has them, source
+  provenance). Still a strictly read-only projection read.
 """
 from __future__ import annotations
 
@@ -50,7 +47,6 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import coc_history_projection_events as _events_mod  # noqa: E402
 from coc_history_projection_schema import (  # noqa: E402
     HistoryProjectionError,
     canonical_json,
@@ -1067,57 +1063,6 @@ def _entity_refs_in_value(value: Any) -> set[tuple[str, str]]:
     return refs
 
 
-def _canonical_source_paths(
-    connection: sqlite3.Connection, closure: list[str]
-) -> dict[tuple[str, str], str]:
-    """(table_kind, canonical_row_id) -> source JSONL path, topo-first wins.
-
-    The canonical roll/effect/transaction tables carry no source-path
-    column; the pure events extractor recovers it exactly from the commit
-    file texts already stored in ``commits.files_json``. First occurrence
-    in topo order mirrors the facade's first-occurrence-wins inserts.
-    """
-    attribution: dict[tuple[str, str], str] = {}
-    rows = _chunked_rows(
-        connection,
-        "SELECT sha, ordinal, campaign_id, timeline_id, turn_number,"
-        " commit_type, files_json FROM commits WHERE sha IN ({placeholder})",
-        closure,
-    )
-    records = sorted(
-        (
-            {
-                "sha": row["sha"],
-                "ordinal": int(row["ordinal"]),
-                "campaign_id": row["campaign_id"],
-                "timeline_id": row["timeline_id"],
-                "turn_number": row["turn_number"],
-                "commit_type": row["commit_type"],
-                "files": parse_canonical_json(row["files_json"]),
-            }
-            for row in rows
-        ),
-        key=lambda record: record["ordinal"],
-    )
-    for record in records:
-        try:
-            extracted = _events_mod.extract_events(record)
-        except _events_mod.EventExtractionError as exc:
-            raise ProjectionQueryError(
-                f"cannot attribute log sources from stored history: {exc}"
-            ) from exc
-        for table, key in (
-            ("rolls", "roll_id"),
-            ("effects", "effect_id"),
-            ("transactions", "transaction_id"),
-        ):
-            for row in extracted.get(table) or []:
-                row_id = row.get(key)
-                if isinstance(row_id, str) and row_id:
-                    attribution.setdefault((table, row_id), row.get("source_path"))
-    return attribution
-
-
 def query_authority_projection(
     root: Path | str,
     campaign_id: str,
@@ -1185,8 +1130,6 @@ def query_authority_projection(
             for document in _snapshot_documents(connection, sha).values():
                 entity_refs.update(_entity_refs_in_value(document))
 
-        attribution = _canonical_source_paths(connection, closure)
-
         events = [
             {
                 "event_id": row["event_id"],
@@ -1228,7 +1171,6 @@ def query_authority_projection(
         rolls = [
             {
                 "roll_id": row["roll_id"],
-                "source_path": attribution.get(("rolls", row["roll_id"])),
                 "timeline_id": row["timeline_id"],
                 "turn_number": row["turn_number"],
                 "payload_sha256": row["payload_sha256"],
@@ -1245,7 +1187,6 @@ def query_authority_projection(
             {
                 "effect_id": row["effect_id"],
                 "entity_id": row["entity_id"],
-                "source_path": attribution.get(("effects", row["effect_id"])),
                 "timeline_id": row["timeline_id"],
                 "turn_number": row["turn_number"],
                 "payload_sha256": row["payload_sha256"],
@@ -1261,9 +1202,6 @@ def query_authority_projection(
         transactions = [
             {
                 "transaction_id": row["transaction_id"],
-                "source_path": attribution.get(
-                    ("transactions", row["transaction_id"])
-                ),
                 "timeline_id": row["timeline_id"],
                 "turn_number": row["turn_number"],
                 "payload_sha256": row["payload_sha256"],

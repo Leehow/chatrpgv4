@@ -227,6 +227,30 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "live_turn"
     ]
   },
+  "memory.extraction_settle": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "state",
+    "execution_class": "serial_campaign",
+    "kp_surface": "state",
+    "phases": [
+      "live_turn",
+      "pending_finalization",
+      "recovery"
+    ]
+  },
+  "memory.extraction_status": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "none",
+    "execution_class": "serial_campaign",
+    "kp_surface": "context",
+    "phases": [
+      "live_turn",
+      "pending_finalization",
+      "recovery"
+    ]
+  },
   "memory.recall": {
     "advisory": false,
     "audience": "keeper",
@@ -1508,6 +1532,16 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "live_turn"
     ]
   },
+  "timeline.transfer": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "state",
+    "execution_class": "serial_campaign",
+    "kp_surface": "state",
+    "phases": [
+      "live_turn"
+    ]
+  },
   "turn.finalize": {
     "advisory": false,
     "audience": "keeper",
@@ -1552,6 +1586,7 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "evidence.table_opening",
     "history.diff",
     "history.query",
+    "memory.extraction_status",
     "memory.recall",
     "memory.search",
     "personal_horror.query",
@@ -1607,6 +1642,7 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
   ],
   "state": [
     "memory.adjudicate",
+    "memory.extraction_settle",
     "memory.resolve_hook",
     "memory.write",
     "quest.activate",
@@ -1651,7 +1687,8 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "state.time_marker",
     "timeline.confluence_confirm",
     "timeline.fork_confirm",
-    "timeline.fork_request"
+    "timeline.fork_request",
+    "timeline.transfer"
   ],
   "subsystem": [
     "chase.context",

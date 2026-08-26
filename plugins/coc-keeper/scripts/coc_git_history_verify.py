@@ -2,8 +2,25 @@
 """Read-only diagnostic for per-campaign sidecar git history.
 
 Reports fsck, trailer completeness, and 1:1 pairing between
-``logs/turn-finalizations.jsonl`` receipts and ``Finalization-Id`` commits.
+``logs/turn-finalizations.jsonl`` receipts and ``Finalization-Id`` commits,
+plus the worldline/temporal sweeps:
+
+- timeline DAG validity (unique ``tl-main`` root, parent reachability,
+  no cycles, fork exactly-one-parent / confluence exactly-two-distinct
+  parents, active pointer valid);
+- trailer completeness for turn/confluence commits across *all* timeline
+  lineages, confluence manifest binding, and recorded-confluence coverage;
+- projection-vs-Git identity: the facade's ``projection_runs`` row must
+  carry the current generation marker and match a deterministic shadow
+  rebuild of the same Git history (digest/head/commit_count);
+- explicit zero-record reporting for timelines/confluences/transfers/
+  episodes/backlog — zero is reported as zero, never omitted.
+
 Never writes the campaign tree, the sidecar repo, or any cache file.
+The projection database itself is opened read-only and the shadow rebuild
+is built in a system temp directory; missing/corrupt stores are findings,
+never exceptions. All worldline/projection results are advisory evidence
+for closeout/acceptance — this tool adds no runtime gate.
 """
 from __future__ import annotations
 
@@ -12,8 +29,10 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -24,6 +43,9 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import coc_git_history as hist
 import coc_state
+import coc_history_projection as proj_facade
+import coc_history_projection_git as proj_git
+import coc_history_projection_schema as proj_schema
 
 FINALIZATION_LOG = "turn-finalizations.jsonl"
 
@@ -82,6 +104,38 @@ CODE_CONFLUENCE_TRAILER = "confluence_trailer"
 CODE_CONFLUENCE_MANIFEST = "confluence_manifest_mismatch"
 CODE_CONFLUENCE_TREE = "confluence_tree_unbound"
 CODE_ORPHAN_TIMELINE_REF = "orphan_timeline_ref"
+# Worldline DAG sweep (timeline-state structure).
+CODE_DAG_DUPLICATE = "duplicate_timeline"
+CODE_DAG_MALFORMED = "timeline_record_malformed"
+CODE_DAG_ROOT = "dag_root_invalid"
+CODE_DAG_CYCLE = "dag_cycle"
+CODE_DAG_PARENT_UNKNOWN = "dag_parent_unknown"
+CODE_DAG_DISCONNECTED = "dag_disconnected"
+CODE_ACTIVE_TIMELINE_INVALID = "active_timeline_invalid"
+CODE_CONFLUENCE_UNRECORDED = "confluence_unrecorded"
+# Temporal store integrity (advisory JSONL stores beside the projector).
+CODE_TEMPORAL_STORE_CORRUPT = "temporal_store_corrupt"
+# Projection-vs-Git identity (history-projection cache).
+CODE_PROJECTION_REBUILD_NEEDED = "projection_rebuild_needed"
+CODE_PROJECTION_UNREADABLE = "projection_unreadable"
+CODE_PROJECTION_DRIFT = "projection_drift"
+GIT_SCAN_FAILED = "git_scan_failed"
+
+#: Record categories whose counts are reported explicitly, including zero.
+WORLDLINE_COUNT_KEYS: tuple[str, ...] = (
+    "timelines",
+    "confluences",
+    "transfers",
+    "episodes",
+    "backlog",
+)
+
+#: Advisory append-only temporal stores living under ``memory/temporal/``.
+_TEMPORAL_STORE_FILES: tuple[tuple[str, str], ...] = (
+    ("transfers", "transfers.jsonl"),
+    ("episodes", "episodes.jsonl"),
+    ("backlog", "backlog.jsonl"),
+)
 
 _NOT_PROVEN_CODES = frozenset(
     {
@@ -117,6 +171,35 @@ _CLI_OMIT_FINDING_CODES = frozenset(
     }
 )
 _PERMITTED_LATER_NON_TURN = frozenset({CODE_HISTORY_RESET})
+
+#: Projection-identity verdicts that fail their dimension outright.
+#: They live in ``projection_findings`` / ``projection_status`` and hold
+#: the sweep exit at 1, but never enter the core finalize/git findings.
+_PROJECTION_HARD_CODES = frozenset(
+    {
+        CODE_PROJECTION_DRIFT,
+        CODE_PROJECTION_UNREADABLE,
+        GIT_SCAN_FAILED,
+    }
+)
+
+
+def _projection_dimension_status(
+    projection_findings: Iterable[Finding],
+) -> str:
+    """Collapse projection-sweep findings into one dimension verdict.
+
+    PASS when identity was proven; NOT_PROVEN when the rebuildable cache
+    simply does not exist yet (an explicit "rebuild needed" gap that must
+    never downgrade the core finalize/git proof); FAIL on a present-but-
+    wrong cache (drift, corrupt store, unreadable generation).
+    """
+    kinds = {finding.kind for finding in projection_findings}
+    if kinds & _PROJECTION_HARD_CODES:
+        return STATUS_FAIL
+    if CODE_PROJECTION_REBUILD_NEEDED in kinds:
+        return STATUS_NOT_PROVEN
+    return STATUS_PASS
 
 
 @dataclass(frozen=True)
@@ -161,11 +244,24 @@ class VerifyReport:
     error: str | None = None
     turn_commit_count: int = 0
     receipt_count: int = 0
+    core_pass_worldline_gap: bool = False
 
     def render_lines(self) -> list[str]:
         lines: list[str] = []
         if self.error:
             lines.append(self.error)
+        elif self.core_pass_worldline_gap:
+            # Core finalize/git proof passed but the projection dimension
+            # still owes a rebuild; the sweep holds exit at 2.
+            lines.append(
+                "GIT HISTORY CHECK PASSED (core): "
+                f"{self.turn_commit_count} turn commit(s), "
+                f"{self.receipt_count} receipt(s)"
+            )
+            lines.append(
+                "WORLDLINE GAP: history projection missing — deterministic "
+                "rebuild pending (exit held at 2, advisory)"
+            )
         elif self.exit_code == 0:
             lines.append(
                 "GIT HISTORY CHECK PASSED: "
@@ -287,6 +383,12 @@ class StateIntegrityProof:
     history_reset: bool
     findings: tuple[Finding, ...]
     infos: tuple[str, ...] = ()
+    worldline_counts: dict[str, int] = field(default_factory=dict)
+    #: Projection-vs-Git dimension verdict (PASS/FAIL/NOT_PROVEN); ``None``
+    #: when the sweep did not run. Non-authoritative rebuildable cache —
+    #: never downgrades the core finalize/git proof status.
+    projection_status: str | None = None
+    projection_findings: tuple[Finding, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -316,6 +418,11 @@ class StateIntegrityProof:
             },
             "tree": self.tree.to_dict(),
             "history_reset": self.history_reset,
+            "worldline_counts": dict(self.worldline_counts),
+            "projection_status": self.projection_status,
+            "projection_findings": [
+                finding.to_dict() for finding in self.projection_findings
+            ],
             "findings": [finding.to_dict() for finding in self.findings],
         }
 
@@ -891,6 +998,9 @@ def _build_proof(
     history_reset: bool = False,
     findings: Iterable[Finding] = (),
     infos: Iterable[str] = (),
+    worldline_counts: dict[str, int] | None = None,
+    projection_status: str | None = None,
+    projection_findings: Iterable[Finding] = (),
 ) -> StateIntegrityProof:
     finding_tuple = tuple(findings)
     history_valid = (
@@ -925,6 +1035,9 @@ def _build_proof(
         history_reset=history_reset,
         findings=finding_tuple,
         infos=tuple(infos),
+        worldline_counts=dict(worldline_counts) if worldline_counts else {},
+        projection_status=projection_status,
+        projection_findings=tuple(projection_findings),
     )
 
 
@@ -1167,51 +1280,729 @@ def _foreign_finalization_ids(
     return foreign
 
 
+def _list_timeline_git_refs(repo: Path, worktree: Path) -> set[str]:
+    """Timeline heads known to the sidecar repo (read-only)."""
+    listed = _run_git_readonly(
+        ["for-each-ref", "--format=%(refname)", hist.TIMELINE_REF_PREFIX],
+        repo=repo,
+        worktree=worktree,
+    )
+    if listed.returncode != 0:
+        return set()
+    return {
+        line.strip()
+        for line in listed.stdout.splitlines()
+        if line.strip()
+    }
+
+
+def _load_raw_timeline_state(
+    worktree: Path,
+) -> tuple[dict[str, Any] | None, list[Finding]]:
+    """Parse ``save/timeline-state.json`` without contract hard-failing.
+
+    A file that is absent means a single-default-timeline campaign (the
+    implied state). Anything present but unreadable/not-current-generation
+    is a structured finding so the caller can keep sweeping the rest.
+    """
+    path = worktree / hist.TIMELINE_STATE_RELPATH
+    if not path.is_file():
+        return None, []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return None, [
+            Finding(
+                kind="timeline_state_unreadable",
+                detail=f"timeline-state.json is unreadable: {exc}",
+            )
+        ]
+    if not isinstance(payload, dict):
+        return None, [
+            Finding(
+                kind="timeline_state_unreadable",
+                detail="timeline-state.json must be a JSON object",
+            )
+        ]
+    generation = payload.get("schema_generation")
+    if generation != hist.TIMELINE_STATE_SCHEMA:
+        return None, [
+            Finding(
+                kind="timeline_state_unreadable",
+                detail=(
+                    "timeline-state.json schema_generation must be "
+                    f"{hist.TIMELINE_STATE_SCHEMA!r}"
+                ),
+            )
+        ]
+    return payload, []
+
+
+def _verify_timeline_structure(
+    state: dict[str, Any],
+) -> tuple[list[Finding], dict[str, int]]:
+    """Structural worldline DAG rules over the raw timeline-state.
+
+    Covers: unique ids, unique ``tl-main`` root, resolvable parents,
+    acyclicity, root reachability, fork exactly-one-parent, confluence
+    exactly-two-distinct-parents, and a valid active pointer. Every rule
+    reports separately so one broken save never masks the others.
+    """
+    findings: list[Finding] = []
+    counts = {"timelines": 0, "confluences": 0}
+    timelines_value = state.get("timelines")
+    if timelines_value is None:
+        timelines_value = []
+    if not isinstance(timelines_value, list):
+        findings.append(
+            Finding(CODE_DAG_MALFORMED, detail="timelines must be a list")
+        )
+        timelines_value = []
+    by_id: dict[str, dict[str, Any]] = {}
+    for record in timelines_value:
+        if not isinstance(record, dict):
+            findings.append(
+                Finding(
+                    CODE_DAG_MALFORMED,
+                    detail="timeline entry must be a JSON object",
+                )
+            )
+            continue
+        tid = record.get("timeline_id")
+        if not isinstance(tid, str) or not tid.strip():
+            findings.append(
+                Finding(
+                    CODE_DAG_MALFORMED,
+                    detail="timeline entry without timeline_id",
+                )
+            )
+            continue
+        if tid in by_id:
+            findings.append(
+                Finding(CODE_DAG_DUPLICATE, detail=f"timeline_id={tid}")
+            )
+            continue
+        by_id[tid] = record
+    counts["timelines"] = len(by_id)
+
+    roots = sorted(
+        tid for tid, record in by_id.items() if record.get("kind") == "root"
+    )
+    if len(roots) != 1 or roots[0] != hist.DEFAULT_TIMELINE_ID:
+        findings.append(
+            Finding(
+                CODE_DAG_ROOT,
+                detail=(
+                    "roots="
+                    + (",".join(roots) if roots else "none")
+                    + f" expected exactly one root at {hist.DEFAULT_TIMELINE_ID}"
+                ),
+            )
+        )
+
+    edges: dict[str, list[str]] = {}
+    for tid in sorted(by_id):
+        record = by_id[tid]
+        kind = str(record.get("kind") or "")
+        parents_value = record.get("parents")
+        if parents_value is None:
+            parents_value = []
+        parents: list[str] = []
+        if not isinstance(parents_value, list):
+            findings.append(
+                Finding(
+                    CODE_DAG_MALFORMED,
+                    detail=f"timeline_id={tid} parents must be a list",
+                )
+            )
+        else:
+            for parent in parents_value:
+                if not isinstance(parent, str) or not parent.strip():
+                    findings.append(
+                        Finding(
+                            CODE_DAG_MALFORMED,
+                            detail=f"timeline_id={tid} invalid parent {parent!r}",
+                        )
+                    )
+                    continue
+                parents.append(parent)
+                if parent not in by_id:
+                    findings.append(
+                        Finding(
+                            CODE_DAG_PARENT_UNKNOWN,
+                            detail=f"timeline_id={tid} parent={parent}",
+                        )
+                    )
+        edges[tid] = parents
+        if kind == "fork" and len(parents) != 1:
+            findings.append(
+                Finding(
+                    CODE_FORK_TOPOLOGY,
+                    detail=(
+                        f"timeline_id={tid} fork requires exactly one "
+                        f"parent, got {len(parents)}"
+                    ),
+                )
+            )
+        if kind == "confluence" and (
+            len(parents) != 2 or len(set(parents)) != 2
+        ):
+            findings.append(
+                Finding(
+                    CODE_CONFLUENCE_PARENTS,
+                    detail=(
+                        f"timeline_id={tid} confluence requires exactly two "
+                        f"distinct parents, got {','.join(parents) or 'none'}"
+                    ),
+                )
+            )
+
+    # Cycles: white/gray/black DFS. Reaching a node through two paths is
+    # the normal confluence diamond; only a gray node on the current path
+    # is a true cycle.
+    color: dict[str, int] = {}
+    reported_cycles: set[tuple[str, ...]] = set()
+
+    def visit(node: str, trail: list[str]) -> None:
+        mark = color.get(node, 0)
+        if mark == 1:
+            start = trail.index(node)
+            cycle = tuple(trail[start:])
+            if cycle not in reported_cycles:
+                reported_cycles.add(cycle)
+                findings.append(
+                    Finding(
+                        CODE_DAG_CYCLE,
+                        detail="cycle=" + "->".join((*cycle, node)),
+                    )
+                )
+            return
+        if mark == 2:
+            return
+        color[node] = 1
+        trail.append(node)
+        for parent in edges.get(node, ()):
+            if parent in by_id:
+                visit(parent, trail)
+        trail.pop()
+        color[node] = 2
+
+    for tid in sorted(by_id):
+        if color.get(tid, 0) == 0:
+            visit(tid, [])
+
+    # Root reachability: walk child edges down from tl-main.
+    children: dict[str, list[str]] = {tid: [] for tid in by_id}
+    for tid, parents in edges.items():
+        for parent in parents:
+            if parent in children and tid not in children[parent]:
+                children[parent].append(tid)
+    reachable: set[str] = set()
+    queue = (
+        [hist.DEFAULT_TIMELINE_ID]
+        if hist.DEFAULT_TIMELINE_ID in by_id
+        else []
+    )
+    while queue:
+        current = queue.pop()
+        if current in reachable:
+            continue
+        reachable.add(current)
+        queue.extend(children[current])
+    for tid in sorted(set(by_id) - reachable):
+        findings.append(
+            Finding(
+                CODE_DAG_DISCONNECTED,
+                detail=(
+                    f"timeline_id={tid} not reachable from "
+                    f"{hist.DEFAULT_TIMELINE_ID}"
+                ),
+            )
+        )
+
+    active = state.get("active_timeline_id")
+    if not isinstance(active, str) or not active.strip() or active not in by_id:
+        findings.append(
+            Finding(
+                CODE_ACTIVE_TIMELINE_INVALID,
+                detail=f"active_timeline_id={active!r}",
+            )
+        )
+
+    confluences_value = state.get("confluences")
+    if confluences_value is None:
+        confluences_value = []
+    if not isinstance(confluences_value, list):
+        findings.append(
+            Finding(CODE_DAG_MALFORMED, detail="confluences must be a list")
+        )
+        confluences_value = []
+    else:
+        for item in confluences_value:
+            if isinstance(item, dict) and isinstance(
+                item.get("confluence_id"), str
+            ):
+                counts["confluences"] += 1
+    return findings, counts
+
+
+def _count_jsonl_rows(path: Path) -> tuple[int, list[Finding]]:
+    """Count advisory-store JSONL rows; corrupt lines are findings."""
+    if not path.exists():
+        return 0, []
+    if not path.is_file() or path.is_symlink():
+        return 0, [
+            Finding(
+                CODE_TEMPORAL_STORE_CORRUPT,
+                detail=f"path={path.as_posix()} is not a regular file",
+            )
+        ]
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return 0, [
+            Finding(
+                CODE_TEMPORAL_STORE_CORRUPT,
+                detail=f"cannot read {path.name}: {exc}",
+            )
+        ]
+    rows = 0
+    findings: list[Finding] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError as exc:
+            findings.append(
+                Finding(
+                    CODE_TEMPORAL_STORE_CORRUPT,
+                    detail=f"{path.name} line {lineno} is not JSON: {exc}",
+                )
+            )
+            continue
+        if isinstance(payload, dict):
+            rows += 1
+    return rows, findings
+
+
+def _worldline_store_counts(
+    worktree: Path,
+) -> tuple[list[Finding], dict[str, int]]:
+    """Zero-explicit counts of transfers/episodes/backlog rows."""
+    findings: list[Finding] = []
+    counts = {key: 0 for key in WORLDLINE_COUNT_KEYS}
+    temporal_dir = worktree / "memory" / "temporal"
+    for key, filename in _TEMPORAL_STORE_FILES:
+        rows, store_findings = _count_jsonl_rows(temporal_dir / filename)
+        counts[key] = rows
+        findings.extend(store_findings)
+    return findings, counts
+
+
+def _all_lineage_records(
+    repo: Path, worktree: Path
+) -> list[tuple[str, str]]:
+    """Commit (sha, body) pairs across every ref; empty repo -> [].
+
+    ``_commit_log_records`` guards on ``--rev-parse --verify <rev>`` which
+    cannot resolve the pseudo-rev ``--all``, so the worldline sweep needs
+    its own unconditional fetch.
+    """
+    completed = _run_git_readonly(
+        ["log", "--format=%H%x1e%B%x1d", "--all"],
+        repo=repo,
+        worktree=worktree,
+    )
+    if completed.returncode != 0:
+        # No refs yet (fresh bare repo) is an empty graph, not a failure.
+        return []
+    records: list[tuple[str, str]] = []
+    for chunk in completed.stdout.split("\x1d"):
+        piece = chunk.strip("\n")
+        if not piece:
+            continue
+        sha, sep, body = piece.partition("\x1e")
+        if not sep:
+            continue
+        records.append((sha.strip(), body))
+    return records
+
+
+def _sweep_all_lineages(
+    repo: Path,
+    worktree: Path,
+    *,
+    campaign_id: str,
+    expected_schema: str,
+    skip_shas: frozenset[str],
+) -> list[Finding]:
+    """Validate every commit in the sidecar repo, all lineages.
+
+    Turn commits living off the proved lineage (fork/confluence branches)
+    get the same trailer completeness rules as the main lineage; confluence
+    commits additionally get exactly-two-distinct-parents and recorded-in-
+    timeline-state coverage. Commits already validated by the caller are
+    skipped to avoid duplicate findings; the parentless-commit census still
+    covers every commit, since more than one root object means rewritten
+    or grafted history regardless of lineage.
+    """
+    findings: list[Finding] = []
+    try:
+        records = _all_lineage_records(repo, worktree)
+    except hist.GitHistoryError as exc:
+        return [Finding(kind=CODE_GIT_LOG_FAILED, detail=str(exc))]
+    rootless_commits = 0
+    for sha, body in records:
+        try:
+            trailers = hist.parse_trailers(body)
+        except hist.GitHistoryUnavailableError as exc:
+            return [Finding(kind=CODE_GIT_UNAVAILABLE, detail=str(exc))]
+        except hist.GitHistoryError as exc:
+            findings.append(
+                Finding(kind="trailer_parse_failed", detail=str(exc), sha=sha)
+            )
+            trailers = {}
+        try:
+            parent_count = _commit_parent_count(repo, worktree, sha)
+        except hist.GitHistoryUnavailableError as exc:
+            return [Finding(kind=CODE_GIT_UNAVAILABLE, detail=str(exc))]
+        if parent_count == 0:
+            rootless_commits += 1
+        if sha in skip_shas:
+            continue
+        commit_type = trailers.get("COC-Commit-Type", "")
+        if commit_type == "turn":
+            findings.extend(
+                _validate_turn_trailers(
+                    sha,
+                    trailers,
+                    campaign_id=campaign_id,
+                    expected_schema=expected_schema,
+                )
+            )
+        elif commit_type == "confluence":
+            findings.extend(
+                _validate_confluence_trailers(
+                    sha, trailers, campaign_id=campaign_id
+                )
+            )
+            if parent_count != 2:
+                findings.append(
+                    Finding(
+                        CODE_CONFLUENCE_PARENTS,
+                        detail=f"parent_count={parent_count}",
+                        sha=sha,
+                    )
+                )
+            else:
+                parent_shas = _confluence_parent_shas(repo, worktree, sha)
+                if parent_shas is not None and parent_shas[0] == parent_shas[1]:
+                    findings.append(
+                        Finding(
+                            CODE_CONFLUENCE_PARENTS,
+                            detail=f"duplicate_parent_sha={parent_shas[0]}",
+                            sha=sha,
+                        )
+                    )
+            if sha not in skip_shas:
+                findings.append(
+                    Finding(
+                        CODE_CONFLUENCE_UNRECORDED,
+                        detail=(
+                            "confluence commit has no timeline-state record"
+                        ),
+                        sha=sha,
+                    )
+                )
+        elif (
+            commit_type not in _ALLOWED_COMMIT_TYPES
+            and "COC-History-Reset" not in trailers
+        ):
+            findings.append(
+                Finding(
+                    kind="unexpected_commit_type",
+                    detail=f"COC-Commit-Type={commit_type}",
+                    sha=sha,
+                )
+            )
+    if rootless_commits > 1:
+        findings.append(
+            Finding(
+                CODE_DAG_ROOT,
+                detail=f"rootless_commit_count={rootless_commits}",
+            )
+        )
+    return findings
+
+
+def _open_projection_readonly(db_path: Path) -> sqlite3.Connection:
+    uri = f"file:{db_path.as_posix()}?mode=ro"
+    connection = sqlite3.connect(uri, uri=True)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def _verify_projection_identity(
+    root: Path | str,
+    campaign_id: str,
+) -> list[Finding]:
+    """Compare the cached history projection against a shadow rebuild.
+
+    Reads the cache strictly read-only (``mode=ro``), then deterministically
+    rebuilds the projection in a system temp directory from a fresh Git
+    scan and compares the facade's ``projection_runs`` row: generation
+    markers, head commit, commit count, and the full deterministic digest.
+    A missing database is an explicit "rebuild needed" finding; a corrupt
+    or stale one is drift. Never writes anything under ``root``.
+    """
+    db_path = proj_schema.projection_path(root, campaign_id)
+    label = db_path.as_posix()
+    if not db_path.exists():
+        return [
+            Finding(
+                kind=CODE_PROJECTION_REBUILD_NEEDED,
+                detail=f"projection database missing, rebuild needed: {label}",
+            )
+        ]
+    try:
+        records = proj_git.scan_campaign_history(root, campaign_id)
+    except proj_git.GitScanUnavailableError as exc:
+        return [Finding(kind=CODE_GIT_UNAVAILABLE, detail=str(exc))]
+    except proj_git.GitScanError as exc:
+        return [Finding(kind=GIT_SCAN_FAILED, detail=str(exc))]
+    expected_head = records[-1]["sha"] if records else None
+    expected_count = len(records)
+
+    # Shadow rebuild in a temp dir: same scanner + extractor pipeline the
+    # facade publishes, minus publication. Nothing under root is touched.
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix="coc-projection-verify-"
+        ) as scratch:
+            scratch_db = Path(scratch) / "expected.db"
+            connection = proj_schema.create_projection_db(scratch_db)
+            try:
+                proj_facade._build_projection(connection, records, campaign_id)
+                expected_digest = proj_schema.projection_digest(connection)
+            finally:
+                connection.close()
+    except (
+        proj_schema.HistoryProjectionError,
+        ValueError,
+        OSError,
+        sqlite3.Error,
+    ) as exc:
+        return [
+            Finding(
+                kind=CODE_PROJECTION_UNREADABLE,
+                detail=f"deterministic shadow rebuild failed: {exc}",
+            )
+        ]
+
+    findings: list[Finding] = []
+    try:
+        stored_conn = _open_projection_readonly(db_path)
+    except sqlite3.Error as exc:
+        return [
+            Finding(
+                kind=CODE_PROJECTION_UNREADABLE,
+                detail=f"cannot open projection database read-only: {label} ({exc})",
+            )
+        ]
+    try:
+        try:
+            version_row = stored_conn.execute(
+                "PRAGMA user_version"
+            ).fetchone()
+            user_version = int(version_row[0]) if version_row else None
+        except sqlite3.Error as exc:
+            raise sqlite3.DatabaseError(str(exc))
+        if user_version != proj_schema.PROJECTION_USER_VERSION:
+            findings.append(
+                Finding(
+                    kind=CODE_PROJECTION_DRIFT,
+                    detail=(
+                        "projection generation marker mismatch: "
+                        f"user_version={user_version!r} expected "
+                        f"{proj_schema.PROJECTION_USER_VERSION!r} "
+                        f"({proj_schema.SCHEMA_GENERATION}); rebuild needed"
+                    ),
+                )
+            )
+        try:
+            campaign_rows = stored_conn.execute(
+                "SELECT campaign_id, schema_generation, head_commit_sha,"
+                " commit_count FROM campaigns WHERE campaign_id = ?",
+                (campaign_id,),
+            ).fetchall()
+            run_rows = stored_conn.execute(
+                "SELECT run_id, schema_generation, head_commit_sha,"
+                " commit_count, projection_digest FROM projection_runs"
+            ).fetchall()
+        except sqlite3.Error as exc:
+            raise sqlite3.DatabaseError(str(exc))
+        if len(campaign_rows) != 1:
+            findings.append(
+                Finding(
+                    kind=CODE_PROJECTION_DRIFT,
+                    detail=f"campaign_rows={len(campaign_rows)} expected 1",
+                )
+            )
+        else:
+            row = campaign_rows[0]
+            if row["schema_generation"] != proj_schema.SCHEMA_GENERATION:
+                findings.append(
+                    Finding(
+                        kind=CODE_PROJECTION_DRIFT,
+                        detail=(
+                            "campaigns.schema_generation="
+                            f"{row['schema_generation']!r} expected "
+                            f"{proj_schema.SCHEMA_GENERATION!r}; rebuild needed"
+                        ),
+                    )
+                )
+            if row["head_commit_sha"] != expected_head:
+                findings.append(
+                    Finding(
+                        kind=CODE_PROJECTION_DRIFT,
+                        detail=(
+                            f"campaigns.head_commit_sha={row['head_commit_sha']!r} "
+                            f"git_head={expected_head!r}"
+                        ),
+                    )
+                )
+        if expected_count == 0:
+            # An empty Git history legitimately publishes no run row.
+            if run_rows:
+                findings.append(
+                    Finding(
+                        kind=CODE_PROJECTION_DRIFT,
+                        detail=f"run_rows={len(run_rows)} expected 0 for empty history",
+                    )
+                )
+            return findings
+        if len(run_rows) != 1:
+            findings.append(
+                Finding(
+                    kind=CODE_PROJECTION_DRIFT,
+                    detail=(
+                        f"projection_runs rows={len(run_rows)} expected 1; "
+                        "rebuild needed"
+                    ),
+                )
+            )
+            return findings
+        run_row = run_rows[0]
+        if run_row["schema_generation"] != proj_schema.SCHEMA_GENERATION:
+            findings.append(
+                Finding(
+                    kind=CODE_PROJECTION_DRIFT,
+                    detail=(
+                        "projection_runs.schema_generation="
+                        f"{run_row['schema_generation']!r} expected "
+                        f"{proj_schema.SCHEMA_GENERATION!r}; rebuild needed"
+                    ),
+                )
+            )
+        if run_row["head_commit_sha"] != expected_head:
+            findings.append(
+                Finding(
+                    kind=CODE_PROJECTION_DRIFT,
+                    detail=(
+                        "projection_runs.head_commit_sha="
+                        f"{run_row['head_commit_sha']!r} git_head={expected_head!r}"
+                    ),
+                )
+            )
+        if run_row["commit_count"] != expected_count:
+            findings.append(
+                Finding(
+                    kind=CODE_PROJECTION_DRIFT,
+                    detail=(
+                        f"projection_runs.commit_count={run_row['commit_count']!r} "
+                        f"git_commit_count={expected_count}"
+                    ),
+                )
+            )
+        if run_row["projection_digest"] != expected_digest:
+            findings.append(
+                Finding(
+                    kind=CODE_PROJECTION_DRIFT,
+                    detail=(
+                        "projection_digest does not match the deterministic "
+                        f"shadow rebuild (stored={run_row['projection_digest']} "
+                        f"rebuild={expected_digest})"
+                    ),
+                )
+            )
+        return findings
+    except sqlite3.Error as exc:
+        return [
+            Finding(
+                kind=CODE_PROJECTION_UNREADABLE,
+                detail=f"projection database is unreadable or corrupt: {label} ({exc})",
+            )
+        ]
+    finally:
+        stored_conn.close()
+
+
 def _verify_timeline_dag(
     root: Path | str,
     campaign_id: str,
     repo: Path,
     worktree: Path,
-) -> list[Finding]:
+    *,
+    expected_schema: str | None = None,
+    visited_shas: frozenset[str] | set[str] = frozenset(),
+    validated_confluence_shas: frozenset[str] | set[str] = frozenset(),
+) -> tuple[list[Finding], dict[str, int]]:
+    """Worldline/temporal sweep: DAG structure, refs, stores, all lineages.
+
+    Returns the accumulated findings plus explicit record counts (zero is
+    a real result, never omitted).
+    """
     findings: list[Finding] = []
+    store_findings, store_counts = _worldline_store_counts(worktree)
+    findings.extend(store_findings)
     state_path = worktree / hist.TIMELINE_STATE_RELPATH
     if not state_path.is_file():
-        listed = _run_git_readonly(
-            ["for-each-ref", "--format=%(refname)", hist.TIMELINE_REF_PREFIX],
-            repo=repo,
-            worktree=worktree,
-        )
-        extra = [
-            line.strip()
-            for line in (listed.stdout.splitlines() if listed.returncode == 0 else [])
-            if line.strip()
-        ]
-        for ref in extra:
+        # Implied default: a campaign without a persisted timeline-state is
+        # the single tl-main world. Report it explicitly, never as zero.
+        store_counts["timelines"] = 1
+        git_refs = _list_timeline_git_refs(repo, worktree)
+        for ref in sorted(git_refs):
             findings.append(
                 Finding(
                     kind=CODE_ORPHAN_TIMELINE_REF,
                     detail=f"ref={ref} has no timeline-state",
                 )
             )
-        return findings
-    try:
-        state = hist.load_timeline_state(root, campaign_id)
-    except hist.GitHistoryError as exc:
-        return [
-            Finding(kind="timeline_state_unreadable", detail=str(exc))
-        ]
-    listed = _run_git_readonly(
-        ["for-each-ref", "--format=%(refname)", hist.TIMELINE_REF_PREFIX],
-        repo=repo,
-        worktree=worktree,
-    )
-    git_refs = {
-        line.strip()
-        for line in (listed.stdout.splitlines() if listed.returncode == 0 else [])
-        if line.strip()
-    }
+        skip = frozenset(visited_shas) | frozenset(validated_confluence_shas)
+        findings.extend(
+            _sweep_all_lineages(
+                repo,
+                worktree,
+                campaign_id=campaign_id,
+                expected_schema=expected_schema or "",
+                skip_shas=skip,
+            )
+        )
+        return findings, store_counts
+    raw_state, parse_findings = _load_raw_timeline_state(worktree)
+    if raw_state is None:
+        findings.extend(parse_findings)
+        return findings, store_counts
+    structure_findings, structure_counts = _verify_timeline_structure(raw_state)
+    findings.extend(structure_findings)
+    counts = dict(store_counts)
+    counts.update(structure_counts)
+
+    listed_refs = _list_timeline_git_refs(repo, worktree)
     expected_refs: set[str] = set()
-    for record in state.get("timelines") or []:
+    for record in raw_state.get("timelines") or []:
         tid = record.get("timeline_id")
         if not isinstance(tid, str) or tid == hist.DEFAULT_TIMELINE_ID:
             continue
@@ -1248,15 +2039,16 @@ def _verify_timeline_dag(
             # Merge commit is recorded on the confluence record; the timeline
             # tip may have later turns.
             pass
-    for ref in sorted(git_refs - expected_refs):
+    for ref in sorted(listed_refs - expected_refs):
         findings.append(
             Finding(
                 kind=CODE_ORPHAN_TIMELINE_REF,
                 detail=f"ref={ref}",
             )
         )
-    for conf in state.get("confluences") or []:
-        merge = conf.get("merge_commit")
+    recorded_merge_shas: set[str] = set()
+    for conf in raw_state.get("confluences") or []:
+        merge = conf.get("merge_commit") if isinstance(conf, dict) else None
         if not isinstance(merge, str) or not merge:
             findings.append(
                 Finding(
@@ -1265,6 +2057,7 @@ def _verify_timeline_dag(
                 )
             )
             continue
+        recorded_merge_shas.add(merge)
         count = _commit_parent_count(repo, worktree, merge)
         if count != 2:
             findings.append(
@@ -1274,6 +2067,16 @@ def _verify_timeline_dag(
                     sha=merge,
                 )
             )
+        else:
+            parent_shas = _confluence_parent_shas(repo, worktree, merge)
+            if parent_shas is not None and parent_shas[0] == parent_shas[1]:
+                findings.append(
+                    Finding(
+                        kind=CODE_CONFLUENCE_PARENTS,
+                        detail=f"duplicate_parent_sha={parent_shas[0]}",
+                        sha=merge,
+                    )
+                )
         trailers, trailer_finding = _head_trailers(repo, worktree, rev=merge)
         if trailer_finding is not None:
             findings.append(trailer_finding)
@@ -1292,7 +2095,21 @@ def _verify_timeline_dag(
                     merge=merge,
                 )
             )
-    return findings
+    skip_shas = (
+        frozenset(visited_shas)
+        | frozenset(validated_confluence_shas)
+        | frozenset(recorded_merge_shas)
+    )
+    findings.extend(
+        _sweep_all_lineages(
+            repo,
+            worktree,
+            campaign_id=campaign_id,
+            expected_schema=expected_schema or "",
+            skip_shas=skip_shas,
+        )
+    )
+    return findings, counts
 
 
 def state_integrity_proof(
@@ -1511,6 +2328,7 @@ def state_integrity_proof(
     turn_commit_count = 0
     history_reset = False
     reset_reason: str | None = None
+    validated_confluence_shas: set[str] = set()
     for sha, body in records:
         try:
             trailers = hist.parse_trailers(body)
@@ -1558,6 +2376,7 @@ def state_integrity_proof(
                 )
             )
         elif commit_type == "confluence":
+            validated_confluence_shas.add(sha)
             findings.extend(
                 _validate_confluence_trailers(
                     sha, trailers, campaign_id=campaign_id
@@ -1572,6 +2391,19 @@ def state_integrity_proof(
                         sha=sha,
                     )
                 )
+            else:
+                parent_shas = _confluence_parent_shas(repo, worktree, sha)
+                if (
+                    parent_shas is not None
+                    and parent_shas[0] == parent_shas[1]
+                ):
+                    findings.append(
+                        Finding(
+                            kind=CODE_CONFLUENCE_PARENTS,
+                            detail=f"duplicate_parent_sha={parent_shas[0]}",
+                            sha=sha,
+                        )
+                    )
         elif commit_type not in _ALLOWED_COMMIT_TYPES and "COC-History-Reset" not in trailers:
             findings.append(
                 Finding(
@@ -1754,7 +2586,28 @@ def state_integrity_proof(
         )
         findings.extend(tree_findings)
 
-    findings.extend(_verify_timeline_dag(root, campaign_id, repo, worktree))
+    worldline_findings, worldline_counts = _verify_timeline_dag(
+        root,
+        campaign_id,
+        repo,
+        worktree,
+        expected_schema=expected_schema,
+        visited_shas={sha for sha, _body in records},
+        validated_confluence_shas=validated_confluence_shas,
+    )
+    findings.extend(worldline_findings)
+    infos.append(
+        "record_counts "
+        + " ".join(
+            f"{key}={worldline_counts.get(key, 0)}"
+            for key in WORLDLINE_COUNT_KEYS
+        )
+    )
+    # The projection is a rebuildable non-authoritative cache: its verdict
+    # lives in a dedicated dimension and never downgrades the core
+    # finalize/git proof (missing cache = advisory "rebuild needed" gap).
+    projection_findings = _verify_projection_identity(root, campaign_id)
+    projection_status = _projection_dimension_status(projection_findings)
 
     status = _decide_status(
         findings=findings,
@@ -1786,6 +2639,9 @@ def state_integrity_proof(
         history_reset=history_reset,
         findings=findings,
         infos=infos,
+        worldline_counts=worldline_counts,
+        projection_status=projection_status,
+        projection_findings=projection_findings,
     )
 
 
@@ -1828,12 +2684,28 @@ def _report_from_proof(proof: StateIntegrityProof) -> VerifyReport:
         exit_code = 1
     else:
         exit_code = 2
+    infos = list(proof.infos)
+    report_findings = list(cli_findings)
+    core_pass_worldline_gap = False
+    if proof.projection_status == STATUS_FAIL:
+        # A present-but-wrong cache fails its dimension outright.
+        report_findings.extend(proof.projection_findings)
+        exit_code = max(exit_code, 1)
+    elif proof.projection_status == STATUS_NOT_PROVEN and proof.status == STATUS_PASS:
+        core_pass_worldline_gap = True
+        if exit_code == 0:
+            exit_code = 2
+        infos.append(
+            "worldline gap: history projection not built — run "
+            "coc_history_projection.rebuild_history_projection (advisory)"
+        )
     return VerifyReport(
         exit_code=exit_code,
-        findings=cli_findings,
-        infos=list(proof.infos),
+        findings=report_findings,
+        infos=infos,
         turn_commit_count=proof.turn_commit_count,
         receipt_count=proof.receipt_count,
+        core_pass_worldline_gap=core_pass_worldline_gap,
     )
 
 
@@ -1871,9 +2743,16 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(
                 json.dumps(proof.to_dict(), ensure_ascii=False, indent=2) + "\n"
             )
-            return {STATUS_PASS: 0, STATUS_FAIL: 1, STATUS_NOT_PROVEN: 2}[
+            code = {STATUS_PASS: 0, STATUS_FAIL: 1, STATUS_NOT_PROVEN: 2}[
                 proof.status
             ]
+            # Sweep exit: zero only when EVERY dimension proves. A failed
+            # projection dimension exits 1; a rebuild-needed gap holds 2.
+            if proof.projection_status == STATUS_FAIL:
+                code = max(code, 1)
+            elif code == 0 and proof.projection_status == STATUS_NOT_PROVEN:
+                code = 2
+            return code
         report = verify_campaign(args.root, args.campaign)
     except hist.GitHistoryUnavailableError as exc:
         sys.stderr.write(f"ERROR: {exc}\n")

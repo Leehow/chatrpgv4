@@ -115,6 +115,23 @@ def _state_effect_authority() -> Any:
     return _STATE_EFFECT_AUTHORITY_MODULE
 
 
+_STATE_EFFECT_AUTHORITY_MODULE: Any = None
+_WORLDSLINE_MODULE: Any = None
+
+
+def _worldline_evidence_api() -> Any:
+    """Own-skill sibling projector for preserved worldline evidence."""
+    global _WORLDSLINE_MODULE
+    if _WORLDSLINE_MODULE is None:
+        own_dir = str(Path(__file__).resolve().parent)
+        if own_dir not in sys.path:
+            sys.path.insert(0, own_dir)
+        import worldline_evidence
+
+        _WORLDSLINE_MODULE = worldline_evidence
+    return _WORLDSLINE_MODULE
+
+
 _STATE_MODULE: Any = None
 _GIT_VERIFY_MODULE: Any = None
 
@@ -1402,6 +1419,9 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             }
         )
 
+    timeline_state_doc = temporal_assertions_rows = temporal_transfers_rows = None
+    timeline_state_error = temporal_assertions_error = temporal_transfers_error = None
+    timeline_state_present = assertions_present = transfers_present = False
     world = flags = npc_receipts = events = clue_graph = exceptional_document = None
     first_impression_document = None
     toolbox_calls: list[dict[str, Any]] | None = None
@@ -1472,6 +1492,50 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             "jsonl",
             manifest,
         )
+
+        def _guarded_worldline_source(
+            relative: str, kind: str
+        ) -> tuple[Any, bool, str | None]:
+            """Register + parse one evidence store; damage becomes a finding,
+            never an export abort and never an inference past it."""
+            try:
+                value = _read_source(run_dir, relative, kind, manifest)
+            except ExportError as exc:
+                manifest[relative] = {
+                    "kind": kind,
+                    "path": relative,
+                    "present": True,
+                    "required": False,
+                    "status": "MALFORMED",
+                    "error": str(exc),
+                }
+                return None, True, str(exc)
+            present = value is not None or _safe_source_path(
+                run_dir, relative
+            ).exists()
+            return value, present, None
+
+        (
+            timeline_state_doc,
+            timeline_state_present,
+            timeline_state_error,
+        ) = _guarded_worldline_source(
+            f"{campaign_relative}/save/timeline-state.json", "json"
+        )
+        (
+            temporal_assertions_rows,
+            assertions_present,
+            temporal_assertions_error,
+        ) = _guarded_worldline_source(
+            f"{campaign_relative}/memory/temporal/assertions.jsonl", "jsonl"
+        )
+        (
+            temporal_transfers_rows,
+            transfers_present,
+            temporal_transfers_error,
+        ) = _guarded_worldline_source(
+            f"{campaign_relative}/memory/temporal/transfers.jsonl", "jsonl"
+        )
         exceptional_document = _read_source(
             run_dir,
             f"{campaign_relative}/save/exceptional-effects.json",
@@ -1504,6 +1568,19 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                     manifest,
                 )
             )
+
+    worldline_projection = _worldline_evidence_api().build_worldline_evidence(
+        state_doc=timeline_state_doc,
+        state_present=timeline_state_present,
+        state_error=timeline_state_error,
+        assertions_rows=temporal_assertions_rows,
+        assertions_present=assertions_present,
+        assertions_error=temporal_assertions_error,
+        transfers_rows=temporal_transfers_rows,
+        transfers_present=transfers_present,
+        transfers_error=temporal_transfers_error,
+    )
+    worldline_findings = list(worldline_projection["findings"])
 
     finalization_contract = _turn_finalization()
     valid_finalizations = [
@@ -2382,6 +2459,13 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     )
     projection_ok = isinstance(flags, dict) and (npc_receipts is None or isinstance(npc_receipts, dict))
     dimension("player_safe_projection", projection_ok, "explicit per-source allowlists applied" if projection_ok else "player-safe projection sources are malformed")
+    dimension(
+        "worldlines",
+        not worldline_findings,
+        *(worldline_findings or [
+            "preserved worldline records satisfy the frozen timeline contracts",
+        ]),
+    )
 
     reasons: list[str] = [
         finding
@@ -2546,7 +2630,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         for row in psychology_rows
         for key in ("roll_id", "insight_id", "window_key")
         if isinstance(row.get(key), str) and row.get(key)
-    })
+    } | set(worldline_projection["concealed_ids"]))
     return {
         "completeness": {
             "classification": "COMPLETE" if not reasons else "INCOMPLETE",
@@ -2559,6 +2643,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         },
         "investigators": investigators,
         "play_conduct_signals": play_conduct_signals,
+        "worldlines": worldline_projection["player"],
         "progression": progression,
         "investigator_impressions": _player_safe_impressions(psychology_document),
         "npc_interactions": npc_interactions,
@@ -2594,6 +2679,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             "turn_capsules": list(turn_capsules.values()),
             "tool_call_count": len(toolbox_calls or []),
             "advisory_adoption_count": len(advisory_adoptions or []),
+            "worldlines": worldline_projection["audit"],
             "dispositioned_orphan_rolls": {
                 "count": len(dispositioned_orphan_ids),
                 "roll_ids": sorted(dispositioned_orphan_ids),
@@ -2982,6 +3068,108 @@ def _play_conduct_markdown(signals: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _worldline_markdown(worldlines: dict[str, Any]) -> list[str]:
+    """Player-safe worldline structure; raw side values and KP free-text
+    reasons stay in the audit projection only."""
+    counts = (
+        worldlines.get("counts")
+        if isinstance(worldlines.get("counts"), dict) else {}
+    )
+    lines = ["## Worldlines", ""]
+    if not worldlines.get("present"):
+        lines.append(
+            "No worldline timeline records were found; this campaign played "
+            "on a single worldline."
+        )
+        lines.append("")
+        return lines
+    lines.append(
+        f"- Timelines: **{counts.get('timelines', 0)}** "
+        f"(forks: {counts.get('forks', 0)}; confluences: {counts.get('confluences', 0)})"
+    )
+    active = worldlines.get("active_timeline")
+    lines.append(
+        f"- Active timeline: `{active}`"
+        if active else "- Active timeline: unavailable"
+    )
+    for fork_row in worldlines.get("forks") or []:
+        fork_turn = fork_row.get("fork_turn")
+        turn_text = str(fork_turn) if fork_turn is not None else "?"
+        lines.append(
+            f"- Diverged from: `{fork_row.get('parent') or 'unknown'}` at turn "
+            f"**{turn_text}** → `{fork_row.get('timeline')}`"
+        )
+    lines.append(f"- Transfers recorded: {counts.get('transfer_events', 0)}")
+    echoes = (
+        worldlines.get("echoes")
+        if isinstance(worldlines.get("echoes"), dict) else {}
+    )
+    if echoes.get("store"):
+        fidelity_text = (
+            ", ".join(
+                f"{key}: {value}"
+                for key, value in sorted((echoes.get("by_fidelity") or {}).items())
+            )
+            or "none"
+        )
+        lines.append(
+            f"- Echo assertions recorded: **{echoes.get('count', 0)}** "
+            f"(fidelity: {fidelity_text})"
+        )
+    else:
+        lines.append("- Echo assertions recorded: assertion store unavailable")
+    confluence_index = 0
+    for section in worldlines.get("confluences") or []:
+        confluence_index += 1
+        parents_rendered = " + ".join(
+            f"`{parent}`" for parent in (section.get("parents") or [])
+        )
+        modes_text = ", ".join(
+            f"{mode} ×{count}"
+            for mode, count in sorted((section.get("modes") or {}).items())
+        )
+        lines.extend([
+            "",
+            f"### Confluence {confluence_index}: {parents_rendered} → `{section.get('merged')}`",
+            "",
+            f"- Conflicts resolved: **{section.get('conflicts_resolved', 0)}**"
+            + (f" (modes: {modes_text})" if modes_text else ""),
+        ])
+        for item in section.get("items") or []:
+            receipt = item.get("receipt")
+            resolver = item.get("resolver_receipt")
+            receipt_text = f"`{receipt}`" if receipt else "missing"
+            resolver_text = (
+                f"; resolver receipt: `{resolver}`" if resolver else ""
+            )
+            sides_text = "one-sided" if (
+                item.get("left_absent") or item.get("right_absent")
+            ) else "both-sided"
+            lines.append(
+                f"  - `{item.get('conflict')}` [{item.get('class')}, {sides_text}] → "
+                f"{item.get('mode')} (receipt: {receipt_text}{resolver_text})"
+            )
+    for transfer_row in worldlines.get("transfers") or []:
+        items = transfer_row.get("items") or []
+        fidelity_pairs = sorted({str(item.get("fidelity")) for item in items})
+        lines.append(
+            f"- Transfer `{transfer_row.get('transfer')}`: "
+            f"`{transfer_row.get('source')}` → `{transfer_row.get('target')}`, "
+            f"anchor turn **{transfer_row.get('anchor_turn')}**, entries "
+            f"**{len(items)}** (fidelity: {', '.join(fidelity_pairs) or 'none'})"
+        )
+        for cost in transfer_row.get("costs") or []:
+            amount = cost.get("amount")
+            amount_text = f" {amount}" if amount is not None else ""
+            lines.append(f"  - Play cost: {cost.get('kind')}{amount_text}")
+        for item in items:
+            distortion = item.get("distortion")
+            if distortion:
+                lines.append(f"  - Distortion: {distortion}")
+    lines.append("")
+    return lines
+
+
 def _localize_fixed_markdown_zh(markdown: str) -> str:
     """Translate exporter-owned chrome without touching exact table prose."""
     exact = {
@@ -3004,6 +3192,8 @@ def _localize_fixed_markdown_zh(markdown: str) -> str:
         "## Actual Play": "## 实际游玩记录",
         "## Public Rules and Dice": "## 公开规则与骰点",
         "## Play Conduct Signals": "## 游玩过程信号",
+        "## Worldlines": "## 世界线",
+        "No worldline timeline records were found; this campaign played on a single worldline.": "未发现世界线时间线记录；本战役在单一世界线上进行。",
         "Observational structured facts for human review. They are not pass/fail judgments and do not change the completeness classification.": "以下是供人工复核的结构化观察，不是通过/未通过判定，也不改变完整性分类。",
         "## Completeness and Provenance": "## 完整性与来源",
         "#### Characteristics": "#### 属性",
@@ -3063,6 +3253,16 @@ def _localize_fixed_markdown_zh(markdown: str) -> str:
         "  - Occupation Points:": "  - 职业技能点:",
         "  - Personal Interest Points:": "  - 兴趣技能点:",
         "Public roll count:": "公开骰点数量:",
+        "- Timelines:": "- 时间线:",
+        "- Active timeline:": "- 当前世界线:",
+        "- Diverged from:": "- 分叉自:",
+        "- Transfers recorded:": "- 已记录记忆转移:",
+        "- Echo assertions recorded:": "- 已记录回响断言:",
+        "### Confluence ": "### 合流 ",
+        "- Conflicts resolved:": "- 已裁决冲突:",
+        "- Transfer `": "- 记忆转移 `",
+        "  - Play cost:": "  - 玩法代价:",
+        "  - Distortion:": "  - 失真:",
         "Dice completeness:": "骰点完整性:",
         "- Actor:": "- 行动者:",
         "- Check:": "- 检定:",
@@ -3633,6 +3833,7 @@ def _markdown(report: dict[str, Any]) -> str:
         lines.extend(["No public or consequence-public rolls occurred.", ""])
 
     lines.extend(_play_conduct_markdown(report["play_conduct_signals"]))
+    lines.extend(_worldline_markdown(report.get("worldlines") or {}))
 
     lines.extend(["## Completeness and Provenance", ""])
     for name, result in completeness["dimensions"].items():
@@ -4140,6 +4341,9 @@ def export_battle_report(run_dir: Path | str, *, allow_partial: bool = False) ->
         ) + "\n").encode("utf-8"),
         "dispositions.json": (_pretty_json(
             {"dispositions": audit.get("dispositions") or {}}
+        ) + "\n").encode("utf-8"),
+        "worldlines.json": (_pretty_json(
+            {"worldlines_audit": audit.get("worldlines") or {}}
         ) + "\n").encode("utf-8"),
         "report-validation.json": (_pretty_json(validation) + "\n").encode("utf-8"),
     }

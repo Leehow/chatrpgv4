@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:89fdaf5bf78df4c754ddd9c77c6cee2b9797e0df2e59fb31997a421ab1fd4c5b",
+  "content_sha256": "sha256:9973b78850c963168c79da52e94e64096975a1d8d7ab970e8ba6da1856f9b5b8",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 138,
+  "operation_count": 141,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -1015,6 +1015,109 @@
         ]
       },
       "summary": "Record the KP's accept/modify/reject decision on one temporal memory candidate. Accept/modify write a new confirming assertion; nothing is ever edited or deleted. Idempotent per decision_id; a decision id is immutable once bound to its request."
+    },
+    "memory.extraction_settle": {
+      "access": "mutation",
+      "canonical_operation": "memory.extraction_settle",
+      "description": "Resolve exactly one pending extraction-backlog entry as the KP. Recovered routes your candidate result for that turn's job through the extraction core and materializes every verified candidate as a contract-valid assertion; abandoned records your concise reason while keeping all candidate data intact. Idempotent per decision_id; a decision id is immutable once bound to its request. Canonical operation `memory.extraction_settle`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "backlog_id": {
+            "description": "semantic backlog id exactly as returned by memory.extraction_status",
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "candidates": {
+            "description": "for recovered: non-empty array of candidate mappings under this job's semantic result contract (assertion_id/kind/subject_id/privacy/state/statement/valid_from_turn ...); machine provenance is attached by code",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "decision_id": {
+            "description": "idempotency key; immutable once bound to a settle",
+            "type": "string"
+          },
+          "disposition": {
+            "description": "recovered materializes the supplied candidates; abandoned records the reason and changes nothing else",
+            "enum": [
+              "recovered",
+              "abandoned"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "description": "for abandoned: concise KP game reason kept on the decision receipt",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "decision_id",
+          "backlog_id",
+          "disposition"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn",
+          "pending_finalization",
+          "recovery"
+        ]
+      },
+      "summary": "Resolve exactly one pending extraction-backlog entry as the KP. Recovered routes your candidate result for that turn's job through the extraction core and materializes every verified candidate as a contract-valid assertion; abandoned records your concise reason while keeping all candidate data intact. Idempotent per decision_id; a decision id is immutable once bound to its request."
+    },
+    "memory.extraction_status": {
+      "access": "query",
+      "canonical_operation": "memory.extraction_status",
+      "description": "List this campaign's semantic memory-extraction backlog: one entry per finalized turn awaiting KP settlement, each with backlog id, timeline, turn, enqueue reason, and current status, deterministically ordered. Strict read-only; explicit empty list when nothing is backlogged. Canonical operation `memory.extraction_status`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "live_turn",
+          "pending_finalization",
+          "recovery"
+        ]
+      },
+      "summary": "List this campaign's semantic memory-extraction backlog: one entry per finalized turn awaiting KP settlement, each with backlog id, timeline, turn, enqueue reason, and current status, deterministically ordered. Strict read-only; explicit empty list when nothing is backlogged."
     },
     "memory.recall": {
       "access": "query",
@@ -9118,6 +9221,77 @@
         ]
       },
       "summary": "Record the KP's intent to fork the campaign worldline at one settled turn. Persists a request receipt only: no Git branch is created, no timeline state changes, and the active timeline never switches. Confirm separately with timeline.fork_confirm."
+    },
+    "timeline.transfer": {
+      "access": "mutation",
+      "canonical_operation": "timeline.transfer",
+      "description": "Move chosen character memories from one campaign worldline onto another as one authoritative cross-timeline transfer event, deriving new cross_timeline_echo assertions with preserved provenance and their own lifecycle. Semantic inputs only (source/target timelines, entries with credibility/distortion/privacy, KP cause); source commit/turn anchors are machine-resolved. Returns advisory cost_requests — apply each through its canonical rules.*/state.* operation; this operation never applies mechanics itself. Idempotent per decision_id on byte-equal replay. Canonical operation `timeline.transfer`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "cause": {
+            "description": "KP-semantic reason the memory bleeds across worldlines (durable evidence)",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key; immutable once bound to a transfer",
+            "type": "string"
+          },
+          "entries": {
+            "description": "non-empty array of {source_assertion, credibility?, state?, distortion?, privacy?}; privacy may only tighten",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "from_timeline": {
+            "description": "source worldline whose memories move (tl-<slug>)",
+            "type": "string"
+          },
+          "play_cost": {
+            "description": "optional advisory play-cost descriptors {kind, amount?, subject_id?, note?} returned as unapplied requests for canonical rules.*/state.* application",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "to_timeline": {
+            "description": "destination worldline receiving the echoes (tl-<slug>); must differ from from_timeline",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "decision_id",
+          "from_timeline",
+          "to_timeline",
+          "entries",
+          "cause"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Move chosen character memories from one campaign worldline onto another as one authoritative cross-timeline transfer event, deriving new cross_timeline_echo assertions with preserved provenance and their own lifecycle. Semantic inputs only (source/target timelines, entries with credibility/distortion/privacy, KP cause); source commit/turn anchors are machine-resolved. Returns advisory cost_requests — apply each through its canonical rules.*/state.* operation; this operation never applies mechanics itself. Idempotent per decision_id on byte-equal replay."
     },
     "turn.finalize": {
       "access": "mutation",

@@ -18,6 +18,9 @@ surface stays model-facing and semantic):
 - ``record_assertion(assertion)``
 - ``recall(subject, context)``
 - ``adjudicate_candidate(decision_id, candidate_id, action)``
+- ``load_backlog(campaign_dir)`` — public backlog read (never creates)
+- ``settle_backlog(campaign_dir, backlog_id, *, status)`` — pending →
+  ``recovered`` | ``abandoned`` append-only transition
 - ``resolve_hook(memory_id, resolution, decision_id)``
 - ``build_resume_projection(campaign_id, turn_number)``
 
@@ -50,6 +53,10 @@ TEMPORAL_DIRNAME = "memory/temporal"
 AUTHORITY = "advisory"
 
 ADJUDICATION_ACTIONS: tuple[str, ...] = ("accept", "modify", "reject")
+#: KP-facing backlog dispositions: the only transitions a pending extraction
+#: backlog entry may take. ``recovered`` is additionally written by the
+#: extraction core on every successful applied/replayed job.
+BACKLOG_SETTLE_STATUSES: tuple[str, ...] = ("recovered", "abandoned")
 HOOK_RESOLUTIONS: tuple[str, ...] = ("resolved", "paid_off", "abandoned")
 HOOK_KINDS: tuple[str, ...] = ("unresolved_hook", "foreshadowing")
 DEFAULT_PLAYER_SLUG = "table"
@@ -392,6 +399,15 @@ def load_hooks(campaign_dir: Path | str) -> dict[str, dict[str, Any]]:
 
 def load_adjudications(campaign_dir: Path | str) -> dict[str, dict[str, Any]]:
     return _load_latest(_path(campaign_dir, "adjudications"), "decision_id")
+
+
+def load_backlog(campaign_dir: Path | str) -> dict[str, dict[str, Any]]:
+    """Latest extraction-backlog record per ``backlog_id`` (public read).
+
+    Never creates the store: reading a campaign without a temporal store is
+    an empty mapping, so strict read-only callers never materialize files.
+    """
+    return _load_latest(_path(campaign_dir, "backlog"), "backlog_id")
 
 
 # ---------------------------------------------------------------------------
@@ -954,6 +970,49 @@ def adjudicate_candidate(
     }
     _append_jsonl(_path(camp, "adjudications"), receipt)
     return receipt
+
+
+# ---------------------------------------------------------------------------
+# Extraction backlog settlement (append-only status transition)
+# ---------------------------------------------------------------------------
+
+
+def settle_backlog(
+    campaign_dir: Path | str,
+    backlog_id: str,
+    *,
+    status: str,
+) -> dict[str, Any]:
+    """Transition one pending extraction-backlog entry to its KP disposition.
+
+    The only sanctioned status-transition writer for
+    ``memory/temporal/backlog.jsonl`` outside the extraction core's own
+    recover-on-success: append-only, contract-validated, never deletes the
+    prior row or any candidate data. Raises :class:`TemporalMemoryError`
+    when the id is unknown, the entry is not ``pending``, or ``status`` is
+    not one of :data:`BACKLOG_SETTLE_STATUSES` — replay/idempotency policy
+    stays with the caller (the typed operation layer).
+    """
+    if status not in BACKLOG_SETTLE_STATUSES:
+        raise TemporalMemoryError(
+            f"backlog settle status must be one of {BACKLOG_SETTLE_STATUSES}, "
+            f"got {status!r}"
+        )
+    camp = _require_campaign_dir(campaign_dir)
+    ensure_store(camp)
+    row = load_backlog(camp).get(backlog_id)
+    if row is None:
+        raise TemporalMemoryError(f"backlog entry not found: {backlog_id}")
+    if str(row.get("status") or "pending") != "pending":
+        raise TemporalMemoryError(
+            f"backlog entry {backlog_id!r} is already settled "
+            f"(status={row.get('status')!r}); a settled entry never moves again"
+        )
+    updated = dict(row)
+    updated["status"] = status
+    contract.validate_backlog_record(updated)
+    _append_jsonl(_path(camp, "backlog"), updated)
+    return updated
 
 
 # ---------------------------------------------------------------------------
