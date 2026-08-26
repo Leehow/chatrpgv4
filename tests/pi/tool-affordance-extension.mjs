@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import "./_lib/preload-embedded-pi.mjs";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import test from "node:test";
 
@@ -9,11 +10,22 @@ const main = await import(path.join(
   root,
   "plugins/coc-keeper/pi/extensions/index.ts",
 ));
+const {
+  PiStateClaimCompiler,
+  PiStateClaimCompilerFailure,
+} = await import(path.join(
+  root,
+  "plugins/coc-keeper/pi/lib/state-claim-compiler.ts",
+));
 
 const ROLE_ENV = "COC_PI_SESSION_ROLE";
 const CAMPAIGN_ENV = "PI_COC_CAMPAIGN_ID";
 
-function makeHarness(callTool) {
+const exactTextSha256 = (text) => (
+  `sha256:${createHash("sha256").update(JSON.stringify(text), "utf8").digest("hex")}`
+);
+
+function makeHarness(callTool, compiler = undefined) {
   const tools = new Map();
   const handlers = new Map();
   const active = [];
@@ -44,10 +56,15 @@ function makeHarness(callTool) {
   main.default(pi, {
     coordinatorEnabled: () => false,
     startupCampaignId: () => null,
+    ...(compiler === undefined ? {} : { createStateClaimCompiler: () => compiler }),
     createClient: () => ({
       async callTool(name, params) {
         clientCalls.push({ name, params });
-        if (params.operation === "session.resume") {
+        const result = await callTool(name, params);
+        if (
+          params.operation === "session.resume"
+          && typeof result?.data?.mode !== "string"
+        ) {
           return {
             ok: true,
             tool: "session.resume",
@@ -58,7 +75,7 @@ function makeHarness(callTool) {
             },
           };
         }
-        return callTool(name, params);
+        return result;
       },
       async callToolWithTransportMeta(name, params) {
         return { value: await this.callTool(name, params), transport: null };
@@ -89,17 +106,30 @@ function makeHarness(callTool) {
       await handler({ type: "session_start" }, ctx);
     }
   };
+  const shutdown = async () => {
+    for (const handler of handlers.get("session_shutdown") || []) {
+      await handler({ type: "session_shutdown" }, ctx);
+    }
+  };
   return {
-    tools, handlers, active, sent, appended, clientCalls, ctx, emit, start,
+    tools, handlers, active, sent, appended, clientCalls, ctx, emit, start, shutdown,
     hideRead() { hideRead = true; },
   };
 }
 
-async function withPlayHarness(fn, callTool = (_name, params) => ({
-  ok: true,
-  tool: params.operation,
-  data: {},
-})) {
+async function withPlayHarness(fn, callTool = (_name, params) => (
+  params.operation === "session.resume"
+    ? {
+        ok: true,
+        tool: "session.resume",
+        data: {
+          mode: "awaiting_player",
+          evidence: { table_opening_id: "table-opening:affordance" },
+          next_operations: [],
+        },
+      }
+    : { ok: true, tool: params.operation, data: {} }
+)) {
   const priorRole = process.env[ROLE_ENV];
   const priorCampaign = process.env[CAMPAIGN_ENV];
   process.env[ROLE_ENV] = "play";
@@ -325,4 +355,465 @@ test("typed journal hides host identity and restores it from independent live tu
     }
     return { ok: true, tool: params.operation, data: {} };
   });
+});
+
+const contextReceipt = (revision, data) => ({
+  ok: true,
+  tool: "scene.context",
+  wire: {
+    full_result_sha256: `sha256:${revision.padEnd(64, "a").slice(0, 64)}`,
+  },
+  cache: { revision: `scene-context:${revision}` },
+  data,
+});
+
+const invokeCompat = (h, id, operation, arguments_ = {}) => (
+  h.tools.get("coc_invoke").execute(
+    id,
+    { operation, campaign: "tool-affordance-campaign", arguments: arguments_ },
+    undefined, undefined, h.ctx,
+  )
+);
+
+const latestWorkingSetAudit = (h) => h.appended
+  .filter((row) => row.type === "coc-tool-working-set" && row.value.status === "projected")
+  .at(-1)?.value;
+
+const actualActiveSchemaBytes = (h) => h.active.at(-1).reduce((total, name) => (
+  total + Buffer.byteLength(JSON.stringify(h.tools.get(name).parameters), "utf8")
+), 0);
+
+test("scene, precise-clock, and combat cards bind discovered production tools and reject stale use", async () => {
+  const forwarded = [];
+  let sceneEnvelope = contextReceipt("scene-a", {
+    active_scene_id: "study",
+    exits: [
+      { to: "archive", open: true, travel_minutes: 35 },
+      { to: "sealed-cellar", open: false, travel_minutes: 5 },
+    ],
+    time: { time_precision: "precise", local_datetime: "1920-10-12T10:00:00" },
+    npcs_present: [{ npc_id: "walter-corbitt" }],
+    action_routes: [{
+      route_id: "floating-knife",
+      resolution_kind: "combat_engagement",
+    }],
+  });
+  const combatEnvelope = {
+    ok: true,
+    tool: "combat.context",
+    wire: { full_result_sha256: `sha256:${"c".repeat(64)}` },
+    cache: { revision: "combat-context:round-2" },
+    data: {
+      active: true,
+      pending_defense: null,
+      combat: { value: { combat_id: "corbitt", revision: 2 } },
+    },
+  };
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我在书房判断路线和威胁。" }],
+    });
+
+    await invokeCompat(h, "scene-a", "scene.context");
+    const moveDiscovery = JSON.parse((await h.tools.get("coc_discover").execute(
+      "discover-move", { operation: "state.move_scene" }, undefined, undefined, h.ctx,
+    )).content[0].text);
+    assert.equal(moveDiscovery.ok, true);
+    assert.deepEqual(moveDiscovery.data.operation_card.parameters.properties.scene_id.enum, ["archive"]);
+    for (const field of ["root", "campaign", "decision_id", "travel_minutes"]) {
+      assert.equal(Object.hasOwn(
+        moveDiscovery.data.operation_card.parameters.properties,
+        field,
+      ), false, field);
+    }
+    assert.equal(latestWorkingSetAudit(h).schema_bytes, actualActiveSchemaBytes(h));
+    assert.match(latestWorkingSetAudit(h).revision, /:schemas-[a-f0-9]{24}$/);
+    const armedMoveRevision = latestWorkingSetAudit(h).revision;
+    assert.ok(h.active.at(-1).includes("coc_state_move_scene"));
+    const moved = JSON.parse((await h.tools.get("coc_state_move_scene").execute(
+      "move-bound", { scene_id: "archive", reason: "去档案室" },
+      undefined, undefined, h.ctx,
+    )).content[0].text);
+    assert.equal(moved.ok, true);
+    const moveForwarded = forwarded.find((row) => row.operation === "state.move_scene");
+    assert.equal(moveForwarded.arguments.travel_minutes, 35);
+    assert.equal(moveForwarded.campaign, "tool-affordance-campaign");
+    assert.match(moveForwarded.arguments.decision_id, /^pi-state-move_scene:/);
+    assert.equal(latestWorkingSetAudit(h).schema_bytes, actualActiveSchemaBytes(h));
+    assert.notEqual(latestWorkingSetAudit(h).revision, armedMoveRevision);
+    assert.ok(
+      h.active.at(-1).includes("coc_state_move_scene"),
+      "retained registration stays projected after its binding is cleared",
+    );
+
+    sceneEnvelope = contextReceipt("scene-b", {
+      active_scene_id: "archive",
+      exits: [{ to: "street", open: true }],
+      time: { time_precision: "precise", local_datetime: "1920-10-12T10:35:00" },
+      npcs_present: [{ npc_id: "walter-corbitt" }],
+      action_routes: [{
+        route_id: "floating-knife",
+        resolution_kind: "combat_engagement",
+      }],
+    });
+    await invokeCompat(h, "scene-b", "scene.context");
+    const timeDiscovery = JSON.parse((await h.tools.get("coc_discover").execute(
+      "discover-time", { operation: "state.advance_time" }, undefined, undefined, h.ctx,
+    )).content[0].text);
+    assert.equal(timeDiscovery.ok, true);
+    for (const field of ["root", "campaign", "decision_id", "day_phase_after", "display_after"]) {
+      assert.equal(Object.hasOwn(
+        timeDiscovery.data.operation_card.parameters.properties,
+        field,
+      ), false, field);
+    }
+    const advanced = JSON.parse((await h.tools.get("coc_state_advance_time").execute(
+      "time-bound", { minutes: 10, reason: "检查档案耗时" },
+      undefined, undefined, h.ctx,
+    )).content[0].text);
+    assert.equal(advanced.ok, true);
+    const timeForwarded = forwarded.find((row) => row.operation === "state.advance_time");
+    assert.equal(timeForwarded.arguments.minutes, 10);
+    assert.equal(Object.hasOwn(timeForwarded.arguments, "day_phase_after"), false);
+
+    sceneEnvelope = contextReceipt("scene-c", {
+      active_scene_id: "cellar",
+      exits: [{ to: "stairs", open: true }],
+      time: { time_precision: "imprecise", local_datetime: null },
+      npcs_present: [{ npc_id: "walter-corbitt" }],
+      action_routes: [{
+        route_id: "floating-knife",
+        resolution_kind: "combat_engagement",
+      }],
+    });
+    await invokeCompat(h, "scene-c", "scene.context");
+    await invokeCompat(h, "combat-context", "combat.context");
+    const combatDiscovery = JSON.parse((await h.tools.get("coc_discover").execute(
+      "discover-combat", { operation: "combat.resolve" }, undefined, undefined, h.ctx,
+    )).content[0].text);
+    assert.equal(combatDiscovery.ok, true);
+    assert.deepEqual(
+      combatDiscovery.data.operation_card.parameters.properties.candidate_id.enum,
+      ["attack:walter-corbitt", "combat-route:floating-knife"],
+    );
+    for (const field of ["root", "campaign", "decision_id", "target_npc_id", "affordance_id"]) {
+      assert.equal(Object.hasOwn(
+        combatDiscovery.data.operation_card.parameters.properties,
+        field,
+      ), false, field);
+    }
+    const combat = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
+      "combat-bound", { candidate_id: "attack:walter-corbitt" },
+      undefined, undefined, h.ctx,
+    )).content[0].text);
+    assert.equal(combat.ok, true);
+    const combatForwarded = forwarded.find((row) => row.operation === "combat.resolve");
+    assert.equal(combatForwarded.arguments.target_npc_id, "walter-corbitt");
+    assert.equal(Object.hasOwn(combatForwarded.arguments, "candidate_id"), false);
+
+    sceneEnvelope = contextReceipt("scene-stale-a", {
+      active_scene_id: "hall",
+      exits: [{ to: "old-route", open: true, travel_minutes: 5 }],
+      time: { time_precision: "imprecise", local_datetime: null },
+      npcs_present: [],
+      action_routes: [],
+    });
+    await invokeCompat(h, "scene-stale-a", "scene.context");
+    await h.tools.get("coc_discover").execute(
+      "discover-stale-move", { operation: "state.move_scene" }, undefined, undefined, h.ctx,
+    );
+    sceneEnvelope = contextReceipt("scene-stale-b", {
+      active_scene_id: "hall",
+      exits: [{ to: "new-route", open: true, travel_minutes: 7 }],
+      time: { time_precision: "imprecise", local_datetime: null },
+      npcs_present: [],
+      action_routes: [],
+    });
+    await invokeCompat(h, "scene-stale-b", "scene.context");
+    const beforeStale = forwarded.length;
+    const candidateStale = JSON.parse((await h.tools.get("coc_state_move_scene").execute(
+      "stale-candidate", { scene_id: "old-route", reason: "旧路线" },
+      undefined, undefined, h.ctx,
+    )).content[0].text);
+    assert.equal(candidateStale.ok, false);
+    assert.equal(candidateStale.isError, true);
+    assert.equal(candidateStale.error.code, "semantic_candidate_stale");
+    assert.equal(candidateStale.error.class, "dynamic_candidate");
+    assert.equal(candidateStale.error.allowed_next_actions[0].operation, "scene.context");
+    assert.equal(forwarded.length, beforeStale, "stale candidate must fail before MCP");
+
+    await invokeCompat(h, "journal-stage-change", "state.journal");
+    const bindingStale = JSON.parse((await h.tools.get("coc_state_move_scene").execute(
+      "stale-binding", { scene_id: "new-route", reason: "阶段已变" },
+      undefined, undefined, h.ctx,
+    )).content[0].text);
+    assert.equal(bindingStale.ok, false);
+    assert.equal(bindingStale.isError, true);
+    assert.equal(bindingStale.error.code, "binding_context_stale");
+    assert.equal(bindingStale.error.recoverable_by, "host_binding_refresh");
+    assert.match(bindingStale.error.automatic_action, /scene\.context/);
+    assert.equal(forwarded.length, beforeStale + 1, "only journal may reach MCP after stale probes");
+  }, (_name, params) => {
+    forwarded.push(structuredClone(params));
+    if (params.operation === "scene.context") return sceneEnvelope;
+    if (params.operation === "combat.context") return combatEnvelope;
+    if (params.operation === "state.journal") {
+      return { ok: true, tool: "state.journal", data: { turn_id: "turn-stage-change" } };
+    }
+    return { ok: true, tool: params.operation, data: { accepted: true } };
+  });
+});
+
+test("late canonical result cannot mutate a restarted Pi session", async () => {
+  let releaseJournal;
+  const pendingJournal = new Promise((resolve) => { releaseJournal = resolve; });
+  const priorRole = process.env[ROLE_ENV];
+  const priorCampaign = process.env[CAMPAIGN_ENV];
+  process.env[ROLE_ENV] = "play";
+  process.env[CAMPAIGN_ENV] = "tool-affordance-campaign";
+  try {
+    const h = makeHarness((_name, params) => {
+      if (params.operation === "session.resume") {
+        return { ok: true, tool: "session.resume", data: { mode: "awaiting_player", next_operations: [] } };
+      }
+      if (params.operation === "state.journal") return pendingJournal;
+      return { ok: true, tool: params.operation, data: {} };
+    });
+    await h.start();
+    await invokeCompat(h, "resume-live", "session.resume");
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "旧会话输入。" }],
+    });
+    const pending = invokeCompat(h, "late-journal", "state.journal");
+    await new Promise((resolve) => setImmediate(resolve));
+    await h.shutdown();
+    const restartBoundary = h.appended.length;
+    await h.start();
+    releaseJournal({
+      ok: true,
+      tool: "state.journal",
+      data: { turn_id: "turn-from-closed-session" },
+    });
+    await pending;
+    assert.deepEqual(
+      h.appended.slice(restartBoundary).filter((row) => (
+        row.type === "coc-canonical-turn-progress"
+      )),
+      [],
+    );
+    assert.deepEqual(h.active.at(-1), []);
+  } finally {
+    if (priorRole === undefined) delete process.env[ROLE_ENV];
+    else process.env[ROLE_ENV] = priorRole;
+    if (priorCampaign === undefined) delete process.env[CAMPAIGN_ENV];
+    else process.env[CAMPAIGN_ENV] = priorCampaign;
+  }
+});
+
+test("malformed output-context and finalization successes fault without progress", async () => {
+  for (const operation of ["turn.output_context", "turn.finalize"]) {
+    await withPlayHarness(async (h) => {
+      await h.emit("message_start", {
+        role: "user",
+        content: [{ type: "text", text: `验证 ${operation}。` }],
+      });
+      const response = JSON.parse((await invokeCompat(
+        h, `malformed-${operation}`, operation,
+      )).content[0].text);
+      assert.equal(response.ok, false);
+      assert.equal(response.isError, true);
+      assert.equal(
+        response.error.code,
+        operation === "turn.finalize"
+          ? "finalization_receipt_invalid"
+          : "output_context_receipt_invalid",
+      );
+      const stages = h.appended
+        .filter((row) => row.type === "coc-canonical-turn-progress")
+        .map((row) => row.value.stage);
+      assert.equal(stages.at(-1), "faulted");
+      assert.equal(stages.includes("finalized"), false);
+      assert.equal(stages.includes("output_context_ready"), false);
+      assert.deepEqual(h.active.at(-1), ["coc_session_resume"]);
+    }, (_name, params) => {
+      if (params.operation === operation) {
+        return operation === "turn.finalize"
+          ? {
+              ok: true,
+              tool: operation,
+              data: { rendered_text_sha256: `sha256:${"f".repeat(64)}` },
+            }
+          : {
+              ok: true,
+              tool: operation,
+              data: { turn_id: "turn-incomplete-without-source" },
+            };
+      }
+      return { ok: true, tool: params.operation, data: {} };
+    });
+  }
+});
+
+test("faulted turn advances only through the exact session-resume recovery receipt", async () => {
+  let recoveryResume = false;
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我搜查房间。" }],
+    });
+    for (const text of ["草稿一。", "草稿二。", "草稿三。"]) {
+      await h.emit("message_end", {
+        role: "assistant",
+        stopReason: "stop",
+        content: [{ type: "text", text }],
+      });
+    }
+    assert.deepEqual(h.active.at(-1), ["coc_session_resume"]);
+    recoveryResume = true;
+    await invokeCompat(h, "resume-fault", "session.resume");
+    assert.deepEqual(h.active.at(-1), ["coc_session_resume", "coc_state_journal"]);
+    await invokeCompat(h, "journal-recovery", "state.journal");
+    const progress = h.appended
+      .filter((row) => row.type === "coc-canonical-turn-progress")
+      .map((row) => row.value);
+    assert.equal(progress.at(-1).stage, "journaled");
+    assert.equal(progress.at(-1).reason, "authorized_fault_recovery_receipt");
+    assert.ok(h.active.at(-1).includes("coc_turn_output_context"));
+    assert.ok(!h.active.at(-1).includes("coc_state_journal"));
+  }, (_name, params) => {
+    if (params.operation === "session.resume") {
+      return recoveryResume
+        ? {
+            ok: true,
+            tool: "session.resume",
+            data: {
+              mode: "pending_finalization",
+              next_operations: ["state.journal", "turn.output_context"],
+            },
+          }
+        : { ok: true, tool: "session.resume", data: { mode: "awaiting_player", next_operations: [] } };
+    }
+    if (params.operation === "state.journal") {
+      return { ok: true, tool: "state.journal", data: { turn_id: "turn-recovered" } };
+    }
+    return { ok: true, tool: params.operation, data: {} };
+  });
+});
+
+test("state-claim compiler terminal failure enters the same narrow fault working set", async () => {
+  const compiler = new PiStateClaimCompiler(async () => {
+    throw new PiStateClaimCompilerFailure(
+      "state_claim_response_invalid",
+      "protocol_invalid",
+      { provider: "probe", id: "probe", api: "openai-responses" },
+      1,
+    );
+  });
+  const priorRole = process.env[ROLE_ENV];
+  const priorCampaign = process.env[CAMPAIGN_ENV];
+  process.env[ROLE_ENV] = "play";
+  process.env[CAMPAIGN_ENV] = "tool-affordance-campaign";
+  try {
+    const h = makeHarness((_name, params) => {
+      if (params.operation === "session.resume") {
+        return { ok: true, tool: "session.resume", data: { mode: "awaiting_player", next_operations: [] } };
+      }
+      if (params.operation === "turn.output_context") {
+        return {
+          ok: true,
+          tool: "turn.output_context",
+          data: {
+            turn_id: "turn-compiler-fault",
+            source_digest: `sha256:${"d".repeat(64)}`,
+            settlement_snapshot_id: "turn-settlement-v1:compiler-fault",
+            mechanics_bundle_sha256: `sha256:${"e".repeat(64)}`,
+            contract_projection: { agency_authority: { pc_subject_refs: ["pc:probe"] } },
+            agency_review_operation: { prefilled_arguments: { revision: 1 } },
+          },
+        };
+      }
+      return { ok: true, tool: params.operation, data: {} };
+    }, compiler);
+    await h.start();
+    await invokeCompat(h, "resume-live", "session.resume");
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "继续调查。" }],
+    });
+    await invokeCompat(h, "compiler-context", "turn.output_context");
+    const response = JSON.parse((await invokeCompat(
+      h,
+      "compiler-review",
+      "narration.review",
+      {
+        draft_text: "调查继续。",
+        turn_id: "turn-compiler-fault",
+        source_digest: `sha256:${"d".repeat(64)}`,
+        revision: 1,
+        decision_id: "review-compiler-fault",
+        findings: [],
+        state_authority_review: {
+          disposition: "no_player_state_change_claimed",
+          reason: "无状态变化。",
+          claims: [],
+        },
+      },
+    )).content[0].text);
+    assert.equal(response.error.code, "state_claim_compiler_invalid");
+    assert.equal(response.isError, true);
+    assert.deepEqual(h.active.at(-1), ["coc_session_resume"]);
+    assert.equal(
+      h.appended.filter((row) => row.type === "coc-canonical-turn-progress").at(-1).value.stage,
+      "faulted",
+    );
+    assert.equal(h.sent.filter((row) => (
+      row.message.customType === main.TURN_PROCESSING_FAULT_CUSTOM_TYPE
+    )).length, 1);
+  } finally {
+    if (priorRole === undefined) delete process.env[ROLE_ENV];
+    else process.env[ROLE_ENV] = priorRole;
+    if (priorCampaign === undefined) delete process.env[CAMPAIGN_ENV];
+    else process.env[CAMPAIGN_ENV] = priorCampaign;
+  }
+});
+
+test("valid ending receipt advances finalized then exact delivery", async () => {
+  const endingText = "结局已经由权威收据闭合。";
+  const priorRole = process.env[ROLE_ENV];
+  const priorCampaign = process.env[CAMPAIGN_ENV];
+  process.env[ROLE_ENV] = "play";
+  process.env[CAMPAIGN_ENV] = "tool-affordance-campaign";
+  try {
+    const h = makeHarness((_name, params) => ({
+      ok: true,
+      tool: params.operation,
+      data: {
+        mode: "ending",
+        next_operations: [],
+        ending_output: {
+          rendered_text: endingText,
+          rendered_sha256: exactTextSha256(endingText),
+        },
+      },
+    }));
+    await h.start();
+    await invokeCompat(h, "resume-ending", "session.resume");
+    await h.emit("message_end", {
+      role: "assistant",
+      stopReason: "stop",
+      content: [{ type: "text", text: endingText }],
+    });
+    const stages = h.appended
+      .filter((row) => row.type === "coc-canonical-turn-progress")
+      .map((row) => row.value.stage);
+    assert.deepEqual(stages.slice(-2), ["finalized", "delivered"]);
+    assert.deepEqual(h.active.at(-1), []);
+  } finally {
+    if (priorRole === undefined) delete process.env[ROLE_ENV];
+    else process.env[ROLE_ENV] = priorRole;
+    if (priorCampaign === undefined) delete process.env[CAMPAIGN_ENV];
+    else process.env[CAMPAIGN_ENV] = priorCampaign;
+  }
 });

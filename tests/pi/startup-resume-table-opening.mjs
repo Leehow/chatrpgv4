@@ -1,5 +1,6 @@
 // Focused: session.resume mode table_opening must clear the startup gate.
 import "./_lib/preload-embedded-pi.mjs";
+import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -8,6 +9,9 @@ delete process.env.PI_SUBAGENT_CHILD;
 const root = path.resolve(process.argv[2] || process.cwd());
 const welcomeAgentDir = mkdtempSync(path.join(tmpdir(), "pi-coc-resume-opening-"));
 const main = await import(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"));
+const exactTextSha256 = (text) => (
+  `sha256:${createHash("sha256").update(JSON.stringify(text), "utf8").digest("hex")}`
+);
 
 function harness(responseForCall, startupCampaignId, workspaceRoot = root) {
   const registered = new Map();
@@ -252,10 +256,14 @@ const played = harness((name, params) => {
     return { ok: true, tool: "state.journal", data: { entries: [] } };
   }
   if (params.operation === "turn.finalize") {
+    const renderedText = "结算";
     return {
       ok: true,
       tool: "turn.finalize",
-      data: { rendered_text: "结算", rendered_sha256: "sha256:fin" },
+      data: {
+        rendered_text: renderedText,
+        rendered_text_sha256: exactTextSha256(renderedText),
+      },
     };
   }
   throw new Error(`unexpected ${params.operation}`);
@@ -293,6 +301,10 @@ try {
   if (playedResume.ok !== true || playedResume.data.mode !== "table_opening") {
     throw new Error(`played resume rejected: ${JSON.stringify(playedResume)}`);
   }
+  const afterResumeTools = played.activeTools.at(-1) || [];
+  if (!afterResumeTools.includes("coc_rules_roll") || afterResumeTools.includes("coc_setup")) {
+    throw new Error(`live turn collapsed to recovery-only: ${afterResumeTools}`);
+  }
   const sameRequestRoll = await invoke(played, "same-request-roll", {
     operation: "rules.roll",
     root: playedRoot,
@@ -319,10 +331,6 @@ try {
   }
   if (sameRequestFinalize.ok !== true || sameRequestFinalize.tool !== "turn.finalize") {
     throw new Error(`same-request finalize blocked: ${JSON.stringify(sameRequestFinalize)}`);
-  }
-  const afterResumeTools = played.activeTools.at(-1) || [];
-  if (!afterResumeTools.includes("coc_rules_roll") || afterResumeTools.includes("coc_setup")) {
-    throw new Error(`live turn collapsed to recovery-only: ${afterResumeTools}`);
   }
   await played.shutdown();
 } finally {
@@ -357,16 +365,33 @@ const recovery = harness((name, params) => {
     };
   }
   if (params.operation === "turn.output_context") {
-    return { ok: true, tool: "turn.output_context", data: { obligations: [] } };
+    return {
+      ok: true,
+      tool: "turn.output_context",
+      data: {
+        turn_id: "turn-recovery-startup",
+        source_digest: `sha256:${"a".repeat(64)}`,
+        settlement_snapshot_id: "turn-settlement-v1:recovery-startup",
+        mechanics_bundle_sha256: `sha256:${"b".repeat(64)}`,
+        contract_projection: {
+          agency_authority: { pc_subject_refs: ["pc:recovery-startup"] },
+        },
+        agency_review_operation: { prefilled_arguments: { revision: 1 } },
+      },
+    };
   }
   if (params.operation === "state.journal") {
     return { ok: true, tool: "state.journal", data: { entries: [] } };
   }
   if (params.operation === "turn.finalize") {
+    const renderedText = "闭合";
     return {
       ok: true,
       tool: "turn.finalize",
-      data: { rendered_text: "闭合", rendered_sha256: "sha256:recovery-fin" },
+      data: {
+        rendered_text: renderedText,
+        rendered_text_sha256: exactTextSha256(renderedText),
+      },
     };
   }
   if (
