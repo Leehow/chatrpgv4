@@ -12,7 +12,9 @@ import {
 } from "../lib/current-dependency-machine.ts";
 import {
   createTurnOutputGateMethods,
+  compareCanonicalTurnProgress,
   installTurnOutputGateState,
+  type CanonicalTurnProgress,
   type TurnOutputGateMethods,
   type TurnOutputGateStateSurface,
 } from "../lib/turn-output-gate.ts";
@@ -117,6 +119,11 @@ import {
   type PlayPhase,
 } from "../lib/domain-tools.ts";
 import {
+  KP_SURFACES,
+  OPERATION_POLICY,
+  type SessionRole,
+} from "../lib/operation-policy.ts";
+import {
   COC_SETUP_HANDOFF_EXIT_CODE,
   handoffFromEnvelope,
 } from "../lib/handoff.ts";
@@ -139,10 +146,27 @@ import {
 import {
   applyRetainedAdoptSourceFacts,
   attachExpectedSchema,
+  bindRetainedTypedToolArguments,
   listTypedOperationTools,
+  projectBoundTypedToolParameters,
+  projectPiToolFailure,
+  ToolContractProjectionError,
   typedToolNameForOperation,
   wrapTypedToolInvokeParams,
+  type CurrentTypedToolHostContext,
+  type TypedOperationTool,
+  type TypedToolBindingCard,
 } from "../lib/typed-tools.ts";
+import {
+  loadToolNamespace,
+  projectToolWorkingSet,
+  type LoadedExactOperation,
+  type LoadedNamespace,
+  type ModelVisibleHostTool,
+  type ToolWorkingSet,
+  type ToolWorkingSetSnapshot,
+  type WorkingSetNamespace,
+} from "../lib/tool-working-set.ts";
 import {
   registerPlayerPdfBindInstruction,
   userMessageText,
@@ -174,7 +198,21 @@ const OPENING_SOURCE_REVIEW_TIMEOUT_MS = 20 * 60 * 1000;
 const RAW_PDF_BIND_BUNDLE_ERROR = (
   "host source bundle must be a directory (not a file) containing manifest.json"
 );
-const discoverSchema = { type: "object", properties: { operation: { type: "string" }, domain: { type: "string" } }, additionalProperties: false } as const;
+const discoverSchema = {
+  type: "object",
+  properties: {
+    operation: {
+      type: "string",
+      pattern: "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$",
+    },
+    domain: {
+      type: "string",
+      enum: KP_SURFACES.filter((surface) => surface !== "none"),
+    },
+  },
+  maxProperties: 1,
+  additionalProperties: false,
+} as const;
 const invokeSchema = {
   type: "object",
   properties: {
@@ -3516,6 +3554,385 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   const supplyCoordinator = new PiSemanticSupplyCoordinator();
   const sceneSupplyDispatches = new Map<string, SceneSupplyDispatchStatus>();
   let kpPlayPhase: PlayPhase = "live_turn";
+  let currentWorkspaceRoot = "";
+  let canonicalProgressCampaignId = "";
+  let canonicalProgress: CanonicalTurnProgress = {
+    playerTurnEpoch: 0,
+    canonicalProgressRevision: 0,
+    stage: "awaiting_player",
+    campaignRevision: null,
+    journalRevision: null,
+    reviewRevision: null,
+    finalizedRenderedSha256: null,
+    closedObligationCount: 0,
+  };
+  let loadedNamespaces: LoadedNamespace[] = [];
+  let loadedOperations: LoadedExactOperation[] = [];
+  let lastWorkingSet: ToolWorkingSet | null = null;
+  const typedToolDefinitions = listTypedOperationTools();
+  const typedToolByOperation = new Map(
+    typedToolDefinitions.map((tool) => [tool.operation, tool]),
+  );
+  const retainedTypedBindings = new Map<string, TypedToolBindingCard>();
+  const currentTypedBindingFactories = new Map<
+    string,
+    () => CurrentTypedToolHostContext | null
+  >();
+  let refreshTypedToolDefinition = (_operation: string): void => {};
+  let retainedOutputContextFacts: {
+    root: string;
+    campaign: string;
+    turnId: string;
+    sourceDigest: string;
+    revision: number;
+    journalDecisionId: string;
+    finalizeDecisionId: string | null;
+    narrationReviewId: string | null;
+  } | null = null;
+  let faultRecoveryOperation: string | null = null;
+  let applyKpActiveTools = (): void => {};
+
+  const clearTypedBinding = (operation: string): void => {
+    const existed = retainedTypedBindings.delete(operation);
+    currentTypedBindingFactories.delete(operation);
+    if (existed) refreshTypedToolDefinition(operation);
+  };
+  const clearTurnTypedBindings = (): void => {
+    retainedOutputContextFacts = null;
+    for (const operation of [
+      "state.journal",
+      "narration.review",
+      "turn.finalize",
+      "state.move_scene",
+      "state.advance_time",
+      "combat.resolve",
+    ]) clearTypedBinding(operation);
+  };
+  const armTypedBinding = (
+    binding: TypedToolBindingCard,
+    currentFactory: () => CurrentTypedToolHostContext | null,
+  ): void => {
+    retainedTypedBindings.set(binding.operation, binding);
+    currentTypedBindingFactories.set(binding.operation, currentFactory);
+    refreshTypedToolDefinition(binding.operation);
+    try {
+      pi.appendEntry("coc-typed-tool-binding", {
+        schema_version: 1,
+        status: "armed",
+        operation: binding.operation,
+        binding_revision: binding.binding_revision,
+        player_turn_epoch: canonicalProgress.playerTurnEpoch,
+      });
+    } catch { /* binding audit is best effort */ }
+  };
+  const currentBindingContext = (operation: string): {
+    binding: TypedToolBindingCard;
+    current_host_context: CurrentTypedToolHostContext;
+  } | null => {
+    const binding = retainedTypedBindings.get(operation);
+    const current = currentTypedBindingFactories.get(operation)?.() ?? null;
+    return binding && current
+      ? { binding, current_host_context: current }
+      : null;
+  };
+
+  const canonicalProgressFacts = (
+    progress: CanonicalTurnProgress,
+  ): string => JSON.stringify({
+    playerTurnEpoch: progress.playerTurnEpoch,
+    stage: progress.stage,
+    campaignRevision: progress.campaignRevision,
+    journalRevision: progress.journalRevision,
+    reviewRevision: progress.reviewRevision,
+    finalizedRenderedSha256: progress.finalizedRenderedSha256,
+    closedObligationCount: progress.closedObligationCount,
+  });
+  const advanceCanonicalProgress = (
+    campaignId: string,
+    patch: Partial<Omit<CanonicalTurnProgress, "playerTurnEpoch" | "canonicalProgressRevision">>,
+    options: { newPlayerEpoch?: number; reprojectTools?: boolean } = {},
+  ): boolean => {
+    const newEpoch = options.newPlayerEpoch;
+    const base = newEpoch === undefined
+      ? canonicalProgress
+      : {
+          playerTurnEpoch: newEpoch,
+          canonicalProgressRevision: 0,
+          stage: "acting" as const,
+          campaignRevision: null,
+          journalRevision: null,
+          reviewRevision: null,
+          finalizedRenderedSha256: null,
+          closedObligationCount: 0,
+        };
+    const unversioned: CanonicalTurnProgress = { ...base, ...patch };
+    const candidate: CanonicalTurnProgress = newEpoch === undefined
+      ? canonicalProgressFacts(unversioned) === canonicalProgressFacts(base)
+        ? base
+        : {
+            ...unversioned,
+            canonicalProgressRevision: base.canonicalProgressRevision + 1,
+          }
+      : unversioned;
+    const comparison = compareCanonicalTurnProgress(canonicalProgress, candidate);
+    if (comparison.order === "stale" || comparison.order === "regressive") {
+      try {
+        pi.appendEntry("coc-canonical-turn-progress", {
+          schema_version: 1,
+          status: "rejected",
+          reason: comparison.reason,
+          player_turn_epoch: candidate.playerTurnEpoch,
+          canonical_progress_revision: candidate.canonicalProgressRevision,
+          stage: candidate.stage,
+        });
+      } catch { /* progress audit is best effort */ }
+      return false;
+    }
+    if (comparison.order === "equal") return true;
+    canonicalProgress = candidate;
+    if (campaignId) canonicalProgressCampaignId = campaignId;
+    if (campaignId) {
+      nonRetryableFailureCircuit.advance({
+        campaignId,
+        playerTurnEpoch: candidate.playerTurnEpoch,
+        canonicalProgress: candidate,
+      });
+    }
+    try {
+      pi.appendEntry("coc-canonical-turn-progress", {
+        schema_version: 1,
+        status: "advanced",
+        player_turn_epoch: candidate.playerTurnEpoch,
+        canonical_progress_revision: candidate.canonicalProgressRevision,
+        stage: candidate.stage,
+        reason: comparison.reason,
+      });
+    } catch { /* progress audit is best effort */ }
+    if (options.reprojectTools !== false) applyKpActiveTools();
+    return true;
+  };
+
+  const semanticDecisionId = (
+    operation: string,
+    revision = canonicalProgress.canonicalProgressRevision + 1,
+  ): string => (
+    `pi-${operation.replace(/\./gu, "-")}:player-epoch-${
+      canonicalProgress.playerTurnEpoch
+    }:revision-${revision}`
+  );
+  const armJournalBinding = (campaignId: string): void => {
+    const playerText = openingContinuationGate.currentExternalPlayerText;
+    if (
+      !campaignId
+      || !currentWorkspaceRoot
+      || typeof playerText !== "string"
+      || !playerText
+    ) return;
+    const binding: TypedToolBindingCard = {
+      schema_version: 1,
+      operation: "state.journal",
+      binding_revision: `state-journal:player-epoch-${canonicalProgress.playerTurnEpoch}`,
+      root: currentWorkspaceRoot,
+      campaign: campaignId,
+      player_text: playerText,
+      decision_id: semanticDecisionId("state.journal", 1),
+    };
+    const playerTurnEpoch = canonicalProgress.playerTurnEpoch;
+    armTypedBinding(binding, () => {
+      const currentText = openingContinuationGate.currentExternalPlayerText;
+      if (
+        canonicalProgress.playerTurnEpoch !== playerTurnEpoch
+        || typeof currentText !== "string"
+        || !currentText
+      ) return null;
+      return {
+        schema_version: 1,
+        operation: "state.journal",
+        binding_revision: `state-journal:player-epoch-${playerTurnEpoch}`,
+        root: currentWorkspaceRoot,
+        campaign: canonicalProgressCampaignId || campaignId,
+        player_text: currentText,
+        decision_id: `pi-state-journal:player-epoch-${playerTurnEpoch}:revision-1`,
+      };
+    });
+  };
+  const observeCanonicalProgress = (
+    operation: string,
+    params: JsonObject,
+    value: unknown,
+  ): void => {
+    const envelope = objectOrNull(value);
+    const data = objectOrNull(envelope?.data);
+    if (envelope?.ok !== true || data === null) return;
+    const campaignId = typeof params.campaign === "string"
+      ? params.campaign.trim()
+      : canonicalProgressCampaignId;
+    if (campaignId) canonicalProgressCampaignId = campaignId;
+
+    if (operation === "state.journal" && typeof data.turn_id === "string") {
+      advanceCanonicalProgress(campaignId, {
+        stage: "journaled",
+        journalRevision: data.turn_id,
+      });
+      clearTypedBinding("state.journal");
+      return;
+    }
+    if (operation === "turn.output_context" && typeof data.turn_id === "string") {
+      const reviewCard = objectOrNull(data.agency_review_operation);
+      const prefilled = objectOrNull(reviewCard?.prefilled_arguments);
+      const revision = Number(prefilled?.revision ?? data.revision ?? 1);
+      const sourceDigest = typeof data.source_digest === "string"
+        ? data.source_digest
+        : "";
+      if (sourceDigest && Number.isInteger(revision) && revision > 0) {
+        const journalDecisionId = typeof data.journal_decision_id === "string"
+          ? data.journal_decision_id
+          : semanticDecisionId("state.journal", 1);
+        retainedOutputContextFacts = {
+          root: typeof params.root === "string" && params.root
+            ? params.root
+            : currentWorkspaceRoot,
+          campaign: campaignId,
+          turnId: data.turn_id,
+          sourceDigest,
+          revision,
+          journalDecisionId,
+          finalizeDecisionId: null,
+          narrationReviewId: null,
+        };
+        const retainedReviewBinding: TypedToolBindingCard = {
+          schema_version: 1,
+          operation: "narration.review",
+          binding_revision: `narration-review:${data.turn_id}:revision-${revision}`,
+          root: retainedOutputContextFacts.root,
+          campaign: campaignId,
+          decision_id: semanticDecisionId("narration.review", revision),
+          turn_id: data.turn_id,
+          source_digest: sourceDigest,
+          revision,
+          state_claim_compilation: {},
+        };
+        armTypedBinding(retainedReviewBinding, () => {
+          const current = retainedOutputContextFacts;
+          if (current === null || current.turnId !== data.turn_id) return null;
+          return {
+            schema_version: 1,
+            operation: "narration.review",
+            binding_revision: `narration-review:${current.turnId}:revision-${current.revision}`,
+            root: current.root,
+            campaign: current.campaign,
+            decision_id: semanticDecisionId("narration.review", current.revision),
+            turn_id: current.turnId,
+            source_digest: current.sourceDigest,
+            revision: current.revision,
+            state_claim_compilation: {},
+          };
+        });
+      }
+      advanceCanonicalProgress(campaignId, {
+        stage: "output_context_ready",
+        campaignRevision: Number.isInteger(data.manifest_revision)
+          ? `manifest:${data.manifest_revision}`
+          : canonicalProgress.campaignRevision,
+        journalRevision: data.turn_id,
+      });
+      return;
+    }
+    if (operation === "narration.review") {
+      const facts = retainedOutputContextFacts;
+      const reviewId = typeof data.review_id === "string"
+        ? data.review_id
+        : typeof data.narration_review_id === "string"
+          ? data.narration_review_id
+          : "";
+      if (facts !== null && reviewId) {
+        const revision = Number(data.revision ?? facts.revision);
+        const finalizeDecisionId = semanticDecisionId("turn.finalize", revision);
+        retainedOutputContextFacts = {
+          ...facts,
+          revision,
+          finalizeDecisionId,
+          narrationReviewId: reviewId,
+        };
+        const retainedFinalizeBinding: TypedToolBindingCard = {
+          schema_version: 1,
+          operation: "turn.finalize",
+          binding_revision: `turn-finalize:${facts.turnId}:review-${revision}`,
+          root: facts.root,
+          campaign: facts.campaign,
+          decision_id: finalizeDecisionId,
+          revision,
+          turn_id: facts.turnId,
+          source_digest: facts.sourceDigest,
+          narration_review_id: reviewId,
+        };
+        armTypedBinding(retainedFinalizeBinding, () => {
+          const current = retainedOutputContextFacts;
+          if (
+            current === null
+            || current.finalizeDecisionId === null
+            || current.narrationReviewId === null
+          ) return null;
+          return {
+            schema_version: 1,
+            operation: "turn.finalize",
+            binding_revision: `turn-finalize:${current.turnId}:review-${current.revision}`,
+            root: current.root,
+            campaign: current.campaign,
+            decision_id: current.finalizeDecisionId,
+            revision: current.revision,
+            turn_id: current.turnId,
+            source_digest: current.sourceDigest,
+            narration_review_id: current.narrationReviewId,
+          };
+        });
+        advanceCanonicalProgress(campaignId, {
+          stage: "review_ready",
+          reviewRevision: revision,
+        });
+      }
+      return;
+    }
+    if (
+      operation === "turn.finalize"
+      && typeof data.rendered_text_sha256 === "string"
+    ) {
+      advanceCanonicalProgress(campaignId, {
+        stage: "finalized",
+        finalizedRenderedSha256: data.rendered_text_sha256,
+        closedObligationCount: Array.isArray(data.obligation_ids)
+          ? data.obligation_ids.length
+          : canonicalProgress.closedObligationCount,
+      });
+      clearTurnTypedBindings();
+      return;
+    }
+    if (operation === "session.resume") {
+      const nextOperations = Array.isArray(data.next_operations)
+        ? data.next_operations.filter((item): item is string => typeof item === "string")
+        : [];
+      if (canonicalProgress.stage === "faulted") {
+        faultRecoveryOperation = nextOperations.find((candidate) => (
+          OPERATION_POLICY[candidate] !== undefined
+        )) ?? null;
+        applyKpActiveTools();
+        return;
+      }
+      const mode = typeof data.mode === "string" ? data.mode : "";
+      const resumedStage = mode === "pending_finalization"
+        ? nextOperations.includes("narration.review")
+          ? "output_context_ready"
+          : nextOperations.includes("turn.finalize")
+            ? "review_ready"
+            : "journaled"
+        : mode === "table_opening"
+          || mode === "open_turn_recovery"
+          || mode === "ending"
+          ? "acting"
+          : "awaiting_player";
+      advanceCanonicalProgress(campaignId, { stage: resumedStage });
+    }
+  };
   const resolveAclPhase = (campaignId?: string): PlayPhase => {
     if (startupResumeGate !== null && startupResumeGate.phase === "pending") {
       return "recovery";
@@ -3529,7 +3946,87 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     return kpPlayPhase;
   };
-  const applyKpActiveTools = () => {
+  const resolvedWorkingSetHostTools = (role: SessionRole): ModelVisibleHostTool[] => {
+    const desiredNames = new Set([
+      "coc_discover",
+      "subagent",
+      "subagent_wait",
+      ...extraToolsForSessionRole(role),
+    ]);
+    if (typeof pi.getAllTools !== "function") {
+      // Explicit compatibility lane for old focused ExtensionAPI fakes. The
+      // production Pi runtime always resolves the registered definitions.
+      return [...desiredNames].sort().map((name) => ({
+        name,
+        parameters: emptySchema,
+      }));
+    }
+    return pi.getAllTools()
+      .filter((tool) => desiredNames.has(tool.name))
+      .map((tool) => ({
+        name: tool.name,
+        parameters: tool.parameters as ModelVisibleHostTool["parameters"],
+      }));
+  };
+  const workingSetSnapshot = (role: SessionRole): ToolWorkingSetSnapshot => {
+    const phase = resolveAclPhase();
+    loadedNamespaces = loadedNamespaces.filter((grant) => (
+      grant.role === role
+      && grant.phase === phase
+      && grant.stage === canonicalProgress.stage
+      && grant.playerTurnEpoch === canonicalProgress.playerTurnEpoch
+    ));
+    loadedOperations = loadedOperations.filter((grant) => (
+      grant.role === role
+      && grant.phase === phase
+      && grant.stage === canonicalProgress.stage
+      && grant.playerTurnEpoch === canonicalProgress.playerTurnEpoch
+    ));
+    return {
+      role,
+      phase,
+      stage: canonicalProgress.stage,
+      playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+      canonicalProgressRevision: canonicalProgress.canonicalProgressRevision,
+      roleManifestToolNames: extraToolsForSessionRole(role),
+      hostTools: resolvedWorkingSetHostTools(role),
+      affordances: { operations: [] },
+      loadedNamespaces,
+      loadedOperations,
+      ...(canonicalProgress.stage === "faulted" && faultRecoveryOperation !== null
+        ? {
+            recoveryRoute: {
+              authorization: "fault" as const,
+              code: "session_resume_authorized_recovery",
+              operation: faultRecoveryOperation,
+            },
+          }
+        : {}),
+    };
+  };
+  const auditWorkingSet = (projected: ToolWorkingSet): void => {
+    try {
+      pi.appendEntry("coc-tool-working-set", {
+        schema_version: 1,
+        status: projected.ok ? "projected" : "rejected",
+        revision: projected.revision,
+        active_tool_count: projected.activeToolNames.length,
+        schema_bytes: projected.schemaBytes,
+        host_schema_bytes: projected.hostSchemaBytes,
+        operation_schema_bytes: projected.operationSchemaBytes,
+        role: sessionRoleFromEnv(),
+        phase: resolveAclPhase(),
+        stage: canonicalProgress.stage,
+        player_turn_epoch: canonicalProgress.playerTurnEpoch,
+        canonical_progress_revision: canonicalProgress.canonicalProgressRevision,
+        loaded_namespaces: loadedNamespaces.map((grant) => grant.namespace),
+        loaded_operations: loadedOperations.map((grant) => grant.operation),
+        reason_codes: [...new Set(projected.reasons.map((reason) => reason.code))],
+        ...(projected.error === undefined ? {} : { error: projected.error }),
+      });
+    } catch { /* working-set audit is best effort */ }
+  };
+  applyKpActiveTools = () => {
     if (process.env.PI_SUBAGENT_CHILD === "1") return;
     const role = sessionRoleFromEnv();
     const gate = startupResumeGate;
@@ -3548,8 +4045,47 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               fallbackPhase: kpPlayPhase,
               role,
             })
-          : activeToolsForPhase(resolveAclPhase(), role);
-    pi.setActiveTools(tools);
+          : role === null
+            ? activeToolsForPhase(resolveAclPhase(), role)
+            : null;
+    if (tools !== null) {
+      pi.setActiveTools(tools);
+      return;
+    }
+    const projected = projectToolWorkingSet(workingSetSnapshot(role!));
+    lastWorkingSet = projected;
+    auditWorkingSet(projected);
+    if (projected.ok) {
+      pi.setActiveTools([...projected.activeToolNames]);
+      return;
+    }
+    pi.setActiveTools([]);
+    if (
+      canonicalProgress.playerTurnEpoch > 0
+      && canonicalProgress.stage !== "faulted"
+    ) {
+      const fault = {
+        schema_version: 1,
+        contract_id: "coc.pi-turn-processing-fault.v1",
+        kind: "turn_processing_fault",
+        status: "terminal",
+        stage: "tool_selection",
+        code: projected.error?.code ?? "working_set_projection_failed",
+        message: "tool working-set projection failed closed; the pending turn is preserved",
+        retryable: false,
+        will_retry: false,
+        pending_turn_preserved: true,
+        failure_class: "tool_selection",
+      };
+      const armed = openingContinuationGate.armTurnProcessingFault(fault);
+      if (armed.first) {
+        try { pi.appendEntry(TURN_PROCESSING_FAULT_CUSTOM_TYPE, armed.fault); }
+        catch { /* terminal fault audit is best effort */ }
+      }
+      advanceCanonicalProgress(canonicalProgressCampaignId, {
+        stage: "faulted",
+      }, { reprojectTools: false });
+    }
   };
   const queueSetupHandoffExit = () => {
     const leave = () => {
@@ -3848,6 +4384,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   const initializeSession = (ctx: ExtensionContext): string | null => {
     sessionEpoch += 1;
     sessionClosing = false;
+    currentWorkspaceRoot = ctx.cwd;
+    canonicalProgressCampaignId = "";
+    canonicalProgress = {
+      playerTurnEpoch: 0,
+      canonicalProgressRevision: 0,
+      stage: "awaiting_player",
+      campaignRevision: null,
+      journalRevision: null,
+      reviewRevision: null,
+      finalizedRenderedSha256: null,
+      closedObligationCount: 0,
+    };
+    loadedNamespaces = [];
+    loadedOperations = [];
+    lastWorkingSet = null;
+    faultRecoveryOperation = null;
+    clearTurnTypedBindings();
     startupSilentResumeQuarantine = null;
     startupBranchTrailingPlayerUser = branchEndsWithUnmatchedPlayerUser(
       typeof ctx.sessionManager?.getBranch === "function"
@@ -4765,6 +5318,39 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     };
   };
   const gateway = (name: string) => async (_id: string, params: JsonObject, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) => {
+    const typedDefinition = typedToolDefinitions.find((tool) => tool.name === name);
+    if (typedDefinition !== undefined) {
+      const bindingContext = currentBindingContext(typedDefinition.operation);
+      if (bindingContext !== null) {
+        try {
+          params = bindRetainedTypedToolArguments(
+            typedDefinition.operation,
+            params,
+            bindingContext.binding,
+            bindingContext.current_host_context,
+          ) as JsonObject;
+        } catch (error) {
+          if (!(error instanceof ToolContractProjectionError)) throw error;
+          const projected = projectPiToolFailure({
+            ok: false,
+            tool: typedDefinition.operation,
+            error: {
+              code: error.code,
+              message: error.message,
+              details: error.details,
+              retryable: false,
+            },
+            retryable: false,
+            will_retry: false,
+          }, typedDefinition.operation);
+          return result((projected ?? {
+            ok: false,
+            tool: typedDefinition.operation,
+            error: { code: error.code, message: error.message },
+          }) as JsonObject);
+        }
+      }
+    }
     params = wrapTypedToolInvokeParams(name, params) as JsonObject;
     // Bind the host-retained source-facts card before generic JSON-string
     // normalization so the exact setup transition can recover from a
@@ -4894,6 +5480,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           typeof params.campaign === "string" ? params.campaign : "",
         ),
         operationArgs: objectOrNull(params.arguments) ?? {},
+        playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+        canonicalProgress,
       });
       if (blocked !== null) {
         try {
@@ -5311,6 +5899,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ? attachExpectedSchema(
             modelVisibleCanonicalToolResult(error),
             typeof params.operation === "string" ? params.operation : null,
+            undefined,
+            typeof params.operation === "string"
+              ? currentBindingContext(params.operation) ?? undefined
+              : undefined,
           )
           : null;
         // Observable canonical envelopes stay live for observe. Finalizing
@@ -5349,6 +5941,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
     }
     if (isCanonicalInvokeSurface(name)) {
+      observeCanonicalProgress(String(params.operation || ""), params, value);
       nonRetryableFailureCircuit.observe({
         campaignId: typeof params.campaign === "string" ? params.campaign : "",
         operation: String(params.operation || ""),
@@ -5357,6 +5950,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ),
         operationArgs: objectOrNull(params.arguments) ?? {},
         envelope: value,
+        playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+        canonicalProgress,
       });
       const briefingOperation = String(params.operation);
       const briefingEnvelope = objectOrNull(value);
@@ -6010,6 +6605,121 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     return gatewayResult(value as JsonObject);
   };
+  const executeDiscovery = async (
+    _id: string,
+    params: JsonObject,
+    _signal: AbortSignal | undefined,
+    _update: unknown,
+    _ctx: ExtensionContext,
+  ) => {
+    const role = sessionRoleFromEnv();
+    if (role === null) return gateway("coc_discover")(_id, params, _signal, _update, _ctx);
+    const operation = typeof params.operation === "string" ? params.operation : null;
+    const domain = typeof params.domain === "string" ? params.domain : null;
+    if (operation !== null && domain !== null) {
+      return result({
+        ok: false,
+        tool: "coc_discover",
+        error: {
+          code: "invalid_request",
+          message: "choose exactly one of operation or domain",
+        },
+        retryable: false,
+        will_retry: false,
+      });
+    }
+    const snapshot = workingSetSnapshot(role);
+    if (operation === null && domain === null) {
+      const namespaces = KP_SURFACES
+        .filter((surface): surface is WorkingSetNamespace => surface !== "none")
+        .flatMap((namespace) => {
+          const loaded = loadToolNamespace(snapshot, { kind: "namespace", namespace });
+          return loaded.ok || loaded.code === "namespace_too_large"
+            ? [{ namespace, exact_operation_supported: true }]
+            : [];
+        });
+      return result({
+        ok: true,
+        tool: "coc_discover",
+        data: {
+          schema_version: 1,
+          role,
+          phase: snapshot.phase,
+          stage: snapshot.stage,
+          namespaces,
+          selector: "pass one semantic dotted operation or one namespace enum",
+        },
+      });
+    }
+    const loaded = loadToolNamespace(
+      snapshot,
+      operation !== null
+        ? { kind: "exact_operation", operation }
+        : { kind: "namespace", namespace: domain as WorkingSetNamespace },
+    );
+    if (!loaded.ok) {
+      return result({
+        ok: false,
+        tool: "coc_discover",
+        error: {
+          code: loaded.code,
+          message: loaded.message,
+          details: loaded.details,
+        },
+        retryable: false,
+        will_retry: false,
+      });
+    }
+    if (loaded.grant.kind === "namespace") {
+      loadedNamespaces = [
+        ...loadedNamespaces.filter((grant) => grant.namespace !== loaded.grant.namespace),
+        loaded.grant,
+      ];
+    } else {
+      loadedOperations = [
+        ...loadedOperations.filter((grant) => grant.operation !== loaded.grant.operation),
+        loaded.grant,
+      ];
+    }
+    lastWorkingSet = loaded.workingSet;
+    auditWorkingSet(loaded.workingSet);
+    pi.setActiveTools([...loaded.workingSet.activeToolNames]);
+    const typed = operation === null ? null : typedToolByOperation.get(operation) ?? null;
+    let parameters = typed?.parameters ?? null;
+    if (typed !== null) {
+      const binding = currentBindingContext(typed.operation);
+      if (binding !== null) {
+        parameters = projectBoundTypedToolParameters(
+          typed.operation,
+          typed.parameters,
+          binding.binding,
+          binding.current_host_context,
+        );
+      }
+    }
+    return result({
+      ok: true,
+      tool: "coc_discover",
+      data: {
+        schema_version: 1,
+        loaded: loaded.grant,
+        ...(typed === null ? {} : {
+          operation_card: {
+            operation: typed.operation,
+            tool_name: typed.name,
+            description: typed.description,
+            parameters,
+          },
+        }),
+        working_set: {
+          revision: loaded.workingSet.revision,
+          active_tool_count: loaded.workingSet.activeToolNames.length,
+          schema_bytes: loaded.workingSet.schemaBytes,
+        },
+      },
+    });
+  };
+
   pi.registerTool({
     name: "coc_capabilities", label: "COC capabilities",
     description: "Return canonical COC host capabilities.", parameters: emptySchema,
@@ -6018,8 +6728,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   });
   pi.registerTool({
     name: "coc_discover", label: "COC discover",
-    description: "Discover canonical COC operations.", parameters: discoverSchema,
-    execute: gateway("coc_discover"),
+    description: "Load one canonical operation or one bounded namespace into the current turn working set.", parameters: discoverSchema,
+    execute: executeDiscovery,
     ...compactToolRenderers("coc_discover"),
   });
   pi.registerTool({
@@ -6038,12 +6748,22 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ...compactToolRenderers(domainName),
     });
   }
-  for (const typed of listTypedOperationTools()) {
+  const registerTypedDefinition = (typed: TypedOperationTool): void => {
+    const binding = currentBindingContext(typed.operation);
+    let parameters = typed.parameters;
+    if (binding !== null) {
+      parameters = projectBoundTypedToolParameters(
+        typed.operation,
+        typed.parameters,
+        binding.binding,
+        binding.current_host_context,
+      );
+    }
     pi.registerTool({
       name: typed.name,
       label: typed.label,
       description: typed.description,
-      parameters: typed.parameters,
+      parameters,
       ...(typed.operation === "setup.complete" ? {
         prepareArguments: (args: unknown) => (
           openingContinuationGate.prepareSetupCompleteArguments(args)
@@ -6052,6 +6772,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       execute: gateway(typed.name),
       ...compactToolRenderers(typed.name),
     });
+  };
+  refreshTypedToolDefinition = (operation: string): void => {
+    const typed = typedToolByOperation.get(operation);
+    if (typed !== undefined) {
+      registerTypedDefinition(typed);
+      try {
+        pi.appendEntry("coc-typed-tool-binding", {
+          schema_version: 1,
+          status: "schema_refreshed",
+          operation,
+          binding_armed: retainedTypedBindings.has(operation),
+        });
+      } catch { /* binding audit is best effort */ }
+    }
+  };
+  for (const typed of typedToolDefinitions) {
+    registerTypedDefinition(typed);
   }
   pi.registerTool({
     name: "coc_dispatch_source_work", label: "COC source dispatch",
@@ -6347,6 +7084,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         // later same-epoch empty terminals are background wakes, not
         // swallowed player turns, and must not arm recovery or a fault.
         openingContinuationGate.markEpochPlayerOutputDelivered();
+        if (canonicalProgress.stage === "finalized") {
+          advanceCanonicalProgress(canonicalProgressCampaignId, {
+            stage: "delivered",
+          });
+        }
       }
       const deliveredBlocker = (
         openingContinuationGate.takeDeliveredOpeningSetupTerminalBlocker()
@@ -6363,10 +7105,45 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         const fault = openingContinuationGate.takeTurnProcessingFaultForDelivery();
         if (fault !== null) deliverTurnProcessingFault(fault);
         else {
-          deliverMechanicalOutputGateInstruction(
-            pi,
-            openingContinuationGate.takeMechanicalOutputGateEnvelope(),
-          );
+          const pendingGate = openingContinuationGate.takeMechanicalOutputGateEnvelope();
+          if (pendingGate?.kind !== "settled_output_gate") {
+            deliverMechanicalOutputGateInstruction(pi, pendingGate);
+          } else {
+            const recovery = openingContinuationGate.claimSettledOutputRecovery(
+              canonicalProgress,
+              "missing_finalization_receipt",
+            );
+            try {
+              pi.appendEntry("coc-settled-output-recovery", {
+                schema_version: 1,
+                status: recovery.status,
+                player_turn_epoch: canonicalProgress.playerTurnEpoch,
+                canonical_progress_revision:
+                  canonicalProgress.canonicalProgressRevision,
+                stage: canonicalProgress.stage,
+              });
+            } catch { /* recovery audit is best effort */ }
+            if (recovery.status === "claimed") {
+              deliverMechanicalOutputGateInstruction(pi, recovery.envelope);
+            } else {
+              const armed = openingContinuationGate.armTurnProcessingFault(
+                recovery.fault,
+              );
+              faultRecoveryOperation = null;
+              advanceCanonicalProgress(canonicalProgressCampaignId, {
+                stage: "faulted",
+              });
+              if (armed.first) {
+                try {
+                  pi.appendEntry(TURN_PROCESSING_FAULT_CUSTOM_TYPE, armed.fault);
+                } catch { /* terminal fault audit is best effort */ }
+              }
+              const deliverable = (
+                openingContinuationGate.takeTurnProcessingFaultForDelivery()
+              );
+              if (deliverable !== null) deliverTurnProcessingFault(deliverable);
+            }
+          }
         }
       }
       if (shouldTriggerOpeningSetupContinuation(decision)) {
@@ -6394,7 +7171,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     (message) => {
       const externalUser = userMessageText(message) !== null;
       openingContinuationGate.observeMessageStart(message);
-      if (externalUser) stateClaimCompiler.beginExternalTurn();
+      if (externalUser) {
+        stateClaimCompiler.beginExternalTurn();
+        clearTurnTypedBindings();
+        faultRecoveryOperation = null;
+        const campaignId = explicitPiStartupCampaignId()
+          ?? canonicalProgressCampaignId;
+        advanceCanonicalProgress(campaignId, {}, {
+          newPlayerEpoch: openingContinuationGate.playerTurnEpoch,
+          reprojectTools: false,
+        });
+        armJournalBinding(campaignId);
+      }
       if (externalUser && startupResumeGate === null) {
         const preflightDelivery = deliverPendingPreInferenceFinalizationSteer(
           pi,
@@ -6642,6 +7430,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     startupResumeGate = null;
     startupSilentResumeQuarantine = null;
     startupBranchTrailingPlayerUser = false;
+    loadedNamespaces = [];
+    loadedOperations = [];
+    lastWorkingSet = null;
+    faultRecoveryOperation = null;
+    retainedOutputContextFacts = null;
+    retainedTypedBindings.clear();
+    currentTypedBindingFactories.clear();
     sceneSupplyDispatches.clear();
     openingContinuationGate.reset();
     stateClaimCompiler.clear();
@@ -6703,6 +7498,7 @@ const openingTerminalMachineEnvironment: Record<string, any> = {
   REVIEW_RECOVERY_FAILURE_CLASSES,
   ZH_HANS_PLAYER_TERMS,
   applyRetainedAdoptSourceFacts,
+  buildSettledOutputGateEnvelope,
   buildSettledOutputPreflightEnvelope,
   canonicalJsonValueSha256,
   detectMechanicalMarkers,

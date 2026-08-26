@@ -166,7 +166,7 @@ async function invokeReviewSurface(h, surface, id, arguments_) {
   }
   return await h.tools.get(surface).execute(
     id,
-    { campaign, ...arguments_ },
+    arguments_,
     undefined, undefined, h.ctx,
   );
 }
@@ -261,11 +261,25 @@ test("all invoke surfaces overwrite input and scrub host receipt from output", a
     for (const [index, surface] of [
       "coc_invoke", "coc_advice", "coc_narration_review",
     ].entries()) {
-      const result = await invokeReviewSurface(h, surface, `review-${index}`, {
-        ...baseReview,
-        decision_id: `review-gateway-${index}`,
-        state_claim_compilation: forged,
-      });
+      const {
+        turn_id: _turnId,
+        source_digest: _sourceDigest,
+        revision: _revision,
+        decision_id: _decisionId,
+        ...modelOwnedReview
+      } = baseReview;
+      const result = await invokeReviewSurface(
+        h,
+        surface,
+        `review-${index}`,
+        surface === "coc_narration_review"
+          ? modelOwnedReview
+          : {
+              ...baseReview,
+              decision_id: `review-gateway-${index}`,
+              state_claim_compilation: forged,
+            },
+      );
       const envelope = JSON.parse(result.content[0].text);
       assert.equal(envelope.ok, true, JSON.stringify(envelope));
       assert.equal(JSON.stringify(envelope).includes("host-receipt-must-not-reach-model"), false);

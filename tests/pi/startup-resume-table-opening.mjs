@@ -31,6 +31,11 @@ function harness(responseForCall, startupCampaignId, workspaceRoot = root) {
     setActiveTools: (tools) => {
       activeTools.push([...tools]);
     },
+    getActiveTools: () => activeTools.at(-1) || [],
+    getAllTools: () => [...registered.values()].map((tool) => ({
+      name: tool.name,
+      parameters: tool.parameters,
+    })),
     getThinkingLevel: () => "off",
   };
   main.default(fakePi, {
@@ -83,7 +88,9 @@ function harness(responseForCall, startupCampaignId, workspaceRoot = root) {
     activeTools,
     ctx,
     async start() {
-      await handlers.get("session_start").at(-1)({ reason: "startup" }, ctx);
+      for (const handler of handlers.get("session_start") || []) {
+        await handler({ reason: "startup" }, ctx);
+      }
       for (const handler of handlers.get("agent_start") || []) {
         await handler({ reason: "tool-test" }, ctx);
       }
