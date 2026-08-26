@@ -3578,6 +3578,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     string,
     () => CurrentTypedToolHostContext | null
   >();
+  const revokedSceneBindingOperations = new Set<string>();
   let refreshTypedToolDefinition = (_operation: string): void => {};
   let retainedOutputContextFacts: {
     root: string;
@@ -3646,10 +3647,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     currentTypedBindingFactories.delete(operation);
     if (existed) refreshTypedToolDefinition(operation);
   };
+  const revokeSceneDerivedBindings = (): void => {
+    currentSceneBindingFacts = null;
+    for (const operation of ["state.move_scene", "state.advance_time"]) {
+      revokedSceneBindingOperations.add(operation);
+      clearTypedBinding(operation);
+    }
+    loadedOperations = loadedOperations.filter((grant) => (
+      grant.operation !== "state.move_scene"
+      && grant.operation !== "state.advance_time"
+    ));
+    applyKpActiveTools();
+  };
   const clearTurnTypedBindings = (): void => {
     retainedOutputContextFacts = null;
     currentSceneBindingFacts = null;
     currentCombatBindingFacts = null;
+    revokedSceneBindingOperations.clear();
     for (const operation of [
       "state.journal",
       "narration.review",
@@ -4298,6 +4312,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       : "";
     const time = objectOrNull(data?.time);
     if (data === null || identity === null || !activeSceneId || time === null) {
+      revokeSceneDerivedBindings();
       return;
     }
     const sceneCandidates: SceneBindingFacts["sceneCandidates"] = [];
@@ -4313,11 +4328,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         hasTravelMinutes
         && (!Number.isInteger(rawTravel) || Number(rawTravel) < 0)
       ) {
-        throw new ToolContractProjectionError(
+        const error = new ToolContractProjectionError(
           "binding_context_invalid",
           "structured scene context travel_minutes must be absent or a non-negative integer",
           { field: "data.exits.travel_minutes" },
         );
+        revokeSceneDerivedBindings();
+        throw error;
       }
       const travelMinutes = hasTravelMinutes ? Number(rawTravel) : undefined;
       const kind = typeof exit.kind === "string" && exit.kind.trim()
@@ -4336,11 +4353,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         source_identity: sourceIdentity ?? null,
       });
       if (exactRoutes.has(exactIdentity)) {
-        throw new ToolContractProjectionError(
+        const error = new ToolContractProjectionError(
           "binding_context_invalid",
           "structured scene context contains an exact duplicate authored route",
           { field: "data.exits" },
         );
+        revokeSceneDerivedBindings();
+        throw error;
       }
       exactRoutes.add(exactIdentity);
       const routeScope = `${sceneId}\u0000${kind}`;
@@ -4397,6 +4416,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       npcIds: [...new Set(npcIds)].sort(),
       combatAffordanceIds: [...new Set(combatAffordanceIds)].sort(),
     };
+    revokedSceneBindingOperations.delete("state.move_scene");
+    revokedSceneBindingOperations.delete("state.advance_time");
     currentSceneBindingFacts = facts;
     if (facts.sceneCandidates.length > 0) {
       armTypedBinding(sceneMoveCardFromFacts(facts), () => {
@@ -6118,6 +6139,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           if (!(error instanceof ToolContractProjectionError)) throw error;
           return hostFailureResult(hostBindingFailure(typedDefinition.operation, error));
         }
+      } else if (revokedSceneBindingOperations.has(typedDefinition.operation)) {
+        return hostFailureResult(hostBindingFailure(
+          typedDefinition.operation,
+          new ToolContractProjectionError(
+            "binding_context_missing",
+            `no retained host binding is armed for ${typedDefinition.operation}`,
+            { operation: typedDefinition.operation },
+          ),
+        ));
       }
     }
     params = wrapTypedToolInvokeParams(name, params) as JsonObject;

@@ -523,6 +523,147 @@ test("projected same-destination scene routes preserve exact optional travel thr
   });
 });
 
+test("new invalid scene context revokes prior scene bindings before surfacing failure", async () => {
+  const forwarded = [];
+  let sceneEnvelope = contextReceipt("scene-valid", {
+    active_scene_id: "hall",
+    exits: [{ to: "old-route", kind: "travel", open: true, travel_minutes: 5 }],
+    time: { time_precision: "precise", local_datetime: "1920-10-12T10:00:00" },
+    npcs_present: [],
+    action_routes: [],
+  });
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我重新确认当前路线。" }],
+    });
+    await invokeCompat(h, "scene-valid", "scene.context");
+    for (const operation of ["state.move_scene", "state.advance_time"]) {
+      const discovery = JSON.parse((await h.tools.get("coc_discover").execute(
+        `discover-${operation}`,
+        { operation },
+        undefined,
+        undefined,
+        h.ctx,
+      )).content[0].text);
+      assert.equal(discovery.ok, true);
+    }
+    assert.ok(h.active.at(-1).includes("coc_state_move_scene"));
+    assert.ok(h.active.at(-1).includes("coc_state_advance_time"));
+
+    sceneEnvelope = contextReceipt("scene-invalid-newer", {
+      active_scene_id: "hall",
+      exits: [{ to: "new-route", kind: "travel", open: true, travel_minutes: "5" }],
+      time: { time_precision: "precise", local_datetime: "1920-10-12T10:01:00" },
+      npcs_present: [],
+      action_routes: [],
+    });
+    await assert.rejects(
+      invokeCompat(h, "scene-invalid-newer", "scene.context"),
+      (error) => error?.code === "binding_context_invalid",
+    );
+
+    assert.equal(h.active.at(-1).includes("coc_state_move_scene"), false);
+    assert.equal(h.active.at(-1).includes("coc_state_advance_time"), false);
+    const unboundMoveSchema = h.tools.get("coc_state_move_scene").parameters;
+    assert.ok(Object.hasOwn(unboundMoveSchema.properties, "campaign"));
+    assert.ok(Object.hasOwn(unboundMoveSchema.properties, "decision_id"));
+    assert.equal(Object.hasOwn(unboundMoveSchema.properties, "candidate_id"), false);
+    assert.equal(latestWorkingSetAudit(h).schema_bytes, actualActiveSchemaBytes(h));
+
+    const beforeStaleMove = forwarded.filter((row) => (
+      row.operation === "state.move_scene"
+    )).length;
+    const staleMove = JSON.parse((await h.tools.get("coc_state_move_scene").execute(
+      "stale-after-invalid",
+      { scene_id: "old-route", reason: "不得使用旧路线" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(staleMove.ok, false);
+    assert.equal(staleMove.isError, true);
+    assert.equal(staleMove.error.code, "binding_context_missing");
+    assert.equal(forwarded.filter((row) => (
+      row.operation === "state.move_scene"
+    )).length, beforeStaleMove, "revoked route must fail before MCP");
+
+    const beforeStaleTime = forwarded.filter((row) => (
+      row.operation === "state.advance_time"
+    )).length;
+    const staleTime = JSON.parse((await h.tools.get("coc_state_advance_time").execute(
+      "stale-time-after-invalid",
+      { minutes: 5, reason: "不得沿用旧时钟上下文" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(staleTime.error.code, "binding_context_missing");
+    assert.equal(forwarded.filter((row) => (
+      row.operation === "state.advance_time"
+    )).length, beforeStaleTime, "revoked clock must fail before MCP");
+
+    sceneEnvelope = contextReceipt("scene-valid-recovery", {
+      active_scene_id: "hall",
+      exits: [{ to: "new-route", kind: "travel", open: true, travel_minutes: 7 }],
+      time: { time_precision: "precise", local_datetime: "1920-10-12T10:02:00" },
+      npcs_present: [],
+      action_routes: [],
+    });
+    await invokeCompat(h, "scene-valid-recovery", "scene.context");
+    const recoveryDiscovery = JSON.parse((await h.tools.get("coc_discover").execute(
+      "discover-recovered-move",
+      { operation: "state.move_scene" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.deepEqual(
+      recoveryDiscovery.data.operation_card.parameters.properties.scene_id.enum,
+      ["new-route"],
+    );
+  }, (_name, params) => {
+    forwarded.push(structuredClone(params));
+    if (params.operation === "scene.context") return sceneEnvelope;
+    return { ok: true, tool: params.operation, data: { accepted: true } };
+  });
+});
+
+test("initial invalid scene context keeps scene-derived tools unarmed", async () => {
+  let forwardedMoves = 0;
+  const invalidEnvelope = contextReceipt("scene-invalid-initial", {
+    active_scene_id: "hall",
+    exits: [{ to: "bad-route", open: true, travel_minutes: null }],
+    time: { time_precision: "precise", local_datetime: "1920-10-12T10:00:00" },
+    npcs_present: [],
+    action_routes: [],
+  });
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我先确认路线。" }],
+    });
+    await assert.rejects(
+      invokeCompat(h, "scene-invalid-initial", "scene.context"),
+      (error) => error?.code === "binding_context_invalid",
+    );
+    assert.equal(h.active.at(-1).includes("coc_state_move_scene"), false);
+    const rejected = JSON.parse((await h.tools.get("coc_state_move_scene").execute(
+      "initial-invalid-stale",
+      { scene_id: "bad-route", reason: "无有效绑定" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(rejected.error.code, "binding_context_missing");
+    assert.equal(forwardedMoves, 0);
+  }, (_name, params) => {
+    if (params.operation === "scene.context") return invalidEnvelope;
+    if (params.operation === "state.move_scene") forwardedMoves += 1;
+    return { ok: true, tool: params.operation, data: { accepted: true } };
+  });
+});
+
 test("scene, precise-clock, and combat cards bind discovered production tools and reject stale use", async () => {
   const forwarded = [];
   let sceneEnvelope = contextReceipt("scene-a", {
