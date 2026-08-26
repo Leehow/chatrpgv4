@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "quests": [
+    {
+      "quest_id": "quest-knott-commission",
+      "title": "The Corbitt House Commission",
+      "localized_title": {"zh-Hans": "科比特宅邸调查委托"},
+      "player_safe_summary": "诺特先生按日付酬，委托调查员查清租客失踪与宅邸异响的底细，并出具一份调查报告。",
+      "localized_text": {
+        "zh-Hans": "房产经纪人史蒂文·诺特委托调查员查清他继承的科比特宅邸为何留不住租客：查清底细，给他一份报告，报酬按日结算。"
+      },
+      "quest_kinds": ["commission", "visit-explore"],
+      "importance": "core",
+      "giver": {"kind": "npc", "ref_id": "npc-steven-knott"},
+      "brief": "Keeper-only: Knott pays $20/day plus keys and address, and wants a report that lets him rent or sell the inherited house. He knows only rumor and the Macario tragedy — nothing of Corbitt's undead nature — and will not believe Mythos explanations without hard proof. He pressures the investigators if research exceeds a day. The report's content is the KP's call: a whitewash he can accept, or hard proof that forces him to face the truth. Finding Corbitt's remains in the basement is the decisive evidence any credible report needs.",
+      "target_refs": [
+        {"kind": "npc", "ref_id": "npc-steven-knott"},
+        {"kind": "scene", "ref_id": "corbitt-house-ground"},
+        {"kind": "clue", "ref_id": "clue-corbitt-body-found"}
+      ],
+      "destination_scene_id": "corbitt-house-ground",
+      "deadline": null,
+      "completion": {
+        "all": [
+          {"kind": "clue_discovered", "clue_id": "clue-corbitt-body-found"}
+        ],
+        "narrative": "The investigators deliver a report Knott accepts (a clean bill for the house, or hard proof he cannot dodge); the KP semantically confirms the commission is discharged."
+      },
+      "failure": {
+        "any": [
+          {"kind": "clock_reaches", "clock_id": "landlord-impatience", "threshold": 3}
+        ],
+        "narrative": "Knott withdraws the commission or hires someone cheaper, or the investigation is abandoned with nothing to show for it."
+      },
+      "mainline_links": [
+        "commission-and-research-frame",
+        "corbitt-buried-in-basement",
+        "house-haunted-by-corbitt"
+      ],
+      "secret": false,
+      "provenance": "source",
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 435,
+          "grep_anchor": "Mr. Steven Knott"
+        }
+      ]
+    },
+    {
+      "quest_id": "quest-retrieve-chapel-journal",
+      "title": "Recover the Chapel Records",
+      "localized_title": {"zh-Hans": "取回教堂记录"},
+      "player_safe_summary": "查访教堂废墟，寻回沉思教堂遗留的记录——据说那里保存着与科比特有关的文字。",
+      "localized_text": {
+        "zh-Hans": "跟踪档案里反复出现的\"沉思教堂\"线索：走访废墟，寻回教堂方面留下的记录或日记，弄清他们与科比特的纠葛。"
+      },
+      "quest_kinds": ["retrieve-collect"],
+      "importance": "optional",
+      "giver": null,
+      "brief": "Keeper-only: An optional research side path. The Chapel of Contemplation was broken up by a police raid and burned in 1912; its ruins still hold Father Thomas's journal-style records showing Corbitt's body was buried in the house basement per his will. Dooley or the court file can point investigators at the ruins. The journal materially shortcuts the basement search, so it recycles into the mainline even though the visit itself is optional.",
+      "target_refs": [
+        {"kind": "clue", "ref_id": "clue-chapel-journal-burial"}
+      ],
+      "destination_scene_id": "chapel-of-contemplation-ruins",
+      "deadline": null,
+      "completion": {
+        "all": [
+          {"kind": "clue_discovered", "clue_id": "clue-chapel-journal-burial"}
+        ]
+      },
+      "failure": null,
+      "mainline_links": [
+        "corbitt-buried-in-basement",
+        "corbitt-is-undead-sorcerer"
+      ],
+      "secret": false,
+      "provenance": "source",
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 438,
+          "grep_anchor": "Chapel of Contemplation"
+        }
+      ]
+    },
+    {
+      "quest_id": "quest-end-corbitt-threat",
+      "title": "End the Corbitt Threat",
+      "localized_title": {"zh-Hans": "终结科比特的威胁"},
+      "player_safe_summary": "查明并终结宅邸里盘踞的恶意存在——无论用它的圣匕首、净化仪式，还是别的什么办法，让这里真正安宁。",
+      "localized_text": {
+        "zh-Hans": "宅中的邪祟不会止步于吓唬租客。找到能真正终结它的办法，并且活着做到——让科比特宅邸的威胁就此了结。"
+      },
+      "quest_kinds": ["prevent-disrupt"],
+      "importance": "core",
+      "giver": null,
+      "brief": "Keeper-only: The scenario's mainline goal, arising once the haunting is confirmed rather than from any NPC's mouth. Corbitt animates his own corpse from the sealed basement; his own ritual dagger bypasses Flesh Ward and reduces him to ash (Vittorio's bible line hints at it). Ends only by KP semantic closure: dagger-to-ash, an equivalent sanctioned destruction, or banishment the KP accepts as final. Purely narrative completion — no machine condition can witness a destruction.",
+      "target_refs": [
+        {"kind": "npc", "ref_id": "npc-walter-corbitt"},
+        {"kind": "clue", "ref_id": "clue-own-dagger-ends-him"}
+      ],
+      "destination_scene_id": "corbitt-confrontation",
+      "deadline": null,
+      "completion": {
+        "narrative": "Corbitt is destroyed or permanently ended by his own dagger or an equivalent KP-sanctioned means (reduced to ash, laid to rest, or banished beyond return); the house's threat is over."
+      },
+      "failure": {
+        "narrative": "The investigators are wiped out, permanently retreat, or walk away with the haunting unresolved and Corbitt still feeding on the house's residents."
+      },
+      "mainline_links": [
+        "own-dagger-ends-corbitt",
+        "corbitt-is-undead-sorcerer"
+      ],
+      "secret": false,
+      "provenance": "source",
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 435,
+          "grep_anchor": "Walter Corbitt"
+        }
+      ]
+    }
+  ]
+}
