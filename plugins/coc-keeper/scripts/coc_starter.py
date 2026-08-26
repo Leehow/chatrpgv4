@@ -53,7 +53,7 @@ STARTER_SCENARIO_FILES = (
     "pacing-map.json",
     "improvisation-boundaries.json",
 )
-STARTER_OPTIONAL_SCENARIO_FILES = ("handouts.json",)
+STARTER_OPTIONAL_SCENARIO_FILES = ("handouts.json", "quests.json")
 
 # Structured registry of shipped starter pregens (id → home scenario).
 # Used for provenance backfill and dossier scenario-bound filtering — lookup by
