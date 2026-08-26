@@ -36,6 +36,128 @@ assert.equal(circuit.preflight(call)?.error?.code, "nonretryable_repeat_blocked"
 circuit.reset();
 assert.equal(circuit.preflight(call), null);
 
+const hostPresenceCircuit = new NonRetryableFailureCircuit();
+const hostPresenceCall = {
+  campaignId: "campaign-host-presence",
+  operation: "turn.output_context",
+  phase: "pending_finalization",
+  operationArgs: {},
+};
+const nonretryableInvalidParam = {
+  ok: false,
+  error: { code: "invalid_param", class: "schema_validation" },
+  retryable: false,
+  will_retry: false,
+};
+hostPresenceCircuit.observe({
+  ...hostPresenceCall,
+  envelope: nonretryableInvalidParam,
+});
+assert.equal(
+  hostPresenceCircuit.preflight({
+    ...hostPresenceCall,
+    operationArgs: {
+      campaign_id: "campaign-host-presence",
+      decision_id: "output-context:campaign-host-presence:turn-1",
+    },
+  }),
+  null,
+  "adding previously absent required host-owned fields is a legal correction",
+);
+hostPresenceCircuit.observe({
+  ...hostPresenceCall,
+  operationArgs: {
+    campaign_id: "campaign-host-presence",
+    decision_id: "output-context:campaign-host-presence:turn-1",
+  },
+  envelope: nonretryableInvalidParam,
+});
+assert.equal(
+  hostPresenceCircuit.preflight({
+    ...hostPresenceCall,
+    operationArgs: {
+      campaign_id: "different-host-value",
+      decision_id: "output-context:campaign-host-presence:turn-2",
+    },
+  })?.error?.code,
+  "nonretryable_repeat_blocked",
+  "changing only present host-owned identities cannot evade the block",
+);
+assert.equal(
+  hostPresenceCircuit.preflight({
+    ...hostPresenceCall,
+    operationArgs: {
+      campaign_id: "different-host-value",
+      decision_id: "output-context:campaign-host-presence:turn-2",
+      requested_section: "visible_mechanics",
+    },
+  }),
+  null,
+  "changing a semantic argument remains a legal correction",
+);
+
+const fingerprintFor = (operationArgs) => nonRetryableFailureFingerprint({
+  campaignId: "campaign-host-presence",
+  operation: "state.journal",
+  phase: "live_turn",
+  operationArgs,
+  errorCode: "invalid_param",
+  errorClass: "schema_validation",
+});
+const nestedHostArguments = {
+  entries: [
+    {
+      claim: "the cellar door is locked",
+      metadata: {
+        campaign_id: "campaign-a",
+        decision_id: "journal:campaign-a:turn-1",
+      },
+    },
+  ],
+};
+assert.equal(
+  fingerprintFor(nestedHostArguments),
+  fingerprintFor({
+    entries: [
+      {
+        claim: "the cellar door is locked",
+        metadata: {
+          campaign_id: "campaign-b",
+          decision_id: "journal:campaign-b:turn-9",
+        },
+      },
+    ],
+  }),
+  "nested host-owned values normalize deterministically inside arrays",
+);
+assert.notEqual(
+  fingerprintFor(nestedHostArguments),
+  fingerprintFor({
+    entries: [
+      {
+        claim: "the cellar door is locked",
+        metadata: {},
+      },
+    ],
+  }),
+  "nested host-owned presence remains distinct from absence",
+);
+assert.notEqual(
+  fingerprintFor(nestedHostArguments),
+  fingerprintFor({
+    entries: [
+      {
+        claim: "the attic window is open",
+        metadata: {
+          campaign_id: "campaign-a",
+          decision_id: "journal:campaign-a:turn-1",
+        },
+      },
+    ],
+  }),
+  "semantic changes inside nested arrays remain distinct",
+);
+
 const progress = (playerTurnEpoch, stage, overrides = {}) => ({
   playerTurnEpoch,
   canonicalProgressRevision: 0,

@@ -28,6 +28,8 @@ const HOST_OWNED_ARGUMENT_KEYS = new Set([
   "workspace",
 ]);
 
+const HOST_OWNED_ARGUMENT_PRESENT = "<host-owned-present>";
+
 function isHostOwnedArgumentKey(key: string): boolean {
   return HOST_OWNED_ARGUMENT_KEYS.has(key)
     || key.endsWith("_digest")
@@ -36,17 +38,22 @@ function isHostOwnedArgumentKey(key: string): boolean {
 }
 
 /**
- * Retain semantic choices while removing identity churn that the host owns.
- * Whitespace-only draft edits also normalize to the same value.
+ * Retain semantic choices and host-owned field presence while removing the
+ * opaque identity churn that the host owns. Whitespace-only draft edits also
+ * normalize to the same value.
  */
 export function normalizeModelOwnedArguments(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(normalizeModelOwnedArguments);
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as JsonRecord)
-        .filter(([key]) => !isHostOwnedArgumentKey(key))
         .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => [key, normalizeModelOwnedArguments(item)]),
+        .map(([key, item]) => [
+          key,
+          isHostOwnedArgumentKey(key)
+            ? HOST_OWNED_ARGUMENT_PRESENT
+            : normalizeModelOwnedArguments(item),
+        ]),
     );
   }
   if (typeof value === "string") return value.trim().replace(/\s+/gu, " ");
