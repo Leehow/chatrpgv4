@@ -75,10 +75,25 @@ export type AdvanceTimeBindingCard = {
   clock_precision: "precise" | "imprecise";
 };
 
-export type CombatTargetCandidate = {
-  target_npc_id: string;
-  affordance_id?: string;
-};
+export type CombatTargetCandidate =
+  | {
+    candidate_id: string;
+    invocation_mode: "target_npc_id";
+    target_npc_id: string;
+    affordance_id?: never;
+  }
+  | {
+    candidate_id: string;
+    invocation_mode: "affordance_id";
+    affordance_id: string;
+    target_npc_id?: never;
+  }
+  | {
+    candidate_id: string;
+    invocation_mode: "pending_defense";
+    target_npc_id?: never;
+    affordance_id?: never;
+  };
 
 export type CombatResolveBindingCard = {
   schema_version: 1;
@@ -179,6 +194,7 @@ const HOST_OWNED_FIELDS: Record<TypedToolBindingCard["operation"], readonly stri
     "root",
     "campaign",
     "decision_id",
+    "target_npc_id",
     "affordance_id",
   ],
 };
@@ -508,6 +524,7 @@ function validateCombatCandidates(value: readonly CombatTargetCandidate[]): void
     );
   }
   const seen = new Set<string>();
+  let pendingDefenseCount = 0;
   for (const candidate of value) {
     if (!isPlainObject(candidate)) {
       throw new ToolContractProjectionError(
@@ -516,18 +533,56 @@ function validateCombatCandidates(value: readonly CombatTargetCandidate[]): void
         { field: "candidates" },
       );
     }
-    const target = nonEmptyString(candidate.target_npc_id, "candidates.target_npc_id");
-    if (seen.has(target)) {
+    const candidateId = nonEmptyString(candidate.candidate_id, "candidates.candidate_id");
+    if (seen.has(candidateId)) {
       throw new ToolContractProjectionError(
         "binding_context_invalid",
-        "retained combat target ids must be unique",
-        { field: "candidates.target_npc_id" },
+        "retained combat candidate ids must be unique",
+        { field: "candidates.candidate_id" },
       );
     }
-    seen.add(target);
-    if (candidate.affordance_id !== undefined) {
+    seen.add(candidateId);
+    if (candidate.invocation_mode === "target_npc_id") {
+      nonEmptyString(candidate.target_npc_id, "candidates.target_npc_id");
+      if (candidate.affordance_id !== undefined) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          "target-mode combat candidate cannot retain affordance_id",
+          { field: "candidates.affordance_id" },
+        );
+      }
+    } else if (candidate.invocation_mode === "affordance_id") {
       nonEmptyString(candidate.affordance_id, "candidates.affordance_id");
+      if (candidate.target_npc_id !== undefined) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          "affordance-mode combat candidate cannot retain target_npc_id",
+          { field: "candidates.target_npc_id" },
+        );
+      }
+    } else if (candidate.invocation_mode === "pending_defense") {
+      pendingDefenseCount += 1;
+      if (candidate.target_npc_id !== undefined || candidate.affordance_id !== undefined) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          "pending-defense candidate cannot retain target or affordance identity",
+          { field: "candidates" },
+        );
+      }
+    } else {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "combat candidate has an unsupported canonical invocation mode",
+        { field: "candidates.invocation_mode" },
+      );
     }
+  }
+  if (pendingDefenseCount > 0 && (pendingDefenseCount !== 1 || value.length !== 1)) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "pending defense must be the sole retained combat candidate",
+      { field: "candidates" },
+    );
   }
 }
 
@@ -691,7 +746,7 @@ function hostOwnedFields(binding: TypedToolBindingCard): string[] {
   if (
     binding.operation === "combat.resolve"
     && binding.candidates.length === 1
-  ) fields.push("target_npc_id");
+  ) fields.push("candidate_id");
   return fields;
 }
 
@@ -745,9 +800,9 @@ export function projectBoundTypedToolParameters(
   if (valid.operation === "combat.resolve" && valid.candidates.length > 1) {
     setEnumProperty(
       cloned,
-      "target_npc_id",
-      valid.candidates.map((candidate) => candidate.target_npc_id),
-      "Choose one current semantic combat target; the host binds its exact affordance.",
+      "candidate_id",
+      valid.candidates.map((candidate) => candidate.candidate_id),
+      "Choose one current semantic combat route; the host binds its exact canonical invocation mode.",
     );
   }
   return cloned;
@@ -791,19 +846,23 @@ export function bindRetainedTypedToolArguments(
     if (candidate.travel_minutes !== null) result.travel_minutes = candidate.travel_minutes;
   }
   if (valid.operation === "combat.resolve") {
-    const target = valid.candidates.length === 1
-      ? valid.candidates[0].target_npc_id
-      : typeof result.target_npc_id === "string" ? result.target_npc_id : "";
-    const candidate = valid.candidates.find((row) => row.target_npc_id === target);
+    const candidateId = valid.candidates.length === 1
+      ? valid.candidates[0].candidate_id
+      : typeof result.candidate_id === "string" ? result.candidate_id : "";
+    const candidate = valid.candidates.find((row) => row.candidate_id === candidateId);
     if (!candidate) {
       throw new ToolContractProjectionError(
         "semantic_candidate_stale",
-        "selected combat target is not in the current retained semantic candidates",
-        { operation, candidate_field: "target_npc_id" },
+        "selected combat route is not in the current retained semantic candidates",
+        { operation, candidate_field: "candidate_id" },
       );
     }
-    result.target_npc_id = candidate.target_npc_id;
-    if (candidate.affordance_id !== undefined) result.affordance_id = candidate.affordance_id;
+    delete result.candidate_id;
+    if (candidate.invocation_mode === "target_npc_id") {
+      result.target_npc_id = candidate.target_npc_id;
+    } else if (candidate.invocation_mode === "affordance_id") {
+      result.affordance_id = candidate.affordance_id;
+    }
   }
   return result;
 }

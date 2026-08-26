@@ -503,7 +503,7 @@ test("social motive overlay encodes the intensity/evidence cross-field contract"
   assert.deepEqual(evidenced.required, ["direction", "intensity", "evidence_refs"]);
 });
 
-test("combat.resolve projects retained semantic targets and binds exact affordances", () => {
+test("combat.resolve binds exactly one canonical route, while pending defense binds neither", () => {
   const binding = {
     schema_version: 1,
     operation: "combat.resolve",
@@ -514,8 +514,16 @@ test("combat.resolve projects retained semantic targets and binds exact affordan
     combat_revision: "combat-context:corbitt:round-2",
     combat_digest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
     candidates: [
-      { target_npc_id: "walter-corbitt", affordance_id: "melee:ritual-dagger" },
-      { target_npc_id: "floating-knife", affordance_id: "dodge:floating-knife" },
+      {
+        candidate_id: "attack-walter-corbitt",
+        invocation_mode: "target_npc_id",
+        target_npc_id: "walter-corbitt",
+      },
+      {
+        candidate_id: "use-floating-knife-route",
+        invocation_mode: "affordance_id",
+        affordance_id: "dodge:floating-knife",
+      },
     ],
   };
   const current = independentCurrent(binding);
@@ -525,23 +533,47 @@ test("combat.resolve projects retained semantic targets and binds exact affordan
     binding,
     current,
   );
-  assert.deepEqual(schema.properties.target_npc_id.enum, [
-    "walter-corbitt",
-    "floating-knife",
+  assert.deepEqual(schema.properties.candidate_id.enum, [
+    "attack-walter-corbitt",
+    "use-floating-knife-route",
   ]);
+  assert.ok(!Object.hasOwn(schema.properties, "target_npc_id"));
   assert.ok(!Object.hasOwn(schema.properties, "affordance_id"));
   assert.ok(Object.hasOwn(schema.properties, "weapon_id"));
-  const bound = typed.bindRetainedTypedToolArguments(
+  const targetBound = typed.bindRetainedTypedToolArguments(
     binding.operation,
-    { target_npc_id: "walter-corbitt", weapon_id: "ritual-dagger" },
+    { candidate_id: "attack-walter-corbitt", weapon_id: "ritual-dagger" },
     binding,
     current,
   );
-  assert.equal(bound.affordance_id, "melee:ritual-dagger");
-  assert.equal(bound.weapon_id, "ritual-dagger");
+  assert.equal(targetBound.target_npc_id, "walter-corbitt");
+  assert.ok(!Object.hasOwn(targetBound, "affordance_id"));
+  assert.ok(!Object.hasOwn(targetBound, "candidate_id"));
+  assert.equal(targetBound.weapon_id, "ritual-dagger");
+  const affordanceBound = typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    { candidate_id: "use-floating-knife-route", weapon_id: "ritual-dagger" },
+    binding,
+    current,
+  );
+  assert.equal(affordanceBound.affordance_id, "dodge:floating-knife");
+  assert.ok(!Object.hasOwn(affordanceBound, "target_npc_id"));
+  assert.ok(!Object.hasOwn(affordanceBound, "candidate_id"));
+
+  // Exact precondition at coc_operation_combat.py:284-295: a non-pending
+  // invocation must contain one and only one of target_npc_id/affordance_id.
+  const satisfiesCanonicalCombatPrecondition = (args, pendingDefense = false) => {
+    const hasTarget = typeof args.target_npc_id === "string" && args.target_npc_id.length > 0;
+    const hasAffordance = typeof args.affordance_id === "string" && args.affordance_id.length > 0;
+    return pendingDefense
+      ? !hasTarget && !hasAffordance
+      : hasTarget !== hasAffordance;
+  };
+  assert.equal(satisfiesCanonicalCombatPrecondition(targetBound), true);
+  assert.equal(satisfiesCanonicalCombatPrecondition(affordanceBound), true);
   assertProjectionError(() => typed.bindRetainedTypedToolArguments(
     binding.operation,
-    { target_npc_id: "unknown-target" },
+    { candidate_id: "unknown-route" },
     binding,
     current,
   ), "semantic_candidate_stale");
@@ -550,10 +582,29 @@ test("combat.resolve projects retained semantic targets and binds exact affordan
     catalog.byOperation.get(binding.operation).parameters,
     {
       ...binding,
-      candidates: [{ target_npc_id: "walter-corbitt", affordance_id: "changed" }],
+      candidates: [{
+        candidate_id: "attack-walter-corbitt",
+        invocation_mode: "affordance_id",
+        affordance_id: "changed-route",
+      }],
     },
     current,
   ), "binding_context_stale");
+  const invalidXorCard = {
+    ...binding,
+    candidates: [{
+      candidate_id: "invalid-double-bound-route",
+      invocation_mode: "target_npc_id",
+      target_npc_id: "walter-corbitt",
+      affordance_id: "dodge:floating-knife",
+    }],
+  };
+  assertProjectionError(() => typed.projectBoundTypedToolParameters(
+    invalidXorCard.operation,
+    catalog.byOperation.get(invalidXorCard.operation).parameters,
+    invalidXorCard,
+    independentCurrent(invalidXorCard),
+  ), "binding_context_invalid");
 
   const single = { ...binding, candidates: [binding.candidates[0]] };
   const singleSchema = typed.projectBoundTypedToolParameters(
@@ -562,7 +613,9 @@ test("combat.resolve projects retained semantic targets and binds exact affordan
     single,
     independentCurrent(single),
   );
+  assert.ok(!Object.hasOwn(singleSchema.properties, "candidate_id"));
   assert.ok(!Object.hasOwn(singleSchema.properties, "target_npc_id"));
+  assert.ok(!Object.hasOwn(singleSchema.properties, "affordance_id"));
   const singleBound = typed.bindRetainedTypedToolArguments(
     single.operation,
     { weapon_id: "ritual-dagger" },
@@ -570,7 +623,35 @@ test("combat.resolve projects retained semantic targets and binds exact affordan
     independentCurrent(single),
   );
   assert.equal(singleBound.target_npc_id, "walter-corbitt");
-  assert.equal(singleBound.affordance_id, "melee:ritual-dagger");
+  assert.ok(!Object.hasOwn(singleBound, "affordance_id"));
+  assert.equal(satisfiesCanonicalCombatPrecondition(singleBound), true);
+
+  const pendingDefense = {
+    ...binding,
+    binding_revision: "combat:corbitt:pending-defense-1",
+    combat_revision: "combat-context:corbitt:pending-defense-1",
+    combat_digest: "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    candidates: [{
+      candidate_id: "defend-pending-floating-knife",
+      invocation_mode: "pending_defense",
+    }],
+  };
+  const pendingBound = typed.bindRetainedTypedToolArguments(
+    pendingDefense.operation,
+    { defense_kind: "dodge" },
+    pendingDefense,
+    independentCurrent(pendingDefense),
+  );
+  assert.equal(pendingBound.defense_kind, "dodge");
+  assert.ok(!Object.hasOwn(pendingBound, "target_npc_id"));
+  assert.ok(!Object.hasOwn(pendingBound, "affordance_id"));
+  assert.equal(satisfiesCanonicalCombatPrecondition(pendingBound, true), true);
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    pendingDefense.operation,
+    { defense_kind: "dodge", target_npc_id: "walter-corbitt" },
+    pendingDefense,
+    independentCurrent(pendingDefense),
+  ), "forged_host_argument");
 });
 
 test("Pi failure projection classifies recovery ownership without replacing canonical details", () => {
@@ -755,37 +836,70 @@ test("Pi failure projection classifies recovery ownership without replacing cano
 });
 
 test("replay-corpus failure codes retain conservative or actionable dispositions", () => {
-  const replayCounts = [5, 3, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1];
-  assert.equal(replayCounts.reduce((total, count) => total + count, 0), 24);
+  // One row per preserved failure in the Allan Ward terminal playtest. Source
+  // anchors are line numbers in that campaign's logs/toolbox-calls.jsonl.
   const actualFailures = [
-    ["turn.finalize", "default_mechanics_placement_unavailable", "business_precondition", "turn.finalize", "split_action_and_consequence_paragraphs"],
-    ["state.journal", "idempotency_conflict", "idempotency_conflict", null, null],
-    ["turn.output_context", "no_unfinalized_journal", "business_precondition", "state.journal", "journal_current_turn"],
-    ["turn.finalize", "state_authority_review_blocked", "business_precondition", "narration.review", "revise_narration_only"],
-    ["turn.finalize", "narration_review_required", "business_precondition", "narration.review", "review_retained_draft"],
-    ["turn.finalize", "narration_review_mismatch", "business_precondition", null, null],
-    ["narration.review", "idempotency_conflict", "idempotency_conflict", null, null],
-    ["combat.resolve", "unknown_combat_target", "dynamic_candidate", "combat.context", "refresh_semantic_candidates"],
-    ["state.move_scene", "invalid_param", "schema_validation", "state.move_scene", "correct_model_arguments"],
-    ["state.journal", "turn_finalization_pending", "business_precondition", "turn.output_context", "resume_pending_settlement"],
-    ["state.advance_time", "invalid_request", "schema_validation", "state.advance_time", "correct_model_arguments"],
-    ["rules.social_adjudicate", "invalid_param", "schema_validation", "rules.social_adjudicate", "correct_model_arguments"],
+    { sourceLine: 22, ts: "2026-08-25T15:10:32.466829+00:00", operation: "turn.output_context", code: "no_unfinalized_journal", expectedClass: "business_precondition", nextOperation: "state.journal", nextAction: "journal_current_turn" },
+    { sourceLine: 45, ts: "2026-08-25T15:30:23.801375+00:00", operation: "state.journal", code: "idempotency_conflict", expectedClass: "idempotency_conflict", automaticAction: "refresh_retained_binding_or_fault" },
+    { sourceLine: 47, ts: "2026-08-25T15:30:34.069789+00:00", operation: "turn.finalize", code: "narration_review_required", expectedClass: "business_precondition", nextOperation: "narration.review", nextAction: "review_retained_draft" },
+    { sourceLine: 52, ts: "2026-08-25T15:34:14.311729+00:00", operation: "state.journal", code: "idempotency_conflict", expectedClass: "idempotency_conflict", automaticAction: "refresh_retained_binding_or_fault" },
+    { sourceLine: 58, ts: "2026-08-25T15:41:27.137644+00:00", operation: "state.journal", code: "turn_finalization_pending", expectedClass: "business_precondition", nextOperation: "turn.output_context", nextAction: "resume_pending_settlement" },
+    { sourceLine: 71, ts: "2026-08-25T16:20:36.134764+00:00", operation: "state.move_scene", code: "invalid_param", expectedClass: "schema_validation", nextOperation: "state.move_scene", nextAction: "correct_model_arguments" },
+    { sourceLine: 81, ts: "2026-08-25T16:21:41.474096+00:00", operation: "state.advance_time", code: "invalid_request", expectedClass: "schema_validation", nextOperation: "state.advance_time", nextAction: "correct_model_arguments" },
+    { sourceLine: 91, ts: "2026-08-25T16:25:25.880066+00:00", operation: "rules.social_adjudicate", code: "invalid_param", expectedClass: "schema_validation", nextOperation: "rules.social_adjudicate", nextAction: "correct_model_arguments" },
+    { sourceLine: 103, ts: "2026-08-25T16:27:15.195096+00:00", operation: "turn.finalize", code: "default_mechanics_placement_unavailable", expectedClass: "business_precondition", nextOperation: "turn.finalize", nextAction: "split_action_and_consequence_paragraphs" },
+    { sourceLine: 144, ts: "2026-08-25T16:43:37.788876+00:00", operation: "narration.review", code: "idempotency_conflict", expectedClass: "idempotency_conflict", automaticAction: "refresh_retained_binding_or_fault" },
+    { sourceLine: 172, ts: "2026-08-25T16:47:41.334801+00:00", operation: "turn.finalize", code: "default_mechanics_placement_unavailable", expectedClass: "business_precondition", nextOperation: "turn.finalize", nextAction: "split_action_and_consequence_paragraphs" },
+    { sourceLine: 237, ts: "2026-08-25T17:06:12.487415+00:00", operation: "turn.finalize", code: "default_mechanics_placement_unavailable", expectedClass: "business_precondition", nextOperation: "turn.finalize", nextAction: "split_action_and_consequence_paragraphs" },
+    { sourceLine: 294, ts: "2026-08-25T17:33:25.284381+00:00", operation: "turn.output_context", code: "no_unfinalized_journal", expectedClass: "business_precondition", nextOperation: "state.journal", nextAction: "journal_current_turn" },
+    { sourceLine: 312, ts: "2026-08-26T00:41:58.845113+00:00", operation: "combat.resolve", code: "unknown_combat_target", expectedClass: "dynamic_candidate", nextOperation: "combat.context", nextAction: "refresh_semantic_candidates" },
+    { sourceLine: 321, ts: "2026-08-26T00:43:11.699174+00:00", operation: "combat.resolve", code: "unknown_combat_target", expectedClass: "dynamic_candidate", nextOperation: "combat.context", nextAction: "refresh_semantic_candidates" },
+    { sourceLine: 329, ts: "2026-08-26T00:45:04.117565+00:00", operation: "turn.finalize", code: "default_mechanics_placement_unavailable", expectedClass: "business_precondition", nextOperation: "turn.finalize", nextAction: "split_action_and_consequence_paragraphs" },
+    { sourceLine: 330, ts: "2026-08-26T00:46:15.966686+00:00", operation: "narration.review", code: "idempotency_conflict", expectedClass: "idempotency_conflict", automaticAction: "refresh_retained_binding_or_fault" },
+    { sourceLine: 351, ts: "2026-08-26T00:59:59.034650+00:00", operation: "turn.finalize", code: "narration_review_mismatch", expectedClass: "business_precondition", automaticAction: "refresh_retained_binding_or_fault" },
+    { sourceLine: 352, ts: "2026-08-26T01:00:34.987971+00:00", operation: "state.journal", code: "idempotency_conflict", expectedClass: "idempotency_conflict", automaticAction: "refresh_retained_binding_or_fault" },
+    { sourceLine: 354, ts: "2026-08-26T01:01:05.020847+00:00", operation: "turn.finalize", code: "state_authority_review_blocked", expectedClass: "business_precondition", nextOperation: "narration.review", nextAction: "revise_narration_only" },
+    { sourceLine: 355, ts: "2026-08-26T01:01:36.470932+00:00", operation: "turn.finalize", code: "narration_review_mismatch", expectedClass: "business_precondition", automaticAction: "refresh_retained_binding_or_fault" },
+    { sourceLine: 356, ts: "2026-08-26T01:02:48.667935+00:00", operation: "turn.finalize", code: "state_authority_review_blocked", expectedClass: "business_precondition", nextOperation: "narration.review", nextAction: "revise_narration_only" },
+    { sourceLine: 359, ts: "2026-08-26T01:08:32.393702+00:00", operation: "turn.finalize", code: "narration_review_required", expectedClass: "business_precondition", nextOperation: "narration.review", nextAction: "review_retained_draft" },
+    { sourceLine: 366, ts: "2026-08-26T01:34:20.568381+00:00", operation: "turn.finalize", code: "default_mechanics_placement_unavailable", expectedClass: "business_precondition", nextOperation: "turn.finalize", nextAction: "split_action_and_consequence_paragraphs" },
   ];
-  assert.equal(replayCounts.length, actualFailures.length);
-  for (const [operation, code, expectedClass, nextOperation, nextAction] of actualFailures) {
+  assert.equal(actualFailures.length, 24);
+  assert.equal(new Set(actualFailures.map((row) => row.sourceLine)).size, 24);
+  assert.deepEqual(actualFailures.map((row) => row.sourceLine), [
+    22, 45, 47, 52, 58, 71, 81, 91, 103, 144, 172, 237,
+    294, 312, 321, 329, 330, 351, 352, 354, 355, 356, 359, 366,
+  ]);
+  const distribution = actualFailures.reduce((counts, row) => {
+    counts[row.expectedClass] = (counts[row.expectedClass] ?? 0) + 1;
+    return counts;
+  }, {});
+  assert.deepEqual(distribution, {
+    business_precondition: 14,
+    idempotency_conflict: 5,
+    schema_validation: 3,
+    dynamic_candidate: 2,
+  });
+  for (const row of actualFailures) {
     const projected = typed.projectPiToolFailure({
       ok: false,
       isError: true,
-      tool: operation,
-      error: { code, message: "recorded replay failure" },
-    }, operation);
-    assert.equal(projected.error.class, expectedClass, `${operation}/${code}`);
-    if (nextOperation) {
-      assert.equal(projected.error.allowed_next_actions[0].operation, nextOperation);
-      assert.equal(projected.error.allowed_next_actions[0].action, nextAction);
+      tool: row.operation,
+      error: { code: row.code, message: `recorded failure at ${row.ts}` },
+    }, row.operation);
+    const label = `logs/toolbox-calls.jsonl#${row.sourceLine}`;
+    assert.equal(projected.error.class, row.expectedClass, label);
+    if (row.nextOperation) {
+      assert.equal(projected.error.allowed_next_actions[0].operation, row.nextOperation, label);
+      assert.equal(projected.error.allowed_next_actions[0].action, row.nextAction, label);
     } else {
-      assert.deepEqual(projected.error.allowed_next_actions, []);
+      assert.deepEqual(projected.error.allowed_next_actions, [], label);
     }
+    assert.equal(projected.error.automatic_action, row.automaticAction, label);
+    assert.ok(
+      projected.error.allowed_next_actions.length > 0 || projected.error.automatic_action,
+      label,
+    );
   }
 });
 
