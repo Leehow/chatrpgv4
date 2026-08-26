@@ -8,7 +8,7 @@
     "migration_source_commit": "affeedc3a78ac6da82e0c47ce5dafa95bf12d7fd",
     "verified_on": "2026-08-25",
     "canonical_operation_source": "plugins/coc-keeper/scripts/coc_toolbox.py",
-    "canonical_operation_count": 130
+    "canonical_operation_count": 138
   },
   "migration_states": {
     "planned": "Handlers or tests still occupy shared files; no parallel implementation edit is allowed.",
@@ -433,6 +433,65 @@
       "focused_validation": [
         "tests/test_belief_state.py",
         "tests/test_threat_mechanics.py"
+      ]
+    },
+    {
+      "module_id": "temporal-history",
+      "migration_state": "migrated",
+      "owned_paths": [
+        "plugins/coc-keeper/scripts/coc_operation_temporal_history.py",
+        "tests/test_toolbox_temporal_history.py"
+      ],
+      "operation_ids": [
+        "history.diff",
+        "history.query",
+        "memory.adjudicate",
+        "memory.recall"
+      ],
+      "implementation_dependencies": [
+        "plugins/coc-keeper/scripts/coc_git_history.py",
+        "plugins/coc-keeper/scripts/coc_history_projection_query.py",
+        "plugins/coc-keeper/scripts/coc_history_projection_schema.py",
+        "plugins/coc-keeper/scripts/coc_temporal_memory.py",
+        "plugins/coc-keeper/scripts/coc_temporal_memory_contract.py",
+        "plugins/coc-keeper/scripts/coc_temporal_retrieval.py"
+      ],
+      "may_depend_on": [
+        "operation-kernel"
+      ],
+      "focused_validation": [
+        "tests/test_temporal_memory.py",
+        "tests/test_temporal_retrieval.py",
+        "tests/test_history_projection.py"
+      ]
+    },
+    {
+      "module_id": "timeline",
+      "migration_state": "migrated",
+      "owned_paths": [
+        "plugins/coc-keeper/scripts/coc_operation_timeline.py",
+        "tests/test_toolbox_timeline.py"
+      ],
+      "operation_ids": [
+        "timeline.confluence_confirm",
+        "timeline.confluence_query",
+        "timeline.fork_confirm",
+        "timeline.fork_request"
+      ],
+      "implementation_dependencies": [
+        "plugins/coc-keeper/scripts/coc_git_history.py",
+        "plugins/coc-keeper/scripts/coc_history_projection.py",
+        "plugins/coc-keeper/scripts/coc_history_projection_query.py",
+        "plugins/coc-keeper/scripts/coc_history_projection_schema.py",
+        "plugins/coc-keeper/scripts/coc_state.py",
+        "plugins/coc-keeper/scripts/coc_temporal_memory_contract.py",
+        "plugins/coc-keeper/scripts/coc_timeline_confluence.py"
+      ],
+      "may_depend_on": [
+        "operation-kernel"
+      ],
+      "focused_validation": [
+        "tests/test_timeline_dag.py"
       ]
     },
     {

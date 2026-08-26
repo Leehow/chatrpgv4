@@ -27,6 +27,16 @@ import {
   mapRpcEventToSse,
   PiCocRpcHost,
   PLAY_TABLE_OPENING_PROMPT,
+  PLAY_TURN_RECOVERY_PROMPT,
+  isAgentAlreadyProcessingError,
+  isUnfinalizedSilentTurn,
+  observeUnfinalizedTurn,
+  observeToolFailureStreak,
+  isToolRetryExhausted,
+  toolRetryExhaustedFault,
+  TOOL_RETRY_LIMIT,
+  TOOL_RETRY_EXHAUSTED_KIND,
+  PiCocRpcError,
   resolveHostWebSearchExtension,
   resolvePiCocLauncher,
   SETUP_CHARACTER_OPENING_MARKER,
@@ -68,6 +78,20 @@ function extensionPaths(args) {
   }
   return out;
 }
+
+test("already-processing reject is classified for attach recovery", () => {
+  assert.equal(
+    isAgentAlreadyProcessingError(new PiCocRpcError(
+      "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+      { kind: "pi_coc_rpc_rejected" },
+    )),
+    true,
+  );
+  assert.equal(
+    isAgentAlreadyProcessingError(new PiCocRpcError("nope", { kind: "pi_coc_rpc_rejected" })),
+    false,
+  );
+});
 
 test("webSessionId stays inside Pi session-id grammar", () => {
   assert.equal(webSessionId("the-haunting"), "web-the-haunting");
@@ -287,6 +311,36 @@ test("terminal turn-processing fault maps to a typed SSE error, never narration"
   assert.equal(frames.some((frame) => frame.event === "delta"), false);
 });
 
+test("session-journal custom fault with data maps to the same typed SSE error", () => {
+  const fault = {
+    schema_version: 1,
+    contract_id: "coc.pi-turn-processing-fault.v1",
+    kind: "turn_processing_fault",
+    status: "terminal",
+    stage: "state_claim_compilation",
+    campaign_id: "fault-campaign",
+    turn_id: "turn-1",
+    player_turn_epoch: 7,
+    code: "state_claim_compiler_invalid",
+    message: "回合处理失败：玩家状态声明编译未完成。当前回合仍保留，请刷新后恢复。",
+    retryable: false,
+    will_retry: false,
+    pending_turn_preserved: true,
+    failure_class: "result_invalid",
+    requested_model: { provider: "xai", id: "grok-4.5", api: "openai-responses" },
+    elapsed_ms: 40573,
+  };
+  const frames = mapRpcEventToSse({
+    type: "custom",
+    customType: "coc-turn-processing-fault",
+    data: fault,
+  });
+  assert.equal(frames.length, 1);
+  assert.equal(frames[0].event, "error");
+  assert.equal(frames[0].data.code, "state_claim_compiler_invalid");
+  assert.equal(frames[0].data.details.pending_turn_preserved, true);
+});
+
 test("required-visible recovery preserves terminal typed fault instead of replacing it", async () => {
   const child = fakeChild();
   const host = new PiCocRpcHost({
@@ -394,6 +448,138 @@ test("prompt raises a terminal turn fault only after relaying its one typed SSE 
   );
   assert.deepEqual(frames.map((frame) => frame.event), ["error"]);
   assert.equal(frames[0].data.message, fault.message);
+});
+
+test("prompt settles a terminal turn fault immediately without waiting for agent_settled", { timeout: 3000 }, async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "typed-fault-immediate",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const frames = [];
+  const prompted = host.prompt("我还在等钥匙", {
+    timeoutMs: 2500,
+    onSse: (frame) => frames.push(frame),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const request = JSON.parse(written[0].trim());
+  child.stdout.write(`${JSON.stringify({
+    id: request.id, type: "response", command: "prompt", success: true,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const fault = {
+    schema_version: 1,
+    contract_id: "coc.pi-turn-processing-fault.v1",
+    kind: "turn_processing_fault",
+    status: "terminal",
+    stage: "state_claim_compilation",
+    campaign_id: "typed-fault-immediate",
+    turn_id: "turn-retained",
+    player_turn_epoch: 2,
+    code: "state_claim_compiler_invalid",
+    message: "回合处理失败：玩家状态声明编译未完成。当前回合仍保留，请刷新后恢复。",
+    retryable: false,
+    will_retry: false,
+    pending_turn_preserved: true,
+    failure_class: "result_invalid",
+    requested_model: { provider: "xai", id: "grok-4.5", api: "openai-responses" },
+    elapsed_ms: 40573,
+  };
+  child.stdout.write(`${JSON.stringify({
+    type: "custom",
+    customType: "coc-turn-processing-fault",
+    data: fault,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolName: "coc_narration_review",
+    result: {
+      ok: false,
+      tool: "narration.review",
+      error: { code: "turn_processing_fault_latched" },
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    result: { ok: true, tool: "state.journal", data: { turn_number: 2 } },
+  })}\n`);
+
+  await assert.rejects(
+    prompted,
+    (error) => error.kind === "pi_coc_turn_processing_fault"
+      && error.details?.pending_turn_preserved === true
+      && error.details?.code === "state_claim_compiler_invalid",
+  );
+  assert.equal(frames.filter((frame) => frame.event === "error").length, 1);
+  assert.equal(frames.some((frame) => frame.event === "delta"), false);
+  const commands = written.join("").trim().split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(commands.filter((row) => row.type === "prompt").length, 1);
+  assert.equal(commands.some((row) => row.type === "abort"), true);
+});
+
+test("prompt aborts after three identical tool failures and names the tool", { timeout: 3000 }, async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "tool-retry-cap",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const frames = [];
+  const prompted = host.prompt("继续等钥匙", {
+    timeoutMs: 2500,
+    onSse: (frame) => frames.push(frame),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const request = JSON.parse(written[0].trim());
+  child.stdout.write(`${JSON.stringify({
+    id: request.id, type: "response", command: "prompt", success: true,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const fail = {
+    type: "tool_execution_end",
+    toolName: "coc_narration_review",
+    result: {
+      ok: false,
+      tool: "narration.review",
+      error: {
+        code: "turn_processing_fault_latched",
+        message: "this player turn has a terminal processing fault; recover the preserved turn before retrying",
+      },
+    },
+  };
+  child.stdout.write(`${JSON.stringify(fail)}\n`);
+  child.stdout.write(`${JSON.stringify(fail)}\n`);
+  child.stdout.write(`${JSON.stringify(fail)}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    result: { ok: true, tool: "turn.output_context", data: {} },
+  })}\n`);
+
+  await assert.rejects(
+    prompted,
+    (error) => error.kind === TOOL_RETRY_EXHAUSTED_KIND
+      && /narration\.review/.test(error.message)
+      && /turn_processing_fault_latched/.test(error.message),
+  );
+  const errors = frames.filter((frame) => frame.event === "error");
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].data.message, /narration\.review/);
+  assert.match(errors[0].data.message, /turn_processing_fault_latched/);
+  const commands = written.join("").trim().split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(commands.some((row) => row.type === "abort"), true);
 });
 
 test("buildChildEnv marks an attached UI and play workspace", () => {
@@ -882,6 +1068,155 @@ test("prompt fails a silent settle without inventing text or emitting notice", a
   assert.deepEqual(frames, [
     { event: "thinking", data: { text: "叙事进了思考频道" } },
   ]);
+});
+
+test("observeToolFailureStreak trips after three identical tool failures", () => {
+  const fail = {
+    type: "tool_execution_end",
+    toolName: "coc_narration_review",
+    result: {
+      ok: false,
+      tool: "narration.review",
+      error: {
+        code: "turn_processing_fault_latched",
+        message: "this player turn has a terminal processing fault; recover the preserved turn before retrying",
+      },
+    },
+  };
+  let state = observeToolFailureStreak(fail);
+  assert.equal(isToolRetryExhausted(state), false);
+  state = observeToolFailureStreak(fail, state);
+  assert.equal(isToolRetryExhausted(state), false);
+  state = observeToolFailureStreak(fail, state);
+  assert.equal(isToolRetryExhausted(state), true);
+  assert.equal(state.tool, "narration.review");
+  assert.equal(state.code, "turn_processing_fault_latched");
+  assert.equal(state.count, TOOL_RETRY_LIMIT);
+  const frame = toolRetryExhaustedFault(state);
+  assert.equal(frame.event, "error");
+  assert.match(frame.data.message, /narration\.review/);
+  assert.match(frame.data.message, /turn_processing_fault_latched/);
+  assert.match(frame.data.message, /3 次/);
+  assert.equal(frame.data.code, TOOL_RETRY_EXHAUSTED_KIND);
+});
+
+test("observeToolFailureStreak does not mix different tools or codes", () => {
+  const review = {
+    type: "tool_execution_end",
+    result: {
+      ok: false,
+      tool: "narration.review",
+      error: { code: "turn_processing_fault_latched" },
+    },
+  };
+  const finalize = {
+    type: "tool_execution_end",
+    result: {
+      ok: false,
+      tool: "turn.finalize",
+      error: { code: "narration_review_required" },
+    },
+  };
+  let state = observeToolFailureStreak(review);
+  state = observeToolFailureStreak(review, state);
+  state = observeToolFailureStreak(finalize, state);
+  assert.equal(isToolRetryExhausted(state), false);
+  assert.equal(state.tool, "turn.finalize");
+  assert.equal(state.count, 1);
+  state = observeToolFailureStreak({
+    type: "tool_execution_end",
+    result: { ok: true, tool: "turn.finalize", data: {} },
+  }, state);
+  assert.equal(state.count, 0);
+});
+
+test("observeUnfinalizedTurn treats failed finalize without delivery as unfinalized", () => {
+  let state = observeUnfinalizedTurn({
+    type: "tool_execution_end",
+    result: { ok: true, tool: "state.journal", data: { turn_number: 2 } },
+  });
+  assert.equal(isUnfinalizedSilentTurn(state), true);
+  state = observeUnfinalizedTurn({
+    type: "tool_execution_end",
+    result: {
+      ok: false,
+      tool: "turn.finalize",
+      error: "narration_review_required",
+    },
+  }, state);
+  assert.equal(isUnfinalizedSilentTurn(state), true);
+  state = observeUnfinalizedTurn({
+    type: "tool_execution_end",
+    toolName: "coc_turn_finalize",
+    result: {
+      ok: true,
+      tool: "turn.finalize",
+      data: {
+        finalization_id: "fin-ok",
+        rendered_text: "钥匙到了。",
+        rendered_sha256: canonicalTextSha256("钥匙到了。"),
+      },
+    },
+  }, state);
+  assert.equal(isUnfinalizedSilentTurn(state), false);
+});
+
+test("prompt recovers an unfinalized silent settle without repeating player input", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "unfinalized-silent",
+    sessionId: "web-unfinalized-silent",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const frames = [];
+  const promptP = host.prompt("我坐着等钥匙", {
+    onSse: (frame) => frames.push(frame),
+  });
+  await new Promise((r) => setTimeout(r, 20));
+  const first = JSON.parse(written[0].trim());
+  child.stdout.write(`${JSON.stringify({ id: first.id, type: "response", command: "prompt", success: true })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    result: { ok: true, tool: "state.journal", data: { turn_number: 2 } },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    result: { ok: false, tool: "turn.finalize", error: "narration_review_required" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  await new Promise((r) => setTimeout(r, 1_700));
+  const promptRows = written.join("").trim().split("\n")
+    .map((line) => JSON.parse(line))
+    .filter((row) => row.type === "prompt");
+  assert.equal(promptRows.length, 2);
+  assert.equal(promptRows[0].message, "我坐着等钥匙");
+  assert.equal(promptRows[1].message, PLAY_TURN_RECOVERY_PROMPT);
+  const second = promptRows[1];
+  child.stdout.write(`${JSON.stringify({ id: second.id, type: "response", command: "prompt", success: true })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "诺特把钥匙推过来。" }],
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  try {
+    const result = await promptP;
+    assert.equal(result.sawPlayerText, true);
+    assert.equal(frames.some((frame) => frame.event === "delta" && frame.data?.text === "诺特把钥匙推过来。"), true);
+    assert.equal(frames.some((frame) => frame.event === "error"), false);
+  } finally {
+    await host.close({ protocolAbort: false });
+  }
 });
 
 test("prompt resolves unchanged when a visible delta arrives", async () => {
@@ -1467,6 +1802,7 @@ test("attachOpening character-setup injects one hidden prompt when auto-open is 
     tableIntent: "character-setup",
     launcherPath: process.execPath,
     spawnFn: () => child,
+    uiIntentConfirmMs: 0,
   });
   host.start();
   child.stderr.write(`${UI_IDLE_MARKER}\n`);
@@ -2392,6 +2728,233 @@ test("attachOpening character-setup does not inject when auto-open already has v
     written.join("").split("\n").filter(Boolean).some((line) => JSON.parse(line).type === "prompt"),
     false,
   );
+});
+
+test("attachOpening joins an in-flight auto-open instead of failing already-processing", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "needs-inv",
+    tableIntent: "character-setup",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+    setupOpeningFollowUpMs: 80,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const frames = [];
+  const attachP = host.attachOpening({
+    onSse: (frame) => frames.push(frame),
+  });
+  await new Promise((r) => setTimeout(r, 20));
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  await new Promise((r) => setTimeout(r, 250));
+  const cmds = writtenCommands(written).filter((row) => row.type === "prompt");
+  assert.equal(cmds.length, 1);
+  child.stdout.write(`${JSON.stringify({
+    id: cmds[0].id,
+    type: "response",
+    command: "prompt",
+    success: false,
+    error: "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+  })}\n`);
+  await new Promise((r) => setTimeout(r, 20));
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: "你想成为怎样的人？" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "你想成为怎样的人？" }] },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  const result = await attachP;
+  assert.equal(result.opened, true);
+  assert.equal(
+    frames.some((frame) => frame.data?.text === "你想成为怎样的人？"),
+    true,
+  );
+});
+
+test("host-owned prompt joins auto-open instead of writing a competing prompt", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "host-owned-join",
+    tableIntent: "character-setup",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+    setupOpeningFollowUpMs: 80,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  await new Promise((r) => setTimeout(r, 10));
+  const frames = [];
+  const promptP = host.prompt("不得抢开桌", {
+    hostOwned: true,
+    failIfSilent: false,
+    onSse: (frame) => frames.push(frame),
+  });
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(
+    writtenCommands(written).filter((row) => row.type === "prompt").length,
+    0,
+  );
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: "先告诉我：你是谁？" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "先告诉我：你是谁？" }] },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  const result = await promptP;
+  assert.equal(result.attachedToInFlight, true);
+  assert.equal(
+    frames.some((frame) => frame.data?.text === "先告诉我：你是谁？"),
+    true,
+  );
+});
+
+test("attachOpening does not inject when auto-open follow-up starts after a silent settle", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "silent-follow-up",
+    tableIntent: "character-setup",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+    setupOpeningFollowUpMs: 200,
+    uiIntentConfirmMs: 0,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  const frames = [];
+  const attachP = host.attachOpening({ onSse: (frame) => frames.push(frame) });
+  await new Promise((r) => setTimeout(r, 20));
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  await new Promise((r) => setTimeout(r, 40));
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: "罗马使团里，你是谁？" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "罗马使团里，你是谁？" }] },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  const result = await attachP;
+  assert.deepEqual(result, { opened: true });
+  assert.equal(
+    writtenCommands(written).some((row) => row.type === "prompt"),
+    false,
+  );
+  assert.equal(frames.at(-1)?.data?.text, "罗马使团里，你是谁？");
+});
+
+test("attachOpening follows auto-open that arrives after an idle marker", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "idle-then-open",
+    tableIntent: "character-setup",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+    uiIntentConfirmMs: 80,
+  });
+  host.start();
+  child.stderr.write(`${UI_IDLE_MARKER}\n`);
+  const frames = [];
+  const attachP = host.attachOpening({ onSse: (frame) => frames.push(frame) });
+  await new Promise((r) => setTimeout(r, 20));
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: "先建卡：你是谁？" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "先建卡：你是谁？" }] },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  const result = await attachP;
+  assert.deepEqual(result, { opened: true });
+  assert.equal(
+    writtenCommands(written).some((row) => row.type === "prompt"),
+    false,
+  );
+  assert.equal(frames.at(-1)?.data?.text, "先建卡：你是谁？");
+});
+
+test("player prompt retries once after already-processing when the agent is idle", async () => {
+  const child = fakeChild();
+  const written = [];
+  child.stdin.on("data", (chunk) => written.push(String(chunk)));
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "player-retry",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+  });
+  host.start();
+  const frames = [];
+  const promptP = host.prompt("我推开门", {
+    onSse: (frame) => frames.push(frame),
+  });
+  await new Promise((r) => setTimeout(r, 20));
+  const first = writtenCommands(written)[0];
+  child.stdout.write(`${JSON.stringify({
+    id: first.id,
+    type: "response",
+    command: "prompt",
+    success: false,
+    error: "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+  })}\n`);
+  await new Promise((r) => setTimeout(r, 40));
+  const prompts = writtenCommands(written).filter((row) => row.type === "prompt");
+  assert.equal(prompts.length, 2);
+  assert.equal(prompts[1].message, "我推开门");
+  assert.equal(prompts[1].streamingBehavior, undefined);
+  child.stdout.write(`${JSON.stringify({
+    id: prompts[1].id,
+    type: "response",
+    command: "prompt",
+    success: true,
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: "门轴发出一声干涩的吱呀。" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "门轴发出一声干涩的吱呀。" }] },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  const result = await promptP;
+  assert.equal(result.sawPlayerText, true);
+  assert.equal(result.attachedToInFlight, undefined);
+  assert.deepEqual(frames, [{ event: "delta", data: { text: "门轴发出一声干涩的吱呀。" } }]);
 });
 
 test("attachOpening waits for source review follow-up instead of injecting a competing setup prompt", async () => {

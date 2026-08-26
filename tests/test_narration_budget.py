@@ -1458,7 +1458,7 @@ def test_pi_state_claim_compiler_rejects_duplicate_kp_match(
     ) == []
 
 
-def test_pi_state_claim_compiler_requires_every_kp_claim_exactly_once(
+def test_pi_state_claim_compiler_allows_extra_grounded_kp_claims(
     campaign_ws, monkeypatch
 ):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
@@ -1512,8 +1512,17 @@ def test_pi_state_claim_compiler_requires_every_kp_claim_exactly_once(
         compiled_claims=[claims[0]],
     )
     assert review["ok"] is True, review
-    assert review["data"]["state_authority_gate"] == "rewrite_required"
-    assert review["data"]["state_claim_review_disagreement"] is True
+    assert review["data"]["state_authority_gate"] == "clear"
+    assert review["data"]["state_claim_review_disagreement"] is False
+    finalized = _finalize_agency_turn(
+        campaign_ws,
+        draft=draft,
+        revision=1,
+        review_id=review["data"]["review_id"],
+        decision_id="finalize-compiler-extra-grounded-kp",
+        mechanics_placements=None,
+    )
+    assert finalized["ok"] is True, finalized
 
 
 @pytest.mark.parametrize("bound", ["result_reason", "claim_reason", "claims"])

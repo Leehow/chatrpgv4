@@ -1309,11 +1309,11 @@ def _handout_cards_indexed(ctx: Ctx) -> dict[str, dict[str, Any]]:
             asset_id = str(card.get("asset_id") or "").strip()
             if asset_id:
                 cards[asset_id] = card
-    asset_root_id = (
-        coc_module_project.campaign_asset_root_id(ctx.campaign_dir)
-        if ctx.campaign_dir is not None else None
+    asset_root_ids = (
+        coc_module_project.campaign_handout_asset_root_ids(ctx.campaign_dir)
+        if ctx.campaign_dir is not None else []
     )
-    if asset_root_id:
+    for asset_root_id in asset_root_ids:
         entities_dir = (
             coc_module_project.coc_module_assets.assets_root(ctx.root)
             / asset_root_id / "entities"
@@ -2788,6 +2788,8 @@ _load_operation_module('handouts-clues', 'coc_operation_handouts_clues.py')
 _load_operation_module('scene-advisory', 'coc_operation_scene_advisory.py')
 _load_operation_module('npc-world', 'coc_operation_npc_world.py')
 _load_operation_module('continuity-memory', 'coc_operation_continuity_memory.py')
+_load_operation_module('temporal-history', 'coc_operation_temporal_history.py')
+_load_operation_module('timeline', 'coc_operation_timeline.py')
 _load_operation_module('world-time-effects', 'coc_operation_world_time_effects.py')
 _load_operation_module('turn-output', 'coc_operation_turn_output.py')
 _load_operation_module('steward', 'coc_operation_steward.py')
@@ -2850,6 +2852,10 @@ _MUTATING_TOOLS = frozenset({
     "state.end_session",
     "memory.write",
     "memory.resolve_hook",
+    "memory.adjudicate",
+    "timeline.fork_request",
+    "timeline.fork_confirm",
+    "timeline.confluence_confirm",
     "steward.domain_put",
     "steward.deliver",
     "steward.notebook_put",

@@ -223,6 +223,24 @@ def _lock_payload_is_valid(payload: dict[str, Any] | None) -> bool:
         return False
 
 
+def campaign_lock_held_by_current_process(campaign_dir: Path) -> bool:
+    """True when this process already holds the campaign's exclusive lock.
+
+    Read-only re-entrancy probe for nested coordinator calls that run inside
+    an already-locked toolbox transaction: never waits and never touches the
+    marker. Cross-process exclusivity is unchanged — a foreign holder or no
+    holder at all returns False.
+    """
+    lock_path = Path(campaign_dir) / ".campaign.lock"
+    payload = _read_lock_payload(lock_path)
+    if not _lock_payload_is_valid(payload):
+        return False
+    try:
+        return int(payload.get("pid") or 0) == os.getpid()
+    except (TypeError, ValueError):
+        return False
+
+
 def _unreadable_lock_is_stale(lock_path: Path, *, stale_minutes: float) -> bool:
     """Use file age for a lock whose owner payload is not readable yet."""
     try:

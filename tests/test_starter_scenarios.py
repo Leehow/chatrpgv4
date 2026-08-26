@@ -476,6 +476,12 @@ def test_install_starter_the_haunting_copies_scenario_files(tmp_path):
     assert campaign["active_scenario_id"] == "the-haunting"
     assert campaign["era"] == "1920s"
 
+    meta = json.loads((scenario_dir / "module-meta.json").read_text("utf-8"))
+    assert meta["handout_asset_root_id"] == (
+        "the-haunting-keeper-rulebook-40th"
+    )
+    assert not meta.get("progressive")
+
     story = json.loads((scenario_dir / "story-graph.json").read_text("utf-8"))
     assert any(s.get("is_start") for s in story["scenes"])
     assert any("scene_edges" in s for s in story["scenes"])

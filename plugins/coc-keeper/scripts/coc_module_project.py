@@ -1582,6 +1582,36 @@ def campaign_asset_root_id(campaign_dir: Path) -> str | None:
     return None
 
 
+def campaign_handout_asset_root_ids(campaign_dir: Path) -> list[str]:
+    """Resolve card roots without turning a complete starter progressive.
+
+    A complete built-in scenario may opt into a local, source-bound handout
+    overlay through ``module-meta.json.handout_asset_root_id``.  The ordinary
+    progressive root remains first; the explicit handout overlay comes last
+    so its source-backed cards win same-id collisions in the merged card view.
+    Missing roots remain a harmless empty overlay at the storage layer.
+    """
+    meta = _load_json(campaign_dir / "scenario" / "module-meta.json", {})
+    explicit = (
+        str(meta.get("handout_asset_root_id") or "").strip()
+        if isinstance(meta, dict) else ""
+    )
+    candidates = [campaign_asset_root_id(campaign_dir), explicit]
+    roots: list[str] = []
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            normalized = coc_module_assets.resolve_asset_root_id(
+                canonical_module_id=candidate,
+            )
+        except coc_module_assets.ModuleAssetsError:
+            continue
+        if normalized not in roots:
+            roots.append(normalized)
+    return roots
+
+
 def campaign_source_asset_root_id(campaign_dir: Path) -> str | None:
     """Resolve the module root a campaign has source work bound to.
 

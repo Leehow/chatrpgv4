@@ -29,6 +29,9 @@ def load_module(name: str, path: Path):
 hist = load_module("coc_git_history", SCRIPTS / "coc_git_history.py")
 verify = load_module("coc_git_history_verify", VERIFY_SCRIPT)
 coc_state = load_module("coc_state", SCRIPTS / "coc_state.py")
+tm = load_module(
+    "coc_temporal_memory_contract", SCRIPTS / "coc_temporal_memory_contract.py"
+)
 
 SCHEMA = hist.format_schema_generation(coc_state.CURRENT_SCHEMA_VERSIONS)
 CAMPAIGN_ID = "hist-verify"
@@ -701,3 +704,321 @@ def test_relative_root_cli_and_proof_pass(tmp_path, monkeypatch):
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "GIT HISTORY CHECK PASSED" in completed.stdout
+
+
+def test_state_proof_default_head_unchanged_after_fork(tmp_path):
+    sha1, sha2 = _healthy_two_turns(tmp_path)
+    hist.fork_timeline(
+        tmp_path,
+        CAMPAIGN_ID,
+        timeline_id="tl-side",
+        source_turn=2,
+        game_reason="side path",
+        activate=False,
+    )
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "PASS"
+    assert proof.head.sha == sha2
+    assert proof.head.finalization_id == "fin-0002"
+    assert sha1 != sha2
+
+
+def test_state_proof_timeline_ref_and_confluence_topology(tmp_path):
+    _prepare_campaign(tmp_path)
+    worktree = _worktree(tmp_path)
+    _write_receipts(tmp_path, ["fin-0001", "fin-left-2", "fin-right-2"])
+    main_sha = _commit_turn(tmp_path, 1, "fin-0001")
+    hist.fork_timeline(
+        tmp_path,
+        CAMPAIGN_ID,
+        timeline_id="tl-left",
+        source_turn=1,
+        game_reason="left",
+        activate=True,
+    )
+    (worktree / "save" / "world-state.json").write_text(
+        json.dumps({"status": "active", "turn": 2, "branch": "left"}) + "\n",
+        encoding="utf-8",
+    )
+    left_sha = _commit_turn(tmp_path, 2, "fin-left-2")
+    hist.set_active_timeline(tmp_path, CAMPAIGN_ID, "tl-main")
+    hist.fork_timeline(
+        tmp_path,
+        CAMPAIGN_ID,
+        timeline_id="tl-right",
+        source_turn=1,
+        game_reason="right",
+        activate=True,
+    )
+    (worktree / "save" / "world-state.json").write_text(
+        json.dumps({"status": "active", "turn": 2, "branch": "right"}) + "\n",
+        encoding="utf-8",
+    )
+    right_sha = _commit_turn(tmp_path, 2, "fin-right-2")
+
+    tm = load_module(
+        "coc_temporal_memory_contract", SCRIPTS / "coc_temporal_memory_contract.py"
+    )
+    confluence_id = f"confluence-{CAMPAIGN_ID}-tl-merged"
+    conflicts = [
+        {
+            "conflict_id": tm.conflict_id_for(confluence_id, "world-state"),
+            "class": "world_fact",
+            "left": {
+                "timeline": "tl-left",
+                "refs": ["save/world-state.json"],
+                "value": "left",
+            },
+            "right": {
+                "timeline": "tl-right",
+                "refs": ["save/world-state.json"],
+                "value": "right",
+            },
+            "disposition": {"mode": "choose_left", "receipt": "disp-1"},
+        }
+    ]
+    merged = hist.confluence_timelines(
+        tmp_path,
+        CAMPAIGN_ID,
+        timeline_id="tl-merged",
+        left_timeline_id="tl-left",
+        right_timeline_id="tl-right",
+        receipt="conf-1",
+        schema_generation=SCHEMA,
+        conflicts=conflicts,
+        path_resolutions={"save/world-state.json": "choose_left"},
+        confluence_id=confluence_id,
+    )
+
+    main_proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert main_proof.head.sha == main_sha
+    assert verify.CODE_CONFLUENCE_PARENTS not in _codes(main_proof)
+    assert verify.CODE_CONFLUENCE_TRAILER not in _codes(main_proof)
+    assert verify.CODE_FORK_TOPOLOGY not in _codes(main_proof)
+    assert verify.CODE_CONFLUENCE_MANIFEST not in _codes(main_proof)
+    assert verify.CODE_CONFLUENCE_TREE not in _codes(main_proof)
+
+    left_proof = verify.state_integrity_proof(
+        tmp_path, CAMPAIGN_ID, timeline_ref="tl-left"
+    )
+    assert left_proof.head.sha == left_sha
+    assert left_proof.head.finalization_id == "fin-left-2"
+    assert left_proof.head.trailers["Timeline-Id"] == "tl-left"
+
+    merge_proof = verify.state_integrity_proof(
+        tmp_path, CAMPAIGN_ID, timeline_ref="tl-merged"
+    )
+    assert merge_proof.head.sha == merged["merge_commit"]
+    assert merge_proof.head.commit_type == "confluence"
+    assert merge_proof.head.trailers["Conflict-Manifest-SHA256"]
+    assert merge_proof.head.trailers["Disposition-Manifest-SHA256"]
+    assert verify.CODE_CONFLUENCE_MANIFEST not in _codes(merge_proof)
+    assert verify.CODE_CONFLUENCE_TREE not in _codes(merge_proof)
+    parents = _git(
+        tmp_path, "rev-list", "--no-walk", "--parents", merged["merge_commit"]
+    ).stdout.split()
+    assert len(parents) == 3
+    assert set(parents[1:]) == {left_sha, right_sha}
+    missing = verify.state_integrity_proof(
+        tmp_path, CAMPAIGN_ID, timeline_ref="tl-does-not-exist"
+    )
+    assert missing.status == "NOT_PROVEN"
+    assert verify.CODE_TIMELINE_REF_MISSING in _codes(missing)
+
+
+def _confluence_fixture(root: Path) -> tuple[Path, str, str, str]:
+    """main turn 1 + tl-left/tl-right turn 2 (world-state differs only)."""
+    _prepare_campaign(root)
+    worktree = _worktree(root)
+    _write_receipts(root, ["fin-0001", "fin-left-2", "fin-right-2"])
+    main_sha = _commit_turn(root, 1, "fin-0001")
+    hist.fork_timeline(
+        root, CAMPAIGN_ID, timeline_id="tl-left", source_turn=1,
+        game_reason="left", activate=True,
+    )
+    (worktree / "save" / "world-state.json").write_text(
+        json.dumps({"status": "active", "turn": 2, "branch": "left"}) + "\n",
+        encoding="utf-8",
+    )
+    left_sha = _commit_turn(root, 2, "fin-left-2")
+    hist.set_active_timeline(root, CAMPAIGN_ID, "tl-main")
+    hist.fork_timeline(
+        root, CAMPAIGN_ID, timeline_id="tl-right", source_turn=1,
+        game_reason="right", activate=True,
+    )
+    (worktree / "save" / "world-state.json").write_text(
+        json.dumps({"status": "active", "turn": 2, "branch": "right"}) + "\n",
+        encoding="utf-8",
+    )
+    right_sha = _commit_turn(root, 2, "fin-right-2")
+    return worktree, main_sha, left_sha, right_sha
+
+
+def _world_state_conflicts(
+    confluence_id: str, *, mode: str = "choose_left"
+) -> list[dict]:
+    conflict_id = tm.conflict_id_for(confluence_id, "world-state")
+    return [
+        {
+            "conflict_id": conflict_id,
+            "class": "world_fact",
+            "left": {
+                "timeline": "tl-left",
+                "refs": ["save/world-state.json"],
+                "value": "left",
+            },
+            "right": {
+                "timeline": "tl-right",
+                "refs": ["save/world-state.json"],
+                "value": "right",
+            },
+            "disposition": {"mode": mode, "receipt": "disp-1"},
+        }
+    ]
+
+
+def test_state_proof_confluence_binding_clean_after_real_confluence(tmp_path):
+    worktree, main_sha, _left, _right = _confluence_fixture(tmp_path)
+    confluence_id = f"confluence-{CAMPAIGN_ID}-tl-merged"
+    merged = hist.confluence_timelines(
+        tmp_path,
+        CAMPAIGN_ID,
+        timeline_id="tl-merged",
+        left_timeline_id="tl-left",
+        right_timeline_id="tl-right",
+        receipt="conf-1",
+        schema_generation=SCHEMA,
+        conflicts=_world_state_conflicts(confluence_id),
+        path_resolutions={"save/world-state.json": "choose_left"},
+        confluence_id=confluence_id,
+    )
+    main_proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert main_proof.head.sha == main_sha
+    assert verify.CODE_CONFLUENCE_MANIFEST not in _codes(main_proof)
+    assert verify.CODE_CONFLUENCE_TREE not in _codes(main_proof)
+    merge_proof = verify.state_integrity_proof(
+        tmp_path, CAMPAIGN_ID, timeline_ref="tl-merged"
+    )
+    assert merge_proof.head.sha == merged["merge_commit"]
+    assert verify.CODE_CONFLUENCE_MANIFEST not in _codes(merge_proof)
+    assert verify.CODE_CONFLUENCE_TREE not in _codes(merge_proof)
+    # The verifier recomputes binding without writing anything.
+    before = _workspace_fingerprint(tmp_path)
+    verify.state_integrity_proof(tmp_path, CAMPAIGN_ID, timeline_ref="tl-merged")
+    assert _workspace_fingerprint(tmp_path) == before
+
+
+def test_state_proof_confluence_manifest_tamper_fails(tmp_path):
+    worktree, _main, _left, _right = _confluence_fixture(tmp_path)
+    confluence_id = f"confluence-{CAMPAIGN_ID}-tl-merged"
+    hist.confluence_timelines(
+        tmp_path,
+        CAMPAIGN_ID,
+        timeline_id="tl-merged",
+        left_timeline_id="tl-left",
+        right_timeline_id="tl-right",
+        receipt="conf-1",
+        schema_generation=SCHEMA,
+        conflicts=_world_state_conflicts(confluence_id),
+        path_resolutions={"save/world-state.json": "choose_left"},
+        confluence_id=confluence_id,
+    )
+    state_path = worktree / hist.TIMELINE_STATE_RELPATH
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    # Post-hoc disposition rewrite: the committed digests no longer match
+    # the recorded manifest, and the recorded disposition now contradicts
+    # the committed tree.
+    state["confluences"][0]["conflicts"][0]["disposition"]["mode"] = "choose_right"
+    state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "FAIL"
+    assert verify.CODE_CONFLUENCE_MANIFEST in _codes(proof)
+    assert verify.CODE_CONFLUENCE_TREE in _codes(proof)
+
+
+def test_state_proof_confluence_tree_unbound_fails(tmp_path):
+    worktree, _main, left_sha, right_sha = _confluence_fixture(tmp_path)
+    confluence_id = f"confluence-{CAMPAIGN_ID}-tl-rogue"
+    conflicts = _world_state_conflicts(confluence_id)  # manifest says choose_left
+    conflict_digest = tm.record_digest({"conflicts": conflicts})
+    dispositions = [
+        {
+            "conflict_id": conflict["conflict_id"],
+            "disposition": conflict["disposition"],
+        }
+        for conflict in conflicts
+    ]
+    disposition_digest = tm.record_digest({"dispositions": dispositions})
+    message = "\n".join(
+        [
+            f"coc confluence: {confluence_id}",
+            "",
+            "COC-Commit-Type: confluence",
+            f"Campaign-Id: {CAMPAIGN_ID}",
+            "Timeline-Id: tl-rogue",
+            f"Confluence-Id: {confluence_id}",
+            "Parent-Timeline-Left: tl-left",
+            "Parent-Timeline-Right: tl-right",
+            f"Conflict-Manifest-SHA256: {conflict_digest}",
+            f"Disposition-Manifest-SHA256: {disposition_digest}",
+            f"Schema-Generation: {SCHEMA}",
+            "Game-Reason: rogue merge carrying the right blob",
+            "",
+        ]
+    )
+    # A hostile writer commits the RIGHT parent's whole tree under a
+    # choose_left manifest: correct digests, contradicting tree.
+    rogue = (
+        _git(
+            tmp_path,
+            "commit-tree",
+            f"{right_sha}^{{tree}}",
+            "-p",
+            left_sha,
+            "-p",
+            right_sha,
+            "-m",
+            message,
+        )
+        .stdout.strip()
+    )
+    _git(tmp_path, "update-ref", "refs/heads/timelines/tl-rogue", rogue)
+    state = hist.load_timeline_state(tmp_path, CAMPAIGN_ID)
+    state["timelines"].append(
+        {
+            "timeline_id": "tl-rogue",
+            "campaign_id": CAMPAIGN_ID,
+            "kind": "confluence",
+            "parents": ["tl-left", "tl-right"],
+            "fork_point": {
+                "commit": rogue,
+                "turn": 2,
+                "episode_id": tm.episode_id_for(CAMPAIGN_ID, "tl-rogue", 2),
+            },
+            "created_by": "confluence",
+        }
+    )
+    state["confluences"].append(
+        {
+            "confluence_id": confluence_id,
+            "campaign_id": CAMPAIGN_ID,
+            "timeline_id": "tl-rogue",
+            "parents": ["tl-left", "tl-right"],
+            "merge_commit": rogue,
+            "receipt": "conf-rogue",
+            "conflicts": conflicts,
+        }
+    )
+    state.setdefault("game_reasons", {})["tl-rogue"] = "rogue merge"
+    hist._write_timeline_state(worktree, state)
+
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "FAIL"
+    assert verify.CODE_CONFLUENCE_TREE in _codes(proof)
+    # The digests themselves are correct; only the tree contradicts them.
+    assert verify.CODE_CONFLUENCE_MANIFEST not in _codes(proof)
+    finding = next(
+        item for item in proof.findings if item.code == verify.CODE_CONFLUENCE_TREE
+    )
+    assert "save/world-state.json" in finding.detail
+    assert "choose_left" in finding.detail

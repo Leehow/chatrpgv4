@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:5c0618e9ad2827eae64347614f8eea001a3f21472637fbc933c03519c016acf5",
+  "content_sha256": "sha256:244df74cebcc1bd1a9b8643355ff9ebc13c52821cdaa3a6d286a2ebc7c3474ee",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 130,
+  "operation_count": 138,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -759,6 +759,108 @@
       },
       "summary": "Record the exact player-visible Keeper opening before the first player message, canonical-render the current authoritative opening-time anchor and explicitly bound public first-impression rolls, and close the pre-turn setup/opening source prefix."
     },
+    "history.diff": {
+      "access": "query",
+      "canonical_operation": "history.diff",
+      "description": "Compare committed state between two settled turns (same or different timelines) as a deterministic leaf-level change list from the history projection. Strict read-only; semantic timeline/turn selectors only. Canonical operation `history.diff`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "from_timeline": {
+            "description": "timeline of the from side (defaults to timeline)",
+            "type": "string"
+          },
+          "from_turn": {
+            "description": "turn number of the from side",
+            "type": "integer"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "timeline": {
+            "description": "default timeline for both sides (tl-<slug>); defaults to the campaign's active timeline",
+            "type": "string"
+          },
+          "to_timeline": {
+            "description": "timeline of the to side (defaults to timeline)",
+            "type": "string"
+          },
+          "to_turn": {
+            "description": "turn number of the to side",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "from_turn",
+          "to_turn"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "live_turn",
+          "pending_finalization",
+          "recovery"
+        ]
+      },
+      "summary": "Compare committed state between two settled turns (same or different timelines) as a deterministic leaf-level change list from the history projection. Strict read-only; semantic timeline/turn selectors only."
+    },
+    "history.query": {
+      "access": "query",
+      "canonical_operation": "history.query",
+      "description": "Read the campaign's committed state history at one timeline turn from the rebuildable history projection. Strict read-only; semantic timeline/turn selectors only, never a commit hash. Canonical operation `history.query`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "timeline": {
+            "description": "timeline id (tl-<slug>); defaults to the campaign's active timeline",
+            "type": "string"
+          },
+          "turn": {
+            "description": "turn number; defaults to the latest unambiguous turn on the timeline",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "live_turn",
+          "pending_finalization",
+          "recovery"
+        ]
+      },
+      "summary": "Read the campaign's committed state history at one timeline turn from the rebuildable history projection. Strict read-only; semantic timeline/turn selectors only, never a commit hash."
+    },
     "mechanics.ensure": {
       "access": "mutation",
       "canonical_operation": "mechanics.ensure",
@@ -824,6 +926,177 @@
         ]
       },
       "summary": "Resolve one NPC or item into a source-bound mechanics profile. Authored PDF data wins; source subjects require a reviewed not-authored receipt before campaign fallback generation. Generated profiles are frozen and reused."
+    },
+    "memory.adjudicate": {
+      "access": "mutation",
+      "canonical_operation": "memory.adjudicate",
+      "description": "Record the KP's accept/modify/reject decision on one temporal memory candidate. Accept/modify write a new confirming assertion; nothing is ever edited or deleted. Idempotent per decision_id; a decision id is immutable once bound to its request. Canonical operation `memory.adjudicate`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "KP adjudication of the candidate",
+            "enum": [
+              "accept",
+              "modify",
+              "reject"
+            ],
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "candidate_id": {
+            "description": "candidate assertion id (mem-<slug>)",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key; immutable once bound to a request",
+            "type": "string"
+          },
+          "kind": {
+            "description": "promoted assertion kind (default belief; player_assertion cannot be promoted)",
+            "type": "string"
+          },
+          "privacy": {
+            "description": "promoted privacy tier (defaults to the candidate's)",
+            "enum": [
+              "player_safe",
+              "keeper_only"
+            ],
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "state": {
+            "description": "promoted memory state (default accurate)",
+            "enum": [
+              "accurate",
+              "uncertain",
+              "distorted",
+              "suppressed",
+              "forgotten",
+              "implanted",
+              "dreamlike",
+              "cross_timeline_echo",
+              "contradictory"
+            ],
+            "type": "string"
+          },
+          "statement": {
+            "description": "promoted statement text (required for modify)",
+            "type": "string"
+          },
+          "subject_id": {
+            "description": "subject-<slug> id of the promoted record (defaults to the party)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "decision_id",
+          "candidate_id",
+          "action"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Record the KP's accept/modify/reject decision on one temporal memory candidate. Accept/modify write a new confirming assertion; nothing is ever edited or deleted. Idempotent per decision_id; a decision id is immutable once bound to its request."
+    },
+    "memory.recall": {
+      "access": "query",
+      "canonical_operation": "memory.recall",
+      "description": "Deterministically narrow canonical temporal memory assertions (subject knowledge/beliefs) by subject, timeline, valid-time turn, entities, scene, and privacy. Advisory candidates for KP semantic judgment; never authoritative truth. Strict read-only. Canonical operation `memory.recall`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "entities": {
+            "description": "entity-<slug> ids to narrow by (structured overlap only, never prose)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "include_superseded": {
+            "description": "include closed/superseded assertions when no turn anchor is given",
+            "type": "boolean"
+          },
+          "kinds": {
+            "description": "assertion kinds filter (world_event/knowledge/belief/relationship/player_assertion/player_preference/keeper_correction/summary)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "description": "max candidates (default 12, max 64)",
+            "type": "integer"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "scene": {
+            "description": "scene id to narrow by",
+            "type": "string"
+          },
+          "subject_id": {
+            "description": "subject-<slug> id whose knowledge/beliefs to recall",
+            "type": "string"
+          },
+          "timeline": {
+            "description": "timeline id (tl-<slug>); defaults to the campaign's active timeline",
+            "type": "string"
+          },
+          "turn": {
+            "description": "valid-time anchor turn; omit for currently-effective assertions only",
+            "type": "integer"
+          },
+          "view": {
+            "description": "privacy view; player_safe never returns keeper_only rows",
+            "enum": [
+              "keeper",
+              "player_safe"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
+      "summary": "Deterministically narrow canonical temporal memory assertions (subject knowledge/beliefs) by subject, timeline, valid-time turn, entities, scene, and privacy. Advisory candidates for KP semantic judgment; never authoritative truth. Strict read-only."
     },
     "memory.resolve_hook": {
       "access": "mutation",
@@ -8607,6 +8880,239 @@
         ]
       },
       "summary": "Read authored threat fronts with verified live current_segments projected onto them."
+    },
+    "timeline.confluence_confirm": {
+      "access": "mutation",
+      "canonical_operation": "timeline.confluence_confirm",
+      "description": "Merge two parent worldlines into the new third timeline and activate it, applying exactly one receipted disposition per enumerated conflict. Fails closed when a parent advanced since the query; parents stay immutable; replay is idempotent per decision_id. The next turn.finalize lands on the merged line. Canonical operation `timeline.confluence_confirm`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key; immutable once bound to a confirm",
+            "type": "string"
+          },
+          "dispositions": {
+            "additionalProperties": true,
+            "description": "complete mapping conflict id -> {mode, receipt, resolver_receipt?, note?}; every enumerated conflict exactly once",
+            "type": "object"
+          },
+          "game_reason": {
+            "description": "concise single-line KP game reason for the merge",
+            "type": "string"
+          },
+          "left_timeline": {
+            "description": "first parent worldline",
+            "type": "string"
+          },
+          "left_turn": {
+            "description": "left parent anchor turn exactly as returned by timeline.confluence_query",
+            "type": "integer"
+          },
+          "path_resolutions": {
+            "additionalProperties": true,
+            "description": "optional per-file canonical resolver content for transform/combine/duplicate dispositions",
+            "type": "object"
+          },
+          "right_timeline": {
+            "description": "second parent worldline",
+            "type": "string"
+          },
+          "right_turn": {
+            "description": "right parent anchor turn exactly as returned by timeline.confluence_query",
+            "type": "integer"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "timeline": {
+            "description": "semantic id of the merged third timeline, exactly as passed to timeline.confluence_query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "decision_id",
+          "timeline",
+          "left_timeline",
+          "right_timeline",
+          "left_turn",
+          "right_turn",
+          "dispositions",
+          "game_reason"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Merge two parent worldlines into the new third timeline and activate it, applying exactly one receipted disposition per enumerated conflict. Fails closed when a parent advanced since the query; parents stay immutable; replay is idempotent per decision_id. The next turn.finalize lands on the merged line."
+    },
+    "timeline.confluence_query": {
+      "access": "query",
+      "canonical_operation": "timeline.confluence_query",
+      "description": "Enumerate every structured disagreement between two parent worldline tips for a KP confluence (worldline merge): complete ordered conflict list with semantic conflict ids, one-sided post-fork non-duplicable mechanics as explicit conflicts, surfaced additions, and semantic parent anchors. Strict read-only; no branch, ref, or state changes. Canonical operation `timeline.confluence_query`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "left_timeline": {
+            "description": "first parent worldline (tl-<slug>)",
+            "type": "string"
+          },
+          "right_timeline": {
+            "description": "second parent worldline (tl-<slug>); must differ from left_timeline",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "timeline": {
+            "description": "fresh semantic id for the merged third timeline (tl-<slug>); must not exist yet",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "timeline",
+          "left_timeline",
+          "right_timeline"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "live_turn",
+          "pending_finalization",
+          "recovery"
+        ]
+      },
+      "summary": "Enumerate every structured disagreement between two parent worldline tips for a KP confluence (worldline merge): complete ordered conflict list with semantic conflict ids, one-sided post-fork non-duplicable mechanics as explicit conflicts, surfaced additions, and semantic parent anchors. Strict read-only; no branch, ref, or state changes."
+    },
+    "timeline.fork_confirm": {
+      "access": "mutation",
+      "canonical_operation": "timeline.fork_confirm",
+      "description": "Confirm one recorded timeline.fork_request by its decision id: create the new timeline branch at the stored fork point, make it the active timeline (the next turn.finalize lands there), and keep the parent timeline immutable. Idempotent per decision_id; no opaque identifiers are ever echoed. Canonical operation `timeline.fork_confirm`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key for this confirmation; immutable once bound",
+            "type": "string"
+          },
+          "request_decision_id": {
+            "description": "decision id of the stored timeline.fork_request being confirmed",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "decision_id",
+          "request_decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Confirm one recorded timeline.fork_request by its decision id: create the new timeline branch at the stored fork point, make it the active timeline (the next turn.finalize lands there), and keep the parent timeline immutable. Idempotent per decision_id; no opaque identifiers are ever echoed."
+    },
+    "timeline.fork_request": {
+      "access": "mutation",
+      "canonical_operation": "timeline.fork_request",
+      "description": "Record the KP's intent to fork the campaign worldline at one settled turn. Persists a request receipt only: no Git branch is created, no timeline state changes, and the active timeline never switches. Confirm separately with timeline.fork_confirm. Canonical operation `timeline.fork_request`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key; immutable once bound to a request",
+            "type": "string"
+          },
+          "game_reason": {
+            "description": "concise single-line KP game reason for the fork",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source_timeline": {
+            "description": "timeline to fork from (tl-<slug>); defaults to the campaign's active timeline",
+            "type": "string"
+          },
+          "source_turn": {
+            "description": "settled turn number on the source timeline to fork at",
+            "type": "integer"
+          },
+          "timeline": {
+            "description": "fresh semantic id for the new timeline (tl-<slug>); must not exist yet",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "decision_id",
+          "timeline",
+          "source_turn",
+          "game_reason"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Record the KP's intent to fork the campaign worldline at one settled turn. Persists a request receipt only: no Git branch is created, no timeline state changes, and the active timeline never switches. Confirm separately with timeline.fork_confirm."
     },
     "turn.finalize": {
       "access": "mutation",

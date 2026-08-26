@@ -1507,6 +1507,43 @@ def _record_finalized_advisory_uptake(
     })
     return warnings, hints
 
+def _recompute_state_authority_gate(
+    ctx: Ctx,
+    *,
+    row: dict[str, Any],
+    draft: str,
+    settled: dict[str, Any],
+    turn_id: str,
+    source_digest: str,
+    revision: int,
+) -> str:
+    """Re-evaluate the bound review against current settlement, not its stamp."""
+    try:
+        review, kp_gate = coc_state_authority.normalize_review(
+            row.get("state_authority_review"),
+            draft=draft,
+            settled=settled,
+            party_ids=ctx.party_ids(),
+            required=True,
+        )
+        _compilation, compiler_gate = coc_state_authority.normalize_compiler_receipt(
+            row.get("state_claim_compilation"),
+            draft=draft,
+            settled=settled,
+            party_ids=ctx.party_ids(),
+            turn_id=turn_id,
+            source_digest=source_digest,
+            revision=revision,
+            kp_review=review,
+            required=True,
+        )
+    except coc_state_authority.StateAuthorityError:
+        return str(row.get("state_authority_gate") or "rewrite_required")
+    if kp_gate == "rewrite_required" or compiler_gate == "rewrite_required":
+        return "rewrite_required"
+    return "clear"
+
+
 def _resolve_bound_narration_review(
     ctx: Ctx,
     *,
@@ -1571,7 +1608,15 @@ def _resolve_bound_narration_review(
             "narration review does not bind this exact turn/source/revision/draft",
         )
     if agency_review_required:
-        if row.get("state_authority_gate") == "rewrite_required":
+        if _recompute_state_authority_gate(
+            ctx,
+            row=row,
+            draft=draft,
+            settled=current,
+            turn_id=str(expected_turn),
+            source_digest=str(expected_source),
+            revision=revision,
+        ) == "rewrite_required":
             raise ToolError(
                 "state_authority_review_blocked",
                 "the bound review identifies a player-state claim without a matching current frozen effect; keep the settlement frozen, rewrite narration only, and review revision 2",

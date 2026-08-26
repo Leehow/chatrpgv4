@@ -42,6 +42,7 @@ import {
   recoverAbortedTurn,
   finishRecoveredTurn,
 } from "./turn-flow.mjs";
+import { createCampaignTurnLock } from "./campaign-turn-lock.mjs";
 import { HandoutSessionDelivery } from "./handout-delivery.mjs";
 import {
   campaignDir,
@@ -138,9 +139,10 @@ const orchestrator = new CampaignHostOrchestrator({
 });
 const HOSTS = orchestrator.hosts;
 
-// One turn at a time: concurrent keeper turns against shared campaign state
-// are never safe.
-let turnInFlight = false;
+// One turn at a time per campaign: concurrent writes against the same
+// campaign state are never safe. Different campaigns have their own
+// pi-coc RPC child and must not block each other.
+const campaignTurns = createCampaignTurnLock();
 
 // Historical web-only placeholder. Never create or link it again; ignore it
 // when resolving a real investigator left over from the deprecated path.
@@ -435,6 +437,9 @@ function playerVisibleTurnError(err) {
   }
   if (kind === EMPTY_PLAYER_TURN_KIND) {
     return text || EMPTY_PLAYER_TURN_MESSAGE;
+  }
+  if (kind === "pi_coc_tool_retry_exhausted") {
+    return text || "同一工具连续失败 3 次，已中断本回合。请刷新后恢复。";
   }
   if (text && text !== name) return `${name}: ${text}`;
   return text || name || "未知错误";
@@ -1071,7 +1076,9 @@ async function handleState(req, res, sid) {
 async function handleUseItem(req, res, sid) {
   const info = SESSIONS.get(sid);
   if (!info) throw httpError(404, "unknown session");
-  if (turnInFlight) throw httpError(409, "回合进行中，请等待 KP 结算后再使用物品。");
+  if (campaignTurns.isBusy(info.campaign_id)) {
+    throw httpError(409, "本场战役回合进行中，请等待 KP 结算后再使用物品。");
+  }
   const body = await readJsonBody(req);
   const itemId = String(body.item_id || "").trim();
   if (!itemId) throw httpError(400, "item_id is required");
@@ -1149,12 +1156,11 @@ async function handleTurn(req, res, sid) {
   });
   res.flushHeaders();
 
-  if (turnInFlight) {
-    sseWrite(res, "error", { message: "另一个回合仍在进行，请等待它结束。" });
+  if (!campaignTurns.tryAcquire(info.campaign_id)) {
+    sseWrite(res, "error", { message: "本场战役已有回合在进行，请等待它结束。" });
     res.end();
     return;
   }
-  turnInFlight = true;
 
   let clientGone = false;
   let finished = false;
@@ -1338,7 +1344,7 @@ async function handleTurn(req, res, sid) {
   } finally {
     finished = true;
     clearInterval(heartbeat);
-    turnInFlight = false;
+    campaignTurns.release(info.campaign_id);
     res.end();
   }
 }

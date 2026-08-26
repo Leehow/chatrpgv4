@@ -151,14 +151,19 @@ def test_ensure_repo_creates_bare_repo_and_exclude(tmp_path):
     head = (repo / "HEAD").read_text(encoding="utf-8")
     assert "refs/heads/main" in head
     exclude = (repo / "info" / "exclude").read_text(encoding="utf-8").splitlines()
-    assert exclude == list(hist.IGNORE_PATHS)
+    assert exclude == [
+        *hist.IGNORE_PATHS,
+        "memory/.history-projection-*.tmp",
+    ]
+    assert "memory/history-projection.db" in exclude
     assert _commit_count(tmp_path) == 0
 
     hist.ensure_repo(tmp_path, CAMPAIGN_ID)
     assert _commit_count(tmp_path) == 0
-    assert (repo / "info" / "exclude").read_text(encoding="utf-8").splitlines() == list(
-        hist.IGNORE_PATHS
-    )
+    assert (repo / "info" / "exclude").read_text(encoding="utf-8").splitlines() == [
+        *hist.IGNORE_PATHS,
+        "memory/.history-projection-*.tmp",
+    ]
 
 
 def test_commit_baseline_trailers_tree_and_second_call_returns_head(tmp_path):
@@ -317,6 +322,7 @@ def test_ignored_paths_are_absent_from_tree(tmp_path):
         "save/commit-snapshots/",
         "save/session-state.json",
         "save/toolbox-ledger.json",
+        "save/timeline-state.json",
         "logs/pending-turns/",
         "memory/index.json",
     }.issubset(set(hist.IGNORE_PATHS))
@@ -327,6 +333,82 @@ def test_ignored_paths_are_absent_from_tree(tmp_path):
         "toolbox-ledger.json",
         "roll-operation-receipts.json",
     })
+
+
+def test_projection_cache_and_crash_temps_untracked_memory_canonical_tracked(tmp_path):
+    worktree = _seed_campaign_files(tmp_path)
+    hist.ensure_repo(tmp_path, CAMPAIGN_ID)
+    hist.commit_baseline(
+        tmp_path, CAMPAIGN_ID, schema_generation=SCHEMA, note="initial campaign generation"
+    )
+    temporal = worktree / "memory" / "temporal"
+    temporal.mkdir(parents=True, exist_ok=True)
+    (temporal / "assertions.jsonl").write_text(
+        json.dumps({"assertion": "canon"}) + "\n", encoding="utf-8"
+    )
+    db = worktree / "memory" / "history-projection.db"
+    db.write_bytes(b"rebuildable sqlite cache bytes")
+    crash_temps = [
+        worktree / "memory" / ".history-projection-ab12cd34.tmp",
+        worktree / "memory" / ".history-projection-z9.tmp",
+    ]
+    for temp in crash_temps:
+        temp.write_bytes(b"crash-left partial build")
+
+    # Helper face: exact DB name, prefix temp names — nothing else.
+    assert hist.path_is_ignored("memory/history-projection.db")
+    assert hist.path_is_ignored("memory/.history-projection-ab12cd34.tmp")
+    assert hist.path_is_ignored("./memory/.history-projection-x.tmp")
+    assert not hist.path_is_ignored("memory/.history-projection-.tmp")
+    assert not hist.path_is_ignored("memory/.history-projection-x.tmp.bak")
+    assert not hist.path_is_ignored("memory/.history-projection-x/y.tmp")
+    assert not hist.path_is_ignored("memory/temporal/.history-projection-x.tmp")
+    assert not hist.path_is_ignored("memory/temporal/assertions.jsonl")
+    assert not hist.path_is_ignored("memory/session-summaries.jsonl")
+    assert not hist.path_is_ignored(".history-projection-x.tmp")
+    assert not hist.path_is_ignored("memory/history-projection.db-wal")
+    assert not hist.is_authoritative_state_path("memory/history-projection.db")
+    assert not hist.is_authoritative_state_path("memory/.history-projection-ab12cd34.tmp")
+
+    # Git itself honors the exclude patterns for both faces.
+    check = subprocess.run(
+        [
+            "git",
+            f"--git-dir={_repo(tmp_path)}",
+            f"--work-tree={_worktree(tmp_path)}",
+            "check-ignore",
+            "memory/history-projection.db",
+            "memory/.history-projection-ab12cd34.tmp",
+            "memory/temporal/assertions.jsonl",
+            "memory/session-summaries.jsonl",
+        ],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "GIT_CONFIG_NOSYSTEM": "1"},
+    )
+    assert check.returncode == 0, check.stderr
+    assert check.stdout.splitlines() == [
+        "memory/history-projection.db",
+        "memory/.history-projection-ab12cd34.tmp",
+    ]
+
+    sha = _commit_turn(tmp_path, 1, "fin-proj")
+    assert sha
+    names = _tree_names(tmp_path)
+    assert "memory/history-projection.db" not in names
+    assert not any(name.startswith("memory/.history-projection-") for name in names)
+    assert "memory/temporal/assertions.jsonl" in names
+    assert "memory/session-summaries.jsonl" in names
+    assert "save/world-state.json" in names
+
+    # History/restore behavior is unchanged: the rebuildable cache and its
+    # crash leftovers stay untouched in the worktree by a save restore.
+    db_bytes = db.read_bytes()
+    temp_bytes = [temp.read_bytes() for temp in crash_temps]
+    assert hist.restore_save_subset(tmp_path, CAMPAIGN_ID) == "fin-proj"
+    assert db.read_bytes() == db_bytes
+    assert [temp.read_bytes() for temp in crash_temps] == temp_bytes
+    assert (temporal / "assertions.jsonl").is_file()
 
 
 def test_git_missing_raises_unavailable(tmp_path, monkeypatch):
@@ -375,6 +457,55 @@ def test_five_turns_fsck_strict_and_log_count(tmp_path):
     subjects = _git(tmp_path, "log", "--reverse", "--format=%s").splitlines()
     assert subjects[0] == "coc baseline: initial campaign generation"
     assert subjects[-1] == "coc turn 0005: fin-0005"
+
+
+def test_remove_repo_archives_evidence_never_deletes(tmp_path):
+    worktree = _seed_campaign_files(tmp_path)
+    hist.ensure_repo(tmp_path, CAMPAIGN_ID)
+    hist.commit_baseline(
+        tmp_path, CAMPAIGN_ID, schema_generation=SCHEMA, note="initial campaign generation"
+    )
+    (worktree / "save" / "world-state.json").write_text(
+        '{"status": "active"}\n', encoding="utf-8"
+    )
+    _commit_turn(tmp_path, 1, "fin-keep")
+
+    archived = hist.remove_repo(tmp_path, CAMPAIGN_ID)
+    assert archived is not None
+    assert archived.is_dir()
+    assert archived.name.startswith(f"{CAMPAIGN_ID}.git.discarded-")
+    assert not _repo(tmp_path).exists()
+    # The worktree is never touched by repo removal.
+    assert (worktree / "campaign.json").is_file()
+    # Evidence survives: the archived object database still answers log.
+    log = subprocess.run(
+        [
+            "git",
+            f"--git-dir={archived}",
+            "log",
+            "--format=%s",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "coc turn 0001: fin-keep" in log
+    assert "coc baseline:" in log
+
+    # Retiring a missing repo is a no-op; a fresh repo can be created at the
+    # canonical path while the archive stays untouched.
+    assert hist.remove_repo(tmp_path, CAMPAIGN_ID) is None
+    hist.ensure_repo(tmp_path, CAMPAIGN_ID)
+    assert _repo(tmp_path).is_dir()
+    assert _commit_count(tmp_path) == 0
+    assert archived.is_dir()
+    fresh_log = subprocess.run(
+        ["git", f"--git-dir={archived}", "log", "--format=%s"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "coc turn 0001: fin-keep" in fresh_log
 
 
 def test_create_campaign_lands_repo_and_baseline(tmp_path):
@@ -498,6 +629,8 @@ def test_authoritative_state_path_helpers():
     assert hist.path_is_ignored("save/commit-snapshots/fin-x/world-state.json")
     assert hist.path_is_ignored("save/session-state.json")
     assert hist.path_is_ignored("save/run-identity.lock")
+    assert hist.path_is_ignored("save/timeline-state.json")
+    assert not hist.is_authoritative_state_path("save/timeline-state.json")
     assert not hist.path_is_ignored("save/world-state.json")
     assert not hist.path_is_ignored("save/run-identity.json")
     assert hist.is_authoritative_state_path("campaign.json")

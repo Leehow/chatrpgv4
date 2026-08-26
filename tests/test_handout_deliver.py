@@ -1091,6 +1091,51 @@ def test_deep_handout_wins_over_scenario_and_index_for_keeper_and_player(
     ]
 
 
+def test_nonprogressive_starter_handout_overlay_wins_same_id_collision(
+    campaign_ws,
+):
+    """A local source card enriches a complete starter without source gating."""
+    meta_path = campaign_ws["campaign_dir"] / "scenario" / "module-meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["handout_asset_root_id"] = "the-haunting-keeper-rulebook-40th"
+    _write_json(meta_path, meta)
+    deep_card = (
+        campaign_ws["coc_root"]
+        / "module-assets"
+        / "the-haunting-keeper-rulebook-40th"
+        / "entities"
+        / "handout-handout-globe-unpublished-1918.json"
+    )
+    _write_json(deep_card, {
+        "handout_id": "handout-globe-unpublished-1918",
+        "asset_id": "handout-globe-unpublished-1918",
+        "kind": "document",
+        "content_origin": "source_verbatim",
+        "title": "Handout 2: The Boston Globe, 1918",
+        "text": "Exact source card body.",
+        "localized_text": {"zh-Hans": "资料卡二中文直译正文。"},
+        "source_refs": ["pdf_index-461"],
+        "player_visible": True,
+        "parse_state": "deep",
+        "evidence_gap": False,
+    })
+
+    assert coc_toolbox.coc_module_project.campaign_asset_root_id(
+        campaign_ws["campaign_dir"]
+    ) is None
+    keeper = _run(campaign_ws, "clues.query", {})
+    cards = {
+        card["asset_id"]: card
+        for card in keeper["data"]["handouts"]["cards"]
+    }
+    assert cards["handout-globe-unpublished-1918"]["content_origin"] == (
+        "source_verbatim"
+    )
+    assert cards["handout-globe-unpublished-1918"]["text"] == (
+        "Exact source card body."
+    )
+
+
 def test_table_opening_lists_only_valid_visible_undelivered_cards(campaign_ws):
     """Opening evidence exposes stable metadata, never bodies or hidden cards."""
     index = campaign_ws["campaign_dir"] / "index" / "handout-assets.json"

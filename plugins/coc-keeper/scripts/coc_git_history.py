@@ -6,22 +6,37 @@ directory is the worktree. Never writes ``.git`` inside the campaign tree.
 """
 from __future__ import annotations
 
+import contextlib
+import json
 import os
 import re
 import shutil
 import subprocess
+import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+import coc_fileio
+import coc_temporal_memory_contract as tm_contract
 
 # Same constraint as coc_state._SAFE_ID. Duplicated so this module stays
 # importable without loading campaign-state machinery.
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_GIT_REF_UNSAFE = re.compile(r"[~^:?*\[\\ @]|\.\.|@\{|^\.|/\.|//|\.lock$|/")
 
 GIT_USER_NAME = "coc-keeper"
 GIT_USER_EMAIL = "coc-keeper@localhost"
-DEFAULT_TIMELINE_ID = "tl-main"
+DEFAULT_TIMELINE_ID = tm_contract.ROOT_TIMELINE_ID
 DEFAULT_BRANCH = "main"
+TIMELINE_REF_PREFIX = "refs/heads/timelines/"
+TIMELINE_STATE_RELPATH = "save/timeline-state.json"
+TIMELINE_STATE_SCHEMA = "timeline-state-1"
 
 # Single source of truth for the ignore face. Written to the bare repo's
 # ``info/exclude``; never materialized as a campaign-tree ``.gitignore``.
@@ -33,7 +48,20 @@ IGNORE_PATHS: tuple[str, ...] = (
     "save/development-settlements/",
     "save/roll-operation-receipts.json",
     "save/run-identity.lock",
+    "save/timeline-state.json",
     "memory/index.json",
+    "memory/history-projection.db",
+)
+
+# Narrow prefix face for crash-left atomic temp files of the rebuildable
+# history projection cache
+# (``coc_history_projection_schema.atomic_projection_target`` reserves
+# ``memory/.history-projection-*.tmp`` beside the cache). Deterministic
+# fixed-prefix + fixed-suffix pairs only: not a glob engine, and nothing
+# outside these exact prefixes is ever matched. The canonical memory
+# records under ``memory/temporal/`` are NOT on this face.
+IGNORE_TEMP_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("memory/.history-projection-", ".tmp"),
 )
 
 # Independent of IGNORE_PATHS: the save/ subset the old copytree snapshot
@@ -163,7 +191,13 @@ def looks_like_git_repo(repo: Path) -> bool:
 
 
 def path_is_ignored(relpath: str) -> bool:
-    """True when ``relpath`` is on the Coordinator ignore face."""
+    """True when ``relpath`` is on the Coordinator ignore face.
+
+    Exact-name and directory-prefix semantics over ``IGNORE_PATHS``, plus
+    the narrow ``IGNORE_TEMP_PREFIXES`` face for crash-left atomic temp
+    files (fixed prefix, fixed suffix, non-empty middle). No general glob
+    behavior exists here.
+    """
     normalized = relpath.replace("\\", "/").lstrip("./")
     if not normalized:
         return False
@@ -172,6 +206,15 @@ def path_is_ignored(relpath: str) -> bool:
             if normalized == pattern[:-1] or normalized.startswith(pattern):
                 return True
         elif normalized == pattern:
+            return True
+    for prefix, suffix in IGNORE_TEMP_PREFIXES:
+        middle_end = len(normalized) - len(suffix)
+        if (
+            middle_end > len(prefix)
+            and normalized.startswith(prefix)
+            and normalized.endswith(suffix)
+            and "/" not in normalized[len(prefix):middle_end]
+        ):
             return True
     return False
 
@@ -186,7 +229,7 @@ def is_authoritative_state_path(relpath: str) -> bool:
     return any(normalized.startswith(prefix) for prefix in AUTHORITATIVE_STATE_PREFIXES)
 
 
-def _isolated_git_env() -> dict[str, str]:
+def _isolated_git_env(*, extra: dict[str, str] | None = None) -> dict[str, str]:
     env = os.environ.copy()
     env["GIT_CONFIG_NOSYSTEM"] = "1"
     env["GIT_CONFIG_GLOBAL"] = os.devnull
@@ -201,6 +244,8 @@ def _isolated_git_env() -> dict[str, str]:
     env.pop("GIT_INDEX_FILE", None)
     env.pop("GIT_OBJECT_DIRECTORY", None)
     env.pop("GIT_ALTERNATE_OBJECT_DIRECTORIES", None)
+    if extra:
+        env.update(extra)
     return env
 
 
@@ -231,6 +276,7 @@ def _run_git(
     check: bool = True,
     input_text: str | None = None,
     allow_lock_retry: bool = True,
+    extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     git = _git_executable()
     cmd = [git, *_GIT_CONFIG_ARGS]
@@ -245,17 +291,17 @@ def _run_git(
             cmd,
             input=input_text,
             cwd=cwd,
-            env=_isolated_git_env(),
+            env=_isolated_git_env(extra=extra_env),
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
             check=False,
         )
-    except FileNotFoundError as exc:
+    except FileNotFoundError as cop_exc:
         raise GitHistoryUnavailableError(
             "git is required for campaign history but was not found on PATH"
-        ) from exc
+        ) from cop_exc
     if completed.returncode == 0 or not check:
         return completed
     stderr = completed.stderr or ""
@@ -276,6 +322,7 @@ def _run_git(
             check=check,
             input_text=input_text,
             allow_lock_retry=False,
+            extra_env=extra_env,
         )
     if not allow_lock_retry and repo is not None and _is_lock_error(stderr):
         raise GitHistoryError(
@@ -287,7 +334,13 @@ def _run_git(
 def _write_exclude(repo: Path) -> None:
     exclude = repo / "info" / "exclude"
     exclude.parent.mkdir(parents=True, exist_ok=True)
-    exclude.write_text("\n".join(IGNORE_PATHS) + "\n", encoding="utf-8")
+    lines = [
+        *IGNORE_PATHS,
+        # Git-pattern rendering of the temp-prefix face: ``*`` never
+        # crosses ``/``, so only files directly under ``memory/`` match.
+        *(f"{prefix}*{suffix}" for prefix, suffix in IGNORE_TEMP_PREFIXES),
+    ]
+    exclude.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _init_bare_repo(repo: Path) -> None:
@@ -321,9 +374,9 @@ def _repo_is_healthy(repo: Path, worktree: Path) -> bool:
     return fsck.returncode == 0
 
 
-def _head_sha(repo: Path, worktree: Path) -> str | None:
+def _rev_sha(repo: Path, worktree: Path, rev: str) -> str | None:
     completed = _run_git(
-        ["rev-parse", "--verify", "-q", "HEAD"],
+        ["rev-parse", "--verify", "-q", rev],
         repo=repo,
         worktree=worktree,
         check=False,
@@ -332,6 +385,10 @@ def _head_sha(repo: Path, worktree: Path) -> str | None:
         return None
     sha = completed.stdout.strip()
     return sha or None
+
+
+def _head_sha(repo: Path, worktree: Path) -> str | None:
+    return _rev_sha(repo, worktree, "HEAD")
 
 
 def _sanitize_single_line(value: str) -> str:
@@ -374,11 +431,24 @@ def parse_trailers(message: str) -> dict[str, str]:
     return parsed
 
 
-def _commit_log_records(repo: Path, worktree: Path) -> list[tuple[str, str]]:
-    if _head_sha(repo, worktree) is None:
-        return []
+def _commit_log_records(
+    repo: Path,
+    worktree: Path,
+    *,
+    rev: str | None = None,
+    all_refs: bool = False,
+) -> list[tuple[str, str]]:
+    if all_refs:
+        if _head_sha(repo, worktree) is None and not _list_timeline_refs(repo, worktree):
+            return []
+        args = ["log", "--all", "--format=%H%x1e%B%x1d"]
+    else:
+        target = rev or "HEAD"
+        if _rev_sha(repo, worktree, target) is None:
+            return []
+        args = ["log", "--format=%H%x1e%B%x1d", target]
     completed = _run_git(
-        ["log", "--format=%H%x1e%B%x1d"],
+        args,
         repo=repo,
         worktree=worktree,
     )
@@ -397,7 +467,7 @@ def _commit_log_records(repo: Path, worktree: Path) -> list[tuple[str, str]]:
 def _sha_for_finalization_id(
     repo: Path, worktree: Path, finalization_id: str
 ) -> str | None:
-    for sha, body in _commit_log_records(repo, worktree):
+    for sha, body in _commit_log_records(repo, worktree, all_refs=True):
         trailers = parse_trailers(body)
         if trailers.get("Finalization-Id") == finalization_id:
             return sha
@@ -620,7 +690,7 @@ def commit_finalized_turn(
     settlement_snapshot_id: str,
     rendered_text_sha256: str,
     schema_generation: str,
-    timeline_id: str = DEFAULT_TIMELINE_ID,
+    timeline_id: str | None = None,
 ) -> str:
     """Commit the current worktree as one finalized turn.
 
@@ -628,7 +698,8 @@ def commit_finalized_turn(
     does not create another. Distinct finalizations always record a commit
     (``--allow-empty``). A new commit is refused while
     ``save/pending-turn.json`` is present so an unfinalized later turn cannot
-    bind into this receipt.
+    bind into this receipt. Commits land on the active timeline ref; ``main``
+    / ``HEAD`` stay unchanged when that timeline is not ``tl-main``.
     """
     campaign_id = _require_campaign_id(campaign_id)
     if not isinstance(turn_number, int) or isinstance(turn_number, bool) or turn_number < 0:
@@ -640,10 +711,19 @@ def commit_finalized_turn(
     )
     rendered_text_sha256 = _require_token(rendered_text_sha256, "rendered_text_sha256")
     schema_generation = _require_token(schema_generation, "schema_generation")
-    timeline_id = _require_token(timeline_id, "timeline_id")
 
     repo = ensure_repo(root, campaign_id)
     worktree = worktree_path_for(root, campaign_id)
+    active = active_timeline_id(root, campaign_id)
+    if timeline_id is None:
+        timeline_id = active
+    else:
+        timeline_id = _require_timeline_id(timeline_id)
+        if timeline_id != active:
+            raise GitHistoryError(
+                f"timeline_id {timeline_id!r} does not match active "
+                f"timeline {active!r}"
+            )
     existing = _sha_for_finalization_id(repo, worktree, finalization_id)
     if existing is not None:
         return existing
@@ -667,7 +747,7 @@ def commit_finalized_turn(
     ]
     message = _format_commit_message(subject, trailers)
     try:
-        return _stage_and_commit(repo, worktree, message)
+        return _commit_to_timeline(repo, worktree, timeline_id=timeline_id, message=message)
     except GitHistoryError as exc:
         recovered = _maybe_recover(
             root,
@@ -683,16 +763,35 @@ def commit_finalized_turn(
         replay = _sha_for_finalization_id(recovered, worktree, finalization_id)
         if replay is not None:
             return replay
-        return _stage_and_commit(recovered, worktree, message)
+        return _commit_to_timeline(
+            recovered, worktree, timeline_id=timeline_id, message=message
+        )
 
 
-def remove_repo(root: Path | str, campaign_id: str) -> None:
-    """Delete the sidecar repo only. Never touches the campaign worktree."""
+def remove_repo(root: Path | str, campaign_id: str) -> Path | None:
+    """Retire the sidecar repo by rename; evidence is never destroyed.
+
+    History is sole playtest evidence, so removal archives the repo as
+    ``<id>.git.discarded-<utc>`` beside the canonical location (same
+    rename-first convention as corrupt-object recovery). A later
+    ``ensure_repo`` creates a fresh repo at the canonical path; the archive
+    stays for audit and export. Never touches the campaign worktree.
+    Returns the archive path, or ``None`` when there was no repo to retire.
+    """
+    campaign_id = _require_campaign_id(campaign_id)
     repo = repo_path_for(root, campaign_id)
-    if repo.exists():
-        if not repo.is_dir() or repo.is_symlink():
-            raise ValueError("campaign repo path is unsafe")
-        shutil.rmtree(repo)
+    if not repo.exists() and not repo.is_symlink():
+        return None
+    if not repo.is_dir() or repo.is_symlink():
+        raise ValueError("campaign repo path is unsafe")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    dest = repo.with_name(f"{repo.name}.discarded-{timestamp}")
+    suffix = 0
+    while dest.exists():
+        suffix += 1
+        dest = repo.with_name(f"{repo.name}.discarded-{timestamp}-{suffix}")
+    repo.rename(dest)
+    return dest
 
 
 def _is_restorable_save_path(relpath: str) -> bool:
@@ -754,3 +853,1431 @@ def restore_save_subset(root: Path | str, campaign_id: str) -> str | None:
             )
     finalization_id = trailers.get("Finalization-Id")
     return finalization_id or None
+
+
+# ---------------------------------------------------------------------------
+# Timeline DAG (fork / confluence / history query)
+# ---------------------------------------------------------------------------
+
+
+def timeline_ref_name(timeline_id: str) -> str:
+    """Git ref for a semantic timeline id. ``tl-main`` stays ``refs/heads/main``."""
+    timeline_id = _require_timeline_id(timeline_id)
+    if timeline_id == DEFAULT_TIMELINE_ID:
+        return f"refs/heads/{DEFAULT_BRANCH}"
+    return f"{TIMELINE_REF_PREFIX}{timeline_id}"
+
+
+def _require_timeline_id(value: str) -> str:
+    token = _require_token(value, "timeline_id")
+    if not token.startswith("tl-") or _GIT_REF_UNSAFE.search(token) is not None:
+        raise ValueError("timeline_id must be a git-safe semantic id with tl- prefix")
+    try:
+        tm_contract._check_semantic_id(
+            token,
+            kind="timeline",
+            field="timeline_id",
+            prefix=tm_contract.ID_PREFIX["timeline"],
+        )
+    except tm_contract.TemporalMemoryContractError as exc:
+        raise ValueError(str(exc)) from exc
+    return token
+
+
+def _list_timeline_refs(repo: Path, worktree: Path) -> list[str]:
+    completed = _run_git(
+        ["for-each-ref", "--format=%(refname)", TIMELINE_REF_PREFIX],
+        repo=repo,
+        worktree=worktree,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return []
+    return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+
+
+def _commit_to_timeline(
+    repo: Path,
+    worktree: Path,
+    *,
+    timeline_id: str,
+    message: str,
+) -> str:
+    if timeline_id == DEFAULT_TIMELINE_ID:
+        return _stage_and_commit(repo, worktree, message)
+    ref = timeline_ref_name(timeline_id)
+    parent = _rev_sha(repo, worktree, ref)
+    if parent is None:
+        raise GitHistoryError(f"timeline ref missing: {timeline_id}")
+    worktree.mkdir(parents=True, exist_ok=True)
+    _run_git(["add", "-A", "--", "."], repo=repo, worktree=worktree)
+    tree = _run_git(["write-tree"], repo=repo, worktree=worktree).stdout.strip()
+    if not tree:
+        raise GitHistoryError("git write-tree produced an empty tree id")
+    sha = _run_git(
+        ["commit-tree", tree, "-p", parent, "-m", message],
+        repo=repo,
+        worktree=worktree,
+    ).stdout.strip()
+    if not sha:
+        raise GitHistoryError("git commit-tree succeeded but produced no sha")
+    _run_git(
+        ["update-ref", ref, sha, parent],
+        repo=repo,
+        worktree=worktree,
+    )
+    return sha
+
+
+def _timeline_state_path(worktree: Path) -> Path:
+    return worktree / TIMELINE_STATE_RELPATH
+
+
+def _default_timeline_state(campaign_id: str) -> dict[str, Any]:
+    return {
+        "schema_generation": TIMELINE_STATE_SCHEMA,
+        "campaign_id": campaign_id,
+        "active_timeline_id": DEFAULT_TIMELINE_ID,
+        "timelines": [
+            {
+                "timeline_id": DEFAULT_TIMELINE_ID,
+                "campaign_id": campaign_id,
+                "kind": "root",
+                "parents": [],
+                "fork_point": None,
+                "created_by": "initial",
+            }
+        ],
+        "confluences": [],
+        "game_reasons": {},
+    }
+
+
+def _read_timeline_state_file(worktree: Path, campaign_id: str) -> dict[str, Any]:
+    path = _timeline_state_path(worktree)
+    if not path.is_file() or path.is_symlink():
+        return _default_timeline_state(campaign_id)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise GitHistoryError(f"timeline-state.json is unreadable: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise GitHistoryError("timeline-state.json must be a JSON object")
+    generation = payload.get("schema_generation")
+    if generation != TIMELINE_STATE_SCHEMA:
+        raise GitHistoryError(
+            "timeline-state.json schema_generation must be "
+            f"{TIMELINE_STATE_SCHEMA!r}"
+        )
+    return payload
+
+
+def _write_timeline_state(worktree: Path, state: Mapping[str, Any]) -> None:
+    path = _timeline_state_path(worktree)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    coc_fileio.write_json_atomic(
+        path,
+        dict(state),
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+
+
+def _validate_state_timelines(state: Mapping[str, Any]) -> None:
+    try:
+        tm_contract.validate_timeline_set(
+            state.get("timelines") or [],
+            active_timeline_id=state.get("active_timeline_id"),
+        )
+        for record in state.get("confluences") or []:
+            tm_contract.validate_confluence(record)
+    except tm_contract.TemporalMemoryContractError as exc:
+        raise GitHistoryError(str(exc)) from exc
+
+
+def _campaign_lock(worktree: Path):
+    # Toolbox transactions already hold the campaign's exclusive lock around
+    # every campaign operation; a coordinator call nested inside one re-enters
+    # without re-acquiring so the same process cannot self-deadlock. A foreign
+    # (or absent) holder still takes the real exclusive lock, so cross-process
+    # serialization is unchanged.
+    if coc_fileio.campaign_lock_held_by_current_process(worktree):
+        return contextlib.nullcontext(worktree / ".campaign.lock")
+    return coc_fileio.campaign_lock(worktree, wait_seconds=5.0)
+
+
+def load_timeline_state(root: Path | str, campaign_id: str) -> dict[str, Any]:
+    """Return the persisted timeline set, or the implied ``tl-main`` default."""
+    campaign_id = _require_campaign_id(campaign_id)
+    worktree = worktree_path_for(root, campaign_id)
+    state = _read_timeline_state_file(worktree, campaign_id)
+    _validate_state_timelines(state)
+    return state
+
+
+def active_timeline_id(root: Path | str, campaign_id: str) -> str:
+    """Semantic id of the timeline ``turn.finalize`` currently commits to."""
+    campaign_id = _require_campaign_id(campaign_id)
+    worktree = worktree_path_for(root, campaign_id)
+    state = _read_timeline_state_file(worktree, campaign_id)
+    active = state.get("active_timeline_id") or DEFAULT_TIMELINE_ID
+    return _require_timeline_id(str(active))
+
+
+def _trailers_for_commit(
+    repo: Path, worktree: Path, sha: str
+) -> dict[str, str]:
+    message = _run_git(
+        ["log", "-1", "--format=%B", sha],
+        repo=repo,
+        worktree=worktree,
+    ).stdout
+    return parse_trailers(message)
+
+
+def _turn_from_commit(repo: Path, worktree: Path, sha: str) -> int:
+    trailers = _trailers_for_commit(repo, worktree, sha)
+    raw = trailers.get("Turn-Number") or ""
+    if not raw.isdigit():
+        raise GitHistoryError(
+            "fork/history source commit is not a turn commit with Turn-Number"
+        )
+    turn = int(raw)
+    if turn < 1:
+        raise GitHistoryError("fork_point.turn must be >= 1")
+    return turn
+
+
+def _resolve_source_commit(
+    repo: Path,
+    worktree: Path,
+    *,
+    source_timeline_id: str,
+    source_turn: int | None,
+    source_commit: str | None,
+) -> str:
+    ref = timeline_ref_name(source_timeline_id)
+    if source_commit:
+        token = source_commit.strip().lower()
+        if tm_contract.COMMIT_SHA_RE.fullmatch(token) is None:
+            raise ValueError("source_commit must be a git object id")
+        resolved = _rev_sha(repo, worktree, token)
+        if resolved is None:
+            raise GitHistoryError("source_commit is not in the campaign repository")
+        if _rev_sha(repo, worktree, ref) is None:
+            raise GitHistoryError(f"source timeline ref missing: {source_timeline_id}")
+        ancestor = _run_git(
+            ["merge-base", "--is-ancestor", resolved, ref],
+            repo=repo,
+            worktree=worktree,
+            check=False,
+        )
+        if ancestor.returncode != 0:
+            raise GitHistoryError(
+                "source_commit is not on the source timeline"
+            )
+        return resolved
+    if source_turn is not None:
+        if not isinstance(source_turn, int) or isinstance(source_turn, bool) or source_turn < 1:
+            raise ValueError("source_turn must be an int >= 1")
+        for sha, body in _commit_log_records(repo, worktree, rev=ref):
+            trailers = parse_trailers(body)
+            if (
+                trailers.get("COC-Commit-Type") == "turn"
+                and trailers.get("Turn-Number") == str(source_turn)
+                and trailers.get("Timeline-Id") == source_timeline_id
+            ):
+                return sha
+        raise GitHistoryError(
+            f"no turn {source_turn} on timeline {source_timeline_id}"
+        )
+    tip = _rev_sha(repo, worktree, ref)
+    if tip is None:
+        raise GitHistoryError(f"source timeline ref missing: {source_timeline_id}")
+    return tip
+
+
+def _ls_tree_blobs(
+    repo: Path, worktree: Path, rev: str
+) -> dict[str, tuple[str, str]]:
+    completed = _run_git(
+        ["ls-tree", "-r", "--full-tree", rev],
+        repo=repo,
+        worktree=worktree,
+    )
+    blobs: dict[str, tuple[str, str]] = {}
+    for line in completed.stdout.splitlines():
+        if "\t" not in line:
+            continue
+        meta, path = line.split("\t", 1)
+        parts = meta.split()
+        if len(parts) >= 3 and parts[1] == "blob" and path:
+            blobs[path] = (parts[0], parts[2])
+    return blobs
+
+
+def _hash_blob(repo: Path, worktree: Path, data: bytes) -> str:
+    completed = subprocess.run(
+        [_git_executable(), *_GIT_CONFIG_ARGS, f"--git-dir={repo}", "hash-object", "-w", "--stdin"],
+        input=data,
+        cwd=str(worktree),
+        env=_isolated_git_env(),
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        stderr = (completed.stderr or b"").decode("utf-8", errors="replace")
+        raise GitHistoryError(f"git hash-object failed: {stderr.strip()}")
+    sha = completed.stdout.decode("utf-8", errors="replace").strip()
+    if not sha:
+        raise GitHistoryError("git hash-object produced no sha")
+    return sha
+
+
+def _write_tree_from_entries(
+    repo: Path,
+    worktree: Path,
+    entries: list[tuple[str, tuple[str, str]]],
+) -> str:
+    with tempfile.TemporaryDirectory(prefix="coc-timeline-index-") as tmp:
+        extra = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        _run_git(
+            ["read-tree", "--empty"],
+            repo=repo,
+            worktree=worktree,
+            extra_env=extra,
+        )
+        if entries:
+            payload = "".join(
+                f"{mode} blob {sha}\t{path}\n" for path, (mode, sha) in entries
+            )
+            _run_git(
+                ["update-index", "--index-info"],
+                repo=repo,
+                worktree=worktree,
+                extra_env=extra,
+                input_text=payload,
+            )
+        tree = _run_git(
+            ["write-tree"],
+            repo=repo,
+            worktree=worktree,
+            extra_env=extra,
+        ).stdout.strip()
+    if not tree:
+        raise GitHistoryError("confluence write-tree produced no tree id")
+    return tree
+
+
+def _conflict_paths(conflict: Mapping[str, Any]) -> list[str]:
+    """Tree paths a conflict claims (left/right ``refs``)."""
+    paths: list[str] = []
+    for side in ("left", "right"):
+        value = conflict.get(side)
+        if not isinstance(value, Mapping):
+            raise GitHistoryError(
+                "conflict "
+                f"{conflict.get('conflict_id')!r} has a non-mapping side"
+            )
+        for ref in value.get("refs") or []:
+            if isinstance(ref, str) and ref:
+                paths.append(ref)
+    return paths
+
+
+def _claimed_tree_paths(refs: list[str], tree_paths: list[str]) -> list[str]:
+    """Tree paths named by conflict refs, directly or as their content.
+
+    A ref claims the longest tree path ``P`` with ``ref == P`` or
+    ``ref.startswith(P + "/")``: a leaf-pointer ref such as
+    ``save/world-state.json/day`` names content of the tracked file
+    ``save/world-state.json``, and a source-log ref claims its JSONL file.
+    Refs naming no tree path (semantic row ids like ``roll-42``) are
+    semantic-only refs and claim nothing — they stay valid refs on the
+    conflict record while the tree is decided by the refs that do name
+    paths. Deterministic: only the actual left/right tree path set is
+    consulted, never a pattern guess.
+    """
+    claimed: list[str] = []
+    for ref in refs:
+        match: str | None = None
+        for path in tree_paths:
+            if ref == path or ref.startswith(path + "/"):
+                if match is None or len(path) > len(match):
+                    match = path
+        if match is not None:
+            claimed.append(match)
+    return claimed
+
+
+def _read_blob_text(repo: Path, worktree: Path, blob_sha: str) -> str:
+    """UTF-8 text of one blob (read-only object read)."""
+    return _run_git(
+        ["cat-file", "blob", blob_sha], repo=repo, worktree=worktree
+    ).stdout
+
+
+def _additive_union(value_a: Any, value_b: Any, path: str, pointer: str) -> Any:
+    """Deep union of two JSON values over disjoint additions only.
+
+    Shared leaves with different values are genuine uncovered conflicts and
+    fail closed (they must be dispositioned through a conflict, never merged
+    here); lists merge only when equal. Purely additive: nothing is invented
+    and nothing silently overwrites.
+    """
+    if isinstance(value_a, dict) and isinstance(value_b, dict):
+        merged: dict[str, Any] = {}
+        for key in sorted(set(value_a) | set(value_b)):
+            if key in value_a and key in value_b:
+                merged[key] = _additive_union(
+                    value_a[key], value_b[key], path, f"{pointer}/{key}"
+                )
+            else:
+                merged[key] = value_a.get(key, value_b.get(key))
+        return merged
+    if value_a == value_b:
+        return value_a
+    raise GitHistoryError(
+        f"unresolved confluence tree paths: {path}: {pointer or '/'} differs "
+        "between the parents without a conflict disposition"
+    )
+
+
+def _additive_blob(
+    repo: Path,
+    worktree: Path,
+    path: str,
+    left_blob: tuple[str, str] | None,
+    right_blob: tuple[str, str] | None,
+) -> tuple[str, str]:
+    """Additive tree resolution for a differing path no conflict claims.
+
+    One-sided growth keeps the side that has it. Growth on both sides unions
+    additively: JSONL files union by lines (append-only canonical logs),
+    JSON files union over disjoint leaves — a shared leaf with different
+    values is an uncovered conflict and fails closed with the same
+    unresolved-path error as before. Nothing is dispositioned here; the
+    enumeration already surfaced every such addition to the KP.
+    """
+    if left_blob is None:
+        assert right_blob is not None
+        return right_blob
+    if right_blob is None:
+        return left_blob
+    left_text = _read_blob_text(repo, worktree, left_blob[1])
+    right_text = _read_blob_text(repo, worktree, right_blob[1])
+    if left_text == right_text:
+        return left_blob
+    if path.endswith(".jsonl"):
+        left_lines = left_text.splitlines()
+        seen = set(left_lines)
+        merged_lines = left_lines + [
+            line for line in right_text.splitlines() if line not in seen
+        ]
+        merged_text = "".join(f"{line}\n" for line in merged_lines)
+    elif path.endswith(".json"):
+        try:
+            merged_value = _additive_union(
+                json.loads(left_text), json.loads(right_text), path, ""
+            )
+        except json.JSONDecodeError as exc:
+            raise GitHistoryError(
+                f"unresolved confluence tree paths: {path}: not valid JSON "
+                f"({exc})"
+            ) from exc
+        merged_text = json.dumps(
+            merged_value, ensure_ascii=False, sort_keys=True, indent=2
+        ) + "\n"
+    else:
+        raise GitHistoryError(
+            f"unresolved confluence tree paths: {path}: no conflict claims it "
+            "and its face is not additively mergeable"
+        )
+    return (left_blob[0], _hash_blob(repo, worktree, merged_text.encode("utf-8")))
+
+
+def _derive_confluence_resolutions(
+    left_blobs: Mapping[str, tuple[str, str]],
+    right_blobs: Mapping[str, tuple[str, str]],
+    conflicts: list[Any] | None,
+) -> dict[str, dict[str, str]]:
+    """Deterministically derive per-path tree resolutions from the
+    validated conflict manifest.
+
+    The committed tree is a pure function of the two parent trees and this
+    mapping: every tree path that differs between the parents must be
+    claimed by a conflict whose ``refs`` name that exact path, and the
+    conflict's disposition decides the outcome. ``choose_left``/
+    ``choose_right`` take that side's blob, ``sacrifice``/``defer``/
+    ``paradox`` drop the path, and the content-producing modes
+    (``transform``/``combine``/``duplicate``) require canonical resolver
+    content supplied separately. ``transform`` is a hard-mechanics merge and
+    is restricted to hard-state conflict classes with resolver evidence.
+    """
+    claims: dict[str, tuple[str, str]] = {}
+    tree_paths = sorted(set(left_blobs) | set(right_blobs))
+    for conflict in conflicts or []:
+        if not isinstance(conflict, Mapping):
+            raise GitHistoryError("conflict entry is not a mapping")
+        conflict_id = str(conflict.get("conflict_id") or "")
+        disposition = conflict.get("disposition")
+        if not isinstance(disposition, Mapping):
+            raise GitHistoryError(
+                f"conflict {conflict_id!r} has no disposition mapping"
+            )
+        mode = disposition.get("mode")
+        if mode not in tm_contract.DISPOSITION_MODES:
+            raise GitHistoryError(
+                f"disposition mode {mode!r} is not a closed disposition"
+            )
+        if mode == "transform" and (
+            conflict.get("class") not in tm_contract.HARD_STATE_CONFLICT_CLASSES
+        ):
+            raise GitHistoryError(
+                "transform dispositions require a hard-state conflict class; "
+                f"got {conflict.get('class')!r} (conflict {conflict_id!r})"
+            )
+        for path in _claimed_tree_paths(_conflict_paths(conflict), tree_paths):
+            prior = claims.get(path)
+            if prior is not None and prior[0] != mode:
+                raise GitHistoryError(
+                    f"path {path} has conflicting dispositions "
+                    f"{prior[0]!r} and {mode!r}"
+                )
+            claims[path] = (mode, conflict_id)
+    resolutions: dict[str, dict[str, str]] = {}
+    uncovered = [
+        path
+        for path in sorted(set(left_blobs) | set(right_blobs))
+        if left_blobs.get(path) != right_blobs.get(path) and path not in claims
+    ]
+    if uncovered:
+        # Differing paths no conflict claims are not silently dropped: they
+        # resolve additively (one-sided growth keeps its side; both-side
+        # growth unions), and any true uncovered conflict inside them fails
+        # closed at assembly with the unresolved-path error.
+        for path in uncovered:
+            resolutions[path] = {"source": "additive", "mode": "additive"}
+    for path, (mode, conflict_id) in sorted(claims.items()):
+        if mode == "choose_left":
+            if path not in left_blobs:
+                raise GitHistoryError(
+                    f"choose_left disposition for {path} has no left blob "
+                    f"(conflict {conflict_id!r})"
+                )
+            resolutions[path] = {"source": "left", "mode": mode}
+        elif mode == "choose_right":
+            if path not in right_blobs:
+                raise GitHistoryError(
+                    f"choose_right disposition for {path} has no right blob "
+                    f"(conflict {conflict_id!r})"
+                )
+            resolutions[path] = {"source": "right", "mode": mode}
+        elif mode in {"sacrifice", "defer", "paradox"}:
+            resolutions[path] = {"source": "none", "mode": mode}
+        else:
+            if path not in left_blobs and path not in right_blobs:
+                raise GitHistoryError(
+                    f"{mode} disposition for {path} names a path present in "
+                    f"neither parent (conflict {conflict_id!r})"
+                )
+            resolutions[path] = {"source": "content", "mode": mode}
+    return resolutions
+
+
+def _assemble_confluence_tree(
+    repo: Path,
+    worktree: Path,
+    left_sha: str,
+    right_sha: str,
+    conflicts: list[Any],
+    path_resolutions: Mapping[str, Any] | None,
+) -> str:
+    """Build the merged tree deterministically from the conflict manifest.
+
+    ``path_resolutions`` cannot decide tree content on its own. Each entry
+    must correspond to a conflict-claimed path and may only *echo* the
+    manifest disposition mode, or supply the canonical resolver content for
+    a content-producing disposition (``transform``/``combine``/
+    ``duplicate``). Any entry that contradicts, exceeds, or is absent from
+    the manifest fails closed.
+    """
+    left = _ls_tree_blobs(repo, worktree, left_sha)
+    right = _ls_tree_blobs(repo, worktree, right_sha)
+    derived = _derive_confluence_resolutions(left, right, list(conflicts or []))
+    supplied = dict(path_resolutions or {})
+    content_by_path: dict[str, str] = {}
+    for path, raw in sorted(supplied.items()):
+        resolution = derived.get(path)
+        if resolution is None:
+            raise GitHistoryError(
+                f"path resolution for {path} does not correspond to any "
+                "conflict in the manifest"
+            )
+        mode = resolution["mode"]
+        if resolution["source"] != "content":
+            if isinstance(raw, str):
+                echoed = raw
+                extra_keys: list[str] = []
+            elif isinstance(raw, Mapping):
+                echoed = str(raw.get("mode") or "")
+                extra_keys = sorted(set(raw) - {"mode"})
+            else:
+                raise GitHistoryError(
+                    f"path resolution for {path} is not a mode or mapping"
+                )
+            if echoed != mode or extra_keys:
+                raise GitHistoryError(
+                    f"path resolution for {path} contradicts the manifest "
+                    f"disposition {mode!r}"
+                )
+            continue
+        if isinstance(raw, str):
+            content_by_path[path] = raw
+            continue
+        if not isinstance(raw, Mapping) or sorted(raw) != ["content", "mode"]:
+            raise GitHistoryError(
+                f"content resolution for {path} must be canonical text or a "
+                "mapping with mode and content"
+            )
+        echoed_mode = str(raw.get("mode") or "")
+        content = raw.get("content")
+        if echoed_mode != mode or not isinstance(content, str):
+            raise GitHistoryError(
+                f"path resolution for {path} contradicts the manifest "
+                f"disposition {mode!r} or lacks canonical content"
+            )
+        content_by_path[path] = content
+    entries: list[tuple[str, tuple[str, str]]] = []
+    for path in sorted(set(left) | set(right)):
+        resolution = derived.get(path)
+        if resolution is None:
+            entries.append((path, left[path]))
+            continue
+        source = resolution["source"]
+        if source == "left":
+            entries.append((path, left[path]))
+        elif source == "right":
+            entries.append((path, right[path]))
+        elif source == "none":
+            continue
+        else:
+            content = content_by_path.get(path)
+            if content is None:
+                raise GitHistoryError(
+                    f"content resolution for {path} requires canonical "
+                    "resolver content"
+                )
+            blob = _hash_blob(repo, worktree, content.encode("utf-8"))
+            filemode = (left.get(path) or right.get(path) or ("100644", ""))[0]
+            entries.append((path, (filemode, blob)))
+    return _write_tree_from_entries(repo, worktree, entries)
+
+
+def check_confluence_tree_binding(
+    repo: Path,
+    worktree: Path,
+    *,
+    merge_sha: str,
+    left_sha: str,
+    right_sha: str,
+    conflicts: list[Any] | None,
+) -> list[str]:
+    """Read-only: verify the merge commit tree follows the conflict manifest.
+
+    Recomputes the deterministic per-path resolutions from the recorded
+    conflicts and compares them with the merge commit tree: mechanical
+    dispositions must match the chosen parent blob exactly, dropped paths
+    must be absent, content-producing dispositions must leave the path
+    present, and no path may appear from outside the manifest. Returns a
+    list of problems; an empty list means the tree is bound to the
+    manifest.
+    """
+    try:
+        left = _ls_tree_blobs(repo, worktree, left_sha)
+        right = _ls_tree_blobs(repo, worktree, right_sha)
+        merge = _ls_tree_blobs(repo, worktree, merge_sha)
+        derived = _derive_confluence_resolutions(left, right, list(conflicts or []))
+    except GitHistoryError as exc:
+        return [str(exc)]
+    problems: list[str] = []
+    for path in sorted(set(merge)):
+        if path in derived:
+            continue
+        if path in left and path in right and left[path] == right[path]:
+            continue
+        problems.append(
+            f"{path}: merge-tree path differs from both parents without a "
+            "manifest disposition"
+        )
+    for path, resolution in sorted(derived.items()):
+        mode = resolution["mode"]
+        source = resolution["source"]
+        if source == "none":
+            if path in merge:
+                problems.append(
+                    f"{path}: disposition {mode} must drop the path but the "
+                    "merge tree keeps it"
+                )
+            continue
+        merge_blob = merge.get(path)
+        if merge_blob is None:
+            problems.append(
+                f"{path}: disposition {mode} requires the path in the merge "
+                "tree but it is absent"
+            )
+            continue
+        if source == "left" and merge_blob != left.get(path):
+            problems.append(
+                f"{path}: disposition choose_left must carry the left parent "
+                "blob"
+            )
+        elif source == "right" and merge_blob != right.get(path):
+            problems.append(
+                f"{path}: disposition choose_right must carry the right "
+                "parent blob"
+            )
+    return problems
+
+
+def _normalize_selector(selector: Any) -> dict[str, Any]:
+    if isinstance(selector, str):
+        token = selector.strip()
+        if token.startswith("tl-"):
+            return {"timeline_id": _require_timeline_id(token)}
+        if tm_contract.COMMIT_SHA_RE.fullmatch(token.lower()):
+            return {"commit": token.lower()}
+        raise ValueError("selector string must be a timeline id or commit sha")
+    if not isinstance(selector, Mapping):
+        raise ValueError("selector must be a mapping or string")
+    return dict(selector)
+
+
+def resolve_history_selector(
+    root: Path | str,
+    campaign_id: str,
+    selector: Any,
+) -> dict[str, Any]:
+    """Resolve a semantic timeline/turn selector to a commit (machine sha)."""
+    campaign_id = _require_campaign_id(campaign_id)
+    repo = repo_path_for(root, campaign_id)
+    worktree = worktree_path_for(root, campaign_id)
+    if not _looks_like_git_repo(repo):
+        raise GitHistoryError("campaign git repo is missing")
+    spec = _normalize_selector(selector)
+    commit = spec.get("commit")
+    if isinstance(commit, str) and commit.strip():
+        sha = _rev_sha(repo, worktree, commit.strip().lower())
+        if sha is None:
+            raise GitHistoryError("selector commit is not in the campaign repository")
+        trailers = _trailers_for_commit(repo, worktree, sha)
+        return {
+            "commit": sha,
+            "timeline_id": trailers.get("Timeline-Id"),
+            "turn_number": trailers.get("Turn-Number"),
+            "commit_type": trailers.get("COC-Commit-Type"),
+            "trailers": trailers,
+        }
+    timeline_id = _require_timeline_id(str(spec.get("timeline_id") or DEFAULT_TIMELINE_ID))
+    ref = timeline_ref_name(timeline_id)
+    if _rev_sha(repo, worktree, ref) is None:
+        raise GitHistoryError(f"timeline ref missing: {timeline_id}")
+    turn = spec.get("turn", spec.get("turn_number"))
+    if turn is None:
+        sha = _rev_sha(repo, worktree, ref)
+        assert sha is not None
+        trailers = _trailers_for_commit(repo, worktree, sha)
+        return {
+            "commit": sha,
+            "timeline_id": timeline_id,
+            "turn_number": trailers.get("Turn-Number"),
+            "commit_type": trailers.get("COC-Commit-Type"),
+            "trailers": trailers,
+            "ref": ref,
+        }
+    if not isinstance(turn, int) or isinstance(turn, bool) or turn < 1:
+        raise ValueError("selector turn must be an int >= 1")
+    for sha, body in _commit_log_records(repo, worktree, rev=ref):
+        trailers = parse_trailers(body)
+        if (
+            trailers.get("COC-Commit-Type") == "turn"
+            and trailers.get("Turn-Number") == str(turn)
+            and trailers.get("Timeline-Id") == timeline_id
+        ):
+            return {
+                "commit": sha,
+                "timeline_id": timeline_id,
+                "turn_number": str(turn),
+                "commit_type": "turn",
+                "trailers": trailers,
+                "ref": ref,
+            }
+    raise GitHistoryError(f"no turn {turn} on timeline {timeline_id}")
+
+
+def history_query(
+    root: Path | str,
+    campaign_id: str,
+    selector: Any,
+) -> dict[str, Any]:
+    """Read-only: resolve a selector to commit metadata and tree blobs.
+
+    File bytes are fetched only via ``git show <rev>:<path>`` when ``path``
+    (or ``paths``) is present. Never mutates the worktree.
+    """
+    resolved = resolve_history_selector(root, campaign_id, selector)
+    campaign_id = _require_campaign_id(campaign_id)
+    repo = repo_path_for(root, campaign_id)
+    worktree = worktree_path_for(root, campaign_id)
+    sha = resolved["commit"]
+    blobs = _ls_tree_blobs(repo, worktree, sha)
+    tree = [
+        {"path": path, "mode": mode, "blob": blob}
+        for path, (mode, blob) in blobs.items()
+    ]
+    payload: dict[str, Any] = {
+        **resolved,
+        "tree": tree,
+    }
+    spec = _normalize_selector(selector)
+    paths: list[str] = []
+    if isinstance(spec.get("path"), str) and spec["path"]:
+        paths.append(spec["path"])
+    extra_paths = spec.get("paths")
+    if isinstance(extra_paths, (list, tuple)):
+        paths.extend(str(item) for item in extra_paths if item)
+    contents: dict[str, str] = {}
+    for relpath in paths:
+        normalized = relpath.replace("\\", "/").lstrip("./")
+        if not normalized or normalized.startswith("/") or ".." in normalized.split("/"):
+            raise ValueError(f"unsafe history path: {relpath}")
+        shown = _run_git(
+            ["show", f"{sha}:{normalized}"],
+            repo=repo,
+            worktree=worktree,
+            check=False,
+        )
+        if shown.returncode != 0:
+            raise GitHistoryError(f"path {normalized} is not in commit")
+        contents[normalized] = shown.stdout
+    if contents:
+        payload["content"] = contents
+    return payload
+
+
+def history_diff(
+    root: Path | str,
+    campaign_id: str,
+    from_selector: Any,
+    to_selector: Any,
+) -> dict[str, Any]:
+    """Read-only structured diff between two selectors. No worktree mutation."""
+    campaign_id = _require_campaign_id(campaign_id)
+    repo = repo_path_for(root, campaign_id)
+    worktree = worktree_path_for(root, campaign_id)
+    left = resolve_history_selector(root, campaign_id, from_selector)
+    right = resolve_history_selector(root, campaign_id, to_selector)
+    completed = _run_git(
+        [
+            "diff-tree",
+            "-r",
+            "--raw",
+            "--no-commit-id",
+            left["commit"],
+            right["commit"],
+        ],
+        repo=repo,
+        worktree=worktree,
+    )
+    changes: list[dict[str, Any]] = []
+    for line in completed.stdout.splitlines():
+        if not line.startswith(":") or "\t" not in line:
+            continue
+        meta, path = line[1:].split("\t", 1)
+        parts = meta.split()
+        if len(parts) < 5:
+            continue
+        changes.append(
+            {
+                "path": path,
+                "from_mode": parts[0],
+                "to_mode": parts[1],
+                "from_blob": parts[2],
+                "to_blob": parts[3],
+                "status": parts[4],
+            }
+        )
+    return {
+        "from": left,
+        "to": right,
+        "changes": changes,
+    }
+
+
+def set_active_timeline(
+    root: Path | str,
+    campaign_id: str,
+    timeline_id: str,
+) -> str:
+    """Persist the active timeline pointer. Never ``git reset`` or force-push."""
+    campaign_id = _require_campaign_id(campaign_id)
+    timeline_id = _require_timeline_id(timeline_id)
+    repo = ensure_repo(root, campaign_id)
+    worktree = worktree_path_for(root, campaign_id)
+    try:
+        with _campaign_lock(worktree):
+            state = _read_timeline_state_file(worktree, campaign_id)
+            ids = {item.get("timeline_id") for item in state.get("timelines") or []}
+            if timeline_id not in ids:
+                raise GitHistoryError(
+                    f"active timeline {timeline_id!r} is not in the timeline set"
+                )
+            if _rev_sha(repo, worktree, timeline_ref_name(timeline_id)) is None:
+                raise GitHistoryError(f"timeline ref missing: {timeline_id}")
+            state["active_timeline_id"] = timeline_id
+            _validate_state_timelines(state)
+            _write_timeline_state(worktree, state)
+            return timeline_id
+    except coc_fileio.CampaignLockError as exc:
+        raise GitHistoryError(f"campaign lock failed: {exc}") from exc
+
+
+def fork_timeline(
+    root: Path | str,
+    campaign_id: str,
+    *,
+    timeline_id: str,
+    game_reason: str,
+    source_timeline_id: str = DEFAULT_TIMELINE_ID,
+    source_turn: int | None = None,
+    source_commit: str | None = None,
+    created_by: str = "kp_decision",
+    activate: bool = False,
+) -> dict[str, Any]:
+    """Point a new timeline ref at an existing commit. No rewrite, no reset.
+
+    Transactional like confluence: the record is validated before
+    ``update-ref``; a timeline-state persistence failure afterwards rolls
+    the just-created ref back (the fork commit is an existing parent —
+    nothing is rewritten or deleted), and a ref left by a hard crash in
+    that window is registered only when it still points at this fork
+    point; anything else fails closed.
+    """
+    campaign_id = _require_campaign_id(campaign_id)
+    timeline_id = _require_timeline_id(timeline_id)
+    source_timeline_id = _require_timeline_id(source_timeline_id)
+    game_reason = _sanitize_single_line(_require_token(game_reason, "game_reason"))
+    if timeline_id == DEFAULT_TIMELINE_ID:
+        raise GitHistoryError("cannot fork onto the root timeline id")
+    if created_by not in tm_contract.TIMELINE_CREATED_BY:
+        raise ValueError("created_by is not a closed TIMELINE_CREATED_BY value")
+    repo = ensure_repo(root, campaign_id)
+    worktree = worktree_path_for(root, campaign_id)
+    try:
+        with _campaign_lock(worktree):
+            state = _read_timeline_state_file(worktree, campaign_id)
+            existing = next(
+                (
+                    item
+                    for item in state.get("timelines") or []
+                    if item.get("timeline_id") == timeline_id
+                ),
+                None,
+            )
+            source_sha = _resolve_source_commit(
+                repo,
+                worktree,
+                source_timeline_id=source_timeline_id,
+                source_turn=source_turn,
+                source_commit=source_commit,
+            )
+            turn = _turn_from_commit(repo, worktree, source_sha)
+            episode_id = tm_contract.episode_id_for(
+                campaign_id, source_timeline_id, turn
+            )
+            record = {
+                "timeline_id": timeline_id,
+                "campaign_id": campaign_id,
+                "kind": "fork",
+                "parents": [source_timeline_id],
+                "fork_point": {
+                    "commit": source_sha,
+                    "turn": turn,
+                    "episode_id": episode_id,
+                },
+                "created_by": created_by,
+            }
+            ref = timeline_ref_name(timeline_id)
+            current = _rev_sha(repo, worktree, ref)
+            if existing is not None:
+                if existing.get("fork_point", {}).get("commit") != source_sha:
+                    raise GitHistoryError(
+                        f"timeline {timeline_id} already exists at a different fork point"
+                    )
+                if current is not None and current != source_sha and not _is_descendant(
+                    repo, worktree, ancestor=source_sha, descendant=current
+                ):
+                    raise GitHistoryError(
+                        f"timeline {timeline_id} ref moved off its fork point"
+                    )
+                if current is None:
+                    _run_git(
+                        ["update-ref", ref, source_sha, "0" * 40],
+                        repo=repo,
+                        worktree=worktree,
+                    )
+                if activate:
+                    state["active_timeline_id"] = timeline_id
+                    _validate_state_timelines(state)
+                    _write_timeline_state(worktree, state)
+                return {
+                    "timeline_id": timeline_id,
+                    "ref": ref,
+                    "source_commit": source_sha,
+                    "idempotent": True,
+                }
+            if current is not None:
+                if current != source_sha:
+                    raise GitHistoryError(
+                        f"timeline ref {ref} already exists without "
+                        "timeline-state and does not point at this fork point"
+                    )
+                # Crash-window residue: the ref was created between
+                # ``update-ref`` and the timeline-state write. Registering
+                # the fork completes the interrupted transaction; the ref
+                # never silently stays unregistered.
+                state.setdefault("timelines", []).append(record)
+                state.setdefault("game_reasons", {})[timeline_id] = game_reason
+                if activate:
+                    state["active_timeline_id"] = timeline_id
+                _validate_state_timelines(state)
+                _write_timeline_state(worktree, state)
+                return {
+                    "timeline_id": timeline_id,
+                    "ref": ref,
+                    "source_commit": source_sha,
+                    "turn": turn,
+                    "episode_id": episode_id,
+                    "game_reason": game_reason,
+                    "idempotent": False,
+                    "recovered": True,
+                }
+            try:
+                tm_contract.validate_timeline(record)
+            except tm_contract.TemporalMemoryContractError as exc:
+                raise GitHistoryError(str(exc)) from exc
+            _run_git(
+                ["update-ref", ref, source_sha, "0" * 40],
+                repo=repo,
+                worktree=worktree,
+            )
+            try:
+                # Confirm parent ref unchanged (no rewrite).
+                parent_ref = timeline_ref_name(source_timeline_id)
+                parent_after = _rev_sha(repo, worktree, parent_ref)
+                if parent_after is None:
+                    raise GitHistoryError(
+                        "source timeline ref disappeared during fork"
+                    )
+                state.setdefault("timelines", []).append(record)
+                state.setdefault("game_reasons", {})[timeline_id] = game_reason
+                if activate:
+                    state["active_timeline_id"] = timeline_id
+                _validate_state_timelines(state)
+                _write_timeline_state(worktree, state)
+            except Exception as exc:
+                rollback_error = _rollback_created_ref(repo, worktree, ref)
+                if rollback_error is not None:
+                    raise GitHistoryError(
+                        f"fork failed ({exc}) and ref rollback also failed: "
+                        f"{rollback_error}"
+                    ) from exc
+                raise
+            return {
+                "timeline_id": timeline_id,
+                "ref": ref,
+                "source_commit": source_sha,
+                "turn": turn,
+                "episode_id": episode_id,
+                "game_reason": game_reason,
+                "idempotent": False,
+            }
+    except coc_fileio.CampaignLockError as exc:
+        raise GitHistoryError(f"campaign lock failed: {exc}") from exc
+
+
+def _is_descendant(
+    repo: Path, worktree: Path, *, ancestor: str, descendant: str
+) -> bool:
+    completed = _run_git(
+        ["merge-base", "--is-ancestor", ancestor, descendant],
+        repo=repo,
+        worktree=worktree,
+        check=False,
+    )
+    return completed.returncode == 0
+
+
+def _rollback_created_ref(repo: Path, worktree: Path, ref: str) -> str | None:
+    """Remove a ref created moments ago by this same transaction.
+
+    The timeline-state registration failed, so the ref never became
+    registered history; deleting the pointer returns the repository to the
+    pre-call state (no reset, no force push, no parent mutation). Commit,
+    tree, and blob objects stay in the object database — history is
+    append-only evidence and nothing is ever purged. Returns an error string
+    when even this rollback fails; the residue is then an orphan ref the
+    verifier reports and a later call with the same arguments can recover.
+    """
+    try:
+        _run_git(["update-ref", "-d", ref], repo=repo, worktree=worktree)
+    except GitHistoryError as exc:
+        return str(exc)
+    return None
+
+
+def _confluence_recovery_problems(
+    repo: Path,
+    worktree: Path,
+    *,
+    ref_sha: str,
+    campaign_id: str,
+    timeline_id: str,
+    confluence_id: str,
+    left_timeline_id: str,
+    right_timeline_id: str,
+    left_sha: str,
+    right_sha: str,
+    conflict_digest: str,
+    disposition_digest: str,
+    schema_generation: str,
+    game_reason: str,
+    conflicts: list[Any],
+) -> list[str]:
+    """Why an existing ref cannot be registered as this confluence.
+
+    A ref that exists without a timeline-state record is a crash-window
+    residue: created between ``update-ref`` and the timeline-state write. It
+    may be registered only when it is exactly the commit this call would
+    create — trailers, digests, parents — and its tree still binds to the
+    manifest. Anything else fails closed.
+    """
+    trailers = _trailers_for_commit(repo, worktree, ref_sha)
+    expected = {
+        "COC-Commit-Type": "confluence",
+        "Campaign-Id": campaign_id,
+        "Timeline-Id": timeline_id,
+        "Confluence-Id": confluence_id,
+        "Parent-Timeline-Left": left_timeline_id,
+        "Parent-Timeline-Right": right_timeline_id,
+        "Conflict-Manifest-SHA256": conflict_digest,
+        "Disposition-Manifest-SHA256": disposition_digest,
+        "Schema-Generation": schema_generation,
+        "Game-Reason": game_reason,
+    }
+    problems = [
+        f"{key}={trailers.get(key)!r}"
+        for key, value in expected.items()
+        if trailers.get(key) != value
+    ]
+    parents_line = _run_git(
+        ["rev-list", "--no-walk", "--parents", ref_sha],
+        repo=repo,
+        worktree=worktree,
+    ).stdout.strip().split()
+    if parents_line[1:] != [left_sha, right_sha]:
+        problems.append(f"parents={parents_line[1:]}")
+    problems.extend(
+        check_confluence_tree_binding(
+            repo,
+            worktree,
+            merge_sha=ref_sha,
+            left_sha=left_sha,
+            right_sha=right_sha,
+            conflicts=conflicts,
+        )
+    )
+    return problems
+
+
+def confluence_timelines(
+    root: Path | str,
+    campaign_id: str,
+    *,
+    timeline_id: str,
+    left_timeline_id: str,
+    right_timeline_id: str,
+    receipt: str,
+    schema_generation: str,
+    conflicts: list[Any] | None = None,
+    path_resolutions: Mapping[str, Any] | None = None,
+    confluence_id: str | None = None,
+    created_by: str = "confluence",
+    game_reason: str = "timeline confluence",
+    activate: bool = False,
+) -> dict[str, Any]:
+    """Create a two-parent merge commit on a new timeline. No worktree merge.
+
+    The committed tree is deterministically derived from the validated
+    conflict manifest: every tree path differing between the parent tips
+    must be claimed by a conflict whose ``refs`` name that path, and the
+    conflict disposition decides the outcome. ``path_resolutions`` cannot
+    contradict the manifest — it may only echo a mechanical disposition
+    mode or carry the canonical resolver content for a content-producing
+    disposition (``transform``/``combine``/``duplicate``; ``transform`` is
+    hard-state only and needs ``resolver_receipt`` evidence). Mismatched
+    or unmanifested entries fail closed before anything is registered.
+
+    Registration is transactional: every validation (including tree
+    assembly) happens before ``update-ref``; if the timeline-state
+    persistence then fails, the just-created ref is rolled back so no
+    unregistered confluence commit is silently registered. A ref left by a
+    hard crash in that window is recovered (registered) only when it is
+    exactly the commit this call would create and its tree still binds to
+    the manifest; otherwise the call fails closed.
+    """
+    campaign_id = _require_campaign_id(campaign_id)
+    timeline_id = _require_timeline_id(timeline_id)
+    left_timeline_id = _require_timeline_id(left_timeline_id)
+    right_timeline_id = _require_timeline_id(right_timeline_id)
+    if left_timeline_id == right_timeline_id:
+        raise GitHistoryError("confluence requires two distinct parent timelines")
+    if timeline_id in {left_timeline_id, right_timeline_id, DEFAULT_TIMELINE_ID}:
+        raise GitHistoryError("merged timeline must be a third timeline")
+    receipt = _require_token(receipt, "receipt")
+    schema_generation = _require_token(schema_generation, "schema_generation")
+    game_reason = _sanitize_single_line(_require_token(game_reason, "game_reason"))
+    if created_by not in tm_contract.TIMELINE_CREATED_BY:
+        raise ValueError("created_by is not a closed TIMELINE_CREATED_BY value")
+    if confluence_id is None:
+        confluence_id = f"confluence-{campaign_id}-{timeline_id}"
+    try:
+        tm_contract._check_semantic_id(
+            confluence_id,
+            kind="confluence",
+            field="confluence_id",
+            prefix=tm_contract.ID_PREFIX["confluence"],
+        )
+    except tm_contract.TemporalMemoryContractError as exc:
+        raise ValueError(str(exc)) from exc
+    conflict_list = list(conflicts or [])
+    repo = ensure_repo(root, campaign_id)
+    worktree = worktree_path_for(root, campaign_id)
+    try:
+        with _campaign_lock(worktree):
+            state = _read_timeline_state_file(worktree, campaign_id)
+            existing = next(
+                (
+                    item
+                    for item in state.get("confluences") or []
+                    if item.get("confluence_id") == confluence_id
+                ),
+                None,
+            )
+            if existing is not None:
+                return {
+                    "timeline_id": existing["timeline_id"],
+                    "confluence_id": confluence_id,
+                    "merge_commit": existing["merge_commit"],
+                    "ref": timeline_ref_name(existing["timeline_id"]),
+                    "idempotent": True,
+                }
+            left_sha = _rev_sha(repo, worktree, timeline_ref_name(left_timeline_id))
+            right_sha = _rev_sha(repo, worktree, timeline_ref_name(right_timeline_id))
+            if left_sha is None or right_sha is None:
+                raise GitHistoryError("confluence parent timeline ref is missing")
+            left_turn = _turn_from_commit(repo, worktree, left_sha)
+            conflict_digest = tm_contract.record_digest({"conflicts": conflict_list})
+            dispositions = [
+                {
+                    "conflict_id": item.get("conflict_id"),
+                    "disposition": item.get("disposition"),
+                }
+                for item in conflict_list
+                if isinstance(item, Mapping)
+            ]
+            disposition_digest = tm_contract.record_digest(
+                {"dispositions": dispositions}
+            )
+            placeholder = "0" * 40
+            confluence_record = {
+                "confluence_id": confluence_id,
+                "campaign_id": campaign_id,
+                "timeline_id": timeline_id,
+                "parents": [left_timeline_id, right_timeline_id],
+                "merge_commit": placeholder,
+                "receipt": receipt,
+                "conflicts": conflict_list,
+            }
+            try:
+                tm_contract.validate_confluence(confluence_record)
+            except tm_contract.TemporalMemoryContractError as exc:
+                raise GitHistoryError(str(exc)) from exc
+            # Validate before any ref mutation: the tree is derived from (and
+            # bound to) the validated conflict manifest above, so a manifest
+            # that cannot produce a tree fails before anything is registered.
+            tree = _assemble_confluence_tree(
+                repo, worktree, left_sha, right_sha, conflict_list, path_resolutions
+            )
+            trailers = [
+                ("COC-Commit-Type", "confluence"),
+                ("Campaign-Id", campaign_id),
+                ("Timeline-Id", timeline_id),
+                ("Confluence-Id", confluence_id),
+                ("Parent-Timeline-Left", left_timeline_id),
+                ("Parent-Timeline-Right", right_timeline_id),
+                ("Conflict-Manifest-SHA256", conflict_digest),
+                ("Disposition-Manifest-SHA256", disposition_digest),
+                ("Schema-Generation", schema_generation),
+                ("Game-Reason", game_reason),
+            ]
+            message = _format_commit_message(
+                f"coc confluence: {confluence_id}", trailers
+            )
+            merge_sha = _run_git(
+                [
+                    "commit-tree",
+                    tree,
+                    "-p",
+                    left_sha,
+                    "-p",
+                    right_sha,
+                    "-m",
+                    message,
+                ],
+                repo=repo,
+                worktree=worktree,
+            ).stdout.strip()
+            if not merge_sha:
+                raise GitHistoryError("confluence commit-tree produced no sha")
+            parents_line = _run_git(
+                ["rev-list", "--no-walk", "--parents", merge_sha],
+                repo=repo,
+                worktree=worktree,
+            ).stdout.strip().split()
+            if parents_line != [merge_sha, left_sha, right_sha]:
+                raise GitHistoryError(
+                    "confluence commit must have exactly the two parent "
+                    f"tips in order, got {parents_line[1:]}"
+                )
+            confluence_record["merge_commit"] = merge_sha
+            try:
+                tm_contract.validate_confluence(confluence_record)
+            except tm_contract.TemporalMemoryContractError as exc:
+                raise GitHistoryError(str(exc)) from exc
+            timeline_record = {
+                "timeline_id": timeline_id,
+                "campaign_id": campaign_id,
+                "kind": "confluence",
+                "parents": [left_timeline_id, right_timeline_id],
+                "fork_point": {
+                    "commit": merge_sha,
+                    "turn": left_turn,
+                    "episode_id": tm_contract.episode_id_for(
+                        campaign_id, timeline_id, left_turn
+                    ),
+                },
+                "created_by": created_by,
+            }
+            try:
+                tm_contract.validate_timeline(timeline_record)
+            except tm_contract.TemporalMemoryContractError as exc:
+                raise GitHistoryError(str(exc)) from exc
+            ref = timeline_ref_name(timeline_id)
+            ref_sha = _rev_sha(repo, worktree, ref)
+            if ref_sha is not None:
+                # Crash-window residue (or foreign ref): register only the
+                # exact commit this call would have created.
+                problems = _confluence_recovery_problems(
+                    repo,
+                    worktree,
+                    ref_sha=ref_sha,
+                    campaign_id=campaign_id,
+                    timeline_id=timeline_id,
+                    confluence_id=confluence_id,
+                    left_timeline_id=left_timeline_id,
+                    right_timeline_id=right_timeline_id,
+                    left_sha=left_sha,
+                    right_sha=right_sha,
+                    conflict_digest=conflict_digest,
+                    disposition_digest=disposition_digest,
+                    schema_generation=schema_generation,
+                    game_reason=game_reason,
+                    conflicts=conflict_list,
+                )
+                if problems:
+                    raise GitHistoryError(
+                        "timeline ref exists without timeline-state "
+                        "registration and does not match this confluence: "
+                        + "; ".join(problems)
+                    )
+                # Register the orphan commit itself: the freshly created
+                # commit-tree may differ (timestamp) and is unreachable —
+                # the ref already carries the authoritative merge.
+                confluence_record["merge_commit"] = ref_sha
+                timeline_record["fork_point"]["commit"] = ref_sha
+                try:
+                    tm_contract.validate_confluence(confluence_record)
+                    tm_contract.validate_timeline(timeline_record)
+                except tm_contract.TemporalMemoryContractError as exc:
+                    raise GitHistoryError(str(exc)) from exc
+                state.setdefault("timelines", []).append(timeline_record)
+                state.setdefault("confluences", []).append(confluence_record)
+                state.setdefault("game_reasons", {})[timeline_id] = game_reason
+                if activate:
+                    state["active_timeline_id"] = timeline_id
+                _validate_state_timelines(state)
+                _write_timeline_state(worktree, state)
+                return {
+                    "timeline_id": timeline_id,
+                    "confluence_id": confluence_id,
+                    "merge_commit": ref_sha,
+                    "ref": ref,
+                    "parents": [left_timeline_id, right_timeline_id],
+                    "conflict_manifest_sha256": conflict_digest,
+                    "disposition_manifest_sha256": disposition_digest,
+                    "idempotent": False,
+                    "recovered": True,
+                }
+            _run_git(
+                ["update-ref", ref, merge_sha, "0" * 40],
+                repo=repo,
+                worktree=worktree,
+            )
+            try:
+                left_after = _rev_sha(
+                    repo, worktree, timeline_ref_name(left_timeline_id)
+                )
+                right_after = _rev_sha(
+                    repo, worktree, timeline_ref_name(right_timeline_id)
+                )
+                if left_after != left_sha or right_after != right_sha:
+                    raise GitHistoryError("confluence mutated a parent timeline ref")
+                state.setdefault("timelines", []).append(timeline_record)
+                state.setdefault("confluences", []).append(confluence_record)
+                state.setdefault("game_reasons", {})[timeline_id] = game_reason
+                if activate:
+                    state["active_timeline_id"] = timeline_id
+                _validate_state_timelines(state)
+                _write_timeline_state(worktree, state)
+            except Exception as exc:
+                rollback_error = _rollback_created_ref(repo, worktree, ref)
+                if rollback_error is not None:
+                    raise GitHistoryError(
+                        f"confluence failed ({exc}) and ref rollback also "
+                        f"failed: {rollback_error}"
+                    ) from exc
+                raise
+            return {
+                "timeline_id": timeline_id,
+                "confluence_id": confluence_id,
+                "merge_commit": merge_sha,
+                "ref": ref,
+                "parents": [left_timeline_id, right_timeline_id],
+                "conflict_manifest_sha256": conflict_digest,
+                "disposition_manifest_sha256": disposition_digest,
+                "idempotent": False,
+            }
+    except coc_fileio.CampaignLockError as exc:
+        raise GitHistoryError(f"campaign lock failed: {exc}") from exc

@@ -39,6 +39,20 @@ TURN_TRAILER_KEYS: tuple[str, ...] = (
     "Schema-Generation",
 )
 
+CONFLUENCE_TRAILER_KEYS: tuple[str, ...] = (
+    "COC-Commit-Type",
+    "Campaign-Id",
+    "Timeline-Id",
+    "Confluence-Id",
+    "Parent-Timeline-Left",
+    "Parent-Timeline-Right",
+    "Conflict-Manifest-SHA256",
+    "Disposition-Manifest-SHA256",
+    "Schema-Generation",
+)
+
+_ALLOWED_COMMIT_TYPES = frozenset({"", "baseline", "turn", "confluence"})
+
 _TURN_NUMBER_RE = re.compile(r"^(0|[1-9][0-9]*)$")
 
 STATUS_PASS = "PASS"
@@ -61,6 +75,13 @@ CODE_MISSING_CANONICAL_PATH = "missing_canonical_path"
 CODE_COMMITTED_PENDING_TURN = "committed_pending_turn"
 CODE_HISTORY_RESET = "history_reset"
 CODE_LATER_NON_TURN = "later_non_turn"
+CODE_TIMELINE_REF_MISSING = "timeline_ref_missing"
+CODE_FORK_TOPOLOGY = "fork_topology"
+CODE_CONFLUENCE_PARENTS = "confluence_parents"
+CODE_CONFLUENCE_TRAILER = "confluence_trailer"
+CODE_CONFLUENCE_MANIFEST = "confluence_manifest_mismatch"
+CODE_CONFLUENCE_TREE = "confluence_tree_unbound"
+CODE_ORPHAN_TIMELINE_REF = "orphan_timeline_ref"
 
 _NOT_PROVEN_CODES = frozenset(
     {
@@ -356,20 +377,26 @@ def _run_git_readonly(
         ) from exc
 
 
-def _head_exists(repo: Path, worktree: Path) -> bool:
+def _rev_exists(repo: Path, worktree: Path, rev: str) -> bool:
     completed = _run_git_readonly(
-        ["rev-parse", "--verify", "-q", "HEAD"],
+        ["rev-parse", "--verify", "-q", rev],
         repo=repo,
         worktree=worktree,
     )
     return completed.returncode == 0 and bool(completed.stdout.strip())
 
 
-def _commit_log_records(repo: Path, worktree: Path) -> list[tuple[str, str]]:
-    if not _head_exists(repo, worktree):
+def _head_exists(repo: Path, worktree: Path) -> bool:
+    return _rev_exists(repo, worktree, "HEAD")
+
+
+def _commit_log_records(
+    repo: Path, worktree: Path, *, rev: str = "HEAD"
+) -> list[tuple[str, str]]:
+    if not _rev_exists(repo, worktree, rev):
         return []
     completed = _run_git_readonly(
-        ["log", "--format=%H%x1e%B%x1d"],
+        ["log", "--format=%H%x1e%B%x1d", rev],
         repo=repo,
         worktree=worktree,
     )
@@ -614,9 +641,9 @@ def _empty_tree() -> TreeProof:
     )
 
 
-def _read_head_sha(repo: Path, worktree: Path) -> str | None:
+def _read_rev_sha(repo: Path, worktree: Path, rev: str) -> str | None:
     completed = _run_git_readonly(
-        ["rev-parse", "--verify", "-q", "HEAD"],
+        ["rev-parse", "--verify", "-q", rev],
         repo=repo,
         worktree=worktree,
     )
@@ -626,11 +653,17 @@ def _read_head_sha(repo: Path, worktree: Path) -> str | None:
     return sha or None
 
 
-def _head_trailers(repo: Path, worktree: Path) -> tuple[dict[str, str] | None, Finding | None]:
-    if _read_head_sha(repo, worktree) is None:
+def _read_head_sha(repo: Path, worktree: Path) -> str | None:
+    return _read_rev_sha(repo, worktree, "HEAD")
+
+
+def _head_trailers(
+    repo: Path, worktree: Path, *, rev: str = "HEAD"
+) -> tuple[dict[str, str] | None, Finding | None]:
+    if _read_rev_sha(repo, worktree, rev) is None:
         return None, None
     completed = _run_git_readonly(
-        ["log", "-1", "--format=%B"],
+        ["log", "-1", "--format=%B", rev],
         repo=repo,
         worktree=worktree,
     )
@@ -657,9 +690,11 @@ def _is_ancestor(repo: Path, worktree: Path, ancestor: str, descendant: str) -> 
     return completed.returncode == 0
 
 
-def _head_tree_blobs(repo: Path, worktree: Path) -> dict[str, str]:
+def _head_tree_blobs(
+    repo: Path, worktree: Path, *, rev: str = "HEAD"
+) -> dict[str, str]:
     completed = _run_git_readonly(
-        ["ls-tree", "-r", "--full-tree", "HEAD"],
+        ["ls-tree", "-r", "--full-tree", rev],
         repo=repo,
         worktree=worktree,
     )
@@ -719,9 +754,10 @@ def _inspect_tree(
     worktree: Path,
     *,
     require_receipts_log: bool,
+    rev: str = "HEAD",
 ) -> tuple[TreeProof, list[Finding]]:
     findings: list[Finding] = []
-    blobs = _head_tree_blobs(repo, worktree)
+    blobs = _head_tree_blobs(repo, worktree, rev=rev)
     missing: list[str] = []
     drifted: list[str] = []
     dirty: list[str] = []
@@ -730,7 +766,7 @@ def _inspect_tree(
         findings.append(
             Finding(
                 kind=CODE_COMMITTED_PENDING_TURN,
-                detail="HEAD contains a pending turn; a finalized turn commit must not",
+                detail="commit contains a pending turn; a finalized turn commit must not",
                 path=hist.PENDING_TURN_RELPATH,
             )
         )
@@ -768,27 +804,30 @@ def _inspect_tree(
                     path=relpath,
                 )
             )
-    status = _run_git_readonly(
-        ["status", "--porcelain", "-uall"],
-        repo=repo,
-        worktree=worktree,
-    )
-    if status.returncode == 0:
-        seen_dirty = set(dirty)
-        for _flag, relpath in _porcelain_paths(status.stdout):
-            if not hist.is_authoritative_state_path(relpath):
-                continue
-            if relpath in drifted_set or relpath in seen_dirty:
-                continue
-            dirty.append(relpath)
-            seen_dirty.add(relpath)
-            findings.append(
-                Finding(
-                    kind=CODE_DIRTY_AUTHORITATIVE_STATE,
-                    detail="authoritative path differs from HEAD",
-                    path=relpath,
+    proven_sha = _read_rev_sha(repo, worktree, rev)
+    head_sha = _read_head_sha(repo, worktree)
+    if proven_sha is not None and proven_sha == head_sha:
+        status = _run_git_readonly(
+            ["status", "--porcelain", "-uall"],
+            repo=repo,
+            worktree=worktree,
+        )
+        if status.returncode == 0:
+            seen_dirty = set(dirty)
+            for _flag, relpath in _porcelain_paths(status.stdout):
+                if not hist.is_authoritative_state_path(relpath):
+                    continue
+                if relpath in drifted_set or relpath in seen_dirty:
+                    continue
+                dirty.append(relpath)
+                seen_dirty.add(relpath)
+                findings.append(
+                    Finding(
+                        kind=CODE_DIRTY_AUTHORITATIVE_STATE,
+                        detail="authoritative path differs from HEAD",
+                        path=relpath,
+                    )
                 )
-            )
     return (
         TreeProof(
             clean=not dirty and not drifted,
@@ -889,18 +928,387 @@ def _build_proof(
     )
 
 
+def _validate_confluence_trailers(
+    sha: str,
+    trailers: dict[str, str],
+    *,
+    campaign_id: str,
+) -> list[Finding]:
+    findings: list[Finding] = []
+    missing = [
+        key
+        for key in CONFLUENCE_TRAILER_KEYS
+        if not (trailers.get(key) or "").strip()
+    ]
+    if missing:
+        findings.append(
+            Finding(
+                kind=CODE_CONFLUENCE_TRAILER,
+                detail=f"missing={','.join(missing)}",
+                sha=sha,
+            )
+        )
+    commit_type = trailers.get("COC-Commit-Type", "")
+    if commit_type and commit_type != "confluence":
+        findings.append(
+            Finding(
+                kind=CODE_CONFLUENCE_TRAILER,
+                detail=f"COC-Commit-Type={commit_type}",
+                sha=sha,
+            )
+        )
+    recorded_campaign = trailers.get("Campaign-Id")
+    if recorded_campaign and recorded_campaign != campaign_id:
+        findings.append(
+            Finding(
+                kind=CODE_CONFLUENCE_TRAILER,
+                detail=f"Campaign-Id={recorded_campaign}",
+                sha=sha,
+            )
+        )
+    for digest_key in ("Conflict-Manifest-SHA256", "Disposition-Manifest-SHA256"):
+        value = (trailers.get(digest_key) or "").strip()
+        if value and len(value) != 64:
+            findings.append(
+                Finding(
+                    kind=CODE_CONFLUENCE_TRAILER,
+                    detail=f"{digest_key} is not a sha256 digest",
+                    sha=sha,
+                )
+            )
+    return findings
+
+
+def _commit_parent_count(repo: Path, worktree: Path, sha: str) -> int:
+    completed = _run_git_readonly(
+        ["rev-list", "--no-walk", "--parents", sha],
+        repo=repo,
+        worktree=worktree,
+    )
+    if completed.returncode != 0:
+        return -1
+    parts = completed.stdout.strip().split()
+    return max(0, len(parts) - 1)
+
+
+def _confluence_parent_shas(
+    repo: Path, worktree: Path, merge: str
+) -> tuple[str, str] | None:
+    completed = _run_git_readonly(
+        ["rev-list", "--no-walk", "--parents", merge],
+        repo=repo,
+        worktree=worktree,
+    )
+    if completed.returncode != 0:
+        return None
+    parts = completed.stdout.strip().split()
+    if len(parts) != 3:
+        return None
+    return parts[1], parts[2]
+
+
+def _check_confluence_manifest_binding(
+    repo: Path,
+    worktree: Path,
+    *,
+    record: dict[str, Any],
+    trailers: dict[str, str],
+    merge: str,
+) -> list[Finding]:
+    """Recompute the manifest/tree binding of one confluence commit.
+
+    The committed conflict and disposition manifest digests must match the
+    recorded timeline-state conflicts, the semantic parent trailers must
+    match the recorded parents, and the merge tree must follow the
+    deterministic per-path resolutions derived from those conflicts
+    (mechanical dispositions carry the chosen parent blob exactly; dropped
+    paths stay absent; content-producing dispositions keep the path).
+    Any drift between the recorded manifest and the committed evidence
+    fails closed.
+    """
+    findings: list[Finding] = []
+    parents = record.get("parents") or []
+    recorded_left = (trailers.get("Parent-Timeline-Left") or "").strip()
+    recorded_right = (trailers.get("Parent-Timeline-Right") or "").strip()
+    if (
+        len(parents) == 2
+        and [recorded_left, recorded_right] != [parents[0], parents[1]]
+    ):
+        findings.append(
+            Finding(
+                kind=CODE_CONFLUENCE_MANIFEST,
+                detail=(
+                    f"parent_trailers={recorded_left},{recorded_right} "
+                    f"record_parents={','.join(str(item) for item in parents)}"
+                ),
+                sha=merge,
+            )
+        )
+    conflicts = [
+        item for item in (record.get("conflicts") or []) if isinstance(item, dict)
+    ]
+    conflict_digest = hist.tm_contract.record_digest({"conflicts": conflicts})
+    if (trailers.get("Conflict-Manifest-SHA256") or "") != conflict_digest:
+        findings.append(
+            Finding(
+                kind=CODE_CONFLUENCE_MANIFEST,
+                detail="conflict manifest digest does not match the recorded conflicts",
+                sha=merge,
+            )
+        )
+    dispositions = [
+        {
+            "conflict_id": item.get("conflict_id"),
+            "disposition": item.get("disposition"),
+        }
+        for item in conflicts
+    ]
+    disposition_digest = hist.tm_contract.record_digest(
+        {"dispositions": dispositions}
+    )
+    if (trailers.get("Disposition-Manifest-SHA256") or "") != disposition_digest:
+        findings.append(
+            Finding(
+                kind=CODE_CONFLUENCE_MANIFEST,
+                detail=(
+                    "disposition manifest digest does not match the recorded "
+                    "dispositions"
+                ),
+                sha=merge,
+            )
+        )
+    parent_shas = _confluence_parent_shas(repo, worktree, merge)
+    if parent_shas is None:
+        return findings
+    left_sha, right_sha = parent_shas
+    for problem in hist.check_confluence_tree_binding(
+        repo,
+        worktree,
+        merge_sha=merge,
+        left_sha=left_sha,
+        right_sha=right_sha,
+        conflicts=conflicts,
+    ):
+        findings.append(
+            Finding(kind=CODE_CONFLUENCE_TREE, detail=problem, sha=merge)
+        )
+    return findings
+
+
+def _resolve_proof_rev(
+    repo: Path, worktree: Path, timeline_ref: str | None
+) -> tuple[str, list[Finding]]:
+    if not timeline_ref:
+        return "HEAD", []
+    token = timeline_ref.strip()
+    if token in {"HEAD", hist.DEFAULT_BRANCH, f"refs/heads/{hist.DEFAULT_BRANCH}"}:
+        return "HEAD", []
+    if token.startswith("refs/"):
+        if not _rev_exists(repo, worktree, token):
+            return token, [
+                Finding(
+                    kind=CODE_TIMELINE_REF_MISSING,
+                    detail=f"timeline ref not found: {token}",
+                )
+            ]
+        return token, []
+    try:
+        ref = hist.timeline_ref_name(token)
+    except (ValueError, hist.GitHistoryError) as exc:
+        return token, [
+            Finding(kind=CODE_TIMELINE_REF_MISSING, detail=str(exc))
+        ]
+    if not _rev_exists(repo, worktree, ref):
+        return ref, [
+            Finding(
+                kind=CODE_TIMELINE_REF_MISSING,
+                detail=f"timeline ref not found: {token}",
+            )
+        ]
+    return ref, []
+
+
+def _foreign_finalization_ids(
+    repo: Path, worktree: Path, proven_rev: str
+) -> set[str]:
+    proven: set[str] = set()
+    for _sha, body in _commit_log_records(repo, worktree, rev=proven_rev):
+        try:
+            trailers = hist.parse_trailers(body)
+        except hist.GitHistoryError:
+            continue
+        fid = (trailers.get("Finalization-Id") or "").strip()
+        if fid:
+            proven.add(fid)
+    refs = ["HEAD", "refs/heads/main"]
+    listed = _run_git_readonly(
+        ["for-each-ref", "--format=%(refname)", hist.TIMELINE_REF_PREFIX],
+        repo=repo,
+        worktree=worktree,
+    )
+    if listed.returncode == 0:
+        refs.extend(
+            line.strip() for line in listed.stdout.splitlines() if line.strip()
+        )
+    foreign: set[str] = set()
+    seen_refs: set[str] = set()
+    for ref in refs:
+        if ref in seen_refs or not _rev_exists(repo, worktree, ref):
+            continue
+        seen_refs.add(ref)
+        for _sha, body in _commit_log_records(repo, worktree, rev=ref):
+            try:
+                trailers = hist.parse_trailers(body)
+            except hist.GitHistoryError:
+                continue
+            fid = (trailers.get("Finalization-Id") or "").strip()
+            if fid and fid not in proven:
+                foreign.add(fid)
+    return foreign
+
+
+def _verify_timeline_dag(
+    root: Path | str,
+    campaign_id: str,
+    repo: Path,
+    worktree: Path,
+) -> list[Finding]:
+    findings: list[Finding] = []
+    state_path = worktree / hist.TIMELINE_STATE_RELPATH
+    if not state_path.is_file():
+        listed = _run_git_readonly(
+            ["for-each-ref", "--format=%(refname)", hist.TIMELINE_REF_PREFIX],
+            repo=repo,
+            worktree=worktree,
+        )
+        extra = [
+            line.strip()
+            for line in (listed.stdout.splitlines() if listed.returncode == 0 else [])
+            if line.strip()
+        ]
+        for ref in extra:
+            findings.append(
+                Finding(
+                    kind=CODE_ORPHAN_TIMELINE_REF,
+                    detail=f"ref={ref} has no timeline-state",
+                )
+            )
+        return findings
+    try:
+        state = hist.load_timeline_state(root, campaign_id)
+    except hist.GitHistoryError as exc:
+        return [
+            Finding(kind="timeline_state_unreadable", detail=str(exc))
+        ]
+    listed = _run_git_readonly(
+        ["for-each-ref", "--format=%(refname)", hist.TIMELINE_REF_PREFIX],
+        repo=repo,
+        worktree=worktree,
+    )
+    git_refs = {
+        line.strip()
+        for line in (listed.stdout.splitlines() if listed.returncode == 0 else [])
+        if line.strip()
+    }
+    expected_refs: set[str] = set()
+    for record in state.get("timelines") or []:
+        tid = record.get("timeline_id")
+        if not isinstance(tid, str) or tid == hist.DEFAULT_TIMELINE_ID:
+            continue
+        try:
+            ref = hist.timeline_ref_name(tid)
+        except (ValueError, hist.GitHistoryError) as exc:
+            findings.append(Finding(kind=CODE_FORK_TOPOLOGY, detail=str(exc)))
+            continue
+        expected_refs.add(ref)
+        sha = _read_rev_sha(repo, worktree, ref)
+        if sha is None:
+            findings.append(
+                Finding(
+                    kind=CODE_TIMELINE_REF_MISSING,
+                    detail=f"timeline_id={tid}",
+                )
+            )
+            continue
+        if record.get("kind") == "fork":
+            point = (record.get("fork_point") or {}).get("commit")
+            if isinstance(point, str) and point and not _is_ancestor(
+                repo, worktree, point, sha
+            ):
+                findings.append(
+                    Finding(
+                        kind=CODE_FORK_TOPOLOGY,
+                        detail=(
+                            f"timeline {tid} tip is not a descendant of fork_point"
+                        ),
+                        sha=sha,
+                    )
+                )
+        if record.get("kind") == "confluence":
+            # Merge commit is recorded on the confluence record; the timeline
+            # tip may have later turns.
+            pass
+    for ref in sorted(git_refs - expected_refs):
+        findings.append(
+            Finding(
+                kind=CODE_ORPHAN_TIMELINE_REF,
+                detail=f"ref={ref}",
+            )
+        )
+    for conf in state.get("confluences") or []:
+        merge = conf.get("merge_commit")
+        if not isinstance(merge, str) or not merge:
+            findings.append(
+                Finding(
+                    kind=CODE_CONFLUENCE_PARENTS,
+                    detail="confluence record missing merge_commit",
+                )
+            )
+            continue
+        count = _commit_parent_count(repo, worktree, merge)
+        if count != 2:
+            findings.append(
+                Finding(
+                    kind=CODE_CONFLUENCE_PARENTS,
+                    detail=f"parent_count={count}",
+                    sha=merge,
+                )
+            )
+        trailers, trailer_finding = _head_trailers(repo, worktree, rev=merge)
+        if trailer_finding is not None:
+            findings.append(trailer_finding)
+        elif trailers is not None:
+            findings.extend(
+                _validate_confluence_trailers(
+                    merge, trailers, campaign_id=campaign_id
+                )
+            )
+            findings.extend(
+                _check_confluence_manifest_binding(
+                    repo,
+                    worktree,
+                    record=conf,
+                    trailers=trailers,
+                    merge=merge,
+                )
+            )
+    return findings
+
+
 def state_integrity_proof(
     root: Path | str,
     campaign_id: str,
     *,
     expected_finalization_id: str | None = None,
     valid_finalization_ids: Iterable[str] | None = None,
+    timeline_ref: str | None = None,
 ) -> StateIntegrityProof:
     """Return a structured, fail-closed Git state proof. Read-only.
 
     ``expected_finalization_id`` binds HEAD to one receipt (exporter latest
     valid row). ``valid_finalization_ids`` replaces the pairing set when the
-    caller has already filtered invalid receipts.
+    caller has already filtered invalid receipts. ``timeline_ref`` selects a
+    timeline (semantic id or git ref); default proves current HEAD/main.
     """
     try:
         repo = hist.repo_path_for(root, campaign_id)
@@ -1058,8 +1466,24 @@ def state_integrity_proof(
     findings.extend(_read_schema_via_state(worktree))
     expected_schema = hist.format_schema_generation(coc_state.CURRENT_SCHEMA_VERSIONS)
 
+    proof_rev, rev_findings = _resolve_proof_rev(repo, worktree, timeline_ref)
+    if rev_findings:
+        return _build_proof(
+            campaign_id=campaign_id,
+            status=STATUS_NOT_PROVEN,
+            history_enabled=True,
+            repo_present=True,
+            repo_healthy=fsck_ok,
+            git_available=True,
+            fsck_ok=fsck_ok,
+            repo_path=repo_s,
+            worktree_path=worktree_s,
+            receipt_count=len(receipt_ids),
+            findings=[*rev_findings, *findings],
+        )
+
     try:
-        records = _commit_log_records(repo, worktree)
+        records = _commit_log_records(repo, worktree, rev=proof_rev)
     except (hist.GitHistoryError, hist.GitHistoryUnavailableError) as exc:
         kind = (
             CODE_GIT_UNAVAILABLE
@@ -1133,7 +1557,22 @@ def state_integrity_proof(
                     expected_schema=expected_schema,
                 )
             )
-        elif commit_type not in {"", "baseline"} and "COC-History-Reset" not in trailers:
+        elif commit_type == "confluence":
+            findings.extend(
+                _validate_confluence_trailers(
+                    sha, trailers, campaign_id=campaign_id
+                )
+            )
+            parent_count = _commit_parent_count(repo, worktree, sha)
+            if parent_count != 2:
+                findings.append(
+                    Finding(
+                        kind=CODE_CONFLUENCE_PARENTS,
+                        detail=f"parent_count={parent_count}",
+                        sha=sha,
+                    )
+                )
+        elif commit_type not in _ALLOWED_COMMIT_TYPES and "COC-History-Reset" not in trailers:
             findings.append(
                 Finding(
                     kind="unexpected_commit_type",
@@ -1143,6 +1582,12 @@ def state_integrity_proof(
                 )
             )
 
+    try:
+        foreign_ids = _foreign_finalization_ids(repo, worktree, proof_rev)
+    except hist.GitHistoryError:
+        foreign_ids = set()
+    if foreign_ids:
+        receipt_ids = [item for item in receipt_ids if item not in foreign_ids]
     findings.extend(_pair_receipts_and_commits(receipt_ids, commits_by_fid))
 
     latest_receipt_id = expected_finalization_id or (
@@ -1176,8 +1621,10 @@ def state_integrity_proof(
         if len(commits_by_fid.get(fid, [])) == 1
     )
 
-    head_sha = _read_head_sha(repo, worktree)
-    head_trailers, head_trailer_finding = _head_trailers(repo, worktree)
+    head_sha = _read_rev_sha(repo, worktree, proof_rev)
+    head_trailers, head_trailer_finding = _head_trailers(
+        repo, worktree, rev=proof_rev
+    )
     if head_trailer_finding is not None:
         findings.append(head_trailer_finding)
         if head_trailer_finding.kind == CODE_GIT_UNAVAILABLE:
@@ -1303,8 +1750,11 @@ def state_integrity_proof(
             repo,
             worktree,
             require_receipts_log=bool(latest_receipt_id or turn_commit_count),
+            rev=proof_rev,
         )
         findings.extend(tree_findings)
+
+    findings.extend(_verify_timeline_dag(root, campaign_id, repo, worktree))
 
     status = _decide_status(
         findings=findings,

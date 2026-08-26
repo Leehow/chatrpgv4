@@ -403,6 +403,25 @@ test("terminal turn fault retires only its exact host and refresh resumes on a f
   assert.equal(orchestrator.getHost("fault-refresh"), replacement);
 });
 
+test("tool retry exhaustion retires the host without a second generic error", async () => {
+  const orchestrator = new CampaignHostOrchestrator({
+    createHost: (opts) => fakeHost({ campaignId: opts.campaignId }),
+  });
+  const { host } = await orchestrator.acquire("retry-cap", { tableIntent: "continue" });
+  const consumed = await consumeDeliveredTurnProcessingFault({
+    error: new PiCocRpcError("工具 narration.review 连续失败 3 次后已中断：latched。请刷新后恢复。", {
+      kind: "pi_coc_tool_retry_exhausted",
+      details: { tool: "narration.review", error_code: "latched" },
+    }),
+    campaignId: "retry-cap",
+    expectedHost: host,
+    orchestrator,
+  });
+  assert.equal(consumed, true);
+  assert.equal(host.closed, true);
+  assert.equal(orchestrator.getHost("retry-cap"), null);
+});
+
 test("exact-host retirement fences replacement spawn until one shared close settles", async () => {
   const created = [];
   let releaseClose;

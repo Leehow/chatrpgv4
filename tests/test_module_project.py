@@ -98,6 +98,27 @@ def _campaign_with_awaiting_scope(
     return campaign_id
 
 
+def test_campaign_handout_asset_root_ids_adds_nonprogressive_overlay(
+    tmp_path: Path,
+):
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "haunting"
+    scenario_dir = campaign_dir / "scenario"
+    scenario_dir.mkdir(parents=True)
+    (scenario_dir / "module-meta.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "scenario_id": "the-haunting",
+            "handout_asset_root_id": "the-haunting-keeper-rulebook-40th",
+        }),
+        encoding="utf-8",
+    )
+
+    assert project.campaign_asset_root_id(campaign_dir) is None
+    assert project.campaign_handout_asset_root_ids(campaign_dir) == [
+        "the-haunting-keeper-rulebook-40th"
+    ]
+
+
 def test_compact_queue_reports_current_open_host_work_not_history():
     queue = {
         "schema_version": 1,
