@@ -1,8 +1,9 @@
 /**
  * Provider-neutral projection of the Pi-Coc model-visible tool working set.
  *
- * This module owns visibility only. Canonical operation policy and the
- * execute-time ACL remain authoritative, and callers retain load grants.
+ * Visibility is advisory and fail-closed. Canonical operation policy and the
+ * execute-time ACL remain authoritative. The caller owns host tool definitions,
+ * retained load grants, and candidate-binding revision validation.
  */
 import {
   KP_SURFACES,
@@ -13,34 +14,44 @@ import {
   type PlayPhase,
   type SessionRole,
 } from "./operation-policy.ts";
+import type { JsonSchema } from "./operation-contracts.ts";
 import {
   defaultTypedToolCatalog,
   typedToolForOperation,
   type TypedToolCatalog,
 } from "./typed-tools.ts";
 
-export const TURN_STAGES = [
+/**
+ * Structural compatibility with the P0 TurnProgressStage contract.
+ * The integration lane can replace this alias with a type-only import from
+ * turn-output-gate.ts after the P0 commit lands; no stage translation is needed.
+ */
+export type ToolWorkingSetStage =
+  | "awaiting_player"
+  | "acting"
+  | "journaled"
+  | "output_context_ready"
+  | "review_ready"
+  | "finalized"
+  | "delivered"
+  | "faulted";
+
+export const TOOL_WORKING_SET_STAGES: readonly ToolWorkingSetStage[] = [
+  "awaiting_player",
   "acting",
   "journaled",
-  "output_context",
-  "review",
+  "output_context_ready",
+  "review_ready",
   "finalized",
+  "delivered",
   "faulted",
-] as const;
-export type TurnStage = typeof TURN_STAGES[number];
+];
 
 export type WorkingSetNamespace = Exclude<KpSurface, "none">;
 
 export const WORKING_SET_TOOL_BUDGET = 20;
 export const CLOSURE_TOOL_BUDGET = 10;
 export const NAMESPACE_OPERATION_BUDGET = 10;
-export const WORKING_SET_DISCOVERY_TOOL = "coc_discover";
-export const WORKING_SET_HOST_TOOLS = [
-  "subagent",
-  "subagent_wait",
-  "coc_source_assets",
-  WORKING_SET_DISCOVERY_TOOL,
-] as const;
 
 export type CanonicalAffordanceSource =
   | "scene"
@@ -61,12 +72,17 @@ export type CanonicalAffordanceProjection = {
   operations?: readonly CanonicalAffordanceHint[];
 };
 
+/** Resolved definitions for every non-canonical host tool the adapter advertises. */
+export type ModelVisibleHostTool = {
+  name: string;
+  parameters: JsonSchema;
+};
+
 type LoadScope = {
   role: SessionRole;
   phase: PlayPhase;
-  stage: TurnStage;
+  stage: ToolWorkingSetStage;
   playerTurnEpoch: number;
-  canonicalProgressRevision: string;
 };
 
 export type LoadedNamespace = LoadScope & {
@@ -80,12 +96,27 @@ export type LoadedExactOperation = LoadScope & {
   operation: string;
 };
 
-export type RecoveryRoute = {
-  code: string;
-  operations: readonly string[];
-};
+/**
+ * Stage recovery stays inside the stage capability table. Fault recovery may
+ * authorize one exact operation in addition to session.resume.
+ */
+export type RecoveryRoute =
+  | {
+    authorization: "stage";
+    code: string;
+    operations: readonly string[];
+  }
+  | {
+    authorization: "fault";
+    code: string;
+    operation: string;
+  };
 
 export type ToolWorkingSetSnapshot = LoadScope & {
+  canonicalProgressRevision: number;
+  /** Resolved from extraToolsForSessionRole(role) by the host adapter. */
+  roleManifestToolNames: readonly string[];
+  hostTools: readonly ModelVisibleHostTool[];
   affordances?: CanonicalAffordanceProjection;
   loadedNamespaces?: readonly LoadedNamespace[];
   loadedOperations?: readonly LoadedExactOperation[];
@@ -124,8 +155,9 @@ export type ToolWorkingSet = {
   revision: string;
   activeToolNames: readonly string[];
   activeOperationNames: readonly string[];
-  /** Bytes for canonical typed-operation schemas; host adapters add static host-tool schemas. */
   schemaBytes: number;
+  hostSchemaBytes: number;
+  operationSchemaBytes: number;
   reasons: readonly WorkingSetReason[];
   error?: WorkingSetFailure;
 };
@@ -136,6 +168,7 @@ export type NamespaceLoadRequest =
 
 export type WorkingSetLoadFailureCode =
   | "invalid_snapshot"
+  | "invalid_request"
   | "unknown_operation"
   | "unknown_namespace"
   | "policy_forbidden"
@@ -159,6 +192,52 @@ export type ToolWorkingSetLoadResult =
     details: Record<string, unknown>;
   };
 
+type StageCapability = {
+  operations: readonly string[];
+  allowedOperations: ReadonlySet<string> | null;
+  advertiseHostTools: boolean;
+  budget: typeof WORKING_SET_TOOL_BUDGET | typeof CLOSURE_TOOL_BUDGET;
+  allowFaultRoute: boolean;
+};
+
+function closedStage(
+  operations: readonly string[],
+  options: { advertiseHostTools?: boolean; allowFaultRoute?: boolean } = {},
+): StageCapability {
+  return {
+    operations,
+    allowedOperations: new Set(operations),
+    advertiseHostTools: options.advertiseHostTools ?? true,
+    budget: CLOSURE_TOOL_BUDGET,
+    allowFaultRoute: options.allowFaultRoute ?? false,
+  };
+}
+
+/** One authority for each progress stage's baseline, visibility, and budget. */
+const STAGE_CAPABILITIES: Readonly<Record<ToolWorkingSetStage, StageCapability>> = {
+  awaiting_player: closedStage([], { advertiseHostTools: false }),
+  acting: {
+    operations: [],
+    allowedOperations: null,
+    advertiseHostTools: true,
+    budget: WORKING_SET_TOOL_BUDGET,
+    allowFaultRoute: false,
+  },
+  journaled: closedStage(["scene.context", "session.resume", "turn.output_context"]),
+  output_context_ready: closedStage([
+    "scene.context",
+    "narration.review",
+    "turn.finalize",
+  ]),
+  review_ready: closedStage(["narration.review", "turn.finalize"]),
+  finalized: closedStage([], { advertiseHostTools: false }),
+  delivered: closedStage([], { advertiseHostTools: false }),
+  faulted: closedStage(["session.resume"], {
+    advertiseHostTools: false,
+    allowFaultRoute: true,
+  }),
+};
+
 const PLAY_ACTING_BASELINE = [
   "scene.context",
   "actions.list",
@@ -168,7 +247,7 @@ const PLAY_ACTING_BASELINE = [
   "state.journal",
 ] as const;
 
-const SETUP_BASELINE = [
+const SETUP_ACTING_BASELINE = [
   "setup.inspect",
   "setup.phase",
   "session.resume",
@@ -180,22 +259,9 @@ const SETUP_BASELINE = [
   "state.cash_semantic",
 ] as const;
 
-const BASELINE_BY_STAGE: Record<TurnStage, readonly string[]> = {
-  acting: PLAY_ACTING_BASELINE,
-  journaled: ["scene.context", "turn.output_context"],
-  output_context: ["narration.review"],
-  review: ["narration.review", "turn.finalize"],
-  finalized: [],
-  faulted: ["session.resume"],
-};
-
-const ALLOWED_BY_CLOSURE_STAGE: Record<Exclude<TurnStage, "acting">, ReadonlySet<string>> = {
-  journaled: new Set(["scene.context", "turn.output_context"]),
-  output_context: new Set(["narration.review"]),
-  review: new Set(["narration.review", "turn.finalize"]),
-  finalized: new Set(),
-  faulted: new Set(["session.resume"]),
-};
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
 function validRole(value: unknown): value is SessionRole {
   return value === "setup" || value === "play";
@@ -205,26 +271,24 @@ function validPhase(value: unknown): value is PlayPhase {
   return (PLAY_PHASES as readonly unknown[]).includes(value);
 }
 
-function validStage(value: unknown): value is TurnStage {
-  return (TURN_STAGES as readonly unknown[]).includes(value);
+function validStage(value: unknown): value is ToolWorkingSetStage {
+  return (TOOL_WORKING_SET_STAGES as readonly unknown[]).includes(value);
 }
 
 function validNamespace(value: unknown): value is WorkingSetNamespace {
   return value !== "none" && (KP_SURFACES as readonly unknown[]).includes(value);
 }
 
-function contextKey(scope: LoadScope): string {
-  return [
-    scope.role,
-    scope.phase,
-    scope.stage,
-    `epoch-${scope.playerTurnEpoch}`,
-    `progress-${scope.canonicalProgressRevision}`,
-  ].join(":");
+function grantKey(scope: LoadScope): string {
+  return [scope.role, scope.phase, scope.stage, `epoch-${scope.playerTurnEpoch}`].join(":");
+}
+
+function revisionContextKey(snapshot: ToolWorkingSetSnapshot): string {
+  return `${grantKey(snapshot)}:progress-${snapshot.canonicalProgressRevision}`;
 }
 
 function loadMatchesSnapshot(load: LoadScope, snapshot: ToolWorkingSetSnapshot): boolean {
-  return contextKey(load) === contextKey(snapshot);
+  return grantKey(load) === grantKey(snapshot);
 }
 
 function policyAllows(operation: string, snapshot: ToolWorkingSetSnapshot): boolean {
@@ -235,79 +299,129 @@ function policyAllows(operation: string, snapshot: ToolWorkingSetSnapshot): bool
   return true;
 }
 
-function stageAllows(operation: string, snapshot: ToolWorkingSetSnapshot): boolean {
-  if (snapshot.stage === "finalized") return false;
-  if (snapshot.stage === "faulted") {
-    return snapshot.phase === "recovery" && operation === "session.resume";
+function faultRecoveryOperation(snapshot: ToolWorkingSetSnapshot): string | null {
+  if (snapshot.stage !== "faulted" || snapshot.recoveryRoute?.authorization !== "fault") {
+    return null;
   }
-  if (snapshot.recoveryRoute?.operations.includes(operation)) return true;
-  const effectiveStage = snapshot.phase === "pending_finalization" && snapshot.stage === "acting"
-    ? "journaled"
-    : snapshot.stage;
-  if (effectiveStage === "acting") return true;
-  return ALLOWED_BY_CLOSURE_STAGE[effectiveStage].has(operation);
+  const operation = snapshot.recoveryRoute.operation;
+  return typeof operation === "string" && operation.trim().length > 0 ? operation : null;
+}
+
+function stageAllows(operation: string, snapshot: ToolWorkingSetSnapshot): boolean {
+  const capability = STAGE_CAPABILITIES[snapshot.stage];
+  if (capability.allowedOperations === null) return true;
+  if (capability.allowedOperations.has(operation)) return true;
+  return capability.allowFaultRoute && faultRecoveryOperation(snapshot) === operation;
 }
 
 function typedOperationExists(operation: string, catalog: TypedToolCatalog): boolean {
   return typedToolForOperation(operation, catalog) !== null;
 }
 
-function baselineOperations(snapshot: ToolWorkingSetSnapshot): readonly string[] {
-  if (snapshot.role === "setup") return SETUP_BASELINE;
-  if (snapshot.phase === "recovery") return [
-    "session.resume",
-    "state.journal",
-    "turn.output_context",
-    "turn.finalize",
-  ];
-  if (snapshot.phase === "pending_finalization" || snapshot.phase === "ending") {
-    if (snapshot.phase === "pending_finalization" && snapshot.stage === "acting") {
-      return BASELINE_BY_STAGE.journaled;
-    }
-    if (snapshot.phase === "ending" && snapshot.stage === "acting") {
-      return ["state.journal"];
-    }
-    return BASELINE_BY_STAGE[snapshot.stage];
+function actingBaseline(snapshot: ToolWorkingSetSnapshot): readonly string[] {
+  if (snapshot.role === "setup") return SETUP_ACTING_BASELINE;
+  if (snapshot.phase === "recovery") {
+    return ["session.resume", "state.journal", "turn.output_context", "turn.finalize"];
   }
+  if (snapshot.phase === "ending") return ["state.journal"];
   if (snapshot.phase === "opening" || snapshot.phase === "cold_start") {
     return ["session.resume", "scene.context", "actions.list", "evidence.table_opening"];
   }
-  return BASELINE_BY_STAGE[snapshot.stage];
+  return PLAY_ACTING_BASELINE;
 }
 
-function workingSetBudget(snapshot: ToolWorkingSetSnapshot): number {
+function baselineOperations(snapshot: ToolWorkingSetSnapshot): readonly string[] {
+  return snapshot.stage === "acting"
+    ? actingBaseline(snapshot)
+    : STAGE_CAPABILITIES[snapshot.stage].operations;
+}
+
+function workingSetBudget(
+  snapshot: ToolWorkingSetSnapshot,
+  capability: StageCapability,
+): typeof WORKING_SET_TOOL_BUDGET | typeof CLOSURE_TOOL_BUDGET {
   return snapshot.phase === "pending_finalization"
     || snapshot.phase === "recovery"
     || snapshot.phase === "ending"
-    || snapshot.stage !== "acting"
     ? CLOSURE_TOOL_BUDGET
-    : WORKING_SET_TOOL_BUDGET;
+    : capability.budget;
 }
 
-function revisionFor(
-  snapshot: ToolWorkingSetSnapshot,
-  operations: readonly string[],
-  suffix = "ready",
-): string {
-  const operationPart = operations.length > 0 ? operations.join(",") : "none";
-  return `tool-working-set:v1:${contextKey(snapshot)}:${suffix}:operations-${operationPart}`;
+function schemaByteLength(schema: JsonSchema): number | null {
+  try {
+    const serialized = JSON.stringify(schema);
+    return typeof serialized === "string" ? Buffer.byteLength(serialized, "utf8") : null;
+  } catch {
+    return null;
+  }
 }
 
-function failureSet(
+function normalizedHostTools(
   snapshot: ToolWorkingSetSnapshot,
-  operations: readonly string[],
-  reasons: readonly WorkingSetReason[],
-  error: WorkingSetFailure,
-): ToolWorkingSet {
-  return {
-    ok: false,
-    revision: revisionFor(snapshot, operations, error.code),
-    activeToolNames: [],
-    activeOperationNames: [],
-    schemaBytes: 0,
-    reasons,
-    error,
-  };
+): { tools: ModelVisibleHostTool[]; bytes: number } | WorkingSetFailure {
+  if (!Array.isArray(snapshot.hostTools)) {
+    return {
+      code: "invalid_snapshot",
+      message: "hostTools must be an array of resolved host tool definitions",
+      details: { hostTools: snapshot.hostTools },
+    };
+  }
+  const byName = new Map<string, ModelVisibleHostTool>();
+  let bytes = 0;
+  for (const row of snapshot.hostTools) {
+    if (!isPlainObject(row) || typeof row.name !== "string" || !row.name.trim()) {
+      return {
+        code: "invalid_snapshot",
+        message: "each host tool must have a non-empty name",
+        details: { host_tool: row },
+      };
+    }
+    if (!isPlainObject(row.parameters)) {
+      return {
+        code: "invalid_snapshot",
+        message: `host tool ${row.name} must have a JSON-object parameters schema`,
+        details: { host_tool: row.name },
+      };
+    }
+    if (byName.has(row.name)) {
+      return {
+        code: "invalid_snapshot",
+        message: `duplicate host tool definition ${row.name}`,
+        details: { host_tool: row.name },
+      };
+    }
+    const schemaBytes = schemaByteLength(row.parameters);
+    if (schemaBytes === null) {
+      return {
+        code: "invalid_snapshot",
+        message: `host tool ${row.name} parameters are not JSON serializable`,
+        details: { host_tool: row.name },
+      };
+    }
+    byName.set(row.name, { name: row.name, parameters: row.parameters });
+    bytes += schemaBytes;
+  }
+  if (
+    !Array.isArray(snapshot.roleManifestToolNames)
+    || snapshot.roleManifestToolNames.some((name) => typeof name !== "string" || !name.trim())
+  ) {
+    return {
+      code: "invalid_snapshot",
+      message: "roleManifestToolNames must be the resolved non-empty role tool names",
+      details: { role: snapshot.role, roleManifestToolNames: snapshot.roleManifestToolNames },
+    };
+  }
+  const required = [...new Set(snapshot.roleManifestToolNames)];
+  const missing = required.filter((name) => !byName.has(name));
+  if (missing.length > 0) {
+    return {
+      code: "invalid_snapshot",
+      message: `resolved host tools omit canonical ${snapshot.role} role tools`,
+      details: { role: snapshot.role, missing_host_tools: missing },
+    };
+  }
+  const tools = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return { tools, bytes };
 }
 
 function invalidSnapshot(snapshot: ToolWorkingSetSnapshot): WorkingSetFailure | null {
@@ -315,11 +429,7 @@ function invalidSnapshot(snapshot: ToolWorkingSetSnapshot): WorkingSetFailure | 
     return {
       code: "invalid_snapshot",
       message: "working-set snapshot role, phase, or stage is invalid",
-      details: {
-        role: snapshot.role,
-        phase: snapshot.phase,
-        stage: snapshot.stage,
-      },
+      details: { role: snapshot.role, phase: snapshot.phase, stage: snapshot.stage },
     };
   }
   if (!Number.isSafeInteger(snapshot.playerTurnEpoch) || snapshot.playerTurnEpoch < 0) {
@@ -330,28 +440,100 @@ function invalidSnapshot(snapshot: ToolWorkingSetSnapshot): WorkingSetFailure | 
     };
   }
   if (
-    typeof snapshot.canonicalProgressRevision !== "string"
-    || snapshot.canonicalProgressRevision.trim().length === 0
+    !Number.isSafeInteger(snapshot.canonicalProgressRevision)
+    || snapshot.canonicalProgressRevision < 0
   ) {
     return {
       code: "invalid_snapshot",
-      message: "canonicalProgressRevision must be a non-empty string",
+      message: "canonicalProgressRevision must be a non-negative safe integer",
       details: { canonicalProgressRevision: snapshot.canonicalProgressRevision },
     };
+  }
+  if (snapshot.recoveryRoute !== undefined) {
+    if (!isPlainObject(snapshot.recoveryRoute)) {
+      return {
+        code: "invalid_snapshot",
+        message: "recoveryRoute must be a structured stage or fault route",
+        details: { recoveryRoute: snapshot.recoveryRoute },
+      };
+    }
+    if (snapshot.recoveryRoute.authorization === "fault") {
+      if (
+        snapshot.stage !== "faulted"
+        || typeof snapshot.recoveryRoute.code !== "string"
+        || !snapshot.recoveryRoute.code.trim()
+        || typeof snapshot.recoveryRoute.operation !== "string"
+        || !snapshot.recoveryRoute.operation.trim()
+      ) {
+        return {
+          code: "invalid_snapshot",
+          message: "fault recovery requires faulted stage, a code, and one exact operation",
+          details: { recoveryRoute: snapshot.recoveryRoute, stage: snapshot.stage },
+        };
+      }
+    } else if (snapshot.recoveryRoute.authorization === "stage") {
+      if (
+        typeof snapshot.recoveryRoute.code !== "string"
+        || !snapshot.recoveryRoute.code.trim()
+        || !Array.isArray(snapshot.recoveryRoute.operations)
+        || snapshot.recoveryRoute.operations.some((operation) => (
+          typeof operation !== "string" || !operation.trim()
+        ))
+      ) {
+        return {
+          code: "invalid_snapshot",
+          message: "stage recovery requires a code and exact operation list",
+          details: { recoveryRoute: snapshot.recoveryRoute },
+        };
+      }
+    } else {
+      return {
+        code: "invalid_snapshot",
+        message: "recoveryRoute authorization must be stage or fault",
+        details: { recoveryRoute: snapshot.recoveryRoute },
+      };
+    }
   }
   return null;
 }
 
-/**
- * Deterministically project model-visible operation tools from structured
- * canonical facts. It performs no player-prose classification.
- */
+function revisionFor(
+  snapshot: ToolWorkingSetSnapshot,
+  tools: readonly string[],
+  suffix = "ready",
+): string {
+  const toolPart = tools.length > 0 ? tools.join(",") : "none";
+  return `tool-working-set:v2:${revisionContextKey(snapshot)}:${suffix}:tools-${toolPart}`;
+}
+
+function failureSet(
+  snapshot: ToolWorkingSetSnapshot,
+  tools: readonly string[],
+  reasons: readonly WorkingSetReason[],
+  error: WorkingSetFailure,
+): ToolWorkingSet {
+  return {
+    ok: false,
+    revision: revisionFor(snapshot, tools, error.code),
+    activeToolNames: [],
+    activeOperationNames: [],
+    schemaBytes: 0,
+    hostSchemaBytes: 0,
+    operationSchemaBytes: 0,
+    reasons,
+    error,
+  };
+}
+
+/** Project model-visible tools from structured canonical facts only. */
 export function projectToolWorkingSet(
   snapshot: ToolWorkingSetSnapshot,
   catalog: TypedToolCatalog = defaultTypedToolCatalog(),
 ): ToolWorkingSet {
   const invalid = invalidSnapshot(snapshot);
   if (invalid) return failureSet(snapshot, [], [], invalid);
+  const hostResolution = normalizedHostTools(snapshot);
+  if ("code" in hostResolution) return failureSet(snapshot, [], [], hostResolution);
 
   const candidates = new Set<string>();
   const reasons: WorkingSetReason[] = [];
@@ -378,11 +560,19 @@ export function projectToolWorkingSet(
       source: hint.source,
     });
   }
-  for (const operation of snapshot.recoveryRoute?.operations ?? []) {
-    consider(operation, {
+  if (snapshot.recoveryRoute?.authorization === "stage") {
+    for (const operation of snapshot.recoveryRoute.operations) {
+      consider(operation, {
+        code: "recovery_route",
+        operation,
+        source: snapshot.recoveryRoute.code,
+      });
+    }
+  } else if (snapshot.recoveryRoute?.authorization === "fault") {
+    consider(snapshot.recoveryRoute.operation, {
       code: "recovery_route",
-      operation,
-      source: snapshot.recoveryRoute?.code,
+      operation: snapshot.recoveryRoute.operation,
+      source: snapshot.recoveryRoute.code,
     });
   }
   for (const load of snapshot.loadedNamespaces ?? []) {
@@ -391,11 +581,12 @@ export function projectToolWorkingSet(
       continue;
     }
     for (const operation of load.operations) {
-      consider(operation, {
-        code: "loaded_namespace",
-        operation,
-        source: load.namespace,
-      });
+      const policy = OPERATION_POLICY[operation];
+      if (!policy || policy.kp_surface !== load.namespace) {
+        reasons.push({ code: "policy_filtered", operation, source: load.namespace });
+        continue;
+      }
+      consider(operation, { code: "loaded_namespace", operation, source: load.namespace });
     }
   }
   for (const load of snapshot.loadedOperations ?? []) {
@@ -407,17 +598,23 @@ export function projectToolWorkingSet(
   }
 
   const operations = [...candidates].sort();
-  const includeHostTools = snapshot.stage !== "finalized" && snapshot.stage !== "faulted";
-  const tools = operations.map((operation) => typedToolForOperation(operation, catalog)!.name);
-  if (includeHostTools) {
-    tools.unshift(...WORKING_SET_HOST_TOOLS);
-    for (const tool of WORKING_SET_HOST_TOOLS) {
-      reasons.push({ code: "host_baseline", source: tool });
-    }
+  const typedTools = operations.map((operation) => typedToolForOperation(operation, catalog)!);
+  const capability = STAGE_CAPABILITIES[snapshot.stage];
+  const hostTools = capability.advertiseHostTools ? hostResolution.tools : [];
+  const hostNames = hostTools.map((tool) => tool.name);
+  const typedNames = typedTools.map((tool) => tool.name);
+  const collision = hostNames.find((name) => typedNames.includes(name));
+  if (collision) {
+    return failureSet(snapshot, [], reasons, {
+      code: "invalid_snapshot",
+      message: `host tool ${collision} collides with a typed operation tool`,
+      details: { tool: collision },
+    });
   }
-  const budget = workingSetBudget(snapshot);
+  const tools = [...hostNames, ...typedNames];
+  const budget = workingSetBudget(snapshot, capability);
   if (tools.length > budget) {
-    return failureSet(snapshot, operations, reasons, {
+    return failureSet(snapshot, tools, reasons, {
       code: "working_set_budget_exceeded",
       message: `projected ${tools.length} tools exceeds the ${budget}-tool budget`,
       details: {
@@ -429,21 +626,24 @@ export function projectToolWorkingSet(
     });
   }
 
-  let schemaBytes = 0;
-  for (const operation of operations) {
-    const typed = typedToolForOperation(operation, catalog)!;
-    schemaBytes += Buffer.byteLength(JSON.stringify(typed.parameters), "utf8");
-  }
+  const hostSchemaBytes = capability.advertiseHostTools ? hostResolution.bytes : 0;
+  const operationSchemaBytes = typedTools.reduce(
+    (total, tool) => total + schemaByteLength(tool.parameters)!,
+    0,
+  );
+  for (const tool of hostTools) reasons.push({ code: "host_baseline", source: tool.name });
   reasons.sort((a, b) => (
     `${a.code}:${a.operation ?? ""}:${a.source ?? ""}`
       .localeCompare(`${b.code}:${b.operation ?? ""}:${b.source ?? ""}`)
   ));
   return {
     ok: true,
-    revision: revisionFor(snapshot, operations),
+    revision: revisionFor(snapshot, tools),
     activeToolNames: tools,
     activeOperationNames: operations,
-    schemaBytes,
+    schemaBytes: hostSchemaBytes + operationSchemaBytes,
+    hostSchemaBytes,
+    operationSchemaBytes,
     reasons,
   };
 }
@@ -462,8 +662,40 @@ function scopeFrom(snapshot: ToolWorkingSetSnapshot): LoadScope {
     phase: snapshot.phase,
     stage: snapshot.stage,
     playerTurnEpoch: snapshot.playerTurnEpoch,
-    canonicalProgressRevision: snapshot.canonicalProgressRevision,
   };
+}
+
+function validateLoadRequest(request: unknown): NamespaceLoadRequest | ToolWorkingSetLoadResult {
+  if (!isPlainObject(request)) {
+    return loadFailure("invalid_request", "load request must be an object", { request });
+  }
+  if (request.kind === "exact_operation") {
+    if (typeof request.operation !== "string" || !request.operation.trim()) {
+      return loadFailure(
+        "invalid_request",
+        "exact_operation request requires a non-empty operation",
+        { request },
+      );
+    }
+    if (Object.keys(request).some((key) => key !== "kind" && key !== "operation")) {
+      return loadFailure("invalid_request", "exact_operation request has unknown fields", { request });
+    }
+    return { kind: "exact_operation", operation: request.operation };
+  }
+  if (request.kind === "namespace") {
+    if (!validNamespace(request.namespace)) {
+      return loadFailure("unknown_namespace", `unknown KP namespace ${String(request.namespace)}`, {
+        namespace: request.namespace,
+      });
+    }
+    if (Object.keys(request).some((key) => key !== "kind" && key !== "namespace")) {
+      return loadFailure("invalid_request", "namespace request has unknown fields", { request });
+    }
+    return { kind: "namespace", namespace: request.namespace };
+  }
+  return loadFailure("invalid_request", `unknown load request kind ${String(request.kind)}`, {
+    request,
+  });
 }
 
 function exactLoadDenied(
@@ -511,18 +743,32 @@ function exactLoadDenied(
 }
 
 /**
- * Create one turn-scoped load grant and project it immediately. The caller
- * retains the returned grant; it expires when epoch, stage, or progress moves.
+ * Create one role/phase/epoch/stage-scoped load grant and project it now.
+ * Candidate ids/digests are deliberately absent; the invocation binder owns
+ * their independent canonical-revision validation.
  */
 export function loadToolNamespace(
   snapshot: ToolWorkingSetSnapshot,
-  request: NamespaceLoadRequest,
+  requestValue: NamespaceLoadRequest | unknown,
   catalog: TypedToolCatalog = defaultTypedToolCatalog(),
 ): ToolWorkingSetLoadResult {
   const snapshotFailure = invalidSnapshot(snapshot);
   if (snapshotFailure) {
     return loadFailure("invalid_snapshot", snapshotFailure.message, snapshotFailure.details);
   }
+  const current = projectToolWorkingSet(snapshot, catalog);
+  if (!current.ok) {
+    return loadFailure(
+      current.error?.code === "invalid_snapshot"
+        ? "invalid_snapshot"
+        : "working_set_budget_exceeded",
+      current.error?.message ?? "current working-set projection failed",
+      current.error?.details ?? {},
+    );
+  }
+  const request = validateLoadRequest(requestValue);
+  if ("ok" in request) return request;
+
   if (request.kind === "exact_operation") {
     const denied = exactLoadDenied(snapshot, request.operation, catalog);
     if (denied) return denied;
@@ -537,7 +783,9 @@ export function loadToolNamespace(
     }, catalog);
     if (!workingSet.ok) {
       return loadFailure(
-        "working_set_budget_exceeded",
+        workingSet.error?.code === "invalid_snapshot"
+          ? "invalid_snapshot"
+          : "working_set_budget_exceeded",
         workingSet.error?.message ?? "working-set projection failed",
         workingSet.error?.details ?? {},
       );
@@ -545,11 +793,6 @@ export function loadToolNamespace(
     return { ok: true, grant, workingSet };
   }
 
-  if (!validNamespace(request.namespace)) {
-    return loadFailure("unknown_namespace", `unknown KP namespace ${String(request.namespace)}`, {
-      namespace: request.namespace,
-    });
-  }
   const operations = Object.entries(OPERATION_POLICY)
     .filter(([operation, policy]) => (
       policy.kp_surface === request.namespace
@@ -597,7 +840,9 @@ export function loadToolNamespace(
   }, catalog);
   if (!workingSet.ok) {
     return loadFailure(
-      "working_set_budget_exceeded",
+      workingSet.error?.code === "invalid_snapshot"
+        ? "invalid_snapshot"
+        : "working_set_budget_exceeded",
       workingSet.error?.message ?? "working-set projection failed",
       workingSet.error?.details ?? {},
     );
