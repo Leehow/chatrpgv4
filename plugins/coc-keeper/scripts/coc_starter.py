@@ -55,6 +55,14 @@ STARTER_SCENARIO_FILES = (
 )
 STARTER_OPTIONAL_SCENARIO_FILES = ("handouts.json",)
 
+_QUICK_START_RECEIPT_RELATIVE_PATH = Path(
+    "logs/setup-quick-start-receipt.json"
+)
+
+
+class QuickStartIdempotencyConflict(ValueError):
+    """A durable campaign cannot be claimed by this quick-start intent."""
+
 # Structured registry of shipped starter pregens (id → home scenario).
 # Used for provenance backfill and dossier scenario-bound filtering — lookup by
 # investigator id only, never free-text matching.
@@ -1000,6 +1008,124 @@ def _best_effort_quick_start_indexes(
     return warnings
 
 
+def _quick_start_result(
+    *,
+    campaign_id: str,
+    investigator_id: str | None,
+    scenario_id: str,
+    pregen_id: str | None,
+    character_path: Path | None,
+    campaign_dir: Path,
+) -> dict[str, Any]:
+    return {
+        "campaign_id": campaign_id,
+        "investigator_id": investigator_id,
+        "needs_investigator": investigator_id is None,
+        "scenario_id": scenario_id,
+        "pregen_id": pregen_id,
+        "character_path": str(character_path) if character_path else None,
+        "campaign_dir": str(campaign_dir),
+    }
+
+
+def _quick_start_intent(
+    *,
+    scenario_id: str,
+    pregen_id: str | None,
+    campaign_id: str,
+    title: str | None,
+) -> dict[str, Any]:
+    return {
+        "scenario_id": scenario_id,
+        "pregen_id": pregen_id,
+        "campaign_id": campaign_id,
+        "title": title,
+    }
+
+
+def _write_quick_start_receipt(
+    campaign_stage: Path,
+    *,
+    decision_id: str,
+    intent: dict[str, Any],
+    result: dict[str, Any],
+) -> None:
+    coc_fileio.write_json_atomic(
+        campaign_stage / _QUICK_START_RECEIPT_RELATIVE_PATH,
+        {
+            "schema_version": 1,
+            "kind": "campaign.quick_start",
+            "decision_id": decision_id,
+            "intent": intent,
+            "result": result,
+        },
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+
+
+def _replay_quick_start_receipt(
+    campaign_dir: Path,
+    *,
+    decision_id: str,
+    intent: dict[str, Any],
+) -> dict[str, Any]:
+    path = campaign_dir / _QUICK_START_RECEIPT_RELATIVE_PATH
+    try:
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise QuickStartIdempotencyConflict(
+            f"campaign {campaign_dir.name} already exists without a reusable "
+            "quick-start receipt for this decision_id"
+        ) from exc
+    result = receipt.get("result") if isinstance(receipt, dict) else None
+    expected_result_keys = {
+        "campaign_id",
+        "investigator_id",
+        "needs_investigator",
+        "scenario_id",
+        "pregen_id",
+        "character_path",
+        "campaign_dir",
+    }
+    if (
+        not isinstance(receipt, dict)
+        or receipt.get("schema_version") != 1
+        or receipt.get("kind") != "campaign.quick_start"
+        or receipt.get("decision_id") != decision_id
+        or receipt.get("intent") != intent
+        or not isinstance(result, dict)
+        or set(result) != expected_result_keys
+        or result.get("campaign_id") != campaign_dir.name
+        or result.get("campaign_id") != intent.get("campaign_id")
+        or result.get("scenario_id") != intent.get("scenario_id")
+        or result.get("pregen_id") != intent.get("pregen_id")
+        or result.get("campaign_dir") != str(campaign_dir)
+        or result.get("needs_investigator")
+            is not (result.get("investigator_id") is None)
+    ):
+        raise QuickStartIdempotencyConflict(
+            f"campaign {campaign_dir.name} is owned by a different "
+            "quick-start decision or intent"
+        )
+    investigator_id = result.get("investigator_id")
+    expected_character_path = (
+        str(
+            campaign_dir.parents[1]
+            / "investigators"
+            / investigator_id
+            / "character.json"
+        )
+        if isinstance(investigator_id, str) and investigator_id else None
+    )
+    if result.get("character_path") != expected_character_path:
+        raise QuickStartIdempotencyConflict(
+            f"campaign {campaign_dir.name} has a corrupt quick-start result identity"
+        )
+    return json.loads(json.dumps(result, ensure_ascii=False))
+
+
 def quick_start(
     root: Path,
     scenario_id: str,
@@ -1007,6 +1133,7 @@ def quick_start(
     *,
     campaign_id: str | None = None,
     title: str | None = None,
+    decision_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a campaign, install a starter, and optionally bind a pregen.
 
@@ -1040,6 +1167,12 @@ def quick_start(
     era = str(meta.get("era") or "1920s")
     camp_id = campaign_id or f"{scenario_id}-qs"
     camp_title = title or str(meta.get("title") or scenario_id)
+    idempotent_intent = _quick_start_intent(
+        scenario_id=scenario_id,
+        pregen_id=pregen_id,
+        campaign_id=camp_id,
+        title=title,
+    )
 
     coc_root = _coc_root(root)
     coc_state.ensure_workspace(coc_root)
@@ -1072,6 +1205,17 @@ def quick_start(
             kind="campaign",
             identity=camp_id,
         )
+        if os.path.lexists(campaign_dir) and decision_id is not None:
+            if not campaign_dir.is_dir() or campaign_dir.is_symlink():
+                raise QuickStartIdempotencyConflict(
+                    f"campaign {camp_id} already exists but is not a reusable "
+                    "quick-start campaign directory"
+                )
+            return _replay_quick_start_receipt(
+                campaign_dir,
+                decision_id=decision_id,
+                intent=idempotent_intent,
+            )
         if os.path.lexists(campaign_dir):
             raise FileExistsError(
                 f"campaign {camp_id} already exists; pass a fresh campaign_id or remove it first"
@@ -1186,6 +1330,21 @@ def quick_start(
                     investigator_id=investigator_id,
                     accepted_snapshot=accepted_snapshot,
                 )
+                durable_result = _quick_start_result(
+                    campaign_id=camp_id,
+                    investigator_id=investigator_id,
+                    scenario_id=scenario_id,
+                    pregen_id=pregen_id,
+                    character_path=character_path,
+                    campaign_dir=campaign_dir,
+                )
+                if decision_id is not None:
+                    _write_quick_start_receipt(
+                        campaign_stage,
+                        decision_id=decision_id,
+                        intent=idempotent_intent,
+                        result=durable_result,
+                    )
 
                 if investigator_stage is not None:
                     investigator_stage.rename(character_path.parent)
@@ -1275,16 +1434,8 @@ def quick_start(
                 accepted_snapshot,
             )
 
-    result = {
-        "campaign_id": camp_id,
-        "investigator_id": investigator_id,
-        "needs_investigator": investigator_id is None,
-        "scenario_id": scenario_id,
-        "pregen_id": pregen_id,
-        "character_path": str(character_path) if character_path else None,
-        "campaign_dir": str(campaign_dir),
-    }
-    if index_warnings:
+    result = durable_result
+    if index_warnings and decision_id is None:
         result["warnings"] = index_warnings
     return result
 

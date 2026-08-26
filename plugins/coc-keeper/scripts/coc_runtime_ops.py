@@ -32,6 +32,12 @@ import coc_creation_provenance
 
 SCHEMA_VERSION = 1
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_QUICK_START_DECISION_ID = re.compile(
+    r"^quick-start:[A-Za-z0-9][A-Za-z0-9._:-]{0,95}:attempt-[1-9][0-9]{0,5}$"
+)
+_RUNTIME_OWNED_QUICK_START_DECISION_ID = (
+    "quick-start:campaign-setup:attempt-1"
+)
 
 
 def _load_sibling(name: str, filename: str):
@@ -184,6 +190,17 @@ def _id(value: Any, label: str) -> str:
             f"hyphen, dot, colon, underscore only; no spaces or CJK)."
         )
     return text
+
+
+def _quick_start_decision_id(value: Any) -> str:
+    decision_id = _id(value, "decision_id")
+    if not _QUICK_START_DECISION_ID.fullmatch(decision_id):
+        raise RuntimeOperationError(
+            "campaign.quick_start decision_id must be a semantic retry key "
+            "like quick-start:the-haunting:attempt-1",
+            code="invalid_param",
+        )
+    return decision_id
 
 
 def _read_object(path: Path) -> dict[str, Any]:
@@ -6045,7 +6062,9 @@ def execute_setup_operation(
             "result": {"helpers": coc_api.api_index()},
         }
     if kind == "campaign.quick_start":
-        allowed = {"scenario_id", "pregen_id", "campaign_id", "title"}
+        allowed = {
+            "scenario_id", "pregen_id", "campaign_id", "title", "decision_id",
+        }
         if set(payload) - allowed or "scenario_id" not in payload:
             raise RuntimeOperationError("campaign.quick_start has unsupported or missing fields")
         pregen_value = payload.get("pregen_id")
@@ -6059,16 +6078,29 @@ def execute_setup_operation(
             )
         else:
             pregen_id = _id(pregen_value, "pregen_id")
-        result = coc_starter.quick_start(
-            root,
-            _id(payload.get("scenario_id"), "scenario_id"),
-            pregen_id,
-            campaign_id=(
-                _id(payload["campaign_id"], "campaign_id")
-                if payload.get("campaign_id") is not None else None
-            ),
-            title=(str(payload["title"]) if payload.get("title") else None),
+        decision_id = (
+            _quick_start_decision_id(payload.get("decision_id"))
+            if "decision_id" in payload
+            else _RUNTIME_OWNED_QUICK_START_DECISION_ID
         )
+        try:
+            result = coc_starter.quick_start(
+                root,
+                _id(payload.get("scenario_id"), "scenario_id"),
+                pregen_id,
+                campaign_id=(
+                    _id(payload["campaign_id"], "campaign_id")
+                    if payload.get("campaign_id") is not None else None
+                ),
+                title=(str(payload["title"]) if payload.get("title") else None),
+                decision_id=decision_id,
+            )
+        except coc_starter.QuickStartIdempotencyConflict as exc:
+            raise RuntimeOperationError(
+                str(exc),
+                code="idempotency_conflict",
+                details={"decision_id": decision_id},
+            ) from exc
         state_refs = [f".coc/campaigns/{result['campaign_id']}"]
         if result.get("investigator_id"):
             state_refs.append(
@@ -6078,6 +6110,7 @@ def execute_setup_operation(
             "schema_version": 1,
             "status": "PASS",
             "kind": kind,
+            "decision_id": decision_id,
             "result": result,
             "state_refs": state_refs,
         }

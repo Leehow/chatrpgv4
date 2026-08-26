@@ -402,13 +402,16 @@ def _tool_setup_phase(ctx: Ctx, args: dict[str, Any]):
     ]
 
 def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
-    allowed = {"scenario_id", "pregen_id", "campaign_id", "title"}
+    allowed = {"scenario_id", "pregen_id", "campaign_id", "title", "decision_id"}
     unsupported = sorted(set(args) - allowed)
-    if unsupported:
+    if unsupported or "scenario_id" not in args:
         raise ToolError(
             "invalid_param",
-            "setup.quick_start has unsupported fields: "
-            + ", ".join(unsupported),
+            "setup.quick_start requires scenario_id"
+            + (
+                "; unsupported fields: " + ", ".join(unsupported)
+                if unsupported else ""
+            ),
         )
     pregen_raw = args.get("pregen_id")
     if pregen_raw is not None and not str(pregen_raw).strip():
@@ -419,7 +422,9 @@ def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
         )
     payload = {
         key: args[key]
-        for key in ("scenario_id", "pregen_id", "campaign_id", "title")
+        for key in (
+            "scenario_id", "pregen_id", "campaign_id", "title", "decision_id",
+        )
         if args.get(key) is not None
     }
     try:
@@ -431,11 +436,9 @@ def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
                 "payload": payload,
             },
         )
-    except (
-        coc_runtime_ops.RuntimeOperationError,
-        FileExistsError,
-        FileNotFoundError,
-    ) as exc:
+    except coc_runtime_ops.RuntimeOperationError as exc:
+        raise ToolError(exc.code or "setup_failed", str(exc), details=exc.details) from exc
+    except (FileExistsError, FileNotFoundError) as exc:
         raise ToolError("setup_failed", str(exc)) from exc
     campaign_id = str((receipt.get("result") or {}).get("campaign_id") or "")
     warnings: list[str] = []
@@ -1807,12 +1810,17 @@ def register_operations(registry) -> None:
 )(_tool_setup_phase)
     registry.tool(
     "setup.quick_start",
-    "Create a canonical built-in starter campaign through the shared setup gateway, optionally linking a shipped pregen. Omit pregen_id when the starter's public pregen list is empty; the campaign binds the scenario and returns needs_investigator so existing character creation can finish. A selected campaign id that does not exist yet is the campaign_id for this first mutation — do not call campaign.create first. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans.",
+    "Create a canonical built-in starter campaign through the shared setup gateway, optionally linking a shipped pregen. Omit pregen_id when the starter's public pregen list is empty; the campaign binds the scenario and returns needs_investigator so existing character creation can finish. A selected campaign id that does not exist yet is the campaign_id for this first mutation — do not call campaign.create first. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. Reuse the same semantic decision_id only to recover the exact same request after transport loss. The starter path defaults player-visible play_language to zh-Hans.",
     {
         "scenario_id": {
             "type": "string",
             "required": True,
             "desc": "exact built-in scenario_id returned by setup.inspect",
+        },
+        "decision_id": {
+            "type": "string",
+            "pattern": r"^quick-start:[A-Za-z0-9][A-Za-z0-9._:-]{0,95}:attempt-[1-9][0-9]{0,5}$",
+            "desc": "optional semantic retry identity such as quick-start:the-haunting:attempt-1; retain it unchanged only when retrying the exact same request after an unavailable response. When omitted, canonical runtime owns the stable campaign-scoped semantic decision id",
         },
         "pregen_id": {
             "type": "string",

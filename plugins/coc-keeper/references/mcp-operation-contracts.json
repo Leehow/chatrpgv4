@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:5c0618e9ad2827eae64347614f8eea001a3f21472637fbc933c03519c016acf5",
+  "content_sha256": "sha256:be9903120abcb1b021beb713515d0aa5324ad3fbfcc005f36f10a5c41e63031d",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -5383,7 +5383,7 @@
     "setup.quick_start": {
       "access": "mutation",
       "canonical_operation": "setup.quick_start",
-      "description": "Create a canonical built-in starter campaign through the shared setup gateway, optionally linking a shipped pregen. Omit pregen_id when the starter's public pregen list is empty; the campaign binds the scenario and returns needs_investigator so existing character creation can finish. A selected campaign id that does not exist yet is the campaign_id for this first mutation — do not call campaign.create first. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans. Canonical operation `setup.quick_start`; the result envelope is authoritative.",
+      "description": "Create a canonical built-in starter campaign through the shared setup gateway, optionally linking a shipped pregen. Omit pregen_id when the starter's public pregen list is empty; the campaign binds the scenario and returns needs_investigator so existing character creation can finish. A selected campaign id that does not exist yet is the campaign_id for this first mutation — do not call campaign.create first. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. Reuse the same semantic decision_id only to recover the exact same request after transport loss. The starter path defaults player-visible play_language to zh-Hans. Canonical operation `setup.quick_start`; the result envelope is authoritative.",
       "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
@@ -5394,6 +5394,11 @@
           },
           "campaign_id": {
             "description": "optional stable campaign id; omit to create {scenario_id}-qs. Pass a launcher-selected nonexistent id here as the first mutation. Forbidden when a setup campaign already exists",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "optional semantic retry identity such as quick-start:the-haunting:attempt-1; retain it unchanged only when retrying the exact same request after an unavailable response. When omitted, canonical runtime owns the stable campaign-scoped semantic decision id",
+            "pattern": "^quick-start:[A-Za-z0-9][A-Za-z0-9._:-]{0,95}:attempt-[1-9][0-9]{0,5}$",
             "type": "string"
           },
           "pregen_id": {
@@ -5430,7 +5435,7 @@
           "live_turn"
         ]
       },
-      "summary": "Create a canonical built-in starter campaign through the shared setup gateway, optionally linking a shipped pregen. Omit pregen_id when the starter's public pregen list is empty; the campaign binds the scenario and returns needs_investigator so existing character creation can finish. A selected campaign id that does not exist yet is the campaign_id for this first mutation — do not call campaign.create first. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. The starter path defaults player-visible play_language to zh-Hans."
+      "summary": "Create a canonical built-in starter campaign through the shared setup gateway, optionally linking a shipped pregen. Omit pregen_id when the starter's public pregen list is empty; the campaign binds the scenario and returns needs_investigator so existing character creation can finish. A selected campaign id that does not exist yet is the campaign_id for this first mutation — do not call campaign.create first. Do not call this when a setup campaign already exists; omitting campaign_id creates {scenario_id}-qs. Reuse the same semantic decision_id only to recover the exact same request after transport loss. The starter path defaults player-visible play_language to zh-Hans."
     },
     "state.advance_time": {
       "access": "mutation",

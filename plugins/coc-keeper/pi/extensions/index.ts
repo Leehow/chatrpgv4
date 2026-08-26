@@ -34,6 +34,7 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   asObject,
@@ -3641,6 +3642,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let currentSceneBindingFacts: SceneBindingFacts | null = null;
   let currentCombatBindingFacts: CombatBindingFacts | null = null;
   let faultRecoveryOperation: string | null = null;
+  let noSelectorQuickStartRecovery: {
+    params: JsonObject;
+    retriesRemaining: number;
+  } | null = null;
   let applyKpActiveTools = (): void => {};
   let terminalizeTurnProcessingFault = (
     _fault: JsonObject,
@@ -4743,6 +4748,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     // while pending) and startupResumeToolError still hard-rejects non-resume.
     const tools = openingContinuationGate.hasPendingFinalizedOutput()
       ? []
+      : noSelectorQuickStartRecovery !== null
+        ? noSelectorQuickStartRecovery.retriesRemaining > 0
+          ? [typedToolNameForOperation("setup.quick_start")]
+          : []
       : startupSilentResumeQuarantine !== null
         // Silent settled startup resume: the quarantined remainder of the
         // auto-open agent turn must not reach any canonical tool.
@@ -5278,6 +5287,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         : null,
     );
     openingContinuationGate.reset();
+    noSelectorQuickStartRecovery = null;
     effectiveTypedRole = launcherRole ?? "setup";
     openingContinuationGate.setEffectiveTypedRole(effectiveTypedRole);
     nonRetryableFailureCircuit.reset();
@@ -6348,6 +6358,31 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       throw new Error(startupResumeError);
     }
     const startupResumeAttempt = exactStartupResumeInvocation(name, params);
+    const noSelectorQuickStartRecoveryAttempt = (
+      launcherRole === null
+      && typedDefinition?.operation === "setup.quick_start"
+      && noSelectorQuickStartRecovery !== null
+    );
+    if (noSelectorQuickStartRecoveryAttempt) {
+      const retained = noSelectorQuickStartRecovery;
+      if (
+        retained === null
+        || retained.retriesRemaining !== 1
+        || !isDeepStrictEqual(params, retained.params)
+      ) {
+        return hostFailureResult(hostBindingFailure(
+          "setup.quick_start",
+          new ToolContractProjectionError(
+            "quick_start_recovery_mismatch",
+            "the one retained quick-start recovery must repeat the exact semantic request",
+            { operation: "setup.quick_start" },
+          ),
+        ));
+      }
+      retained.retriesRemaining = 0;
+      refreshTypedToolDefinition("setup.quick_start");
+      applyKpActiveTools();
+    }
     const startupFreshQuickStartAttempt = exactStartupFreshQuickStartInvocation(
       name,
       params,
@@ -6812,6 +6847,24 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         if (visible !== null) return result(visible);
         throw error;
       }
+      if (
+        launcherRole === null
+        && typedDefinition?.operation === "setup.quick_start"
+        && !(error instanceof CanonicalToolError)
+        && objectOrNull(params.arguments)?.campaign_id === undefined
+        && typeof objectOrNull(params.arguments)?.decision_id === "string"
+        && noSelectorQuickStartRecovery === null
+      ) {
+        noSelectorQuickStartRecovery = {
+          params: structuredClone(params),
+          retriesRemaining: 1,
+        };
+        refreshTypedToolDefinition("setup.quick_start");
+        applyKpActiveTools();
+      } else if (noSelectorQuickStartRecoveryAttempt) {
+        refreshTypedToolDefinition("setup.quick_start");
+        applyKpActiveTools();
+      }
       if (startupFreshSetupAttempt) {
         terminalizeStartupResume(
           error instanceof CanonicalToolError
@@ -7070,6 +7123,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           setupVisibleOutput,
         )
       );
+      if (
+        noSelectorQuickStartRecoveryAttempt
+        && openingObservation.accepted
+        && (
+          openingObservation.reason === "fresh_quick_start_character_setup"
+          || openingObservation.reason
+            === "fresh_quick_start_pregen_handoff_decision"
+        )
+      ) {
+        noSelectorQuickStartRecovery = null;
+        refreshTypedToolDefinition("setup.quick_start");
+        applyKpActiveTools();
+      }
       const rawPdfBindRun = autoDispatchPiRawPdfBindBundle(
         rawPdfBindBundleDispatchDeps(ctx, epoch), name, value, params,
       );
@@ -7853,9 +7919,33 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       projected.required = (projected.required ?? []).filter(
         (key) => key !== "root" && key !== "campaign",
       );
+      if (!projected.required.includes("decision_id")) {
+        projected.required.push("decision_id");
+      }
       if (projected.properties !== undefined) {
         delete projected.properties.root;
         delete projected.properties.campaign;
+        const decisionSchema = objectOrNull(
+          projected.properties.decision_id,
+        ) ?? {};
+        projected.properties.decision_id = {
+          ...decisionSchema,
+          pattern: (
+            "^quick-start:[A-Za-z0-9][A-Za-z0-9._:-]{0,95}:"
+            + "attempt-[1-9][0-9]{0,5}$"
+          ),
+        };
+        const retainedArguments = objectOrNull(
+          noSelectorQuickStartRecovery?.params.arguments,
+        );
+        if (retainedArguments !== null) {
+          for (const [key, value] of Object.entries(retainedArguments)) {
+            const property = objectOrNull(projected.properties[key]);
+            if (property !== null) {
+              projected.properties[key] = { ...property, const: value };
+            }
+          }
+        }
       }
       parameters = projected;
     } else if (

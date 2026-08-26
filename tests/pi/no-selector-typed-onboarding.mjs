@@ -95,6 +95,7 @@ const canonicalCall = async (name, params) => {
       scenario_id: "the-haunting",
       pregen_id: investigator,
       title: "The Haunting",
+      decision_id: "quick-start:the-haunting:attempt-1",
     });
     return {
       ok: true,
@@ -343,12 +344,13 @@ const assertNoGenericWrappers = (names) => {
   ]) assert.ok(!names.includes(name), name);
 };
 
-async function assertRoleNullResumeGateCase(
+async function assertRoleNullResumeGateCase({
   label,
   resumeDataForCampaign,
   expectFirstResumeAccepted = false,
   omitQuickStartCampaignId = false,
-) {
+  loseQuickStartResponseAfterCommit = false,
+}) {
   const caseCampaign = `no-selector-${label}`;
   const caseInvestigator = `investigator-${label}`;
   const caseWorkspace = mkdtempSync(
@@ -362,11 +364,13 @@ async function assertRoleNullResumeGateCase(
   const caseActive = [];
   const caseAppended = [];
   const caseCalls = [];
+  let durableQuickStartReceipt = null;
+  let durableQuickStartMutations = 0;
   const caseCanonical = async (name, params) => {
     assert.equal(name, "coc_invoke");
     caseCalls.push(structuredClone(params));
     if (params.operation === "setup.quick_start") {
-      return {
+      const receipt = {
         ok: true,
         tool: "setup.quick_start",
         data: {
@@ -399,6 +403,17 @@ async function assertRoleNullResumeGateCase(
           ],
         },
       };
+      if (loseQuickStartResponseAfterCommit) {
+        if (durableQuickStartReceipt !== null) {
+          return structuredClone(durableQuickStartReceipt);
+        }
+        durableQuickStartMutations += 1;
+        durableQuickStartReceipt = structuredClone(receipt);
+        throw new Error(
+          "simulated setup.quick_start response unavailable after durable commit",
+        );
+      }
+      return receipt;
     }
     if (params.operation === "setup.complete") {
       return {
@@ -513,19 +528,74 @@ async function assertRoleNullResumeGateCase(
       content: [{ type: "text", text: "开始快速开桌。" }],
     },
   });
-  const quickResult = JSON.parse((await caseTools.get("coc_setup_quick_start").execute(
+  const quickExecution = caseTools.get("coc_setup_quick_start").execute(
     `quick-${label}`,
     {
       ...(omitQuickStartCampaignId ? {} : { campaign_id: caseCampaign }),
       scenario_id: "the-haunting",
       pregen_id: caseInvestigator,
       title: "The Haunting",
+      decision_id: "quick-start:the-haunting:attempt-1",
     },
     undefined,
     undefined,
     caseCtx,
-  )).content[0].text);
-  assert.equal(quickResult.ok, true, `${label}: ${JSON.stringify(quickResult)}`);
+  );
+  if (loseQuickStartResponseAfterCommit) {
+    await assert.rejects(
+      quickExecution,
+      /response unavailable after durable commit/,
+    );
+    assert.equal(durableQuickStartReceipt.data.result.campaign_id, caseCampaign);
+    assert.equal(
+      caseCalls.filter((call) => call.operation === "setup.quick_start").length,
+      1,
+    );
+    assert.deepEqual(
+      caseActive.at(-1),
+      ["coc_setup_quick_start"],
+      `${label}: ${JSON.stringify(caseActive)}`,
+    );
+    const callsBeforeMismatch = caseCalls.length;
+    const mismatch = JSON.parse((await caseTools.get("coc_setup_quick_start").execute(
+      `quick-mismatch-${label}`,
+      {
+        scenario_id: "the-haunting",
+        pregen_id: caseInvestigator,
+        title: "The Haunting",
+        decision_id: "quick-start:the-haunting:attempt-2",
+      },
+      undefined,
+      undefined,
+      caseCtx,
+    )).content[0].text);
+    assert.equal(mismatch.ok, false, `${label}: ${JSON.stringify(mismatch)}`);
+    assert.equal(mismatch.error.code, "quick_start_recovery_mismatch", label);
+    assert.equal(caseCalls.length, callsBeforeMismatch, label);
+    const replayResult = JSON.parse((await caseTools.get("coc_setup_quick_start").execute(
+      `quick-replay-${label}`,
+      {
+        scenario_id: "the-haunting",
+        pregen_id: caseInvestigator,
+        title: "The Haunting",
+        decision_id: "quick-start:the-haunting:attempt-1",
+      },
+      undefined,
+      undefined,
+      caseCtx,
+    )).content[0].text);
+    assert.equal(replayResult.ok, true, `${label}: ${JSON.stringify(replayResult)}`);
+    assert.equal(durableQuickStartMutations, 1, label);
+    assert.equal(
+      caseCalls.filter((call) => call.operation === "setup.quick_start").length,
+      2,
+      label,
+    );
+  }
+  if (!loseQuickStartResponseAfterCommit) {
+    const quickResult = JSON.parse((await quickExecution).content[0].text);
+    assert.equal(quickResult.ok, true, `${label}: ${JSON.stringify(quickResult)}`);
+  }
   if (omitQuickStartCampaignId) {
     const routeAudits = caseAppended
       .filter(({ type }) => type === "coc-opening-setup-route-audit")
@@ -698,6 +768,10 @@ try {
   const quickStart = tools.get("coc_setup_quick_start");
   assert.ok(!quickStart.parameters.properties.root);
   assert.ok(!quickStart.parameters.properties.campaign);
+  assert.ok(quickStart.parameters.required.includes("decision_id"));
+  assert.ok(new RegExp(
+    quickStart.parameters.properties.decision_id.pattern,
+  ).test("quick-start:the-haunting:attempt-1"));
 
   const callsBeforeForge = clientCalls.length;
   const forged = await quickStart.execute(
@@ -708,6 +782,7 @@ try {
       scenario_id: "the-haunting",
       pregen_id: investigator,
       title: "The Haunting",
+      decision_id: "quick-start:the-haunting:attempt-1",
     },
     undefined,
     undefined,
@@ -721,6 +796,7 @@ try {
     scenario_id: "the-haunting",
     pregen_id: investigator,
     title: "The Haunting",
+    decision_id: "quick-start:the-haunting:attempt-1",
   });
   const complete = tools.get("coc_setup_complete");
   assert.deepEqual(
@@ -1042,32 +1118,27 @@ try {
     0,
   );
 
-  for (const [
-    label,
-    resumeDataForCampaign,
-    expectFirstResumeAccepted,
-    omitQuickStartCampaignId,
-  ] of [
-    [
-      "missing-next-operations",
-      (caseCampaign) => ({
+  for (const testCase of [
+    {
+      label: "missing-next-operations",
+      resumeDataForCampaign: (caseCampaign) => ({
         schema_version: 1,
         campaign_id: caseCampaign,
         mode: "table_opening",
       }),
-    ],
-    [
-      "wrong-next-operation",
-      (caseCampaign) => ({
+    },
+    {
+      label: "wrong-next-operation",
+      resumeDataForCampaign: (caseCampaign) => ({
         schema_version: 1,
         campaign_id: caseCampaign,
         mode: "table_opening",
         next_operations: ["scene.context"],
       }),
-    ],
-    [
-      "duplicate-next-operation",
-      (caseCampaign) => ({
+    },
+    {
+      label: "duplicate-next-operation",
+      resumeDataForCampaign: (caseCampaign) => ({
         schema_version: 1,
         campaign_id: caseCampaign,
         mode: "table_opening",
@@ -1076,43 +1147,49 @@ try {
           "evidence.table_opening",
         ],
       }),
-    ],
-    [
-      "wrong-mode",
-      (caseCampaign) => ({
+    },
+    {
+      label: "wrong-mode",
+      resumeDataForCampaign: (caseCampaign) => ({
         schema_version: 1,
         campaign_id: caseCampaign,
         mode: "awaiting_player",
         next_operations: ["evidence.table_opening"],
       }),
-    ],
-    [
-      "wrong-campaign",
-      (caseCampaign) => ({
+    },
+    {
+      label: "wrong-campaign",
+      resumeDataForCampaign: (caseCampaign) => ({
         schema_version: 1,
         campaign_id: `${caseCampaign}-wrong`,
         mode: "table_opening",
         next_operations: ["evidence.table_opening"],
       }),
-    ],
-    [
-      "valid-role-transition",
-      (caseCampaign) => ({
+    },
+    {
+      label: "valid-role-transition",
+      resumeDataForCampaign: (caseCampaign) => ({
         schema_version: 1,
         campaign_id: caseCampaign,
         mode: "table_opening",
         next_operations: ["evidence.table_opening"],
       }),
-      true,
-      true,
-    ],
+      expectFirstResumeAccepted: true,
+      omitQuickStartCampaignId: true,
+    },
+    {
+      label: "lost-generated-id-quick-start-response",
+      resumeDataForCampaign: (caseCampaign) => ({
+        schema_version: 1,
+        campaign_id: caseCampaign,
+        mode: "awaiting_player",
+        next_operations: ["interpret_current_player_message"],
+      }),
+      omitQuickStartCampaignId: true,
+      loseQuickStartResponseAfterCommit: true,
+    },
   ]) {
-    await assertRoleNullResumeGateCase(
-      label,
-      resumeDataForCampaign,
-      expectFirstResumeAccepted === true,
-      omitQuickStartCampaignId === true,
-    );
+    await assertRoleNullResumeGateCase(testCase);
   }
 } finally {
   process.exit = originalExit;

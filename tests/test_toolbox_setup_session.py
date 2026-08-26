@@ -625,6 +625,95 @@ def test_quick_start_on_existing_campaign_returns_steered_tool_error(tmp_path):
         },
     )
     assert envelope["ok"] is False
-    assert envelope["error"]["code"] == "setup_failed"
+    assert envelope["error"]["code"] == "idempotency_conflict"
     assert "already exists" in envelope["error"]["message"]
-    assert "fresh campaign_id" in envelope["error"]["message"]
+    assert "reusable quick-start receipt" in envelope["error"]["message"]
+
+
+def test_no_id_quick_start_replays_durable_receipt_after_lost_response(
+    tmp_path, monkeypatch,
+):
+    published = 0
+    runtime_starter = coc_toolbox.coc_runtime_ops.coc_starter
+    real_publish = runtime_starter._publish_campaign_generation
+
+    def counted_publish(*args, **kwargs):
+        nonlocal published
+        published += 1
+        return real_publish(*args, **kwargs)
+
+    monkeypatch.setattr(
+        runtime_starter,
+        "_publish_campaign_generation",
+        counted_publish,
+    )
+    arguments = {
+        "scenario_id": "the-haunting",
+        "pregen_id": "thomas-hayes",
+        "decision_id": "quick-start:the-haunting:attempt-1",
+    }
+
+    # The caller loses this successful response after the canonical mutation
+    # committed, then retries the exact same semantic intent.
+    lost = coc_toolbox.run_tool(
+        "setup.quick_start", tmp_path, None, arguments,
+    )
+    assert lost["ok"] is True, lost
+    replayed = coc_toolbox.run_tool(
+        "setup.quick_start", tmp_path, None, arguments,
+    )
+
+    assert replayed == lost
+    assert replayed["data"]["result"]["campaign_id"] == "the-haunting-qs"
+    assert replayed["data"]["decision_id"] == arguments["decision_id"]
+    assert published == 1
+
+    conflict = coc_toolbox.run_tool(
+        "setup.quick_start",
+        tmp_path,
+        None,
+        {
+            **arguments,
+            "decision_id": "quick-start:the-haunting:attempt-2",
+        },
+    )
+    assert conflict["ok"] is False
+    assert conflict["error"]["code"] == "idempotency_conflict"
+
+    changed_intent = coc_toolbox.run_tool(
+        "setup.quick_start",
+        tmp_path,
+        None,
+        {**arguments, "title": "A different intent"},
+    )
+    assert changed_intent["ok"] is False
+    assert changed_intent["error"]["code"] == "idempotency_conflict"
+
+
+def test_omitted_decision_id_uses_runtime_owned_semantic_replay(tmp_path):
+    arguments = {
+        "scenario_id": "the-haunting",
+        "pregen_id": "thomas-hayes",
+        "campaign_id": "legacy-card-quick-start",
+    }
+
+    first = coc_toolbox.run_tool(
+        "setup.quick_start", tmp_path, None, arguments,
+    )
+    replayed = coc_toolbox.run_tool(
+        "setup.quick_start", tmp_path, None, arguments,
+    )
+
+    assert first["ok"] is True, first
+    assert replayed == first
+    assert first["data"]["decision_id"] == (
+        "quick-start:campaign-setup:attempt-1"
+    )
+    changed = coc_toolbox.run_tool(
+        "setup.quick_start",
+        tmp_path,
+        None,
+        {**arguments, "title": "Different legacy intent"},
+    )
+    assert changed["ok"] is False
+    assert changed["error"]["code"] == "idempotency_conflict"
