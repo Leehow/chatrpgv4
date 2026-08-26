@@ -54,17 +54,26 @@ snapshot or `toolbox-asset-heads.json` as live Assets. Buys use
 simulate a purchase with sequential `state.cash_spend` then `state.item_grant`.
 
 Long-term story memory lives under `.coc/campaigns/<id>/memory/` (see
-`../../references/memory-protocol.md`). Ordinary play reads and writes it only
-through the typed memory operations: `memory.search` (query on the context
-surface; structured `kinds`/`statuses`/entity filters, results carry `privacy`
-labels), `memory.write` (typed card write, idempotent via `decision_id`), and
-`memory.resolve_hook` (hook/foreshadowing lifecycle transition with
-`resolved_at` evidence, idempotent via `decision_id`). Every card requires a
-`kind` from the closed enum; cards without one fail validation
-(clean-slate — no migrations) and are reported in `memory/index.json`
-`invalid_cards`. Memory is never authoritative truth: HP, clues, items, time,
-and dice stay with `state.*` / `rules.*`; do not hand-edit live card files
-mid-play.
+`../../references/memory-protocol.md`). The single canonical Pi-Coc path is
+the Git-backed temporal memory of schema generation `temporal-memory-1`:
+the sidecar Git history is the immutable record of everything that happened,
+SQLite at `memory/history-projection.db` is a deletable, rebuildable
+projection (no migration, no dual reader, no fallback), and
+`memory/temporal/*.jsonl` episodes and bitemporal assertions are the
+canonical advisory temporal records. Ordinary play uses only the canonical
+typed operations: `history.query` / `history.diff` (read-only history reads
+with semantic timeline/turn selectors), `memory.recall` (deterministic
+candidate narrowing) and `memory.adjudicate` (KP adjudication, idempotent
+via `decision_id`), plus the worldline operations `timeline.fork_request` /
+`timeline.fork_confirm` / `timeline.confluence_query` /
+`timeline.confluence_confirm`. Memory is never authoritative truth: HP,
+clues, items, time, and dice stay with `state.*` / `rules.*`; recall returns
+advisory candidates and the KP judges relevance semantically. The older
+Markdown card store and its `memory.search` / `memory.write` /
+`memory.resolve_hook` tools are non-canonical legacy technical debt, not an
+alternate normal path — their compatibility surfaces are still registered
+in code and nothing has been deleted or migrated yet, so do not build new
+play on them — and live memory files are never hand-edited mid-play.
 
 ## Operations
 

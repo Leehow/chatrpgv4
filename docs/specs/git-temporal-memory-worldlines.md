@@ -356,12 +356,20 @@
 
 ## Further Notes
 
-当前实现状态（截至本文档撰写时；不宣称未发生的完成）：
+当前实现状态（不宣称未发生的完成）：
 
-- **契约层已完成**（worktree `memory-contract`）：`plugins/coc-keeper/scripts/coc_temporal_memory_contract.py`，即本文档"Data and Contract Decisions"的冻结来源（`temporal-memory-1`）。尚未合入主整合分支。
-- **时间线 DAG 已完成**（worktree `timeline-dag`）：在已合入主仓的 slice1 基础（`coc_git_history.py` / `coc_git_history_verify.py`，finalize 即 commit）之上实现多分支时间线与 fork/confluence 提交结构。
-- **时态记忆 facade 已完成**（worktree `semantic-memory`）：`coc_temporal_memory.py` 提供 temporal facade，衔接契约与运行时。
-- **历史投影正在实现中**（worktree `histproj-v2`）：SQLite 权威历史投影与 `history.query` / `history.diff`。
-- 其余任务（memory-extraction、memory-retrieval、timeline-fork、cross-timeline-memory、timeline-confluence、scope-and-privacy、host-integration、deterministic-verification、plugin-acceptance、closeout）尚未开始或未完成。
+- **已完成并合入主分支**（均配确定性 pytest，含幂等/重建等价/隐私投影）：
+  - `memory-contract`：`coc_temporal_memory_contract.py`，即本文档 "Data and Contract Decisions" 的冻结来源（`temporal-memory-1`）。
+  - `timeline-dag`：在 slice1 基础（`coc_git_history.py` / `coc_git_history_verify.py`，finalize 即 commit）之上实现多分支时间线与 fork/confluence 提交结构。
+  - `history-projection`：SQLite 权威历史投影（`coc_history_projection*.py`）支撑 `history.query` / `history.diff`。
+  - `semantic-memory`：`coc_temporal_memory.py` temporal facade（episode 确定性生成、assertion 图、supersession、`memory/temporal/*.jsonl` 存储）。
+  - `memory-extraction`：`coc_memory_extraction.py` 后台提炼与显式 backlog。
+  - `memory-retrieval`：`coc_temporal_retrieval.py` hot/warm/cold 确定性收窄（`memory.recall`）。
+  - `cross-timeline-memory`：`coc_timeline_memory_transfer.py` transfer 核心。
+  - `timeline-confluence`：`coc_timeline_confluence.py` 冲突枚举/裁决校验。
+  - `scope-and-privacy`：跨战役 `same_subject_as` / `same_entity_as` 绑定与 player-safe / keeper-only / system-only 确定性投影。
+  - typed 操作面已注册：`history.query` / `history.diff` / `memory.recall` / `memory.adjudicate`（`coc_operation_temporal_history.py`）与 `timeline.fork_request` / `fork_confirm` / `confluence_query` / `confluence_confirm`（`coc_operation_timeline.py`），经 OperationRegistry/toolbox 暴露；`session.resume` 返回有界 temporal capsule（`test_temporal_resume.py`）。
+  - 路由文档已把 `temporal-memory-1` 写为唯一 canonical 记忆路径（`coc-campaign-state` skill 与 `references/memory-protocol.md`）；旧 Markdown 卡片与 `memory.search` / `memory.write` / `memory.resolve_hook` 已标注为非 canonical 遗留技术债（兼容面仍在代码中，其退役是独立切片）。
+- **尚未完成**：`host-integration`（正常游玩中 KP 经常规技能/发现面使用全部 canonical 操作、玩家自然语言入口的真实验证）、`deterministic-verification` 收尾 sweep、`plugin-acceptance`（fresh campaign 的 Pi-Coc RPC 真实游玩验收）、`closeout`。
 - **整个特性当前状态为 `unintegrated`**：按 Feature Integration 纪律，在正常 Pi-Coc 真实游玩到达全部 canonical 消费面（KP 经正常技能发现并使用 `memory.recall` / `timeline.*` / `history.*`，玩家经自然语言触达 fork/rewind，战报呈现 fork/transfer/confluence）之前，不得宣称产品支持或验收完成。组件测试通过只证明组件契约，不证明可发现性与集成。
 - 本文档与 `docs/specs/temporal-memory-contract.md`（契约规格）的关系：契约文档冻结数据层细节；本文档是覆盖产品意图、架构、操作面、验收与计划映射的**完整产品规格**。两者冲突时以本文档的产品层决策为准，数据层细节以契约文档为准。

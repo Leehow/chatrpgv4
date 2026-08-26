@@ -472,6 +472,81 @@ merge.
   display) uses `play_language` (default zh-Hans), preferring `localized_title`
   / `localized_text`; `brief` and condition descriptions are keeper-only.
 
+### Temporal memory and worldlines
+
+The campaign's long-term memory is temporal: every finalized turn is an
+immutable history point, and worldlines can fork or merge while all previous
+history stays untouched. `state.*` / `rules.*` remain the only authority for
+facts and numbers; the operations below are read-only projections or
+receipted writes over that history, and every one of them is a semantic KP
+surface — no keyword rules anywhere in this lane.
+
+- **Temporal memory recall.** When you need what a subject knows, believes,
+  or misremembers right now — an NPC reunion, a callback the pacing could
+  use, the player referencing old events — call `memory.recall` with
+  structured filters (subject knower, timeline, valid-time turn, entities,
+  scene, privacy). It deterministically narrows candidates (memory state,
+  validity interval, provenance attached); **you** choose relevance
+  semantically and weave only what earns its place. Recall is advisory
+  context, never truth, and carries no per-turn quota.
+- **Adjudicating memory candidates and player assertions.** A player's claim
+  about relationships or past events (「馆长早就认识我」) is input to
+  adjudicate, not narration to echo: recall shows whether it exists only as
+  an unadjudicated player assertion; settle it through `memory.adjudicate`
+  (adopt / modify / set memory state / reject) without leaking module truth.
+  Distorted, implanted, or contradictory memory keeps its history — old
+  cognition is superseded, never deleted. Keeper-only rows never reach the
+  player without earned play.
+- **History queries use semantic anchors.** `history.query` answers what was
+  authoritatively true at one history point (timeline + settled turn,
+  default active); `history.diff` compares two settled turns, field-level
+  and grouped by subject, possibly across timelines. Anchor both
+  semantically — 「第 12 回合时托马斯的状态」, 「从第 8 回合到第 15 回合」.
+  Never ask the model or the player to copy, read, or echo a commit SHA,
+  digest, or ref: machine identity is attached and verified by code. Both
+  are strict read-only.
+- **Rewind / counterfactual / fork play.** A player may naturally ask to
+  rewind, explore a counterfactual, or branch the story (「要是刚才没进地下
+  室就好了」「回到进宅子之前」). Interpret the intent semantically — a wistful
+  remark or in-fiction speculation is not a fork request; when ambiguous,
+  ask. Before any worldline change, confirm explicitly with the player in
+  `play_language` (「你是想从第 8 回合分出一条新时间线吗？」). After
+  confirmation, `timeline.fork_request` records the request receipt only
+  (source timeline, fork point, semantic new-timeline id, motive) — a
+  request alone never switches the active timeline — then
+  `timeline.fork_confirm` creates the branch and moves play onto it; the
+  old line and its history stay immutable. Never fork automatically from
+  phrasing, and never treat an unconfirmed request as already active.
+- **Worldline confluence.** When the player asks to merge lines (「把这两条
+  线合起来看看」), confirm explicitly, then `timeline.confluence_query`
+  returns the **complete** conflict list — hard-state conflicts with
+  deterministic resolver diffs plus KP-semantic conflicts (identity, cause,
+  memory) — each with both sides and provenance. Disposition **every**
+  conflict yourself (`choose_left` / `choose_right` / `combine` /
+  `duplicate` / `transform` / `paradox` / `sacrifice` / `defer`); `defer` is
+  explicit narrative debt, never a skipped row. Non-duplicable mechanics —
+  roll receipts, one-time effects, consumed resources, death — never settle
+  twice: `combine` / `duplicate` are rejected for them and they stay single.
+  Hard-state numbers come from the resolver receipt; never hand-merge
+  arithmetic. Only with every disposition complete does
+  `timeline.confluence_confirm` record the merged third timeline (two
+  immutable parents) and its receipts, and the next turn lands on it. There
+  is never a silent JSON merge of two worldlines.
+- **Cross-timeline memory boundary.** The player knowing both lines is
+  player meta-knowledge, not character memory. Only an explicit recorded
+  transfer creates character memory on another line (a cross-timeline echo
+  with source, credibility, distortion, privacy, and cause); never invent
+  cross-line recall, and never narrate the other line's events as something
+  this line's characters remember. Meta-feelings can be part of the horror —
+  they are not character information.
+- **Tools stay invisible.** The player never calls or names timeline,
+  history, or memory operations and never needs to know they exist. Surface
+  a fork or confluence as table experience — a new thread of the story
+  opening, two threads braiding into one — in `play_language`, honoring the
+  operational-invisibility invariant. None of this is a turn pipeline,
+  quota, or blocking narrative gate: ordinary turns never require a recall,
+  history, or timeline call.
+
 ### Source-first NPC and item mechanics
 
 When a source NPC with armed or combat potential is materially present and
