@@ -402,10 +402,20 @@ async function assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign
       };
     }
     if (params.operation === "session.resume") {
+      const resumeAttempt = caseCalls.filter(
+        (call) => call.operation === "session.resume",
+      ).length;
       return {
         ok: true,
         tool: "session.resume",
-        data: resumeDataForCampaign(caseCampaign),
+        data: resumeAttempt === 1
+          ? resumeDataForCampaign(caseCampaign)
+          : {
+              schema_version: 1,
+              campaign_id: caseCampaign,
+              mode: "table_opening",
+              next_operations: ["evidence.table_opening"],
+            },
       };
     }
     throw new Error(`malformed resume ${label} escaped to ${params.operation}`);
@@ -537,6 +547,29 @@ async function assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign
     /session.resume|terminally blocked|hard-gated/,
   );
   assert.equal(caseCalls.length, callsBeforeBlockedPlay, label);
+
+  const callsBeforeRetry = caseCalls.length;
+  const retried = JSON.parse((await caseTools.get("coc_session_resume").execute(
+    `resume-retry-${label}`,
+    {},
+    undefined,
+    undefined,
+    caseCtx,
+  )).content[0].text);
+  assert.equal(retried.ok, true, `${label}: ${JSON.stringify(retried)}`);
+  assert.equal(caseCalls.length, callsBeforeRetry + 1, label);
+  assert.deepEqual(caseCalls.at(-1), {
+    operation: "session.resume",
+    root: path.resolve(caseWorkspace),
+    campaign: caseCampaign,
+    arguments: {},
+  }, label);
+  const postRetryTools = caseActive.at(-1);
+  assertNoGenericWrappers(postRetryTools);
+  assert.ok(postRetryTools.includes("coc_evidence_table_opening"), label);
+  assert.ok(!postRetryTools.includes("coc_setup_quick_start"), label);
+  assert.ok(!postRetryTools.includes("coc_setup_complete"), label);
+  assert.ok(!postRetryTools.includes("coc_state_journal"), label);
 }
 
 try {

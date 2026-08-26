@@ -5337,9 +5337,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   ): boolean => {
     const gate = startupResumeGate;
     const args = objectOrNull(params.arguments);
+    const retryableRoleNullHandoff = (
+      gate?.origin === "role_null_handoff"
+      && gate.phase === "terminal_failure"
+    );
     return (
       gate !== null
-      && gate.phase === "pending"
+      && (gate.phase === "pending" || retryableRoleNullHandoff)
       && isCanonicalInvokeSurface(name)
       && params.operation === "session.resume"
       && params.root === gate.workspaceRoot
@@ -5354,9 +5358,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   ): JsonObject => {
     const gate = startupResumeGate;
     const args = objectOrNull(params.arguments);
+    const retryableRoleNullHandoff = (
+      gate?.origin === "role_null_handoff"
+      && gate.phase === "terminal_failure"
+    );
     if (
       gate === null
-      || gate.phase !== "pending"
+      || (gate.phase !== "pending" && !retryableRoleNullHandoff)
       || !isCanonicalInvokeSurface(name)
       || params.operation !== "session.resume"
       || args === null
