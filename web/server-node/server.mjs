@@ -1721,14 +1721,18 @@ function readBundlePageCount(bundleDir) {
   return typeof pageCount === "number" && pageCount > 0 ? pageCount : null;
 }
 
-function buildInspectorRequest(storedPath, fileSha256, bundleDir, bundleId, title, indices) {
+function buildInspectorRequest(storedPath, fileSha256, bundleDir, bundleId, title, indices, stableSourceId) {
   return {
     schema_version: 1,
     contract_id: INGEST_REQUEST_CONTRACT,
     mode: "full_parse_batch",
     source: {
       path: storedPath,
-      source_id: `pdf:${bundleId}`,
+      // Later windows register into the same content-addressed module root,
+      // so every window's bundle manifest must carry the file-stable
+      // source_id (pdf:<slug>), never the per-window bundle id — otherwise
+      // register-bundle rejects the window as a foreign source.
+      source_id: stableSourceId,
       title,
       file_sha256: fileSha256,
     },
@@ -1831,6 +1835,7 @@ async function ingestWindowWorker(payload) {
       payload.bundle_id,
       payload.title,
       payload.pdf_indices,
+      `pdf:${payload.slug}`,
     ),
   );
   // Same OCR-skip degradation as the foreground window.
@@ -1855,6 +1860,7 @@ async function ingestWindowWorker(payload) {
         payload.bundle_id,
         payload.title,
         reduced,
+        `pdf:${payload.slug}`,
       ),
     );
   }
@@ -1962,7 +1968,7 @@ async function runIngest(storedPath, fileSha256, requestedIndices) {
   }
 
   let routerResult = await runPdfInspector(
-    buildInspectorRequest(storedPath, fileSha256, bundleDir, bundleId, title, indices),
+    buildInspectorRequest(storedPath, fileSha256, bundleDir, bundleId, title, indices, `pdf:${slug}`),
   );
   // Graceful degradation: image pages (cover/art) that need OCR are skipped
   // and the text-layer pages are re-parsed. The repository still never OCRs.
@@ -1998,7 +2004,7 @@ async function runIngest(storedPath, fileSha256, requestedIndices) {
     }
     skippedOcr = [...ocrSet].sort((a, b) => a - b);
     routerResult = await runPdfInspector(
-      buildInspectorRequest(storedPath, fileSha256, bundleDir, bundleId, title, reduced),
+      buildInspectorRequest(storedPath, fileSha256, bundleDir, bundleId, title, reduced, `pdf:${slug}`),
     );
   }
   if (routerResult.status !== "ok") {
