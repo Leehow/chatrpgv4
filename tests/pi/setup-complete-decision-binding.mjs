@@ -5,12 +5,13 @@ import process from "node:process";
 import { embeddedPiFile } from "./_lib/embedded-pi-path.mjs";
 
 const root = path.resolve(process.argv[2] || process.cwd());
+const dependencyRoot = path.resolve(process.env.PI_TEST_REPO_ROOT || root);
 const extension = await import(path.join(
   root,
   "plugins/coc-keeper/pi/extensions/index.ts",
 ));
 const { validateToolCall } = await import(embeddedPiFile(
-  root,
+  dependencyRoot,
   "pi-ai",
   "dist/utils/validation.js",
 ));

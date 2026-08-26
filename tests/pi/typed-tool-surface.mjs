@@ -159,7 +159,7 @@ test("missing required / extra field are visible on the model schema", () => {
   assert.ok(!schema.properties.operation);
 });
 
-test("setup/play hide generic wrappers; unset role keeps them (legacy)", () => {
+test("utility-level explicit null preserves legacy wrappers while typed roles hide them", () => {
   const legacy = domain.activeToolsForPhase("live_turn", null);
   assert.ok(legacy.includes("coc_rules"), "legacy unset role keeps generic wrappers");
   assert.ok(!legacy.includes("coc_discover"));
@@ -249,6 +249,16 @@ test("exact typed execute wraps the one operation without a second guess", () =>
   });
   assert.equal(allowed.ok, true);
   assert.equal(allowed.canonical_operation, "rules.roll");
+  assert.equal(
+    domain.evaluateExecuteAcl({
+      toolName: "coc_setup_quick_start",
+      operation: "setup.quick_start",
+      phase: "cold_start",
+      role: "play",
+    }).code,
+    "role_forbidden",
+    "the host-local effective role must close stale setup tools even when env role is null",
+  );
   assert.equal(
     domain.evaluateExecuteAcl({
       toolName: "coc_rules_roll",

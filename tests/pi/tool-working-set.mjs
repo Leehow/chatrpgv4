@@ -138,6 +138,56 @@ test("role-manifest host tools participate in visibility, budgets, and schema by
   assert.equal(pendingOverflow.error.details.budget, workingSet.CLOSURE_TOOL_BUDGET);
 });
 
+test("cold setup exposes quick-start and retains setup.complete only as an exact affordance", () => {
+  const cold = snapshot({
+    role: "setup",
+    phase: "cold_start",
+    hostTools: resolvedHostTools("setup"),
+  });
+  const coldProjected = workingSet.projectToolWorkingSet(cold);
+  assertPolicyVisible(coldProjected, cold);
+  assert.ok(coldProjected.activeOperationNames.includes("setup.quick_start"));
+  assert.ok(!coldProjected.activeOperationNames.includes("setup.complete"));
+  assert.ok(coldProjected.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET);
+
+  const opening = snapshot({
+    role: "setup",
+    phase: "opening",
+    hostTools: resolvedHostTools("setup"),
+    affordances: {
+      operations: [{ operation: "setup.complete", source: "host" }],
+    },
+  });
+  const armed = workingSet.projectToolWorkingSet(opening);
+  assertPolicyVisible(armed, opening);
+  assert.ok(armed.activeOperationNames.includes("setup.complete"));
+
+  const play = workingSet.projectToolWorkingSet(snapshot({
+    role: "play",
+    phase: "opening",
+    hostTools: resolvedHostTools("play"),
+    affordances: opening.affordances,
+  }));
+  assert.equal(play.ok, true, play.error?.message);
+  assert.ok(!play.activeOperationNames.includes("setup.complete"));
+});
+
+test("cash and item grants stay long-tail but load with exact play schemas", () => {
+  const source = snapshot();
+  const baseline = workingSet.projectToolWorkingSet(source);
+  assert.equal(baseline.ok, true);
+  assert.ok(!baseline.activeOperationNames.includes("state.cash_grant"));
+  assert.ok(!baseline.activeOperationNames.includes("state.item_grant"));
+  for (const operation of ["state.cash_grant", "state.item_grant"]) {
+    const loaded = workingSet.loadToolNamespace(source, {
+      kind: "exact_operation",
+      operation,
+    });
+    assert.equal(loaded.ok, true, loaded.message);
+    assert.ok(loaded.workingSet.activeOperationNames.includes(operation));
+  }
+});
+
 test("P0 progress stages share one monotonic capability table", () => {
   const cases = [
     ["awaiting_player", []],

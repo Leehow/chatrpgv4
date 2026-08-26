@@ -19,6 +19,7 @@ type OpeningSetupRoute = any;
 type OpeningSetupState = any;
 
 export type OpeningSetupMachineStateSurface = {
+  effectiveTypedRoleValue: "setup" | "play" | null;
   readonly openingSetupStates: Map<string, OpeningSetupState>;
   readonly retainedAdoptSourceFacts: Map<string, JsonObject>;
   readonly openingSetupAttempts: Map<string, OpeningSetupAttempt>;
@@ -46,6 +47,7 @@ function stateFor(host: object): OpeningSetupMachineStateSurface {
   let state = openingSetupState.get(host);
   if (state === undefined) {
     state = {
+      effectiveTypedRoleValue: null,
       openingSetupStates: new Map(),
       retainedAdoptSourceFacts: new Map(),
       openingSetupAttempts: new Map(),
@@ -80,6 +82,7 @@ export function installOpeningSetupMachineState(prototype: object): void {
     "openingSetupTerminalBlockers",
   ] as const;
   const mutable = [
+    "effectiveTypedRoleValue",
     "openingSetupGenerationSequence",
     "openingSetupAgentTurn",
     "openingSetupTurnCampaignId",
@@ -140,6 +143,20 @@ export function createOpeningSetupMachineMethods(
     zhHansChargenSkillLabel,
   } = environment;
   return {
+
+  setEffectiveTypedRole(this: any, role: "setup" | "play"): void {
+    if (role !== "setup" && role !== "play") {
+      throw new Error("effective typed role must be setup or play");
+    }
+    this.effectiveTypedRoleValue = role;
+  },
+
+
+  effectiveTypedRole(this: any): "setup" | "play" {
+    return this.effectiveTypedRoleValue
+      ?? sessionRoleFromEnv()
+      ?? "setup";
+  },
 
   hasActiveOpeningSetup(this: any): boolean {
     return this.openingSetupStates.size > 0 || this.pendingBindExists();
@@ -217,7 +234,7 @@ export function createOpeningSetupMachineMethods(
     if (state.phase === "reviewed") {
       this.armOpeningSelectionRoute(state);
     } else if (state.phase === "ready") {
-      if (sessionRoleFromEnv() === "setup") {
+      if (this.effectiveTypedRole() === "setup") {
         this.armSetupHandoffDecisionRoute(
           state,
           result.investigator_id.trim(),
@@ -1354,7 +1371,7 @@ export function createOpeningSetupMachineMethods(
 
   armOpeningEvidenceRoute(this: any, state: OpeningSetupState): void {
     if (
-      openingHandoffOperationForSessionRole(sessionRoleFromEnv())
+      openingHandoffOperationForSessionRole(this.effectiveTypedRole())
       === "setup.complete"
     ) {
       this.armSetupCompleteRoute(state);
@@ -2266,6 +2283,16 @@ export function createOpeningSetupMachineMethods(
       return null;
     }
     this.noteOpeningSetupTurnCampaign(campaignId);
+    const argumentsObject = objectOrNull(params.arguments);
+    if (
+      state.phase === "handoff_complete_waiting_resume"
+      && operation === "session.resume"
+      && argumentsObject !== null
+      && Object.keys(argumentsObject).length === 0
+    ) {
+      this.registerOpeningSetupAttempt(invocationId, params, "probe", state);
+      return null;
+    }
     if (this.exactOpeningSetupRouteInvocation(state.route, params)) {
       if (
         state.phase === "handoff_decision"
@@ -2545,6 +2572,37 @@ export function createOpeningSetupMachineMethods(
       && details.hard_gate === true
       && details === returnedGate
     );
+    if (
+      state?.phase === "handoff_complete_waiting_resume"
+      && attempt.attemptClass === "probe"
+      && operation === "session.resume"
+    ) {
+      this.finalizeOpeningSetupAttempt(invocationId);
+      const nextOperations = Array.isArray(data?.next_operations)
+        ? data.next_operations
+        : [];
+      if (
+        envelope?.ok === true
+        && envelope.tool === "session.resume"
+        && data?.schema_version === 1
+        && data.campaign_id === attempt.campaignId
+        && data.mode === "table_opening"
+        && nextOperations.includes("evidence.table_opening")
+      ) {
+        this.armOpeningEvidenceRoute(state);
+        return {
+          accepted: true,
+          dispatchAllowed: false,
+          reason: "role_null_handoff_resumed",
+        };
+      }
+      this.openingSetupContinuationQueued.delete(attempt.campaignId);
+      return {
+        accepted: false,
+        dispatchAllowed: false,
+        reason: "role_null_handoff_resume_invalid",
+      };
+    }
     const canonicalPreboundProbe = (
       attempt.attemptClass === "probe"
       && this.unboundAttemptIsFresh(attempt)
@@ -3311,7 +3369,7 @@ export function createOpeningSetupMachineMethods(
       this.finalizeOpeningSetupAttempt(invocationId);
       if (this.exactTableOpeningReceipt(envelope)) {
         let modelProjection: JsonObject;
-        if (sessionRoleFromEnv() === "setup") {
+        if (this.effectiveTypedRole() === "setup") {
           this.armSetupCompleteRoute(state);
           modelProjection = this.projectOpeningEvidenceRoute(
             envelope!,
@@ -3381,10 +3439,28 @@ export function createOpeningSetupMachineMethods(
         decisionId,
       });
       if (handoff !== null) {
-        this.clearOpeningSetupRoute(
-          attempt.campaignId,
-          state.generation,
-        );
+        if (sessionRoleFromEnv() === null) {
+          this.setEffectiveTypedRole("play");
+          state.phase = "handoff_complete_waiting_resume";
+          state.route = {
+            ...state.route,
+            phase: "opening_play_resume_required",
+            next_operation: null,
+            allowed_actions: undefined,
+            instruction: (
+              "the canonical setup handoff is complete; invoke the host-bound "
+              + "session.resume before any play or opening operation"
+            ),
+          };
+          state.revision += 1;
+          state.continuationReleaseOwner = null;
+          this.openingSetupContinuationQueued.delete(attempt.campaignId);
+        } else {
+          this.clearOpeningSetupRoute(
+            attempt.campaignId,
+            state.generation,
+          );
+        }
         return {
           accepted: true,
           dispatchAllowed: false,
@@ -4272,6 +4348,53 @@ export function createOpeningSetupMachineMethods(
     return {
       ...args,
       decision_id: prefilled.decision_id,
+    };
+  },
+
+
+  bindNoSelectorSetupCompleteInvocation(
+    this: any,
+    value: unknown,
+    workspaceRoot: string,
+  ): unknown {
+    const params = objectOrNull(value);
+    if (params === null || params.operation !== "setup.complete") return value;
+    const args = objectOrNull(params.arguments);
+    if (
+      args === null
+      || Object.keys(args).length !== 0
+      || params.root !== undefined
+      || params.campaign !== undefined
+    ) {
+      throw new Error(
+        "forged_host_argument: setup.complete root/campaign/campaign_id/decision_id are host-owned",
+      );
+    }
+    const state = this.openingSetupStateForTranscript();
+    const card = state?.route.next_operation;
+    const prefilled = objectOrNull(card?.prefilled_arguments);
+    const missing = Array.isArray(card?.missing_arguments)
+      ? card.missing_arguments
+      : null;
+    if (
+      state === null
+      || !state.characterSetupComplete
+      || state.phase !== "handoff_decision"
+      || card?.operation !== "setup.complete"
+      || missing === null
+      || missing.length !== 0
+      || prefilled?.campaign_id !== state.route.campaign_id
+      || typeof prefilled.decision_id !== "string"
+      || !prefilled.decision_id
+    ) return value;
+    return {
+      operation: "setup.complete",
+      root: resolve(workspaceRoot),
+      campaign: state.route.campaign_id,
+      arguments: {
+        campaign_id: state.route.campaign_id,
+        decision_id: prefilled.decision_id,
+      },
     };
   },
 

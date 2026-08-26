@@ -191,8 +191,12 @@ function phaseForbidden(
   );
 }
 
-function roleForbidden(operation: string, policy: typeof OPERATION_POLICY[string]): AclDecision | null {
-  const role = sessionRoleFromEnv();
+function roleForbidden(
+  operation: string,
+  policy: typeof OPERATION_POLICY[string],
+  roleOverride?: SessionRole | null,
+): AclDecision | null {
+  const role = roleOverride === undefined ? sessionRoleFromEnv() : roleOverride;
   if (!role) return null;
   if (operationAllowedForSessionRole(operation, policy, role)) return null;
   const allowedRoles = sessionRolesForPolicy(operation, policy);
@@ -230,6 +234,8 @@ export function evaluateExecuteAcl(args: {
   toolName: string;
   operation: string;
   phase: PlayPhase;
+  /** Host-local typed role; omitted preserves the launcher/env contract. */
+  role?: SessionRole | null;
 }): AclDecision {
   const typedOperation = operationForTypedTool(args.toolName);
   const operation = (args.operation.trim() || typedOperation || "");
@@ -270,7 +276,7 @@ export function evaluateExecuteAcl(args: {
     if (!policy.phases.includes(args.phase)) {
       return phaseForbidden(operation, policy, args.phase);
     }
-    const compatRoleDenied = roleForbidden(operation, policy);
+    const compatRoleDenied = roleForbidden(operation, policy, args.role);
     if (compatRoleDenied) return compatRoleDenied;
     return {
       ok: true,
@@ -304,7 +310,7 @@ export function evaluateExecuteAcl(args: {
   if (!policy.phases.includes(args.phase)) {
     return phaseForbidden(operation, policy, args.phase);
   }
-  const roleDenied = roleForbidden(operation, policy);
+  const roleDenied = roleForbidden(operation, policy, args.role);
   if (roleDenied) return roleDenied;
   return {
     ok: true,

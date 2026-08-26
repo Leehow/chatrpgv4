@@ -294,7 +294,11 @@ function typedOperationExists(operation: string, catalog: TypedToolCatalog): boo
 }
 
 function actingBaseline(snapshot: ToolWorkingSetSnapshot): readonly string[] {
-  if (snapshot.role === "setup") return SETUP_ACTING_BASELINE;
+  if (snapshot.role === "setup") {
+    return snapshot.phase === "cold_start"
+      ? ["setup.quick_start", ...SETUP_ACTING_BASELINE]
+      : SETUP_ACTING_BASELINE;
+  }
   if (snapshot.phase === "recovery") {
     return ["session.resume", "state.journal", "turn.output_context", "turn.finalize"];
   }

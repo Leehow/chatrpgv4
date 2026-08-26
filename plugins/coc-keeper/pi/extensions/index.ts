@@ -3495,6 +3495,7 @@ export function endingOutputFromReceipt(
 }
 
 type StartupResumeGate = {
+  origin: "startup_selector" | "role_null_handoff";
   campaignId: string;
   workspaceRoot: string;
   phase: "pending" | "fresh_setup" | "terminal_failure";
@@ -3546,6 +3547,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   // orphaning the input behind a resend. Consumed after the one startup
   // resume classification; recomputed on initialize, cleared on shutdown.
   let startupBranchTrailingPlayerUser = false;
+  const launcherRole = sessionRoleFromEnv();
+  let effectiveTypedRole: SessionRole = launcherRole ?? "setup";
   const openingContinuationGate = new OpeningTerminalContinuationGate();
   const nonRetryableFailureCircuit = new NonRetryableFailureCircuit();
   const stateClaimCompiler = (
@@ -4615,6 +4618,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       && grant.stage === canonicalProgress.stage
       && grant.playerTurnEpoch === canonicalProgress.playerTurnEpoch
     ));
+    const openingState = openingContinuationGate.openingSetupStateForTranscript();
+    const retainedSetupComplete = (
+      role === "setup"
+      && openingState?.characterSetupComplete === true
+      && openingState.route.next_operation?.operation === "setup.complete"
+    );
+    const startupQuickStart = (
+      role === "setup"
+      && startupResumeGate?.phase === "fresh_setup"
+    );
     return {
       role,
       phase,
@@ -4623,7 +4636,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       canonicalProgressRevision: canonicalProgress.canonicalProgressRevision,
       roleManifestToolNames: extraToolsForSessionRole(role),
       hostTools: resolvedWorkingSetHostTools(role),
-      affordances: { operations: [] },
+      affordances: {
+        operations: [
+          ...(startupQuickStart
+            ? [{ operation: "setup.quick_start", source: "host" as const }]
+            : []),
+          ...(retainedSetupComplete
+            ? [{ operation: "setup.complete", source: "host" as const }]
+            : []),
+        ],
+      },
       loadedNamespaces,
       loadedOperations,
       ...(canonicalProgress.stage === "faulted" && faultRecoveryOperation !== null
@@ -4699,7 +4721,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         schema_bytes: projected.schemaBytes,
         host_schema_bytes: projected.hostSchemaBytes,
         operation_schema_bytes: projected.operationSchemaBytes,
-        role: sessionRoleFromEnv(),
+        role: effectiveTypedRole,
+        launcher_role: launcherRole,
         phase: resolveAclPhase(),
         stage: canonicalProgress.stage,
         player_turn_epoch: canonicalProgress.playerTurnEpoch,
@@ -4713,7 +4736,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   applyKpActiveTools = () => {
     if (process.env.PI_SUBAGENT_CHILD === "1") return;
-    const role = sessionRoleFromEnv();
+    const role = effectiveTypedRole;
     const gate = startupResumeGate;
     // Schema-time union only. Execute ACL still uses resolveAclPhase (recovery
     // while pending) and startupResumeToolError still hard-rejects non-resume.
@@ -4724,21 +4747,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         // auto-open agent turn must not reach any canonical tool.
         ? []
         : gate !== null && gate.phase === "pending"
-          ? activeToolsForStartupResumePending({
-              workspaceRoot: gate.workspaceRoot,
-              campaignId: gate.campaignId,
-              fallbackPhase: kpPlayPhase,
-              role,
-            })
-          : role === null
-            ? activeToolsForPhase(resolveAclPhase(), role)
-            : null;
+          ? gate.origin === "role_null_handoff"
+            ? [typedToolNameForOperation("session.resume")]
+            : activeToolsForStartupResumePending({
+                workspaceRoot: gate.workspaceRoot,
+                campaignId: gate.campaignId,
+                fallbackPhase: kpPlayPhase,
+                role,
+              })
+          : null;
     if (tools !== null) {
       pi.setActiveTools(tools);
       return;
     }
     const projected = withActualRegisteredSchemas(
-      projectToolWorkingSet(workingSetSnapshot(role!)),
+      projectToolWorkingSet(workingSetSnapshot(role)),
     );
     lastWorkingSet = projected;
     auditWorkingSet(projected);
@@ -4804,24 +4827,28 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       campaign_id: handoff.campaign_id,
       receipt: handoff.receipt,
       at: new Date().toISOString(),
-      consumer: "server-node/launcher",
+      consumer: launcherRole === "setup"
+        ? "server-node/launcher"
+        : "pi-coc/same-process",
     };
     // Same custom_message / session-entry channel as other host takeovers
     // (pi.sendMessage → sendCustomMessage + appendEntry). sendMessage is
     // fire-and-forget; appendEntry is sync so the launcher can read the log
     // after exit 42. Flush stdout after this tool result returns.
-    try {
-      pi.sendMessage({
-        customType: "coc_setup_handoff",
-        content: JSON.stringify(payload),
-        display: false,
-        details: payload,
-      }, { triggerTurn: false });
-    } catch { /* live custom_message is best effort */ }
+    if (launcherRole === "setup") {
+      try {
+        pi.sendMessage({
+          customType: "coc_setup_handoff",
+          content: JSON.stringify(payload),
+          display: false,
+          details: payload,
+        }, { triggerTurn: false });
+      } catch { /* live custom_message is best effort */ }
+    }
     try {
       pi.appendEntry("coc_setup_handoff", payload);
     } catch { /* session event-log is best effort */ }
-    if (sessionRoleFromEnv() === "setup") {
+    if (launcherRole === "setup") {
       queueSetupHandoffExit();
     }
   };
@@ -5226,7 +5253,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   const initializeSession = (ctx: ExtensionContext): string | null => {
     sessionEpoch += 1;
     sessionClosing = false;
-    currentWorkspaceRoot = ctx.cwd;
+    currentWorkspaceRoot = resolve(ctx.cwd);
     canonicalProgressCampaignId = "";
     canonicalProgress = {
       playerTurnEpoch: 0,
@@ -5250,6 +5277,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         : null,
     );
     openingContinuationGate.reset();
+    effectiveTypedRole = launcherRole ?? "setup";
+    openingContinuationGate.setEffectiveTypedRole(effectiveTypedRole);
     nonRetryableFailureCircuit.reset();
     stateClaimCompiler.clear();
     startSemanticSupply(ctx, sessionEpoch);
@@ -5272,8 +5301,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     startupResumeGate = startupCampaignId === null
       ? null
       : {
+          origin: "startup_selector",
           campaignId: startupCampaignId,
-          workspaceRoot: ctx.cwd,
+          workspaceRoot: currentWorkspaceRoot,
           phase: "pending",
           failureClass: null,
           blockerDelivery: "pending",
@@ -5416,6 +5446,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       return null;
     }
     if (gate.phase === "terminal_failure") {
+      if (gate.origin === "role_null_handoff") {
+        return (
+          "Pi same-process setup handoff is terminally blocked "
+          + `(failure_class=${gate.failureClass ?? "session_resume_failed"}). `
+          + "Preserve the current campaign evidence and retry only session.resume."
+        );
+      }
       return (
         "Pi startup continuation is terminally blocked "
         + `(failure_class=${gate.failureClass ?? "startup_resume_failed"}). `
@@ -5447,22 +5484,31 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     gate.blockerDelivery = "sending";
     gate.blockerDeliveryAttempts += 1;
     try {
+      const roleNullHandoff = gate.origin === "role_null_handoff";
       pi.sendMessage({
         customType: "coc-startup-resume-blocker",
-        content: (
-          "【COC 启动受阻】无法载入明确指定的战役"
-          + `（failure_class: ${failureClass}）。`
-          + "为避免进入错误战役，当前桌面已停止战役、设置与来源操作。"
-          + "请退出后使用 `pi-coc --campaign <正确的 campaign_id>` 重新启动；"
-          + "如需新的 Pi 对话记录，可同时加上 `--new`。"
-        ),
+        content: roleNullHandoff
+          ? (
+              "【COC 交接受阻】设置收据已经保留，但同进程 session.resume 未能"
+              + `接管战役（failure_class: ${failureClass}）。`
+              + "不要重做设置或删除证据；仅修复并重试 session.resume。"
+            )
+          : (
+              "【COC 启动受阻】无法载入明确指定的战役"
+              + `（failure_class: ${failureClass}）。`
+              + "为避免进入错误战役，当前桌面已停止战役、设置与来源操作。"
+              + "请退出后使用 `pi-coc --campaign <正确的 campaign_id>` 重新启动；"
+              + "如需新的 Pi 对话记录，可同时加上 `--new`。"
+            ),
         display: true,
         details: {
           schema_version: 1,
           status: "terminal_failure",
           failure_class: failureClass,
           campaign_id: gate.campaignId,
-          recovery: "relaunch_with_corrected_campaign_selector",
+          recovery: roleNullHandoff
+            ? "retry_session_resume_without_repeating_setup"
+            : "relaunch_with_corrected_campaign_selector",
         },
       }, { triggerTurn: false });
       gate.blockerDelivery = "delivered";
@@ -5484,6 +5530,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (gate === null || gate.phase !== "pending") return;
     gate.phase = "fresh_setup";
     gate.failureClass = "unknown_campaign";
+    advanceCanonicalProgress(gate.campaignId, {
+      stage: "acting",
+    }, { reprojectTools: false });
     applyKpActiveTools();
   };
   const canonicalFailureClass = (value: unknown): string => (
@@ -6193,6 +6242,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     const epoch = sessionEpoch;
     const typedDefinition = typedToolDefinitions.find((tool) => tool.name === name);
     if (typedDefinition !== undefined) {
+      if (
+        launcherRole === null
+        && typedDefinition.operation === "setup.quick_start"
+        && (params.root !== undefined || params.campaign !== undefined)
+      ) {
+        return hostFailureResult(hostBindingFailure(
+          typedDefinition.operation,
+          new ToolContractProjectionError(
+            "forged_host_argument",
+            "setup.quick_start root/campaign are host-owned in a no-selector session",
+            { operation: typedDefinition.operation },
+          ),
+        ));
+      }
       if (revokedSceneBindingOperations.has(typedDefinition.operation)) {
         return hostFailureResult(hostBindingFailure(
           typedDefinition.operation,
@@ -6228,6 +6291,25 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     params = openingContinuationGate.bindHandoutReplayRequest(params);
     params = bindStartupResumeInvocation(name, params);
+    if (
+      launcherRole === null
+      && typedDefinition?.operation === "setup.quick_start"
+    ) {
+      const { campaign: _freshCampaignSelector, ...freshCreationParams } = params;
+      params = {
+        ...freshCreationParams,
+        root: resolve(ctx.cwd),
+      };
+    }
+    if (
+      launcherRole === null
+      && typedDefinition?.operation === "setup.complete"
+    ) {
+      params = openingContinuationGate.bindNoSelectorSetupCompleteInvocation(
+        params,
+        resolve(ctx.cwd),
+      ) as JsonObject;
+    }
     params = openingContinuationGate.bindRetainedOpeningRoute(params);
     const startupResumeError = startupResumeToolError(name, params);
     if (startupResumeError !== null) {
@@ -6296,6 +6378,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         toolName: name,
         operation: String(params.operation || ""),
         phase: aclPhase,
+        role: effectiveTypedRole,
       });
       if (!acl.ok) {
         try {
@@ -6979,12 +7062,28 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       });
       if (startupResumeAttempt) {
         const selectedCampaignId = startupResumeGate?.campaignId ?? "";
+        const startupGateOrigin = startupResumeGate?.origin ?? "startup_selector";
         const disposition = classifyStartupResumeResult(
           value,
           selectedCampaignId,
           openingObservation,
         );
         if (disposition.accepted) {
+          if (
+            launcherRole === null
+            && effectiveTypedRole === "setup"
+            && disposition.mode !== null
+          ) {
+            effectiveTypedRole = "play";
+            openingContinuationGate.setEffectiveTypedRole(effectiveTypedRole);
+            loadedNamespaces = [];
+            loadedOperations = [];
+          }
+          if (disposition.mode === null && openingObservation.accepted) {
+            advanceCanonicalProgress(selectedCampaignId, {
+              stage: "acting",
+            }, { reprojectTools: false });
+          }
           if (
             disposition.mode === "already_acknowledged"
             || disposition.mode === "awaiting_player"
@@ -7002,10 +7101,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             }
           }
           startupResumeGate = null;
+          if (startupGateOrigin === "role_null_handoff") {
+            refreshTypedToolDefinition("session.resume");
+          }
           applyKpActiveTools();
         } else if (
           disposition.failureClass === "unknown_campaign"
-          && sessionRoleFromEnv() === "setup"
+          && effectiveTypedRole === "setup"
         ) {
           allowExactFreshSetup();
         } else {
@@ -7320,6 +7422,48 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const envelope = objectOrNull(value);
       const data = objectOrNull(envelope?.data);
       openingContinuationGate.observeCanonicalReceipt(operation, envelope);
+      const currentOpeningState = (
+        openingContinuationGate.openingSetupStateForTranscript()
+      );
+      if (
+        launcherRole === null
+        && effectiveTypedRole === "setup"
+        && currentOpeningState?.route.next_operation?.operation === "setup.complete"
+      ) {
+        refreshTypedToolDefinition("setup.complete");
+      }
+      const acceptedRoleNullHandoff = (
+        launcherRole === null
+        && effectiveTypedRole === "setup"
+        && operation === "setup.complete"
+        && openingObservation.accepted
+        && openingObservation.reason === "opening_setup_handoff_complete"
+      );
+      if (acceptedRoleNullHandoff) {
+        const handoffCampaignId = typeof params.campaign === "string"
+          ? params.campaign.trim()
+          : "";
+        if (!handoffCampaignId) {
+          throw new Error("accepted role-null setup handoff omitted canonical campaign identity");
+        }
+        effectiveTypedRole = "play";
+        openingContinuationGate.setEffectiveTypedRole(effectiveTypedRole);
+        kpPlayPhase = "opening";
+        loadedNamespaces = [];
+        loadedOperations = [];
+        startupResumeGate = {
+          origin: "role_null_handoff",
+          campaignId: handoffCampaignId,
+          workspaceRoot: resolve(ctx.cwd),
+          phase: "pending",
+          failureClass: null,
+          blockerDelivery: "pending",
+          blockerDeliveryAttempts: 0,
+          hiddenRepromptDelivery: "pending",
+        };
+        refreshTypedToolDefinition("session.resume");
+        applyKpActiveTools();
+      }
       if (
         operation !== "setup.complete"
         || (
@@ -7512,8 +7656,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     _update: unknown,
     _ctx: ExtensionContext,
   ) => {
-    const role = sessionRoleFromEnv();
-    if (role === null) return gateway("coc_discover")(_id, params, _signal, _update, _ctx);
+    const role = effectiveTypedRole;
     const operation = typeof params.operation === "string" ? params.operation : null;
     const domain = typeof params.domain === "string" ? params.domain : null;
     if (operation !== null && domain !== null) {
@@ -7658,12 +7801,35 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         binding.current_host_context,
       );
     }
+    if (launcherRole === null && typed.operation === "setup.quick_start") {
+      const projected = structuredClone(parameters);
+      projected.required = (projected.required ?? []).filter(
+        (key) => key !== "root" && key !== "campaign",
+      );
+      if (projected.properties !== undefined) {
+        delete projected.properties.root;
+        delete projected.properties.campaign;
+      }
+      parameters = projected;
+    } else if (
+      launcherRole === null
+      && typed.operation === "setup.complete"
+    ) {
+      parameters = structuredClone(emptySchema);
+    } else if (
+      launcherRole === null
+      && typed.operation === "session.resume"
+      && startupResumeGate?.origin === "role_null_handoff"
+      && startupResumeGate.phase === "pending"
+    ) {
+      parameters = structuredClone(emptySchema);
+    }
     pi.registerTool({
       name: typed.name,
       label: typed.label,
       description: typed.description,
       parameters,
-      ...(typed.operation === "setup.complete" ? {
+      ...(typed.operation === "setup.complete" && launcherRole !== null ? {
         prepareArguments: (args: unknown) => (
           openingContinuationGate.prepareSetupCompleteArguments(args)
         ),
@@ -7810,12 +7976,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         _update: unknown,
         ctx: ExtensionContext,
       ) {
-        if (sessionRoleFromEnv() === "play") {
+        if (effectiveTypedRole === "play") {
           throw new Error("coc_chargen_delegate is setup-role only");
         }
         const brief = parseChargenClerkBrief(params);
         const campaignId = String(
-          process.env.PI_COC_CAMPAIGN_ID ?? "",
+          process.env.PI_COC_CAMPAIGN_ID
+            ?? openingContinuationGate.openingSetupStateForTranscript()
+              ?.route.campaign_id
+            ?? "",
         ).trim();
         if (!campaignId) {
           throw new Error("coc_chargen_delegate requires PI_COC_CAMPAIGN_ID");
@@ -8313,6 +8482,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sessionEpoch += 1;
     startupResumeGate = null;
     startupSilentResumeQuarantine = null;
+    effectiveTypedRole = launcherRole ?? "setup";
+    openingContinuationGate.setEffectiveTypedRole(effectiveTypedRole);
     startupBranchTrailingPlayerUser = false;
     loadedNamespaces = [];
     loadedOperations = [];
