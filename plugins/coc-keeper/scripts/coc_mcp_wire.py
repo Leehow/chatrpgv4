@@ -1491,7 +1491,9 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
     )
     finalize_revision = (
         source_finalize_revision
-        if isinstance(source_finalize_revision, int)
+        if isinstance(source_finalize_operation, dict)
+        and source_finalize_operation.get("operation") == "turn.finalize"
+        and isinstance(source_finalize_revision, int)
         and not isinstance(source_finalize_revision, bool)
         and source_finalize_revision > 0
         else None

@@ -5367,6 +5367,102 @@ def test_mcp_wire_tight_output_context_preserves_explicit_review_mode():
         )
 
 
+def test_mcp_wire_never_launders_invalid_finalize_cards():
+    server = _load_server()
+    invalid_cards = {
+        "wrong-operation": {
+            "operation": "turn.output_context",
+            "prefilled_arguments": {"revision": 1},
+        },
+        "missing-operation": {
+            "prefilled_arguments": {"revision": 1},
+        },
+        "bool-revision": {
+            "operation": "turn.finalize",
+            "prefilled_arguments": {"revision": True},
+        },
+        "string-revision": {
+            "operation": "turn.finalize",
+            "prefilled_arguments": {"revision": "1"},
+        },
+        "zero-revision": {
+            "operation": "turn.finalize",
+            "prefilled_arguments": {"revision": 0},
+        },
+        "negative-revision": {
+            "operation": "turn.finalize",
+            "prefilled_arguments": {"revision": -1},
+        },
+    }
+    for projection_mode in ("ordinary", "tight"):
+        for case, invalid_card in invalid_cards.items():
+            data = {
+                "schema_version": 1,
+                "turn_id": f"turn-{projection_mode}-{case}",
+                "journal_decision_id": f"journal-{projection_mode}-{case}",
+                "source_digest": f"sha256:source-{projection_mode}-{case}",
+                "settlement_snapshot_id": (
+                    f"turn-settlement-v1:{projection_mode}-{case}"
+                ),
+                "mechanics_bundle_sha256": (
+                    f"sha256:mechanics-{projection_mode}-{case}"
+                ),
+                "required_obligation_ids": [],
+                "contract_projection": {
+                    "agency_review_required": False,
+                },
+                "finalize_operation": invalid_card,
+            }
+            if projection_mode == "tight":
+                data["candidate_factors"] = [{
+                    "padding": "tight-invalid-finalize-padding" * 10_000,
+                }]
+
+            projected = server.wire_projection.project_envelope(
+                "turn.output_context",
+                {
+                    "ok": True,
+                    "tool": "turn.output_context",
+                    "data": data,
+                    "warnings": [],
+                    "hints": [],
+                },
+                contract_digest=server.CONTRACTS["content_sha256"],
+            )
+
+            assert projected["ok"] is True, (projection_mode, case, projected)
+            assert (
+                projected["wire"].get("tight_projection") is True
+            ) is (projection_mode == "tight")
+            projected_card = projected["data"].get("finalize_operation")
+            projected_prefilled = (
+                projected_card.get("prefilled_arguments")
+                if isinstance(projected_card, dict) else None
+            )
+            projected_revision = (
+                projected_prefilled.get("revision")
+                if isinstance(projected_prefilled, dict) else None
+            )
+            usable_revision = (
+                isinstance(projected_revision, int)
+                and not isinstance(projected_revision, bool)
+                and projected_revision > 0
+            )
+            assert not (
+                isinstance(projected_card, dict)
+                and projected_card.get("operation") == "turn.finalize"
+                and usable_revision
+            ), (projection_mode, case, projected_card)
+            assert "revision" not in (projected_prefilled or {}), (
+                projection_mode,
+                case,
+                projected_card,
+            )
+            assert server.wire_projection.transport_bytes(projected) <= (
+                server.wire_projection.MAX_INLINE_BYTES
+            )
+
+
 
 
 def test_mcp_wire_carries_story_progress_to_the_keeper():
