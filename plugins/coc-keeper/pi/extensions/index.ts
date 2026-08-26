@@ -7925,16 +7925,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       if (projected.properties !== undefined) {
         delete projected.properties.root;
         delete projected.properties.campaign;
-        const decisionSchema = objectOrNull(
-          projected.properties.decision_id,
-        ) ?? {};
-        projected.properties.decision_id = {
-          ...decisionSchema,
-          pattern: (
-            "^quick-start:[A-Za-z0-9][A-Za-z0-9._:-]{0,95}:"
-            + "attempt-[1-9][0-9]{0,5}$"
-          ),
-        };
         const retainedArguments = objectOrNull(
           noSelectorQuickStartRecovery?.params.arguments,
         );

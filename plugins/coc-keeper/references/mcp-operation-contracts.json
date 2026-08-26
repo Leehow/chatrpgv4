@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:be9903120abcb1b021beb713515d0aa5324ad3fbfcc005f36f10a5c41e63031d",
+  "content_sha256": "sha256:a731346e81e6a401fdedb91b865db04c1903ee11fae8cb2653ade94965ff2420",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -5398,7 +5398,7 @@
           },
           "decision_id": {
             "description": "optional semantic retry identity such as quick-start:the-haunting:attempt-1; retain it unchanged only when retrying the exact same request after an unavailable response. When omitted, canonical runtime owns the stable campaign-scoped semantic decision id",
-            "pattern": "^quick-start:[A-Za-z0-9][A-Za-z0-9._:-]{0,95}:attempt-[1-9][0-9]{0,5}$",
+            "pattern": "^quick-start:[A-Za-z0-9][A-Za-z0-9._:-]{0,130}:attempt-[1-9][0-9]{0,5}$",
             "type": "string"
           },
           "pregen_id": {

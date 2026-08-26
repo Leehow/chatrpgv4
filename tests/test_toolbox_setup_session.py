@@ -659,6 +659,19 @@ def test_no_id_quick_start_replays_durable_receipt_after_lost_response(
         "setup.quick_start", tmp_path, None, arguments,
     )
     assert lost["ok"] is True, lost
+    unrelated = coc_toolbox.run_tool(
+        "setup.invoke",
+        tmp_path,
+        None,
+        {
+            "kind": "campaign.create",
+            "payload": {
+                "campaign_id": "unrelated-recent-campaign",
+                "title": "Unrelated Recent Campaign",
+            },
+        },
+    )
+    assert unrelated["ok"] is True, unrelated
     replayed = coc_toolbox.run_tool(
         "setup.quick_start", tmp_path, None, arguments,
     )
@@ -707,8 +720,24 @@ def test_omitted_decision_id_uses_runtime_owned_semantic_replay(tmp_path):
     assert first["ok"] is True, first
     assert replayed == first
     assert first["data"]["decision_id"] == (
-        "quick-start:campaign-setup:attempt-1"
+        "quick-start:legacy-card-quick-start:attempt-1"
     )
+
+    second = coc_toolbox.run_tool(
+        "setup.quick_start",
+        tmp_path,
+        None,
+        {
+            **arguments,
+            "campaign_id": "legacy-card-quick-start-two",
+        },
+    )
+    assert second["ok"] is True, second
+    assert second["data"]["decision_id"] == (
+        "quick-start:legacy-card-quick-start-two:attempt-1"
+    )
+    assert second["data"]["decision_id"] != first["data"]["decision_id"]
+
     changed = coc_toolbox.run_tool(
         "setup.quick_start",
         tmp_path,

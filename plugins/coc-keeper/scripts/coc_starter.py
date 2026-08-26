@@ -23,6 +23,7 @@ import json
 import os
 import shutil
 import sys
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -1049,6 +1050,7 @@ def _write_quick_start_receipt(
     decision_id: str,
     intent: dict[str, Any],
     result: dict[str, Any],
+    response_warnings: list[str],
 ) -> None:
     coc_fileio.write_json_atomic(
         campaign_stage / _QUICK_START_RECEIPT_RELATIVE_PATH,
@@ -1058,6 +1060,7 @@ def _write_quick_start_receipt(
             "decision_id": decision_id,
             "intent": intent,
             "result": result,
+            "response_warnings": list(response_warnings),
         },
         indent=2,
         ensure_ascii=False,
@@ -1080,6 +1083,9 @@ def _replay_quick_start_receipt(
             "quick-start receipt for this decision_id"
         ) from exc
     result = receipt.get("result") if isinstance(receipt, dict) else None
+    response_warnings = (
+        receipt.get("response_warnings") if isinstance(receipt, dict) else None
+    )
     expected_result_keys = {
         "campaign_id",
         "investigator_id",
@@ -1096,6 +1102,8 @@ def _replay_quick_start_receipt(
         or receipt.get("decision_id") != decision_id
         or receipt.get("intent") != intent
         or not isinstance(result, dict)
+        or not isinstance(response_warnings, list)
+        or any(not isinstance(item, str) for item in response_warnings)
         or set(result) != expected_result_keys
         or result.get("campaign_id") != campaign_dir.name
         or result.get("campaign_id") != intent.get("campaign_id")
@@ -1124,6 +1132,79 @@ def _replay_quick_start_receipt(
             f"campaign {campaign_dir.name} has a corrupt quick-start result identity"
         )
     return json.loads(json.dumps(result, ensure_ascii=False))
+
+
+def _recent_campaign_ids(
+    coc_root: Path, *, exclude: str, within_minutes: int = 10,
+) -> list[str]:
+    """Snapshot recent campaign identities for a durable setup response."""
+    campaigns_dir = coc_root / "campaigns"
+    if not campaigns_dir.is_dir():
+        return []
+    now = time.time()
+    recent: list[tuple[float, str]] = []
+    try:
+        entries = list(campaigns_dir.iterdir())
+    except OSError:
+        return []
+    for entry in entries:
+        if not entry.is_dir() or entry.name == exclude:
+            continue
+        state_file = entry / "campaign.json"
+        try:
+            age_minutes = (now - state_file.stat().st_mtime) / 60
+        except OSError:
+            continue
+        if age_minutes <= within_minutes:
+            recent.append((age_minutes, entry.name))
+    return [name for _, name in sorted(recent, reverse=True)]
+
+
+def _quick_start_response_warnings(coc_root: Path, campaign_id: str) -> list[str]:
+    recent = _recent_campaign_ids(coc_root, exclude=campaign_id)
+    if not recent:
+        return []
+    return [
+        "quick_start created campaign '" + campaign_id + "', but these "
+        "campaigns were also created minutes ago: "
+        + ", ".join(recent)
+        + ". Mid-setup duplicate campaigns split durable state; "
+        "continue the intended campaign instead of creating another."
+    ]
+
+
+def quick_start_response_warnings(
+    root: Path | str,
+    *,
+    campaign_id: str,
+    decision_id: str,
+) -> list[str]:
+    """Read the response facts committed with one quick-start publication."""
+    path = (
+        _coc_root(Path(root))
+        / "campaigns"
+        / campaign_id
+        / _QUICK_START_RECEIPT_RELATIVE_PATH
+    )
+    try:
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise QuickStartIdempotencyConflict(
+            f"campaign {campaign_id} has no readable quick-start response receipt"
+        ) from exc
+    warnings = receipt.get("response_warnings") if isinstance(receipt, dict) else None
+    if (
+        not isinstance(receipt, dict)
+        or receipt.get("schema_version") != 1
+        or receipt.get("kind") != "campaign.quick_start"
+        or receipt.get("decision_id") != decision_id
+        or not isinstance(warnings, list)
+        or any(not isinstance(item, str) for item in warnings)
+    ):
+        raise QuickStartIdempotencyConflict(
+            f"campaign {campaign_id} has a corrupt quick-start response receipt"
+        )
+    return list(warnings)
 
 
 def quick_start(
@@ -1220,6 +1301,11 @@ def quick_start(
             raise FileExistsError(
                 f"campaign {camp_id} already exists; pass a fresh campaign_id or remove it first"
             )
+        response_warnings = (
+            _quick_start_response_warnings(coc_root, camp_id)
+            if decision_id is not None
+            else []
+        )
         with coc_investigator_guard.guard_reusable_investigators(
             coc_root, [investigator_id] if investigator_id is not None else []
         ):
@@ -1344,6 +1430,7 @@ def quick_start(
                         decision_id=decision_id,
                         intent=idempotent_intent,
                         result=durable_result,
+                        response_warnings=response_warnings,
                     )
 
                 if investigator_stage is not None:

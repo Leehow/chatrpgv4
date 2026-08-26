@@ -436,21 +436,18 @@ def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
                 "payload": payload,
             },
         )
+        campaign_id = str((receipt.get("result") or {}).get("campaign_id") or "")
+        warnings = coc_runtime_ops.coc_starter.quick_start_response_warnings(
+            ctx.root,
+            campaign_id=campaign_id,
+            decision_id=str(receipt.get("decision_id") or ""),
+        )
     except coc_runtime_ops.RuntimeOperationError as exc:
         raise ToolError(exc.code or "setup_failed", str(exc), details=exc.details) from exc
+    except coc_runtime_ops.coc_starter.QuickStartIdempotencyConflict as exc:
+        raise ToolError("idempotency_conflict", str(exc)) from exc
     except (FileExistsError, FileNotFoundError) as exc:
         raise ToolError("setup_failed", str(exc)) from exc
-    campaign_id = str((receipt.get("result") or {}).get("campaign_id") or "")
-    warnings: list[str] = []
-    recent = _recently_created_campaigns(ctx.root, exclude=campaign_id)
-    if recent:
-        warnings.append(
-            "quick_start created campaign '" + campaign_id + "', but these "
-            "campaigns were also created minutes ago: "
-            + ", ".join(recent)
-            + ". Mid-setup duplicate campaigns split durable state; "
-            "continue the intended campaign instead of creating another."
-        )
     hints = [
         "this campaign was created in the current host setup context; retain "
         "this receipt and continue setup/opening directly without session.resume",
@@ -1819,7 +1816,7 @@ def register_operations(registry) -> None:
         },
         "decision_id": {
             "type": "string",
-            "pattern": r"^quick-start:[A-Za-z0-9][A-Za-z0-9._:-]{0,95}:attempt-[1-9][0-9]{0,5}$",
+            "pattern": coc_runtime_ops.QUICK_START_DECISION_ID_PATTERN,
             "desc": "optional semantic retry identity such as quick-start:the-haunting:attempt-1; retain it unchanged only when retrying the exact same request after an unavailable response. When omitted, canonical runtime owns the stable campaign-scoped semantic decision id",
         },
         "pregen_id": {

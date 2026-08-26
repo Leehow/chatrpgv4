@@ -32,12 +32,10 @@ import coc_creation_provenance
 
 SCHEMA_VERSION = 1
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
-_QUICK_START_DECISION_ID = re.compile(
-    r"^quick-start:[A-Za-z0-9][A-Za-z0-9._:-]{0,95}:attempt-[1-9][0-9]{0,5}$"
+QUICK_START_DECISION_ID_PATTERN = (
+    r"^quick-start:[A-Za-z0-9][A-Za-z0-9._:-]{0,130}:attempt-[1-9][0-9]{0,5}$"
 )
-_RUNTIME_OWNED_QUICK_START_DECISION_ID = (
-    "quick-start:campaign-setup:attempt-1"
-)
+_QUICK_START_DECISION_ID = re.compile(QUICK_START_DECISION_ID_PATTERN)
 
 
 def _load_sibling(name: str, filename: str):
@@ -193,7 +191,7 @@ def _id(value: Any, label: str) -> str:
 
 
 def _quick_start_decision_id(value: Any) -> str:
-    decision_id = _id(value, "decision_id")
+    decision_id = str(value or "")
     if not _QUICK_START_DECISION_ID.fullmatch(decision_id):
         raise RuntimeOperationError(
             "campaign.quick_start decision_id must be a semantic retry key "
@@ -6078,20 +6076,23 @@ def execute_setup_operation(
             )
         else:
             pregen_id = _id(pregen_value, "pregen_id")
-        decision_id = (
-            _quick_start_decision_id(payload.get("decision_id"))
+        scenario_id = _id(payload.get("scenario_id"), "scenario_id")
+        campaign_id = (
+            _id(payload["campaign_id"], "campaign_id")
+            if payload.get("campaign_id") is not None
+            else f"{scenario_id}-qs"
+        )
+        decision_id = _quick_start_decision_id(
+            payload.get("decision_id")
             if "decision_id" in payload
-            else _RUNTIME_OWNED_QUICK_START_DECISION_ID
+            else f"quick-start:{campaign_id}:attempt-1"
         )
         try:
             result = coc_starter.quick_start(
                 root,
-                _id(payload.get("scenario_id"), "scenario_id"),
+                scenario_id,
                 pregen_id,
-                campaign_id=(
-                    _id(payload["campaign_id"], "campaign_id")
-                    if payload.get("campaign_id") is not None else None
-                ),
+                campaign_id=campaign_id,
                 title=(str(payload["title"]) if payload.get("title") else None),
                 decision_id=decision_id,
             )
