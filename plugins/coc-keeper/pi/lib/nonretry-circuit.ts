@@ -1,17 +1,96 @@
 import { createHash } from "node:crypto";
+import {
+  canonicalTurnProgressToken,
+  type CanonicalTurnProgress,
+} from "./turn-output-gate.ts";
 
 type JsonRecord = Record<string, unknown>;
 
-function canonical(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonical);
+const HOST_OWNED_ARGUMENT_KEYS = new Set([
+  "campaign",
+  "campaign_id",
+  "content_digest",
+  "decision_id",
+  "idempotency_key",
+  "player_text",
+  "player_turn_epoch",
+  "receipt_id",
+  "rendered_sha256",
+  "review_id",
+  "revision",
+  "root",
+  "run_id",
+  "session_id",
+  "source_digest",
+  "turn_id",
+  "workspace",
+]);
+
+function isHostOwnedArgumentKey(key: string): boolean {
+  return HOST_OWNED_ARGUMENT_KEYS.has(key)
+    || key.endsWith("_digest")
+    || key.endsWith("_sha256")
+    || key.endsWith("_receipt_id");
+}
+
+/**
+ * Retain semantic choices while removing identity churn that the host owns.
+ * Whitespace-only draft edits also normalize to the same value.
+ */
+export function normalizeModelOwnedArguments(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeModelOwnedArguments);
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as JsonRecord)
+        .filter(([key]) => !isHostOwnedArgumentKey(key))
         .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => [key, canonical(item)]),
+        .map(([key, item]) => [key, normalizeModelOwnedArguments(item)]),
     );
   }
+  if (typeof value === "string") return value.trim().replace(/\s+/gu, " ");
   return value;
+}
+
+export type NonRetryableFailureScope = {
+  playerTurnEpoch: number;
+  canonicalProgress: CanonicalTurnProgress;
+};
+
+type OptionalFailureScope = Partial<NonRetryableFailureScope>;
+
+type ResolvedFailureScope = {
+  playerTurnEpoch: number;
+  canonicalProgressToken: string;
+};
+
+function resolveScope(scope: OptionalFailureScope): ResolvedFailureScope {
+  const hasEpoch = scope.playerTurnEpoch !== undefined;
+  const hasProgress = scope.canonicalProgress !== undefined;
+  if (hasEpoch !== hasProgress) {
+    throw new TypeError(
+      "playerTurnEpoch and canonicalProgress must be supplied together",
+    );
+  }
+  if (!hasEpoch || !hasProgress) {
+    // Compatibility for the not-yet-wired extension facade. New callers must
+    // provide the explicit scope above; the integrator will remove this lane.
+    return { playerTurnEpoch: 0, canonicalProgressToken: "legacy" };
+  }
+  if (
+    !Number.isInteger(scope.playerTurnEpoch)
+    || (scope.playerTurnEpoch as number) < 0
+    || scope.canonicalProgress!.playerTurnEpoch !== scope.playerTurnEpoch
+  ) {
+    throw new RangeError(
+      "canonical progress must belong to the supplied player turn epoch",
+    );
+  }
+  return {
+    playerTurnEpoch: scope.playerTurnEpoch as number,
+    canonicalProgressToken: canonicalTurnProgressToken(
+      scope.canonicalProgress!,
+    ),
+  };
 }
 
 export function nonRetryableFailureFingerprint(args: {
@@ -20,13 +99,33 @@ export function nonRetryableFailureFingerprint(args: {
   phase: string;
   operationArgs: unknown;
   errorCode: string;
+  errorClass?: string;
+  playerTurnEpoch?: number;
+  canonicalProgress?: CanonicalTurnProgress;
 }): string {
-  const body = JSON.stringify(canonical(args));
+  const scope = resolveScope(args);
+  const body = JSON.stringify({
+    campaignId: args.campaignId,
+    operation: args.operation,
+    phase: args.phase,
+    operationArgs: normalizeModelOwnedArguments(args.operationArgs),
+    errorCode: args.errorCode,
+    errorClass: args.errorClass ?? args.errorCode,
+    playerTurnEpoch: scope.playerTurnEpoch,
+    canonicalProgressToken: scope.canonicalProgressToken,
+  });
   return createHash("sha256").update(body, "utf8").digest("hex");
 }
 
 export class NonRetryableFailureCircuit {
-  #failures = new Map<string, { code: string; operation: string }>();
+  #failures = new Map<string, {
+    campaignId: string;
+    code: string;
+    errorClass: string;
+    operation: string;
+    playerTurnEpoch: number;
+    canonicalProgressToken: string;
+  }>();
 
   reset(): void {
     this.#failures.clear();
@@ -37,11 +136,20 @@ export class NonRetryableFailureCircuit {
     operation: string;
     phase: string;
     operationArgs: unknown;
-  }): JsonRecord | null {
+  } & OptionalFailureScope): JsonRecord | null {
+    const scope = resolveScope(args);
+    if (args.canonicalProgress !== undefined) {
+      this.#advanceResolved({
+        campaignId: args.campaignId,
+        playerTurnEpoch: scope.playerTurnEpoch,
+        canonicalProgressToken: scope.canonicalProgressToken,
+      });
+    }
     for (const [fingerprint, failure] of this.#failures) {
       const candidate = nonRetryableFailureFingerprint({
         ...args,
         errorCode: failure.code,
+        errorClass: failure.errorClass,
       });
       if (candidate !== fingerprint) continue;
       return {
@@ -51,9 +159,15 @@ export class NonRetryableFailureCircuit {
           code: "nonretryable_repeat_blocked",
           message: (
             `identical non-retryable ${failure.operation} failure was already returned; `
-            + "change arguments or advance canonical state instead of retrying"
+            + "change model-owned semantic arguments or advance canonical state "
+            + "instead of changing host-owned identity fields"
           ),
-          details: { original_code: failure.code },
+          details: {
+            original_code: failure.code,
+            original_class: failure.errorClass,
+            player_turn_epoch: scope.playerTurnEpoch,
+            canonical_progress_token: scope.canonicalProgressToken,
+          },
         },
         retryable: false,
         will_retry: false,
@@ -68,24 +182,89 @@ export class NonRetryableFailureCircuit {
     phase: string;
     operationArgs: unknown;
     envelope: unknown;
-  }): void {
+  } & OptionalFailureScope): void {
+    const scope = resolveScope(args);
     const envelope = args.envelope && typeof args.envelope === "object"
       ? args.envelope as JsonRecord
       : null;
-    if (envelope?.ok === true) return;
+    if (envelope?.ok === true) {
+      this.#advanceResolved({
+        campaignId: args.campaignId,
+        playerTurnEpoch: scope.playerTurnEpoch,
+        canonicalProgressToken: scope.canonicalProgressToken,
+      });
+      return;
+    }
     if (envelope?.retryable === true || envelope?.will_retry === true) return;
     const error = envelope?.error && typeof envelope.error === "object"
       ? envelope.error as JsonRecord
       : null;
     const code = typeof error?.code === "string" ? error.code : "";
     if (!code || code === "nonretryable_repeat_blocked") return;
+    const errorClass = typeof error?.class === "string" && error.class
+      ? error.class
+      : code;
     const fingerprint = nonRetryableFailureFingerprint({
       campaignId: args.campaignId,
       operation: args.operation,
       phase: args.phase,
       operationArgs: args.operationArgs,
       errorCode: code,
+      errorClass,
+      ...(args.canonicalProgress === undefined
+        ? {}
+        : {
+            playerTurnEpoch: scope.playerTurnEpoch,
+            canonicalProgress: args.canonicalProgress,
+          }),
     });
-    this.#failures.set(fingerprint, { code, operation: args.operation });
+    this.#advanceResolved({
+      campaignId: args.campaignId,
+      playerTurnEpoch: scope.playerTurnEpoch,
+      canonicalProgressToken: scope.canonicalProgressToken,
+    });
+    this.#failures.set(fingerprint, {
+      campaignId: args.campaignId,
+      code,
+      errorClass,
+      operation: args.operation,
+      playerTurnEpoch: scope.playerTurnEpoch,
+      canonicalProgressToken: scope.canonicalProgressToken,
+    });
+  }
+
+  advance(args: {
+    campaignId: string;
+    playerTurnEpoch: number;
+    canonicalProgress: CanonicalTurnProgress;
+  }): void {
+    if (args.canonicalProgress.playerTurnEpoch !== args.playerTurnEpoch) {
+      throw new RangeError(
+        "canonical progress must belong to the supplied player turn epoch",
+      );
+    }
+    this.#advanceResolved({
+      campaignId: args.campaignId,
+      playerTurnEpoch: args.playerTurnEpoch,
+      canonicalProgressToken: canonicalTurnProgressToken(
+        args.canonicalProgress,
+      ),
+    });
+  }
+
+  #advanceResolved(args: {
+    campaignId: string;
+    playerTurnEpoch: number;
+    canonicalProgressToken: string;
+  }): void {
+    for (const [fingerprint, failure] of this.#failures) {
+      if (failure.campaignId !== args.campaignId) continue;
+      if (
+        failure.playerTurnEpoch !== args.playerTurnEpoch
+        || failure.canonicalProgressToken !== args.canonicalProgressToken
+      ) {
+        this.#failures.delete(fingerprint);
+      }
+    }
   }
 }

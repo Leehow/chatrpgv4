@@ -72,6 +72,12 @@ export type MechanicalMarker = {
   sample: string;
 };
 
+export type SettledOutputRecoveryMetadata = {
+  attempt: number;
+  maxAttempts: number;
+  canonicalProgress: Record<string, unknown>;
+};
+
 const DICE_MARKER_PATTERNS: ReadonlyArray<{ pattern: string; re: RegExp }> = [
   { pattern: "formal_dice_block", re: /【明骰】/g },
   { pattern: "dice_line", re: /掷骰[：:]\s*\d+/g },
@@ -142,6 +148,7 @@ export function buildMechanicalOutputGateEnvelope(
 
 export function buildSettledOutputGateEnvelope(
   playerTurnEpoch: number,
+  recovery?: SettledOutputRecoveryMetadata,
 ): JsonObject {
   return {
     schema_version: 1,
@@ -150,6 +157,13 @@ export function buildSettledOutputGateEnvelope(
     player_turn_epoch: playerTurnEpoch,
     action: "journal_context_finalize_exact",
     instruction: SETTLED_OUTPUT_GATE_INSTRUCTION,
+    ...(recovery === undefined
+      ? {}
+      : {
+          recovery_attempt: recovery.attempt,
+          recovery_budget: recovery.maxAttempts,
+          canonical_progress: recovery.canonicalProgress,
+        }),
   };
 }
 

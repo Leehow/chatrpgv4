@@ -12,6 +12,143 @@ type JsonObject = any;
 type MechanicalMarker = any;
 type VisibleAssistantDisposition = any;
 
+export const MAX_SETTLED_OUTPUT_HIDDEN_RECOVERIES = 2;
+
+export type TurnProgressStage =
+  | "awaiting_player"
+  | "acting"
+  | "journaled"
+  | "output_context_ready"
+  | "review_ready"
+  | "finalized"
+  | "delivered"
+  | "faulted";
+
+/**
+ * The host builds this token only from accepted canonical results. Deliberately
+ * absent are decision/receipt ids, source/draft digests, streamed activity and
+ * model text: changing any of those must not manufacture progress.
+ */
+export type CanonicalTurnProgress = {
+  playerTurnEpoch: number;
+  stage: TurnProgressStage;
+  campaignRevision: string | null;
+  journalRevision: string | null;
+  reviewRevision: number | null;
+  finalizedRenderedSha256: string | null;
+  closedObligationCount: number;
+};
+
+export type SettledOutputRecoveryDecision =
+  | {
+      status: "claimed";
+      scheduleFollowUp: true;
+      envelope: JsonObject;
+      fault: null;
+    }
+  | {
+      status: "exhausted";
+      scheduleFollowUp: false;
+      envelope: null;
+      fault: JsonObject;
+    };
+
+const TURN_PROGRESS_STAGES: ReadonlySet<TurnProgressStage> = new Set([
+  "awaiting_player",
+  "acting",
+  "journaled",
+  "output_context_ready",
+  "review_ready",
+  "finalized",
+  "delivered",
+  "faulted",
+]);
+
+function requireNonNegativeInteger(value: number, field: string): number {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new TypeError(`${field} must be a non-negative integer`);
+  }
+  return value;
+}
+
+function requireNullableNonEmptyString(
+  value: string | null,
+  field: string,
+): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || value.length === 0) {
+    throw new TypeError(`${field} must be null or a non-empty string`);
+  }
+  return value;
+}
+
+export function normalizeCanonicalTurnProgress(
+  progress: CanonicalTurnProgress,
+): CanonicalTurnProgress {
+  if (!TURN_PROGRESS_STAGES.has(progress.stage)) {
+    throw new TypeError(`unsupported canonical turn stage: ${progress.stage}`);
+  }
+  return {
+    playerTurnEpoch: requireNonNegativeInteger(
+      progress.playerTurnEpoch,
+      "playerTurnEpoch",
+    ),
+    stage: progress.stage,
+    campaignRevision: requireNullableNonEmptyString(
+      progress.campaignRevision,
+      "campaignRevision",
+    ),
+    journalRevision: requireNullableNonEmptyString(
+      progress.journalRevision,
+      "journalRevision",
+    ),
+    reviewRevision: progress.reviewRevision === null
+      ? null
+      : requireNonNegativeInteger(progress.reviewRevision, "reviewRevision"),
+    finalizedRenderedSha256: requireNullableNonEmptyString(
+      progress.finalizedRenderedSha256,
+      "finalizedRenderedSha256",
+    ),
+    closedObligationCount: requireNonNegativeInteger(
+      progress.closedObligationCount,
+      "closedObligationCount",
+    ),
+  };
+}
+
+export function canonicalTurnProgressToken(
+  progress: CanonicalTurnProgress,
+): string {
+  const normalized = normalizeCanonicalTurnProgress(progress);
+  // Presence of an accepted receipt is progress; changing its opaque identity
+  // or digest is not. Stage/revision ordinals and closed obligations are the
+  // only liveness-bearing values.
+  return JSON.stringify([
+    normalized.playerTurnEpoch,
+    normalized.stage,
+    normalized.campaignRevision !== null,
+    normalized.journalRevision !== null,
+    normalized.reviewRevision,
+    normalized.finalizedRenderedSha256 !== null,
+    normalized.closedObligationCount,
+  ]);
+}
+
+function projectedCanonicalProgress(
+  progress: CanonicalTurnProgress,
+): JsonObject {
+  const normalized = normalizeCanonicalTurnProgress(progress);
+  return {
+    player_turn_epoch: normalized.playerTurnEpoch,
+    stage: normalized.stage,
+    campaign_revision_present: normalized.campaignRevision !== null,
+    journal_revision_present: normalized.journalRevision !== null,
+    review_revision: normalized.reviewRevision,
+    finalized_output_present: normalized.finalizedRenderedSha256 !== null,
+    closed_obligation_count: normalized.closedObligationCount,
+  };
+}
+
 export type TurnOutputGateStateSurface = {
   queuedVisibleDispositions: any[];
   playerTurnEpoch: number;
@@ -25,6 +162,9 @@ export type TurnOutputGateStateSurface = {
   turnProcessingFault: any | null;
   preInferenceFinalizationSteerEpoch: number;
   emptyTerminalRecoveryEpoch: number;
+  settledOutputRecoveryEpoch: number;
+  settledOutputRecoveryAttempts: number;
+  settledOutputRecoveryProgressToken: string | null;
   epochPlayerOutputDelivered: number;
   nonblockingContinuation: any | null;
 };
@@ -44,6 +184,9 @@ function stateFor(host: object): TurnOutputGateStateSurface {
       turnProcessingFault: null,
       preInferenceFinalizationSteerEpoch: 0,
       emptyTerminalRecoveryEpoch: 0,
+      settledOutputRecoveryEpoch: 0,
+      settledOutputRecoveryAttempts: 0,
+      settledOutputRecoveryProgressToken: null,
       epochPlayerOutputDelivered: 0,
       nonblockingContinuation: null,
     };
@@ -62,6 +205,9 @@ export function installTurnOutputGateState(prototype: object): void {
     "turnProcessingFault",
     "preInferenceFinalizationSteerEpoch",
     "emptyTerminalRecoveryEpoch",
+    "settledOutputRecoveryEpoch",
+    "settledOutputRecoveryAttempts",
+    "settledOutputRecoveryProgressToken",
     "epochPlayerOutputDelivered",
     "nonblockingContinuation",
   ] as const;
@@ -86,6 +232,7 @@ export function createTurnOutputGateMethods(
 ) {
   const {
     REVIEW_RECOVERY_FAILURE_CLASSES,
+    buildSettledOutputGateEnvelope,
     buildSettledOutputPreflightEnvelope,
     canonicalJsonValueSha256,
     detectMechanicalMarkers,
@@ -331,6 +478,9 @@ export function createTurnOutputGateMethods(
     this.currentDependencySuppression = null;
     this.currentVisibleCampaignId = null;
     this.pendingMechanicalOutputGateEnvelope = null;
+    this.settledOutputRecoveryEpoch = this.playerTurnEpoch;
+    this.settledOutputRecoveryAttempts = 0;
+    this.settledOutputRecoveryProgressToken = null;
   },
 
 
@@ -475,6 +625,73 @@ export function createTurnOutputGateMethods(
       return null;
     }
     return buildSettledOutputPreflightEnvelope(this.playerTurnEpoch);
+  },
+
+
+  claimSettledOutputRecovery(this: any,
+    progress: CanonicalTurnProgress,
+  ): SettledOutputRecoveryDecision {
+    const normalized = normalizeCanonicalTurnProgress(progress);
+    if (
+      this.playerTurnEpoch <= 0
+      || normalized.playerTurnEpoch !== this.playerTurnEpoch
+    ) {
+      throw new RangeError(
+        "canonical progress must belong to the current external player epoch",
+      );
+    }
+    if (this.settledOutputRecoveryEpoch !== this.playerTurnEpoch) {
+      this.settledOutputRecoveryEpoch = this.playerTurnEpoch;
+      this.settledOutputRecoveryAttempts = 0;
+      this.settledOutputRecoveryProgressToken = null;
+    }
+
+    const progressToken = canonicalTurnProgressToken(normalized);
+    this.settledOutputRecoveryProgressToken = progressToken;
+    if (
+      this.settledOutputRecoveryAttempts
+      >= MAX_SETTLED_OUTPUT_HIDDEN_RECOVERIES
+    ) {
+      return {
+        status: "exhausted",
+        scheduleFollowUp: false,
+        envelope: null,
+        fault: {
+          schema_version: 1,
+          contract_id: "coc.pi-turn-processing-fault.v1",
+          kind: "turn_processing_fault",
+          status: "terminal",
+          stage: "finalization_repair",
+          code: "settled_output_recovery_exhausted",
+          message: (
+            "settled-output recovery exhausted without an admissible "
+            + "finalization receipt; the pending turn and receipts are preserved"
+          ),
+          retryable: false,
+          will_retry: false,
+          recovery_attempted: this.settledOutputRecoveryAttempts,
+          recovery_budget: MAX_SETTLED_OUTPUT_HIDDEN_RECOVERIES,
+          failure_class: "settled_output_recovery_exhausted",
+          canonical_progress: projectedCanonicalProgress(normalized),
+        },
+      };
+    }
+
+    this.settledOutputRecoveryAttempts += 1;
+    const attempt = this.settledOutputRecoveryAttempts;
+    return {
+      status: "claimed",
+      scheduleFollowUp: true,
+      envelope: buildSettledOutputGateEnvelope(
+        this.playerTurnEpoch,
+        {
+          attempt,
+          maxAttempts: MAX_SETTLED_OUTPUT_HIDDEN_RECOVERIES,
+          canonicalProgress: projectedCanonicalProgress(normalized),
+        },
+      ),
+      fault: null,
+    };
   },
 
 
