@@ -1198,8 +1198,10 @@ class TestModuleBoundary:
             SCRIPTS / "coc_history_projection_query.py",
         )
         assert sorted(module.__all__) == [
+            "AUTHORITY_PROJECTION_FIELDS",
             "ProjectionQueryError",
             "SCHEMA_GENERATION",
+            "query_authority_projection",
             "query_entity_history",
             "query_event_log",
             "query_history_at",
