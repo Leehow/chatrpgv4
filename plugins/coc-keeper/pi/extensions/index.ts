@@ -1,6 +1,7 @@
 import {
   createOpeningSetupMachineMethods,
   installOpeningSetupMachineState,
+  NO_SELECTOR_SETUP_COMPLETE_DECISION_ID_PATTERN,
   type OpeningSetupMachineMethods,
   type OpeningSetupMachineStateSurface,
 } from "../lib/opening-setup-machine.ts";
@@ -7858,6 +7859,25 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       if (projected.properties !== undefined) {
         delete projected.properties.root;
         delete projected.properties.campaign;
+        const decisionSchema = objectOrNull(
+          projected.properties.decision_id,
+        ) ?? {};
+        const state = openingContinuationGate.openingSetupStateForTranscript();
+        const card = objectOrNull(state?.route.next_operation);
+        const prefilled = objectOrNull(card?.prefilled_arguments);
+        const retainedDecisionId = (
+          state?.phase === "handoff_decision"
+          && card?.operation === "setup.complete"
+          && typeof prefilled?.decision_id === "string"
+          && prefilled.decision_id
+        ) ? prefilled.decision_id : null;
+        projected.properties.decision_id = {
+          ...decisionSchema,
+          pattern: NO_SELECTOR_SETUP_COMPLETE_DECISION_ID_PATTERN,
+          ...(retainedDecisionId === null ? {} : {
+            const: retainedDecisionId,
+          }),
+        };
       }
       parameters = projected;
     } else if (

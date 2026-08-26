@@ -18,6 +18,21 @@ type OpeningSetupObservationDisposition = any;
 type OpeningSetupRoute = any;
 type OpeningSetupState = any;
 
+export const NO_SELECTOR_SETUP_COMPLETE_DECISION_ID_PATTERN = (
+  "^setup-complete:[A-Za-z0-9][A-Za-z0-9._:-]*:"
+  + "[A-Za-z0-9][A-Za-z0-9._:-]*:handoff-1$"
+);
+const NO_SELECTOR_SETUP_COMPLETE_DECISION_ID_RE = new RegExp(
+  NO_SELECTOR_SETUP_COMPLETE_DECISION_ID_PATTERN,
+);
+
+export function noSelectorSetupCompleteDecisionId(
+  campaignId: string,
+  investigatorId: string,
+): string {
+  return `setup-complete:${campaignId}:${investigatorId}:handoff-1`;
+}
+
 export type OpeningSetupMachineStateSurface = {
   effectiveTypedRoleValue: "setup" | "play" | null;
   readonly openingSetupStates: Map<string, OpeningSetupState>;
@@ -277,7 +292,10 @@ export function createOpeningSetupMachineMethods(
     campaignId: string,
     investigatorId: string,
   ): OpeningSetupRoute {
-    const modelOwnsDecisionId = sessionRoleFromEnv() === null;
+    const noSelectorSession = sessionRoleFromEnv() === null;
+    const decisionId = noSelectorSession
+      ? noSelectorSetupCompleteDecisionId(campaignId, investigatorId)
+      : this.setupHandoffDecisionId(campaignId, investigatorId);
     return {
       schema_version: 1,
       status: "blocked",
@@ -291,14 +309,9 @@ export function createOpeningSetupMachineMethods(
         invoke_via: "coc_invoke",
         prefilled_arguments: {
           campaign_id: campaignId,
-          ...(modelOwnsDecisionId ? {} : {
-            decision_id: this.setupHandoffDecisionId(
-              campaignId,
-              investigatorId,
-            ),
-          }),
+          decision_id: decisionId,
         },
-        missing_arguments: modelOwnsDecisionId ? ["decision_id"] : [],
+        missing_arguments: [],
         hard_gate: true,
         authority: "canonical_setup",
         reason: (
@@ -4040,6 +4053,22 @@ export function createOpeningSetupMachineMethods(
       });
       return;
     }
+    if (
+      sessionRoleFromEnv() === null
+      && attempt.operation === "setup.complete"
+      && state.phase === "handoff_decision"
+      && state.route.next_operation?.operation === "setup.complete"
+    ) {
+      state.continuationReleaseOwner = null;
+      this.openingSetupContinuationQueued.delete(attempt.campaignId);
+      this.recordOpeningSetupAudit({
+        status: "retained",
+        reason: "setup_handoff_transport_retry_retained",
+        campaign_id: attempt.campaignId,
+        invocation_id: invocationId,
+      });
+      return;
+    }
     if (["submitting", "materializing", "projection"].includes(state.phase)) {
       this.restoreBackgroundRetryRoute(state);
     }
@@ -4372,6 +4401,9 @@ export function createOpeningSetupMachineMethods(
       || !args.campaign_id.trim()
       || typeof args.decision_id !== "string"
       || !args.decision_id.trim()
+      || !NO_SELECTOR_SETUP_COMPLETE_DECISION_ID_RE.test(
+        args.decision_id.trim(),
+      )
       || params.root !== undefined
     ) {
       throw new Error(
@@ -4390,11 +4422,12 @@ export function createOpeningSetupMachineMethods(
       || state.phase !== "handoff_decision"
       || card?.operation !== "setup.complete"
       || missing === null
-      || missing.length !== 1
-      || missing[0] !== "decision_id"
+      || missing.length !== 0
       || prefilled?.campaign_id !== state.route.campaign_id
-      || Object.hasOwn(prefilled, "decision_id")
+      || typeof prefilled.decision_id !== "string"
+      || !prefilled.decision_id
       || args.campaign_id.trim() !== state.route.campaign_id
+      || args.decision_id.trim() !== prefilled.decision_id
       || params.campaign !== state.route.campaign_id
     ) return value;
     return {
@@ -4403,7 +4436,7 @@ export function createOpeningSetupMachineMethods(
       campaign: state.route.campaign_id,
       arguments: {
         campaign_id: state.route.campaign_id,
-        decision_id: args.decision_id.trim(),
+        decision_id: prefilled.decision_id,
       },
     };
   },

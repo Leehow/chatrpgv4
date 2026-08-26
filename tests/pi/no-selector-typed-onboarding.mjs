@@ -29,7 +29,9 @@ const workspace = mkdtempSync(path.join(tmpdir(), "pi-coc-no-selector-typed-"));
 const welcomeAgentDir = mkdtempSync(path.join(tmpdir(), "pi-coc-no-selector-agent-"));
 const campaign = "no-selector-haunting";
 const investigator = "thomas-hayes";
-const setupCompleteDecisionId = `setup-complete:${campaign}:confirmation-1`;
+const setupCompleteDecisionId = (
+  `setup-complete:${campaign}:${investigator}:handoff-1`
+);
 const tools = new Map();
 const handlers = new Map();
 const activeSnapshots = [];
@@ -39,6 +41,7 @@ const appended = [];
 const exitCodes = [];
 const observedCompilerContexts = [];
 const compiledReviews = [];
+let durableSetupCompleteReceipt = null;
 const hostCompilationReceipt = {
   schema_version: 1,
   contract_id: "coc.pi-state-claim-compilation-receipt.v1",
@@ -127,7 +130,13 @@ const canonicalCall = async (name, params) => {
     assert.equal(params.campaign, campaign);
     assert.equal(params.arguments.campaign_id, campaign);
     assert.equal(params.arguments.decision_id, setupCompleteDecisionId);
-    return handoffEnvelope(params.arguments.decision_id);
+    if (durableSetupCompleteReceipt === null) {
+      durableSetupCompleteReceipt = handoffEnvelope(params.arguments.decision_id);
+      throw new Error(
+        "simulated setup.complete response unavailable after durable commit",
+      );
+    }
+    return structuredClone(durableSetupCompleteReceipt);
   }
   if (params.operation === "session.resume") {
     assert.equal(params.root, path.resolve(workspace));
@@ -495,7 +504,9 @@ async function assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign
     `complete-${label}`,
     {
       campaign_id: caseCampaign,
-      decision_id: `setup-complete:${caseCampaign}:confirmation-1`,
+      decision_id: (
+        `setup-complete:${caseCampaign}:${caseInvestigator}:handoff-1`
+      ),
     },
     undefined,
     undefined,
@@ -629,6 +640,14 @@ try {
   );
   assert.ok(!complete.parameters.properties.root);
   assert.ok(!complete.parameters.properties.campaign);
+  assert.equal(
+    complete.parameters.properties.decision_id.const,
+    setupCompleteDecisionId,
+  );
+  assert.match(
+    setupCompleteDecisionId,
+    new RegExp(complete.parameters.properties.decision_id.pattern),
+  );
   assert.throws(
     () => validateToolCall([complete], {
       name: "coc_setup_complete",
@@ -667,13 +686,61 @@ try {
     .at(-1)?.message.details;
   assert.deepEqual(
     decisionContext.next_operation.prefilled_arguments,
-    { campaign_id: campaign },
+    {
+      campaign_id: campaign,
+      decision_id: setupCompleteDecisionId,
+    },
   );
   assert.deepEqual(
     decisionContext.next_operation.missing_arguments,
-    ["decision_id"],
+    [],
   );
-  await invokeValidated("coc_setup_complete", "confirmed-complete", {
+  await assert.rejects(
+    invokeValidated("coc_setup_complete", "lost-complete-response", {
+      campaign_id: campaign,
+      decision_id: setupCompleteDecisionId,
+    }),
+    /response unavailable after durable commit/,
+  );
+  const callsAfterLostResponse = clientCalls.filter(
+    (call) => call.operation === "setup.complete",
+  ).length;
+  assert.equal(callsAfterLostResponse, 1);
+  for (const invalidDecisionId of [
+    `setup-complete:${campaign}:${investigator}:handoff-2`,
+    "550e8400-e29b-41d4-a716-446655440000",
+    "a".repeat(64),
+    "opaque-confirmation-token",
+  ]) {
+    assert.throws(
+      () => validateToolCall([complete], {
+        name: "coc_setup_complete",
+        arguments: {
+          campaign_id: campaign,
+          decision_id: invalidDecisionId,
+        },
+      }),
+      /decision_id|const|handoff-1/,
+    );
+  }
+  await assert.rejects(
+    complete.execute(
+      "drifted-complete-direct",
+      {
+        campaign_id: campaign,
+        decision_id: "550e8400-e29b-41d4-a716-446655440000",
+      },
+      undefined,
+      undefined,
+      ctx,
+    ),
+    /invalid_model_argument/,
+  );
+  assert.equal(
+    clientCalls.filter((call) => call.operation === "setup.complete").length,
+    callsAfterLostResponse,
+  );
+  await invokeValidated("coc_setup_complete", "retried-complete", {
     campaign_id: campaign,
     decision_id: setupCompleteDecisionId,
   });
@@ -858,12 +925,17 @@ try {
   );
   assert.equal(
     clientCalls.filter((call) => call.operation === "setup.complete").length,
-    1,
+    2,
   );
   const postHandoffCalls = clientCalls.slice(
     clientCalls.findIndex((call) => call.operation === "setup.complete") + 1,
   );
-  assert.equal(postHandoffCalls[0].operation, "session.resume");
+  assert.equal(postHandoffCalls[0].operation, "setup.complete");
+  assert.equal(postHandoffCalls[1].operation, "session.resume");
+  assert.equal(
+    clientCalls.filter((call) => call.operation === "session.resume").length,
+    1,
+  );
   assert.equal(
     appended.filter(({ type }) => type === "coc_setup_handoff").length,
     1,
