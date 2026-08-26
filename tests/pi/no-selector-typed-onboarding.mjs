@@ -29,6 +29,7 @@ const workspace = mkdtempSync(path.join(tmpdir(), "pi-coc-no-selector-typed-"));
 const welcomeAgentDir = mkdtempSync(path.join(tmpdir(), "pi-coc-no-selector-agent-"));
 const campaign = "no-selector-haunting";
 const investigator = "thomas-hayes";
+const setupCompleteDecisionId = `setup-complete:${campaign}:confirmation-1`;
 const tools = new Map();
 const handlers = new Map();
 const activeSnapshots = [];
@@ -125,7 +126,7 @@ const canonicalCall = async (name, params) => {
     assert.equal(params.root, path.resolve(workspace));
     assert.equal(params.campaign, campaign);
     assert.equal(params.arguments.campaign_id, campaign);
-    assert.match(params.arguments.decision_id, /^pi-setup-handoff-[a-f0-9]{32}$/);
+    assert.equal(params.arguments.decision_id, setupCompleteDecisionId);
     return handoffEnvelope(params.arguments.decision_id);
   }
   if (params.operation === "session.resume") {
@@ -492,7 +493,10 @@ async function assertMalformedResumeKeepsClosedGate(label, resumeDataForCampaign
   });
   const completeResult = JSON.parse((await caseTools.get("coc_setup_complete").execute(
     `complete-${label}`,
-    {},
+    {
+      campaign_id: caseCampaign,
+      decision_id: `setup-complete:${caseCampaign}:confirmation-1`,
+    },
     undefined,
     undefined,
     caseCtx,
@@ -615,15 +619,33 @@ try {
     title: "The Haunting",
   });
   const complete = tools.get("coc_setup_complete");
-  assert.deepEqual(complete.parameters.required ?? [], []);
-  assert.deepEqual(Object.keys(complete.parameters.properties ?? {}), []);
+  assert.deepEqual(
+    complete.parameters.required,
+    ["campaign_id", "decision_id"],
+  );
+  assert.deepEqual(
+    Object.keys(complete.parameters.properties ?? {}).sort(),
+    ["campaign_id", "decision_id"],
+  );
+  assert.ok(!complete.parameters.properties.root);
+  assert.ok(!complete.parameters.properties.campaign);
+  assert.throws(
+    () => validateToolCall([complete], {
+      name: "coc_setup_complete",
+      arguments: { campaign_id: campaign },
+    }),
+    /decision_id/,
+  );
   assert.ok(activeSnapshots.at(-1).includes("coc_setup_complete"));
 
   const completeCallsBeforeConfirmation = clientCalls.filter(
     (call) => call.operation === "setup.complete",
   ).length;
   await assert.rejects(
-    invokeValidated("coc_setup_complete", "same-turn-complete", {}),
+    invokeValidated("coc_setup_complete", "same-turn-complete", {
+      campaign_id: campaign,
+      decision_id: setupCompleteDecisionId,
+    }),
     /requires a new external player message/,
   );
   assert.equal(
@@ -638,7 +660,23 @@ try {
       content: [{ type: "text", text: "确认打开游戏桌。" }],
     },
   });
-  await invokeValidated("coc_setup_complete", "confirmed-complete", {});
+  const decisionContext = sent
+    .filter(({ message }) => (
+      message.customType === "coc-opening-table-player-decision"
+    ))
+    .at(-1)?.message.details;
+  assert.deepEqual(
+    decisionContext.next_operation.prefilled_arguments,
+    { campaign_id: campaign },
+  );
+  assert.deepEqual(
+    decisionContext.next_operation.missing_arguments,
+    ["decision_id"],
+  );
+  await invokeValidated("coc_setup_complete", "confirmed-complete", {
+    campaign_id: campaign,
+    decision_id: setupCompleteDecisionId,
+  });
   assert.deepEqual(exitCodes, []);
   assert.deepEqual(activeSnapshots.at(-1), ["coc_session_resume"]);
   assertNoGenericWrappers(activeSnapshots.at(-1));

@@ -6264,6 +6264,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ),
         ));
       }
+      if (
+        launcherRole === null
+        && typedDefinition.operation === "setup.complete"
+        && (params.root !== undefined || params.campaign !== undefined)
+      ) {
+        return hostFailureResult(hostBindingFailure(
+          typedDefinition.operation,
+          new ToolContractProjectionError(
+            "forged_host_argument",
+            "setup.complete root/campaign are host-owned in a no-selector session",
+            { operation: typedDefinition.operation },
+          ),
+        ));
+      }
       if (revokedSceneBindingOperations.has(typedDefinition.operation)) {
         return hostFailureResult(hostBindingFailure(
           typedDefinition.operation,
@@ -7837,7 +7851,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       launcherRole === null
       && typed.operation === "setup.complete"
     ) {
-      parameters = structuredClone(emptySchema);
+      const projected = structuredClone(parameters);
+      projected.required = (projected.required ?? []).filter(
+        (key) => key !== "root" && key !== "campaign",
+      );
+      if (projected.properties !== undefined) {
+        delete projected.properties.root;
+        delete projected.properties.campaign;
+      }
+      parameters = projected;
     } else if (
       launcherRole === null
       && typed.operation === "session.resume"

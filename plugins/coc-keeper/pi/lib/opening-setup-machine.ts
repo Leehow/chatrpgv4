@@ -277,6 +277,7 @@ export function createOpeningSetupMachineMethods(
     campaignId: string,
     investigatorId: string,
   ): OpeningSetupRoute {
+    const modelOwnsDecisionId = sessionRoleFromEnv() === null;
     return {
       schema_version: 1,
       status: "blocked",
@@ -290,12 +291,14 @@ export function createOpeningSetupMachineMethods(
         invoke_via: "coc_invoke",
         prefilled_arguments: {
           campaign_id: campaignId,
-          decision_id: this.setupHandoffDecisionId(
-            campaignId,
-            investigatorId,
-          ),
+          ...(modelOwnsDecisionId ? {} : {
+            decision_id: this.setupHandoffDecisionId(
+              campaignId,
+              investigatorId,
+            ),
+          }),
         },
-        missing_arguments: [],
+        missing_arguments: modelOwnsDecisionId ? ["decision_id"] : [],
         hard_gate: true,
         authority: "canonical_setup",
         reason: (
@@ -3794,8 +3797,9 @@ export function createOpeningSetupMachineMethods(
         instruction: (
           "Judge the player's latest message semantically. If they confirm "
           + "opening the table, the first and only tool call is the exact "
-          + "model-visible typed tool named typed_tool with the prefilled "
-          + "arguments below. If they request a revision, do not invoke "
+          + "model-visible typed tool named typed_tool using the exact "
+          + "next_operation card below. Supply every missing model-owned "
+          + "argument. If they request a revision, do not invoke "
           + "setup.complete; remain in setup and handle only that revision."
         ),
         typed_tool: typedToolNameForOperation("setup.complete"),
@@ -4363,12 +4367,15 @@ export function createOpeningSetupMachineMethods(
     const args = objectOrNull(params.arguments);
     if (
       args === null
-      || Object.keys(args).length !== 0
+      || !exactKeysMatch(args, ["campaign_id", "decision_id"])
+      || typeof args.campaign_id !== "string"
+      || !args.campaign_id.trim()
+      || typeof args.decision_id !== "string"
+      || !args.decision_id.trim()
       || params.root !== undefined
-      || params.campaign !== undefined
     ) {
       throw new Error(
-        "forged_host_argument: setup.complete root/campaign/campaign_id/decision_id are host-owned",
+        "invalid_model_argument: setup.complete requires model-owned campaign_id and decision_id; root/campaign are host-owned",
       );
     }
     const state = this.openingSetupStateForTranscript();
@@ -4383,10 +4390,12 @@ export function createOpeningSetupMachineMethods(
       || state.phase !== "handoff_decision"
       || card?.operation !== "setup.complete"
       || missing === null
-      || missing.length !== 0
+      || missing.length !== 1
+      || missing[0] !== "decision_id"
       || prefilled?.campaign_id !== state.route.campaign_id
-      || typeof prefilled.decision_id !== "string"
-      || !prefilled.decision_id
+      || Object.hasOwn(prefilled, "decision_id")
+      || args.campaign_id.trim() !== state.route.campaign_id
+      || params.campaign !== state.route.campaign_id
     ) return value;
     return {
       operation: "setup.complete",
@@ -4394,7 +4403,7 @@ export function createOpeningSetupMachineMethods(
       campaign: state.route.campaign_id,
       arguments: {
         campaign_id: state.route.campaign_id,
-        decision_id: prefilled.decision_id,
+        decision_id: args.decision_id.trim(),
       },
     };
   },
