@@ -6069,6 +6069,31 @@ def _roll_common(
         hints=hints,
     )
     _commit_new_roll_receipt(ctx, document, receipt)
+    _canonical_level = _ROLL_OUTCOME_TO_CANONICAL_LEVEL.get(str(outcome))
+    if _canonical_level is not None:
+        canonical_data: dict[str, Any] = {
+            "_v": 1,
+            "roll_id": str(result["roll_id"]),
+            "check": label,
+            "actor": investigator_id,
+            "result_level": _canonical_level,
+            "target_value": target,
+        }
+        die_total = result.get("roll")
+        if isinstance(die_total, int) and not isinstance(die_total, bool):
+            canonical_data["dice"] = f"1d100={die_total}"
+        emit_core_canonical_event(
+            ctx,
+            event_type="roll-resolved",
+            source=f"coc_operation_kernel.{tool_name}",
+            decision_id=decision_id,
+            data=canonical_data,
+            privacy=(
+                "public"
+                if str(operation.get("visibility") or "public") == "public"
+                else "secret"
+            ),
+        )
     if social_ref and isinstance(social_document, dict) and isinstance(social_goal, dict):
         social_goal["roll_binding"] = {
             "tool": tool_name,
@@ -6086,6 +6111,139 @@ def _roll_common(
     )
     warnings.extend(route_warnings)
     return result, warnings, hints
+
+# ---------------------------------------------------------------------------
+# Canonical events emission (coc-events/1) — CORE mechanics wiring.
+#
+# Call discipline per plugins/coc-keeper/references/canonical-events-contract.md:
+# emit strictly AFTER the transactional/rules settlement behind the event
+# succeeded; never on failure paths. The event stream is derived evidence:
+# an emission problem must never break the already-settled authoritative
+# operation, so failures land as audit rows instead of raising.
+# ---------------------------------------------------------------------------
+
+# Authoritative roll outcomes -> canonical result_level enum members.
+# Percentile checks already settle in {critical, extreme, hard, regular,
+# failure, fumble}; "success" is normalized by its settled rank basis,
+# never recomputed here. Unmapped outcomes skip the event entirely rather
+# than inventing a level.
+_ROLL_OUTCOME_TO_CANONICAL_LEVEL = {
+    "critical": "critical",
+    "extreme": "extreme",
+    "hard": "hard",
+    "regular": "regular",
+    "success": "regular",
+    "failure": "failure",
+    "fumble": "fumble",
+}
+
+
+def _canonical_emit_timeline(ctx: Ctx) -> str:
+    """Authoritative active timeline for emission envelopes."""
+    try:
+        import coc_git_history
+
+        return coc_git_history.active_timeline_id(ctx.root, ctx.campaign_id)
+    except Exception:
+        return "tl-main"
+
+
+def _next_canonical_occurrence(
+    ctx: Ctx,
+    event_type: str,
+    campaign: str,
+    timeline: str,
+    turn: int,
+) -> int:
+    """1-based Nth same-type occurrence within one campaign+timeline+turn.
+
+    Counts persisted canonical rows so slug numbering survives process
+    restarts exactly like every other stream-derived fact.
+    """
+    import coc_canonical_events
+
+    stream = Path(ctx.campaign_dir) / "logs" / coc_canonical_events.CANONICAL_STREAM_NAME
+    count = 0
+    if stream.is_file():
+        for line in stream.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if (
+                row.get("type") == event_type
+                and row.get("campaign") == campaign
+                and row.get("timeline") == timeline
+                and row.get("turn") == turn
+            ):
+                count += 1
+    return count + 1
+
+
+def emit_core_canonical_event(
+    ctx: Ctx,
+    *,
+    event_type: str,
+    source: str,
+    decision_id: str,
+    data: dict[str, Any],
+    privacy: str = "public",
+    turn: int | None = None,
+) -> dict[str, Any] | None:
+    """Emit one canonical event after authoritative settlement succeeded.
+
+    Envelope identity comes only from already-authoritative inputs: the
+    campaign context, the active timeline, the current authoritative turn
+    counter (never below 1), and the settled operation's ``decision_id``
+    for idempotency. Never raises into the caller — an emission fault is
+    recorded as an audit row so derived evidence can lag without breaking
+    a state/rules tool whose writes already committed.
+    """
+    if ctx.campaign_dir is None or not ctx.campaign_id:
+        return None
+    try:
+        import coc_canonical_events
+
+        resolved_turn = max(1, int(turn or 0))
+        try:
+            clock_label = str(
+                coc_time.current_stamp(ctx.campaign_dir).get("display") or ""
+            ).strip()
+        except Exception:
+            clock_label = ""
+        return coc_canonical_events.emit(
+            campaign_logs_dir=ctx.campaign_dir / "logs",
+            event_type=event_type,
+            campaign=ctx.campaign_id,
+            timeline=_canonical_emit_timeline(ctx),
+            turn=resolved_turn,
+            slug=coc_canonical_events.ordinal_slug(
+                _next_canonical_occurrence(
+                    ctx, event_type, ctx.campaign_id,
+                    _canonical_emit_timeline(ctx), resolved_turn,
+                )
+            ),
+            source=source,
+            game_time=(clock_label or "clock-unset")[:400],
+            privacy=privacy,
+            decision_id=decision_id,
+            data=data,
+        )
+    except Exception as exc:
+        try:
+            ctx.log_event({
+                "event_type": "canonical_emit_failed",
+                "failed_type": event_type,
+                "source": source,
+                "decision_id": str(decision_id),
+                "error": str(exc)[:240],
+            })
+        except Exception:
+            pass
+        return None
+
 
 _CUSTOM_SETUP_OPERATION_KINDS = (
     "campaign.create",
@@ -11692,6 +11850,7 @@ OPERATION_RUNTIME_EXPORTS = (
     'coc_working_set_cache',
     'datetime',
     'deepcopy',
+    'emit_core_canonical_event',
     'hashlib',
     'importlib',
     'json',

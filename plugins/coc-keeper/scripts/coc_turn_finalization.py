@@ -4194,6 +4194,120 @@ def replay_matches(
     )
 
 
+def _canonical_clock_label(campaign_dir: Path) -> str:
+    """Rendered in-fiction clock label for envelope provenance display."""
+    try:
+        time_state = json.loads(
+            (Path(campaign_dir) / "save" / "time-state.json")
+            .read_text(encoding="utf-8")
+        )
+        return str((time_state.get("clock") or {}).get("display") or "").strip()
+    except Exception:
+        return ""
+
+
+def _canonical_turn_floor(campaign_dir: Path) -> int:
+    try:
+        pacing = json.loads(
+            (Path(campaign_dir) / "save" / "pacing-state.json")
+            .read_text(encoding="utf-8")
+        )
+        return max(0, int(pacing.get("turn_number") or 0))
+    except Exception:
+        return 0
+
+
+def _canonical_active_timeline(campaign_dir: Path) -> str:
+    try:
+        import coc_git_history
+
+        campaign_dir = Path(campaign_dir)
+        return coc_git_history.active_timeline_id(
+            campaign_dir.parents[2], campaign_dir.name
+        )
+    except Exception:
+        return "tl-main"
+
+
+def _emit_turn_finalized_event(
+    campaign_dir: Path, receipt: dict[str, Any]
+) -> None:
+    """Emit ``turn-finalized`` after the authoritative append succeeded.
+
+    Derived evidence discipline: a canonical-event fault must never turn an
+    already-written finalization into a failed call, so any emission failure
+    degrades to a best-effort audit row.
+    """
+    try:
+        import coc_canonical_events
+
+        campaign_dir = Path(campaign_dir)
+        campaign_id = campaign_dir.name
+        timeline = _canonical_active_timeline(campaign_dir)
+        resolved_turn = max(
+            1,
+            int(receipt.get("turn_number") or _canonical_turn_floor(campaign_dir) or 1),
+        )
+        stream = (
+            campaign_dir / "logs" / coc_canonical_events.CANONICAL_STREAM_NAME
+        )
+        occurrence = 1
+        if stream.is_file():
+            for line in stream.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if (
+                    row.get("type") == "turn-finalized"
+                    and row.get("campaign") == campaign_id
+                    and row.get("timeline") == timeline
+                    and row.get("turn") == resolved_turn
+                ):
+                    occurrence += 1
+        settled_roll_ids = [
+            str(roll_id)
+            for roll_id in dict.fromkeys(receipt.get("source_roll_ids") or [])
+        ]
+        payload: dict[str, Any] = {
+            "_v": 1,
+            "finalization_id": str(receipt["finalization_id"]),
+        }
+        if settled_roll_ids:
+            payload["settled_roll_ids"] = settled_roll_ids
+        coc_canonical_events.emit(
+            campaign_logs_dir=campaign_dir / "logs",
+            event_type="turn-finalized",
+            campaign=campaign_id,
+            timeline=timeline,
+            turn=resolved_turn,
+            slug=coc_canonical_events.ordinal_slug(occurrence),
+            source="coc_turn_finalization.append_finalization",
+            game_time=(_canonical_clock_label(campaign_dir) or "clock-unset")[:400],
+            privacy="public",
+            decision_id=str(receipt["decision_id"]),
+            data=payload,
+        )
+    except Exception as exc:
+        try:
+            import coc_state as _coc_state
+
+            _coc_state.append_jsonl(
+                Path(campaign_dir) / "logs" / "audit.jsonl",
+                {
+                    "event_type": "canonical_emit_failed",
+                    "failed_type": "turn-finalized",
+                    "source": "coc_turn_finalization.append_finalization",
+                    "decision_id": str(receipt.get("decision_id") or ""),
+                    "error": str(exc)[:240],
+                },
+            )
+        except Exception:
+            pass
+
+
 def append_finalization(campaign_dir: Path, receipt: dict[str, Any]) -> None:
     if not _valid_finalization(receipt):
         raise TurnContractError("state_corrupt", "refusing invalid turn finalization")
@@ -4201,3 +4315,4 @@ def append_finalization(campaign_dir: Path, receipt: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n")
+    _emit_turn_finalized_event(campaign_dir, receipt)
