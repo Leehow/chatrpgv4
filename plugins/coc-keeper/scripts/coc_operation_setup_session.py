@@ -1123,7 +1123,7 @@ _TEMPORAL_ASSERTION_FIELDS = (
 )
 _TEMPORAL_HOOK_FIELDS = (
     "memory_id", "assertion_id", "kind", "status", "introduced_at",
-    "possible_payoff",
+    "possible_payoff", "planted_turn", "age_turns",
 )
 
 def _temporal_rows(rows: Any, fields: tuple[str, ...]) -> list[dict[str, Any]]:

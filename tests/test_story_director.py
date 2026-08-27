@@ -48,6 +48,48 @@ coc_flag_state = _load(
     "coc_flag_state_story_director_tests",
     "plugins/coc-keeper/scripts/coc_flag_state.py",
 )
+coc_temporal_memory = _load(
+    "coc_temporal_memory_story_director_tests",
+    "plugins/coc-keeper/scripts/coc_temporal_memory.py",
+)
+
+
+def _seed_temporal_assertion(
+    camp: Path,
+    assertion_id: str,
+    entities: list[str],
+    *,
+    statement: str = "叙事断言。",
+    kind: str = "belief",
+    privacy: str = "player_safe",
+) -> dict:
+    """Seed one canonical temporal assertion. The retired Markdown card
+    scanner is gone from the Director path, so memory fixtures here are
+    canonical temporal assertions."""
+    contract = coc_temporal_memory.contract
+    cid = camp.name
+    subject = contract.subject_id_for("party", cid, "")
+    return coc_temporal_memory.record_assertion(
+        {
+            "assertion_id": assertion_id,
+            "kind": kind,
+            "scope": "campaign",
+            "campaign_id": cid,
+            "timeline_id": "tl-main",
+            "subject_id": subject,
+            "knowers": [subject],
+            "privacy": privacy,
+            "state": "accurate",
+            "statement": statement,
+            "entities": list(entities),
+            "occurred_turn": 2,
+            "valid_from_turn": 2,
+            "source_commit": "a" * 40,
+            "source_turn": 2,
+            "source_receipts": [f"receipt-{assertion_id}"],
+        },
+        campaign_dir=camp,
+    )
 
 
 def _make_minimal_campaign(tmp_path):
@@ -2359,24 +2401,15 @@ def test_pacing_falls_back_when_no_matching_scene(tmp_path):
 
 
 def test_payoff_scores_above_zero_when_memory_matches(tmp_path):
-    """PAYOFF should score > 0 when retrieved memory cards match the scene."""
+    """PAYOFF should score > 0 when temporal memory matches the scene."""
     camp, char_path = _make_minimal_campaign(tmp_path)
-    # pre-populate a memory card keyed to scene-1 entities
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("coc_memory", "plugins/coc-keeper/scripts/coc_memory.py")
-    coc_memory = importlib.util.module_from_spec(spec); spec.loader.exec_module(coc_memory)
-    coc_memory.create_memory_card(
-        campaign_dir=camp, memory_id="mem-test-door",
-        privacy="player_safe", salience=0.8,
-        summary="玩家关注门", entities=["scene-1-entity"],
-        tags=["player_interest"], reactivation_cues=["scene-1"],
-        kind="player_preference", source_events=[])
+    # seed a temporal assertion keyed to scene-1 structured entity refs
+    _seed_temporal_assertion(camp, "mem-test-door", ["entity-scene-1"])
     ctx = coc_story_director.build_director_context(
         campaign_dir=camp, character_path=char_path, investigator_id="inv1",
         player_intent="recall", player_intent_class="investigate", rng=random.Random(42))
-    # force memory retrieval by injecting entities matching the card
-    ctx["memory_query_entities"] = ["scene-1-entity"]
-    ctx["memory_query_cues"] = ["scene-1"]
+    # force memory retrieval by injecting entity refs matching the assertion
+    ctx["memory_query_entities"] = ["entity-scene-1"]
     score = coc_story_director._base_score("PAYOFF", ctx)
     assert score > 0.0
 
@@ -2384,50 +2417,41 @@ def test_payoff_scores_above_zero_when_memory_matches(tmp_path):
 def test_payoff_discriminates_weak_vs_strong_memory(tmp_path):
     """Stronger memory match should score higher than a weak one."""
     camp, char_path = _make_minimal_campaign(tmp_path)
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("coc_memory", "plugins/coc-keeper/scripts/coc_memory.py")
-    coc_memory = importlib.util.module_from_spec(spec); spec.loader.exec_module(coc_memory)
-    # weak card: single entity match
-    coc_memory.create_memory_card(
-        campaign_dir=camp, memory_id="mem-weak", privacy="player_safe", salience=0.3,
-        summary="weak", entities=["entity-A"], tags=["x"], reactivation_cues=["cue-A"],
-        kind="event", source_events=[])
-    # strong card: multiple entity + cue match
-    coc_memory.create_memory_card(
-        campaign_dir=camp, memory_id="mem-strong", privacy="player_safe", salience=0.9,
-        summary="strong", entities=["entity-A", "entity-B", "entity-C"],
-        tags=["player_interest"], reactivation_cues=["cue-A", "cue-B", "cue-C"],
-        kind="event", source_events=[])
-    # query matches both, but strong card has more overlap
+    # weak assertion: single structured entity overlap
+    _seed_temporal_assertion(camp, "mem-test-weak", ["entity-weak-a"], statement="弱关联。")
+    # strong assertion: multi-entity overlap
+    _seed_temporal_assertion(
+        camp, "mem-test-strong", ["entity-strong-a", "entity-strong-b", "entity-strong-c"], statement="强关联。"
+    )
     ctx = coc_story_director.build_director_context(
         campaign_dir=camp, character_path=char_path, investigator_id="inv1",
         player_intent="x", player_intent_class="investigate", rng=random.Random(42))
-    ctx["memory_query_entities"] = ["entity-A", "entity-B", "entity-C"]
-    ctx["memory_query_cues"] = ["cue-A", "cue-B", "cue-C"]
-    score = coc_story_director._base_score("PAYOFF", ctx)
-    # strong match should produce a meaningfully higher score than the weak-only floor
-    assert score >= 0.5  # strong match drives it up
+    ctx["memory_query_entities"] = ["entity-strong-a", "entity-strong-b", "entity-strong-c"]
+    strong_score = coc_story_director._base_score("PAYOFF", ctx)
+    # multi-entity overlap clears the discriminative floor
+    assert strong_score >= 0.5
+    # narrowed to single-entity overlap: strictly lower score
+    ctx_narrow = dict(ctx)
+    ctx_narrow["memory_query_entities"] = ["entity-strong-a", "entity-unrelated-z"]
+    weak_score = coc_story_director._base_score("PAYOFF", ctx_narrow)
+    assert 0.0 < weak_score < strong_score
 
 
 def test_memory_reads_populated_when_cards_match(tmp_path):
+    """Temporal assertions populate memory_reads (legacy cards retired)."""
     camp, char_path = _make_minimal_campaign(tmp_path)
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("coc_memory", "plugins/coc-keeper/scripts/coc_memory.py")
-    coc_memory = importlib.util.module_from_spec(spec); spec.loader.exec_module(coc_memory)
-    coc_memory.create_memory_card(
-        campaign_dir=camp, memory_id="mem-test-door",
-        privacy="player_safe", salience=0.9,
-        summary="玩家关注门", entities=["scene-1-entity"],
-        tags=["player_interest"], reactivation_cues=["scene-1"],
-        kind="player_preference", source_events=[])
+    _seed_temporal_assertion(camp, "mem-test-door", ["entity-scene-1"], statement="玩家关注门。")
     ctx = coc_story_director.build_director_context(
         campaign_dir=camp, character_path=char_path, investigator_id="inv1",
         player_intent="x", player_intent_class="investigate", rng=random.Random(42))
-    ctx["memory_query_entities"] = ["scene-1-entity"]
-    ctx["memory_query_cues"] = ["scene-1"]
+    ctx["memory_query_entities"] = ["entity-scene-1"]
     plan = coc_story_director.generate_director_plan(ctx, "mem-test")
     assert len(plan["memory_reads"]) >= 1
-    assert plan["memory_reads"][0]["memory_id"] == "mem-test-door"
+    read = plan["memory_reads"][0]
+    assert read["memory_id"] == "mem-test-door"
+    assert read["source"] == "temporal_assertion"
+    for key in ("memory_id", "path", "reason", "use"):
+        assert key in read
 
 
 def test_resolve_delivery_structured_skill_check(tmp_path):
