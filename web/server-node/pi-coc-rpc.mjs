@@ -1921,6 +1921,20 @@ export class PiCocRpcHost {
         const baseGeneration = this.settleGeneration;
         const deadline = Date.now() + timeoutMs;
         while (this.openingSourceReviewPending && !this.closed && Date.now() < deadline) {
+          // This poll sits outside #waitSettleAfter, so its idle watchdog
+          // never observes it. A child that goes silent here would otherwise
+          // hold the opening SSE open for the whole 15-minute budget while
+          // the browser spins on 处理中. Fail dead air into stall recovery
+          // on the same idle bound the rest of the bridge uses.
+          if (this.#stdoutQuietForMs(this.turnIdleTimeoutMs)) {
+            throw new PiCocRpcError(
+              "pi-coc provider continuation lost RPC progress",
+              {
+                kind: "pi_coc_rpc_idle_timeout",
+                details: { idle_classification: "opening_review_wait_no_progress" },
+              },
+            );
+          }
           await new Promise((r) => setTimeout(r, 100));
         }
         if (this.openingSourceReviewPending) {

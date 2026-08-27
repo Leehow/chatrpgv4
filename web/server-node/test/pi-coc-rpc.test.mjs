@@ -393,6 +393,75 @@ test("required-visible recovery preserves terminal typed fault instead of replac
   assert.equal(frames[0].data.code, "state_claim_compiler_invalid");
 });
 
+test("opening attach fails into stall recovery when the source-review wait goes silently dead", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "review-wait-stall",
+    tableIntent: "character-setup",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+    turnIdleTimeoutMs: 150,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolCallId: "t1",
+    args: {},
+    result: { ok: false, error: { code: "gate", phase: "opening_source_review_required" } },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  // No further stdout progress: the review latch stays armed and stdout goes
+  // quiet far beyond the idle bound. The pre-fix behavior held the opening
+  // SSE open until the whole 15-minute budget expired.
+  await assert.rejects(
+    host.attachOpening(),
+    (error) => error.kind === "pi_coc_rpc_idle_timeout"
+      && error.details?.idle_classification === "opening_review_wait_no_progress",
+  );
+});
+
+test("opening attach completes normally when source review clears within the idle bound", async () => {
+  const child = fakeChild();
+  const host = new PiCocRpcHost({
+    repoRoot: "/tmp/missing-repo",
+    workspace: "/tmp/ws",
+    campaignId: "review-wait-clears",
+    tableIntent: "character-setup",
+    launcherPath: process.execPath,
+    spawnFn: () => child,
+    turnIdleTimeoutMs: 150,
+  });
+  host.start();
+  child.stderr.write(`${UI_AUTO_OPEN_MARKER}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "tool_execution_end",
+    toolCallId: "t2",
+    args: {},
+    result: { ok: false, error: { code: "gate", phase: "opening_source_review_required" } },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "custom_message",
+    customType: "coc-opening-source-review-lifecycle",
+    content: JSON.stringify({ status: "reviewed" }),
+    details: { status: "reviewed" },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "灯火未亮全，先把桌边的事说清楚。" }],
+    },
+  })}\n`);
+  child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);
+  const opened = await host.attachOpening();
+  assert.equal(opened.opened, true);
+});
+
 test("prompt raises a terminal turn fault only after relaying its one typed SSE error", async () => {
   const child = fakeChild();
   const written = [];
