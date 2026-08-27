@@ -51,6 +51,11 @@ IGNORE_PATHS: tuple[str, ...] = (
     "save/timeline-state.json",
     "memory/index.json",
     "memory/history-projection.db",
+    # Derived, rebuildable confluence enumeration cache written by
+    # timeline.confluence_query (coc_confluence_manifest_store): a pure
+    # function of two immutable parent tips, re-verified by digest and
+    # anchors at confirm time. Never authoritative; never committed.
+    "memory/temporal/confluence-manifests/",
 )
 
 # Narrow prefix face for crash-left atomic temp files of the rebuildable
@@ -63,6 +68,19 @@ IGNORE_PATHS: tuple[str, ...] = (
 IGNORE_TEMP_PREFIXES: tuple[tuple[str, str], ...] = (
     ("memory/.history-projection-", ".tmp"),
 )
+
+# Transient machine-internal lock files that live-play commits swept into
+# campaign trees before the tracking face excluded them. Their byte content
+# (pid/timestamp) is meaningless across epochs and must never gate or fail a
+# worldline merge; when two parent tips disagree, the merge carries the left
+# side deterministically instead of failing closed. Measured blocker: the
+# worldline-accept-20260827 run failed its first real confluence merge with
+# "unresolved confluence tree paths: .campaign.lock".
+CONFLUENCE_TRANSIENT_LOCK_PATHS: frozenset[str] = frozenset({
+    ".campaign.lock",
+    "logs/.recorder.lock",
+    "setup-handoff.lock",
+})
 
 # Independent of IGNORE_PATHS: the save/ subset the old copytree snapshot
 # captured, and therefore the only paths restore may rewrite.
@@ -1264,6 +1282,10 @@ def _additive_blob(
         assert right_blob is not None
         return right_blob
     if right_blob is None:
+        return left_blob
+    if path in CONFLUENCE_TRANSIENT_LOCK_PATHS:
+        # Machine-internal bookkeeping: byte identity across epochs is not
+        # meaningful, so deterministic carry beats a hard failure.
         return left_blob
     left_text = _read_blob_text(repo, worktree, left_blob[1])
     right_text = _read_blob_text(repo, worktree, right_blob[1])

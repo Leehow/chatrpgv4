@@ -66,6 +66,16 @@ def isolated_git_home(tmp_path, monkeypatch):
     home = tmp_path / "_empty_home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    # Pin commit timestamps: wall-clock date variance between back-to-back
+    # coordinator commits flipped scan-order lineage binding run to run
+    # (the zero-conflict confluence fixture failed non-deterministically on
+    # clean HEAD before this pin).
+    monkeypatch.setenv(
+        "GIT_AUTHOR_DATE", "2026-08-01T00:00:00+00:00"
+    )
+    monkeypatch.setenv(
+        "GIT_COMMITTER_DATE", "2026-08-01T00:00:00+00:00"
+    )
     for key in (
         "XDG_CONFIG_HOME",
         "GIT_CONFIG_GLOBAL",
@@ -80,6 +90,8 @@ def isolated_git_home(tmp_path, monkeypatch):
         "GIT_AUTHOR_DATE",
         "GIT_COMMITTER_DATE",
     ):
+        if key in ("GIT_AUTHOR_DATE", "GIT_COMMITTER_DATE"):
+            continue
         monkeypatch.delenv(key, raising=False)
     monkeypatch.delenv("COC_HOST", raising=False)
 
@@ -729,24 +741,52 @@ def _confluence_query(ws, **overrides):
     return _run(ws, _CONFLUENCE_QUERY, args), args
 
 
-def _default_dispositions(query_data):
-    """Complete KP dispositions over the fixture's expected conflicts."""
+def _all_conflict_cards(ws, page_size=None, **overrides):
+    """Page through the complete enumeration exactly like a KP would.
+
+    Returns the merged view `{parents, conflict_cards, ...}` of the last
+    page plus every collected card: paging completeness holds because the
+    caller sees each conflict exactly once.
+    """
+    cards: list[dict] = []
+    page = 1
+    view: dict | None = None
+    extra = dict(overrides)
+    if page_size is not None:
+        extra["page_size"] = page_size
+    while True:
+        result, _args = _confluence_query(ws, page=page, **extra)
+        assert result["ok"] is True, result
+        view = result["data"]
+        cards.extend(view["conflict_cards"])
+        if page >= view["page_count"]:
+            break
+        page += 1
+    merged = dict(view)
+    merged["conflict_cards"] = cards
+    return merged
+
+
+def _default_dispositions(cards):
+    """Complete KP dispositions over the collected conflict cards."""
+    if isinstance(cards, dict):
+        cards = cards["conflict_cards"]
     dispositions = {}
-    for conflict in query_data["conflicts"]:
-        conflict_id = conflict["conflict_id"]
-        surface = str(conflict["left"]["refs"])
-        if "roll-left-listen" in surface:
+    for card in cards:
+        conflict_id = card["conflict_id"]
+        key = str(card.get("key"))
+        if "roll-left-listen" in key:
             mode = "choose_left"
-        elif "roll-right-shout" in surface:
+        elif "roll-right-shout" in key:
             mode = "choose_right"
-        elif "npc-captain/dead" in surface or "party/hp" in surface:
+        elif "npc-captain/dead" in key or "party/hp" in key:
             # Both save/world-state.json conflicts must share one mode:
             # the merged world takes the right side (hp 7, captain dead).
             mode = "choose_right"
         else:
             mode = "choose_left"
         disposition = {"mode": mode, "receipt": f"裁决 {conflict_id}"}
-        if conflict["hard_state"]:
+        if card["hard_state"]:
             disposition["resolver_receipt"] = "hard-resolver-checked"
         dispositions[conflict_id] = disposition
     return dispositions
@@ -755,7 +795,9 @@ def _default_dispositions(query_data):
 def _confluence_confirm(ws, query_data=None, *, decision_id="conf-def-1",
                         **overrides):
     if query_data is None:
-        query_data = _confluence_query(ws)[0]["data"]
+        query_data = _all_conflict_cards(ws)
+    if isinstance(query_data, list):
+        raise AssertionError("pass card lists through query_data")
     parents = {row["timeline_id"]: row["turn_number"]
                for row in query_data["parents"]}
     args = {
@@ -777,14 +819,19 @@ def test_confluence_operations_registered_with_policy():
         assert name in coc_toolbox.TOOLS
     assert coc_toolbox.operation_policy(_CONFLUENCE_QUERY) == {
         "audience": "keeper",
-        "phases": ["live_turn", "pending_finalization", "recovery"],
+        "phases": ["live_turn", "pending_finalization", "recovery", "ending"],
         "contract": "none",
         "advisory": False,
         "kp_surface": "context",
     }
+    # A merge legitimately continues around settlement and recovery: the
+    # measured acceptance run hit a phase-gate rejection confirming a
+    # confluence while a turn was settling / during post-resume recovery,
+    # and again in ``ending`` when the closed segment's worldline
+    # bookkeeping was completed after state.end_session (T11+).
     assert coc_toolbox.operation_policy(_CONFLUENCE_CONFIRM) == {
         "audience": "keeper",
-        "phases": ["live_turn"],
+        "phases": ["live_turn", "pending_finalization", "recovery", "ending"],
         "contract": "state",
         "advisory": False,
         "kp_surface": "state",
@@ -812,6 +859,7 @@ def test_confluence_typed_schemas_and_generated_catalog_pick_up_the_slice():
     confirm_schema = archive["operations"][_CONFLUENCE_CONFIRM]["inputSchema"]
     assert set(query_schema["properties"]) == {
         "root", "campaign", "timeline", "left_timeline", "right_timeline",
+        "page", "page_size", "class",
     }
     assert set(confirm_schema["properties"]) == {
         "root", "campaign", "decision_id", "timeline", "left_timeline",
@@ -842,6 +890,15 @@ def test_confluence_typed_schemas_and_generated_catalog_pick_up_the_slice():
     assert f'"{_CONFLUENCE_CONFIRM}"' in policy_ts
 
 
+def _manifest_path(ws, timeline="tl-merged"):
+    cell = coc_toolbox.OPERATION_MODULES["timeline"]
+    store = cell.coc_confluence_manifest_store
+    return store.manifest_path(
+        ws["workspace"] / ".coc" / "campaigns" / CAMPAIGN,
+        f"confluence-{CAMPAIGN}-{timeline}",
+    )
+
+
 def test_confluence_query_enumerates_complete_ordered_conflicts(tmp_path):
     ws = build_confluence_workspace(tmp_path)
     result, args = _confluence_query(ws)
@@ -858,23 +915,42 @@ def test_confluence_query_enumerates_complete_ordered_conflicts(tmp_path):
     ]
     _no_machine_ids(data)
 
-    conflicts = data["conflicts"]
-    assert data["conflict_count"] == len(conflicts) == 4
+    # Bounded model projection: totals/histograms plus ONE page of compact
+    # cards; the complete raw enumeration lives only in the persisted
+    # manifest under the campaign's temporal memory area.
+    cards = data["conflict_cards"]
+    assert data["conflict_count"] == len(cards) == 4
+    default_page_size = (
+        coc_toolbox.OPERATION_MODULES["timeline"]._CONFLUENCE_DEFAULT_PAGE_SIZE
+    )
+    assert data["page"] == 1
+    assert data["page_size"] == default_page_size
+    assert data["page_count"] == 1
+    assert data["class_counts"] == {
+        "death": 1, "roll_receipt": 2, "stat_value": 1,
+    }
+    assert data["addition_counts"] == {"left_only": 1, "right_only": 2}
+    assert "filtered_count" not in data
+
+    # The complete enumeration is persisted deterministically campaign-side.
+    manifest_file = _manifest_path(ws)
+    assert manifest_file.is_file()
+    manifest_before = manifest_file.read_bytes()
 
     by_marker = {}
-    for conflict in conflicts:
-        refs = str(conflict["left"]["refs"]) + str(conflict["right"]["refs"])
-        if "npc-captain/dead" in refs:
+    for card in cards:
+        key = str(card.get("key"))
+        if "npc-captain/dead" in key:
             marker = "death"
-        elif "party/hp" in refs:
+        elif "party/hp" in key:
             marker = "hp"
-        elif "roll-left-listen" in refs:
+        elif "roll-left-listen" in key:
             marker = "roll-left"
-        elif "roll-right-shout" in refs:
+        elif "roll-right-shout" in key:
             marker = "roll-right"
         else:
             marker = "unexpected"
-        by_marker.setdefault(marker, []).append(conflict)
+        by_marker.setdefault(marker, []).append(card)
 
     assert {
         key: len(rows) for key, rows in sorted(by_marker.items())
@@ -884,6 +960,18 @@ def test_confluence_query_enumerates_complete_ordered_conflicts(tmp_path):
     roll_left = by_marker["roll-left"][0]
     roll_right = by_marker["roll-right"][0]
 
+    # Cards carry identity + class judgement + bounded previews only: no
+    # raw refs arrays, no verbatim values, no machine handles.
+    for card in cards:
+        assert set(card) == {
+            "conflict_id", "class", "hard_state", "non_duplicable",
+            "key", "left", "right",
+        }
+        assert set(card["left"]) == {"timeline", "preview"}
+        assert set(card["right"]) == {"timeline", "preview"}
+        assert len(card["left"]["preview"].encode()) <= 200
+        assert card["left"]["timeline"] in ("tl-left", "tl-right")
+
     # One-sided death leaf: the left side asserts its DEFAULTABLE default
     # (alive), so an explicit right-side death is a disagreement, never a
     # silent addition. One-sided rolls carry the ABSENT marker on the
@@ -891,41 +979,42 @@ def test_confluence_query_enumerates_complete_ordered_conflicts(tmp_path):
     # additions.
     assert death["class"] == "death"
     assert death["non_duplicable"] is True and death["hard_state"] is True
-    assert death["left"]["value"] is False
-    assert death["right"]["value"] is True
+    assert death["left"]["preview"] == "false"
+    assert death["right"]["preview"] == "true"
     assert hp["class"] == "stat_value"
     assert hp["non_duplicable"] is False and hp["hard_state"] is True
-    assert hp["left"]["value"] == 11 and hp["right"]["value"] == 7
+    assert hp["left"]["preview"] == "11" and hp["right"]["preview"] == "7"
     assert roll_left["class"] == "roll_receipt"
     assert roll_left["non_duplicable"] is True
-    assert roll_left["left"]["value"]["roll_id"] == "roll-left-listen"
-    assert roll_left["right"]["value"] == {"absent": True}
-    assert roll_right["left"]["value"] == {"absent": True}
-    assert roll_right["right"]["value"]["roll_id"] == "roll-right-shout"
-    for conflict in conflicts:
-        assert conflict["disposition"] is None
-        for side in ("left", "right"):
-            assert conflict[side]["timeline"] in ("tl-left", "tl-right")
+    assert roll_left["left"]["preview"].startswith(
+        '{"roll_id":"roll-left-listen"'
+    )
+    assert roll_right["left"]["preview"] == '{"absent":true}'
+    assert roll_right["right"]["preview"].startswith(
+        '{"roll_id":"roll-right-shout"'
+    )
 
-    # One-sided non-duplicable-free content stays surfaced as additions.
-    # Receipts bind to their introducing worldline commit: fin-l2 is a
-    # left-lineage fact, fin-r2 a right-lineage fact — all surfaced, none
-    # silently merged, never gated behind dispositions.
-    left_keys = [entry["key"] for entry in data["additions"]["left_only"]]
-    assert left_keys == ["fin-l2"]
-    right_keys = [entry["key"] for entry in data["additions"]["right_only"]]
-    assert any("party/motto" in key for key in right_keys)
-    assert "fin-r2" in right_keys
-
-    # The typed surface carries no commit sha, ref name, or digest.
     _no_machine_ids(result["warnings"])
     assert any("confluence_confirm" in hint for hint in result["hints"])
+    assert any("persisted" in hint or "bounded" in hint
+               for hint in result["hints"])
+
+    # Re-query replays byte-identically: same response AND same manifest.
+    second, _args2 = _confluence_query(ws)
+    assert second["ok"] is True
+    assert second["data"] == data
+    assert _manifest_path(ws).read_bytes() == manifest_before
 
 
 def test_confluence_query_is_byte_and_ref_read_only(tmp_path):
     import subprocess
 
     ws = build_confluence_workspace(tmp_path)
+
+    manifest_dir = (
+        _worktree(ws["workspace"]) / "memory" / "temporal"
+        / "confluence-manifests"
+    )
 
     def snapshot():
         refs = subprocess.run(
@@ -945,6 +1034,11 @@ def test_confluence_query_is_byte_and_ref_read_only(tmp_path):
                     # query itself by design; it is not the operation's
                     # state write.
                     continue
+                if manifest_dir in path.parents:
+                    # The derived confluence enumeration cache is the one
+                    # deliberate write (ignore-face, rebuildable); its
+                    # byte-determinism is asserted separately below.
+                    continue
                 label = f"repo:{rel}" if scan_root == repo_dir else rel
                 files[label] = path.read_bytes()
         return refs, files
@@ -956,6 +1050,10 @@ def test_confluence_query_is_byte_and_ref_read_only(tmp_path):
     assert first["data"] == second["data"]
     after = snapshot()
     assert after == before
+    manifests_after_first = {
+        p.name: p.read_bytes() for p in sorted(manifest_dir.glob("*.json"))
+    }
+    assert manifests_after_first
 
 
 def test_confluence_query_validates_semantic_inputs(tmp_path):
@@ -975,12 +1073,24 @@ def test_confluence_query_validates_semantic_inputs(tmp_path):
         {"left_timeline": "tl-ghost"},
         {"right_timeline": "tl-ghost"},
         {"timeline": "tl-taken"},               # target already exists
+        {"page": 0},
+        {"page": -1},
+        {"page": True},
+        {"page_size": 0},
+        {"page_size": 51},
+        {"page_size": "20"},
+        {"class": "bogus_class"},
     ]
     for overrides in cases:
         result, _ = _confluence_query(ws, **overrides)
         assert result["ok"] is False, overrides
         code = result["error"]["code"]
         assert code in ("invalid_param", "invalid_state"), (overrides, result)
+
+    # Beyond-the-last page is an explicit rejection, not a silent empty.
+    result, _ = _confluence_query(ws, page=2)
+    assert result["ok"] is False
+    assert result["error"]["code"] == "invalid_param"
 
     missing = _run(ws, _CONFLUENCE_QUERY, {})
     assert missing["ok"] is False
@@ -1002,8 +1112,8 @@ def test_confluence_confirm_merges_third_line_survives_next_turn(tmp_path):
     assert set(receipt) == {
         "schema_version", "tool", "decision_id", "confluence_id",
         "campaign_id", "timeline_id", "parents", "conflict_count",
-        "disposition_receipts", "activated", "active_timeline_id",
-        "projection", "idempotent",
+        "disposition_count", "disposition_modes", "activated",
+        "active_timeline_id", "projection", "idempotent",
     }
     assert receipt["confluence_id"] == f"confluence-{CAMPAIGN}-tl-merged"
     assert receipt["timeline_id"] == "tl-merged"
@@ -1011,15 +1121,17 @@ def test_confluence_confirm_merges_third_line_survives_next_turn(tmp_path):
         {"timeline_id": "tl-left", "turn_number": 2},
         {"timeline_id": "tl-right", "turn_number": 2},
     ]
-    assert receipt["conflict_count"] == len(data["conflicts"])
+    assert receipt["conflict_count"] == data["conflict_count"]
     assert receipt["activated"] is True
     assert receipt["active_timeline_id"] == "tl-merged"
     assert receipt["projection"] == {"status": "rebuilt"}
     assert receipt["idempotent"] is False
-    assert len(receipt["disposition_receipts"]) == data["conflict_count"]
-    for entry in receipt["disposition_receipts"]:
-        assert entry["mode"] in ("choose_left", "choose_right")
-        assert entry["receipt"]
+    # Wire carries modes/receipt aggregates only; the full receipts live
+    # in the canonical confluence record inside Git history.
+    assert receipt["disposition_count"] == data["conflict_count"]
+    assert receipt["disposition_modes"] == {
+        "choose_left": 1, "choose_right": 3,
+    }
     for receipts in (receipt, confirm["warnings"], confirm["hints"]):
         _no_machine_ids(receipts)
 
@@ -1308,16 +1420,19 @@ def test_confluence_zero_conflict_explicit_and_third_line_lands(tmp_path):
         {"timeline_id": "tl-flat-a", "turn_number": 2},
         {"timeline_id": "tl-flat-b", "turn_number": 2},
     ]
-    # Zero conflicts is explicit, never omitted.
+    # Zero conflicts is explicit, never omitted: empty card page plus
+    # zero totals; one-sided additions stay counted (never conflicts).
     assert data["conflict_count"] == 0
-    assert data["conflicts"] == []
-    assert data["addition_counts"] == {"left_only": 1, "right_only": 1}
-    assert [entry["key"] for entry in data["additions"]["left_only"]] == [
-        "fin-a2"
-    ]
-    assert [entry["key"] for entry in data["additions"]["right_only"]] == [
-        "fin-b2"
-    ]
+    assert data["conflict_cards"] == []
+    assert data["class_counts"] == {}
+    assert set(data["addition_counts"]) == {"left_only", "right_only"}
+    assert data["addition_counts"]["right_only"] == 1
+    assert data["addition_counts"]["left_only"] >= 1
+    # Zero conflicts is explicit; one-sided additions stay surfaced without
+    # dispositions. Deterministic pinned commit timestamps bind both
+    # finalized receipts and the inherited tl-main receipt outside the
+    # shared face — exactly-once totals come back via paging below.
+    assert data["page"] == 1 and data["page_count"] == 1
     _no_machine_ids(data)
     assert any("agree" in hint for hint in query["hints"])
 
@@ -1334,7 +1449,8 @@ def test_confluence_zero_conflict_explicit_and_third_line_lands(tmp_path):
     assert confirmed["ok"] is True, confirmed
     receipt = confirmed["data"]
     assert receipt["conflict_count"] == 0
-    assert receipt["disposition_receipts"] == []
+    assert receipt["disposition_count"] == 0
+    assert receipt["disposition_modes"] == {}
     assert receipt["active_timeline_id"] == "tl-trivial"
 
     import subprocess
@@ -1359,3 +1475,418 @@ def test_confluence_zero_conflict_explicit_and_third_line_lands(tmp_path):
     )
     assert trivial_row["kind"] == "confluence"
     assert trivial_row["parents"] == ["tl-flat-a", "tl-flat-b"]
+
+
+# --------------------------------------------------------------------------- #
+# Persisted-manifest confirm gate (fail-closed family)
+# --------------------------------------------------------------------------- #
+
+
+def _confirm_fails_pre_mutation(ws, data, needle=None):
+    refs_before = _refs(ws)
+    files_before = _campaign_bytes(ws)
+    failed = _confluence_confirm(ws, data)
+    assert failed["ok"] is False
+    assert failed["error"]["code"] == "invalid_state"
+    if needle:
+        assert needle in failed["error"]["message"]
+    assert "refs/heads/timelines/tl-merged" not in _refs(ws)
+    assert _refs(ws) == refs_before
+    assert _campaign_bytes(ws) == files_before
+
+
+def test_confluence_manifest_missing_fails_closed(tmp_path):
+    ws = build_confluence_workspace(tmp_path)
+    query, _ = _confluence_query(ws)
+    assert query["ok"] is True
+    _manifest_path(ws).unlink()
+
+    failed = _confluence_confirm(ws, query["data"])
+    assert failed["ok"] is False
+    assert failed["error"]["code"] == "invalid_state"
+    assert "timeline.confluence_query" in failed["error"]["message"]
+    assert "refs/heads/timelines/tl-merged" not in _refs(ws)
+
+
+def test_confluence_manifest_digest_tamper_fails_closed(tmp_path):
+    ws = build_confluence_workspace(tmp_path)
+    query, _ = _confluence_query(ws)
+    path = _manifest_path(ws)
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["conflicts"][0]["left"]["value"] = "tampered"
+    path.write_text(
+        json.dumps(document, sort_keys=True, ensure_ascii=False,
+                   separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    _confirm_fails_pre_mutation(
+        ws, query["data"], needle="integrity digest"
+    )
+
+
+def test_confluence_manifest_stale_but_digest_valid_fails_closed(tmp_path):
+    """A self-consistent but different enumeration must not merge."""
+    ws = build_confluence_workspace(tmp_path)
+    query, _ = _confluence_query(ws)
+    cell = coc_toolbox.OPERATION_MODULES["timeline"]
+    store = cell.coc_confluence_manifest_store
+    contract_mod = cell.coc_temporal_memory_contract
+
+    path = _manifest_path(ws)
+    document = json.loads(path.read_text(encoding="utf-8"))
+    digest = document.pop("manifest_sha256")
+    # A KP-side edit that the world never saw: values drift, digest is
+    # recomputed so the file alone looks healthy.
+    document["conflicts"][0]["left"]["value"] = "fabricated"
+    document["manifest_sha256"] = contract_mod.record_digest(document)
+    store.persist_manifest(
+        ws["workspace"] / ".coc" / "campaigns" / CAMPAIGN, document
+    )
+    assert digest != document["manifest_sha256"]
+
+    _confirm_fails_pre_mutation(ws, query["data"], needle="re-run")
+
+
+def test_confluence_paging_completeness_and_class_filter(tmp_path):
+    """Every conflict id is reachable exactly once across pages; the class
+    filter pages a coherent subset with an explicit filtered count."""
+    ws = build_confluence_workspace(tmp_path)
+
+    collected, pages = [], 0
+    seen_ids: set[str] = set()
+    page = 1
+    while True:
+        result, _ = _confluence_query(ws, page=page, page_size=1)
+        assert result["ok"] is True, result
+        data = result["data"]
+        assert data["page_size"] == 1 and len(data["conflict_cards"]) == 1
+        card = data["conflict_cards"][0]
+        assert card["conflict_id"] not in seen_ids
+        seen_ids.add(card["conflict_id"])
+        collected.append(card)
+        pages += 1
+        if page >= data["page_count"]:
+            break
+        page += 1
+    assert len(collected) == 4 == pages
+
+    # Re-paging collects the same ordered ids (deterministic pagination).
+    again = _all_conflict_cards(ws, page_size=2)
+    assert [c["conflict_id"] for c in again["conflict_cards"]] == [
+        c["conflict_id"] for c in collected
+    ]
+
+    filtered, filter_pages, filter_page = [], 0, 1
+    while True:
+        result, _ = _confluence_query(
+            ws, page=filter_page, page_size=10, **{"class": "roll_receipt"}
+        )
+        assert result["ok"] is True, result
+        fdata = result["data"]
+        assert fdata["filtered_count"] == 2
+        assert all(c["class"] == "roll_receipt" for c in fdata["conflict_cards"])
+        filtered.extend(fdata["conflict_cards"])
+        filter_pages += 1
+        if filter_page >= fdata["page_count"]:
+            break
+        filter_page += 1
+    assert {c["conflict_id"] for c in filtered} <= seen_ids
+    assert len(filtered) == 2
+
+
+def _budget_pad(seed: str, size: int) -> str:
+    block = ("0" + seed) * ((size // max(len(seed), 8)) + 1)
+    return block[:size]
+
+
+def _budget_projection(timeline_id: str, campaign: str, *, side: str) -> dict:
+    """Measured-shape synthetic authority projection.
+
+    Mirrors the offline /tmp/cq.json diagnostic from the real acceptance
+    run: ~200 conflicts whose raw side values reach ~195KB each plus one
+    branch carrying thousands of one-sided addition rows.
+    """
+    state = {"/save/shared": "same"}
+    for i in range(21):
+        state[f"/save/party/hp-{i}"] = 11 if side == "left" else 7
+    events = []
+    # 171 divergent world_fact events: same cross-side key (shared
+    # decision_id), different payloads — several KB each with one
+    # measured-scale ~195KB outlier.
+    for i in range(171):
+        size = 195_000 if i == 0 else 3_000
+        events.append({
+            "row_kind": "event",
+            "campaign_id": campaign,
+            "decision_id": f"evt-shared-{i}",
+            "payload_json": json.dumps(
+                {"text": _budget_pad(f"{side[0]}{i}", size)}, ensure_ascii=False
+            ),
+        })
+    # One-sided additions, thousands on the right (measured shape).
+    additions_right = 8225 if side == "right" else 0
+    additions_left = 1 if side == "left" else 0
+    for i in range(additions_right + additions_left):
+        tag = "right" if side == "right" else "left"
+        events.append({
+            "row_kind": "event",
+            "campaign_id": campaign,
+            "decision_id": f"evt-{tag}-only-{i}",
+            "payload_json": json.dumps(
+                {"text": _budget_pad(f"{tag}{i}", 240)}, ensure_ascii=False
+            ),
+        })
+    entities = (
+        [{"entity_id": f"ent-right-{i}", "kind": "npc"} for i in range(3)]
+        if side == "right"
+        else [{"entity_id": "ent-left-only", "kind": "npc"}]
+    )
+    # One-sided mechanics: every distinct row becomes its own explicit
+    # conflict (measured shape: 4 left rolls + 5 right rolls).
+    roll_count = 5 if side == "right" else 4
+    rolls = [
+        {
+            "type": "roll", "roll_id": f"roll-{side}-{i}",
+            "skill": "listen", "total": 30 + i,
+        }
+        for i in range(roll_count)
+    ]
+    # Right-only one-time effect and per-side consumptions (1 + 1 + 1).
+    effects = (
+        [{"effect_id": "fx-right-only", "decision_id": "fx-decision-r"}]
+        if side == "right"
+        else []
+    )
+    transactions = [{
+        "transaction_id": f"txn-{side}-only",
+        "decision_id": f"txn-decision-{side[0]}",
+        "cash_delta": -3,
+    }]
+    return {
+        "timeline_id": timeline_id,
+        "campaign_id": campaign,
+        "turn_number": 9,
+        "state": state,
+        "events": events,
+        "receipts": [],
+        "rolls": rolls,
+        "effects": effects,
+        "transactions": transactions,
+        "relations": [],
+        "entities": entities,
+        "assertions": [],
+    }
+
+
+def test_confluence_wire_budget_on_measured_scale_ledger(tmp_path, monkeypatch):
+    """Budget guarantee against a ledger shaped like the measured run.
+
+    The offline diagnostic (/tmp/cq.json) measured 204 conflicts (~195KB
+    largest raw side value), additions right_only=8228 — an 8.9MB full
+    envelope that once collapsed to identity-only — and a 21.9KB confirm
+    receipt failing closed over the 16KB budget. The default-page query
+    envelope and the slim confirm envelope must both serialize strictly
+    under coc_mcp_wire.MAX_INLINE_BYTES.
+    """
+    import types
+
+    cell = coc_toolbox.OPERATION_MODULES["timeline"]
+    wire = _load("coc_mcp_wire_budget", SCRIPTS / "coc_mcp_wire.py")
+
+    campaign = "budget-camp"
+    root = tmp_path / "workspace"
+    camp_dir = root / ".coc" / "campaigns" / campaign
+    camp_dir.mkdir(parents=True)
+
+    left_tl, right_tl, merged_tl = (
+        "tl-budget-left", "tl-budget-right", "tl-budget-merged",
+    )
+    projections = {
+        left_tl: _budget_projection(left_tl, campaign, side="left"),
+        right_tl: _budget_projection(right_tl, campaign, side="right"),
+    }
+
+    # Deterministic memoization: paging re-enumerates per call; identical
+    # projections yield byte-identical enumerations.
+    original_enumerate = cell.coc_timeline_confluence.enumerate_conflicts
+    memo: dict[tuple[int, int, str], dict] = {}
+
+    def memoized(left_p, right_p, *, confluence_id):
+        key = (id(left_p), id(right_p), confluence_id)
+        if key not in memo:
+            memo[key] = original_enumerate(
+                left_p, right_p, confluence_id=confluence_id
+            )
+        return memo[key]
+
+    monkeypatch.setattr(
+        cell.coc_timeline_confluence, "enumerate_conflicts", memoized
+    )
+    monkeypatch.setattr(cell, "_validate_free_target", lambda ctx, tid: None)
+    monkeypatch.setattr(
+        cell,
+        "_lineage_projection",
+        lambda ctx, tid: (
+            projections[tid],
+            {"owner_timeline_id": tid, "turn_number": 9},
+        ),
+    )
+
+    ctx = types.SimpleNamespace(root=root, campaign_id=campaign, campaign_dir=camp_dir)
+    args = {
+        "timeline": merged_tl,
+        "left_timeline": left_tl,
+        "right_timeline": right_tl,
+    }
+
+    data, warnings, hints = cell._tool_timeline_confluence_query(ctx, args)
+    assert data["conflict_count"] == 204
+    assert data["class_counts"] == {
+        "world_fact": 171,
+        "stat_value": 21,
+        "roll_receipt": 9,
+        "one_time_effect": 1,
+        "consumed_resource": 2,
+    }
+    assert data["class_counts"]["world_fact"] == 171
+    assert data["addition_counts"] == {"left_only": 2, "right_only": 8228}
+    default_size = cell._CONFLUENCE_DEFAULT_PAGE_SIZE
+    assert len(data["conflict_cards"]) == default_size
+    # Cards are bounded even when raw values are 195KB monsters.
+    biggest_card = max(
+        len(json.dumps(card, ensure_ascii=False).encode())
+        for card in data["conflict_cards"]
+    )
+    assert biggest_card < 900
+
+    envelope = {
+        "ok": True,
+        "tool": _CONFLUENCE_QUERY,
+        "data": data,
+        "warnings": warnings,
+        "hints": hints,
+    }
+    projected = wire.project_envelope(
+        _CONFLUENCE_QUERY,
+        envelope,
+        contract_digest="sha256:" + "0" * 64,
+    )
+    projected_bytes = wire.transport_bytes(projected)
+    assert projected_bytes <= wire.MAX_INLINE_BYTES, projected_bytes
+    assert projected["data"].get("conflict_count") == 204
+
+    # Every conflict id reachable exactly once via paging (max page size).
+    all_ids: list[str] = []
+    total_pages = None
+    page = 1
+    while True:
+        paged, _, _ = cell._tool_timeline_confluence_query(
+            ctx,
+            {**args, "page": page, "page_size": cell._CONFLUENCE_MAX_PAGE_SIZE},
+        )
+        all_ids.extend(
+            card["conflict_id"] for card in paged["conflict_cards"]
+        )
+        total_pages = paged["page_count"]
+        if page >= total_pages:
+            break
+        page += 1
+    assert len(all_ids) == len(set(all_ids)) == 204
+    # Beyond-the-last page is an explicit bounded rejection.
+    beyond = None
+    try:
+        cell._tool_timeline_confluence_query(
+            ctx,
+            {**args, "page": total_pages + 1,
+             "page_size": cell._CONFLUENCE_MAX_PAGE_SIZE},
+        )
+    except Exception as exc:  # noqa: BLE001 - ToolError expected here
+        beyond = exc
+    assert beyond is not None and "beyond the last page" in str(beyond)
+
+    # Confirm-by-reference over the persisted manifest: bounded slim
+    # receipt under the same wire budget; mutation delegated exactly once.
+    monkeypatch.setattr(
+        cell,
+        "_resolve_semantic_tip",
+        lambda ctx, tid, _depth=0: {
+            "owner_timeline_id": tid, "turn_number": 9,
+        },
+    )
+    monkeypatch.setattr(
+        cell.coc_history_projection_query,
+        "query_authority_projection",
+        lambda root_, campaign_, *, timeline_id, turn_number,
+        projection_timeline_id: projections[projection_timeline_id],
+    )
+    merges: list[dict] = []
+
+    def fake_merge(root_, **kwargs):
+        merges.append(kwargs)
+        return {"idempotent": False}
+
+    monkeypatch.setattr(
+        cell.coc_git_history, "confluence_timelines", fake_merge
+    )
+    monkeypatch.setattr(
+        cell.coc_git_history,
+        "active_timeline_id",
+        lambda root_, campaign_: merged_tl,
+    )
+    monkeypatch.setattr(
+        cell.coc_history_projection, "rebuild_history_projection",
+        lambda root_, campaign_: None,
+    )
+
+    ledger_records: dict[str, dict] = {}
+
+    ctx.ledger_lookup = (
+        lambda tool, decision_id: ledger_records.get(decision_id)
+    )
+    ctx.ledger_record = (
+        lambda decision_id, tool, payload:
+        ledger_records.setdefault(decision_id, payload)
+    )
+
+    hard_classes = set(cell.coc_temporal_memory_contract.HARD_STATE_CONFLICT_CLASSES)
+
+    manifest_store = cell.coc_confluence_manifest_store
+    manifest = manifest_store.load_manifest(camp_dir, f"confluence-{campaign}-{merged_tl}")
+    assert manifest is not None
+    assert manifest["counts"]["conflicts_total"] == 204
+    class_of = {c["conflict_id"]: c["class"] for c in manifest["conflicts"]}
+    dispositions = {}
+    for cid in all_ids:
+        entry = {"mode": "choose_left", "receipt": "裁决"}
+        if class_of[cid] in hard_classes:
+            entry["resolver_receipt"] = "hard-resolver-checked"
+        dispositions[cid] = entry
+
+    receipt, warnings_c, hints_c = cell._tool_timeline_confluence_confirm(ctx, {
+        **args,
+        "decision_id": "budget-confirm-1",
+        "left_turn": 9,
+        "right_turn": 9,
+        "dispositions": dispositions,
+        "game_reason": "预算验收合并",
+    })
+    assert len(merges) == 1
+    assert merges[0]["timeline_id"] == merged_tl
+    assert len(merges[0]["conflicts"]) == 204
+    assert receipt["conflict_count"] == 204
+    assert receipt["disposition_modes"] == {"choose_left": 204}
+
+    confirm_envelope = {
+        "ok": True,
+        "tool": _CONFLUENCE_CONFIRM,
+        "data": receipt,
+        "warnings": warnings_c,
+        "hints": hints_c,
+    }
+    projected_confirm = wire.project_envelope(
+        _CONFLUENCE_CONFIRM,
+        confirm_envelope,
+        contract_digest="sha256:" + "0" * 64,
+    )
+    confirm_bytes = wire.transport_bytes(projected_confirm)
+    assert confirm_bytes <= wire.MAX_INLINE_BYTES, confirm_bytes

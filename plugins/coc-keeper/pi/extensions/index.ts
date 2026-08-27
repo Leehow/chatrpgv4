@@ -5535,6 +5535,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     "awaiting_player",
     // ready_for_table after setup.complete (web respawn + launcher re-exec)
     "table_opening",
+    // closed segment (state.end_session) resuming for post-ending
+    // worldline bookkeeping (confluence/fork records): measured in the
+    // worldline-accept-20260827 acceptance run — resuming an ended
+    // campaign otherwise terminally quarantines the whole play epoch.
+    "ending",
   ]);
   const classifyStartupResumeResult = (
     value: unknown,

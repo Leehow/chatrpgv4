@@ -296,10 +296,26 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
     # needed wherever the KP might weigh or replay a confluence (live
     # turns, settlement checks, recovery diagnosis), while
     # timeline.confluence_confirm keeps the domain's state contract below.
+    # ``ending`` is required alongside recovery: the measured
+    # 2026-08-26 worldline-accept-20260827 run reached its player-visible
+    # confluence only AFTER state.end_session settled the segment (phase
+    # rejection observed live: "not allowed in phase ending"); a closed
+    # segment's worldline bookkeeping is exactly the post-ending case.
     "timeline.confluence_query": {
         "contract": "none",
         "kp_surface": "context",
-        "phases": ("live_turn", "pending_finalization", "recovery"),
+        "phases": ("live_turn", "pending_finalization", "recovery", "ending"),
+    },
+    # timeline.confluence_confirm keeps the domain's state contract but
+    # widens phases like its read-only sibling below: a real worldline
+    # merge legitimately continues around settlement and recovery — the
+    # measured 2026-08-26 worldline acceptance run hit a phase-gate
+    # rejection when the KP confirmed a merge while the turn was already
+    # settling / during post-resume recovery (worldline-accept findings).
+    # Widening is not turn-scoped scope creep: confirm remains a serial,
+    # fail-closed, receipted mutation identical in every phase.
+    "timeline.confluence_confirm": {
+        "phases": ("live_turn", "pending_finalization", "recovery", "ending"),
     },
     "actions.list": {
         "contract": "none",
