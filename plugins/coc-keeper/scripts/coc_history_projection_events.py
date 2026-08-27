@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pure JSONL event/receipt extraction for the authority history projection.
 
-Schema generation ``history-projection-1``. This module is a pure function
+Schema generation ``history-projection-2``. This module is a pure function
 layer: it consumes one scanner-produced ``commit_record`` (tracked file texts
 already in memory) and returns deterministic, insertion-ready rows for the
 ``events`` / ``receipts`` / ``rolls`` / ``effects`` / ``transactions`` /
@@ -43,7 +43,7 @@ import hashlib
 import json
 from typing import Any
 
-SCHEMA_GENERATION = "history-projection-1"
+SCHEMA_GENERATION = "history-projection-2"
 
 # Tracked log faces this extractor consumes. ``logs`` is a flat directory
 # (``logs/<name>.jsonl`` only; ``logs/pending-turns/`` stays an ignore face).
@@ -444,6 +444,7 @@ def extract_events(commit_record: dict[str, Any]) -> dict[str, Any]:
                 rows_by_kind[ROW_ROLL].append({
                     "roll_id": row_id,
                     **provenance,
+                    "source_path": path,
                     "payload_sha256": digest,
                     "payload_json": payload_text,
                 })
@@ -452,6 +453,7 @@ def extract_events(commit_record: dict[str, Any]) -> dict[str, Any]:
                     "effect_id": row_id,
                     **provenance,
                     "entity_id": _effect_entity_id(parsed),
+                    "source_path": path,
                     "payload_sha256": digest,
                     "payload_json": payload_text,
                 })
@@ -459,6 +461,7 @@ def extract_events(commit_record: dict[str, Any]) -> dict[str, Any]:
                 rows_by_kind[ROW_TRANSACTION].append({
                     "transaction_id": row_id,
                     **provenance,
+                    "source_path": path,
                     "payload_sha256": digest,
                     "payload_json": payload_text,
                 })

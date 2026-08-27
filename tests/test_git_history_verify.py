@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -363,6 +364,8 @@ PROOF_TOP_KEYS = {
     "tree",
     "history_reset",
     "findings",
+    "signed_ref",
+    "signed_timeline_id",
 }
 
 
@@ -733,6 +736,92 @@ def test_state_proof_default_head_unchanged_after_fork(tmp_path):
     assert proof.head.sha == sha2
     assert proof.head.finalization_id == "fin-0002"
     assert sha1 != sha2
+    # No activation happened: the campaign has no active pointer beyond the
+    # implied tl-main root, so the default signing target resolves back to
+    # main/HEAD exactly as before (byte-identical default behavior).
+    assert proof.signed_ref == hist.timeline_ref_name("tl-main")
+    assert proof.signed_timeline_id == "tl-main"
+
+
+def _bump_world_state(worktree: Path, **extra: Any) -> None:
+    """Schema-valid world-state edit (keeps ``schema_version``/identity)."""
+    path = worktree / "save" / "world-state.json"
+    state = json.loads(path.read_text(encoding="utf-8"))
+    state.update(extra)
+    path.write_text(json.dumps(state) + "\n", encoding="utf-8")
+
+
+def test_state_proof_default_signs_active_branch_without_wrong_head(tmp_path):
+    """F2 regression: post-fork campaigns sign their ACTIVE timeline tip.
+
+    The default proof must follow the active pointer (semantic resolution
+    through the Git coordinator), not the stale HEAD/main branch.
+    """
+    sha1, sha2 = _healthy_two_turns(tmp_path)
+    hist.fork_timeline(
+        tmp_path,
+        CAMPAIGN_ID,
+        timeline_id="tl-side",
+        source_turn=2,
+        game_reason="side path",
+        activate=True,
+    )
+    worktree = _worktree(tmp_path)
+    _write_receipts(tmp_path, ["fin-0001", "fin-0002", "fin-side-3"])
+    _bump_world_state(worktree, turn=3, branch="side")
+    side_sha = _commit_turn(tmp_path, 3, "fin-side-3")
+    proj.rebuild_history_projection(tmp_path, CAMPAIGN_ID)
+
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "PASS", [f.render() for f in proof.findings]
+    assert verify.CODE_WRONG_HEAD not in _codes(proof)
+    assert verify.CODE_MISSING_RECEIPT not in _codes(proof)
+    assert verify.CODE_HASH_DRIFT not in _codes(proof)
+    assert proof.head.sha == side_sha
+    assert proof.head.finalization_id == "fin-side-3"
+    assert proof.signed_ref == hist.timeline_ref_name("tl-side")
+    assert proof.signed_timeline_id == "tl-side"
+    # The sealed parent line stays reachable by explicit ref selection and
+    # carries its own (older) head — the active-vs-main distinction.
+    main_proof = verify.state_integrity_proof(
+        tmp_path, CAMPAIGN_ID, timeline_ref="refs/heads/main"
+    )
+    assert main_proof.head.sha == sha2
+    assert main_proof.head.finalization_id == "fin-0002"
+    assert main_proof.signed_ref == "HEAD"
+    assert main_proof.signed_timeline_id is None
+    assert sha1 != sha2 != side_sha
+
+
+def test_state_proof_genuine_drift_on_active_branch_still_fails(tmp_path):
+    """Active-branch signing proves real integrity: drifting a save fails."""
+    _healthy_two_turns(tmp_path)
+    hist.fork_timeline(
+        tmp_path,
+        CAMPAIGN_ID,
+        timeline_id="tl-side",
+        source_turn=2,
+        game_reason="side path",
+        activate=True,
+    )
+    worktree = _worktree(tmp_path)
+    _write_receipts(tmp_path, ["fin-0001", "fin-0002", "fin-side-3"])
+    _bump_world_state(worktree, turn=3, branch="side")
+    _commit_turn(tmp_path, 3, "fin-side-3")
+    proj.rebuild_history_projection(tmp_path, CAMPAIGN_ID)
+
+    # Out-of-band hand edit of an authoritative tracked path after settle:
+    # schema stays valid, content drifts from the committed tip.
+    _bump_world_state(worktree, status="tampered", turn=99)
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == "FAIL"
+    assert (
+        verify.CODE_HASH_DRIFT in _codes(proof)
+        or verify.CODE_DIRTY_AUTHORITATIVE_STATE in _codes(proof)
+    )
+    # The failure is genuinely about content drift, not a wrong signing tip.
+    assert verify.CODE_WRONG_HEAD not in _codes(proof)
+    assert proof.head.finalization_id == "fin-side-3"
 
 
 def test_state_proof_timeline_ref_and_confluence_topology(tmp_path):
@@ -803,10 +892,14 @@ def test_state_proof_timeline_ref_and_confluence_topology(tmp_path):
     )
 
     main_proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
-    assert main_proof.head.sha == main_sha
+    assert main_proof.head.sha == right_sha
+    assert main_proof.signed_ref == hist.timeline_ref_name("tl-right")
+    assert main_proof.signed_timeline_id == "tl-right"
     assert verify.CODE_CONFLUENCE_PARENTS not in _codes(main_proof)
     assert verify.CODE_CONFLUENCE_TRAILER not in _codes(main_proof)
     assert verify.CODE_FORK_TOPOLOGY not in _codes(main_proof)
+    assert verify.CODE_CONFLUENCE_MANIFEST not in _codes(main_proof)
+    assert verify.CODE_CONFLUENCE_TREE not in _codes(main_proof)
     assert verify.CODE_CONFLUENCE_MANIFEST not in _codes(main_proof)
     assert verify.CODE_CONFLUENCE_TREE not in _codes(main_proof)
 
@@ -890,7 +983,7 @@ def _world_state_conflicts(
 
 
 def test_state_proof_confluence_binding_clean_after_real_confluence(tmp_path):
-    worktree, main_sha, _left, _right = _confluence_fixture(tmp_path)
+    worktree, main_sha, _left, right_sha = _confluence_fixture(tmp_path)
     confluence_id = f"confluence-{CAMPAIGN_ID}-tl-merged"
     merged = hist.confluence_timelines(
         tmp_path,
@@ -905,7 +998,9 @@ def test_state_proof_confluence_binding_clean_after_real_confluence(tmp_path):
         confluence_id=confluence_id,
     )
     main_proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
-    assert main_proof.head.sha == main_sha
+    assert main_proof.head.sha == right_sha
+    assert main_proof.signed_ref == hist.timeline_ref_name("tl-right")
+    assert main_proof.signed_timeline_id == "tl-right"
     assert verify.CODE_CONFLUENCE_MANIFEST not in _codes(main_proof)
     assert verify.CODE_CONFLUENCE_TREE not in _codes(main_proof)
     merge_proof = verify.state_integrity_proof(

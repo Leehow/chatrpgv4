@@ -6,7 +6,6 @@ from coc_operation_kernel_runtime import (
     Any,
     Ctx,
     ToolError,
-    _SAFE_ID,
     _flags_set,
     _load_sibling,
     _now_iso,
@@ -22,8 +21,6 @@ coc_threat_state = _load_sibling("coc_threat_state_toolbox", "coc_threat_state.p
 coc_epistemic_lifecycle = _load_sibling(
     "coc_epistemic_lifecycle_toolbox", "coc_epistemic_lifecycle.py"
 )
-
-coc_memory = _load_sibling("coc_memory", "coc_memory.py")
 
 coc_quest_state = _load_sibling("coc_quest_state_toolbox", "coc_quest_state.py")
 
@@ -90,155 +87,6 @@ def _tool_state_backstory_corruption_add(ctx: Ctx, args: dict[str, Any]):
     }
     ctx.ledger_record(args["decision_id"], "state.backstory_corruption_add", data)
     return data, [], ["this records an accepted consequence; it does not author one automatically"]
-
-def _memory_query_terms(args: dict[str, Any], key: str) -> list[str]:
-    raw = args.get(key)
-    if raw is None:
-        return []
-    if not isinstance(raw, list):
-        raise ToolError("invalid_param", f"{key} must be an array of strings")
-    return [str(item).strip() for item in raw if str(item).strip()]
-
-def _memory_card_projection(card: dict[str, Any]) -> dict[str, Any]:
-    projection = {
-        "memory_id": card.get("memory_id"),
-        "kind": card.get("kind"),
-        "privacy": card.get("privacy"),
-        "salience": card.get("salience"),
-        "entities": deepcopy(card.get("entities") or []),
-        "tags": deepcopy(card.get("tags") or []),
-        "reactivation_cues": deepcopy(card.get("reactivation_cues") or []),
-        "summary": card.get("body", ""),
-        "score": card.get("score"),
-    }
-    for optional in ("status", "introduced_at", "resolved_at", "possible_payoff", "scenes"):
-        if card.get(optional) not in (None, ""):
-            projection[optional] = deepcopy(card.get(optional))
-    return projection
-
-def _tool_memory_search(ctx: Ctx, args: dict[str, Any]):
-    kinds = _memory_query_terms(args, "kinds")
-    invalid_kinds = sorted(set(kinds) - set(coc_memory.CARD_KINDS))
-    if invalid_kinds:
-        raise ToolError(
-            "invalid_param",
-            "unknown memory card kind(s): " + ", ".join(invalid_kinds)
-            + "; expected " + ", ".join(coc_memory.CARD_KINDS),
-        )
-    statuses = _memory_query_terms(args, "statuses")
-    invalid_statuses = sorted(set(statuses) - set(coc_memory.HOOK_STATUSES))
-    if invalid_statuses:
-        raise ToolError(
-            "invalid_param",
-            "unknown memory card status(es): " + ", ".join(invalid_statuses)
-            + "; expected " + ", ".join(coc_memory.HOOK_STATUSES),
-        )
-    view = str(args.get("view") or "keeper")
-    if view not in {"keeper", "player_safe"}:
-        raise ToolError("invalid_param", "view must be keeper or player_safe")
-    limit = max(1, min(20, int(args.get("limit") or 5)))
-    cards = coc_memory.retrieve_memory_cards(
-        campaign_dir=ctx.campaign_dir,
-        query_entities=_memory_query_terms(args, "entities"),
-        query_cues=_memory_query_terms(args, "cues"),
-        query_tags=_memory_query_terms(args, "tags"),
-        privacy_filter="player_safe" if view == "player_safe" else "keeper",
-        limit=limit,
-        kinds=kinds or None,
-        statuses=statuses or None,
-    )
-    return {
-        "schema_version": 1,
-        "authority": "advisory",
-        "hard_gate": False,
-        "view": view,
-        "count": len(cards),
-        "cards": [_memory_card_projection(card) for card in cards],
-    }, [], [
-        "memory cards are semantic context, never authoritative facts; state.*/rules.* own truth",
-        "results carry privacy labels — keeper_only/system_only content never becomes player prose without earned play",
-    ]
-
-def _tool_memory_write(ctx: Ctx, args: dict[str, Any]):
-    prior = ctx.ledger_lookup("memory.write", args.get("decision_id"))
-    if prior is not None:
-        return prior.get("data"), ["duplicate decision_id: returning the previous receipt"], []
-    memory_id = str(args["memory_id"]).strip()
-    if not _SAFE_ID.match(memory_id):
-        raise ToolError("invalid_param", f"invalid memory_id: {memory_id!r}")
-    privacy = str(args["privacy"])
-    if privacy not in coc_memory.PRIVACY_DIRS:
-        raise ToolError(
-            "invalid_param",
-            "privacy must be one of " + ", ".join(sorted(coc_memory.PRIVACY_DIRS)),
-        )
-    summary = str(args["summary"]).strip()
-    if not summary:
-        raise ToolError("invalid_param", "summary is required")
-    if coc_memory.find_card(ctx.campaign_dir, memory_id) is not None:
-        raise ToolError("invalid_param", f"memory card already exists: {memory_id}")
-    salience = float(args.get("salience") if args.get("salience") is not None else 0.5)
-    if not 0.0 <= salience <= 1.0:
-        raise ToolError("invalid_param", "salience must be within 0..1")
-    status = args.get("status")
-    try:
-        path = coc_memory.create_memory_card(
-            campaign_dir=ctx.campaign_dir,
-            memory_id=memory_id,
-            privacy=privacy,
-            summary=summary,
-            entities=_memory_query_terms(args, "entities"),
-            tags=_memory_query_terms(args, "tags"),
-            reactivation_cues=_memory_query_terms(args, "reactivation_cues"),
-            kind=str(args["kind"]),
-            status=str(status) if status is not None else None,
-            introduced_at=(
-                str(args["introduced_at"]) if args.get("introduced_at") else None
-            ),
-            salience=salience,
-            scenes=_memory_query_terms(args, "scenes"),
-            possible_payoff=str(args.get("possible_payoff") or ""),
-            source_events=[str(args.get("decision_id") or "")],
-        )
-    except ValueError as exc:
-        raise ToolError("invalid_param", str(exc)) from exc
-    written = coc_memory.find_card(ctx.campaign_dir, memory_id) or {}
-    data = {
-        "memory_id": memory_id,
-        "kind": written.get("kind"),
-        "status": written.get("status"),
-        "privacy": privacy,
-        "path": str(path),
-    }
-    ctx.ledger_record(args["decision_id"], "memory.write", data)
-    return data, [], [
-        "the card is retrieval context only; authoritative facts still live in state.*/rules.*",
-    ]
-
-def _tool_memory_resolve_hook(ctx: Ctx, args: dict[str, Any]):
-    prior = ctx.ledger_lookup("memory.resolve_hook", args.get("decision_id"))
-    if prior is not None:
-        return prior.get("data"), ["duplicate decision_id: returning the previous receipt"], []
-    memory_id = str(args["memory_id"]).strip()
-    try:
-        receipt = coc_memory.resolve_hook_card(
-            ctx.campaign_dir,
-            memory_id,
-            str(args["resolution"]),
-            resolved_at=str(args.get("resolved_at") or ""),
-            reason=str(args.get("reason") or ""),
-        )
-    except ValueError as exc:
-        raise ToolError("invalid_param", str(exc)) from exc
-    ctx.ledger_record(args["decision_id"], "memory.resolve_hook", receipt)
-    warnings = (
-        ["hook was already in this status: no lifecycle change was written"]
-        if receipt.get("already_resolved")
-        else []
-    )
-    return receipt, warnings, [
-        "record the fictional payoff itself through ordinary narration and state tools; this only closes the memory ledger",
-    ]
 
 def _tool_threat_query(ctx: Ctx, args: dict[str, Any]):
     definitions = ctx.scenario("threat-fronts.json") or {"fronts": []}
@@ -530,50 +378,6 @@ def register_operations(registry) -> None:
     },
 )(_tool_state_backstory_corruption_add)
     registry.tool(
-    "memory.search",
-    "Retrieve campaign memory cards by structured kind/status/entity/cue overlap. Data for KP semantic judgment; memory is never authoritative truth.",
-    {
-        "entities": {"type": "array", "items": {"type": "string"}, "desc": "structured entity ids to overlap"},
-        "cues": {"type": "array", "items": {"type": "string"}, "desc": "reactivation cues to overlap"},
-        "tags": {"type": "array", "items": {"type": "string"}, "desc": "structured tags to overlap"},
-        "kinds": {"type": "array", "items": {"type": "string"}, "desc": "filter by card kind (fact/event/npc_relationship/unresolved_hook/foreshadowing/player_preference/keeper_correction)"},
-        "statuses": {"type": "array", "items": {"type": "string"}, "desc": "filter hook lifecycle status (open/resolved/paid_off/abandoned)"},
-        "view": {"type": "string", "enum": ["keeper", "player_safe"], "desc": "privacy view; keeper (default) sees keeper_only cards, results always carry privacy labels"},
-        "limit": {"type": "integer", "desc": "max cards (default 5, max 20)"},
-    },
-    access="query",
-)(_tool_memory_search)
-    registry.tool(
-    "memory.write",
-    "Write one typed campaign memory card (fact/event/npc_relationship/unresolved_hook/foreshadowing/player_preference/keeper_correction). Idempotent via decision_id.",
-    {
-        "memory_id": {"type": "string", "required": True, "desc": "stable card id (also the filename)"},
-        "kind": {"type": "string", "required": True, "desc": "card kind from the closed enum"},
-        "privacy": {"type": "string", "enum": ["player_safe", "keeper_only", "system_only"], "required": True, "desc": "existing privacy tier; controls card directory and projection"},
-        "summary": {"type": "string", "required": True, "desc": "short play-language summary body"},
-        "entities": {"type": "array", "items": {"type": "string"}, "desc": "structured entity ids"},
-        "tags": {"type": "array", "items": {"type": "string"}, "desc": "structured tags"},
-        "reactivation_cues": {"type": "array", "items": {"type": "string"}, "desc": "cues that should resurface this card"},
-        "salience": {"type": "number", "desc": "0..1 retrieval weight (default 0.5)"},
-        "status": {"type": "string", "desc": "hook lifecycle status; only for unresolved_hook/foreshadowing (default open)"},
-        "introduced_at": {"type": "string", "desc": "turn/scene reference where this was introduced"},
-        "scenes": {"type": "array", "items": {"type": "string"}, "desc": "related scene ids"},
-        "possible_payoff": {"type": "string", "desc": "keeper note on how this could pay off"},
-        "decision_id": {"type": "string", "desc": "idempotency key"},
-    },
-)(_tool_memory_write)
-    registry.tool(
-    "memory.resolve_hook",
-    "Transition an unresolved_hook/foreshadowing card's lifecycle status (resolved/paid_off/abandoned) with resolved_at evidence. Idempotent via decision_id.",
-    {
-        "memory_id": {"type": "string", "required": True, "desc": "existing hook/foreshadowing card id"},
-        "resolution": {"type": "string", "enum": ["resolved", "paid_off", "abandoned"], "required": True, "desc": "terminal lifecycle status"},
-        "resolved_at": {"type": "string", "desc": "turn/scene reference where the payoff or abandonment happened"},
-        "reason": {"type": "string", "desc": "keeper note on how it resolved"},
-        "decision_id": {"type": "string", "desc": "idempotency key"},
-    },
-)(_tool_memory_resolve_hook)
-    registry.tool(
     "threat.query",
     "Read authored threat fronts with verified live current_segments projected onto them.",
     {},
@@ -644,12 +448,7 @@ def register_operations(registry) -> None:
 
 
 OPERATION_EXPORTS = (
-    '_memory_card_projection',
-    '_memory_query_terms',
     '_tool_epistemic_query',
-    '_tool_memory_resolve_hook',
-    '_tool_memory_search',
-    '_tool_memory_write',
     '_tool_personal_horror_query',
     '_tool_quest_activate',
     '_tool_quest_improvise',
@@ -663,6 +462,5 @@ OPERATION_EXPORTS = (
     '_tool_state_threat_tick',
     '_tool_threat_query',
     'coc_epistemic_lifecycle',
-    'coc_memory',
     'coc_threat_state',
 )

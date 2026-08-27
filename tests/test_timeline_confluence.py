@@ -944,6 +944,91 @@ def test_one_sided_rolls_effects_transactions_are_conflicts_not_additions():
     assert roll_left["left"]["value"]["roll_id"] == "roll-left-turn-10"
 
 
+def test_one_sided_conflict_refs_carry_exact_source_paths():
+    """Facade rows now name their emitting JSONL file; one-sided mechanic
+    conflicts put that exact relpath into their structured ``refs``.
+
+    This is the receipt-driven earn for confirm-side drops: a validated
+    sacrifice/defer disposition on such a conflict claims exactly that
+    tracked log path, so the confluence tree assembly can drop the
+    one-sided log file — and only manifested paths can ever drop.
+    """
+    # Row shapes mirror coc_history_projection_query.query_authority_projection.
+    left = proj(
+        LEFT,
+        rolls=[{
+            "roll_id": "roll-left-only-turn-12",
+            "timeline_id": LEFT,
+            "turn_number": 12,
+            "source_path": "logs/rolls.jsonl",
+            "payload_sha256": "a" * 64,
+            "payload_json": '{"roll_id":"roll-left-only-turn-12","result":41}',
+        }],
+        transactions=[{
+            "transaction_id": "tx-left-supplies",
+            "timeline_id": LEFT,
+            "turn_number": 12,
+            "source_path": "memory/temporal/spend.jsonl",
+            "payload_sha256": "b" * 64,
+            "payload_json": '{"transaction_id":"tx-left-supplies"}',
+        }],
+    )
+    right = proj(RIGHT)
+    result = enumerate(left, right)
+    assert result["additions"] == {"left_only": [], "right_only": []}
+    by_class = {}
+    for conflict in result["conflicts"]:
+        by_class.setdefault(conflict["class"], []).append(conflict)
+    assert sorted(by_class) == ["consumed_resource", "roll_receipt"]
+
+    roll = by_class["roll_receipt"][0]
+    assert roll["left"]["value"] != {"absent": True}
+    # Exact emitting relpath appears verbatim in both sides' refs; the
+    # semantic identity stays alongside it.
+    assert "logs/rolls.jsonl" in roll["left"]["refs"]
+    assert "logs/rolls.jsonl" in roll["right"]["refs"]
+    assert "roll-left-only-turn-12" in roll["left"]["refs"]
+
+    txn = by_class["consumed_resource"][0]
+    assert "memory/temporal/spend.jsonl" in txn["left"]["refs"]
+    assert txn["left"]["refs"] == txn["right"]["refs"]
+
+    # Determinism: same inputs, same refs, byte-same enumeration digest.
+    again = enumerate(left, right)
+    assert again == result
+
+    # And the plan keeps the manifested conflict intact for the Git layer:
+    # sacrifice is a legal, receipted non-duplicable disposition here
+    # (hard-state classes also require the resolver receipt).
+    resolved = tlc.validate_dispositions(
+        result["conflicts"],
+        {
+            c["conflict_id"]: {
+                "mode": "sacrifice",
+                "receipt": f"disp-{c['conflict_id']}",
+                "resolver_receipt": f"resolve-{c['conflict_id']}",
+            }
+            for c in result["conflicts"]
+        },
+    )
+    assert all(c["disposition"]["mode"] == "sacrifice" for c in resolved)
+
+    # combine/duplicate rejections are unchanged for these classes.
+    for mode in ("combine", "duplicate"):
+        with pytest.raises(tlc.ConfluenceConflictError, match="never duplicated or combined"):
+            tlc.validate_dispositions(
+                result["conflicts"],
+                {
+                    c["conflict_id"]: {
+                        "mode": mode,
+                        "receipt": f"disp-{c['conflict_id']}",
+                        "resolver_receipt": f"resolve-{c['conflict_id']}",
+                    }
+                    for c in result["conflicts"]
+                },
+            )
+
+
 def test_one_sided_roll_requires_disposition_and_resolver_receipt():
     left = proj(LEFT, rolls=[{"roll_id": "roll-left-only-turn-11", "result": 33}])
     right = proj(RIGHT)

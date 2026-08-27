@@ -54,7 +54,7 @@ from coc_history_projection_schema import (  # noqa: E402
     parse_canonical_json,
 )
 
-SCHEMA_GENERATION = "history-projection-1"
+SCHEMA_GENERATION = "history-projection-2"
 
 #: Structured entity-id field names (shared contract). Duplicated
 #: deliberately — mirroring ``coc_history_projection_state.ENTITY_FIELDS``
@@ -1173,6 +1173,7 @@ def query_authority_projection(
                 "roll_id": row["roll_id"],
                 "timeline_id": row["timeline_id"],
                 "turn_number": row["turn_number"],
+                "source_path": row["source_path"],
                 "payload_sha256": row["payload_sha256"],
                 "payload_json": row["payload_json"],
             }
@@ -1189,6 +1190,7 @@ def query_authority_projection(
                 "entity_id": row["entity_id"],
                 "timeline_id": row["timeline_id"],
                 "turn_number": row["turn_number"],
+                "source_path": row["source_path"],
                 "payload_sha256": row["payload_sha256"],
                 "payload_json": row["payload_json"],
             }
@@ -1204,6 +1206,7 @@ def query_authority_projection(
                 "transaction_id": row["transaction_id"],
                 "timeline_id": row["timeline_id"],
                 "turn_number": row["turn_number"],
+                "source_path": row["source_path"],
                 "payload_sha256": row["payload_sha256"],
                 "payload_json": row["payload_json"],
             }

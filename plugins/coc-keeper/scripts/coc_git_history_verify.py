@@ -389,6 +389,15 @@ class StateIntegrityProof:
     #: never downgrades the core finalize/git proof status.
     projection_status: str | None = None
     projection_findings: tuple[Finding, ...] = ()
+    #: Exact rev this proof signed. ``HEAD`` for a default single-line
+    #: campaign; the active timeline's ref once an active pointer exists
+    #: (post-fork/post-confluence campaigns sign their own tip, not main).
+    #: ``None`` only when resolution never ran (early structural exits).
+    signed_ref: str | None = None
+    #: Semantic timeline id that selected ``signed_ref`` when no explicit
+    #: ref was pinned by the caller; ``None`` otherwise. Reports the
+    #: active-vs-main distinction explicitly.
+    signed_timeline_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -423,6 +432,8 @@ class StateIntegrityProof:
             "projection_findings": [
                 finding.to_dict() for finding in self.projection_findings
             ],
+            "signed_ref": self.signed_ref,
+            "signed_timeline_id": self.signed_timeline_id,
             "findings": [finding.to_dict() for finding in self.findings],
         }
 
@@ -1001,6 +1012,8 @@ def _build_proof(
     worldline_counts: dict[str, int] | None = None,
     projection_status: str | None = None,
     projection_findings: Iterable[Finding] = (),
+    signed_ref: str | None = None,
+    signed_timeline_id: str | None = None,
 ) -> StateIntegrityProof:
     finding_tuple = tuple(findings)
     history_valid = (
@@ -1038,6 +1051,8 @@ def _build_proof(
         worldline_counts=dict(worldline_counts) if worldline_counts else {},
         projection_status=projection_status,
         projection_findings=tuple(projection_findings),
+        signed_ref=signed_ref,
+        signed_timeline_id=signed_timeline_id,
     )
 
 
@@ -1206,6 +1221,20 @@ def _check_confluence_manifest_binding(
             Finding(kind=CODE_CONFLUENCE_TREE, detail=problem, sha=merge)
         )
     return findings
+
+
+def _default_signed_timeline(root: Path | str, campaign_id: str) -> str | None:
+    """Semantic id of the timeline new turns commit to, or ``None``.
+
+    Resolved through the Git coordinator (``active_timeline_id``), never by
+    hardcoding a branch name. ``None`` means no readable active pointer —
+    the caller keeps the legacy HEAD default and the structural worldline
+    sweep reports the underlying state problem.
+    """
+    try:
+        return hist.active_timeline_id(root, campaign_id)
+    except (ValueError, hist.GitHistoryError):
+        return None
 
 
 def _resolve_proof_rev(
@@ -2125,7 +2154,9 @@ def state_integrity_proof(
     ``expected_finalization_id`` binds HEAD to one receipt (exporter latest
     valid row). ``valid_finalization_ids`` replaces the pairing set when the
     caller has already filtered invalid receipts. ``timeline_ref`` selects a
-    timeline (semantic id or git ref); default proves current HEAD/main.
+    timeline (semantic id or git ref); with no explicit ref the proof signs
+    the campaign's ACTIVE timeline tip resolved via the Git coordinator —
+    the implied single-line default still resolves to HEAD/main.
     """
     try:
         repo = hist.repo_path_for(root, campaign_id)
@@ -2283,7 +2314,34 @@ def state_integrity_proof(
     findings.extend(_read_schema_via_state(worktree))
     expected_schema = hist.format_schema_generation(coc_state.CURRENT_SCHEMA_VERSIONS)
 
-    proof_rev, rev_findings = _resolve_proof_rev(repo, worktree, timeline_ref)
+    signed_timeline_id: str | None = None
+    selected_ref = timeline_ref
+    if timeline_ref is None:
+        # Default signing target is the campaign's active timeline (semantic
+        # resolution through the coordinator). ``tl-main`` maps back to
+        # main/HEAD inside _resolve_proof_rev, so single-line campaigns keep
+        # byte-identical outputs.
+        signed_timeline_id = _default_signed_timeline(root, campaign_id)
+        if signed_timeline_id is not None:
+            try:
+                active_ref_exists = _rev_exists(
+                    repo, worktree, hist.timeline_ref_name(signed_timeline_id)
+                )
+            except (ValueError, hist.GitHistoryError):
+                active_ref_exists = False
+            if active_ref_exists:
+                selected_ref = signed_timeline_id
+            else:
+                # A dangling or unreadable active pointer keeps legacy
+                # HEAD/main signing so the full worldline sweep below still
+                # reports ``active_timeline_invalid`` explicitly instead of
+                # short-circuiting before the structural checks.
+                signed_timeline_id = None
+                infos.append(
+                    "signed_ref=HEAD signed_timeline_id=fallback-"
+                    "active-pointer-unresolvable"
+                )
+    proof_rev, rev_findings = _resolve_proof_rev(repo, worktree, selected_ref)
     if rev_findings:
         return _build_proof(
             campaign_id=campaign_id,
@@ -2297,6 +2355,10 @@ def state_integrity_proof(
             worktree_path=worktree_s,
             receipt_count=len(receipt_ids),
             findings=[*rev_findings, *findings],
+            signed_ref=proof_rev,
+            signed_timeline_id=(
+                signed_timeline_id if timeline_ref is None else None
+            ),
         )
 
     try:
@@ -2322,6 +2384,10 @@ def state_integrity_proof(
             worktree_path=worktree_s,
             receipt_count=len(receipt_ids),
             findings=[Finding(kind=kind, detail=str(exc)), *findings],
+            signed_ref=proof_rev,
+            signed_timeline_id=(
+                signed_timeline_id if timeline_ref is None else None
+            ),
         )
 
     commits_by_fid: dict[str, list[str]] = {}
@@ -2329,6 +2395,19 @@ def state_integrity_proof(
     history_reset = False
     reset_reason: str | None = None
     validated_confluence_shas: set[str] = set()
+    # Report which ref the proof signed vs. the active pointer explicitly:
+    # this is the active-vs-main distinction carriers of multi-timeline
+    # campaigns must be able to read from the evidence. When an explicit
+    # caller ref drove selection, mark it; when the state fallback above
+    # already emitted its line, do not append twice.
+    if timeline_ref is None:
+        if not any(item.startswith("signed_ref=") for item in infos):
+            infos.append(
+                f"signed_ref={proof_rev} "
+                f"signed_timeline_id={signed_timeline_id or 'default'}"
+            )
+    else:
+        infos.append(f"signed_ref={proof_rev} signed_timeline_id=explicit")
     for sha, body in records:
         try:
             trailers = hist.parse_trailers(body)
@@ -2475,6 +2554,10 @@ def state_integrity_proof(
                 findings=findings,
                 infos=infos,
                 history_reset=history_reset,
+                signed_ref=proof_rev,
+                signed_timeline_id=(
+                    signed_timeline_id if timeline_ref is None else None
+                ),
             )
     head_commit_type = (head_trailers or {}).get("COC-Commit-Type") or None
     head_fid = ((head_trailers or {}).get("Finalization-Id") or "").strip() or None
@@ -2642,6 +2725,10 @@ def state_integrity_proof(
         worldline_counts=worldline_counts,
         projection_status=projection_status,
         projection_findings=projection_findings,
+        signed_ref=proof_rev,
+        signed_timeline_id=(
+            signed_timeline_id if timeline_ref is None else None
+        ),
     )
 
 

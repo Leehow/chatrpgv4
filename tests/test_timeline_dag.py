@@ -587,6 +587,218 @@ def test_confluence_rejects_unmanifested_path_resolution(tmp_path):
         )
 
 
+def _one_sided_roll_conflict(
+    confluence_id: str,
+    *,
+    mode: str = "sacrifice",
+    refs: tuple[str, ...] = ("logs/rolls.jsonl",),
+) -> list[dict]:
+    """One NON_DUPLICABLE one-sided roll conflict claiming its emitting log.
+
+    Mirrors what ``enumerate_conflicts`` produces once extractor rows carry
+    ``source_path``: the exact tracked relpath sits verbatim next to the
+    semantic row id in both sides' structured ``refs``, and the absent side
+    carries the explicit ABSENT marker.
+    """
+    conflict_id = tm.conflict_id_for(confluence_id, "rolls")
+    disposition = {
+        "mode": mode,
+        "receipt": f"disp-{conflict_id}",
+        "resolver_receipt": f"resolve-{conflict_id}",
+    }
+    if mode == "defer":
+        disposition["note"] = "kp replays the roll on the merged line"
+    return [
+        {
+            "conflict_id": conflict_id,
+            "class": "roll_receipt",
+            "left": {
+                "timeline": "tl-left",
+                "refs": list(refs),
+                "value": {"roll_id": "roll-left-only", "result": 41},
+            },
+            "right": {
+                "timeline": "tl-right",
+                "refs": list(refs),
+                "value": {"absent": True},
+            },
+            "disposition": disposition,
+        }
+    ]
+
+
+def _merge_tree_paths(root: Path, merge_commit: str) -> str:
+    return _git(root, "ls-tree", "-r", "--name-only", merge_commit + "^{tree}")
+
+
+def test_confluence_sacrifice_drops_one_sided_mechanic_log(tmp_path):
+    """A manifested sacrifice drops exactly the refs-named mechanic log.
+
+    One-sided roll rows on tl-left carry their emitting relpath
+    (logs/rolls.jsonl) in the conflict's structured refs; the validated
+    sacrifice disposition earns a drop resolution for that exact path, and
+    tree assembly consumes it through the existing resolution channel.
+    Every other differing path stays additive.
+    """
+    _prepare_confluence_parents(
+        tmp_path,
+        left_extra=("logs/rolls.jsonl", '{"roll_id": "roll-left-only"}\n'),
+    )
+    confluence_id = f"confluence-{CAMPAIGN_ID}-tl-merged"
+    conflicts = [
+        *_confluence_conflicts(confluence_id),  # world-state choose_left
+        *_one_sided_roll_conflict(confluence_id, mode="sacrifice"),
+    ]
+    merged = _run_confluence(
+        tmp_path,
+        confluence_id,
+        conflicts,
+        path_resolutions={"logs/rolls.jsonl": {"mode": "sacrifice"}},
+    )
+    assert merged["idempotent"] is False
+    listed = _merge_tree_paths(tmp_path, merged["merge_commit"])
+    # Earned drop landed on the merged branch...
+    assert "logs/rolls.jsonl" not in listed
+    # ...and only that path: choose_left content and shared files survive.
+    assert "save/world-state.json" in listed
+    assert json.loads(
+        _git(tmp_path, "show", f"{merged['merge_commit']}:save/world-state.json")
+    )["branch"] == "left"
+    problems = hist.check_confluence_tree_binding(
+        _repo(tmp_path),
+        _worktree(tmp_path),
+        merge_sha=merged["merge_commit"],
+        left_sha=_git(tmp_path, "rev-parse", "refs/heads/timelines/tl-left").strip(),
+        right_sha=_git(
+            tmp_path, "rev-parse", "refs/heads/timelines/tl-right"
+        ).strip(),
+        conflicts=conflicts,
+    )
+    assert problems == []
+
+
+def test_confluence_defer_drops_mechanic_log_with_note(tmp_path):
+    """Defer (sacrifice family) drops the claimed log; note is mandatory."""
+    _prepare_confluence_parents(
+        tmp_path,
+        left_extra=("logs/rolls.jsonl", '{"roll_id": "roll-left-only"}\n'),
+    )
+    confluence_id = f"confluence-{CAMPAIGN_ID}-tl-merged"
+    conflicts = [
+        *_confluence_conflicts(confluence_id),
+        *_one_sided_roll_conflict(confluence_id, mode="defer"),
+    ]
+    merged = _run_confluence(
+        tmp_path,
+        confluence_id,
+        conflicts,
+        path_resolutions={"logs/rolls.jsonl": "defer"},
+    )
+    assert "logs/rolls.jsonl" not in _merge_tree_paths(
+        tmp_path, merged["merge_commit"]
+    )
+    problems = hist.check_confluence_tree_binding(
+        _repo(tmp_path),
+        _worktree(tmp_path),
+        merge_sha=merged["merge_commit"],
+        left_sha=_git(tmp_path, "rev-parse", "refs/heads/timelines/tl-left").strip(),
+        right_sha=_git(
+            tmp_path, "rev-parse", "refs/heads/timelines/tl-right"
+        ).strip(),
+        conflicts=conflicts,
+    )
+    assert problems == []
+
+
+def test_confluence_forged_drop_fails_closed_touching_nothing(tmp_path):
+    """An unearned drop entry fails closed pre-mutation, everywhere."""
+    worktree, _source, left_sha, right_sha = _prepare_confluence_parents(
+        tmp_path,
+        left_extra=("logs/rolls.jsonl", '{"roll_id": "roll-left-only"}\n'),
+    )
+    state_path = worktree / hist.TIMELINE_STATE_RELPATH
+    state_before = state_path.read_bytes()
+
+    def refs_snapshot() -> dict[str, str]:
+        return {
+            name: _git(tmp_path, "rev-parse", name)
+            for name in (
+                "main",
+                "refs/heads/timelines/tl-left",
+                "refs/heads/timelines/tl-right",
+            )
+        }
+
+    before = refs_snapshot()
+    confluence_id = f"confluence-{CAMPAIGN_ID}-tl-merged"
+    conflicts = _confluence_conflicts(confluence_id)  # world-state only
+    with pytest.raises(
+        hist.GitHistoryError, match="does not correspond to any conflict"
+    ):
+        _run_confluence(
+            tmp_path,
+            confluence_id,
+            conflicts,
+            path_resolutions={"logs/rolls.jsonl": {"mode": "sacrifice"}},
+        )
+    assert refs_snapshot() == before
+    assert not _ref_exists(tmp_path, "refs/heads/timelines/tl-merged")
+    assert state_path.read_bytes() == state_before
+
+
+def test_confluence_semantic_only_refs_earn_no_drop(tmp_path):
+    """Sacrifice without an exact path ref cannot drop a file.
+
+    A roll conflict whose refs carry only the semantic row id claims no
+    tree path: the default additive resolution keeps the one-sided line in
+    the merged log, and an explicit drop entry for that path fails closed
+    as unmanifested. The earn requires the exact source path in refs.
+    """
+    worktree, _source, _left, _right = _prepare_confluence_parents(
+        tmp_path,
+        left_extra=("logs/rolls.jsonl", '{"roll_id": "roll-left-only"}\n'),
+    )
+    # Phase 1: forged drop rejected (nothing registered).
+    forged_id = f"confluence-{CAMPAIGN_ID}-tl-merged-forged"
+    with pytest.raises(
+        hist.GitHistoryError, match="does not correspond to any conflict"
+    ):
+        _run_confluence(
+            tmp_path,
+            forged_id,
+            [
+                *_confluence_conflicts(forged_id),
+                *_one_sided_roll_conflict(
+                    forged_id, mode="sacrifice", refs=("roll-left-only",)
+                ),
+            ],
+            path_resolutions={"logs/rolls.jsonl": {"mode": "sacrifice"}},
+            timeline_id="tl-merged-forged",
+        )
+    assert not _ref_exists(tmp_path, "refs/heads/timelines/tl-merged-forged")
+
+    # Phase 2: same semantic-only manifest WITHOUT the forged entry merges;
+    # the unclaimed log resolves additively and keeps its one-sided line.
+    plain_id = f"confluence-{CAMPAIGN_ID}-tl-merged-additive"
+    merged = _run_confluence(
+        tmp_path,
+        plain_id,
+        [
+            *_confluence_conflicts(plain_id),
+            *_one_sided_roll_conflict(
+                plain_id, mode="sacrifice", refs=("roll-left-only",)
+            ),
+        ],
+        timeline_id="tl-merged-additive",
+    )
+    listed = _merge_tree_paths(tmp_path, merged["merge_commit"])
+    assert "logs/rolls.jsonl" in listed
+    shown = _git(
+        tmp_path, "show", f"{merged['merge_commit']}:logs/rolls.jsonl"
+    )
+    assert '"roll_id": "roll-left-only"' in shown or "roll-left-only" in shown
+
+
 def test_confluence_uncovered_tree_diff_fails_closed(tmp_path):
     _prepare_confluence_parents(
         tmp_path,

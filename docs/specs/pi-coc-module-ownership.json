@@ -8,7 +8,7 @@
     "migration_source_commit": "affeedc3a78ac6da82e0c47ce5dafa95bf12d7fd",
     "verified_on": "2026-08-25",
     "canonical_operation_source": "plugins/coc-keeper/scripts/coc_toolbox.py",
-    "canonical_operation_count": 141
+    "canonical_operation_count": 138
   },
   "migration_states": {
     "planned": "Handlers or tests still occupy shared files; no parallel implementation edit is allowed.",
@@ -405,9 +405,6 @@
       ],
       "operation_ids": [
         "epistemic.query",
-        "memory.resolve_hook",
-        "memory.search",
-        "memory.write",
         "personal_horror.query",
         "quest.activate",
         "quest.improvise",

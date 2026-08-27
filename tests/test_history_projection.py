@@ -411,7 +411,7 @@ class TestFullRebuild:
         _root, shas, envelope = projected
         assert envelope["status"] == "complete"
         assert envelope["campaign_id"] == CAMPAIGN_ID
-        assert envelope["schema_generation"] == "history-projection-1"
+        assert envelope["schema_generation"] == "history-projection-2"
         assert envelope["head_commit_sha"] == shas["turn2"]
         assert envelope["commit_count"] == 5
         assert envelope["run_id"] == (
@@ -428,7 +428,7 @@ class TestFullRebuild:
         run_id, generation, head, count, digest = runs[0]
         assert (run_id, generation, head, count, digest) == (
             envelope["run_id"],
-            "history-projection-1",
+            "history-projection-2",
             shas["turn2"],
             5,
             envelope["projection_digest"],
@@ -437,13 +437,39 @@ class TestFullRebuild:
     def test_campaign_and_timeline_rows(self, projected):
         root, shas, _envelope = projected
         assert _rows(root, "campaigns") == [
-            (CAMPAIGN_ID, "history-projection-1", shas["turn2"], 5)
+            (CAMPAIGN_ID, "history-projection-2", shas["turn2"], 5)
         ]
         assert _rows(root, "timelines", "timeline_id", "first_commit_sha",
                      "head_commit_sha", "last_turn_number", "commit_count") == [
             ("tl-main", shas["baseline"], shas["turn2"], 2, 4),
             ("tl-fork", shas["fork1"], shas["fork1"], 1, 1),
         ]
+
+    def test_mechanic_rows_carry_emitting_source_log_paths(self, projected):
+        """Stored rolls/effects/transactions name their emitting JSONL file.
+
+        The receipt-driven drop contract depends on this column: a one-sided
+        mechanic conflict's refs can then claim the exact tracked log path
+        and a validated sacrifice/defer disposition drops that file from the
+        merged worldline tree.
+        """
+        root, _shas, _envelope = projected
+        connection = schema_mod.open_projection_db(root, CAMPAIGN_ID)
+        try:
+            assert [tuple(row) for row in connection.execute(
+                "SELECT roll_id, source_path FROM rolls ORDER BY roll_id"
+            )] == [
+                ("roll-001", "logs/dice.jsonl"),
+                ("roll-002", "logs/dice.jsonl"),
+            ]
+            assert [tuple(row) for row in connection.execute(
+                "SELECT effect_id, source_path FROM effects ORDER BY effect_id"
+            )] == [("effect-001", "logs/dice.jsonl")]
+            assert connection.execute(
+                "SELECT count(*) FROM transactions WHERE source_path = ''"
+            ).fetchone()[0] == 0
+        finally:
+            connection.close()
 
     def test_commits_in_scanner_order_with_two_parent_merge(self, projected):
         root, shas, _envelope = projected
@@ -836,7 +862,11 @@ class TestCorruptCacheReplacement:
         assert again["status"] == "complete"
         connection = schema_mod.open_projection_db(root, CAMPAIGN_ID)
         try:
-            assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+            assert (
+                connection.execute("PRAGMA user_version").fetchone()[0]
+                == schema_mod.PROJECTION_USER_VERSION
+                == 2
+            )
         finally:
             connection.close()
 
@@ -889,7 +919,7 @@ class TestFailurePreservesPriorDB:
         assert _rows(root, "projection_runs") == [
             (
                 envelope["run_id"],
-                "history-projection-1",
+                "history-projection-2",
                 shas["turn2"],
                 5,
                 envelope["projection_digest"],
@@ -1128,7 +1158,7 @@ class TestEmptyHistory:
         assert counts["projection_runs"] == 0
         assert counts["campaigns"] == 1
         assert _rows(root, "campaigns") == [
-            (CAMPAIGN_ID, "history-projection-1", None, 0)
+            (CAMPAIGN_ID, "history-projection-2", None, 0)
         ]
         log = facade_mod.query_event_log(root, CAMPAIGN_ID)
         assert log["events"] == []

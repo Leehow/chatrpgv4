@@ -38,14 +38,17 @@ RECEIPT_COLUMNS = {
 }
 ROLL_COLUMNS = {
     "roll_id", "commit_sha", "timeline_id", "turn_number",
+    "source_path",
     "payload_sha256", "payload_json",
 }
 EFFECT_COLUMNS = {
     "effect_id", "commit_sha", "timeline_id", "turn_number",
-    "entity_id", "payload_sha256", "payload_json",
+    "entity_id", "source_path",
+    "payload_sha256", "payload_json",
 }
 TRANSACTION_COLUMNS = {
     "transaction_id", "commit_sha", "timeline_id", "turn_number",
+    "source_path",
     "payload_sha256", "payload_json",
 }
 BACKLOG_COLUMNS = {
@@ -180,6 +183,8 @@ def test_extract_classifies_each_row_kind_with_schema_columns():
     assert roll_row["commit_sha"] == "abc123"
     assert roll_row["timeline_id"] == "tl-main"
     assert roll_row["turn_number"] == 3
+    # Non-empty emitting JSONL relpath on every mechanic row.
+    assert roll_row["source_path"] == "logs/rolls.jsonl"
     # Numeric truth lives in the verbatim canonical payload only.
     assert json.loads(roll_row["payload_json"]) == roll
     expected = hashlib.sha256(
@@ -195,9 +200,11 @@ def test_extract_classifies_each_row_kind_with_schema_columns():
     effect_row = result["effects"][0]
     assert effect_row["effect_id"] == "effect-broken-arm-marlowe"
     assert effect_row["entity_id"] == "inv:marlowe"
+    assert effect_row["source_path"] == "logs/effects.jsonl"
 
     txn_row = result["transactions"][0]
     assert txn_row["transaction_id"] == "txn-development-marlowe-1"
+    assert txn_row["source_path"] == "logs/transactions.jsonl"
 
     story_row = next(
         row for row in result["events"]
@@ -680,6 +687,46 @@ def test_stable_ordering_and_duplicate_file_entries():
         ("logs/events.jsonl", _jsonl(story)),
     ]))
     assert repeated == result
+
+
+def test_mechanic_rows_carry_emitting_source_path_multi_file_turn():
+    """Rolls/effects/transactions name their exact emitting JSONL relpath.
+
+    One turn may spread mechanic rows across several tracked logs (flat
+    ``logs/`` faces plus nested ``memory/temporal/``); every classified row
+    carries its own non-empty source path regardless of which file in the
+    commit emitted it, and per-file lists stay ordered by source ordinal.
+    This is the receipt-driven evidence that lets confluence dispositions
+    claim one-sided mechanic log files by exact path.
+    """
+    early_roll = {"roll_id": "roll-spot-1", "event_type": "roll"}
+    late_roll = {"type": "roll"}  # identity-less: fallback id keeps the path
+    temporal_roll = {"kind": "roll"}  # identity-less: fallback id keeps the path
+    effect = {"effect_id": "effect-lock-jammed", "event_type": "effect"}
+    transaction = {"transaction_id": "txn-supplies", "type": "transaction"}
+    result = events_mod.extract_events(_commit([
+        (
+            "logs/rolls.jsonl",
+            _jsonl(early_roll) + _jsonl(late_roll),
+        ),
+        ("memory/temporal/mechanics.jsonl", _jsonl(temporal_roll)),
+        ("logs/effects.jsonl", _jsonl(effect)),
+        ("memory/temporal/spend.jsonl", _jsonl(transaction)),
+    ]))
+
+    rolls = [(row["source_path"], row["roll_id"]) for row in result["rolls"]]
+    # Deterministic (source_path, source_ordinal) order; each path verbatim.
+    assert rolls == [
+        ("logs/rolls.jsonl", "roll-spot-1"),
+        ("logs/rolls.jsonl", "hist-roll:abc123:logs/rolls.jsonl:2"),
+        ("memory/temporal/mechanics.jsonl",
+         "hist-roll:abc123:memory/temporal/mechanics.jsonl:1"),
+    ]
+    assert all(path for path, _ in rolls)
+    assert result["effects"][0]["source_path"] == "logs/effects.jsonl"
+    assert result["transactions"][0]["source_path"] == (
+        "memory/temporal/spend.jsonl"
+    )
 
 
 def test_crlf_lines_and_missing_trailing_newline():

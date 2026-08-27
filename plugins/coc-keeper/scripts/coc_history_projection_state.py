@@ -33,7 +33,7 @@ import json
 import re
 from typing import Any
 
-SCHEMA_GENERATION = "history-projection-1"
+SCHEMA_GENERATION = "history-projection-2"
 
 # Exact campaign-root state files that become snapshots.
 ROOT_STATE_PATHS: frozenset[str] = frozenset({"campaign.json", "party.json"})

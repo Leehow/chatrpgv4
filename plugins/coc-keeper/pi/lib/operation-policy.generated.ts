@@ -263,38 +263,6 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "pending_finalization"
     ]
   },
-  "memory.resolve_hook": {
-    "advisory": false,
-    "audience": "keeper",
-    "contract": "state",
-    "execution_class": "serial_campaign",
-    "kp_surface": "state",
-    "phases": [
-      "live_turn"
-    ]
-  },
-  "memory.search": {
-    "advisory": false,
-    "audience": "keeper",
-    "contract": "none",
-    "execution_class": "serial_campaign",
-    "kp_surface": "context",
-    "phases": [
-      "opening",
-      "live_turn",
-      "pending_finalization"
-    ]
-  },
-  "memory.write": {
-    "advisory": false,
-    "audience": "keeper",
-    "contract": "state",
-    "execution_class": "serial_campaign",
-    "kp_surface": "state",
-    "phases": [
-      "live_turn"
-    ]
-  },
   "narration.brief": {
     "advisory": true,
     "audience": "keeper",
@@ -1592,7 +1560,6 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "history.query",
     "memory.extraction_status",
     "memory.recall",
-    "memory.search",
     "personal_horror.query",
     "scene.context",
     "scene.map",
@@ -1647,8 +1614,6 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
   "state": [
     "memory.adjudicate",
     "memory.extraction_settle",
-    "memory.resolve_hook",
-    "memory.write",
     "quest.activate",
     "quest.improvise",
     "quest.map",

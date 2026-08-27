@@ -25,8 +25,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-SCHEMA_GENERATION = "history-projection-1"
-PROJECTION_USER_VERSION = 1
+SCHEMA_GENERATION = "history-projection-2"
+PROJECTION_USER_VERSION = 2
 
 MEMORY_DIR_NAME = "memory"
 PROJECTION_DB_NAME = "history-projection.db"
@@ -154,6 +154,7 @@ _DDL_STATEMENTS: tuple[str, ...] = (
         commit_sha TEXT NOT NULL,
         timeline_id TEXT NOT NULL,
         turn_number INTEGER,
+        source_path TEXT NOT NULL,
         payload_sha256 TEXT NOT NULL,
         payload_json TEXT NOT NULL
     )
@@ -165,6 +166,7 @@ _DDL_STATEMENTS: tuple[str, ...] = (
         timeline_id TEXT NOT NULL,
         turn_number INTEGER,
         entity_id TEXT,
+        source_path TEXT NOT NULL,
         payload_sha256 TEXT NOT NULL,
         payload_json TEXT NOT NULL
     )
@@ -175,6 +177,7 @@ _DDL_STATEMENTS: tuple[str, ...] = (
         commit_sha TEXT NOT NULL,
         timeline_id TEXT NOT NULL,
         turn_number INTEGER,
+        source_path TEXT NOT NULL,
         payload_sha256 TEXT NOT NULL,
         payload_json TEXT NOT NULL
     )

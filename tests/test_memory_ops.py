@@ -1,9 +1,12 @@
-"""Long-term story memory layer: card schema, memory.* toolbox ops, CALLBACK.
+"""Long-term story memory layer: card schema internals + Director CALLBACK.
 
 Deterministic contracts only: schema validation (kind/status lifecycle),
-memory.search filtering + privacy labels, memory.write / memory.resolve_hook
-decision_id idempotency, and Director CALLBACK candidate generation. Semantic
-adoption stays with the live KP and real play.
+retrieval filtering + privacy labels, hook lifecycle via ``coc_memory``
+internals, and Director CALLBACK candidate generation. The retired
+model-facing card operations (``memory.search`` / ``memory.write`` /
+``memory.resolve_hook``) must stay absent from every model surface while the
+internals remain available to non-model callers. Semantic adoption stays
+with the live KP and real play.
 """
 from __future__ import annotations
 
@@ -31,7 +34,9 @@ def _load(name: str, rel: str | Path):
 
 coc_memory = _load("coc_memory_ops_under_test", SCRIPTS / "coc_memory.py")
 coc_toolbox = _load("coc_toolbox_memory_ops", SCRIPTS / "coc_toolbox.py")
-coc_starter = _load("coc_starter_memory_ops", SCRIPTS / "coc_starter.py")
+coc_operation_policy = _load(
+    "coc_operation_policy_memory_ops", SCRIPTS / "coc_operation_policy.py"
+)
 coc_story_director = _load(
     "coc_story_director_memory_ops", SCRIPTS / "coc_story_director.py"
 )
@@ -202,198 +207,61 @@ def test_resolve_hook_rejects_non_hook_kinds_and_bad_status(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Toolbox memory.* operations
+# Legacy model-facing card op retirement
 # --------------------------------------------------------------------------- #
 
+ARCHIVE_PATH = (
+    REPO / "plugins" / "coc-keeper" / "references" / "mcp-operation-contracts.json"
+)
+POLICY_TS_PATH = (
+    REPO / "plugins" / "coc-keeper" / "pi" / "lib" / "operation-policy.generated.ts"
+)
+RETIRED_MODEL_FACING_CARD_OPS = (
+    "memory.search",
+    "memory.write",
+    "memory.resolve_hook",
+)
 
-def _write_json(path: Path, payload) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+
+def test_retired_card_ops_absent_from_every_model_surface():
+    """The Markdown-card ops are dead on the model surface; registry clean."""
+    archive = json.loads(ARCHIVE_PATH.read_text(encoding="utf-8"))
+    policy_ts = POLICY_TS_PATH.read_text(encoding="utf-8")
+    hotset_module = _load(
+        "coc_mcp_contract_archive_retirement",
+        SCRIPTS / "coc_mcp_contract_archive.py",
     )
+    for name in RETIRED_MODEL_FACING_CARD_OPS:
+        assert name not in coc_toolbox.TOOLS, name
+        assert name not in coc_toolbox.OPERATION_REGISTRY.specs, name
+        assert name not in coc_toolbox._MUTATING_TOOLS, name
+        assert name not in coc_operation_policy.OPERATION_POLICY_EXCEPTIONS, name
+        assert name not in archive["operations"], name
+        assert f'"{name}"' not in policy_ts, name
+        assert name not in hotset_module.MCP_LISTED_HOTSET, name
+        assert name not in archive["listed_hotset"], name
 
 
-@pytest.fixture
-def campaign_ws(tmp_path: Path):
-    workspace = tmp_path / "workspace"
-    coc_root = workspace / ".coc"
-    campaign_id = "memory-ops-test"
-    _write_json(
-        coc_root / "runtime.json",
-        {
-            "schema_version": 2,
-            "planner": {"kind": "deterministic"},
-            "rules": {"kind": "deterministic"},
-            "narrator": {"kind": "template"},
-            "player": {"kind": "human"},
-        },
+def test_policy_exceptions_stay_consistent_with_registry():
+    """No stale exception may outlive its registered operation."""
+    policies = coc_operation_policy.policies_for_operations(coc_toolbox.TOOLS)
+    assert len(policies) == len(coc_toolbox.TOOLS)
+
+
+def test_coc_memory_internals_remain_available_to_non_model_callers(tmp_path):
+    camp = _campaign(tmp_path)
+    _hook_card(camp)
+    receipt = coc_memory.resolve_hook_card(
+        camp, "mem-hook-cellar", "resolved",
+        resolved_at="turn-9", reason="来源揭晓",
     )
-    quick = coc_starter.quick_start(
-        coc_root,
-        "the-haunting",
-        "thomas-hayes",
-        campaign_id=campaign_id,
-        title="Memory Ops Test",
+    assert receipt["status"] == "resolved"
+    cards = coc_memory.retrieve_memory_cards(
+        campaign_dir=camp, query_entities=["corbitt-house"],
+        query_cues=[], query_tags=[], privacy_filter="keeper", limit=5,
+        kinds=["unresolved_hook"], statuses=["open"],
     )
-    return {
-        "workspace": workspace,
-        "campaign_id": campaign_id,
-        "campaign_dir": Path(quick["campaign_dir"]),
-    }
-
-
-def _run(ws, tool: str, args: dict | None = None) -> dict:
-    return coc_toolbox.run_tool(tool, ws["workspace"], ws["campaign_id"], args or {})
-
-
-def test_memory_ops_registered_with_policy():
-    for name in ("memory.search", "memory.write", "memory.resolve_hook"):
-        assert name in coc_toolbox.TOOLS
-        policy = coc_toolbox.operation_policy(name)
-        assert policy["audience"] == "keeper"
-    search = coc_toolbox.operation_policy("memory.search")
-    assert search["kp_surface"] == "context"
-    assert search["contract"] == "none"
-    assert coc_toolbox.TOOLS["memory.search"]["access"] == "query"
-    for name in ("memory.write", "memory.resolve_hook"):
-        policy = coc_toolbox.operation_policy(name)
-        assert policy["kp_surface"] == "state"
-        assert policy["contract"] == "state"
-        assert policy["phases"] == ["live_turn"]
-        # decision_id is a required idempotency key on mutations.
-        assert coc_toolbox.TOOLS[name]["params"]["decision_id"]["required"] is True
-
-
-def test_memory_write_is_idempotent_via_decision_id(campaign_ws):
-    args = {
-        "memory_id": "mem-hook-attic",
-        "kind": "foreshadowing",
-        "privacy": "keeper_only",
-        "summary": "阁楼的冷风与低语尚未兑现。",
-        "entities": ["attic"],
-        "tags": ["thread"],
-        "reactivation_cues": ["低语"],
-        "introduced_at": "turn-2",
-        "decision_id": "memwrite-1",
-    }
-    first = _run(campaign_ws, "memory.write", args)
-    assert first["ok"] is True, first
-    assert first["data"]["kind"] == "foreshadowing"
-    assert first["data"]["status"] == "open"
-    replay = _run(campaign_ws, "memory.write", args)
-    assert replay["ok"] is True
-    assert replay["data"] == first["data"]
-    assert any("duplicate decision_id" in w for w in replay["warnings"])
-    cards_dir = campaign_ws["campaign_dir"] / "memory" / "cards" / "keeper-only"
-    assert len(list(cards_dir.glob("mem-hook-attic*.md"))) == 1
-    # A new decision may not silently overwrite an existing card.
-    conflict = _run(
-        campaign_ws, "memory.write", {**args, "decision_id": "memwrite-2"}
-    )
-    assert conflict["ok"] is False
-    assert conflict["error"]["code"] == "invalid_param"
-
-
-def test_memory_write_rejects_schema_violations(campaign_ws):
-    base = {
-        "memory_id": "mem-bad",
-        "privacy": "player_safe",
-        "summary": "x",
-        "decision_id": "membad-1",
-    }
-    bad_kind = _run(campaign_ws, "memory.write", {**base, "kind": "rumor"})
-    assert bad_kind["ok"] is False
-    assert bad_kind["error"]["code"] == "invalid_param"
-    bad_status = _run(
-        campaign_ws, "memory.write",
-        {**base, "kind": "fact", "status": "open", "decision_id": "membad-2"},
-    )
-    assert bad_status["ok"] is False
-    assert bad_status["error"]["code"] == "invalid_param"
-
-
-def test_memory_search_filters_and_labels_privacy(campaign_ws):
-    _run(campaign_ws, "memory.write", {
-        "memory_id": "mem-hook-cellar",
-        "kind": "unresolved_hook",
-        "privacy": "keeper_only",
-        "summary": "地窖敲击声未解。",
-        "entities": ["cellar"],
-        "reactivation_cues": ["敲击声"],
-        "decision_id": "memsearch-w1",
-    })
-    _run(campaign_ws, "memory.write", {
-        "memory_id": "mem-pref-doors",
-        "kind": "player_preference",
-        "privacy": "player_safe",
-        "summary": "玩家喜欢仔细检查门。",
-        "entities": ["cellar"],
-        "reactivation_cues": ["门"],
-        "decision_id": "memsearch-w2",
-    })
-    keeper_view = _run(campaign_ws, "memory.search", {
-        "entities": ["cellar"],
-        "kinds": ["unresolved_hook"],
-        "statuses": ["open"],
-    })
-    assert keeper_view["ok"] is True, keeper_view
-    assert keeper_view["data"]["authority"] == "advisory"
-    assert keeper_view["data"]["hard_gate"] is False
-    rows = keeper_view["data"]["cards"]
-    assert [r["memory_id"] for r in rows] == ["mem-hook-cellar"]
-    assert rows[0]["privacy"] == "keeper_only"
-    assert rows[0]["status"] == "open"
-    player_view = _run(campaign_ws, "memory.search", {
-        "entities": ["cellar"],
-        "view": "player_safe",
-    })
-    assert player_view["ok"] is True
-    assert {r["memory_id"] for r in player_view["data"]["cards"]} == {
-        "mem-pref-doors"
-    }
-    assert all(r["privacy"] == "player_safe" for r in player_view["data"]["cards"])
-    bad = _run(campaign_ws, "memory.search", {"kinds": ["rumor"]})
-    assert bad["ok"] is False
-    assert bad["error"]["code"] == "invalid_param"
-
-
-def test_memory_resolve_hook_op_idempotent_via_decision_id(campaign_ws):
-    _run(campaign_ws, "memory.write", {
-        "memory_id": "mem-hook-cellar",
-        "kind": "unresolved_hook",
-        "privacy": "keeper_only",
-        "summary": "地窖敲击声未解。",
-        "entities": ["cellar"],
-        "decision_id": "memresolve-w1",
-    })
-    args = {
-        "memory_id": "mem-hook-cellar",
-        "resolution": "paid_off",
-        "resolved_at": "turn-9",
-        "reason": "来源揭晓",
-        "decision_id": "memresolve-1",
-    }
-    first = _run(campaign_ws, "memory.resolve_hook", args)
-    assert first["ok"] is True, first
-    assert first["data"]["status"] == "paid_off"
-    assert first["data"]["already_resolved"] is False
-    replay = _run(campaign_ws, "memory.resolve_hook", args)
-    assert replay["ok"] is True
-    assert replay["data"] == first["data"]
-    assert any("duplicate decision_id" in w for w in replay["warnings"])
-    # Same target status under a fresh decision id is a no-op receipt.
-    second = _run(
-        campaign_ws, "memory.resolve_hook",
-        {**args, "decision_id": "memresolve-2"},
-    )
-    assert second["ok"] is True
-    assert second["data"]["already_resolved"] is True
-    closed = _run(campaign_ws, "memory.search", {
-        "entities": ["cellar"],
-        "kinds": ["unresolved_hook"],
-        "statuses": ["open"],
-    })
-    assert closed["data"]["cards"] == []
+    assert [c["memory_id"] for c in cards] == []
 
 
 # --------------------------------------------------------------------------- #

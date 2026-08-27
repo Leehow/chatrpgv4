@@ -166,9 +166,11 @@ _DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
         "advisory": False,
         "kp_surface": "context",
     },
-    # memory.* is the KP-facing long-term story memory surface. Writes are
-    # state-contract card mutations on the coc_state domain tool; the search
-    # query lives on coc_context beside the other read projections.
+    # memory.* is the KP-facing temporal story-memory surface under schema
+    # generation temporal-memory-1: memory.adjudicate and extraction settle
+    # are state-contract mutations on the temporal store, while the strict
+    # read-only recall/extraction_status queries widen to a context surface
+    # through the exceptions below.
     "memory": {
         "audience": "keeper",
         "phases": ("live_turn",),
@@ -263,11 +265,6 @@ _DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
 
 # Exact operation overlays. Extra or missing keys versus TOOLS fail closed.
 OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
-    "memory.search": {
-        "contract": "none",
-        "kp_surface": "context",
-        "phases": ("opening", "live_turn", "pending_finalization"),
-    },
     # memory.recall is the temporal-memory narrowing query: a strict
     # read-only context read beside the other recall projections, while
     # memory.adjudicate keeps the domain's state contract below.

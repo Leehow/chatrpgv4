@@ -149,7 +149,7 @@ def _insert_base_rows(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT INTO campaigns (campaign_id, schema_generation,"
         " head_commit_sha, commit_count) VALUES (?,?,?,?)",
-        (CAMPAIGN_ID, "history-projection-1", E_SHA, 4),
+        (CAMPAIGN_ID, "history-projection-2", E_SHA, 4),
     )
     connection.execute(
         "INSERT INTO timelines (campaign_id, timeline_id, first_commit_sha,"

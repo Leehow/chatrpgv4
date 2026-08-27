@@ -2952,8 +2952,6 @@ _MUTATING_TOOLS = frozenset({
     "state.supersede_settlement",
     "state.journal",
     "state.end_session",
-    "memory.write",
-    "memory.resolve_hook",
     "memory.adjudicate",
     "memory.extraction_settle",
     "timeline.fork_request",
