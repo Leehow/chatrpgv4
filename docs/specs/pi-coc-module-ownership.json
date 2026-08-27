@@ -8,7 +8,7 @@
     "migration_source_commit": "affeedc3a78ac6da82e0c47ce5dafa95bf12d7fd",
     "verified_on": "2026-08-25",
     "canonical_operation_source": "plugins/coc-keeper/scripts/coc_toolbox.py",
-    "canonical_operation_count": 138
+    "canonical_operation_count": 139
   },
   "migration_states": {
     "planned": "Handlers or tests still occupy shared files; no parallel implementation edit is allowed.",
@@ -460,6 +460,28 @@
         "tests/test_temporal_memory.py",
         "tests/test_temporal_retrieval.py",
         "tests/test_history_projection.py"
+      ]
+    },
+    {
+      "module_id": "canonical-events",
+      "migration_state": "migrated",
+      "owned_paths": [
+        "plugins/coc-keeper/scripts/coc_operation_canonical_events.py",
+        "tests/test_canonical_events_projection.py"
+      ],
+      "operation_ids": [
+        "events.query"
+      ],
+      "implementation_dependencies": [
+        "plugins/coc-keeper/scripts/coc_canonical_events.py"
+      ],
+      "may_depend_on": [
+        "operation-kernel"
+      ],
+      "focused_validation": [
+        "tests/test_canonical_events_contract.py",
+        "tests/test_canonical_events_emit.py",
+        "tests/test_canonical_events_projection.py"
       ]
     },
     {

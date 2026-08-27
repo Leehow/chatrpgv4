@@ -163,6 +163,18 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "pending_finalization"
     ]
   },
+  "events.query": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "none",
+    "execution_class": "serial_campaign",
+    "kp_surface": "context",
+    "phases": [
+      "live_turn",
+      "pending_finalization",
+      "recovery"
+    ]
+  },
   "evidence.record_adoption": {
     "advisory": false,
     "audience": "keeper",
@@ -1554,6 +1566,7 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "actions.list",
     "clues.query",
     "epistemic.query",
+    "events.query",
     "evidence.record_adoption",
     "evidence.table_opening",
     "history.diff",

@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:facdf509f21e857c4c468a0751d650e0ff2f60ff9f97caf5bf5bff70697a9340",
+  "content_sha256": "sha256:615c3672e7abe663a3b91acf1beb4ce003ee972e09aa54088b71e5f09893db04",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 138,
+  "operation_count": 139,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -617,6 +617,81 @@
         ]
       },
       "summary": "Read compiled open questions, belief state, and structured lifecycle suggestions from current evidence."
+    },
+    "events.query": {
+      "access": "query",
+      "canonical_operation": "events.query",
+      "description": "Narrow the campaign's canonical event stream (coc-events/1) through structured filters: timeline, inclusive turn range, closed enum of event types, privacy view, and exact entity refs. Sequence-ordered read-only projection over the emitted stream; default public view never returns secret events. Canonical operation `events.query`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "entity_refs": {
+            "description": "structured entity refs to match exactly against projected payload references",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "description": "max rows (default 100)",
+            "type": "integer"
+          },
+          "privacy": {
+            "description": "privacy view; defaults to public which excludes secret events",
+            "enum": [
+              "public",
+              "secret",
+              "all"
+            ],
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "timeline": {
+            "description": "timeline id (tl-<slug>); omit to search every timeline",
+            "type": "string"
+          },
+          "turn_from": {
+            "description": "inclusive lower turn bound",
+            "type": "integer"
+          },
+          "turn_to": {
+            "description": "inclusive upper turn bound",
+            "type": "integer"
+          },
+          "types": {
+            "description": "event types from the closed coc-events/1 table (roll-resolved, clue-discovered, sanity-changed, ...)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "live_turn",
+          "pending_finalization",
+          "recovery"
+        ]
+      },
+      "summary": "Narrow the campaign's canonical event stream (coc-events/1) through structured filters: timeline, inclusive turn range, closed enum of event types, privacy view, and exact entity refs. Sequence-ordered read-only projection over the emitted stream; default public view never returns secret events."
     },
     "evidence.record_adoption": {
       "access": "mutation",
