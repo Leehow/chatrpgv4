@@ -393,7 +393,7 @@ test("typed journal hides host identity and restores it from independent live tu
     assert.equal(forwarded.arguments.player_text, playerText);
     assert.match(
       forwarded.arguments.decision_id,
-      /^pi-state-journal:player-epoch-1:revision-1$/,
+      /^pi-state-journal:[0-9a-f]{8}:player-epoch-1:revision-1$/,
     );
   }, (_name, params) => {
     if (params.operation === "state.journal") {

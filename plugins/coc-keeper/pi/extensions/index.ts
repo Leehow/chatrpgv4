@@ -3566,6 +3566,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let kpPlayPhase: PlayPhase = "live_turn";
   let currentWorkspaceRoot = "";
   let canonicalProgressCampaignId = "";
+  // Boot-unique namespace element for machine-generated decision ids. The
+  // campaign's durable idempotency ledger outlives this process, and
+  // playerTurnEpoch restarts from 0 on every boot — so ids composed without
+  // a fresh salt would replay exactly what a previous boot already consumed,
+  // wedging state.journal/narration.review into permanent idempotency
+  // conflicts after any host restart.
+  const HOST_BOOT_SALT = createHash("sha256")
+    .update(`${process.pid}:${Date.now()}:${performance.timeOrigin}`)
+    .digest("hex")
+    .slice(0, 8);
   let canonicalProgress: CanonicalTurnProgress = {
     playerTurnEpoch: 0,
     canonicalProgressRevision: 0,
@@ -3998,7 +4008,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     operation: string,
     revision = canonicalProgress.canonicalProgressRevision + 1,
   ): string => (
-    `pi-${operation.replace(/\./gu, "-")}:player-epoch-${
+    `pi-${operation.replace(/\./gu, "-")}:${HOST_BOOT_SALT}:player-epoch-${
       canonicalProgress.playerTurnEpoch
     }:revision-${revision}`
   );
@@ -4048,7 +4058,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         root: currentWorkspaceRoot,
         campaign: canonicalProgressCampaignId || campaignId,
         player_text: currentText,
-        decision_id: `pi-state-journal:player-epoch-${playerTurnEpoch}:revision-1`,
+        decision_id: `pi-state-journal:${HOST_BOOT_SALT}:player-epoch-${playerTurnEpoch}:revision-1`,
       };
     });
   };
