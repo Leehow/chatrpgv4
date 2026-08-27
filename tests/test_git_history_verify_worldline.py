@@ -66,6 +66,7 @@ ZERO_COUNTS = {
     "transfers": 0,
     "episodes": 0,
     "backlog": 0,
+    "ambiguous_canonical_ids": 0,
 }
 
 
@@ -246,6 +247,14 @@ def _write_temporal_store(
     text = "".join(line if line.endswith("\n") else line + "\n" for line in lines)
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def _append_log_row(root: Path, relpath: str, row: dict) -> None:
+    """Append one structured JSONL row to a tracked campaign log."""
+    path = _worktree(root) / relpath
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def _codes(proof) -> list[str]:
@@ -472,7 +481,7 @@ def test_clean_main_campaign_passes_with_explicit_zero_records(tmp_path):
     assert "GIT HISTORY CHECK PASSED" in stdout
     assert (
         "record_counts timelines=1 confluences=0 transfers=0 episodes=0 "
-        "backlog=0"
+        "backlog=0 ambiguous_canonical_ids=0"
     ) in stdout
 
     proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
@@ -483,6 +492,7 @@ def test_clean_main_campaign_passes_with_explicit_zero_records(tmp_path):
         "transfers": 0,
         "episodes": 0,
         "backlog": 0,
+        "ambiguous_canonical_ids": 0,
     }
     counts_line = _record_counts_line(proof.infos)
     assert "confluences=0" in counts_line
@@ -1014,6 +1024,7 @@ def test_nonzero_store_counts_reported_verbatim(tmp_path):
         "transfers": 1,
         "episodes": 2,
         "backlog": 0,
+        "ambiguous_canonical_ids": 0,
     }
     counts_line = _record_counts_line(proof.infos)
     assert "transfers=1" in counts_line
@@ -1034,6 +1045,197 @@ def test_corrupt_temporal_store_line_flagged(tmp_path):
     assert any("backlog.jsonl" in f.detail for f in proof.findings)
     assert proof.status == "FAIL"
     assert code == 1
+
+
+# ---------------------------------------------------------------------------
+# Advisory canonical-id introduction lineage (single-mint rule)
+# ---------------------------------------------------------------------------
+
+
+def test_duplicate_canonical_id_minted_on_both_siblings_flagged(tmp_path):
+    """One roll id minted fresh on both sides after a fork -> one advisory.
+
+    Receipt ledger rows are written up front (the established fixture
+    pattern) so the shared accumulating ledger never diverges between
+    sibling tips; only the roll row is genuinely minted per side.
+    """
+    _prepare_campaign(tmp_path)
+    _write_receipts(
+        tmp_path,
+        ["fin-0001", "fin-left-2", "fin-right-2", "fin-left-3", "fin-right-3"],
+    )
+    _commit_turn(tmp_path, 1, "fin-0001")
+    hist.fork_timeline(
+        tmp_path,
+        CAMPAIGN_ID,
+        timeline_id="tl-left",
+        source_turn=1,
+        game_reason="left",
+        activate=True,
+    )
+    _note_world_branch(_worktree(tmp_path), "left")
+    _commit_turn(tmp_path, 2, "fin-left-2")
+    _append_log_row(
+        tmp_path, "logs/table-rolls.jsonl", {"roll_id": "roll-dup-1"}
+    )
+    _commit_turn(tmp_path, 3, "fin-left-3")
+
+    hist.set_active_timeline(tmp_path, CAMPAIGN_ID, "tl-main")
+    hist.fork_timeline(
+        tmp_path,
+        CAMPAIGN_ID,
+        timeline_id="tl-right",
+        source_turn=1,
+        game_reason="right",
+        activate=True,
+    )
+    _note_world_branch(_worktree(tmp_path), "right")
+    _commit_turn(tmp_path, 2, "fin-right-2")
+    # Same canonical id, minted independently on the sibling tip: neither
+    # introduction is an ancestor of the other.
+    _append_log_row(
+        tmp_path, "logs/table-rolls.jsonl", {"roll_id": "roll-dup-1"}
+    )
+    _commit_turn(tmp_path, 3, "fin-right-3")
+    proj.rebuild_history_projection(tmp_path, CAMPAIGN_ID)
+
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    # Advisory severity: core proof and findings stay clean.
+    assert proof.status == verify.STATUS_PASS
+    assert _codes(proof) == []
+    assert proof.worldline_counts["ambiguous_canonical_ids"] == 1
+    advisories = list(proof.worldline_advisories)
+    assert [entry["canonical_id"] for entry in advisories] == ["roll-dup-1"]
+    # Shared working tree: the right branch's separating commit (whose
+    # parent predates the roll row) is the right side's first fresh
+    # carrier, hence turn 2 — the pair itself is what must be reported.
+    intros = advisories[0]["introductions"]
+    assert [
+        (intro["timeline_id"], intro["turn_number"])
+        for intro in intros
+    ] == [("tl-left", 3), ("tl-right", 2)]
+    assert all(len(intro["commit"]) == 40 for intro in intros)
+
+    payload = proof.to_dict()
+    assert payload["worldline_counts"]["ambiguous_canonical_ids"] == 1
+    assert payload["worldline_advisories"] == advisories
+    assert "ambiguous_canonical_ids=1" in _record_counts_line(proof.infos)
+
+    # Advisory surfaces in the text report without flipping the exit code.
+    code, stdout, stderr = _run_verify(tmp_path)
+    assert code == 0
+    assert stderr == ""
+    advisory_lines = [
+        line
+        for line in stdout.splitlines()
+        if line.startswith("info: ambiguous_canonical_id")
+    ]
+    assert advisory_lines == [
+        "info: ambiguous_canonical_id roll-dup-1: "
+        "introductions tl-left@turn3 tl-right@turn2"
+    ]
+    assert "GIT HISTORY CHECK PASSED" in stdout
+
+    # Deterministic output across runs (no wall clock, stable ordering).
+    repeat_code, repeat_stdout, repeat_stderr = _run_verify(tmp_path)
+    assert (repeat_code, repeat_stdout, repeat_stderr) == (code, stdout, stderr)
+    repeat_proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert list(repeat_proof.worldline_advisories) == advisories
+    assert (
+        [dict(entry) for entry in repeat_proof.worldline_advisories]
+        == [dict(entry) for entry in proof.worldline_advisories]
+    )
+    assert repeat_proof.worldline_counts == proof.worldline_counts
+    assert repeat_proof.findings == proof.findings
+
+
+def test_child_inherits_parent_introduction_not_flagged(tmp_path):
+    """Fork replay of a parent-era id never counts as a second mint."""
+    _prepare_campaign(tmp_path)
+    _write_receipts(tmp_path, ["fin-0001", "fin-child-2"])
+    _append_log_row(
+        tmp_path, "logs/table-rolls.jsonl", {"roll_id": "roll-inherit-1"}
+    )
+    _commit_turn(tmp_path, 1, "fin-0001")
+    hist.fork_timeline(
+        tmp_path,
+        CAMPAIGN_ID,
+        timeline_id="tl-child",
+        source_turn=1,
+        game_reason="replay",
+        activate=True,
+    )
+    # Re-record the very same canonical id on the child: its introduction
+    # still traces through the parent commit's ancestry.
+    _append_log_row(
+        tmp_path, "logs/table-rolls.jsonl", {"roll_id": "roll-inherit-1"}
+    )
+    _commit_turn(tmp_path, 2, "fin-child-2")
+    proj.rebuild_history_projection(tmp_path, CAMPAIGN_ID)
+
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == verify.STATUS_PASS
+    assert proof.worldline_counts["ambiguous_canonical_ids"] == 0
+    assert list(proof.worldline_advisories) == []
+
+
+def test_post_confluence_re_record_through_parent_ancestry_not_flagged(tmp_path):
+    """A merged line re-recording an inherited id stays single-introduction."""
+    _prepare_campaign(tmp_path)
+    _write_receipts(
+        tmp_path, ["fin-0001", "fin-left-2", "fin-right-2", "fin-merged-4"]
+    )
+    _append_log_row(
+        tmp_path, "logs/table-rolls.jsonl", {"roll_id": "roll-replay-1"}
+    )
+    _commit_turn(tmp_path, 1, "fin-0001")
+    hist.fork_timeline(
+        tmp_path,
+        CAMPAIGN_ID,
+        timeline_id="tl-left",
+        source_turn=1,
+        game_reason="left",
+        activate=True,
+    )
+    _note_world_branch(_worktree(tmp_path), "left")
+    _commit_turn(tmp_path, 2, "fin-left-2")
+    hist.set_active_timeline(tmp_path, CAMPAIGN_ID, "tl-main")
+    hist.fork_timeline(
+        tmp_path,
+        CAMPAIGN_ID,
+        timeline_id="tl-right",
+        source_turn=1,
+        game_reason="right",
+        activate=True,
+    )
+    _note_world_branch(_worktree(tmp_path), "right")
+    _commit_turn(tmp_path, 2, "fin-right-2")
+    confluence_id = f"confluence-{CAMPAIGN_ID}-tl-merged-replay"
+    hist.confluence_timelines(
+        tmp_path,
+        CAMPAIGN_ID,
+        timeline_id="tl-merged-replay",
+        left_timeline_id="tl-left",
+        right_timeline_id="tl-right",
+        receipt="conf-replay-1",
+        schema_generation=SCHEMA,
+        conflicts=_confluence_conflicts(confluence_id),
+        path_resolutions={"save/world-state.json": "choose_left"},
+        confluence_id=confluence_id,
+        activate=True,
+    )
+    # The merged line re-records the id; its introduction traces through
+    # either parent's ancestry (here: every parent tip already carried it).
+    _append_log_row(
+        tmp_path, "logs/table-rolls.jsonl", {"roll_id": "roll-replay-1"}
+    )
+    _commit_turn(tmp_path, 4, "fin-merged-4")
+    proj.rebuild_history_projection(tmp_path, CAMPAIGN_ID)
+
+    proof = verify.state_integrity_proof(tmp_path, CAMPAIGN_ID)
+    assert proof.status == verify.STATUS_PASS
+    assert proof.worldline_counts["ambiguous_canonical_ids"] == 0
+    assert list(proof.worldline_advisories) == []
 
 
 # ---------------------------------------------------------------------------

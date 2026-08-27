@@ -361,6 +361,7 @@ PROOF_TOP_KEYS = {
     "worldline_counts",
     "projection_status",
     "projection_findings",
+    "worldline_advisories",
     "tree",
     "history_reset",
     "findings",

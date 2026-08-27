@@ -14,7 +14,16 @@ plus the worldline/temporal sweeps:
   carry the current generation marker and match a deterministic shadow
   rebuild of the same Git history (digest/head/commit_count);
 - explicit zero-record reporting for timelines/confluences/transfers/
-  episodes/backlog — zero is reported as zero, never omitted.
+  episodes/backlog/ambiguous-canonical-ids — zero is reported as zero,
+  never omitted;
+- one advisory introduction-lineage sweep: every canonical id (roll /
+  effect / transaction / receipt ids extracted from the tracked JSONL
+  stores, plus episode ledger ids) must have a SINGLE introducing
+  timeline lineage. Two sibling lineages whose introducing commits are
+  mutually unrelated ancestors make lineage binding rebuild-order-
+  dependent; such ids are reported as structured worldline advisories
+  without ever flipping the core proof status (see
+  ``worldline_advisories`` / ``worldline_counts``).
 
 Never writes the campaign tree, the sidecar repo, or any cache file.
 The projection database itself is opened read-only and the shadow rebuild
@@ -44,6 +53,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import coc_git_history as hist
 import coc_state
 import coc_history_projection as proj_facade
+import coc_history_projection_events as proj_events
 import coc_history_projection_git as proj_git
 import coc_history_projection_schema as proj_schema
 
@@ -128,6 +138,9 @@ WORLDLINE_COUNT_KEYS: tuple[str, ...] = (
     "transfers",
     "episodes",
     "backlog",
+    # Advisory count: canonical ids whose introducing timeline lineage is
+    # ambiguous (minted independently on mutually unrelated siblings).
+    "ambiguous_canonical_ids",
 )
 
 #: Advisory append-only temporal stores living under ``memory/temporal/``.
@@ -182,6 +195,16 @@ _PROJECTION_HARD_CODES = frozenset(
         GIT_SCAN_FAILED,
     }
 )
+
+#: Advisory severity marker for ambiguous canonical-id introductions.
+#: Never a Finding kind: the finding must not flip core proof status; it
+#: surfaces as ``worldline_advisories`` payload entries plus the
+#: ``ambiguous_canonical_ids`` machine count.
+CODE_AMBIGUOUS_CANONICAL_ID = "ambiguous_canonical_id"
+#: Structured examples rendered per ambiguous id, capped deterministically.
+AMBIGUOUS_ID_EXAMPLES_MAX = 5
+#: Tracked episode ledger the introduction sweep scans for episode ids.
+_EPISODE_STORE_RELPATH = "memory/temporal/episodes.jsonl"
 
 
 def _projection_dimension_status(
@@ -389,6 +412,11 @@ class StateIntegrityProof:
     #: never downgrades the core finalize/git proof status.
     projection_status: str | None = None
     projection_findings: tuple[Finding, ...] = ()
+    #: Advisory introduction-lineage findings for canonical ids minted
+    #: independently on mutually unrelated sibling timelines (ordered by
+    #: canonical id, capped at ``AMBIGUOUS_ID_EXAMPLES_MAX``). Never part
+    #: of core ``findings`` and never flips the core status.
+    worldline_advisories: tuple[dict[str, Any], ...] = ()
     #: Exact rev this proof signed. ``HEAD`` for a default single-line
     #: campaign; the active timeline's ref once an active pointer exists
     #: (post-fork/post-confluence campaigns sign their own tip, not main).
@@ -431,6 +459,9 @@ class StateIntegrityProof:
             "projection_status": self.projection_status,
             "projection_findings": [
                 finding.to_dict() for finding in self.projection_findings
+            ],
+            "worldline_advisories": [
+                dict(advisory) for advisory in self.worldline_advisories
             ],
             "signed_ref": self.signed_ref,
             "signed_timeline_id": self.signed_timeline_id,
@@ -1012,6 +1043,7 @@ def _build_proof(
     worldline_counts: dict[str, int] | None = None,
     projection_status: str | None = None,
     projection_findings: Iterable[Finding] = (),
+    worldline_advisories: Iterable[dict[str, Any]] = (),
     signed_ref: str | None = None,
     signed_timeline_id: str | None = None,
 ) -> StateIntegrityProof:
@@ -1051,6 +1083,9 @@ def _build_proof(
         worldline_counts=dict(worldline_counts) if worldline_counts else {},
         projection_status=projection_status,
         projection_findings=tuple(projection_findings),
+        worldline_advisories=tuple(
+            dict(advisory) for advisory in worldline_advisories
+        ),
         signed_ref=signed_ref,
         signed_timeline_id=signed_timeline_id,
     )
@@ -1766,6 +1801,159 @@ def _sweep_all_lineages(
     return findings
 
 
+def _commit_canonical_ids(record: dict[str, Any]) -> set[str]:
+    """Canonical ids recorded in one commit's JSONL stores.
+
+    Reuses the projection extractor so identity rules stay single-sourced:
+    receipt / roll / effect / transaction ids lifted from explicit
+    structured payload keys only (synthetic commit-inclusive row ids can
+    never collide across lineages by construction).
+    """
+    extracted = proj_events.extract_events(record)
+    ids: set[str] = set()
+    for row_kind, id_key in (
+        ("receipts", "receipt_id"),
+        ("rolls", "roll_id"),
+        ("effects", "effect_id"),
+        ("transactions", "transaction_id"),
+    ):
+        for row in extracted[row_kind]:
+            value = row.get(id_key)
+            if isinstance(value, str) and value:
+                ids.add(value)
+    return ids
+
+
+def _episode_ids_from_record(record: dict[str, Any]) -> set[str]:
+    """Episode ledger ids carried by one commit record.
+
+    ``extract_events`` treats episode rows as generic events, so the
+    semantic ``episode_id`` is lifted here from the tracked episodes.jsonl
+    blob text with the same parse-or-skip discipline.
+    """
+    ids: set[str] = set()
+    for entry in record.get("files") or []:
+        if entry.get("path") != _EPISODE_STORE_RELPATH:
+            continue
+        for line in (entry.get("text") or "").split("\n"):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                row = json.loads(stripped)
+            except ValueError:
+                continue
+            if isinstance(row, dict):
+                value = row.get("episode_id")
+                if isinstance(value, str) and value:
+                    ids.add(value)
+    return ids
+
+
+def _reachable_ancestor(
+    parents_by_sha: dict[str, tuple[str, ...]], start: str, target: str
+) -> bool:
+    """True when ``target`` is an ancestor-or-self of ``start``.
+
+    Pure-Python walk over the parents edges of the deterministic all-ref
+    scan — no wall clock, no ordering ambiguity.
+    """
+    stack = [start]
+    seen: set[str] = set()
+    while stack:
+        sha = stack.pop()
+        if sha == target:
+            return True
+        if sha in seen:
+            continue
+        seen.add(sha)
+        stack.extend(parents_by_sha.get(sha, ()))
+    return False
+
+
+def _sweep_ambiguous_canonical_introductions(
+    root: Path | str,
+    campaign_id: str,
+) -> list[dict[str, Any]]:
+    """Canonical ids minted independently on sibling timeline lineages.
+
+    Reads every ref through the projection scanner (deterministic topo
+    order), then reduces each canonical id to its introducing commits:
+    a commit introduces an id only when no parent tree already recorded
+    it. Fork/confluence replays therefore resolve through ancestry and
+    are never flagged; only two mutually unrelated introductions on
+    distinct lineages make lineage binding rebuild-order-dependent and
+    are reported. Read-only; scan failures leave the advisory silent
+    (the projection dimension already reports them as hard findings).
+
+    Returns one structured entry per ambiguous id — sorted by canonical
+    id, each carrying its first introduction per involved lineage —
+    uncapped; callers cap rendered examples at ``AMBIGUOUS_ID_EXAMPLES_MAX``.
+    """
+    try:
+        records = proj_git.scan_campaign_history(root, campaign_id)
+    except (proj_git.GitScanUnavailableError, proj_git.GitScanError):
+        return []
+    parents_by_sha = {
+        record["sha"]: tuple(record.get("parents") or ())
+        for record in records
+    }
+    # Ancestors precede descendants in scan order: one first pass records
+    # every id each snapshot carries; the second derives introductions as
+    # "present here, absent from every parent tree".
+    ids_by_sha: dict[str, set[str]] = {}
+    for record in records:
+        ids_by_sha[record["sha"]] = _commit_canonical_ids(
+            record
+        ) | _episode_ids_from_record(record)
+    introduced: dict[str, dict[str, dict[str, Any]]] = {}
+    for record in records:
+        sha = record["sha"]
+        inherited: set[str] = set()
+        for parent in parents_by_sha[sha]:
+            inherited |= ids_by_sha.get(parent, set())
+        lineage = record.get("timeline_id") or hist.DEFAULT_TIMELINE_ID
+        turn_number = record.get("turn_number")
+        for canonical_id in sorted(ids_by_sha[sha] - inherited):
+            lineages = introduced.setdefault(canonical_id, {})
+            if lineage not in lineages:
+                lineages[lineage] = {
+                    "timeline_id": lineage,
+                    "turn_number": turn_number,
+                    "commit": sha,
+                }
+    advisories: list[dict[str, Any]] = []
+    for canonical_id in sorted(introduced):
+        lineages = introduced[canonical_id]
+        if len(lineages) < 2:
+            continue
+        names = sorted(lineages)
+        ambiguous_pair: tuple[str, str] | None = None
+        for index, left in enumerate(names):
+            for right in names[index + 1 :]:
+                left_sha = lineages[left]["commit"]
+                right_sha = lineages[right]["commit"]
+                if not _reachable_ancestor(
+                    parents_by_sha, left_sha, right_sha
+                ) and not _reachable_ancestor(parents_by_sha, right_sha, left_sha):
+                    ambiguous_pair = (left, right)
+                    break
+            if ambiguous_pair is not None:
+                break
+        if ambiguous_pair is None:
+            continue
+        advisories.append(
+            {
+                "canonical_id": canonical_id,
+                "introductions": [
+                    lineages[ambiguous_pair[0]],
+                    lineages[ambiguous_pair[1]],
+                ],
+            }
+        )
+    return advisories
+
+
 def _open_projection_readonly(db_path: Path) -> sqlite3.Connection:
     uri = f"file:{db_path.as_posix()}?mode=ro"
     connection = sqlite3.connect(uri, uri=True)
@@ -1987,15 +2175,24 @@ def _verify_timeline_dag(
     expected_schema: str | None = None,
     visited_shas: frozenset[str] | set[str] = frozenset(),
     validated_confluence_shas: frozenset[str] | set[str] = frozenset(),
-) -> tuple[list[Finding], dict[str, int]]:
+) -> tuple[
+    list[Finding],
+    dict[str, int],
+    list[dict[str, Any]],
+]:
     """Worldline/temporal sweep: DAG structure, refs, stores, all lineages.
 
-    Returns the accumulated findings plus explicit record counts (zero is
-    a real result, never omitted).
+    Returns the accumulated findings, explicit record counts (zero is
+    a real result, never omitted), plus advisory structured entries for
+    canonical ids whose introducing timeline lineage is ambiguous.
     """
     findings: list[Finding] = []
     store_findings, store_counts = _worldline_store_counts(worktree)
     findings.extend(store_findings)
+    canonical_advisories = _sweep_ambiguous_canonical_introductions(
+        root, campaign_id
+    )
+    store_counts["ambiguous_canonical_ids"] = len(canonical_advisories)
     state_path = worktree / hist.TIMELINE_STATE_RELPATH
     if not state_path.is_file():
         # Implied default: a campaign without a persisted timeline-state is
@@ -2019,11 +2216,11 @@ def _verify_timeline_dag(
                 skip_shas=skip,
             )
         )
-        return findings, store_counts
+        return findings, store_counts, canonical_advisories
     raw_state, parse_findings = _load_raw_timeline_state(worktree)
     if raw_state is None:
         findings.extend(parse_findings)
-        return findings, store_counts
+        return findings, store_counts, canonical_advisories
     structure_findings, structure_counts = _verify_timeline_structure(raw_state)
     findings.extend(structure_findings)
     counts = dict(store_counts)
@@ -2138,7 +2335,7 @@ def _verify_timeline_dag(
             skip_shas=skip_shas,
         )
     )
-    return findings, counts
+    return findings, counts, canonical_advisories
 
 
 def state_integrity_proof(
@@ -2669,14 +2866,16 @@ def state_integrity_proof(
         )
         findings.extend(tree_findings)
 
-    worldline_findings, worldline_counts = _verify_timeline_dag(
-        root,
-        campaign_id,
-        repo,
-        worktree,
-        expected_schema=expected_schema,
-        visited_shas={sha for sha, _body in records},
-        validated_confluence_shas=validated_confluence_shas,
+    worldline_findings, worldline_counts, canonical_advisories = (
+        _verify_timeline_dag(
+            root,
+            campaign_id,
+            repo,
+            worktree,
+            expected_schema=expected_schema,
+            visited_shas={sha for sha, _body in records},
+            validated_confluence_shas=validated_confluence_shas,
+        )
     )
     findings.extend(worldline_findings)
     infos.append(
@@ -2686,6 +2885,15 @@ def state_integrity_proof(
             for key in WORLDLINE_COUNT_KEYS
         )
     )
+    for advisory in canonical_advisories[:AMBIGUOUS_ID_EXAMPLES_MAX]:
+        introductions = " ".join(
+            f"{intro['timeline_id']}@turn{intro['turn_number']}"
+            for intro in advisory["introductions"]
+        )
+        infos.append(
+            f"{CODE_AMBIGUOUS_CANONICAL_ID} "
+            f"{advisory['canonical_id']}: introductions {introductions}"
+        )
     # The projection is a rebuildable non-authoritative cache: its verdict
     # lives in a dedicated dimension and never downgrades the core
     # finalize/git proof (missing cache = advisory "rebuild needed" gap).
@@ -2725,6 +2933,9 @@ def state_integrity_proof(
         worldline_counts=worldline_counts,
         projection_status=projection_status,
         projection_findings=projection_findings,
+        worldline_advisories=tuple(
+            canonical_advisories[:AMBIGUOUS_ID_EXAMPLES_MAX]
+        ),
         signed_ref=proof_rev,
         signed_timeline_id=(
             signed_timeline_id if timeline_ref is None else None
