@@ -492,6 +492,19 @@ Pi-Coc 验收/体验测试的唯一方法：
 - 未设 `COC_PI_SESSION_ROLE` 为遗留全开；装配失败回退全量技能 + `pi/prompts/host-system.md`。
 - KP 行为与幕间话术见 `plugins/coc-keeper/references/mode-protocol.md` 与 `pi/prompts/host-system-setup.md` / `host-system-play.md`。
 
+### Non-LLM Three-Second Diagnostic Rule
+
+Any operation that does not involve LLM/model inference and exceeds 3 seconds is
+an active diagnostic incident. Immediately inspect the exact command or test
+node, whether real output is advancing, CPU/IO, locks, and child processes.
+Wrapper or driver heartbeats and CPU activity alone do not prove healthy
+progress; never merely report elapsed time and continue waiting. If real
+progress is not demonstrated, split the work into smaller observable units,
+repair or re-point the progress channel, or abort and resume the same
+worker/worktree by a materially different route. Exceeding 3 seconds triggers
+inspection; it does not require killing an operation whose exact node-level
+progress is proven. LLM/model inference calls are the only timing exemption.
+
 ## Validation And Evidence
 
 Whole-product, UX, latency, Keeper-quality, integration, and acceptance claims
