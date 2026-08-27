@@ -5282,7 +5282,11 @@ def validate_quest_pack_contract(
             "secret=true quest must not carry player_safe_summary; "
             "player-safe text exists only after the quest is offered"
         )
-    if doc.get("provenance") not in QUEST_PROVENANCE:
+    # String-enum membership: any non-string (e.g. a handout-style provenance
+    # object) must fail as a clean validation error, never as a TypeError.
+    if not isinstance(doc.get("provenance"), str) or (
+        doc["provenance"] not in QUEST_PROVENANCE
+    ):
         allowed = ", ".join(sorted(QUEST_PROVENANCE))
         err(f"provenance must be one of: {allowed}")
     brief = doc.get("brief")

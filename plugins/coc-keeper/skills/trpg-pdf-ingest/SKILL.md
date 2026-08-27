@@ -49,7 +49,9 @@ deep-extract every block yet. Several subjects on one page share the same page
 locator so a later host pass can resolve them together.
 Validate with `coc_pdf_bundle.py` if using a formal handoff window, then emit
 structured `skeleton.json` (locations, provisional edges, npc_roster names,
-handout index, threat stubs, start_candidates). **No full handout bodies.**
+handout index, threat stubs, `quest_index` action-quest rows per
+`skills/coc-scenario-import/references/quest-schema.md`, start_candidates).
+**No full handout bodies.**
 Independent roster/mechanics-locator, handout/threat/finale, and remote-region
 index windows may run concurrently after Tier 1A. Each accepted result updates
 the same canonical skeleton; this is bounded index enrichment, never an

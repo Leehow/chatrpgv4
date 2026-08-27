@@ -31,10 +31,13 @@ REQUIRED_FILES = (
 )
 # Scenario files written/projected when present but not required by every
 # legacy loader. ``handouts.json`` is the campaign-side verbatim info card
-# store consumed by state delivery and player projections.
+# store consumed by state delivery and player projections; ``quests.json``
+# is the eighth-file action-quest IR (absent = questless module is legal).
 OPTIONAL_IR_FILES = (
     "handouts.json",
+    "quests.json",
 )
+_QUEST_ID_RE = re.compile(r"^quest-[a-z0-9-]+$")
 DEFAULT_NEIGHBOR_PREFETCH_BUDGET = 4
 NO_PREFETCH_LOCATION_TAGS = frozenset({"sandbox-hub"})
 ROLE_TAG_RELATIONSHIP_ALIASES = {
@@ -1185,6 +1188,51 @@ def merge_deep_handout_into_ir(
     return out
 
 
+def merge_deep_quest_into_ir(
+    ir: dict[str, Any],
+    pack: dict[str, Any],
+) -> dict[str, Any]:
+    """Upsert a deep action quest into the campaign quest store.
+
+    ``scenario/quests.json`` is the eighth-file quest IR, keyed by
+    ``quest_id``. Only the quest-schema machine-relevant card fields ride
+    the projection; keeper-only ``brief`` stays for the KP, and runtime
+    state lives in ``save/quest-state.json`` (coc_quest_state), not here.
+    """
+    out = {k: json.loads(json.dumps(v)) for k, v in ir.items()}
+    quest_id = str(pack.get("quest_id") or "").strip()
+    if not _QUEST_ID_RE.fullmatch(quest_id):
+        raise ModuleProjectError(
+            f"quest pack quest_id {quest_id!r} is not a semantic quest id",
+        )
+    row = {
+        key: json.loads(json.dumps(pack[key]))
+        for key in (
+            "quest_id", "title", "localized_title", "player_safe_summary",
+            "localized_text", "quest_kinds", "importance", "giver",
+            "brief", "target_refs", "destination_scene_id", "deadline",
+            "completion", "failure", "mainline_links", "secret",
+            "source_refs",
+        )
+        if pack.get(key) is not None
+    }
+    row.setdefault("schema_version", 1)
+    doc = out.setdefault("quests.json", {"schema_version": 1, "quests": []})
+    if not isinstance(doc, dict):
+        raise ModuleProjectError("quests.json IR entry must be an object")
+    quests = doc.setdefault("quests", [])
+    base = next(
+        (row_ for row_ in quests if row_.get("quest_id") == quest_id),
+        None,
+    )
+    if base is None:
+        quests.append(row)
+    else:
+        base.clear()
+        base.update(row)
+    return out
+
+
 def merge_deep_entity_into_ir(
     ir: dict[str, Any],
     entity_kind: str,
@@ -1198,6 +1246,7 @@ def merge_deep_entity_into_ir(
         "clue": merge_deep_clue_into_ir,
         "threat": merge_deep_threat_into_ir,
         "handout": merge_deep_handout_into_ir,
+        "quest": merge_deep_quest_into_ir,
     }
     try:
         merger = mergers[entity_kind]

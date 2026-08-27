@@ -44,6 +44,9 @@ queue_worker = _load(
 project = _load(
     "coc_module_project_quest_prog", str(SCRIPTS / "coc_module_project.py"),
 )
+coc_state = _load(
+    "coc_state_quest_prog", str(SCRIPTS / "coc_state.py"),
+)
 
 FAKE_SHA = "c" * 64
 
@@ -359,9 +362,29 @@ def test_deepen_quest_host_fulfillment_closes_request_and_kicks_merge(tmp_path):
     assert stored["worker"]["enqueue"]["job"]["kind"] == "deepen_quest"
 
 
-def test_worker_finishes_ready_quest_pack_as_entity_ready(tmp_path):
+def test_worker_merges_ready_quest_pack_into_campaign_ir(tmp_path):
     root_id = _register_bound_root(tmp_path)
     _put_skeleton_with_quest(tmp_path, root_id, [_quest_index_row()])
+    assets.put_entity(
+        tmp_path, root_id, "location", "opening", {
+            "location_id": "opening",
+            "title": "Opening",
+            "parse_state": "deep",
+            "evidence_gap": False,
+            "source_page_indices": [0],
+            "dramatic_question": "委托能否送到？",
+            "scene_type": "investigation",
+            "player_safe_summary": "委托人在书房等候。",
+            "available_clue_ids": [],
+            "clues": [],
+            "affordances": [],
+        },
+    )
+    coc_state.create_campaign(
+        tmp_path, "quest-camp", "Quest Camp", play_language="zh-Hans",
+    )
+    project.project_opening_deep(tmp_path, "quest-camp", root_id)
+
     assets.put_entity(
         tmp_path, root_id, "quest", "quest-escort-macario", _valid_deep_quest(),
     )
@@ -377,11 +400,41 @@ def test_worker_finishes_ready_quest_pack_as_entity_ready(tmp_path):
     quest_jobs = [job for job in claimed if job["kind"] == "deepen_quest"]
     assert quest_jobs
     result = queue_worker.process_claimed_job(tmp_path, root_id, quest_jobs[0])
-    # Quest packs finish entity_ready on the asset store; the campaign IR
-    # projection is pending the coc_module_project quest merger (stopped item).
+    # Quest packs now project their authored card into the campaign
+    # eighth-file quest IR through merge_deep_quest_into_ir.
     assert result["ok"] is True
-    assert result["result"] == "entity_ready"
-    assert result["campaign_projection"] == "pending_quest_merger"
+    assert result["result"] == "merged"
+    assert result["merged_campaigns"] == ["quest-camp"]
+    scenario = (
+        tmp_path / ".coc" / "campaigns" / "quest-camp" / "scenario"
+    )
+    doc = json.loads(
+        (scenario / "quests.json").read_text(encoding="utf-8")
+    )
+    row = next(
+        q for q in doc["quests"]
+        if q["quest_id"] == "quest-escort-macario"
+    )
+    assert row["quest_kinds"] == ["escort-deliver"]
+    assert row["giver"] == {"kind": "npc", "ref_id": "npc-mr-knott"}
+    # Re-merging the same quest upserts instead of duplicating.
+    queue_worker.reenqueue_merge_for_entity(
+        tmp_path, root_id, kind="quest",
+        target_id="quest-escort-macario",
+    )
+    claimed = queue_worker.claim_jobs(
+        tmp_path, root_id, limit=5, worker_id="test-worker",
+    )
+    for job in claimed:
+        if job["kind"] == "deepen_quest":
+            queue_worker.process_claimed_job(tmp_path, root_id, job)
+    doc = json.loads(
+        (scenario / "quests.json").read_text(encoding="utf-8")
+    )
+    assert len([
+        q for q in doc["quests"]
+        if q["quest_id"] == "quest-escort-macario"
+    ]) == 1
 
 
 # --- structured mentions -------------------------------------------------------

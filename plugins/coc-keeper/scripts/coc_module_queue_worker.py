@@ -2703,27 +2703,23 @@ def process_claimed_job(
             )
             if mechanics_ready or (not mechanics_job and _is_pack_ready(pack)):
                 # Handouts are delivered from the asset store by their normal
-                # consumer. Quest packs are the same shape in this wave: the
-                # durable pack is the canonical surface, and the campaign
-                # scenario-IR projection (merge_deep_quest_into_ir in
-                # coc_module_project) is not wired yet — flagged to the Boss,
-                # not improvised here. NPCs, clues, and threats must enter
-                # the campaign IR used by live scene/NPC/Director queries.
-                if entity_kind in {"handout", "quest"}:
-                    ready_detail = {"entity_kind": entity_kind, "target_id": tid}
-                    if entity_kind == "quest":
-                        ready_detail["campaign_projection"] = (
-                            "pending_quest_merger"
-                        )
+                # consumer, so their durable pack is the canonical surface.
+                # Quests project their authored card into the campaign
+                # eighth-file quest IR (merge_deep_quest_into_ir); runtime
+                # progress lives in save/quest-state.json, not the IR.
+                # NPCs, clues, and threats must enter the campaign IR used
+                # by live scene/NPC/Director queries.
+                if entity_kind == "handout":
                     _finish_job(
                         workspace, asset_root_id, job,
                         result="entity_ready",
-                        detail=ready_detail,
+                        detail={"entity_kind": entity_kind, "target_id": tid},
                     )
                     return {
                         "ok": True,
                         "result": "entity_ready",
-                        **ready_detail,
+                        "entity_kind": entity_kind,
+                        "target_id": tid,
                     }
                 camps = campaigns_using_asset(workspace, asset_root_id)
                 merged_for: list[str] = []
