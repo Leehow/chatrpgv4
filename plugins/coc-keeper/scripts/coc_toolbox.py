@@ -107,6 +107,14 @@ _TRANSIENT_TOOL_ERRORS = {
     "development_settlement_failed",
 }
 
+# Advisory tool-loop guardrail (warning-first, never blocking): how many
+# consecutive identical same-call audit rows (excluding idempotent pending-turn
+# replays) inside the current pacing turn must already precede a call before
+# its envelope carries one `[tool-loop]` reminder. 2 prior rows means the
+# pending call is at least the 3rd identical call in the same turn.
+_TOOL_LOOP_MIN_PRIOR_REPEATS = 2
+_TOOL_LOOP_LOG_TAIL_BYTES = 512 * 1024
+
 
 
 
@@ -278,6 +286,94 @@ def _log_tool_call(
             return log_path.stat().st_size
     except (OSError, coc_fileio.CampaignLockError):
         return None
+
+
+def _tool_loop_log_rows(log_path: Path) -> list[dict[str, Any] | None]:
+    """Read a bounded tail of the toolbox audit log with continuity markers.
+
+    Read-side is intentionally lock-free; an IO failure degrades to an empty
+    list. A blank or unparseable line — including a partially flushed line
+    under a concurrent append, or a non-object JSON value — becomes a
+    ``None`` marker instead of being dropped, so callers can treat unknown
+    records as continuity barriers. Only the trailing window is parsed
+    because the guardrail needs the most recent rows of the current turn;
+    left-truncation can only undercount, never fabricate.
+    """
+    try:
+        with log_path.open("rb") as handle:
+            if log_path.stat().st_size > _TOOL_LOOP_LOG_TAIL_BYTES:
+                handle.seek(-_TOOL_LOOP_LOG_TAIL_BYTES, os.SEEK_END)
+                handle.readline()  # drop the partial first line
+            tail = handle.read().decode("utf-8", errors="replace")
+    except (OSError, ValueError):
+        return []
+    rows: list[dict[str, Any] | None] = []
+    for line in tail.splitlines():
+        line = line.strip()
+        if not line:
+            rows.append(None)
+            continue
+        try:
+            value = json.loads(line)
+        except ValueError:
+            rows.append(None)
+            continue
+        rows.append(value if isinstance(value, dict) else None)
+    return rows
+
+
+def _tool_loop_warning(ctx: Ctx | None, name: str, args: dict[str, Any]) -> str | None:
+    """Advisory tool-loop guardrail: one warning string, or None.
+
+    Warning-first and strictly read-only: this never mutates state, never
+    blocks, and never raises. A call is "the same call" when the tool name
+    and the canonical digest of its args (excluding ``seed``, exactly like
+    the audit log) both match. Internal transient-retry rows (``attempt > 1``)
+    and idempotent pending-turn replays are the same call or a repair, not
+    new exploration, so they neither count nor break the consecutive run. A
+    blank or unparseable audit line is a continuity barrier: the run resets
+    after it, so corruption can only undercount, never fabricate a run. Any
+    failure (no campaign, missing log, unreadable pacing) degrades to None —
+    no warning.
+    """
+    try:
+        if ctx is None or ctx.campaign_dir is None:
+            return None
+        log_path = ctx.campaign_dir / "logs" / "toolbox-calls.jsonl"
+        if not log_path.is_file():
+            return None
+        turn_number = ctx.pacing().get("turn_number")
+        if turn_number is None:
+            return None
+        call_digest = _canonical_digest(
+            {k: v for k, v in args.items() if k != "seed"}
+        )
+        consecutive = 0
+        for row in reversed(_tool_loop_log_rows(log_path)):
+            if row is None:
+                break  # unknown record: never assume continuity across it
+            if row.get("turn_number") != turn_number:
+                break  # walked past the current turn boundary: count resets
+            attempt = row.get("attempt", 1)
+            if isinstance(attempt, int) and attempt > 1:
+                continue  # internal retry of the same call: dedup, don't count
+            if row.get("idempotent_replay") is True:
+                continue  # repair replay: not loop evidence, not a break
+            if row.get("tool") != name:
+                break
+            if _canonical_digest(row.get("args") or {}) != call_digest:
+                break
+            consecutive += 1
+        if consecutive < _TOOL_LOOP_MIN_PRIOR_REPEATS:
+            return None
+        return (
+            f"[tool-loop] same-call {name} x{consecutive + 1} "
+            f"(identical args within turn {turn_number}); switch method, "
+            "check the missing precondition with a different tool, or stop "
+            "polling instead of repeating this identical call"
+        )
+    except Exception:
+        return None  # best effort: a broken guardrail never blocks a tool
 
 
 def _error_recovery_hints(code: str) -> list[str]:
@@ -986,6 +1082,10 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
         max_attempts = max(1, int(_TOOL_TRANSIENT_RETRY_ATTEMPTS))
     except (TypeError, ValueError):
         max_attempts = 3
+    # Advisory tool-loop guardrail: computed once, before this invocation's
+    # first attempt is logged, so automatic transient retries of the same
+    # call cannot inflate the consecutive count.
+    loop_warning: str | None = None
     for attempt in range(1, max_attempts + 1):
         # A failed subsystem transaction may have rolled state back or completed
         # recovery writes.  Rebuild the context so a retry cannot reuse stale
@@ -1059,6 +1159,13 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             envelope["retry_exhausted"] = True
         envelope["recovered_after_retry"] = recovered
         will_retry = bool(retryable and attempt < max_attempts)
+        # Warning-first loop guardrail: append the probe result to whatever
+        # envelope this attempt produced. It never changes ok/error/data and
+        # never blocks; `_tool_loop_warning` already swallowed any failure.
+        if attempt == 1:
+            loop_warning = _tool_loop_warning(ctx, name, args)
+        if loop_warning is not None:
+            envelope.setdefault("warnings", []).append(loop_warning)
         # Recovery conflict is a strict, non-mutating reusable-state barrier;
         # even the best-effort toolbox audit log must remain byte-identical.
         log_end_offset = None
