@@ -2,6 +2,10 @@
 """Operation adapter cell: npc-world."""
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
+
 from coc_operation_kernel_runtime import (
     Any,
     Ctx,
@@ -51,6 +55,117 @@ from coc_operation_kernel_runtime import (
 )
 
 coc_npc_persona = _load_sibling("coc_npc_persona_toolbox", "coc_npc_persona.py")
+
+
+# --- Canonical event wiring (coc-events-1, plan task t4) -------------------
+#
+# npc-relationship-changed mirrors settled NPC relationship writes:
+# - ``npc.reaction`` new-pair first contact (public D100 vs max(APP, CR))
+#   with channel=first-impression, after=reaction tier, source roll bound;
+# - ``state.npc_update`` investigator-scoped trust/fear/suspicion movement
+#   with before/after values and channel=<field>.
+# Derived evidence only, emitted strictly after the authoritative write;
+# every emission failure is swallowed and never breaks play.
+
+
+def _canonical_npc_token(value: Any) -> str | None:
+    text = re.sub(r"[^a-z0-9.-]+", "-", str(value or "").strip().lower())
+    text = re.sub(r"^[^a-z0-9]+", "", text)
+    return (text.rstrip("-.")[:64]) or None
+
+
+def _canonical_npc_scalar(value: Any) -> Any:
+    if isinstance(value, bool) or isinstance(value, (int, float)):
+        return value
+    return _canonical_npc_token(value)
+
+
+def _canonical_npc_clock_context(ctx: Ctx) -> tuple[int, str, str]:
+    """(turn, timeline, game_time) provenance for this campaign's emissions."""
+    pacing = ctx.pacing()
+    raw_turn = pacing.get("turn_number") if isinstance(pacing, dict) else None
+    try:
+        turn = max(1, int(raw_turn))
+    except (TypeError, ValueError):
+        turn = 1
+    timeline = "tl-main"
+    game_time = ""
+    path = Path(ctx.campaign_dir) / "save" / "time-state.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        timeline_token = _canonical_npc_token(
+            payload.get("timeline_id") if isinstance(payload, dict) else None
+        )
+        timeline = timeline_token or "tl-main"
+        clock = payload.get("clock") if isinstance(payload, dict) else None
+        if isinstance(clock, dict):
+            game_time = str(clock.get("display") or "").strip()[:400]
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        pass
+    return turn, timeline, game_time or f"turn-{turn}"
+
+
+def _emit_npc_relationship_changed(
+    ctx: Ctx,
+    *,
+    source: str,
+    decision_id: Any,
+    npc_id: Any,
+    investigator_id: Any,
+    channel: str,
+    before: Any = None,
+    after: Any = None,
+    reason: Any = None,
+    source_roll_id: Any = None,
+) -> None:
+    decision = _canonical_npc_token(decision_id)
+    npc = _canonical_npc_token(npc_id)
+    investigator = _canonical_npc_token(investigator_id)
+    channel_token = _canonical_npc_token(channel)
+    after_value = _canonical_npc_scalar(after)
+    if not (decision and npc and investigator and channel_token and after_value is not None):
+        return
+    data: dict[str, Any] = {
+        "_v": 1,
+        "npc": npc,
+        "investigator": investigator,
+        "channel": channel_token,
+        "after": after_value,
+    }
+    if before is not None:
+        before_value = _canonical_npc_scalar(before)
+        if before_value is not None:
+            data["before"] = before_value
+    reason_text = str(reason or "").strip()
+    if reason_text:
+        data["reason"] = reason_text[:400]
+    roll_id = str(source_roll_id or "").strip().lower()
+    if roll_id:
+        data["source_roll_id"] = roll_id
+    turn, timeline, game_time = _canonical_npc_clock_context(ctx)
+    campaign_dir = Path(ctx.campaign_dir)
+    for suffix in ("", "-2", "-3", "-4"):
+        try:
+            import coc_canonical_events as cem
+
+            cem.emit(
+                campaign_logs_dir=campaign_dir / "logs",
+                event_type="npc-relationship-changed",
+                campaign=_canonical_npc_token(
+                    coc_npc_event_chain.resolve_campaign_id(campaign_dir)
+                ) or "campaign",
+                timeline=timeline,
+                turn=turn,
+                slug=(f"{npc[:32]}-{investigator[:32]}-{channel_token}{suffix}")[:110],
+                source=source,
+                game_time=game_time,
+                privacy="public",
+                decision_id=f"{decision}:npc-{channel_token}",
+                data=data,
+            )
+            return
+        except Exception:
+            continue
 
 def _first_contact_localized_name(
     npc: dict[str, Any] | None,
@@ -707,6 +822,17 @@ def _tool_npc_reaction(ctx: Ctx, args: dict[str, Any]):
         coc_first_impression.document_path(ctx.campaign_dir), document
     )
     _ensure_first_impression_roll(ctx, receipt)
+    _emit_npc_relationship_changed(
+        ctx,
+        source="coc_operation_npc_world.npc_reaction",
+        decision_id=receipt["decision_id"],
+        npc_id=receipt["npc_id"],
+        investigator_id=receipt["investigator_id"],
+        channel="first-impression",
+        after=receipt.get("reaction_tier"),
+        reason=(receipt.get("context") or {}).get("semantic_reason"),
+        source_roll_id=receipt.get("roll_id"),
+    )
     data = deepcopy(receipt)
     data["first_impression_ref"] = receipt["receipt_id"]
     data["record_engagement_operation"] = (
@@ -1208,6 +1334,26 @@ def _tool_state_npc_update(ctx: Ctx, args: dict[str, Any]):
         impression_update=deepcopy(args.get("impression_update")),
     )
     ctx.log_event({"event_type": "npc_update", "npc_id": npc_id, "applied": applied})
+    if investigator_id is not None and args.get("decision_id") is not None:
+        for field in ("trust", "fear", "suspicion"):
+            if field not in applied:
+                continue
+            raw_delta = args.get(f"{field}_delta")
+            new_value = int(applied[field])
+            try:
+                before_value = max(-5, min(5, new_value - int(raw_delta)))
+            except (TypeError, ValueError):
+                before_value = None
+            _emit_npc_relationship_changed(
+                ctx,
+                source="coc_operation_npc_world.state_npc_update",
+                decision_id=args.get("decision_id"),
+                npc_id=npc_id,
+                investigator_id=investigator_id,
+                channel=field,
+                before=before_value,
+                after=new_value,
+            )
     warnings: list[str] = []
     if authored_npc is None:
         warnings.append(f"npc '{npc_id}' is not in the authored agendas — tracking state anyway (improvised NPC)")

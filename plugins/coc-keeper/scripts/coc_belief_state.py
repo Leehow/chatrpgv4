@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -514,6 +515,187 @@ def _apply_question_transitions(
     return events
 
 
+# --- Canonical event wiring (coc-events-1, plan task t4) -------------------
+#
+# After the authoritative belief snapshot write and legacy belief-events.jsonl
+# appends succeed, mirror the settled epistemic facts into the canonical event
+# stream: ``belief-asserted`` (assert/repeat) and ``belief-reframed``
+# (REFRAME treatment rows). Derived evidence only — never replayed back into
+# authority, and any emission failure is swallowed so play cannot break here.
+
+_SEMANTIC_ID_FULL_RE = re.compile(r"[a-z0-9][a-z0-9._:-]*(?:-[a-z0-9][a-z0-9._:-]*)+")
+
+
+def _canonical_ref_token(value: Any) -> str | None:
+    """Normalize one identity into a canonical-event ``ref``/token."""
+    text = re.sub(r"[^a-z0-9.-]+", "-", str(value or "").strip().lower())
+    text = re.sub(r"^[^a-z0-9]+", "", text)
+    text = text.rstrip("-.")
+    return text[:128] or None
+
+
+def _canonical_text_field(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text[:400] or None
+
+
+def _canonical_id_refs(values: Any, *, limit: int = 16) -> list[str]:
+    out: list[str] = []
+    if not isinstance(values, (list, tuple)):
+        return out
+    for value in values:
+        text = str(value or "").strip().lower()
+        if text and _SEMANTIC_ID_FULL_RE.fullmatch(text) and text not in out:
+            out.append(text)
+            if len(out) >= limit:
+                break
+    return out
+
+
+def _canonical_campaign_slug(campaign_dir: Path) -> str | None:
+    return _canonical_ref_token(Path(campaign_dir).name)
+
+
+def _belief_active_timeline(campaign_dir: Path) -> str:
+    try:
+        payload = json.loads(
+            (Path(campaign_dir) / "save" / "timeline-state.json")
+            .read_text(encoding="utf-8")
+        )
+        raw = payload.get("active_timeline_id") if isinstance(payload, dict) else None
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        raw = None
+    token = _canonical_ref_token(raw)
+    return token or "tl-main"
+
+
+def _emit_canonical_with_collision_retry(call) -> None:
+    """Run one emit attempt; on same-turn event-id collision, retry a few
+    ``-N`` slug suffixes. Other failures stop silently: idempotent replays and
+    contract conflicts are evidence-layer outcomes, never gameplay errors."""
+    for suffix in ("", "-2", "-3", "-4"):
+        try:
+            call(suffix)
+            return
+        except Exception:
+            continue
+
+
+def _emit_belief_canonical_events(
+    campaign_dir: Path,
+    *,
+    decision_id: str,
+    turn_number: int,
+    investigator_id: str,
+    claim: Any,
+    belief_events: list[dict[str, Any]],
+    state: dict[str, Any],
+) -> None:
+    import coc_canonical_events as cem
+
+    decision = _canonical_ref_token(decision_id)
+    holder = _canonical_ref_token(investigator_id)
+    campaign = _canonical_campaign_slug(campaign_dir)
+    if decision is None or campaign is None:
+        return
+    timeline = _belief_active_timeline(campaign_dir)
+    try:
+        turn = max(1, int(turn_number))
+    except (TypeError, ValueError):
+        turn = 1
+    logs_dir = Path(campaign_dir) / "logs"
+    game_time = f"turn-{turn}"
+
+    def _state_hypothesis(raw_id: Any) -> dict[str, Any] | None:
+        wanted = str(raw_id or "")
+        return next(
+            (
+                record for record in state.get("hypotheses", [])
+                if isinstance(record, dict)
+                and str(record.get("hypothesis_id") or "") == wanted
+            ),
+            None,
+        )
+
+    for event in belief_events:
+        legacy_type = event.get("event_type")
+        if legacy_type in ("hypothesis_asserted", "hypothesis_repeated"):
+            hyp = _canonical_ref_token(event.get("hypothesis_id"))
+            if holder is None or hyp is None:
+                continue
+            data: dict[str, Any] = {
+                "_v": 1,
+                "hypothesis_id": hyp,
+                "holder": holder,
+                "mode": (
+                    "asserted"
+                    if legacy_type == "hypothesis_asserted"
+                    else "repeated"
+                ),
+            }
+            statement = _canonical_text_field(claim)
+            if statement:
+                data["statement"] = statement
+            state_hyp = _state_hypothesis(event.get("hypothesis_id"))
+            refs = _canonical_id_refs(
+                [
+                    *state_hyp.get("supporting_clue_ids", []),
+                    *state_hyp.get("challenging_clue_ids", []),
+                ]
+            ) if isinstance(state_hyp, dict) else []
+            if refs:
+                data["evidence_refs"] = refs
+            _emit_canonical_with_collision_retry(
+                lambda suffix, _data=data, _hyp=hyp: cem.emit(
+                    campaign_logs_dir=logs_dir,
+                    event_type="belief-asserted",
+                    campaign=campaign,
+                    timeline=timeline,
+                    turn=turn,
+                    slug=f"{_hyp[:110]}{suffix}",
+                    source="coc_belief_state.apply_belief_turn",
+                    game_time=game_time,
+                    privacy="public",
+                    decision_id=f"{decision}:belief-assert:{_hyp}",
+                    data=_data,
+                )
+            )
+        elif legacy_type == "belief_reframed":
+            clues = _canonical_id_refs(event.get("clue_ids"))
+            change = _canonical_text_field(
+                "REFRAME 处理成立，关联线索："
+                + (",".join(clues) if clues else "无")
+            )
+            for target in (event.get("belief_refs") or []):
+                target_token = _canonical_ref_token(target)
+                if target_token is None:
+                    continue
+                reframe_data: dict[str, Any] = {
+                    "_v": 1,
+                    "hypothesis_id": target_token,
+                    "change": change,
+                }
+                if holder is not None:
+                    reframe_data["holder"] = holder
+                if clues:
+                    reframe_data["evidence_refs"] = clues
+                _emit_canonical_with_collision_retry(
+                    lambda suffix, _data=dict(reframe_data), _t=target_token: cem.emit(
+                        campaign_logs_dir=logs_dir,
+                        event_type="belief-reframed",
+                        campaign=campaign,
+                        timeline=timeline,
+                        turn=turn,
+                        slug=f"{_t[:96]}-reframe{suffix}",
+                        source="coc_belief_state.apply_belief_turn",
+                        game_time=game_time,
+                        privacy="public",
+                        decision_id=f"{decision}:belief-reframe:{_t}",
+                        data=_data,
+                    )
+                )
+
+
 def apply_belief_turn(
     campaign_dir: Path,
     plan: dict[str, Any],
@@ -616,6 +798,15 @@ def apply_belief_turn(
         path = campaign_dir / "logs" / "belief-events.jsonl"
         for event in events:
             _append_jsonl(path, event)
+        _emit_belief_canonical_events(
+            campaign_dir,
+            decision_id=decision_id,
+            turn_number=turn_number,
+            investigator_id=investigator_id,
+            claim=candidate.get("claim") if candidate else None,
+            belief_events=events,
+            state=state,
+        )
     return events
 
 
