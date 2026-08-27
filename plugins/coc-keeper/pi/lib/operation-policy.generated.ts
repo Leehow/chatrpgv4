@@ -1497,7 +1497,10 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     "execution_class": "serial_campaign",
     "kp_surface": "state",
     "phases": [
-      "live_turn"
+      "live_turn",
+      "pending_finalization",
+      "recovery",
+      "ending"
     ]
   },
   "timeline.confluence_query": {
@@ -1509,7 +1512,8 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     "phases": [
       "live_turn",
       "pending_finalization",
-      "recovery"
+      "recovery",
+      "ending"
     ]
   },
   "timeline.fork_confirm": {

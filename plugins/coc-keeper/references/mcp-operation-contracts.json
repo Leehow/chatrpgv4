@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:9973b78850c963168c79da52e94e64096975a1d8d7ab970e8ba6da1856f9b5b8",
+  "content_sha256": "sha256:d460ee0c052d19f8fdf78761df35f7c7b44cd3ab7d6ad779914e0bdbf60aa043",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -8992,7 +8992,7 @@
     "timeline.confluence_confirm": {
       "access": "mutation",
       "canonical_operation": "timeline.confluence_confirm",
-      "description": "Merge two parent worldlines into the new third timeline and activate it, applying exactly one receipted disposition per enumerated conflict. Fails closed when a parent advanced since the query; parents stay immutable; replay is idempotent per decision_id. The next turn.finalize lands on the merged line. Canonical operation `timeline.confluence_confirm`; the result envelope is authoritative.",
+      "description": "Merge two parent worldlines into the new third timeline and activate it, applying exactly one receipted disposition per enumerated conflict. The machine reloads the confluence enumeration persisted by timeline.confluence_query under its semantic id, verifies its integrity digest and unchanged parent anchors, fails closed before any mutation on drift, then runs the canonical plan pipeline; disposition completeness is enforced over the full persisted manifest while the wire carries ids/modes/receipts aggregates only. Fails closed when a parent advanced since the query; parents stay immutable; replay is idempotent per decision_id. The next turn.finalize lands on the merged line. Canonical operation `timeline.confluence_confirm`; the result envelope is authoritative.",
       "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
@@ -9064,15 +9064,18 @@
         "contract": "state",
         "kp_surface": "state",
         "phases": [
-          "live_turn"
+          "live_turn",
+          "pending_finalization",
+          "recovery",
+          "ending"
         ]
       },
-      "summary": "Merge two parent worldlines into the new third timeline and activate it, applying exactly one receipted disposition per enumerated conflict. Fails closed when a parent advanced since the query; parents stay immutable; replay is idempotent per decision_id. The next turn.finalize lands on the merged line."
+      "summary": "Merge two parent worldlines into the new third timeline and activate it, applying exactly one receipted disposition per enumerated conflict. The machine reloads the confluence enumeration persisted by timeline.confluence_query under its semantic id, verifies its integrity digest and unchanged parent anchors, fails closed before any mutation on drift, then runs the canonical plan pipeline; disposition completeness is enforced over the full persisted manifest while the wire carries ids/modes/receipts aggregates only. Fails closed when a parent advanced since the query; parents stay immutable; replay is idempotent per decision_id. The next turn.finalize lands on the merged line."
     },
     "timeline.confluence_query": {
       "access": "query",
       "canonical_operation": "timeline.confluence_query",
-      "description": "Enumerate every structured disagreement between two parent worldline tips for a KP confluence (worldline merge): complete ordered conflict list with semantic conflict ids, one-sided post-fork non-duplicable mechanics as explicit conflicts, surfaced additions, and semantic parent anchors. Strict read-only; no branch, ref, or state changes. Canonical operation `timeline.confluence_query`; the result envelope is authoritative.",
+      "description": "Enumerate every structured disagreement between two parent worldline tips for a KP confluence (worldline merge): the complete enumeration is persisted deterministically campaign-side and the response returns a bounded model projection only — total/histogram counts by class, one-sided addition counts, semantic parent anchors, and one page of compact conflict cards (bounded value previews). Deterministic paging: page/page_size (small default cap) plus an optional class filter bring every conflict id within reach while every page fits the 16KB wire budget. Strict read-only over authoritative state; no branch, ref, or state changes. Canonical operation `timeline.confluence_query`; the result envelope is authoritative.",
       "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
@@ -9081,9 +9084,21 @@
             "description": "Campaign id. Required for campaign-bound operations.",
             "type": "string"
           },
+          "class": {
+            "description": "optional conflict-class filter (one of the contract classes, e.g. roll_receipt / world_fact / stat_value)",
+            "type": "string"
+          },
           "left_timeline": {
             "description": "first parent worldline (tl-<slug>)",
             "type": "string"
+          },
+          "page": {
+            "description": "1-based page of conflict cards to return (default 1); pages beyond the last are rejected",
+            "type": "integer"
+          },
+          "page_size": {
+            "description": "conflict cards per page (default 20, max 50; every default page stays under the wire budget)",
+            "type": "integer"
           },
           "right_timeline": {
             "description": "second parent worldline (tl-<slug>); must differ from left_timeline",
@@ -9115,10 +9130,11 @@
         "phases": [
           "live_turn",
           "pending_finalization",
-          "recovery"
+          "recovery",
+          "ending"
         ]
       },
-      "summary": "Enumerate every structured disagreement between two parent worldline tips for a KP confluence (worldline merge): complete ordered conflict list with semantic conflict ids, one-sided post-fork non-duplicable mechanics as explicit conflicts, surfaced additions, and semantic parent anchors. Strict read-only; no branch, ref, or state changes."
+      "summary": "Enumerate every structured disagreement between two parent worldline tips for a KP confluence (worldline merge): the complete enumeration is persisted deterministically campaign-side and the response returns a bounded model projection only — total/histogram counts by class, one-sided addition counts, semantic parent anchors, and one page of compact conflict cards (bounded value previews). Deterministic paging: page/page_size (small default cap) plus an optional class filter bring every conflict id within reach while every page fits the 16KB wire budget. Strict read-only over authoritative state; no branch, ref, or state changes."
     },
     "timeline.fork_confirm": {
       "access": "mutation",

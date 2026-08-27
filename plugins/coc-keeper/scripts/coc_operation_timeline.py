@@ -92,6 +92,10 @@ coc_timeline_confluence = _load_sibling(
     "coc_timeline_confluence", "coc_timeline_confluence.py"
 )
 
+coc_confluence_manifest_store = _load_sibling(
+    "coc_confluence_manifest_store", "coc_confluence_manifest_store.py"
+)
+
 coc_state = _load_sibling("coc_state", "coc_state.py")
 
 coc_temporal_memory = _load_sibling("coc_temporal_memory", "coc_temporal_memory.py")
@@ -134,11 +138,14 @@ _FORK_CONFIRM_HINTS = [
 ]
 
 _CONFLUENCE_QUERY_HINTS = [
-    "confluence_query is read-only: nothing is merged and no timeline "
-    "changes until a confluence_confirm decision",
-    "dispose every conflict exactly once in timeline.confluence_confirm: "
-    "hard-state conflicts need a resolver_receipt, and rolls, one-time "
-    "effects, consumptions, and death never accept combine/duplicate",
+    "confluence_query is read-only over authoritative state: nothing is "
+    "merged and no timeline changes until a confluence_confirm decision; "
+    "the complete enumeration is persisted campaign-side and conflict_cards "
+    "returns one bounded page of it (page/page_size/class filter)",
+    "page through every conflict, then dispose each exactly once in "
+    "timeline.confluence_confirm keyed by conflict_id: hard-state conflicts "
+    "need a resolver_receipt, and rolls, one-time effects, consumptions, "
+    "and death never accept combine/duplicate",
     "one-sided post-fork mechanics (a roll or death only one branch "
     "recorded) are conflicts with an absent marker side, not additions — "
     "decide explicitly whether each survives the merged world",
@@ -703,14 +710,36 @@ def _confluence_parents(args: dict[str, Any]) -> tuple[str, str, str]:
     return timeline_id, left_timeline, right_timeline
 
 
-def _public_conflict(conflict: dict[str, Any]) -> dict[str, Any]:
-    """Project one conflict record onto the semantic model-facing surface.
+# Bounded model projection of a confluence enumeration.
+#
+# A real fork-heavy campaign measures 200+ conflicts whose raw side values
+# reach ~195KB each and 8k+ one-sided additions — multi-megabyte payloads
+# that can never cross the 16KB MCP wire budget (measured on the
+# worldline-acceptance run: full envelope 8.9MB, confirm receipt 21.9KB,
+# both failing closed). The complete enumeration is therefore persisted
+# campaign-side by coc_confluence_manifest_store, and only a bounded page
+# of compact conflict cards plus total/histogram counts travels on the
+# model-facing surface. Deterministic paging params bring every conflict
+# id within KP reach while every default/max page stays under budget.
+_CONFLUENCE_DEFAULT_PAGE_SIZE = 20
+_CONFLUENCE_MAX_PAGE_SIZE = 50
+_CARD_KEY_MAX_BYTES = 160
+_CARD_PREVIEW_MAX_BYTES = 160
+_PREVIEW_ELLIPSIS = "…"
 
-    Contract flags come from the frozen contract constants; digests and
-    machine handles never appear (the enumeration digest is integrity
-    evidence for the machine only).
+
+def _public_conflict(conflict: dict[str, Any]) -> dict[str, Any]:
+    """Project one enumerated conflict onto one compact model-facing card.
+
+    The card carries identity and class judgement (conflict_id, class,
+    hard-state flags) plus section/key context and short bounded value
+    previews for both sides. Raw refs arrays and verbatim values stay in
+    the persisted manifest: a single unbounded value once measured 195KB —
+    larger than the whole transport budget.
     """
     conflict_class = str(conflict.get("class"))
+    left = conflict.get("left") or {}
+    right = conflict.get("right") or {}
     return {
         "conflict_id": conflict.get("conflict_id"),
         "class": conflict_class,
@@ -722,15 +751,107 @@ def _public_conflict(conflict: dict[str, Any]) -> dict[str, Any]:
             conflict_class
             in coc_temporal_memory_contract.NON_DUPLICABLE_CONFLICT_CLASSES
         ),
-        "left": conflict.get("left"),
-        "right": conflict.get("right"),
-        "disposition": conflict.get("disposition"),
+        "key": _bounded_card_key(left.get("refs") or right.get("refs") or []),
+        "left": {
+            "timeline": left.get("timeline"),
+            "preview": _confluence_preview(left.get("value")),
+        },
+        "right": {
+            "timeline": right.get("timeline"),
+            "preview": _confluence_preview(right.get("value")),
+        },
     }
+
+
+def _bounded_card_key(refs: list[Any]) -> str:
+    """One bounded meaning-bearing key line from a conflict's side refs."""
+    raw = next((ref for ref in refs if isinstance(ref, str) and ref.strip()), "")
+    text = re.sub(r"\s+", " ", raw).strip()
+    if len(text.encode("utf-8")) <= _CARD_KEY_MAX_BYTES:
+        return text
+    while len(text.encode("utf-8")) > _CARD_KEY_MAX_BYTES:
+        text = text[:-1]
+    return text + _PREVIEW_ELLIPSIS
+
+
+def _confluence_preview(value: Any) -> str:
+    """Canonical single-line preview of one side's value under a byte cap.
+
+    Deterministic truncation: the head always decodes cleanly, and the
+    `…[N]` suffix records the true canonical byte length so a truncated
+    preview can never be mistaken for a complete value. The explicit
+    absent marker stays exact.
+    """
+    if (
+        isinstance(value, dict)
+        and set(value) == {"absent"}
+        and value.get("absent") is True
+    ):
+        return '{"absent":true}'
+    try:
+        text = coc_temporal_memory_contract.canonical_json(value)
+    except (TypeError, ValueError):
+        text = json.dumps(str(value), ensure_ascii=False)
+    total = len(text.encode("utf-8"))
+    if total <= _CARD_PREVIEW_MAX_BYTES:
+        return text
+    head = text
+    while len(head.encode("utf-8")) > _CARD_PREVIEW_MAX_BYTES:
+        head = head[:-1]
+    return f"{head}{_PREVIEW_ELLIPSIS}[{total}B]"
+
+
+def _require_page(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ToolError(
+            "invalid_param",
+            f"page must be an integer >= 1, got {value!r}",
+        )
+    return value
+
+
+def _require_page_size(value: Any) -> int:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < 1
+        or value > _CONFLUENCE_MAX_PAGE_SIZE
+    ):
+        raise ToolError(
+            "invalid_param",
+            f"page_size must be an integer between 1 and "
+            f"{_CONFLUENCE_MAX_PAGE_SIZE}, got {value!r}",
+        )
+    return value
+
+
+def _require_class_filter(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    token = str(value).strip()
+    if token not in coc_temporal_memory_contract.CONFLICT_CLASSES:
+        raise ToolError(
+            "invalid_param",
+            f"unknown conflict class {token!r}; valid classes are "
+            f"{list(coc_temporal_memory_contract.CONFLICT_CLASSES)}",
+        )
+    return token
 
 
 def _tool_timeline_confluence_query(ctx: Ctx, args: dict[str, Any]):
     timeline_id, left_timeline, right_timeline = _confluence_parents(args)
     confluence_id = _require_confluence_id(ctx.campaign_id, timeline_id)
+    page = _require_page(args.get("page", 1))
+    page_size = _require_page_size(
+        args.get("page_size", _CONFLUENCE_DEFAULT_PAGE_SIZE)
+    )
+    class_filter = _require_class_filter(args.get("class"))
+    if ctx.campaign_dir is None:
+        raise ToolError(
+            "invalid_state",
+            "timeline.confluence_query requires a campaign directory to "
+            "persist its enumeration manifest",
+        )
     _validate_free_target(ctx, timeline_id)
 
     left_projection, left_tip = _lineage_projection(ctx, left_timeline)
@@ -746,13 +867,52 @@ def _tool_timeline_confluence_query(ctx: Ctx, args: dict[str, Any]):
             "invalid_param", f"confluence enumeration failed: {exc}"
         ) from exc
 
-    conflicts = [
+    # Persist the complete enumeration deterministically before projecting.
+    # This is the only write: a derived, rebuildable manifest cache under
+    # the temporal memory area's ignore face — authoritative state, refs,
+    # and timeline metadata stay untouched. Every model-facing byte below
+    # is bounded so the envelope always fits the wire budget; the raw
+    # side values never leave the machine.
+    try:
+        manifest = coc_confluence_manifest_store.build_manifest_document(
+            campaign_id=ctx.campaign_id,
+            timeline_id=timeline_id,
+            parents=[left_timeline, right_timeline],
+            anchor_turns=[left_tip["turn_number"], right_tip["turn_number"]],
+            enumeration=enumeration,
+        )
+        coc_confluence_manifest_store.persist_manifest(
+            ctx.campaign_dir, manifest
+        )
+    except coc_confluence_manifest_store.ConfluenceManifestError as exc:
+        raise ToolError(
+            "invalid_state",
+            f"could not persist the confluence enumeration manifest: {exc}",
+        ) from exc
+
+    conflicts = enumeration.get("conflicts") or []
+    if class_filter is not None:
+        filtered = [
+            conflict
+            for conflict in conflicts
+            if str(conflict.get("class")) == class_filter
+        ]
+    else:
+        filtered = list(conflicts)
+    total_pages = max(1, -(-len(filtered) // page_size))
+    if page > total_pages:
+        raise ToolError(
+            "invalid_param",
+            f"page {page} is beyond the last page ({total_pages}) for this "
+            f"enumeration at page_size {page_size}; re-read page "
+            f"{total_pages}",
+        )
+    start = (page - 1) * page_size
+    cards = [
         _public_conflict(conflict)
-        for conflict in enumeration.get("conflicts") or []
+        for conflict in filtered[start : start + page_size]
     ]
-    additions = enumeration.get("additions") or {}
-    left_only = list(additions.get("left_only") or [])
-    right_only = list(additions.get("right_only") or [])
+    counts = manifest["counts"]
     data = {
         "schema_version": 1,
         "tool": _CONFLUENCE_QUERY_TOOL,
@@ -763,16 +923,22 @@ def _tool_timeline_confluence_query(ctx: Ctx, args: dict[str, Any]):
             {"timeline_id": left_timeline, "turn_number": left_tip["turn_number"]},
             {"timeline_id": right_timeline, "turn_number": right_tip["turn_number"]},
         ],
-        "conflict_count": len(conflicts),
-        "conflicts": conflicts,
-        "additions": {"left_only": left_only, "right_only": right_only},
-        "addition_counts": {
-            "left_only": len(left_only),
-            "right_only": len(right_only),
-        },
+        "conflict_count": counts["conflicts_total"],
+        "class_counts": counts["class_counts"],
+        "addition_counts": counts["addition_counts"],
+        "page": page,
+        "page_size": page_size,
+        "page_count": total_pages,
+        "conflict_cards": cards,
         "next": _CONFLUENCE_CONFIRM_TOOL,
     }
     hints = list(_CONFLUENCE_QUERY_HINTS)
+    if class_filter is not None:
+        data["filtered_count"] = len(filtered)
+        hints.append(
+            f"class filter {class_filter!r}: {len(filtered)} matching "
+            f"conflict(s) across {total_pages} page(s)"
+        )
     if not conflicts:
         hints.append(
             "the two tips agree on every structured value: a confluence "
@@ -929,6 +1095,67 @@ def _tool_timeline_confluence_confirm(ctx: Ctx, args: dict[str, Any]):
         turn_number=right_tip["turn_number"],
         projection_timeline_id=right_timeline,
     )
+
+    # Fail closed before any mutation when the persisted enumeration no
+    # longer matches the live worldlines. The KP disposed against what
+    # timeline.confluence_query showed page by page; the machine reloads
+    # that exact manifest by its semantic id, verifies its integrity
+    # digest, binds it to these parent anchors, and re-derives the same
+    # enumeration from the current tips — any drift means the dispositions
+    # describe a different world than the one about to merge.
+    try:
+        stored_manifest = coc_confluence_manifest_store.load_manifest(
+            ctx.campaign_dir, confluence_id
+        )
+    except coc_confluence_manifest_store.ConfluenceManifestError as exc:
+        raise ToolError("invalid_state", str(exc)) from exc
+    if stored_manifest is None:
+        raise ToolError(
+            "invalid_state",
+            f"no confluence enumeration manifest is persisted under "
+            f"{confluence_id!r}; run timeline.confluence_query first and "
+            "dispose against its paged conflict cards",
+        )
+    if (
+        stored_manifest.get("parents") != [left_timeline, right_timeline]
+        or stored_manifest.get("anchor_turns")
+        != [left_turn, right_turn]
+    ):
+        raise ToolError(
+            "invalid_state",
+            f"persisted confluence manifest under {confluence_id!r} is "
+            f"bound to other parents/anchors than this confirm; re-run "
+            "timeline.confluence_query",
+        )
+    try:
+        fresh_manifest = coc_confluence_manifest_store.build_manifest_document(
+            campaign_id=ctx.campaign_id,
+            timeline_id=timeline_id,
+            parents=[left_timeline, right_timeline],
+            anchor_turns=[left_turn, right_turn],
+            enumeration=coc_timeline_confluence.enumerate_conflicts(
+                left_projection,
+                right_projection,
+                confluence_id=confluence_id,
+            ),
+        )
+    except coc_timeline_confluence.ConfluenceConflictError as exc:
+        raise ToolError(
+            "invalid_param", f"confluence enumeration failed: {exc}"
+        ) from exc
+    if (
+        fresh_manifest.pop("manifest_sha256")
+        != stored_manifest.pop("manifest_sha256")
+        or fresh_manifest != stored_manifest
+    ):
+        raise ToolError(
+            "invalid_state",
+            f"the persisted confluence enumeration for {confluence_id!r} "
+            "no longer matches the current worldlines; the dispositions "
+            "may be stale — re-run timeline.confluence_query and dispose "
+            "against the current pages",
+        )
+
     schema_generation = coc_git_history.format_schema_generation(
         dict(coc_state.CURRENT_SCHEMA_VERSIONS)
     )
@@ -995,6 +1222,14 @@ def _tool_timeline_confluence_confirm(ctx: Ctx, args: dict[str, Any]):
         )
 
     resolved = plan.get("conflicts") or []
+    disposition_modes: dict[str, int] = {}
+    for conflict in resolved:
+        mode = str((conflict.get("disposition") or {}).get("mode"))
+        disposition_modes[mode] = disposition_modes.get(mode, 0) + 1
+    # The wire carries only ids/modes aggregates: per-conflict receipt
+    # echoes once measured 21.9KB for 204 conflicts (> the 16KB budget).
+    # Every full disposition receipt stays in the canonical confluence
+    # record written by coc_git_history.confluence_timelines.
     receipt = {
         "schema_version": 1,
         "tool": _CONFLUENCE_CONFIRM_TOOL,
@@ -1007,14 +1242,8 @@ def _tool_timeline_confluence_confirm(ctx: Ctx, args: dict[str, Any]):
             {"timeline_id": right_timeline, "turn_number": right_turn},
         ],
         "conflict_count": len(resolved),
-        "disposition_receipts": [
-            {
-                "conflict_id": conflict.get("conflict_id"),
-                "mode": (conflict.get("disposition") or {}).get("mode"),
-                "receipt": (conflict.get("disposition") or {}).get("receipt"),
-            }
-            for conflict in resolved
-        ],
+        "disposition_count": len(resolved),
+        "disposition_modes": dict(sorted(disposition_modes.items())),
         "activated": True,
         "active_timeline_id": active,
         "projection": {"status": projection_status},
@@ -1328,11 +1557,14 @@ def register_operations(registry) -> None:
 )(_tool_timeline_fork_confirm)
     registry.tool(
     "timeline.confluence_query",
-    "Enumerate every structured disagreement between two parent worldline tips for a KP confluence (worldline merge): complete ordered conflict list with semantic conflict ids, one-sided post-fork non-duplicable mechanics as explicit conflicts, surfaced additions, and semantic parent anchors. Strict read-only; no branch, ref, or state changes.",
+    "Enumerate every structured disagreement between two parent worldline tips for a KP confluence (worldline merge): the complete enumeration is persisted deterministically campaign-side and the response returns a bounded model projection only — total/histogram counts by class, one-sided addition counts, semantic parent anchors, and one page of compact conflict cards (bounded value previews). Deterministic paging: page/page_size (small default cap) plus an optional class filter bring every conflict id within reach while every page fits the 16KB wire budget. Strict read-only over authoritative state; no branch, ref, or state changes.",
     {
         "timeline": {"type": "string", "required": True, "desc": "fresh semantic id for the merged third timeline (tl-<slug>); must not exist yet"},
         "left_timeline": {"type": "string", "required": True, "desc": "first parent worldline (tl-<slug>)"},
         "right_timeline": {"type": "string", "required": True, "desc": "second parent worldline (tl-<slug>); must differ from left_timeline"},
+        "page": {"type": "integer", "desc": f"1-based page of conflict cards to return (default 1); pages beyond the last are rejected"},
+        "page_size": {"type": "integer", "desc": f"conflict cards per page (default {_CONFLUENCE_DEFAULT_PAGE_SIZE}, max {_CONFLUENCE_MAX_PAGE_SIZE}; every default page stays under the wire budget)"},
+        "class": {"type": "string", "desc": "optional conflict-class filter (one of the contract classes, e.g. roll_receipt / world_fact / stat_value)"},
     },
     access="query",
     read_domains=("history",),
@@ -1345,7 +1577,7 @@ def register_operations(registry) -> None:
 )(_tool_timeline_confluence_query)
     registry.tool(
     "timeline.confluence_confirm",
-    "Merge two parent worldlines into the new third timeline and activate it, applying exactly one receipted disposition per enumerated conflict. Fails closed when a parent advanced since the query; parents stay immutable; replay is idempotent per decision_id. The next turn.finalize lands on the merged line.",
+    "Merge two parent worldlines into the new third timeline and activate it, applying exactly one receipted disposition per enumerated conflict. The machine reloads the confluence enumeration persisted by timeline.confluence_query under its semantic id, verifies its integrity digest and unchanged parent anchors, fails closed before any mutation on drift, then runs the canonical plan pipeline; disposition completeness is enforced over the full persisted manifest while the wire carries ids/modes/receipts aggregates only. Fails closed when a parent advanced since the query; parents stay immutable; replay is idempotent per decision_id. The next turn.finalize lands on the merged line.",
     {
         "decision_id": {"type": "string", "required": True, "desc": "idempotency key; immutable once bound to a confirm"},
         "timeline": {"type": "string", "required": True, "desc": "semantic id of the merged third timeline, exactly as passed to timeline.confluence_query"},
@@ -1387,25 +1619,33 @@ def register_operations(registry) -> None:
 
 
 OPERATION_EXPORTS = (
+    '_CARD_KEY_MAX_BYTES',
+    '_CARD_PREVIEW_MAX_BYTES',
     '_CONFLUENCE_CONFIRM_HINTS',
     '_CONFLUENCE_CONFIRM_TOOL',
+    '_CONFLUENCE_DEFAULT_PAGE_SIZE',
+    '_CONFLUENCE_MAX_PAGE_SIZE',
     '_CONFLUENCE_QUERY_HINTS',
     '_CONFLUENCE_QUERY_TOOL',
     '_FORK_CONFIRM_HINTS',
     '_FORK_CONFIRM_TOOL',
     '_FORK_REQUEST_HINTS',
     '_FORK_REQUEST_TOOL',
+    '_PREVIEW_ELLIPSIS',
     '_TRANSFER_ENTRY_FIELDS',
     '_TRANSFER_HINTS',
     '_TRANSFER_TOOL',
+    '_bounded_card_key',
     '_confluence_confirm_fingerprint',
     '_confluence_parents',
+    '_confluence_preview',
     '_fork_confirm_fingerprint',
     '_fork_request_fingerprint',
     '_known_timelines',
     '_lineage_projection',
     '_own_latest_turn',
     '_public_conflict',
+    '_require_class_filter',
     '_require_confluence_id',
     '_require_dispositions',
     '_require_entries',
@@ -1414,6 +1654,8 @@ OPERATION_EXPORTS = (
     '_require_path_resolutions',
     '_require_decision_id',
     '_require_game_reason',
+    '_require_page',
+    '_require_page_size',
     '_require_source_timeline',
     '_require_source_turn',
     '_require_target_timeline',
@@ -1429,6 +1671,7 @@ OPERATION_EXPORTS = (
     '_validate_free_target',
     '_validate_source_selector',
     'coc_git_history',
+    'coc_confluence_manifest_store',
     'coc_history_projection',
     'coc_history_projection_query',
     'coc_history_projection_schema',
