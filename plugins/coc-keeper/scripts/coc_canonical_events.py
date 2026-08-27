@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Frozen contract layer for the canonical COC campaign event stream.
 
-Contract-only module: the closed envelope schema, the 12-type event
-registry, per-type closed payload schemas, deterministic semantic-ID
-construction, sequence-allocation seam, and validation. JSONL append and
-the projection rebuild are later plan tasks; nothing here writes a campaign.
+This module owns the ``coc-events-1`` contract: the closed envelope
+schema, the 12-type event registry, per-type closed payload schemas,
+deterministic semantic-ID construction, durable sequence allocation,
+emission (:func:`emit` into ``logs/canonical-events.jsonl`` through the
+campaign JSONL machinery), decision-id idempotency, and the choke-point
+"uncovered writes" sidecar. The projection rebuild (read-only SQLite)
+remains a later plan task.
 
 Standing law encoded by this contract:
 
@@ -34,7 +37,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
 
 CONTRACT_NAME = "canonical-events"
@@ -957,7 +963,503 @@ def project_player_view(events: Iterable[Mapping[str, Any]]) -> list[dict[str, A
     ]
 
 
+# ---------------------------------------------------------------------------
+# Emission layer (task t2): durable sequence allocation, JSONL append,
+# decision-id idempotency, and the choke-point "uncovered writes" ledger.
+# ---------------------------------------------------------------------------
+
+# Fixed file names inside ``.coc/campaigns/<id>/logs/``.
+CANONICAL_STREAM_NAME = "canonical-events.jsonl"
+UNCOVERED_LEDGER_NAME = "canonical-events-uncovered.jsonl"
+SEQUENCE_CURSOR_NAME = "canonical-events-sequence.json"
+
+# The choke-point sidecar must never observe (and thereby ledger) the
+# canonical stream itself or its own ledger rows. Cursor persistence is not
+# an append at all; listed here for one shared exemption face.
+_EXEMPT_STREAM_NAMES = frozenset(
+    {CANONICAL_STREAM_NAME, UNCOVERED_LEDGER_NAME}
+)
+
+# Semantic record keys: only *explicit structured identity fields* of the
+# appended record are surfaced to the ledger. This is schema knowledge
+# (field names), never content inference: the fallback NEVER assigns or
+# guesses an event type — that stays the exclusive right of emission-point
+# code per the semantic matcher constitution.
+_KNOWN_RECORD_KEY_FIELDS: tuple[str, ...] = (
+    "event_id",
+    "id",
+    "roll_id",
+    "finalization_id",
+    "memory_id",
+    "episode_id",
+    "assertion_id",
+    "delivery_id",
+    "transition_id",
+    "repair_id",
+    "backlog_id",
+)
+_MAX_RECORD_KEY_CHARS = 96
+
+# Bound on buffered un-settled sightings per campaign so a long-lived
+# process without turn-finalized emits cannot grow RAM forever. Overflow
+# evicts the OLDEST sighting straight to the ledger (preserving evidence,
+# trading a possible false-uncovered row for bounded memory).
+MAX_BUFFERED_SIGHTINGS = 4096
+
+_UNCOVERED_LEDGER_SCHEMA_VERSION = 1
+_CURSOR_SCHEMA_VERSION = 1
+
+
+def canonical_stream_path(campaign_logs_dir: Path) -> Path:
+    return Path(campaign_logs_dir) / CANONICAL_STREAM_NAME
+
+
+def uncovered_ledger_path(campaign_logs_dir: Path) -> Path:
+    return Path(campaign_logs_dir) / UNCOVERED_LEDGER_NAME
+
+
+def sequence_cursor_path(campaign_logs_dir: Path) -> Path:
+    return Path(campaign_logs_dir) / SEQUENCE_CURSOR_NAME
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp, path)
+
+
+class FileSequenceAllocator(SequenceAllocator):
+    """Durable allocator backing the canonical stream's cursors.
+
+    Counters live in ``logs/canonical-events-sequence.json``, keyed by
+    timeline. On first use the allocator scans the canonical JSONL and
+    seeds each cursor from ``max(stored_cursor, max_written_sequence)``:
+    a crash between cursor save and line append can waste a sequence
+    (harmless gap) but can never reissue one, because written lines are
+    the take-max floor. Cursors persist atomically at allocation time;
+    single-writer (one live Keeper process per campaign) by convention,
+    matching every other ``logs/`` writer in this repository.
+    """
+
+    def __init__(self, campaign_logs_dir: Path | str) -> None:
+        self._dir = Path(campaign_logs_dir)
+        self._counters: dict[str, int] = {}
+        self._initialized = False
+
+    def _initialize(self) -> None:
+        if self._initialized:
+            return
+        stored: dict[str, int] = {}
+        cursor_file = sequence_cursor_path(self._dir)
+        if cursor_file.is_file():
+            raw = json.loads(cursor_file.read_text(encoding="utf-8"))
+            for timeline, value in (raw.get("counters") or {}).items():
+                if isinstance(value, int) and not isinstance(value, bool):
+                    stored[timeline] = value
+        scanned = max_sequences_in_stream(canonical_stream_path(self._dir))
+        self._counters = {
+            timeline: max(stored.get(timeline, 0), scanned.get(timeline, 0))
+            for timeline in set(stored) | set(scanned)
+        }
+        self._initialized = True
+
+    def next_sequence(self, campaign: str, timeline: str) -> int:
+        self._initialize()
+        nxt = self._counters.get(timeline, SEQUENCE_MIN - 1) + 1
+        self._counters[timeline] = nxt
+        _atomic_write_json(
+            sequence_cursor_path(self._dir),
+            {
+                "_v": _CURSOR_SCHEMA_VERSION,
+                "generation": SCHEMA_GENERATION,
+                "counters": dict(sorted(self._counters.items())),
+            },
+        )
+        return nxt
+
+
+def max_sequences_in_stream(stream: Path) -> dict[str, int]:
+    """Highest persisted ``sequence`` per ``timeline`` in a canonical stream."""
+    result: dict[str, int] = {}
+    if not stream.is_file():
+        return result
+    with stream.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                record = json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                raise SequenceError(
+                    f"canonical stream has malformed JSON: {stream}"
+                ) from exc
+            if not isinstance(record, dict):
+                continue
+            seq = record.get("sequence")
+            timeline = record.get("timeline")
+            if (
+                isinstance(seq, int)
+                and not isinstance(seq, bool)
+                and isinstance(timeline, str)
+            ):
+                if seq > result.get(timeline, 0):
+                    result[timeline] = seq
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Process-local emission runtime (coverage index + uncovered-write buffer)
+# ---------------------------------------------------------------------------
+
+# decision_id -> stored event, per campaign logs dir. Idempotency lookups
+# come from this scan-once index instead of re-reading the JSONL per emit.
+_WRITE_INDEX: dict[str, dict[str, dict[str, Any]]] = {}
+_ALLOCATORS: dict[str, FileSequenceAllocator] = {}
+_EMITTED_EVENT_IDS: dict[str, set[str]] = {}
+
+# Choke-point state: appends seen but not yet settled for their turn.
+# Sightings are semantic references only (stream ref / turn / explicit
+# record key / decision id); never record bodies, never digests.
+_PENDING_SIGHTINGS: dict[str, list[dict[str, Any]]] = {}
+_PENDING_SIGS: dict[str, set[tuple[Any, ...]]] = {}
+_LEDGER_WRITTEN_SIGS: dict[str, set[tuple[Any, ...]]] = {}
+_EMITTED_DECISIONS: dict[str, set[str]] = {}
+
+
+def reset_emission_runtime_state() -> None:
+    """Drop all process-local emission caches.
+
+    Files on disk are authoritative and are never touched. Long-lived tools
+    may call this when switching campaigns; tests call it for isolation.
+    """
+    _WRITE_INDEX.clear()
+    _ALLOCATORS.clear()
+    _EMITTED_EVENT_IDS.clear()
+    _PENDING_SIGHTINGS.clear()
+    _PENDING_SIGS.clear()
+    _LEDGER_WRITTEN_SIGS.clear()
+    _EMITTED_DECISIONS.clear()
+
+
+def _logs_key(logs_dir: Path | str) -> str:
+    return str(Path(logs_dir).resolve())
+
+
+def _get_write_index(campaign_logs_dir: Path) -> dict[str, dict[str, Any]]:
+    key = _logs_key(campaign_logs_dir)
+    index = _WRITE_INDEX.get(key)
+    if index is None:
+        index = {"decisions": {}, "max_seq": {}, "event_ids": set()}
+        stream = canonical_stream_path(campaign_logs_dir)
+        if stream.is_file():
+            index["max_seq"] = max_sequences_in_stream(stream)
+            with stream.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    record = json.loads(stripped)
+                    if not isinstance(record, dict):
+                        continue
+                    decision_id = record.get("decision_id")
+                    if isinstance(decision_id, str) and decision_id:
+                        first = index["decisions"].setdefault(decision_id, record)
+                        if first != record:
+                            raise DuplicateDecisionIdError(
+                                "canonical stream holds conflicting content for "
+                                f"decision_id={decision_id!r}: {stream}"
+                            )
+                    event_id = record.get("id")
+                    if isinstance(event_id, str) and event_id:
+                        index["event_ids"].add(event_id)
+        _WRITE_INDEX[key] = index
+    return index
+
+
+def _remember_emitted(campaign_logs_dir: Path, event: Mapping[str, Any]) -> None:
+    key = _logs_key(campaign_logs_dir)
+    _EMITTED_EVENT_IDS.setdefault(key, set()).add(str(event["id"]))
+    _EMITTED_DECISIONS.setdefault(key, set()).add(str(event["decision_id"]))
+    timeline = str(event["timeline"])
+    seq = event["sequence"]
+    index = _get_write_index(campaign_logs_dir)
+    if seq > index["max_seq"].get(timeline, 0):
+        index["max_seq"][timeline] = seq
+    index["decisions"][str(event["decision_id"])] = dict(event)
+
+
+def _append_small_jsonl(path: Path, row: Mapping[str, Any]) -> None:
+    """Ledger-grade append used ONLY by the sidecar itself so the fallback
+    never re-enters the machinery it instruments."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, ensure_ascii=False))
+        handle.write("\n")
+
+
+# ---------------------------------------------------------------------------
+# Choke-point fallback (uncovered writes). Called from coc_state.append_jsonl
+# and JsonlRecorder.append_jsonl. Never guesses event types; hot-path cost is
+# a resolve plus a few dict operations.
+# ---------------------------------------------------------------------------
+
+
+def classify_campaign_log_append(path: Path | str) -> tuple[str, str] | None:
+    """Return ``(campaign_id, "logs/<name>.jsonl")`` for a campaign log
+    stream, or ``None`` for any path outside ``campaigns/<id>/logs/*.jsonl``
+    or on the canonical/ledger exemption face."""
+    if not str(path).endswith(".jsonl"):
+        return None
+    parts = Path(path).resolve().parts
+    if len(parts) < 4 or parts[-2] != "logs" or parts[-4] != "campaigns":
+        return None
+    name = parts[-1]
+    if name in _EXEMPT_STREAM_NAMES:
+        return None
+    return parts[-3], f"logs/{name}"
+
+
+def _record_turn(record: Mapping[str, Any]) -> int | None:
+    for field in ("turn_number", "turn"):
+        value = record.get(field)
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+    return None
+
+
+def _semantic_record_key(record: Mapping[str, Any]) -> str | None:
+    for field in _KNOWN_RECORD_KEY_FIELDS:
+        value = record.get(field)
+        if isinstance(value, str) and 0 < len(value) <= 128:
+            return value[:_MAX_RECORD_KEY_CHARS]
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)[:_MAX_RECORD_KEY_CHARS]
+    return None
+
+
+def note_choked_append(path: Path | str, record: Any) -> None:
+    """Buffer one choked append as an uncovered-write candidate.
+
+    Sidecar-only: swallows every internal failure so a ledger problem can
+    never break the primary gameplay write.
+    """
+    try:
+        if not isinstance(record, Mapping):
+            return
+        classified = classify_campaign_log_append(path)
+        if classified is None:
+            return
+        campaign_id, stream_ref = classified
+        decision_value = record.get("decision_id")
+        sighting = {
+            "campaign": campaign_id,
+            "stream": stream_ref,
+            "turn": _record_turn(record),
+            "key": _semantic_record_key(record),
+            "decision_id": (
+                decision_value
+                if isinstance(decision_value, str) and len(decision_value) <= 128
+                else None
+            ),
+            "ts": _now_iso(),
+        }
+        dir_key = str(Path(path).resolve().parent)
+        sig = (stream_ref, sighting["turn"], sighting["key"])
+        seen = _PENDING_SIGS.setdefault(dir_key, set())
+        if sig in seen:
+            return
+        buffer_list = _PENDING_SIGHTINGS.setdefault(dir_key, [])
+        seen.add(sig)
+        buffer_list.append(sighting)
+        while len(buffer_list) > MAX_BUFFERED_SIGHTINGS:
+            evicted = buffer_list.pop(0)
+            seen.discard((evicted["stream"], evicted["turn"], evicted["key"]))
+            _ledger_uncovered(dir_key, [evicted])
+    except Exception:
+        # The uncovered-write sidecar is best-effort evidence; it must never
+        # take down a settlement write.
+        return
+
+
+def _ledger_uncovered(dir_key: str, rows: list[dict[str, Any]]) -> int:
+    if not rows:
+        return 0
+    written_sig_set = _LEDGER_WRITTEN_SIGS.setdefault(dir_key, set())
+    count = 0
+    for row in rows:
+        sig = (row["stream"], row["turn"], row["key"])
+        if sig in written_sig_set:
+            continue
+        _append_small_jsonl(
+            Path(dir_key) / UNCOVERED_LEDGER_NAME,
+            {
+                "_v": _UNCOVERED_LEDGER_SCHEMA_VERSION,
+                "generation": SCHEMA_GENERATION,
+                "ts": row["ts"],
+                "campaign": row["campaign"],
+                "stream": row["stream"],
+                "turn": row["turn"],
+                "record_key": row["key"],
+                "decision_id": row["decision_id"],
+            },
+        )
+        written_sig_set.add(sig)
+        count += 1
+    return count
+
+
+def settle_uncovered_writes(
+    campaign_logs_dir: Path | str, *, turn: int | None = None
+) -> int:
+    """Move buffered sightings of one turn (or all turns when ``turn`` is
+    ``None``) into the uncovered-write ledger unless a canonical emit with
+    the same semantic ``decision_id`` covers them.
+
+    The match rule is code-assigned identity equality — shared
+    ``decision_id`` — never record-content inference.
+
+    Returns the number of ledger rows written by this call.
+    """
+    dir_key = _logs_key(campaign_logs_dir)
+    buffer_list = _PENDING_SIGHTINGS.get(dir_key, [])
+    covered = _EMITTED_DECISIONS.get(dir_key, frozenset())
+    keep: list[dict[str, Any]] = []
+    uncovered: list[dict[str, Any]] = []
+    for sighting in buffer_list:
+        in_scope = turn is None or sighting["turn"] == turn
+        if not in_scope:
+            keep.append(sighting)
+            continue
+        decision_id = sighting["decision_id"]
+        if decision_id is not None and decision_id in covered:
+            continue
+        uncovered.append(sighting)
+    _PENDING_SIGHTINGS[dir_key] = keep
+    seen = _PENDING_SIGS.setdefault(dir_key, set())
+    for row in uncovered:
+        seen.discard((row["stream"], row["turn"], row["key"]))
+    return _ledger_uncovered(dir_key, uncovered)
+
+
+# ---------------------------------------------------------------------------
+# Public emit API
+# ---------------------------------------------------------------------------
+
+
+def emit(
+    *,
+    campaign_logs_dir: Path | str,
+    event_type: str,
+    campaign: str,
+    timeline: str,
+    turn: int,
+    slug: str,
+    source: str,
+    game_time: str,
+    privacy: str,
+    decision_id: str,
+    data: Mapping[str, Any],
+    allocator: SequenceAllocator | None = None,
+) -> dict[str, Any]:
+    """Validate, sequence, persist, and index one canonical event.
+
+    Call discipline: invoke only AFTER the transactional/rules settlement
+    behind the event succeeded. Persistence goes through
+    ``coc_state.append_jsonl`` — the same JSONL machinery every other
+    campaign log uses — into ``logs/canonical-events.jsonl``.
+
+    - Sequence allocation happens here in code via the durable allocator;
+      it is never model-supplied.
+    - A repeated ``decision_id`` with byte-equal semantic content is a
+      no-op success returning the stored event; different content under a
+      used decision id raises :class:`DuplicateDecisionIdError` (fail
+      closed via :func:`resolve_duplicate`).
+    - Emitting ``turn-finalized`` sweeps that turn's uncovered sightings
+      through :func:`settle_uncovered_writes` first: the closing line of a
+      turn is the emission-point boundary after which no more of that
+      turn's writes can arrive.
+    - Failed validation burns no sequence: allocation happens only after
+      the envelope + payload validate on their own merits.
+    """
+    logs_path = Path(campaign_logs_dir)
+    logs_path.mkdir(parents=True, exist_ok=True)
+    index = _get_write_index(logs_path)
+
+    draft: dict[str, Any] = {
+        "specversion": SPECVERSION,
+        "type": event_type,
+        "id": event_id_for(event_type, campaign, timeline, turn, slug),
+        "source": source,
+        "campaign": campaign,
+        "timeline": timeline,
+        "turn": turn,
+        "sequence": SEQUENCE_MIN,  # placeholder; re-stamped post-allocation
+        "game_time": game_time,
+        "privacy": privacy,
+        "decision_id": decision_id,
+        "data": dict(data),
+    }
+    validate_envelope(draft)
+
+    stored = index["decisions"].get(decision_id)
+    if stored is not None:
+        return dict(resolve_duplicate(stored, draft))
+
+    known_ids = _EMITTED_EVENT_IDS.get(_logs_key(logs_path)) or index["event_ids"]
+    if draft["id"] in known_ids:
+        raise SemanticIdError(
+            f"event id {draft['id']!r} already exists in this stream; give this "
+            "occurrence a distinct ordinal_slug"
+        )
+
+    if allocator is None:
+        key = _logs_key(logs_path)
+        allocator_obj = _ALLOCATORS.get(key)
+        if allocator_obj is None:
+            allocator_obj = FileSequenceAllocator(logs_path)
+            _ALLOCATORS[key] = allocator_obj
+        allocator = allocator_obj
+    draft["sequence"] = allocator.next_sequence(campaign, timeline)
+    validate_envelope(draft)
+    event = draft
+
+    if event_type == "turn-finalized":
+        try:
+            settle_uncovered_writes(logs_path, turn=turn)
+        except Exception:
+            pass
+
+    import coc_state as _coc_state
+
+    _coc_state.append_jsonl(canonical_stream_path(logs_path), event)
+    _remember_emitted(logs_path, event)
+    return dict(event)
+
+
 __all__ = [
+    "CANONICAL_STREAM_NAME",
+    "FileSequenceAllocator",
+    "UNCOVERED_LEDGER_NAME",
+    "SEQUENCE_CURSOR_NAME",
+    "classify_campaign_log_append",
+    "emit",
+    "max_sequences_in_stream",
+    "note_choked_append",
+    "reset_emission_runtime_state",
+    "settle_uncovered_writes",
+    "uncovered_ledger_path",
+    "canonical_stream_path",
+    "sequence_cursor_path",
     "BELIEF_MODES",
     "BELIEF_ASSERTED_FIELDS",
     "BELIEF_REFRAMED_FIELDS",

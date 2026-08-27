@@ -2166,6 +2166,14 @@ def append_jsonl(path: Path, event: dict[str, Any]) -> None:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event))
         handle.write("\n")
+    # Choke-point sidecar: uncovered canonical-event writes ledger (best
+    # effort; must never break the primary write).
+    try:
+        import coc_canonical_events as _canonical_events
+
+        _canonical_events.note_choked_append(path, event)
+    except Exception:
+        pass
 
 
 def create_snapshot(root: Path, campaign_id: str, label: str) -> Path:
