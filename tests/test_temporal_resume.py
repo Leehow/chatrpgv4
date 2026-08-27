@@ -164,20 +164,20 @@ def _record_turn_memory(
     finalization_id: str,
     player_text: str,
 ) -> None:
+    """Seed keeper-side assertions/hooks for a turn `_finalize` closed.
+
+    Since ``turn.finalize`` runs
+    ``_enqueue_finalized_turn_memory_extraction``, the episode for a
+    finalized turn is ALREADY recorded canonically (empty subjects/
+    entities, receipts machine-bound). This helper must not replay
+    ``record_turn_episode`` — an enriched second write drifts from the
+    immutable auto-recorded episode and fails closed on the replay digest.
+    Participants/entities enrichment belongs to the canonical
+    extraction/settle path in real play, never a second episode write.
+    """
     campaign_id = str(ws["campaign_id"])
     campaign_dir = Path(ws["campaign_dir"])
     party_subject = tm_contract.subject_id_for("party", campaign_id, "")
-    coc_temporal_memory.record_turn_episode(
-        Path(ws["workspace"]),
-        campaign_id,
-        "tl-main",
-        turn,
-        [finalization_id],
-        player_text,
-        "调查员得到了连续的回应。",
-        subjects_present=[party_subject],
-        entities=[tm_contract.entity_id_for("npc", "coroner")],
-    )
     coc_temporal_memory.record_assertion({
         "assertion_id": f"mem-{campaign_id}-knowledge-{turn}",
         "kind": "knowledge",
@@ -528,8 +528,39 @@ def test_corrupt_projection_cache_is_rebuilt_from_git(
         connection.close()
     assert rows[0] == 1
     capsule = resumed["data"]["temporal_capsule"]
-    assert capsule["status"] == "no_temporal_store"
+    # Finalize-hook semantics: the settled turn was already auto-recorded
+    # into the canonical temporal store, so resume correctly reports ready
+    # with exactly the one bounded turn-1 episode, not an absent-store gap.
+    assert capsule["status"] == "ready"
     assert capsule["current_finalized_turn"] == 1
+    episodes = capsule["recent_episodes"]
+    assert len(episodes) == 1
+    assert episodes[0]["episode_id"] == (
+        "episode-temporal-cache-rebuild-tl-main-turn-1"
+    )
+
+
+def test_corrupt_projection_cache_without_any_finalized_turn_reports_explicit_empty_state(
+    tmp_path: Path,
+) -> None:
+    ws = _workspace(tmp_path, "temporal-no-finalized-turn")
+    db_path = coc_history_projection_schema.projection_path(
+        Path(ws["workspace"]), str(ws["campaign_id"])
+    )
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path.write_bytes(b"not-a-sqlite-database-at-all")
+
+    resumed = _call(ws, "session.resume")
+    history = resumed["data"]["history_projection_recovery"]
+    assert history["status"] == "rebuilt"
+    assert history["commit_count"] >= 1  # quick-start baseline commit
+    # Baseline-only history: no finalized turn resolves, and reading never
+    # bootstraps the canonical store — the capsule stays explicit empty
+    # state instead of synthesizing episodes or guessing a latest turn.
+    capsule = resumed["data"]["temporal_capsule"]
+    assert capsule["status"] == "no_finalized_history"
+    assert capsule["current_finalized_turn"] is None
+    assert capsule["recent_episodes"] == []
 
 
 def test_projection_rebuild_failure_preserves_canonical_state(

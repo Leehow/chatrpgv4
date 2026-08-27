@@ -64,6 +64,105 @@ MEMORY_CAMPAIGN = "temporal-ops"
 COMMIT_A = "b" * 40
 
 
+_PRIVATE_MODULE_ALIASES = {
+    "coc_toolbox": "coc_toolbox_temporal_history",
+    "coc_starter": "coc_starter_temporal_history",
+    "coc_temporal_memory": "coc_temporal_memory_ops",
+    "coc_temporal_memory_contract": "coc_temporal_memory_contract_ops",
+    "coc_history_projection": "coc_history_projection_ops",
+    "coc_history_projection_schema": "coc_history_projection_schema_ops",
+    "coc_mcp_contract_archive": "coc_mcp_contract_archive_ops",
+}
+
+
+def _exec_dispatch_module_specs() -> tuple:
+    """Re-execute this file's private module aliases in original order."""
+    return (
+        _load("coc_toolbox_temporal_history", SCRIPTS / "coc_toolbox.py"),
+        _load("coc_starter_temporal_history", SCRIPTS / "coc_starter.py"),
+        _load("coc_temporal_memory_ops", SCRIPTS / "coc_temporal_memory.py"),
+        _load(
+            "coc_temporal_memory_contract_ops",
+            SCRIPTS / "coc_temporal_memory_contract.py",
+        ),
+        _load("coc_history_projection_ops", SCRIPTS / "coc_history_projection.py"),
+        _load(
+            "coc_history_projection_schema_ops",
+            SCRIPTS / "coc_history_projection_schema.py",
+        ),
+        _load(
+            "coc_mcp_contract_archive_ops",
+            SCRIPTS / "coc_mcp_contract_archive.py",
+        ),
+    )
+
+
+def _bind_module_globals(modules: tuple) -> None:
+    host = sys.modules[__name__]
+    for canonical, module in zip(_PRIVATE_MODULE_ALIASES, modules):
+        setattr(host, canonical, module)
+    host.contract = host.coc_temporal_memory_contract
+
+
+@pytest.fixture()
+def fresh_dispatch_modules():
+    """Make dispatch identity self-sufficient against cross-suite leaks.
+
+    Several suites (tests/test_git_history*.py, tests/test_timeline_*.py)
+    re-execute production scripts under their canonical ``sys.modules``
+    names, so a same-process ordering that imported the canonical
+    adapters/projection chain first can leave adapter-level exception
+    handlers bound to one generation of classes while a later lazy import
+    raises from another generation — the structured error mapping then
+    escapes unmapped (raw ``ProjectionQueryError`` instead of
+    ``invalid_state``).
+
+    This fixture purges every ``coc_*`` entry from ``sys.modules`` and
+    re-executes this file's whole dispatch universe from disk, so adapter,
+    projection query, and schema share single-copy class identity no
+    matter what earlier suites did. Teardown restores the previous
+    namespace and bindings byte-for-byte, so no other suite changes.
+    """
+    host = sys.modules[__name__]
+    canonical_snapshot = {
+        key: module
+        for key, module in list(sys.modules.items())
+        if key.startswith("coc_")
+    }
+    original_globals = {
+        canonical: getattr(host, canonical, None)
+        for canonical in _PRIVATE_MODULE_ALIASES
+    }
+    try:
+        for key in canonical_snapshot:
+            del sys.modules[key]
+        _bind_module_globals(_exec_dispatch_module_specs())
+        yield
+    finally:
+        stale_keys = [
+            name
+            for name in list(sys.modules)
+            if name.startswith("coc_")
+        ]
+        for key in stale_keys:
+            del sys.modules[key]
+        sys.modules.update(canonical_snapshot)
+        restored = []
+        for canonical in _PRIVATE_MODULE_ALIASES:
+            value = original_globals.get(canonical)
+            if value is not None:
+                restored.append(value)
+            else:
+                # Degenerate case: the global was absent pre-fixture; never
+                # leave a stale binding behind.
+                try:
+                    delattr(host, canonical)
+                except AttributeError:
+                    pass
+                restored.append(None)
+        host.contract = host.coc_temporal_memory_contract
+
+
 # --------------------------------------------------------------------------- #
 # Fixtures
 # --------------------------------------------------------------------------- #
@@ -517,7 +616,10 @@ def test_history_query_fails_closed_without_projection(tmp_path):
     assert "projection" in result["error"]["message"]
 
 
-def test_history_query_never_guesses_an_ambiguous_latest_turn(tmp_path):
+def test_history_query_never_guesses_an_ambiguous_latest_turn(
+    tmp_path,
+    fresh_dispatch_modules,
+):
     ws = build_history_workspace(tmp_path, duplicate_latest_turn=True)
     default_turn = _run(ws, "history.query", {})
     assert default_turn["ok"] is False
@@ -560,7 +662,10 @@ def test_history_diff_between_turns(tmp_path):
     assert same["data"]["change_count"] == 0
 
 
-def test_history_diff_structured_errors(tmp_path):
+def test_history_diff_structured_errors(
+    tmp_path,
+    fresh_dispatch_modules,
+):
     ws = build_history_workspace(tmp_path)
     unknown_from = _run(ws, "history.diff", {"from_turn": 40, "to_turn": 2})
     assert unknown_from["ok"] is False
