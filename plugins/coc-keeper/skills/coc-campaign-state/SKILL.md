@@ -69,11 +69,11 @@ via `decision_id`), plus the worldline operations `timeline.fork_request` /
 `timeline.confluence_confirm`. Memory is never authoritative truth: HP,
 clues, items, time, and dice stay with `state.*` / `rules.*`; recall returns
 advisory candidates and the KP judges relevance semantically. The older
-Markdown card store and its `memory.search` / `memory.write` /
+Markdown card store and its retired `memory.search` / `memory.write` /
 `memory.resolve_hook` tools are non-canonical legacy technical debt, not an
-alternate normal path — their compatibility surfaces are still registered
-in code and nothing has been deleted or migrated yet, so do not build new
-play on them — and live memory files are never hand-edited mid-play.
+alternate normal path — those model-facing surfaces are no longer registered
+anywhere (the `coc_memory.py` internals remain non-model-only), so never
+route play through them — and live memory files are never hand-edited mid-play.
 
 ## Operations
 

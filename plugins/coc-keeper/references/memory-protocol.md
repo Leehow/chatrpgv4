@@ -154,13 +154,18 @@ schema campaigns stay read-only: no import, no migration, no cleanup.
 ## Legacy Markdown card store (non-canonical technical debt)
 
 The Markdown card store below is **not** an alternate normal memory path.
-Its typed surfaces — `memory.search`, `memory.write`, `memory.resolve_hook`
-— are still registered in the toolbox as compatibility surfaces: nothing has
-been deleted or migrated, and retiring them from normal KP discovery is a
-separate integration slice. New play writes canonical temporal memory only
-(the operations above); do not build new flows on the card store, and do not
-bridge or dual-read between the two stores. The material below documents the
-legacy surfaces that still exist in code.
+Its typed model-facing surfaces — `memory.search`, `memory.write`,
+`memory.resolve_hook` — have been **retired**: they are no longer registered
+in the toolbox, the operation archive, or any generated policy surface, so a
+live KP cannot discover or invoke them. The deterministic `coc_memory.py`
+internals (card schema, retrieval, hook lifecycle) remain available to
+non-model callers only — the Director's advisory callback candidates still
+read open hooks through them. Existing campaign card files stay on disk
+read-only: no migration, no dual reading, no cleanup. New play writes
+canonical temporal memory only (the operations above); do not build new flows
+on the card store, and do not bridge or dual-read between the two stores. The
+material below documents the retired legacy formats for reading old campaign
+evidence.
 
 ### Legacy layout
 ```
@@ -196,20 +201,20 @@ served by retrieval. No migrations, no dual readers.
 
 ### Legacy hook lifecycle (`unresolved_hook` / `foreshadowing` only)
 
-`status`: `open` (default) → `resolved` / `paid_off` / `abandoned`, moved only
-through `memory.resolve_hook`, which stamps `resolved_at` evidence. `status`
+`status`: `open` (default) → `resolved` / `paid_off` / `abandoned`; while the
+card era was live, transitions moved through the retired `memory.resolve_hook`
+surface, which stamped `resolved_at` evidence. Historical cards keep that
+stamped evidence read-only; nothing moves it now. `status`
 on any other kind is a validation error. `introduced_at` / `resolved_at` are
 turn/scene reference strings, not wall-clock time.
 
-### Legacy tool surface
+### Legacy tool surface (retired)
 
-- `memory.search` — filter by `kinds` / `statuses` / entities / cues / tags on
-  top of the existing overlap scoring. Results always carry `privacy` labels;
-  `view=keeper` (default) may see keeper-only cards, but narration projection
-  still obeys the normal secrecy boundaries.
-- `memory.write` — typed card write, idempotent via `decision_id`.
-- `memory.resolve_hook` — hook lifecycle transition, idempotent via
-  `decision_id`; re-resolving into the same status is a no-op receipt.
+The former typed operations — `memory.search` (structured filter/privacy
+view), `memory.write` (typed idempotent card write), and `memory.resolve_hook`
+(hook lifecycle transition) — are no longer registered anywhere on the model
+surface. Use canonical `memory.recall` / `memory.adjudicate` instead; read
+historical cards directly from disk only when auditing old campaigns.
 
 The Director consumes the same store: `director.advise` returns advisory
 `callback_candidates` (open hooks/foreshadowing overlapping the current scene,
@@ -229,7 +234,8 @@ grep -R "entities:.*ada-king" memory/cards
 4. critical clue understood/misunderstood → `fact` / `event`
 5. irreversible choice → `event`
 6. trauma/insanity/major wound → `event`
-7. foreshadow set → `foreshadowing` / `unresolved_hook`; paid off → `memory.resolve_hook`
+7. foreshadow set → `foreshadowing` / `unresolved_hook`; paid off → lifecycle
+   supersession recorded as temporal assertions (`memory.adjudicate`)
 8. the player corrects a KP mistake, or the KP notices its own drift, and the
    correction is adopted → `keeper_correction` (write once, at adoption time,
    not on every reminder)

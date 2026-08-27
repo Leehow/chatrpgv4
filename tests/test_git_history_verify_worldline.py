@@ -427,8 +427,8 @@ def _full_confluence_message(
 
 
 def test_schema_generation_pins():
-    assert proj_schema.SCHEMA_GENERATION == "history-projection-1"
-    assert verify.proj_schema.SCHEMA_GENERATION == "history-projection-1"
+    assert proj_schema.SCHEMA_GENERATION == "history-projection-2"
+    assert verify.proj_schema.SCHEMA_GENERATION == "history-projection-2"
     assert hist.TIMELINE_STATE_SCHEMA == "timeline-state-1"
     assert tm.SCHEMA_GENERATION == "temporal-memory-1"
     assert tm.ROOT_TIMELINE_ID == "tl-main"

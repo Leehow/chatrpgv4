@@ -20,9 +20,10 @@ and worldline kernel:
   replay plus the underlying request fingerprint reject semantic reuse of
   a ``decision_id``; old assertions are never edited or deleted.
 
-This cell never consults legacy ``coc_memory`` cards
-(``memory.search``/``memory.write``/``memory.resolve_hook``); those stay on
-the continuity-memory cell until their retirement slice.
+This cell never consults legacy ``coc_memory`` cards. Their former
+model-facing operations (``memory.search``/``memory.write``/
+``memory.resolve_hook``) have been retired from the registry entirely;
+``coc_memory`` internals remain available to non-model callers only.
 """
 from __future__ import annotations
 

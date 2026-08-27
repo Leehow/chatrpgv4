@@ -10,8 +10,9 @@ temporal memory as the single canonical Pi-Coc memory path:
   layering with no migration, no dual reader, and no fallback is stated;
 - the legacy Markdown card operations (``memory.search`` / ``memory.write`` /
   ``memory.resolve_hook``) appear only inside explicitly legacy-labeled
-  context — never instructed as a normal play path — and are never claimed
-  deleted or migrated while the compatibility surfaces still exist in code.
+  context — never instructed as a normal play path — and are documented as
+  retired from the canonical model surface while their historical formats
+  remain readable evidence.
 """
 from __future__ import annotations
 
@@ -111,13 +112,16 @@ def test_legacy_ops_in_skill_appear_only_in_legacy_paragraphs():
             )
 
 
-def test_legacy_store_is_labeled_debt_and_not_claimed_deleted():
-    """Docs must label the card store as debt and admit surfaces remain."""
+def test_legacy_store_is_labeled_debt_and_ops_are_retired():
+    """Docs label the card store debt and record the model-surface retirement."""
     for path in (SKILL, PROTOCOL):
         flat = _flat(_text(path))
         assert "non-canonical legacy technical debt" in flat, path
-        assert "still registered" in flat, path
-        assert "nothing has been deleted" in flat, path
+        assert "retired" in flat, path
+        assert "no longer registered" in flat, path
+        # The old in-code compatibility claims must not survive retirement.
+        assert "still registered" not in flat, path
+        assert "nothing has been deleted" not in flat, path
 
 
 def test_protocol_explains_required_temporal_concepts():

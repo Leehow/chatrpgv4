@@ -369,7 +369,7 @@
   - `timeline-confluence`：`coc_timeline_confluence.py` 冲突枚举/裁决校验。
   - `scope-and-privacy`：跨战役 `same_subject_as` / `same_entity_as` 绑定与 player-safe / keeper-only / system-only 确定性投影。
   - typed 操作面已注册：`history.query` / `history.diff` / `memory.recall` / `memory.adjudicate`（`coc_operation_temporal_history.py`）与 `timeline.fork_request` / `fork_confirm` / `confluence_query` / `confluence_confirm`（`coc_operation_timeline.py`），经 OperationRegistry/toolbox 暴露；`session.resume` 返回有界 temporal capsule（`test_temporal_resume.py`）。
-  - 路由文档已把 `temporal-memory-1` 写为唯一 canonical 记忆路径（`coc-campaign-state` skill 与 `references/memory-protocol.md`）；旧 Markdown 卡片与 `memory.search` / `memory.write` / `memory.resolve_hook` 已标注为非 canonical 遗留技术债（兼容面仍在代码中，其退役是独立切片）。
+  - 路由文档已把 `temporal-memory-1` 写为唯一 canonical 记忆路径（`coc-campaign-state` skill 与 `references/memory-protocol.md`）；旧 Markdown 卡片与 `memory.search` / `memory.write` / `memory.resolve_hook` 已标注为非 canonical 遗留技术债，且三个模型面操作已退役（不再注册于 toolbox / operation archive / generated policy；`coc_memory.py` 内部函数仅保留给非模型调用方，如 Director callback candidates 的只读召回）。
 - **尚未完成**：`host-integration`（正常游玩中 KP 经常规技能/发现面使用全部 canonical 操作、玩家自然语言入口的真实验证）、`deterministic-verification` 收尾 sweep、`plugin-acceptance`（fresh campaign 的 Pi-Coc RPC 真实游玩验收）、`closeout`。
 - **整个特性当前状态为 `unintegrated`**：按 Feature Integration 纪律，在正常 Pi-Coc 真实游玩到达全部 canonical 消费面（KP 经正常技能发现并使用 `memory.recall` / `timeline.*` / `history.*`，玩家经自然语言触达 fork/rewind，战报呈现 fork/transfer/confluence）之前，不得宣称产品支持或验收完成。组件测试通过只证明组件契约，不证明可发现性与集成。
 - 本文档与 `docs/specs/temporal-memory-contract.md`（契约规格）的关系：契约文档冻结数据层细节；本文档是覆盖产品意图、架构、操作面、验收与计划映射的**完整产品规格**。两者冲突时以本文档的产品层决策为准，数据层细节以契约文档为准。
