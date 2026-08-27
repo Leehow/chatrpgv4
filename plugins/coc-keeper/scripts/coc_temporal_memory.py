@@ -495,7 +495,101 @@ def record_assertion(
                 "and edges are immutable"
             )
     _append_jsonl(_path(camp, "assertions"), payload)
+    if prior is None:
+        _emit_memory_written_event(
+            camp,
+            kind="assertion",
+            memory_id=payload["assertion_id"],
+            campaign_id=cid,
+            timeline_id=payload.get("timeline_id"),
+            turn=payload.get("valid_from_turn") or payload.get("source_turn") or 0,
+            subjects=[payload.get("subject_id"), *(payload.get("knowers") or [])],
+            writer="record_assertion",
+            privacy=("public" if payload.get("privacy") == "player_safe" else "secret"),
+        )
     return payload
+
+
+# --- Canonical event wiring (coc-events-1, plan task t4) -------------------
+#
+# memory-written mirrors fresh temporal-memory writes as semantic refs only
+# (memory id, kind, subject/knower refs) — never a duplicate payload. Emitted
+# strictly after the authoritative append succeeded; every failure is
+# swallowed so the canonical store can never break the temporal store.
+# Sanctioned supersession rewrites of an already-recorded assertion append a
+# validity-close row without minting a second event; the successor assertion
+# itself emits through its own record_assertion write.
+
+
+def _canonical_emit_token(value: Any) -> str | None:
+    text = re.sub(r"[^a-z0-9.-]+", "-", str(value or "").strip().lower())
+    text = re.sub(r"^[^a-z0-9]+", "", text)
+    return (text.rstrip("-.")[:128]) or None
+
+
+def _canonical_semantic_refs(values: Iterable[Any], *, limit: int = 16) -> list[str]:
+    out: list[str] = []
+    for value in values or []:
+        text = str(value or "").strip().lower()
+        if (
+            text
+            and contract.SEMANTIC_ID_RE.fullmatch(text)
+            and text not in out
+        ):
+            out.append(text)
+            if len(out) >= limit:
+                break
+    return out
+
+
+def _emit_memory_written_event(
+    camp: Path,
+    *,
+    kind: str,
+    memory_id: str,
+    campaign_id: Any,
+    timeline_id: Any,
+    turn: Any,
+    subjects: Iterable[Any],
+    writer: str,
+    privacy: str = "public",
+) -> None:
+    slug = _canonical_emit_token(memory_id)
+    campaign = _canonical_emit_token(campaign_id or camp.name)
+    timeline = _canonical_emit_token(timeline_id or contract.ROOT_TIMELINE_ID)
+    decision = f"memwrite-{campaign}-{timeline}-{slug}"
+    try:
+        turn_number = max(1, int(turn))
+    except (TypeError, ValueError):
+        turn_number = 1
+    for attempt, suffix in enumerate(("", "-2", "-3", "-4")):
+        try:
+            import coc_canonical_events as cem
+
+            data: dict[str, Any] = {
+                "_v": 1,
+                "memory_id": str(memory_id),
+                "memory_kind": kind,
+            }
+            refs = _canonical_semantic_refs(subjects)
+            if refs:
+                data["subject_refs"] = refs
+            cem.emit(
+                campaign_logs_dir=camp / "logs",
+                event_type="memory-written",
+                campaign=campaign or "",
+                timeline=timeline or "tl-main",
+                turn=turn_number,
+                slug=f"{(slug or 'mem')[:110]}{suffix}",
+                source=f"coc_temporal_memory.{writer}",
+                game_time=f"turn-{turn_number}",
+                privacy=privacy,
+                decision_id=decision,
+                data=data,
+            )
+            return
+        except Exception:
+            continue
 
 
 # ---------------------------------------------------------------------------
@@ -589,6 +683,16 @@ def record_episode(
 
     _append_jsonl(_path(camp, "episodes"), episode)
     _append_jsonl(_path(camp, "episode_evidence"), evidence)
+    _emit_memory_written_event(
+        camp,
+        kind="episode",
+        memory_id=episode_id,
+        campaign_id=cid,
+        timeline_id=timeline_id,
+        turn=int(turn_number),
+        subjects=list(subjects_present or []),
+        writer="record_episode",
+    )
 
     if not candidate_rows:
         backlog = {
