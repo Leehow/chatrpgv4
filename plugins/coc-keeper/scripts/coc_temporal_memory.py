@@ -1288,6 +1288,63 @@ def resolve_hook(
 # ---------------------------------------------------------------------------
 
 
+def open_hooks_with_age(
+    campaign_dir: Path | str,
+    current_turn: int,
+    *,
+    limit: int = 16,
+) -> list[dict[str, Any]]:
+    """Open hook ledger rows with numeric temporal facts for advisory aging.
+
+    ``planted_turn`` parses the hook's ``introduced_at`` (any trailing integer;
+    an empty value falls back to the bound assertion's valid-time start, then
+    its occurred/source turn, then 0). ``age_turns`` is
+    ``max(0, current_turn - planted_turn)``: pure advisory data — no urgency
+    threshold, no ranking, no push interrupt. Meaning stays a KP semantic
+    judgment. Rows also carry the bound assertion's structured entity refs so
+    consumers can join the canonical-event projection without ever inferring
+    hook meaning from prose.
+
+    Deterministic: sorted by ``memory_id``, capped at ``limit``.
+    """
+    camp = _require_campaign_dir(campaign_dir)
+    ensure_store(camp)
+    try:
+        through = int(current_turn)
+    except (TypeError, ValueError):
+        through = 0
+    assertions = load_assertions(camp)
+    hooks = [
+        dict(row)
+        for row in load_hooks(camp).values()
+        if row.get("status") == "open"
+    ]
+    hooks.sort(key=lambda row: str(row.get("memory_id") or ""))
+    rows: list[dict[str, Any]] = []
+    for hook in hooks[: max(0, int(limit))]:
+        assertion = assertions.get(str(hook.get("assertion_id") or "")) or {}
+        planted = _parse_turn(hook.get("introduced_at"), default=None)
+        if planted is None:
+            for key in ("valid_from_turn", "occurred_turn", "source_turn"):
+                value = assertion.get(key)
+                if isinstance(value, int) and not isinstance(value, bool):
+                    planted = value
+                    break
+        if planted is None:
+            planted = 0
+        planted = max(0, int(planted))
+        row = dict(hook)
+        row["planted_turn"] = planted
+        row["age_turns"] = max(0, through - planted)
+        if assertion:
+            row.setdefault("entities", list(assertion.get("entities") or []))
+            row["statement"] = str(assertion.get("statement") or "").strip()
+            row["timeline_id"] = assertion.get("timeline_id")
+            row["privacy"] = assertion.get("privacy")
+        rows.append(row)
+    return rows
+
+
 def _read_session_summaries(campaign_dir: Path, through_turn: int) -> list[dict[str, Any]]:
     path = campaign_dir / "memory" / "session-summaries.jsonl"
     if not path.exists():
@@ -1353,11 +1410,7 @@ def build_resume_projection(
             "limit": max(1, min(24, int(limit))),
         },
     )
-    hooks = [
-        row
-        for row in load_hooks(camp).values()
-        if row.get("status") == "open"
-    ]
+    hooks = open_hooks_with_age(camp, through, limit=16)
     adjudications = load_adjudications(camp)
     accepted = {
         row["candidate_id"]

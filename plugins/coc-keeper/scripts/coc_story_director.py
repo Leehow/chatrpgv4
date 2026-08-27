@@ -63,11 +63,32 @@ try:
 except Exception:
     coc_time = None  # time layer optional; director degrades gracefully
 
-coc_memory = None
+coc_temporal_memory = None
 try:
-    coc_memory = _load_sibling("coc_memory", "coc_memory.py")
+    coc_temporal_memory = _load_sibling(
+        "coc_temporal_memory_director", "coc_temporal_memory.py"
+    )
 except Exception:
-    coc_memory = None  # memory layer optional; director degrades gracefully
+    coc_temporal_memory = None  # temporal memory optional; director degrades gracefully
+
+# Legacy Markdown card reader (``coc_memory``) is RETIRED from the Director
+# path (plan t6): director memory inputs come from the canonical temporal
+# store and maintained projections only. The module is no longer imported here.
+coc_git_history = None
+try:
+    coc_git_history = _load_sibling(
+        "coc_git_history_director", "coc_git_history.py"
+    )
+except Exception:
+    coc_git_history = None  # history layer optional; director degrades gracefully
+
+coc_canonical_events = None
+try:
+    coc_canonical_events = _load_sibling(
+        "coc_canonical_events_director", "coc_canonical_events.py"
+    )
+except Exception:
+    coc_canonical_events = None  # events projection optional; director degrades gracefully
 
 _NON_PLAYER_ROLL_ROLES = {"npc", "enemy", "opponent", "adversary", "monster"}
 _SCENE_PROGRESS_KEYS = (
@@ -1766,18 +1787,20 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
         return 0.85 if sig["stalled_turns"] >= 2 else 0.0
 
     if action == "PAYOFF":
-        if coc_memory is None:
-            return 0.0
         cards = _retrieve_memory_for_ctx(ctx)
         if not cards:
             return 0.0
-        # Discriminative scoring: normalize the raw retrieval score.
-        # A single weak match (entity OR cue, top~4-6) should score ~0.3-0.4
-        # (below REVEAL's 0.55-0.85, so PAYOFF only wins when memory is clearly relevant).
-        # A strong match (multiple entities + cues, top~12+) scores ~0.7-0.85.
-        # This keeps PAYOFF from firing on incidental overlap.
-        top = max(float(c.get("score", 0)) for c in cards)
-        return min(0.85, 0.15 + top * 0.05)
+        # Discriminative scoring on STRUCTURED entity overlap only: temporal
+        # assertions carry closed-vocabulary entity ids, so a candidate
+        # without a real entity overlap never fires PAYOFF (a single weak
+        # match scores ~0.27, below REVEAL's 0.55-0.85; multi-entity overlap
+        # climbs to ~0.5-0.6+). Replaces the retired card layer's cue-text
+        # weighting: no keyword or prose inference anywhere in this path.
+        query = set(_derive_memory_entities(ctx))
+        top = max(len(query & set(card.get("entities") or [])) for card in cards)
+        if top <= 0:
+            return 0.0
+        return min(0.85, 0.15 + top * 0.12)
 
     return 0.0
 
@@ -2864,98 +2887,200 @@ def _current_pacing_entry(ctx: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def _retrieve_memory_for_ctx(ctx: dict[str, Any]) -> list[dict[str, Any]]:
-    """Retrieve memory cards matching the current scene/intent. Returns [] if no memory layer."""
-    if coc_memory is None:
-        return []
-    campaign_dir = ctx.get("campaign_dir")
-    if campaign_dir is None:
-        return []
-    # query terms: explicit overrides first, else derive from scene + intent
-    entities = ctx.get("memory_query_entities") or _derive_memory_entities(ctx)
-    cues = ctx.get("memory_query_cues") or [ctx.get("player_intent", "")]
-    tags = ctx.get("memory_query_tags") or []
-    # Rich-intent enrichment: the player's explicit target entities sharpen
-    # memory recall (e.g. "the neighbor" surfaces neighbor-related cards).
-    # No-op when rich intent is absent.
-    rich = ctx.get("player_intent_rich")
-    if rich and not ctx.get("memory_query_entities"):
-        for ent in rich.get("target_entities") or []:
-            if ent and ent not in entities:
-                entities.append(ent)
-    cards = coc_memory.retrieve_memory_cards(
-        campaign_dir=Path(campaign_dir),
-        query_entities=[e for e in entities if e],
-        query_cues=[c for c in cues if c],
-        query_tags=tags,
-        privacy_filter="player_safe",
-        limit=5,
-    )
-    return cards
+_CALLBACK_CANDIDATE_LIMIT = 3
+_MEMORY_READ_LIMIT = 5
+_PROVENANCE_EVENT_LIMIT = 3
+
+
+_CALLBACK_CANDIDATE_LIMIT = 3
+_MEMORY_READ_LIMIT = 5
+_PROVENANCE_EVENT_LIMIT = 3
+
+
+def _advisory_timeline_id(campaign_dir: Any) -> str | None:
+    """Best-effort active timeline id via the canonical history layer.
+
+    Pure file read behind ``active_timeline_id`` (no git subprocess); outside
+    a canonical ``<root>/.coc/campaigns/<id>`` layout this returns ``None``
+    and callers fall back to the temporal store's default timeline.
+    """
+    if coc_git_history is None or campaign_dir is None:
+        return None
+    try:
+        camp = Path(campaign_dir)
+        return str(
+            coc_git_history.active_timeline_id(camp.parent.parent, camp.name)
+        )
+    except Exception:
+        return None
 
 
 def _derive_memory_entities(ctx: dict[str, Any]) -> list[str]:
-    """Default memory query: active scene id + npc ids + available clue ids."""
+    """Default memory query: active scene id + npc ids + available clue ids,
+    sharpened by rich-intent target entities. Structured ids only."""
+    overrides = ctx.get("memory_query_entities")
+    if overrides:
+        return [e for e in overrides if e]
     scene = ctx.get("active_scene") or {}
     ents = [ctx.get("active_scene_id", "")]
     ents += scene.get("npc_ids", [])
     ents += scene.get("available_clues", [])
+    rich = ctx.get("player_intent_rich")
+    if rich:
+        for ent in rich.get("target_entities") or []:
+            if ent and ent not in ents:
+                ents.append(ent)
     return [e for e in ents if e]
 
 
-_CALLBACK_CANDIDATE_LIMIT = 3
+def _projection_unavailable_warning(exc: Exception, field: str) -> dict[str, Any]:
+    return {
+        "field": field,
+        "reason_code": "unavailable",
+        "detail": str(exc)[:200],
+    }
 
 
-def _callback_candidates(ctx: dict[str, Any]) -> list[dict[str, Any]]:
-    """CALLBACK beat candidates: open hooks/foreshadowing overlapping the scene.
+def _retrieve_memory_for_ctx(ctx: dict[str, Any]) -> list[dict[str, Any]]:
+    """Player-safe temporal-memory reads matching the current scene/intent.
 
-    Purely advisory data retrieval over structured kind/status/entity fields —
-    the KP judges relevance and realization semantically. Never writes state,
-    never forces narration, and absence never blocks a turn.
+    Reads ONLY the canonical temporal store via the same deterministic
+    narrow-then-rank surface ``memory.recall`` uses. The retired Markdown
+    card scanner is never consulted. Returns [] on absence/corruption after
+    recording a structured warning — advice degrades, play never blocks.
     """
-    if coc_memory is None:
+    if coc_temporal_memory is None:
         return []
     campaign_dir = ctx.get("campaign_dir")
     if campaign_dir is None:
         return []
-    entities = list(ctx.get("memory_query_entities") or _derive_memory_entities(ctx))
-    rich = ctx.get("player_intent_rich")
-    if rich and not ctx.get("memory_query_entities"):
-        for ent in rich.get("target_entities") or []:
-            if ent and ent not in entities:
-                entities.append(ent)
-    cues = [c for c in (ctx.get("memory_query_cues") or [ctx.get("player_intent", "")]) if c]
-    cards = coc_memory.retrieve_memory_cards(
-        campaign_dir=Path(campaign_dir),
-        query_entities=[e for e in entities if e],
-        query_cues=cues,
-        query_tags=[],
-        # Director context is Keeper-internal: keeper_only hooks are in scope.
-        privacy_filter="keeper",
-        limit=_CALLBACK_CANDIDATE_LIMIT,
-        kinds=list(coc_memory.HOOK_KINDS),
-        statuses=["open"],
-    )
-    candidates: list[dict[str, Any]] = []
-    for card in cards:
-        overlap = sorted(
-            set(entities) & set(card.get("entities") or [])
+    entities = _derive_memory_entities(ctx)
+    recall_context: dict[str, Any] = {
+        "campaign_dir": Path(campaign_dir),
+        "entities": entities,
+        "view": "player_safe",
+        "limit": _MEMORY_READ_LIMIT,
+    }
+    timeline_id = _advisory_timeline_id(campaign_dir)
+    if timeline_id:
+        recall_context["timeline_id"] = timeline_id
+    try:
+        recalled = coc_temporal_memory.recall(None, recall_context)
+    except Exception as exc:
+        ctx.setdefault("validation_warnings", []).append(
+            _projection_unavailable_warning(exc, "temporal_memory")
         )
+        return []
+    reads: list[dict[str, Any]] = []
+    for row in recalled.get("candidates") or []:
+        reads.append({
+            "memory_id": row.get("assertion_id"),
+            "path": None,
+            "reason": "structured entity overlap with scene/intent",
+            "use": "TONE",
+            "kind": row.get("kind"),
+            "statement": str(row.get("statement") or ""),
+            "entities": list(row.get("entities") or []),
+            "score": row.get("score"),
+            "source": "temporal_assertion",
+        })
+    return reads
+
+
+def _callback_candidates(ctx: dict[str, Any]) -> list[dict[str, Any]]:
+    """CALLBACK beat candidates: open temporal hooks overlapping the scene,
+    joined with canonical-event evidence projections.
+
+    Hook facts come from the canonical temporal ledger rows (v1
+    ``memory-written`` events intentionally carry semantic refs only); their
+    recent event-side evidence comes from the maintained events-projection
+    views. Purely advisory data retrieval over structured kind/status/entity
+    fields and numeric planted/age turns — the KP judges relevance and
+    realization semantically. Never writes state, never forces narration,
+    and absence never blocks a turn.
+    """
+    if coc_temporal_memory is None:
+        return []
+    campaign_dir = ctx.get("campaign_dir")
+    if campaign_dir is None:
+        return []
+    try:
+        hooks = coc_temporal_memory.open_hooks_with_age(
+            Path(campaign_dir), int(ctx.get("turn_number") or 0)
+        )
+    except Exception as exc:
+        ctx.setdefault("validation_warnings", []).append(
+            _projection_unavailable_warning(exc, "temporal_hooks")
+        )
+        hooks = []
+    entities = list(_derive_memory_entities(ctx))
+    union_refs: list[str] = []
+    for hook in hooks[:_CALLBACK_CANDIDATE_LIMIT]:
+        for ref in hook.get("entities") or []:
+            if ref and ref not in union_refs:
+                union_refs.append(str(ref))
+    provenance: dict[str, list[tuple[int, str]]] = {}
+    if union_refs and coc_canonical_events is not None:
+        logs_dir = Path(campaign_dir) / "logs"
+        try:
+            found = coc_canonical_events.lookup_entities(
+                logs_dir, refs=union_refs, privacy="all",
+                limit=max(20, len(union_refs) * 5),
+            )
+            for match in found.get("matches") or []:
+                ref = str(match.get("entity_ref") or "")
+                if not ref:
+                    continue
+                provenance.setdefault(ref, []).append(
+                    (int(match.get("turn") or 0), str(match.get("event_type") or ""))
+                )
+        except Exception as exc:
+            ctx.setdefault("validation_warnings", []).append(
+                _projection_unavailable_warning(exc, "canonical_projection")
+            )
+            provenance = {}
+    candidates: list[dict[str, Any]] = []
+    for hook in hooks[:_CALLBACK_CANDIDATE_LIMIT]:
+        hook_refs = [str(r) for r in hook.get("entities") or []]
+        overlap = sorted(set(entities) & set(hook_refs))
+        recent_turns: list[dict[str, Any]] = []
+        seen_turns: set[int] = set()
+        pooled = sorted(
+            (
+                item
+                for ref in hook_refs
+                for item in provenance.get(ref, [])
+            ),
+            reverse=True,
+        )
+        for turn, event_type in pooled:
+            if turn in seen_turns:
+                continue
+            seen_turns.add(turn)
+            recent_turns.append({"turn": turn, "type": event_type})
+            if len(recent_turns) >= _PROVENANCE_EVENT_LIMIT:
+                break
+        kind = hook.get("kind")
         candidates.append({
             "beat": "CALLBACK",
-            "memory_id": card.get("memory_id"),
-            "kind": card.get("kind"),
-            "status": card.get("status"),
-            "privacy": card.get("privacy"),
-            "salience": card.get("salience"),
-            "summary": card.get("body", ""),
-            "possible_payoff": card.get("possible_payoff", ""),
-            "introduced_at": card.get("introduced_at"),
+            "memory_id": hook.get("memory_id"),
+            "assertion_id": hook.get("assertion_id"),
+            "kind": kind,
+            "status": hook.get("status"),
+            "privacy": hook.get("privacy"),
+            "salience": None,
+            "summary": hook.get("statement", ""),
+            "possible_payoff": hook.get("possible_payoff", ""),
+            "introduced_at": hook.get("introduced_at"),
+            "planted_turn": hook.get("planted_turn"),
+            "age_turns": hook.get("age_turns"),
+            "entity_refs": hook_refs,
+            "provenance_events": recent_turns,
             "overlap_entities": overlap,
-            "score": card.get("score"),
+            "score": round(4 * len(overlap), 3),
             "reason": (
-                f"open {card.get('kind')} card overlaps current scene "
-                + (f"entities {', '.join(overlap)}" if overlap else "cues")
+                f"open {kind} assertion overlaps current scene "
+                + (f"entities {', '.join(overlap)}" if overlap else "context")
             ),
             "authority": "advisory",
             "hard_gate": False,
@@ -4191,13 +4316,24 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     if exit_pressure is not None:
         narrative_directives["scene_exit_pressure"] = exit_pressure
 
-    # v2: populate memory_reads from the memory layer. PAYOFF actions mark the
-    # card use as PAYOFF (recalled payoff); everything else is TONE color.
-    # memory_writes stays empty here — writeback is decided by the M5 apply layer.
+    # v2: populate memory_reads from the canonical temporal store (the legacy
+    # Markdown card reader is retired). PAYOFF actions mark the read as
+    # PAYOFF (recalled payoff); everything else is TONE color.
+    # memory_writes stays empty here — writeback is decided by the apply layer.
     mem_cards = _retrieve_memory_for_ctx(ctx)
+    payoff_use = action == "PAYOFF"
     memory_reads = [
-        {"memory_id": c.get("memory_id"), "path": c.get("path"),
-         "reason": "entity/scene match", "use": "PAYOFF" if action == "PAYOFF" else "TONE"}
+        {
+            "memory_id": c.get("memory_id"),
+            "path": c.get("path"),
+            "reason": "entity/scene match",
+            "use": "PAYOFF" if payoff_use else "TONE",
+            **{
+                key: c[key]
+                for key in ("kind", "statement", "entities", "score", "source")
+                if key in c
+            },
+        }
         for c in mem_cards
     ]
     # CALLBACK beat candidates: open unresolved_hook / foreshadowing cards

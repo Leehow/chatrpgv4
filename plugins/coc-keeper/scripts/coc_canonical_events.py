@@ -1381,6 +1381,15 @@ _EVENTS_PROJECTION_TABLES: tuple[str, ...] = (
     "event_entities",
 )
 
+# Director-facing read model: pure compositions of the maintained tables, so
+# they cost zero per-insert upkeep and never drift from the rows. A missing,
+# stale-generation, or corrupt view is handled exactly like a bad cache:
+# delete-and-rebuild, never migrate.
+_EVENTS_PROJECTION_VIEWS: tuple[str, ...] = (
+    "v_turn_facts",
+    "v_entity_events",
+)
+
 _EVENTS_PROJECTION_INDEXES: tuple[str, ...] = (
     "idx_events_turn",
     "idx_events_type",
@@ -1440,6 +1449,29 @@ _EVENTS_PROJECTION_DDL: tuple[str, ...] = (
     "CREATE UNIQUE INDEX idx_events_event_id ON events (event_id)",
     "CREATE INDEX idx_event_entities_ref ON event_entities (entity_ref)",
     "CREATE INDEX idx_event_entities_role ON event_entities (role)",
+    # Ordered per-turn fact timeline (canonical release ordering is
+    # ``type`` + ``sequence``; file-tail position is meaningless).
+    """
+    CREATE VIEW v_turn_facts AS
+        SELECT campaign, timeline, turn, sequence, event_type, privacy,
+               source, game_time
+        FROM events
+    """,
+    # Structured by-scene/by-NPC/by-clue lookup base: one row per (ref,event)
+    # with the envelope facts joined in. Role names come from the closed
+    # payload field table (e.g. ``clue_id``, ``npc``, ``to_scene``), so a
+    # role filter IS the by-clue / by-NPC / by-scene selector.
+    """
+    CREATE VIEW v_entity_events AS
+        SELECT r.campaign AS campaign, r.timeline AS timeline,
+               r.sequence AS sequence, r.role AS role,
+               r.entity_ref AS entity_ref, e.turn AS turn,
+               e.event_type AS event_type, e.privacy AS privacy,
+               e.source AS source, e.game_time AS game_time
+        FROM event_entities r JOIN events e
+          ON e.campaign = r.campaign AND e.timeline = r.timeline
+         AND e.sequence = r.sequence
+    """,
 )
 
 # Payload fields whose frozen kind marks them structured entity references:
@@ -1554,6 +1586,19 @@ def _read_projection_meta(connection: sqlite3.Connection) -> dict[str, Any]:
         if missing:
             raise _ProjectionCacheMismatch(
                 "events projection missing tables: " + ", ".join(missing)
+            )
+        views = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'view'"
+            )
+        }
+        missing_views = [
+            name for name in _EVENTS_PROJECTION_VIEWS if name not in views
+        ]
+        if missing_views:
+            raise _ProjectionCacheMismatch(
+                "events projection missing views: " + ", ".join(missing_views)
             )
         indexes = {
             str(row[0])
@@ -2036,6 +2081,205 @@ def query_events(
         "count": len(events),
         "truncated": len(events) >= effective_limit,
         "events": events,
+    }
+
+
+def _validate_query_window(
+    *, timeline: str | None, turn_from: int | None, turn_to: int | None,
+    types: Iterable[str] | None, privacy: str, limit: int | None,
+    record_kind: str,
+) -> tuple[str | None, list[Any], list[str], str, int]:
+    """Shared structured-filter validation for the projection readers.
+
+    Raises the same typed contract errors as :func:`query_events`; returns
+    the sanitized (timeline, params-order-agnostic bounds, types, privacy,
+    limit) so both readers answer from one set of rules.
+    """
+    if privacy not in PRIVACY_LEVELS and privacy != "all":
+        raise PrivacyError(
+            f"query privacy={privacy!r} not in {[ PRIVACY_LEVELS, 'all']} views",
+            record_kind=record_kind,
+            field="privacy",
+            value=privacy,
+        )
+    selected_types: list[str] = []
+    for event_type in types or ():
+        if event_type not in EVENT_TYPES:
+            raise ClosedEnumError(
+                f"query type {event_type!r} not in closed enum of {len(EVENT_TYPES)}"
+                " event types",
+                record_kind=record_kind,
+                field="types",
+                value=event_type,
+            )
+        selected_types.append(event_type)
+    for label, bound in (("turn_from", turn_from), ("turn_to", turn_to)):
+        if bound is None:
+            continue
+        if not isinstance(bound, int) or isinstance(bound, bool) or bound < TURN_MIN:
+            raise CanonicalEventsContractError(
+                f"query {label} must be an int >= {TURN_MIN}, got {bound!r}",
+                record_kind=record_kind,
+                field=label,
+                value=bound,
+            )
+    if limit is not None and (
+        not isinstance(limit, int) or isinstance(limit, bool)
+    ):
+        raise CanonicalEventsContractError(
+            f"query limit must be an integer, got {limit!r}",
+            record_kind=record_kind,
+            field="limit",
+            value=limit,
+        )
+    if limit is not None and limit < 1:
+        raise CanonicalEventsContractError(
+            f"query limit must be >= 1, got {limit!r}",
+            record_kind=record_kind,
+            field="limit",
+            value=limit,
+        )
+    effective_limit = limit if limit is not None else 100
+    return timeline, [turn_from, turn_to], selected_types, privacy, effective_limit
+
+
+def read_turn_timeline(
+    campaign_logs_dir: Path | str,
+    *,
+    timeline: str | None = None,
+    turn_from: int | None = None,
+    turn_to: int | None = None,
+    types: Iterable[str] | None = None,
+    privacy: str = "public",
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Ordered per-turn fact timeline over the ``v_turn_facts`` view.
+
+    The Director-facing read model on top of the same maintained projection
+    ``events.query`` uses: rows come back ordered by turn then sequence, the
+    canonical causal order inside a turn. Structured selectors only; no
+    payload is returned — entity context travels through
+    :func:`lookup_entities`. The cache self-heals first exactly like
+    :func:`query_events`.
+    """
+    resolved_timeline, (turn_from, turn_to), selected_types, privacy, effective_limit = _validate_query_window(
+        timeline=timeline,
+        turn_from=turn_from,
+        turn_to=turn_to,
+        types=types,
+        privacy=privacy,
+        limit=limit,
+        record_kind="events.timeline",
+    )
+    logs_path = Path(campaign_logs_dir)
+    apply_events_projection(logs_path)
+    connection = _connect_projection(events_projection_path(logs_path))
+    try:
+        clauses = ["campaign = ?"]
+        params: list[Any] = [Path(logs_path).parent.name]
+        if resolved_timeline is not None:
+            clauses.append("timeline = ?")
+            params.append(resolved_timeline)
+        if turn_from is not None:
+            clauses.append("turn >= ?")
+            params.append(turn_from)
+        if turn_to is not None:
+            clauses.append("turn <= ?")
+            params.append(turn_to)
+        if selected_types:
+            clauses.append(
+                "event_type IN (" + ",".join("?" for _ in selected_types) + ")"
+            )
+            params.extend(selected_types)
+        if privacy != "all":
+            clauses.append("privacy = ?")
+            params.append(privacy)
+        sql = (
+            "SELECT timeline, turn, sequence, event_type, privacy, source,"
+            " game_time FROM v_turn_facts WHERE "
+            + " AND ".join(clauses)
+            + " ORDER BY turn ASC, sequence ASC LIMIT ?"
+        )
+        params.append(effective_limit)
+        rows = connection.execute(sql, params).fetchall()
+    finally:
+        connection.close()
+    facts = [dict(row) for row in rows]
+    return {
+        "schema_generation": SCHEMA_GENERATION,
+        "count": len(facts),
+        "truncated": len(facts) >= effective_limit,
+        "facts": facts,
+    }
+
+
+def lookup_entities(
+    campaign_logs_dir: Path | str,
+    *,
+    refs: Iterable[str] | None = None,
+    roles: Iterable[str] | None = None,
+    timeline: str | None = None,
+    privacy: str = "public",
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Structured by-scene/by-NPC/by-clue lookup over ``v_entity_events``.
+
+    Exact ``entity_ref`` / closed-role filters against the schema-derived
+    reference rows joined to their events. Roles are payload field names
+    (e.g. ``clue_id``, ``npc``, ``to_scene``, ``investigator``); there is no
+    prose classification anywhere in this path. Rows are sequence-ordered;
+    per-entity summaries are caller-side aggregations of these bounded raw
+    rows. Privacy semantics match :func:`read_turn_timeline`.
+    """
+    _, _, _, privacy, effective_limit = _validate_query_window(
+        timeline=None,
+        turn_from=None,
+        turn_to=None,
+        types=None,
+        privacy=privacy,
+        limit=limit,
+        record_kind="events.entity_lookup",
+    )
+    selected_refs = [str(ref) for ref in (refs or ()) if str(ref)]
+    selected_roles = [str(role) for role in (roles or ()) if str(role)]
+    logs_path = Path(campaign_logs_dir)
+    apply_events_projection(logs_path)
+    connection = _connect_projection(events_projection_path(logs_path))
+    try:
+        clauses = ["campaign = ?"]
+        params: list[Any] = [Path(logs_path).parent.name]
+        if timeline is not None:
+            clauses.append("timeline = ?")
+            params.append(timeline)
+        if selected_refs:
+            clauses.append(
+                "entity_ref IN (" + ",".join("?" for _ in selected_refs) + ")"
+            )
+            params.extend(selected_refs)
+        if selected_roles:
+            clauses.append(
+                "role IN (" + ",".join("?" for _ in selected_roles) + ")"
+            )
+            params.extend(selected_roles)
+        if privacy != "all":
+            clauses.append("privacy = ?")
+            params.append(privacy)
+        sql = (
+            "SELECT role, entity_ref, timeline, turn, sequence, event_type,"
+            " privacy, source FROM v_entity_events WHERE "
+            + " AND ".join(clauses)
+            + " ORDER BY turn ASC, sequence ASC LIMIT ?"
+        )
+        params.append(effective_limit)
+        rows = connection.execute(sql, params).fetchall()
+    finally:
+        connection.close()
+    matches = [dict(row) for row in rows]
+    return {
+        "schema_generation": SCHEMA_GENERATION,
+        "count": len(matches),
+        "truncated": len(matches) >= effective_limit,
+        "matches": matches,
     }
 
 

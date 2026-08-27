@@ -549,13 +549,25 @@ def _storylet_deck_tags(storylet: dict[str, Any]) -> set[str]:
     return tags
 
 
-def _matching_deck_id(storylet: dict[str, Any], story_need: dict[str, Any]) -> str | None:
+def _matching_deck_id(
+    storylet: dict[str, Any],
+    story_need: dict[str, Any],
+    *,
+    deck_tags: set[str] | None = None,
+    storylet_functions: set[str] | None = None,
+) -> str | None:
     needed_functions = set(_as_list(story_need.get("story_functions")))
     if story_need.get("need_id"):
         needed_functions.add(str(story_need["need_id"]))
     candidate_decks = set(_as_list(story_need.get("candidate_decks")))
-    storylet_functions = _storylet_story_functions(storylet)
-    deck_tags = _storylet_deck_tags(storylet)
+    storylet_functions = (
+        storylet_functions
+        if storylet_functions is not None
+        else _storylet_story_functions(storylet)
+    )
+    deck_tags = (
+        deck_tags if deck_tags is not None else _storylet_deck_tags(storylet)
+    )
 
     function_match = storylet_functions & needed_functions
     deck_match = deck_tags & candidate_decks
@@ -771,6 +783,105 @@ def _has_current_scene_anchor(storylet: dict[str, Any], plan: dict[str, Any], ct
     return _anchor_contract_met(storylet, plan, ctx)
 
 
+# --- Maintained eligibility index -----------------------------------------
+# Thin read-model over the storylet library: static per-storylet eligibility
+# facts (closed-vocabulary tag/deck sets and booleans) parsed ONCE per
+# library revision and reused across selections. Selection semantics stay in
+# ``_matches_context`` — this index changes WHERE values come from, never
+# WHAT they compare; an absent/corrupt entry falls back to per-call parsing
+# of the storylet itself, which is byte-equivalent work.
+
+
+def _eligibility_entry(storylet: dict[str, Any]) -> dict[str, Any]:
+    """Static structured facts one storylet contributes to the index."""
+    context_req = storylet.get("context_requirements")
+    context_req = context_req if isinstance(context_req, dict) else {}
+    functions = frozenset(_storylet_story_functions(storylet))
+    return {
+        "storylet_id": storylet.get("storylet_id"),
+        "actions": frozenset(
+            _as_list(storylet.get("scene_actions"))
+            + _as_list(storylet.get("dramatic_function"))
+        ),
+        "affinity": frozenset(_as_list(storylet.get("structure_affinity"))),
+        "scene_types": frozenset(_as_list(storylet.get("eligible_scene_types"))),
+        "horror": frozenset(_as_list(storylet.get("horror_stage"))),
+        "not_flags": frozenset(_as_list(storylet.get("not_for_content_flags"))),
+        "req_scene_tags": frozenset(_as_list(storylet.get("scene_tags"))),
+        "setting": frozenset(_as_list(storylet.get("setting_tags"))),
+        "loc_any": frozenset(_as_list(context_req.get("location_tags_any"))),
+        "caps_any": frozenset(_as_list(context_req.get("scene_capabilities_any"))),
+        "intents": frozenset(_as_list(storylet.get("eligible_intent_classes"))),
+        "intent_excl": frozenset(_as_list(storylet.get("not_for_intent_classes"))),
+        "polarity": frozenset(
+            _as_list(storylet.get("trigger_polarity") or storylet.get("polarity"))
+        ),
+        "deck_tags": frozenset(_storylet_deck_tags(storylet)),
+        "functions": functions,
+        "serves_ok": _storylet_serves_scenario(storylet),
+    }
+
+
+_ELIGIBILITY_INDEX_CACHE: dict[str, list[dict[str, Any] | None]] = {}
+
+
+def storylet_eligibility_index(
+    library: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Maintained eligibility-facts index for normal storylet selection.
+
+    Content-addressed (SHA-256 over the canonical JSON of the storylet
+    rows): any library change produces a fresh index automatically, and an
+    unchanged library reuses the memoized parse instead of rebuilding every
+    storylet's tag sets on each suggestion call. Returns entries aligned by
+    position with ``library['storylets']`` (``None`` for malformed rows) so
+    no id-uniqueness assumption is ever needed.
+    """
+    lib = library if library is not None else load_storylet_library()
+    stories = [s for s in lib.get("storylets", []) or []]
+    digest = hashlib.sha256(
+        json.dumps(stories, sort_keys=True, ensure_ascii=False, default=str).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    cached = _ELIGIBILITY_INDEX_CACHE.get(digest)
+    memoized = cached is not None
+    if not memoized:
+        cached = [
+            _eligibility_entry(s) if isinstance(s, dict) else None for s in stories
+        ]
+        # Bounded cache: eight recent revisions cover retry/rerun bursts.
+        if len(_ELIGIBILITY_INDEX_CACHE) >= 8:
+            _ELIGIBILITY_INDEX_CACHE.clear()
+        _ELIGIBILITY_INDEX_CACHE[digest] = cached
+    return {
+        "schema_version": 1,
+        "entries": cached,
+        "memoized": memoized,
+    }
+
+
+def _eligibility_query_facts(ctx: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    """Call-invariant query-side facts, computed once per selection."""
+    scene = ctx.get("active_scene") or {}
+    meta = ctx.get("module_meta") or {}
+    trigger = ctx.get("storylet_trigger") or {}
+    return {
+        "excluded_ids": frozenset(str(v) for v in _as_list(scene.get("excluded_storylet_ids"))),
+        "excluded_families": frozenset(str(v) for v in _as_list(scene.get("excluded_storylet_families"))),
+        "excluded_tropes": frozenset(str(v) for v in _as_list(scene.get("excluded_storylet_tropes"))),
+        "content_flags": frozenset(str(v) for v in _as_list(meta.get("content_flags"))),
+        "structure_type": ctx.get("structure_type") or meta.get("structure_type"),
+        "stype": _scene_type(ctx),
+        "intent_tags": frozenset(_intent_tags(ctx)),
+        "polarity": _non_empty_str(trigger.get("polarity") or policy.get("polarity")),
+        "scene_tags": frozenset(_scene_tags(ctx)),
+        "setting_tags": frozenset(_scene_setting_tags(ctx)),
+        "location_tags": frozenset(_scene_location_tags(ctx)),
+        "capabilities": frozenset(_scene_storylet_capabilities(ctx)),
+    }
+
+
 def _matches_epistemic_context(
     storylet: dict[str, Any],
     plan: dict[str, Any],
@@ -819,87 +930,94 @@ def _matches_epistemic_context(
     return False
 
 
-def _matches_context(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[str, Any], target_level: str) -> bool:
+def _matches_context(
+    storylet: dict[str, Any],
+    plan: dict[str, Any],
+    ctx: dict[str, Any],
+    target_level: str,
+    *,
+    entry: dict[str, Any] | None = None,
+    qf: dict[str, Any] | None = None,
+) -> bool:
     policy = ctx.get("storylet_policy") or {}
     scene = ctx.get("active_scene") or {}
     story_need = ctx.get("story_need") or infer_story_need(plan, ctx)
+    if entry is None:
+        entry = _eligibility_entry(storylet)
+    if qf is None:
+        qf = _eligibility_query_facts(ctx, policy)
     if not _matches_epistemic_context(storylet, plan, story_need):
         return False
-    if storylet.get("storylet_id") in set(_as_list(scene.get("excluded_storylet_ids"))):
+    if storylet.get("storylet_id") in qf["excluded_ids"]:
         return False
-    if storylet.get("family_id") in set(_as_list(scene.get("excluded_storylet_families"))):
+    if storylet.get("family_id") in qf["excluded_families"]:
         return False
-    if storylet.get("trope_id") in set(_as_list(scene.get("excluded_storylet_tropes"))):
+    if storylet.get("trope_id") in qf["excluded_tropes"]:
         return False
-    if not _storylet_serves_scenario(storylet):
+    if not entry["serves_ok"]:
         return False
     level = storylet.get("conflict_level", "low")
     if not _level_allowed(level, target_level, policy):
         return False
 
     action = plan.get("scene_action")
-    actions = set(_as_list(storylet.get("scene_actions")) + _as_list(storylet.get("dramatic_function")))
+    actions = entry["actions"]
     if actions and action not in actions and "ANY" not in actions:
         return False
 
-    structure_type = ctx.get("structure_type") or (ctx.get("module_meta") or {}).get("structure_type")
-    affinity = set(_as_list(storylet.get("structure_affinity")))
+    structure_type = qf["structure_type"]
+    affinity = entry["affinity"]
     if affinity and structure_type and structure_type not in affinity and "any" not in affinity:
         return False
 
-    stype = _scene_type(ctx)
-    eligible_scene_types = set(_as_list(storylet.get("eligible_scene_types")))
+    stype = qf["stype"]
+    eligible_scene_types = entry["scene_types"]
     if eligible_scene_types and stype and stype not in eligible_scene_types and "any" not in eligible_scene_types:
         return False
 
     horror = ((plan.get("narrative_directives") or {}).get("horror_escalation_stage") or "wrongness")
-    horror_ok = set(_as_list(storylet.get("horror_stage")))
+    horror_ok = entry["horror"]
     if horror_ok and horror not in horror_ok and "any" not in horror_ok:
         return False
 
-    excluded_flags = set(_as_list(storylet.get("not_for_content_flags")))
-    content_flags = set(_as_list((ctx.get("module_meta") or {}).get("content_flags")))
-    if excluded_flags & content_flags:
+    content_flags = qf["content_flags"]
+    if entry["not_flags"] & content_flags:
         return False
 
-    required_tags = set(_as_list(storylet.get("scene_tags")))
-    if required_tags and not (required_tags & _scene_tags(ctx)):
+    required_tags = entry["req_scene_tags"]
+    if required_tags and not (required_tags & qf["scene_tags"]):
         return False
 
     # Setting axis: storylets that declare setting_tags are only eligible when
     # the scene/module setting tags intersect. Empty/missing setting_tags means
     # setting-neutral (eligible in any setting). Structured tags only.
-    required_setting = set(_as_list(storylet.get("setting_tags")))
-    if required_setting and not (required_setting & _scene_setting_tags(ctx)):
+    required_setting = entry["setting"]
+    if required_setting and not (required_setting & qf["setting_tags"]):
         return False
 
     # Scene-function axis: context_requirements.location_tags_any gates beats
     # that only fit certain place functions (archive vs bar). Absent/empty means
     # no location gate. Structured tags only — never free-text matching.
-    context_req = storylet.get("context_requirements") or {}
-    if isinstance(context_req, dict):
-        required_locations = set(_as_list(context_req.get("location_tags_any")))
-        if required_locations and not (required_locations & _scene_location_tags(ctx)):
-            return False
-        required_capabilities = set(
-            _as_list(context_req.get("scene_capabilities_any"))
-        )
-        if required_capabilities and not (
-            required_capabilities & _scene_storylet_capabilities(ctx)
-        ):
-            return False
+    required_locations = entry["loc_any"]
+    if required_locations and not (required_locations & qf["location_tags"]):
+        return False
+    required_capabilities = entry["caps_any"]
+    if required_capabilities and not (
+        required_capabilities & qf["capabilities"]
+    ):
+        return False
 
-    intent_tags = _intent_tags(ctx)
-    eligible_intents = set(_as_list(storylet.get("eligible_intent_classes")))
+    intent_tags = qf["intent_tags"]
+    eligible_intents = entry["intents"]
     if eligible_intents and not (eligible_intents & intent_tags):
         return False
-    excluded_intents = set(_as_list(storylet.get("not_for_intent_classes")))
+    excluded_intents = entry["intent_excl"]
     if excluded_intents and (excluded_intents & intent_tags):
         return False
 
     trigger = ctx.get("storylet_trigger") or {}
-    polarity = _non_empty_str(trigger.get("polarity") or policy.get("polarity"))
-    allowed_polarity = set(_as_list(storylet.get("trigger_polarity") or storylet.get("polarity")))
+    polarity = qf["polarity"]
+    allowed_polarity = entry["polarity"]
     if polarity and allowed_polarity and polarity not in allowed_polarity and "mixed" not in allowed_polarity:
         return False
 
@@ -918,12 +1036,21 @@ def _matches_context(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[s
     return _requirements_met(storylet, plan, ctx)
 
 
-def _repeat_penalty(storylet: dict[str, Any], ledger: dict[str, Any]) -> float:
+def _repeat_penalty(
+    storylet: dict[str, Any],
+    ledger: dict[str, Any],
+    *,
+    session_used_storylets: list[str] | None = None,
+) -> float:
     anti = storylet.get("anti_repeat") or {}
     sid = storylet.get("storylet_id")
     family = storylet.get("family_id")
     trope = storylet.get("trope_id")
-    used_storylets = _used_storylet_ids_for_session(ledger)
+    used_storylets = (
+        session_used_storylets
+        if session_used_storylets is not None
+        else _used_storylet_ids_for_session(ledger)
+    )
     if sid and sid in used_storylets and int(anti.get("max_per_session", 1) or 1) <= used_storylets.count(sid):
         return 0.0
     if anti.get("exclude_if_family_used_recently", True) and family in _as_list(ledger.get("recent_families")):
@@ -938,8 +1065,20 @@ def _repeat_penalty(storylet: dict[str, Any], ledger: dict[str, Any]) -> float:
     return penalty
 
 
-def _score_storylet(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[str, Any], ledger: dict[str, Any], target_level: str) -> float:
-    penalty = _repeat_penalty(storylet, ledger)
+def _score_storylet(
+    storylet: dict[str, Any],
+    plan: dict[str, Any],
+    ctx: dict[str, Any],
+    ledger: dict[str, Any],
+    target_level: str,
+    *,
+    session_used_storylets: list[str] | None = None,
+) -> float:
+    penalty = _repeat_penalty(
+        storylet,
+        ledger,
+        session_used_storylets=session_used_storylets,
+    )
     if penalty <= 0.0:
         return 0.0
     score = float(storylet.get("base_weight", 1.0) or 1.0) * penalty
@@ -1231,7 +1370,17 @@ def select_storylet_moves(
     policy = ctx.get("storylet_policy") or {}
     story_need = ctx.get("story_need") or infer_story_need(plan, ctx)
     selection_ctx = {**ctx, "story_need": story_need}
-    storylets = [s for s in library.get("storylets", []) or [] if isinstance(s, dict)]
+    raw_storylets = [s for s in library.get("storylets", []) or []]
+    # Maintained eligibility index: static per-storylet facts parsed once per
+    # library revision (content-addressed memo), so normal selection stops
+    # rebuilding every tag set on each call. Entries align by position with
+    # the RAW storylet rows; a missing/short index falls back to per-call
+    # parsing inside ``_matches_context`` — identical comparisons either way.
+    index = storylet_eligibility_index(library)
+    entries = index["entries"]
+    if len(entries) != len(raw_storylets):
+        entries = [None] * len(raw_storylets)
+    storylets = [s for s in raw_storylets if isinstance(s, dict)]
 
     trace = {
         "schema_version": _SCHEMA_VERSION,
@@ -1239,6 +1388,11 @@ def select_storylet_moves(
         "story_need": story_need,
         "candidate_decks": story_need.get("candidate_decks", []),
         "target_conflict_level": target_level,
+        "selection_index": {
+            "schema_version": index["schema_version"],
+            "entry_count": sum(1 for entry in entries if entry is not None),
+            "memoized": index["memoized"],
+        },
         "candidate_counts": {
             "library_total": len(storylets),
             "after_context_filter": 0,
@@ -1252,18 +1406,38 @@ def select_storylet_moves(
     scored: list[tuple[dict[str, Any], float]] = []
     context_policy = {**policy, "ignore_story_need": True}
     context_ctx = {**selection_ctx, "storylet_policy": context_policy}
-    for storylet in storylets:
-        if not _matches_context(storylet, plan, context_ctx, target_level):
+    qf = _eligibility_query_facts(context_ctx, context_policy)
+    session_used_storylets = _used_storylet_ids_for_session(ledger)
+    for storylet, entry in zip(raw_storylets, entries):
+        if not isinstance(storylet, dict):
+            continue
+        if not _matches_context(storylet, plan, context_ctx, target_level, entry=entry, qf=qf):
             continue
         trace["candidate_counts"]["after_context_filter"] += 1
         # C1: skip the story_need deck gate for scene-tag-summoned storylets;
         # they were specifically requested by the scene's entry trigger.
-        if not _is_scene_tag_summoned(storylet, context_ctx) and _matching_deck_id(storylet, story_need) is None:
+        if (
+            not _is_scene_tag_summoned(storylet, context_ctx)
+            and _matching_deck_id(
+                storylet,
+                story_need,
+                deck_tags=(entry or {}).get("deck_tags") if entry else None,
+                storylet_functions=(entry or {}).get("functions") if entry else None,
+            )
+            is None
+        ):
             if len(trace["rejected_examples"]) < 5:
                 trace["rejected_examples"].append(_trace_storylet_ref(storylet, "deck_mismatch"))
             continue
         trace["candidate_counts"]["after_story_need_filter"] += 1
-        score = _score_storylet(storylet, plan, selection_ctx, ledger, target_level)
+        score = _score_storylet(
+            storylet,
+            plan,
+            selection_ctx,
+            ledger,
+            target_level,
+            session_used_storylets=session_used_storylets,
+        )
         if score > 0:
             trace["candidate_counts"]["after_anti_repeat"] += 1
             scored.append((storylet, score))
@@ -1382,6 +1556,14 @@ def select_storylet_moves(
         move["scheduler_trace"]["ledger_update"] = move["ledger_update"]
         moves.append(move)
         working_ledger = move["ledger_update"]
+        session_used_storylets = _used_storylet_ids_for_session(working_ledger)
         scored = [(s, sc) for s, sc in scored if s.get("storylet_id") != pick.get("storylet_id")]
-        scored = [(s, sc) for s, sc in scored if _repeat_penalty(s, working_ledger) > 0]
+        scored = [
+            (s, sc)
+            for s, sc in scored
+            if _repeat_penalty(
+                s, working_ledger, session_used_storylets=session_used_storylets
+            )
+            > 0
+        ]
     return moves
