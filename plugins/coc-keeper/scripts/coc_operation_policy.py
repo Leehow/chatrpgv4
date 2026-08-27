@@ -166,6 +166,17 @@ _DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
         "advisory": False,
         "kp_surface": "context",
     },
+    # events.* is the strict read-only narrowing surface over the rebuildable
+    # canonical-events projection (generation coc-events-1). Same class of
+    # context read as history.*: derived evidence, never authority, never a
+    # play gate; secret events stay Keeper-side behind the privacy view.
+    "events": {
+        "audience": "keeper",
+        "phases": ("live_turn", "pending_finalization", "recovery"),
+        "contract": "none",
+        "advisory": False,
+        "kp_surface": "context",
+    },
     # memory.* is the KP-facing temporal story-memory surface under schema
     # generation temporal-memory-1: memory.adjudicate and extraction settle
     # are state-contract mutations on the temporal store, while the strict

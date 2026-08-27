@@ -96,6 +96,7 @@ EXPECTED_NAMESPACES = {
     "memory",
     "history",
     "timeline",
+    "events",
 }
 
 def _write_json(path: Path, payload) -> None:

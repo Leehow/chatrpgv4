@@ -6,8 +6,11 @@ schema, the 12-type event registry, per-type closed payload schemas,
 deterministic semantic-ID construction, durable sequence allocation,
 emission (:func:`emit` into ``logs/canonical-events.jsonl`` through the
 campaign JSONL machinery), decision-id idempotency, and the choke-point
-"uncovered writes" sidecar. The projection rebuild (read-only SQLite)
-remains a later plan task.
+"uncovered writes" sidecar. It also owns the rebuildable read-only SQLite
+projection (``memory/events-projection.db``, generation ``coc-events-1``):
+the JSONL stream stays the sole canonical record and the database is a
+deletable cache rebuilt or incrementally applied after every successful
+emit.
 
 Standing law encoded by this contract:
 
@@ -39,6 +42,7 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
@@ -1352,6 +1356,690 @@ def settle_uncovered_writes(
 
 
 # ---------------------------------------------------------------------------
+# Rebuildable SQLite projection (generation coc-events-1)
+#
+# ``.coc/campaigns/<id>/memory/events-projection.db`` is a deletable,
+# rebuildable cache over ``logs/canonical-events.jsonl``. The JSONL stream
+# stays the sole canonical record; this cache never feeds back into state,
+# rules, or emission. Clean-slate law applies with full force: a corrupt,
+# unreadable, wrong-generation, or stale-source database is deleted and
+# rebuilt from the stream — never migrated, never dual-read.
+#
+# Determinism: rows are pure functions of validated records, so a full
+# rebuild and a suffix-incremental apply insert byte-identical logical
+# content (verified by :func:`events_projection_digest`). No wall-clock
+# fields are recorded anywhere.
+# ---------------------------------------------------------------------------
+
+MEMORY_DIR_NAME = "memory"
+EVENTS_PROJECTION_DB_NAME = "events-projection.db"
+EVENTS_PROJECTION_USER_VERSION = 1
+
+_EVENTS_PROJECTION_TABLES: tuple[str, ...] = (
+    "projection_meta",
+    "events",
+    "event_entities",
+)
+
+_EVENTS_PROJECTION_INDEXES: tuple[str, ...] = (
+    "idx_events_turn",
+    "idx_events_type",
+    "idx_events_privacy",
+    "idx_events_event_id",
+    "idx_event_entities_ref",
+    "idx_event_entities_role",
+)
+
+_EVENTS_PROJECTION_DDL: tuple[str, ...] = (
+    """
+    CREATE TABLE projection_meta (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        schema_generation TEXT NOT NULL,
+        source_name TEXT NOT NULL,
+        source_prefix_sha256 TEXT NOT NULL,
+        source_bytes_applied INTEGER NOT NULL,
+        source_lines_applied INTEGER NOT NULL,
+        event_count INTEGER NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE events (
+        campaign TEXT NOT NULL,
+        timeline TEXT NOT NULL,
+        sequence INTEGER NOT NULL,
+        turn INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        privacy TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        decision_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        game_time TEXT NOT NULL,
+        envelope_sha256 TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        PRIMARY KEY (campaign, timeline, sequence)
+    )
+    """,
+    """
+    CREATE TABLE event_entities (
+        campaign TEXT NOT NULL,
+        timeline TEXT NOT NULL,
+        sequence INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        entity_ref TEXT NOT NULL,
+        PRIMARY KEY (campaign, timeline, sequence, role, entity_ref),
+        FOREIGN KEY (campaign, timeline, sequence)
+            REFERENCES events (campaign, timeline, sequence)
+            ON DELETE CASCADE
+    )
+    """,
+    # Selector coverage required by the contract: campaign/timeline via the
+    # primary key prefix, plus turn / type / privacy / identity lookups.
+    "CREATE INDEX idx_events_turn ON events (turn)",
+    "CREATE INDEX idx_events_type ON events (event_type)",
+    "CREATE INDEX idx_events_privacy ON events (privacy)",
+    "CREATE UNIQUE INDEX idx_events_event_id ON events (event_id)",
+    "CREATE INDEX idx_event_entities_ref ON event_entities (entity_ref)",
+    "CREATE INDEX idx_event_entities_role ON event_entities (role)",
+)
+
+# Payload fields whose frozen kind marks them structured entity references:
+# extraction is schema-driven (declared kind -> row), never content
+# inference. Envelope attributes stay on the events row itself.
+_ENTITY_REF_FIELD_KINDS = frozenset({"ref", "semantic_id", "id_list"})
+
+
+class EventsProjectionError(CanonicalEventsContractError):
+    """A projection build, apply, or integrity failure.
+
+    The canonical JSONL stream and every other campaign artifact remain
+    untouched; callers are expected to heal a projection cache through a
+    fresh rebuild.
+    """
+
+
+class _ProjectionCacheMismatch(EventsProjectionError):
+    """Internal signal: the existing cache cannot serve this source.
+
+    Callers translate this into delete-and-rebuild; it is never surfaced as
+    an application-level failure on its own.
+    """
+
+
+def events_projection_dir(campaign_logs_dir: Path | str) -> Path:
+    """``<campaign>/memory`` directory owning the projection database."""
+    return Path(campaign_logs_dir).parent / MEMORY_DIR_NAME
+
+
+def events_projection_path(campaign_logs_dir: Path | str) -> Path:
+    return events_projection_dir(campaign_logs_dir) / EVENTS_PROJECTION_DB_NAME
+
+
+def payload_entity_refs(event_type: str, data: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """Structured ``(role, entity_ref)`` pairs implied by the frozen payload
+    schema: one pair per declared ref/semantic-id/id-list field value.
+
+    Schema-driven structural extraction only — no keyword, regex, or prose
+    classification ever decides what counts as an entity reference (semantic
+    matcher constitution); the closed field-kind table already decided.
+    """
+    if event_type not in EVENT_TYPES:
+        raise ClosedEnumError(
+            f"entity-ref extraction bound to unknown event type {event_type!r}",
+            record_kind=f"{event_type} payload",
+            value=event_type,
+        )
+    kinds = PAYLOAD_FIELD_KINDS[event_type]
+    refs: list[tuple[str, str]] = []
+    for field in sorted(kinds):
+        if field not in data or data[field] is None:
+            continue
+        base_kind = kinds[field].split(":", 1)[0]
+        if base_kind not in _ENTITY_REF_FIELD_KINDS:
+            continue
+        value = data[field]
+        values = list(value) if isinstance(value, (list, tuple)) else [value]
+        for item in values:
+            refs.append((field, str(item)))
+    return refs
+
+
+def _connect_projection(db_path: Path, *, create: bool = False) -> sqlite3.Connection:
+    try:
+        if create:
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(db_path)
+    except sqlite3.Error as exc:
+        raise EventsProjectionError(
+            f"cannot open events projection database {db_path}: {exc}",
+        ) from exc
+    connection.row_factory = sqlite3.Row
+    try:
+        # Single-file journal mode is load-bearing: the cache is published by
+        # renaming one file over the target, so WAL sidecars must not exist.
+        connection.execute("PRAGMA journal_mode = DELETE")
+        connection.execute("PRAGMA foreign_keys = ON")
+        if create:
+            with connection:
+                for statement in _EVENTS_PROJECTION_DDL:
+                    connection.execute(statement)
+            connection.execute(
+                f"PRAGMA user_version = {EVENTS_PROJECTION_USER_VERSION}"
+            )
+            connection.commit()
+    except sqlite3.Error as exc:
+        connection.close()
+        raise EventsProjectionError(
+            f"cannot initialize events projection database {db_path}: {exc}",
+        ) from exc
+    return connection
+
+
+def _read_projection_meta(connection: sqlite3.Connection) -> dict[str, Any]:
+    """Return the cached source coverage, or raise ``_ProjectionCacheMismatch``
+    for anything that is not an intact current-generation database."""
+    try:
+        user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        if user_version != EVENTS_PROJECTION_USER_VERSION:
+            raise _ProjectionCacheMismatch(
+                f"events projection user_version={user_version!r}, expected "
+                f"{EVENTS_PROJECTION_USER_VERSION!r} ({SCHEMA_GENERATION})"
+            )
+        present = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        missing = [name for name in _EVENTS_PROJECTION_TABLES if name not in present]
+        if missing:
+            raise _ProjectionCacheMismatch(
+                "events projection missing tables: " + ", ".join(missing)
+            )
+        indexes = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            )
+        }
+        missing_idx = [
+            name for name in _EVENTS_PROJECTION_INDEXES if name not in indexes
+        ]
+        if missing_idx:
+            raise _ProjectionCacheMismatch(
+                "events projection missing indexes: " + ", ".join(missing_idx)
+            )
+        integrity = [
+            str(row[0]) for row in connection.execute("PRAGMA integrity_check")
+        ]
+        if integrity != ["ok"]:
+            raise _ProjectionCacheMismatch(
+                "events projection failed integrity check: "
+                + "; ".join(integrity[:4])
+            )
+        row = connection.execute(
+            "SELECT * FROM projection_meta WHERE singleton = 1"
+        ).fetchone()
+    except _ProjectionCacheMismatch:
+        raise
+    except sqlite3.Error as exc:
+        raise _ProjectionCacheMismatch(
+            f"events projection unreadable or corrupt: {exc}"
+        ) from exc
+    if row is None:
+        raise _ProjectionCacheMismatch("events projection has no meta row")
+    meta = dict(row)
+    if meta.get("schema_generation") != SCHEMA_GENERATION:
+        raise _ProjectionCacheMismatch(
+            f"events projection generation {meta.get('schema_generation')!r} "
+            f"!= {SCHEMA_GENERATION!r}; the cache is rebuilt, never migrated"
+        )
+    if meta.get("source_name") != CANONICAL_STREAM_NAME:
+        raise _ProjectionCacheMismatch(
+            f"events projection covers {meta.get('source_name')!r}, expected "
+            f"{CANONICAL_STREAM_NAME!r}"
+        )
+    return meta
+
+
+def _row_for_record(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Insertion-ready ``events`` row: a pure function of the record."""
+    return {
+        "campaign": record["campaign"],
+        "timeline": record["timeline"],
+        "sequence": record["sequence"],
+        "turn": record["turn"],
+        "event_type": record["type"],
+        "privacy": record["privacy"],
+        "event_id": record["id"],
+        "decision_id": record["decision_id"],
+        "source": record["source"],
+        "game_time": record["game_time"],
+        "envelope_sha256": record_digest(record),
+        "payload_json": canonical_json(record["data"]),
+    }
+
+
+def _insert_projection_rows(
+    connection: sqlite3.Connection, record: Mapping[str, Any]
+) -> None:
+    connection.execute(
+        "INSERT INTO events (campaign, timeline, sequence, turn, event_type,"
+        " privacy, event_id, decision_id, source, game_time, envelope_sha256,"
+        " payload_json) VALUES (:campaign, :timeline, :sequence, :turn,"
+        " :event_type, :privacy, :event_id, :decision_id, :source, :game_time,"
+        " :envelope_sha256, :payload_json)",
+        _row_for_record(record),
+    )
+    connection.executemany(
+        "INSERT INTO event_entities (campaign, timeline, sequence, role,"
+        " entity_ref) VALUES (?, ?, ?, ?, ?)",
+        [
+            (
+                record["campaign"],
+                record["timeline"],
+                record["sequence"],
+                role,
+                entity_ref,
+            )
+            for role, entity_ref in payload_entity_refs(
+                record["type"], record["data"]
+            )
+        ],
+    )
+
+
+def events_projection_digest(connection: sqlite3.Connection) -> str:
+    """Deterministic SHA-256 over generation + every projection row
+    (canonical JSON, sorted): depends only on logical content, never on
+    insertion order, rowids, or wall clock. Machine-internal evidence."""
+    hasher = hashlib.sha256()
+    hasher.update(f"schema-generation:{SCHEMA_GENERATION}\n".encode("utf-8"))
+    for table in _EVENTS_PROJECTION_TABLES:
+        cursor = connection.execute(f'SELECT * FROM "{table}"')
+        columns = [str(desc[0]) for desc in cursor.description or ()]
+        lines = sorted(
+            canonical_json(
+                {
+                    "columns": columns,
+                    "row": dict(zip(columns, tuple(row))),
+                }
+            )
+            for row in cursor.fetchall()
+        )
+        hasher.update(f"table:{table}:{len(lines)}\n".encode("utf-8"))
+        for line in lines:
+            hasher.update(line.encode("utf-8"))
+            hasher.update(b"\n")
+    return hasher.hexdigest()
+
+
+def _read_validated_stream(stream: Path) -> list[dict[str, Any]]:
+    """Parse and validate the whole canonical stream; raise typed errors
+    naming the offending line for malformed JSON or schema violations.
+    The stream itself is authoritative evidence — a broken line is never
+    silently skipped here."""
+    records: list[dict[str, Any]] = []
+    if not stream.is_file():
+        return records
+    with stream.open("r", encoding="utf-8") as handle:
+        for number, line in enumerate(handle, start=1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                record = json.loads(stripped)
+                validate_event(record)
+            except (json.JSONDecodeError, CanonicalEventsContractError) as exc:
+                raise EventsProjectionError(
+                    f"canonical stream {stream} line {number} failed "
+                    f"validation: {exc}"
+                ) from exc
+            records.append(record)
+    return records
+
+
+def _validate_and_publish(logs_path: Path) -> dict[str, Any]:
+    """Full rebuild: parse the whole stream, build a validated fresh
+    database at a temp path, atomically publish it over the cache."""
+    db_path = events_projection_path(logs_path)
+    records = _read_validated_stream(canonical_stream_path(logs_path))
+    consumed_bytes = 0
+    consumed_lines = 0
+    stream = canonical_stream_path(logs_path)
+    if stream.is_file():
+        raw = stream.read_bytes()
+        consumed_bytes = len(raw)
+        consumed_lines = sum(1 for line in raw.splitlines() if line.strip())
+    prefix_hasher = hashlib.sha256()
+    if stream.is_file():
+        prefix_hasher.update(stream.read_bytes())
+    temp_path = db_path.parent / (
+        f".{EVENTS_PROJECTION_DB_NAME}.{os.getpid()}.tmp"
+    )
+    try:
+        connection = _connect_projection(temp_path, create=True)
+        try:
+            with connection:
+                for record in records:
+                    _insert_projection_rows(connection, record)
+                connection.execute(
+                    "INSERT INTO projection_meta (singleton, schema_generation,"
+                    " source_name, source_prefix_sha256, source_bytes_applied,"
+                    " source_lines_applied, event_count) VALUES (1, ?, ?, ?,"
+                    " ?, ?, ?)",
+                    (
+                        SCHEMA_GENERATION,
+                        CANONICAL_STREAM_NAME,
+                        prefix_hasher.hexdigest(),
+                        consumed_bytes,
+                        consumed_lines,
+                        len(records),
+                    ),
+                )
+            digest = events_projection_digest(connection)
+        finally:
+            connection.close()
+        # Publication validation: fail closed unless the temp database is an
+        # intact current-generation build before replacing the live cache.
+        probe = _connect_projection(temp_path)
+        try:
+            _read_projection_meta(probe)
+        finally:
+            probe.close()
+        os.replace(temp_path, db_path)
+    except BaseException:
+        try:
+            temp_path.unlink()
+        except OSError:
+            pass
+        raise
+    return {
+        "status": "rebuilt",
+        "schema_generation": SCHEMA_GENERATION,
+        "db_path": str(db_path),
+        "event_count": len(records),
+        "source_bytes_applied": consumed_bytes,
+        "source_lines_applied": consumed_lines,
+        "content_digest": digest,
+    }
+
+
+def _try_incremental_apply(
+    connection: sqlite3.Connection, meta: dict[str, Any], stream: Path
+) -> dict[str, Any] | None:
+    """Apply the unconsumed suffix of the stream inside one transaction.
+
+    Returns a status envelope, or ``None`` to signal the caller that this
+    cache must be fully rebuilt (stale prefix, shrunken source, torn or
+    invalid tail). Never mutates half of anything: validation happens before
+    the transaction opens, and any failure rolls the transaction back whole.
+    """
+    applied = meta["source_bytes_applied"]
+    size = stream.stat().st_size
+    if size < applied:
+        return None
+    hasher = hashlib.sha256()
+    with stream.open("rb") as handle:
+        remaining = applied
+        while remaining > 0:
+            chunk = handle.read(min(remaining, 1 << 20))
+            if not chunk:
+                return None
+            hasher.update(chunk)
+            remaining -= len(chunk)
+        if hasher.hexdigest() != meta["source_prefix_sha256"]:
+            return None
+        tail = handle.read()
+    newline = tail.rfind(b"\n")
+    complete = tail[: newline + 1] if newline >= 0 else b""
+    if not complete:
+        return {"status": "unchanged", "event_count": meta["event_count"]}
+    pending_records: list[dict[str, Any]] = []
+    pending_lines = 0
+    for number, raw_line in enumerate(complete.splitlines(), start=1):
+        stripped = raw_line.strip()
+        if not stripped:
+            pending_lines += 1
+            continue
+        try:
+            record = json.loads(stripped.decode("utf-8"))
+            validate_event(record)
+        except (
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            CanonicalEventsContractError,
+        ) as exc:
+            raise EventsProjectionError(
+                f"canonical stream {stream} unapplied line {number} failed "
+                f"validation: {exc}"
+            ) from exc
+        pending_records.append(record)
+        pending_lines += 1
+    hasher.update(complete)
+    new_offset = applied + len(complete)
+    try:
+        with connection:
+            for record in pending_records:
+                _insert_projection_rows(connection, record)
+            connection.execute(
+                "UPDATE projection_meta SET source_prefix_sha256 = ?,"
+                " source_bytes_applied = ?, source_lines_applied ="
+                " source_lines_applied + ?, event_count = event_count + ?"
+                " WHERE singleton = 1",
+                (
+                    hasher.hexdigest(),
+                    new_offset,
+                    pending_lines,
+                    len(pending_records),
+                ),
+            )
+    except sqlite3.Error:
+        return None
+    updated = dict(meta)
+    updated.update(
+        {
+            "source_prefix_sha256": hasher.hexdigest(),
+            "source_bytes_applied": new_offset,
+            "source_lines_applied": meta["source_lines_applied"] + pending_lines,
+            "event_count": meta["event_count"] + len(pending_records),
+        }
+    )
+    return {
+        "status": "incremental",
+        "event_count": updated["event_count"],
+        "applied_count": len(pending_records),
+    }
+
+
+def apply_events_projection(campaign_logs_dir: Path | str) -> dict[str, Any]:
+    """Bring the projection cache up to date with the canonical stream.
+
+    Incremental-suffix apply for a verified current-generation cache;
+    delete-and-rebuild for anything else (missing, corrupt, wrong
+    generation, stale/torn coverage). Both paths yield logically identical
+    contents because rows are pure functions of validated records.
+    """
+    logs_path = Path(campaign_logs_dir)
+    stream = canonical_stream_path(logs_path)
+    db_path = events_projection_path(logs_path)
+    if db_path.exists() and not db_path.is_file():
+        raise EventsProjectionError(
+            f"events projection path is not a regular file: {db_path}"
+        )
+    if not db_path.exists():
+        return _validate_and_publish(logs_path)
+    try:
+        connection = _connect_projection(db_path)
+        try:
+            meta = _read_projection_meta(connection)
+            if not stream.is_file():
+                if meta["source_bytes_applied"] == 0:
+                    return {
+                        "status": "unchanged",
+                        "event_count": meta["event_count"],
+                    }
+                # Source shrank to nothing underneath a non-empty cache:
+                # republish an empty current-generation cache (projection
+                # code never touches the stream itself).
+                return _validate_and_publish(logs_path)
+            result = _try_incremental_apply(connection, meta, stream)
+        finally:
+            connection.close()
+    except _ProjectionCacheMismatch:
+        return _validate_and_publish(logs_path)
+    except EventsProjectionError:
+        # An invalid suffix means some byte range the prefix verification
+        # already blessed is unreadable: rebuild is both the heal and the
+        # honest diagnostic surface for genuinely damaged evidence.
+        return _validate_and_publish(logs_path)
+    if result is None:
+        return _validate_and_publish(logs_path)
+    return result
+
+
+def rebuild_events_projection(campaign_logs_dir: Path | str) -> dict[str, Any]:
+    """Discard whatever cache exists and rebuild it from the full stream."""
+    logs_path = Path(campaign_logs_dir)
+    return _validate_and_publish(logs_path)
+
+
+def query_events(
+    campaign_logs_dir: Path | str,
+    *,
+    timeline: str | None = None,
+    turn_from: int | None = None,
+    turn_to: int | None = None,
+    types: Iterable[str] | None = None,
+    privacy: str = "public",
+    entity_refs: Iterable[str] | None = None,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Structured, sequence-ordered read over the events projection.
+
+    Filters are structured selectors only: exact timeline id, inclusive turn
+    range, closed enum of event types, closed privacy view, and exact entity
+    refs matched structurally against ``event_entities``. ``privacy`` defaults
+    to ``"public"`` so player-facing queries can never observe secret events;
+    ``"secret"`` and ``"all"`` views stay Keeper-side. Rows come back grouped
+    by timeline ascending then ``sequence`` ascending. The cache self-heals
+    first (:func:`apply_events_projection`), so a stale or corrupt database
+    never answers a query.
+    """
+    if privacy not in PRIVACY_LEVELS and privacy != "all":
+        raise PrivacyError(
+            f"query privacy={privacy!r} not in {[ PRIVACY_LEVELS, 'all']} views",
+            record_kind="events.query",
+            field="privacy",
+            value=privacy,
+        )
+    selected_types: list[str] = []
+    for event_type in types or ():
+        if event_type not in EVENT_TYPES:
+            raise ClosedEnumError(
+                f"query type {event_type!r} not in closed enum of {len(EVENT_TYPES)}"
+                " event types",
+                record_kind="events.query",
+                field="types",
+                value=event_type,
+            )
+        selected_types.append(event_type)
+    selected_refs = [str(ref) for ref in (entity_refs or ())]
+    if limit is not None and (not isinstance(limit, int) or isinstance(limit, bool)):
+        raise CanonicalEventsContractError(
+            f"query limit must be an integer, got {limit!r}",
+            record_kind="events.query",
+            field="limit",
+            value=limit,
+        )
+    if limit is not None and limit < 1:
+        raise CanonicalEventsContractError(
+            f"query limit must be >= 1, got {limit!r}",
+            record_kind="events.query",
+            field="limit",
+            value=limit,
+        )
+    effective_limit = limit if limit is not None else 100
+
+    logs_path = Path(campaign_logs_dir)
+    apply_events_projection(logs_path)
+    connection = _connect_projection(events_projection_path(logs_path))
+    try:
+        # Every row in this campaign's projection came from this campaign's
+        # own stream; the campaign id is the directory's own semantic name.
+        clauses = ["e.campaign = ?"]
+        params: list[Any] = [Path(logs_path).parent.name]
+        if timeline is not None:
+            clauses.append("e.timeline = ?")
+            params.append(timeline)
+        for label, bound, comparator in (
+            ("turn_from", turn_from, ">="),
+            ("turn_to", turn_to, "<="),
+        ):
+            if bound is None:
+                continue
+            if (
+                not isinstance(bound, int)
+                or isinstance(bound, bool)
+                or bound < TURN_MIN
+            ):
+                raise CanonicalEventsContractError(
+                    f"query {label} must be an int >= {TURN_MIN}, got {bound!r}",
+                    record_kind="events.query",
+                    field=label,
+                    value=bound,
+                )
+            clauses.append(f"e.turn {comparator} ?")
+            params.append(bound)
+        if selected_types:
+            clauses.append(
+                "e.event_type IN (" + ",".join("?" for _ in selected_types) + ")"
+            )
+            params.extend(selected_types)
+        if privacy != "all":
+            clauses.append("e.privacy = ?")
+            params.append(privacy)
+        for entity_ref in selected_refs:
+            clauses.append(
+                "EXISTS (SELECT 1 FROM event_entities r WHERE"
+                " r.campaign = e.campaign AND r.timeline = e.timeline"
+                " AND r.sequence = e.sequence AND r.entity_ref = ?)"
+            )
+            params.append(entity_ref)
+        sql = (
+            "SELECT e.timeline, e.sequence, e.turn, e.event_type, e.privacy,"
+            " e.event_id, e.decision_id, e.source, e.game_time, e.payload_json"
+            " FROM events e WHERE "
+            + " AND ".join(clauses)
+            + " ORDER BY e.timeline ASC, e.sequence ASC LIMIT ?"
+        )
+        params.append(effective_limit)
+        rows = connection.execute(sql, params).fetchall()
+    finally:
+        connection.close()
+    events = [
+        {
+            "id": row["event_id"],
+            "type": row["event_type"],
+            "timeline": row["timeline"],
+            "turn": row["turn"],
+            "sequence": row["sequence"],
+            "game_time": row["game_time"],
+            "privacy": row["privacy"],
+            "decision_id": row["decision_id"],
+            "source": row["source"],
+            "data": json.loads(row["payload_json"]),
+        }
+        for row in rows
+    ]
+    return {
+        "schema_generation": SCHEMA_GENERATION,
+        "count": len(events),
+        "truncated": len(events) >= effective_limit,
+        "events": events,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Public emit API
 # ---------------------------------------------------------------------------
 
@@ -1443,16 +2131,34 @@ def emit(
 
     _coc_state.append_jsonl(canonical_stream_path(logs_path), event)
     _remember_emitted(logs_path, event)
+    # Incremental projection apply AFTER successful persistence: rows are a
+    # pure function of validated records, so this hook converges to exactly
+    # what a full rebuild would produce. Best-effort by design — the canonical
+    # line is already durable, and every query path self-heals the cache.
+    try:
+        apply_events_projection(logs_path)
+    except Exception:  # noqa: BLE001 - cache upkeep never breaks emission
+        pass
     return dict(event)
 
 
 __all__ = [
     "CANONICAL_STREAM_NAME",
+    "EVENTS_PROJECTION_DB_NAME",
+    "EVENTS_PROJECTION_USER_VERSION",
+    "EventsProjectionError",
     "FileSequenceAllocator",
     "UNCOVERED_LEDGER_NAME",
     "SEQUENCE_CURSOR_NAME",
     "classify_campaign_log_append",
     "emit",
+    "events_projection_dir",
+    "events_projection_path",
+    "apply_events_projection",
+    "rebuild_events_projection",
+    "query_events",
+    "events_projection_digest",
+    "payload_entity_refs",
     "max_sequences_in_stream",
     "note_choked_append",
     "reset_emission_runtime_state",
