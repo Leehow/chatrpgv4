@@ -20,6 +20,7 @@ from coc_operation_kernel_runtime import (
     coc_npc_state,
     coc_subsystem_executor,
     deepcopy,
+    emit_core_canonical_event,
     tool,
 )
 
@@ -450,6 +451,23 @@ def _tool_state_item_grant(ctx: Ctx, args: dict[str, Any]):
                 "label": label,
                 "note": note,
             })
+            _npc_item_payload: dict[str, Any] = {
+                "_v": 1,
+                "item": item_id,
+                "from_holder": "keeper",
+                "to_holder": npc_id,
+            }
+            emit_core_canonical_event(
+                ctx,
+                event_type="item-transferred",
+                source="coc_operation_inventory_mechanics.item_grant",
+                decision_id=(
+                    str(args.get("decision_id") or "").strip()
+                    or f"item-grant:npc:{npc_id}:{item_id}"
+                ),
+                data=_npc_item_payload,
+                privacy="secret",
+            )
         data = {
             "npc_id": npc_id,
             "kind": kind,
@@ -482,6 +500,26 @@ def _tool_state_item_grant(ctx: Ctx, args: dict[str, Any]):
             "label": label,
             "note": note,
         })
+        _inv_item_payload: dict[str, Any] = {
+            "_v": 1,
+            "item": item_id,
+            "from_holder": "keeper",
+            "to_holder": investigator_id,
+        }
+        if isinstance(quantity, int) and not isinstance(quantity, bool) and quantity >= 1:
+            _inv_item_payload["qty"] = quantity
+        if str(note or "").strip():
+            _inv_item_payload["reason"] = str(note)
+        emit_core_canonical_event(
+            ctx,
+            event_type="item-transferred",
+            source="coc_operation_inventory_mechanics.item_grant",
+            decision_id=(
+                str(args.get("decision_id") or "").strip()
+                or f"item-grant:{investigator_id}:{item_id}"
+            ),
+            data=_inv_item_payload,
+        )
     data = {
         "investigator_id": investigator_id,
         "kind": kind,

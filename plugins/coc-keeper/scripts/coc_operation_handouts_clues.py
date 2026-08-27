@@ -19,6 +19,7 @@ from coc_operation_kernel_runtime import (
     coc_handouts,
     coc_module_project,
     deepcopy,
+    emit_core_canonical_event,
     hashlib,
     tool,
 )
@@ -428,6 +429,40 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
                 "source_event_id": source_event_id,
             })
         ctx.log_event(clue_event)
+        _party = [str(row) for row in ctx.party_ids() if str(row).strip()]
+        _discovered_by = _party[0] if len(_party) == 1 else "party"
+        _clue_payload: dict[str, Any] = {
+            "_v": 1,
+            "clue_id": clue_id,
+            "discovered_by": _discovered_by,
+        }
+        _clue_method = str(args.get("method") or "").strip()
+        if _clue_method:
+            _clue_payload["method"] = _clue_method
+        if active:
+            _clue_payload["scene_ref"] = str(active)
+        if linked_handout_newly:
+            _clue_payload["handout_ref"] = str(linked_handout_newly[0])
+        _clue_visibility = (
+            str((clue or {}).get("visibility") or "player-safe")
+            .strip().lower()
+        )
+        emit_core_canonical_event(
+            ctx,
+            event_type="clue-discovered",
+            source="coc_operation_handouts_clues.record_clue",
+            decision_id=(
+                decision_id or f"record-clue:{active}:{clue_id}"
+            ),
+            data=_clue_payload,
+            privacy=(
+                "public"
+                if _clue_visibility in {
+                    "player_visible", "player-safe", "public", "",
+                }
+                else "secret"
+            ),
+        )
 
     if isinstance(scene_contract, dict):
         if clue is not None:

@@ -42,13 +42,25 @@ from coc_operation_kernel_runtime import (
     coc_turn_finalization,
     coc_turn_manifest,
     deepcopy,
+    emit_core_canonical_event,
     hashlib,
     json,
+    re,
     time,
     tool,
 )
 
 from contextlib import ExitStack
+
+
+def _journal_declared_kind(args: dict[str, Any]) -> str:
+    """Authoritative declared-kind token: the KP-supplied intent class when
+    it already satisfies the canonical token grammar, otherwise the plain
+    free-form declaration shape. Never classified from player prose."""
+    raw = str(args.get("intent_class") or "").strip()
+    if raw and re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}", raw):
+        return raw
+    return "freeform"
 
 coc_narration_style = _load_sibling(
     "coc_narration_style_toolbox", "coc_narration_style.py"
@@ -1370,6 +1382,29 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
         "player_action": args.get("player_action"),
         "summary": str(args["summary"]),
     })
+    _declared_payload: dict[str, Any] = {
+        "_v": 1,
+        "declared_kind": _journal_declared_kind(args),
+    }
+    _declared_note = str(args.get("player_action") or "").strip()
+    if _declared_note:
+        _declared_payload["note"] = _declared_note[:400]
+    emit_core_canonical_event(
+        ctx,
+        event_type="player-declared",
+        source="coc_operation_turn_output.journal",
+        decision_id=f"{decision_id}-declared",
+        data=_declared_payload,
+        turn=int(pacing["turn_number"]),
+    )
+    emit_core_canonical_event(
+        ctx,
+        event_type="turn-started",
+        source="coc_operation_turn_output.journal",
+        decision_id=f"{decision_id}-turn-started",
+        data={"_v": 1},
+        turn=int(pacing["turn_number"]),
+    )
     coc_state.append_jsonl(
         ctx.campaign_dir / "memory" / "session-summaries.jsonl",
         {

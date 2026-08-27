@@ -37,6 +37,7 @@ from coc_operation_kernel_runtime import (
     coc_storylets,
     coc_time,
     deepcopy,
+    emit_core_canonical_event,
     hashlib,
     json,
     random,
@@ -1152,6 +1153,26 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
         "reason": args.get("reason"),
         "decision_id": args.get("decision_id"),
     })
+    _scene_payload: dict[str, Any] = {
+        "_v": 1,
+        "to_scene": target,
+        "moved_by": "kp",
+    }
+    if active:
+        _scene_payload["from_scene"] = str(active)
+    _move_reason = str(args.get("reason") or "").strip()
+    if _move_reason:
+        _scene_payload["reason"] = _move_reason
+    emit_core_canonical_event(
+        ctx,
+        event_type="scene-moved",
+        source="coc_operation_scene_advisory.move_scene",
+        decision_id=(
+            str(args.get("decision_id") or "").strip()
+            or f"move-scene:{active}:{target}"
+        ),
+        data=_scene_payload,
+    )
     data = {
         "from_scene_id": active,
         "to_scene_id": target,

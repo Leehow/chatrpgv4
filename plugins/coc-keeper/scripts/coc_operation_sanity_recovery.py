@@ -8,6 +8,7 @@ from coc_operation_kernel_runtime import (
     ToolError,
     _active_scene,
     _execute_subsystem_command,
+    emit_core_canonical_event,
     _player_mechanical_snapshot,
     _player_state_receipt,
     _read_optional_json,
@@ -220,6 +221,26 @@ def _tool_rules_sanity_check(ctx: Ctx, args: dict[str, Any]):
         "source": source,
         "trigger_id": trigger_id or None,
     })
+    _san_delta = int(san_after) - int(san_before)
+    if _san_delta != 0:
+        _san_payload: dict[str, Any] = {
+            "_v": 1,
+            "investigator": investigator_id,
+            "delta": _san_delta,
+            "cause": source,
+            "before": int(san_before),
+            "after": int(san_after),
+        }
+        _san_source_roll = loss_roll_id or roll_ids.get("check_roll_id")
+        if _san_source_roll:
+            _san_payload["source_roll_id"] = str(_san_source_roll)
+        emit_core_canonical_event(
+            ctx,
+            event_type="sanity-changed",
+            source="coc_operation_sanity_recovery.sanity_check",
+            decision_id=str(args.get("decision_id") or ""),
+            data=_san_payload,
+        )
     session_events: list[dict[str, Any]] = []
     for row in new_events:
         row_payload = (
