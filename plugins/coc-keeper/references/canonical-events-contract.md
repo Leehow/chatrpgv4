@@ -264,6 +264,15 @@ keys stay machine tokens.
 `finalization_id` points at the authoritative receipt; the event adds stream
 ordering, not a second copy of the receipt body.
 
+Ordering: `turn-finalized` is the turn's **authoritative release boundary** —
+it closes mechanics/state settlement and player-output release — and it is
+not guaranteed to be the physical last JSONL record of its turn.
+Finalization-bound advisory derivations that require the settled episode may
+follow it with the same `turn` number; in schema v1 the only such allowed
+type is `memory-written`. Consumers must order and close on `type` +
+`sequence` and treat `turn-finalized` as the release boundary, never infer
+closure from file-tail position.
+
 ## Emitter Contract (for wiring tasks)
 
 - Emit strictly post-settlement; failures inside state/rules writes leave no

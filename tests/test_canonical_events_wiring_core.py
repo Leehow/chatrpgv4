@@ -505,6 +505,17 @@ def test_finalize_binds_receipt_and_orders_stream_tail(
     assert data["_v"] == 1
     assert data["finalization_id"] == finalized["finalization_id"]
     assert roll["roll_id"] in (data.get("settled_roll_ids") or [])
-    # The closing line is the last thing this turn appends to the stream.
+    # `turn-finalized` is the played turn's release boundary, not its
+    # physical tail row: every same-turn authoritative event must precede
+    # it, while any later same-turn rows may only be the v1-allowed
+    # post-finalization advisory derivation (`memory-written`). Consumers
+    # order on `type` + `sequence`, never on file-tail position.
     stream = _stream_rows(ws)
-    assert stream[-1]["type"] == "turn-finalized"
+    same_turn = [entry for entry in stream if entry["turn"] == row["turn"]]
+    after_finalize = same_turn[same_turn.index(row) + 1:]
+    assert all(entry["type"] == "memory-written" for entry in after_finalize)
+    assert all(
+        entry["sequence"] < row["sequence"]
+        for entry in same_turn
+        if entry["type"] not in ("turn-finalized", "memory-written")
+    )
