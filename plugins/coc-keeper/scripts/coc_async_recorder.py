@@ -245,15 +245,29 @@ class JsonlRecorder:
         target = Path(path)
         if not self.async_enabled:
             _append_jsonl_sync(target, record)
+            self._note_uncovered(target, record)
             return
         relative = _relative_path(self.campaign_dir, target)
         if relative is None:
             _append_jsonl_sync(target, record)
+            self._note_uncovered(target, record)
             return
         self.entries.append({
             "relative_path": relative,
             "record": record,
         })
+        # Sidecar evaluated once per logical write, at enqueue time: the
+        # "same turn" coverage window is the enqueue turn.
+        self._note_uncovered(target, record)
+
+    @staticmethod
+    def _note_uncovered(path: Path, record: dict[str, Any]) -> None:
+        try:
+            import coc_canonical_events as _canonical_events
+
+            _canonical_events.note_choked_append(path, record)
+        except Exception:
+            pass
 
     def commit(self) -> Path | None:
         """Persist queued entries to logs/pending-turns and return the batch path."""
