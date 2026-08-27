@@ -145,6 +145,33 @@ def test_play_prompt_clue_discover_requires_record_before_prose() -> None:
     assert "coc_state_record_clue" not in _constitution(play)
 
 
+def test_play_discovery_exception_cannot_drift_from_constitution_ban() -> None:
+    """The shared constitution bans discovery on the ordinary live KP path;
+    the play body must keep teaching the single exact-operation exception
+    together with the no-argument / whole-domain prohibition, so removing
+    either half fails here."""
+    play = PLAY.read_text(encoding="utf-8")
+    constitution = _constitution(play)
+    assert (
+        "do not call `coc_invoke`, `coc_discover`, or `coc_capabilities` on the ordinary live kp path"
+        in " ".join(constitution.split()).lower()
+    )
+    body = play.replace(constitution, "")
+    compact_body = " ".join(body.split()).lower()
+    assert '{"operation":"memory.recall"}' in compact_body
+    assert "never call `coc_discover` with no arguments" in compact_body
+    assert "never discover a whole domain/namespace" in compact_body
+    # The long-tail temporal/transcript exception is play-only guidance.
+    setup = SETUP.read_text(encoding="utf-8")
+    for marker in (
+        '"operation":"memory.recall"',
+        "coc_memory_extraction_status",
+        "coc_transcript_locate",
+        "coc_discover` with no arguments",
+    ):
+        assert marker not in setup, marker
+
+
 def test_host_prompts_and_role_manifest_align_on_restricted_skill_doc_read() -> None:
     """The three Pi host prompts must state the read boundary accurately and
     the role manifest must keep the restricted `read` active for both roles

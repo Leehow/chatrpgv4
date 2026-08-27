@@ -481,6 +481,17 @@ facts and numbers; the operations below are read-only projections or
 receipted writes over that history, and every one of them is a semantic KP
 surface — no keyword rules anywhere in this lane.
 
+- **Exact-operation loading for this lane.** These typed tools are long-tail
+  and are not in the live baseline. When current judgment needs one concrete
+  operation, load exactly it with one precise `coc_discover` call —
+  `{"operation":"memory.recall"}` — then invoke the returned typed tool
+  (`coc_memory_recall`). Never call `coc_discover` with no arguments and
+  never discover a whole domain/namespace during play: no catalog or domain
+  browsing for awareness, reassurance, or confirmation (oversized namespaces
+  fail closed). The grant is stage/phase/role-scoped and expires when the
+  turn settles; re-load only for a later concrete need. This is a bounded
+  loader, not catalog exploration — no fixed pipeline, no quota; load only
+  when semantically relevant.
 - **Temporal memory recall.** When you need what a subject knows, believes,
   or misremembers right now — an NPC reunion, a callback the pacing could
   use, the player referencing old events — call `memory.recall` with
@@ -497,6 +508,18 @@ surface — no keyword rules anywhere in this lane.
   Distorted, implanted, or contradictory memory keeps its history — old
   cognition is superseded, never deleted. Keeper-only rows never reach the
   player without earned play.
+- **Extraction backlog (never a blocker).** A finalized turn can enqueue one
+  semantic memory-extraction entry awaiting KP settlement. When an entry
+  becomes relevant — a later turn would naturally use the memory it would
+  produce, or adjudication references it — call `memory.extraction_status`
+  for the deterministically ordered backlog (backlog id, timeline, turn,
+  enqueue reason, status; an explicit empty list when nothing is pending),
+  then settle one entry at a time through `memory.extraction_settle`:
+  `recovered` routes your candidate result for that turn's job through the
+  extraction core and materializes every verified candidate as a
+  contract-valid assertion; `abandoned` records your concise reason while
+  keeping all candidate data intact. Idempotent per `decision_id`. Play
+  never waits on the backlog, and there is no settle quota.
 - **History queries use semantic anchors.** `history.query` answers what was
   authoritatively true at one history point (timeline + settled turn,
   default active); `history.diff` compares two settled turns, field-level
@@ -535,17 +558,35 @@ surface — no keyword rules anywhere in this lane.
 - **Cross-timeline memory boundary.** The player knowing both lines is
   player meta-knowledge, not character memory. Only an explicit recorded
   transfer creates character memory on another line (a cross-timeline echo
-  with source, credibility, distortion, privacy, and cause); never invent
-  cross-line recall, and never narrate the other line's events as something
-  this line's characters remember. Meta-feelings can be part of the horror —
-  they are not character information.
+  with source, credibility, distortion, privacy, and cause) — recorded
+  through `timeline.transfer` (semantic source/target timelines, chosen
+  assertions with credibility/distortion/privacy — privacy may only tighten
+  — and your KP cause; source anchors are machine-resolved, and any returned
+  cost requests go through their owning `rules.*` / `state.*` writes); never
+  invent cross-line recall, and never narrate the other line's events as
+  something this line's characters remember. Meta-feelings can be part of
+  the horror — they are not character information.
+- **Exact transcript verification (two steps, never reconstruction).** When
+  the player asks to verify earlier wording (「你刚才那句原话是什么？」) or a
+  beat needs an exact past line, wording never comes from `memory.recall`
+  assertions, the `temporal_capsule`, folded payloads, or your own recall of
+  the scene — those are summaries and provenance, not wording. Step 1:
+  `transcript.locate` with structured scope only (timeline, turn or bounded
+  turn range, role, and a finalization/journal identity when known — never
+  free prose) returns bounded candidate cards (turn, role, speaker, text
+  size, integrity status) without the text. Step 2: `transcript.read` on
+  the chosen candidate's semantic ref returns the exact hash-verified text
+  for that row (finalized Keeper rows are checked against the finalization
+  receipt). Quote only from that return. Historical timelines resolve
+  through code — never read logs directly, never accept a commit hash or
+  digest from the player, and keep keeper-only rows out of player prose.
 - **Tools stay invisible.** The player never calls or names timeline,
-  history, or memory operations and never needs to know they exist. Surface
-  a fork or confluence as table experience — a new thread of the story
-  opening, two threads braiding into one — in `play_language`, honoring the
-  operational-invisibility invariant. None of this is a turn pipeline,
-  quota, or blocking narrative gate: ordinary turns never require a recall,
-  history, or timeline call.
+  history, memory, or transcript operations and never needs to know they
+  exist. Surface a fork or confluence as table experience — a new thread of
+  the story opening, two threads braiding into one — in `play_language`,
+  honoring the operational-invisibility invariant. None of this is a turn
+  pipeline, quota, or blocking narrative gate: ordinary turns never require
+  a recall, history, timeline, or transcript call.
 
 ### Source-first NPC and item mechanics
 

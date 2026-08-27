@@ -108,6 +108,8 @@ __all__ = [
     "build_hot_projection",
     "build_warm_projection",
     "build_cold_projection",
+    "select_candidates",
+    "is_canonical_entity_id",
 ]
 
 
@@ -682,6 +684,50 @@ def narrow_candidates(
     report = validate_assertion_rows(assertions)
     eff_limit = _resolve_bound(limit, ctx, DEFAULT_WARM_LIMIT, name="limit")
     return _rank_rows(report["valid"], ctx, eff_limit)
+
+
+def is_canonical_entity_id(value: Any) -> bool:
+    """Canonical ``entity-*`` semantic-id predicate.
+
+    Exactly the grammar ``build_recall_context`` enforces for entity refs
+    (prefix, length cap, semantic-id regex), as a pure predicate so callers
+    holding mixed constraint lists can validate each ref independently and
+    discard malformed ones instead of failing the whole query. Non-strings,
+    empty/whitespace values, wrong prefixes, and grammar violations are
+    all non-canonical.
+    """
+    if not isinstance(value, str):
+        return False
+    try:
+        _check_semantic_id(value, field="entities", prefix="entity-")
+    except TemporalRetrievalError:
+        return False
+    return True
+
+
+def select_candidates(
+    assertions: Iterable[Mapping[str, Any]],
+    context: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Deterministic narrow-only selection: no ranking, no capping.
+
+    Selection primitive for consumers that apply their own deterministic
+    ordering and bounded output shape (e.g. resume pending candidates:
+    disposition filter, assertion-id ordering, fixed cap). Uses the exact
+    same closed context, row-contract validation, and scope/valid-time
+    gates as every projection tier — the input trust boundary never moves.
+    Returns every contract-valid row passing scope and valid-time gates in
+    input order, plus the usual exclusion diagnostics; consumers own all
+    ordering and budget decisions beyond this point.
+    """
+    ctx = _require_context(context)
+    report = validate_assertion_rows(assertions)
+    kept = [
+        row
+        for row in report["valid"]
+        if _passes_scope(row, ctx) and _passes_time(row, ctx)
+    ]
+    return {"candidates": kept, "excluded": report["excluded"]}
 
 
 def build_hot_projection(

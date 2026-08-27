@@ -26,7 +26,7 @@ routed**, not optional; ordinary turns stay here and do not re-read them all.
 | Investigator selection / parameters in play; personal horror weaving; first contact, multi-NPC engagement, live relationships | `references/investigators-horror-npc.md` |
 | Style, Table Wit, foreign-language dialogue, action-prompt shape, scene craft | `references/style-scene-craft.md` |
 | Action-shaped quests (`quest.*`): offering, accepting, settling, improvising | `references/turn-tooling-and-typed-ops.md` |
-| Temporal memory (`memory.recall` / `memory.adjudicate`); `history.query` / `history.diff`; rewind / fork / counterfactual / worldline-merge requests (`timeline.*`) | `references/turn-tooling-and-typed-ops.md` |
+| Temporal memory (`memory.recall` / `memory.adjudicate`) and extraction backlog (`memory.extraction_status` / `memory.extraction_settle`); `history.query` / `history.diff`; rewind / fork / counterfactual / worldline-merge requests (`timeline.*`); exact transcript verification (`transcript.locate` / `transcript.read`) | `references/turn-tooling-and-typed-ops.md` |
 | Failed SAN table performance; horror craft; content boundaries; ending a story / `state.end_session` | `references/horror-san-content-endings.md` |
 | Pi-Coc source-backed建卡期间的后台管家解析、resume、完成通知 | `../coc-steward-parse/SKILL.md` |
 | Full ordinary-turn tool walkthrough, combat/dying/recovery chains, typed non-turn operations | `references/turn-tooling-and-typed-ops.md` |
@@ -34,11 +34,11 @@ routed**, not optional; ordinary turns stay here and do not re-read them all.
 ## Host Tool Discovery
 
 Authority/judgment/delivery is a **dependency boundary**, not pipeline.
-Pi-Coc: domain tools (`coc_setup`/`coc_context`/`coc_rules`/`coc_state`/`coc_npc`/`coc_turn`/`coc_subsystem`; `coc_advice` optional). No per-turn `coc_invoke`/`coc_discover`.
+Pi-Coc: domain tools (`coc_setup`/`coc_context`/`coc_rules`/`coc_state`/`coc_npc`/`coc_turn`/`coc_subsystem`; `coc_advice` optional). No per-turn `coc_invoke`/`coc_discover` — the single sanctioned exception is the bounded exact-operation load in rule 2.
 **MCP-first when plugin MCP is available (host parity):**
 
 1. A native static-tool host may use the **15-tool hotset** first: resume, scene, secrets, action advice, common rules, `npc.reaction`, `state.record_npc_engagement`, other writes, output, and finalize.
-2. Long-tail operations use **exact-operation or exact-domain** `coc_discover` only when a concrete long-tail operation is needed. Do **not** repeat no-arg full catalog discovery; never discover a domain merely for awareness, reassurance, or confirmation.
+2. Long-tail operations use **exact-operation** `coc_discover` only when current judgment needs one concrete long-tail operation: pass exactly one dotted operation (e.g. `{"operation":"memory.recall"}`), receive that one typed tool, then invoke it. Never call `coc_discover` with no arguments and never discover a whole domain/namespace during play — no catalog or domain browsing for awareness, reassurance, or confirmation (oversized domains also fail closed). The grant is stage/phase/role-scoped and expires when the turn settles; re-load only for a later concrete need. No fixed pipeline, no per-turn quota.
 3. **Do not mix MCP and shell** toolbox transport for the same mutation or retry path.
 4. Every tool `root` is the host workspace, never plugin storage.
 
@@ -357,11 +357,20 @@ opening procedure is normative in
   candidate until you rule on it, intercepted per the player knowledge
   boundary without leaking module truth. Memory is context only —
   `state.*` / `rules.*` own facts; keeper-only rows never become player
-  prose without earned play; there is no per-turn recall quota. Player
-  meta-knowledge from another worldline is player knowledge, not character
-  memory: absent an explicit recorded transfer, never invent cross-line
-  recall. Rewind / fork / counterfactual and worldline-confluence play, and
-  semantic `history.query` / `history.diff` anchors, are normative in
+  prose without earned play; there is no per-turn recall quota. Pending
+  extraction backlog entries from settled turns are checked only when
+  relevant (`memory.extraction_status`) and settled explicitly
+  (`memory.extraction_settle`); the backlog never blocks play. To verify
+  exact earlier wording, narrow with structured scope (`transcript.locate`),
+  then read the exact hash-bound text (`transcript.read`) — never
+  reconstruct wording from summaries or memory. These long-tail typed tools
+  load on demand through exact-operation `coc_discover` (one concrete dotted
+  operation; never call `coc_discover` with no arguments and never discover
+  a whole domain/namespace during play). Player meta-knowledge from another
+  worldline is player knowledge, not character memory: absent an explicit
+  recorded transfer, never invent cross-line recall. Rewind / fork /
+  counterfactual and worldline-confluence play, and semantic
+  `history.query` / `history.diff` anchors, are normative in
   `references/turn-tooling-and-typed-ops.md`.
 - **No free-prose keyword/regex decisions** for player intent, hostility,
   clue relevance, storylet fit, or similar meaning-bearing choices.

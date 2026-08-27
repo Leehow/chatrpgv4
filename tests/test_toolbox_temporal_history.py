@@ -866,6 +866,30 @@ def test_memory_recall_structured_errors(memory_ws):
     assert bad_limit["error"]["code"] == "invalid_param"
 
 
+def test_memory_recall_matches_facade_adapter(memory_ws):
+    """One recall semantics: the facade adapter returns the same canonical
+    warm projection the typed memory.recall operation returns."""
+    camp = memory_ws["campaign_dir"]
+    _seed_assertion(camp, assertion_id=f"mem-{MEMORY_CAMPAIGN}-parity-a")
+    _seed_assertion(
+        camp,
+        assertion_id=f"mem-{MEMORY_CAMPAIGN}-parity-b",
+        entities=["entity-location-attic"],
+        statement="阁楼的低语。",
+    )
+    typed = _run(memory_ws, "memory.recall", {"view": "keeper"})
+    assert typed["ok"] is True, typed
+    adapted = coc_temporal_memory.recall(
+        None, {"campaign_dir": camp, "view": "keeper"}
+    )
+    # Byte-equal candidates: both surfaces share one implementation.
+    assert adapted["candidates"] == typed["data"]["candidates"]
+    assert [row["assertion_id"] for row in adapted["candidates"]] == [
+        f"mem-{MEMORY_CAMPAIGN}-parity-a",
+        f"mem-{MEMORY_CAMPAIGN}-parity-b",
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # memory.adjudicate behavior
 # --------------------------------------------------------------------------- #

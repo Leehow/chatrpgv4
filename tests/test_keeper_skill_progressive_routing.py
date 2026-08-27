@@ -150,13 +150,17 @@ def test_mcp_hotset_and_no_repeated_full_catalog_guidance():
     assert "state.move_scene" not in compact
     assert "coc_discover" in compact
     assert "coc_invoke" in compact
-    assert "exact-operation or exact-domain" in compact or (
-        "exact-operation" in compact and "exact-domain" in compact
-    )
-    assert "do not" in compact and "no-arg full catalog" in compact
+    # Exact-operation loading only; exact-domain discovery is not a permitted
+    # form, so the old "exact-operation or exact-domain" wording must not
+    # return (it would re-open whole-domain discovery during play).
+    assert "exact-operation" in compact
+    assert "exact-domain" not in compact
+    assert '{"operation":"memory.recall"}' in compact
+    assert "never call `coc_discover` with no arguments" in compact
+    assert "never discover a whole domain/namespace" in compact
     # No speculative domain discovery for awareness/reassurance/confirmation.
-    assert "only when a concrete long-tail operation is needed" in compact
-    assert "never discover a domain merely for awareness" in compact
+    assert "only when current judgment needs one concrete long-tail operation" in compact
+    assert "no catalog or domain browsing for awareness, reassurance, or confirmation" in compact
     for phrase in (
         "working_set.mode=full",
         "covered_domains",
@@ -226,9 +230,11 @@ def test_reference_count_is_cohesive_not_monolithic():
     # No single reference should swallow nearly all prior substance alone.
     # Raised 42K -> 56K when the temporal memory/worldline section landed in
     # turn-tooling-and-typed-ops.md (that reference was already 49931 bytes
-    # on HEAD); a new reference file is not an option because the routing
+    # on HEAD); raised 56K -> 60K when the extraction-backlog, transfer,
+    # transcript two-step, and exact-operation-loader guidance joined the
+    # same section. A new reference file is not an option because the routing
     # table and the 4..6 reference cap keep this package cohesive.
     sizes = [path.stat().st_size for path in refs]
-    assert max(sizes) < 56 * 1024
+    assert max(sizes) < 60 * 1024
     total = sum(sizes)
     assert total > 30 * 1024  # retained detail still present

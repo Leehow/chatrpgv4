@@ -410,6 +410,48 @@ def test_cross_campaign_rows_and_campaign_isolation():
     assert "mem-xc-player-pref" not in cold_isolated
 
 
+def test_select_candidates_is_uncapped_unranked_and_validating():
+    """The narrow-only selection primitive: every scope/time-valid row in
+    input order (no score fields, no cap), diagnostics for invalid rows,
+    same closed context as every tier."""
+    rows = [
+        _assertion(f"sel-{n:02d}", source_turn=n, valid_from=n) for n in range(1, 13)
+    ]
+    rows.append({"kind": "belief"})  # idless invalid row
+    ctx = rt.build_recall_context(campaign_id=CID)
+    sel = rt.select_candidates(rows, ctx)
+    assert [row["assertion_id"] for row in sel["candidates"]] == [
+        f"mem-{CID}-sel-{n:02d}" for n in range(1, 13)
+    ]
+    assert all("score" not in row for row in sel["candidates"])
+    assert sel["excluded"][0]["assertion_id"] is None
+    # Valid-time anchor applies; no ranking/capping happens here.
+    anchored = rt.select_candidates(
+        rows, rt.build_recall_context(campaign_id=CID, turn_number=6)
+    )
+    assert len(anchored["candidates"]) == 6
+    with pytest.raises(rt.TemporalRetrievalError, match="build_recall_context"):
+        rt.select_candidates(rows, {"subject_id": None})
+
+
+def test_is_canonical_entity_id_matches_context_grammar():
+    """The predicate is exactly build_recall_context's entity grammar."""
+    assert rt.is_canonical_entity_id("entity-location-cellar")
+    assert rt.is_canonical_entity_id("entity-scene-1")
+    for bad in (
+        "entity-@",
+        "entity-",
+        "entity-UPPER",
+        "clue-transfer-record",
+        " entity-location-cellar ",
+        "entity-" + "x" * 200,
+        None,
+        42,
+        "",
+    ):
+        assert not rt.is_canonical_entity_id(bad), bad
+
+
 # ---------------------------------------------------------------------------
 # Entity / scene hard filters and ranking
 # ---------------------------------------------------------------------------

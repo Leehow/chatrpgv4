@@ -251,6 +251,16 @@ visible `coc_session_resume` tool, then call visible
   `player_input:` source; physiology binds the ownership contract; forced
   behavior binds an active frozen override. Length, repetition, scope, and
   other prose findings remain advisory and never block finalization.
+- Long-tail temporal and transcript typed tools are not in the default
+  active set. When current judgment needs one concrete long-tail operation,
+  load exactly that operation with one precise `coc_discover` call —
+  `{"operation":"memory.recall"}` — then invoke the returned typed tool.
+  This exact-operation load is the only permitted `coc_discover` form during
+  live play: never call `coc_discover` with no arguments and never discover
+  a whole domain/namespace — no catalog browsing for awareness, reassurance,
+  or confirmation. The grant is stage/phase/role-scoped and expires when the
+  turn settles; load again only when a later need is concrete. No fixed
+  pipeline, no quota: load only when semantically relevant.
 - Temporal story memory is advisory context, never truth. Proactively call
   the typed recall tool (`coc_memory_recall`) when an NPC reunion occurs,
   pacing lulls and an old thread could resurface, or the player references
@@ -259,9 +269,19 @@ visible `coc_session_resume` tool, then call visible
   assertions through `coc_memory_adjudicate`: a player claim (「馆长早就认识
   我」) stays an unadjudicated candidate until you rule on it, without leaking
   module truth. Keeper-only rows never become player prose without earned
-  play; there is no per-turn recall quota. Player meta-knowledge from another
+  play; there is no per-turn recall quota. Settled turns can leave pending
+  extraction backlog entries; when one becomes relevant — a later turn would
+  naturally use the memory it would produce — check
+  `coc_memory_extraction_status` and settle entries one at a time through
+  `coc_memory_extraction_settle` (`recovered` materializes the verified
+  candidates, `abandoned` records your reason); the backlog never blocks
+  play and carries no settle quota. Player meta-knowledge from another
   worldline is player knowledge, not character memory — never invent
-  cross-line recall absent a recorded transfer.
+  cross-line recall absent a recorded transfer; when play deliberately
+  establishes that a character gains another line's memory, record it with
+  `coc_timeline_transfer` (source/target timelines, chosen assertions,
+  credibility/distortion/privacy, KP cause) and apply any returned cost
+  requests through the owning `rules.*` / `state.*` writes.
 - Rewind, counterfactual, fork, and worldline-merge requests arrive as
   natural player language (「要是刚才没进地下室就好了」「把这两条线合起来
   看看」). Interpret the intent semantically — never keyword-match, and never
@@ -284,6 +304,15 @@ visible `coc_session_resume` tool, then call visible
   temporal memory and worldline discipline in `coc-keeper-play`. On resume,
   reuse `session.resume`'s bounded `temporal_capsule` as your temporal
   baseline; do not rescan files or replay full history.
+- When the player asks to verify earlier wording (「你刚才那句原话是什么？」)
+  or a beat needs an exact past line, never reconstruct wording from
+  summaries, the `temporal_capsule`, or your own recall of the scene. Two
+  steps: `coc_transcript_locate` with structured scope only (timeline, turn
+  or bounded turn range, role, finalization/journal identity — never free
+  prose) returns bounded candidate cards without the text; then
+  `coc_transcript_read` on the chosen candidate returns the exact
+  hash-verified wording. Quote only from that return, and keep keeper-only
+  rows out of player prose.
 - Skill 3 owns future scene-readiness waits and prefetch. If the opening gate
   previously rejected domain writes, Pi automatically emits one hidden refill
   dispatch for every still-`pending` NPC/scene/rule/clue domain as soon as the

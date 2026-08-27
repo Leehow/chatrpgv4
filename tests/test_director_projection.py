@@ -446,6 +446,14 @@ def test_resume_capsule_open_hooks_include_age_fields(tmp_path):
     assert not any(key.startswith("urgency") for key in row)
 
 
+def test_open_hooks_read_never_bootstraps_store(tmp_path):
+    camp = tmp_path / "camp-absent-hooks"
+    camp.mkdir()
+    assert tm.open_hooks_with_age(camp, 7) == []
+    # A hook read is advisory and read-only: an absent store stays absent.
+    assert not (camp / "memory" / "temporal").exists()
+
+
 def test_setup_session_allowlist_pins_hook_age_fields():
     """AST pin of the closed model-facing hook projection (the setup-session
     operation cell itself needs the kernel runtime, so this pins the tuple)."""
@@ -581,6 +589,196 @@ def test_director_secret_privacy_preserved(tmp_path):
     read_ids = {row["memory_id"] for row in plan["memory_reads"]}
     assert "mem-test-public-tone" in read_ids
     assert "mem-test-secret-scheme" not in read_ids
+
+
+def test_director_memory_read_is_read_only_on_absent_store(tmp_path):
+    """No temporal store, no bootstrap: memory advice degrades to empty."""
+    camp, character_path = _minimal_director_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=character_path, investigator_id="inv1",
+        player_intent="环顾四周", player_intent_class="investigate",
+        rng=random.Random(42))
+    ctx["memory_query_entities"] = ["entity-scene-archive"]
+    plan = coc_story_director.generate_director_plan(ctx, "ev6-absent-store-plan")
+    assert plan["memory_reads"] == []
+    assert not (camp / "memory" / "temporal").exists()
+
+
+def test_director_memory_all_invalid_query_refs_recall_nothing(tmp_path):
+    """A nonempty query whose refs are all non-canonical narrows to nothing:
+    no unfiltered warm recall of unrelated memories, and a bounded
+    temporal_memory unavailable warning instead of a silent widening."""
+    camp, character_path = _minimal_director_campaign(tmp_path)
+    _seed_assertion(
+        camp, "mem-test-dossier-clue",
+        ["entity-npc-mrs-d", "entity-clue-transfer-record"],
+        statement="杜太太与转账记录有关。")
+    # An unrelated open assertion that an unfiltered warm recall would
+    # return; it must never appear for an all-invalid query.
+    _seed_assertion(
+        camp, "mem-test-unrelated-cellar",
+        ["entity-location-cellar"], statement="无关的地窖记忆。")
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=character_path, investigator_id="inv1",
+        player_intent="追问杜太太", player_intent_class="talk",
+        rng=random.Random(42))
+    # None of these is an entity-* semantic id.
+    ctx["memory_query_entities"] = ["clue-transfer-record", "scene-archive"]
+    ctx["turn_number"] = 10
+    plan = coc_story_director.generate_director_plan(ctx, "ev6-nonentity-plan")
+    assert plan["memory_reads"] == []
+    assert not any(
+        row.get("memory_id") == "mem-test-unrelated-cellar"
+        for row in plan["memory_reads"]
+    )
+    warnings = ctx.get("validation_warnings") or []
+    assert any(
+        warning.get("field") == "temporal_memory"
+        and warning.get("reason_code") == "unavailable"
+        and "entity-*" in warning.get("detail", "")
+        for warning in warnings
+    )
+
+
+def test_director_memory_falsey_and_mixed_invalid_refs_are_constrained(tmp_path):
+    """Falsey entries, whitespace-only strings, and malformed ids are a
+    constrained query: zero candidates + bounded warning, never unfiltered
+    recall. Only a mixed query with at least one canonical entity-* ref
+    narrows normally (invalid refs dropped, valid ones honored)."""
+    camp, character_path = _minimal_director_campaign(tmp_path)
+    _seed_assertion(
+        camp, "mem-test-unrelated-cellar",
+        ["entity-location-cellar"], statement="无关的地窖记忆。")
+    falsey_query_cases = [
+        [None, ""],
+        ["   "],
+        ["cellar"],
+        [None, "clue-x", "  "],
+    ]
+    for index, bad_refs in enumerate(falsey_query_cases):
+        ctx = coc_story_director.build_director_context(
+            campaign_dir=camp, character_path=character_path,
+            investigator_id="inv1", player_intent="环顾四周",
+            player_intent_class="investigate", rng=random.Random(42))
+        ctx["memory_query_entities"] = list(bad_refs)
+        ctx["turn_number"] = 10
+        plan = coc_story_director.generate_director_plan(
+            ctx, f"ev6-falsey-plan-{index}")
+        assert plan["memory_reads"] == [], bad_refs
+        assert not any(
+            row.get("memory_id") == "mem-test-unrelated-cellar"
+            for row in plan["memory_reads"]
+        )
+        assert any(
+            warning.get("field") == "temporal_memory"
+            and warning.get("reason_code") == "unavailable"
+            for warning in ctx.get("validation_warnings") or []
+        ), bad_refs
+
+    # One canonical ref among falsey/invalid ones: normal narrowed recall.
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=character_path,
+        investigator_id="inv1", player_intent="环顾四周",
+        player_intent_class="investigate", rng=random.Random(42))
+    ctx["memory_query_entities"] = ["entity-location-cellar", None, "  "]
+    ctx["turn_number"] = 10
+    plan = coc_story_director.generate_director_plan(ctx, "ev6-falsey-mixed-valid")
+    assert [row["memory_id"] for row in plan["memory_reads"]] == [
+        "mem-test-unrelated-cellar"
+    ]
+
+
+def test_director_memory_mixed_valid_and_malformed_refs_narrow_normally(tmp_path):
+    """Per-ref canonical grammar validation on the exact supplied string (no
+    normalization): one malformed ref (entity-@, wrong prefix, falsey,
+    non-string, whitespace-wrapped) never rejects the whole list — exact
+    valid entity-* refs narrow normally and everything else is discarded
+    with a bounded warning. A whitespace-wrapped-only query is a constrained
+    query returning zero candidates; valid-only queries are warning-free."""
+    camp, character_path = _minimal_director_campaign(tmp_path)
+    _seed_assertion(
+        camp, "mem-test-cellar-knock",
+        ["entity-location-cellar"], statement="地窖敲击。")
+    _seed_assertion(
+        camp, "mem-test-unrelated-attic",
+        ["entity-location-attic"], statement="无关阁楼。")
+
+    mixed_cases = [
+        ["entity-location-cellar", "entity-@"],
+        ["entity-location-cellar", "clue-transfer-record", None, "", 42],
+        ["entity-location-cellar", " entity-location-cellar "],
+        ["entity-location-cellar"],
+    ]
+    for index, refs in enumerate(mixed_cases):
+        ctx = coc_story_director.build_director_context(
+            campaign_dir=camp, character_path=character_path,
+            investigator_id="inv1", player_intent="地窖里的敲击",
+            player_intent_class="investigate", rng=random.Random(42))
+        ctx["memory_query_entities"] = list(refs)
+        ctx["turn_number"] = 10
+        plan = coc_story_director.generate_director_plan(
+            ctx, f"ev6-mixed-valid-plan-{index}")
+        # Only the exact canonical ref narrows; the unrelated memory never
+        # leaks, and the whitespace-wrapped form is not normalized into one.
+        assert [row["memory_id"] for row in plan["memory_reads"]] == [
+            "mem-test-cellar-knock"
+        ], refs
+        warnings = ctx.get("validation_warnings") or []
+        assert not any(
+            warning.get("field") == "temporal_memory"
+            and warning.get("reason_code") == "unavailable"
+            for warning in warnings
+        ), refs
+        if index < 3:
+            # Cases that discarded malformed refs carry the bounded warning.
+            discard_warnings = [
+                warning
+                for warning in warnings
+                if warning.get("field") == "temporal_memory"
+                and warning.get("reason_code") == "invalid_query_refs"
+            ]
+            assert discard_warnings, refs
+            if index == 2:
+                # The whitespace-wrapped form is discarded as supplied.
+                assert any(
+                    " entity-location-cellar " in warning.get("detail", "")
+                    for warning in discard_warnings
+                )
+        else:
+            # Valid-only queries are warning-free.
+            assert not any(
+                warning.get("field") == "temporal_memory"
+                for warning in warnings
+            ), refs
+
+    # Whitespace-wrapped-only: still a constrained query under the exact
+    # grammar — zero candidates plus the unavailable warning, never
+    # normalization and never unfiltered widening.
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=character_path,
+        investigator_id="inv1", player_intent="地窖里的敲击",
+        player_intent_class="investigate", rng=random.Random(42))
+    ctx["memory_query_entities"] = [" entity-location-cellar "]
+    ctx["turn_number"] = 10
+    plan = coc_story_director.generate_director_plan(
+        ctx, "ev6-whitespace-wrapped-plan")
+    assert plan["memory_reads"] == []
+    assert any(
+        warning.get("field") == "temporal_memory"
+        and warning.get("reason_code") == "unavailable"
+        for warning in ctx.get("validation_warnings") or []
+    )
+
+
+def test_director_memory_empty_query_keeps_unconstrained_warm_behavior(tmp_path):
+    """Only a genuinely unconstrained query (no refs at all) keeps the
+    canonical no-entity-narrowing warm behavior."""
+    camp, _character_path = _minimal_director_campaign(tmp_path)
+    _seed_assertion(
+        camp, "mem-test-open-only",
+        ["entity-location-cellar"], statement="地窖记忆。")
+    reads = coc_story_director._retrieve_memory_for_ctx({"campaign_dir": camp})
+    assert [row["memory_id"] for row in reads] == ["mem-test-open-only"]
 
 
 def test_legacy_card_reader_not_referenced_and_not_consulted(tmp_path):

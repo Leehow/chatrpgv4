@@ -763,7 +763,11 @@ def test_invalid_compiled_time_profile_is_dropped_with_context_warning(tmp_path)
     plan = coc_story_director.generate_director_plan(ctx, "invalid-compiled-time")
 
     assert "time_profile" not in ctx["active_scene"]
-    assert ctx["validation_warnings"] == [{
+    time_warnings = [
+        w for w in ctx["validation_warnings"]
+        if w.get("field") == "time_profile"
+    ]
+    assert time_warnings == [{
         "field": "time_profile",
         "source": "compiled_scene",
         "reason_code": "category_not_in_time_cost_catalog",
@@ -799,7 +803,11 @@ def test_invalid_runtime_time_profile_string_delta_falls_back_without_raising(tm
     plan = coc_story_director.generate_director_plan(ctx, "invalid-runtime-time")
 
     assert "time_profile" not in ctx["active_scene"]
-    assert ctx["validation_warnings"] == [{
+    time_warnings = [
+        w for w in ctx["validation_warnings"]
+        if w.get("field") == "time_profile"
+    ]
+    assert time_warnings == [{
         "field": "time_profile",
         "source": "runtime_active_scene",
         "reason_code": "delta_minutes_must_be_integer",

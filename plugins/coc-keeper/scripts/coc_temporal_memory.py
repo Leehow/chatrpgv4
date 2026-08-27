@@ -16,7 +16,9 @@ surface stays model-facing and semantic):
   — model-facing episode recording; the finalized turn commit is resolved
   internally from semantic campaign/timeline/turn and attached by code
 - ``record_assertion(assertion)``
-- ``recall(subject, context)``
+- ``recall(subject, context)`` — thin compatibility adapter over the
+  canonical ``coc_temporal_retrieval`` warm projection; all filtering,
+  validation, and ranking semantics live there (one recall implementation)
 - ``adjudicate_candidate(decision_id, candidate_id, action)``
 - ``load_backlog(campaign_dir)`` — public backlog read (never creates)
 - ``settle_backlog(campaign_dir, backlog_id, *, status)`` — pending →
@@ -46,6 +48,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_temporal_memory_contract as contract
+import coc_temporal_retrieval as retrieval
 
 SCHEMA_GENERATION = contract.SCHEMA_GENERATION
 UNBOUND_COMMIT = "0" * 40
@@ -164,6 +167,52 @@ def _load_latest(path: Path, id_field: str) -> dict[str, dict[str, Any]]:
         key = row.get(id_field)
         if isinstance(key, str) and key:
             latest[key] = row
+    return latest
+
+
+def _read_assertion_rows(path: Path) -> dict[str, dict[str, Any]]:
+    """Strict canonical assertion-store read boundary (see load_assertions).
+
+    Single-sourced for every assertion consumer (typed memory.recall,
+    facade recall adapter, Story Director, resume capsule, adjudication,
+    hooks, extraction): idless objects, non-object JSON, malformed JSON,
+    and contract-invalid payloads all fail closed as temporal store
+    corruption — never silently dropped before validation.
+    """
+    latest: dict[str, dict[str, Any]] = {}
+    if not path.exists():
+        return latest
+    for line in path.read_text(encoding="utf-8").splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as err:
+            raise TemporalMemoryError(
+                f"canonical temporal store corruption in {path.name}: "
+                f"assertion line is not valid JSON: {err}"
+            ) from err
+        if not isinstance(payload, dict):
+            raise TemporalMemoryError(
+                f"canonical temporal store corruption in {path.name}: "
+                f"assertion line must be a JSON object, got "
+                f"{type(payload).__name__}"
+            )
+        assertion_id = payload.get("assertion_id")
+        if not isinstance(assertion_id, str) or not assertion_id:
+            raise TemporalMemoryError(
+                f"canonical temporal store corruption in {path.name}: "
+                "assertion row has no semantic assertion_id"
+            )
+        try:
+            contract.validate_assertion(payload)
+        except contract.TemporalMemoryContractError as err:
+            raise TemporalMemoryError(
+                f"canonical temporal store corruption in {path.name}: "
+                f"assertion {assertion_id!r} fails contract validation: {err}"
+            ) from err
+        latest[assertion_id] = payload
     return latest
 
 
@@ -386,7 +435,17 @@ def load_entities(campaign_dir: Path | str) -> dict[str, dict[str, Any]]:
 
 
 def load_assertions(campaign_dir: Path | str) -> dict[str, dict[str, Any]]:
-    return _load_latest(_path(campaign_dir, "assertions"), "assertion_id")
+    """Latest append-wins assertion per semantic id. Strict read boundary.
+
+    Every nonblank line of the canonical assertion store must be a JSON
+    object carrying a semantic assertion id and a contract-valid payload;
+    anything else is temporal store corruption and fails closed with
+    ``TemporalMemoryError`` instead of silently disappearing between the
+    raw store and any recall/projection consumer. Append-only same-id
+    supersession semantics are preserved: later rows win per id, closed
+    and superseded rows stay contract-valid history.
+    """
+    return _read_assertion_rows(_path(campaign_dir, "assertions"))
 
 
 def load_episodes(campaign_dir: Path | str) -> dict[str, dict[str, Any]]:
@@ -805,114 +864,51 @@ def record_turn_episode(
 # ---------------------------------------------------------------------------
 
 
-def _entity_tokens(entity_id: str, entities: Mapping[str, Mapping[str, Any]]) -> set[str]:
-    tokens = {entity_id}
-    rec = entities.get(entity_id)
-    if rec is None:
-        # also accept the trailing slug
-        parts = entity_id.split("-", 2)
-        if len(parts) >= 3:
-            tokens.add(parts[2])
-        return tokens
-    tokens.add(str(rec.get("display_name") or ""))
-    tokens.update(str(alias) for alias in (rec.get("aliases") or []))
-    return {token for token in tokens if token}
-
-
-def _entity_overlap(
-    query: Iterable[str],
-    assertion: Mapping[str, Any],
-    entities: Mapping[str, Mapping[str, Any]],
-) -> int:
-    wanted = {str(item) for item in query if str(item)}
-    if not wanted:
-        return 0
-    have: set[str] = set()
-    for entity_id in assertion.get("entities") or []:
-        have |= _entity_tokens(str(entity_id), entities)
-        have.add(str(entity_id))
-    return len(wanted & have)
-
-
 def recall(subject: str | None, context: Mapping[str, Any]) -> dict[str, Any]:
-    """Deterministic narrow-then-rank. Semantic adoption stays with the KP.
+    """Compatibility adapter over the canonical retrieval core (warm tier).
+
+    One recall semantics live in :mod:`coc_temporal_retrieval`; this facade
+    surface only adapts the legacy call shape. It loads the canonical store
+    strictly read-only (a query never bootstraps or writes anything), pins
+    recall to the campaign that owns the store, passes stored subject
+    records as validated identity bindings, and delegates every validation,
+    privacy, timeline/campaign, narrowing, and ranking decision to
+    ``build_warm_projection`` — exactly the semantics the typed
+    ``memory.recall`` operation exposes. Invalid context input fails closed
+    with ``coc_temporal_retrieval.TemporalRetrievalError``; malformed store
+    rows are excluded and reported in the envelope diagnostics, never
+    silently dropped. ``pending_player_assertions`` is preserved for
+    existing facade callers; new code should call the retrieval core
+    directly.
 
     ``context`` keys: ``campaign_dir`` (required), ``timeline_id``,
     ``as_of_turn``, ``privacy``/``view`` (``player_safe``|``keeper``),
-    ``entities``, ``kinds``, ``include_superseded``, ``limit``.
+    ``entities`` (``entity-*`` semantic ids), ``kinds``,
+    ``include_superseded``, ``limit`` (canonical warm default 12 when
+    absent — the adapter never applies its own budget).
     """
     camp = _require_campaign_dir(context.get("campaign_dir"))
-    ensure_store(camp)
-    assertions = list(load_assertions(camp).values())
-    entities = load_entities(camp)
-    timeline_id = context.get("timeline_id") or contract.ROOT_TIMELINE_ID
-    as_of = context.get("as_of_turn")
-    as_of_turn = as_of if isinstance(as_of, int) and not isinstance(as_of, bool) else None
-    view = str(context.get("privacy") or context.get("view") or "keeper")
-    kinds = set(context.get("kinds") or [])
-    query_entities = [str(item) for item in (context.get("entities") or []) if str(item)]
-    include_superseded = bool(context.get("include_superseded"))
-    limit = int(context.get("limit") or 8)
-    limit = max(1, min(32, limit))
-
-    if subject:
-        assertions = [
-            dict(row)
-            for row in contract.project_subject_view(
-                assertions, subject, as_of_turn=as_of_turn
-            )
-        ]
-    elif as_of_turn is not None:
-        assertions = [row for row in assertions if contract.effective_at(row, as_of_turn)]
-
-    narrowed: list[dict[str, Any]] = []
-    for row in assertions:
-        if row.get("timeline_id") not in (None, timeline_id):
-            continue
-        if view == "player_safe" and not contract.is_player_visible(row):
-            continue
-        if kinds and row.get("kind") not in kinds:
-            continue
-        if (
-            not include_superseded
-            and as_of_turn is None
-            and row.get("valid_until_turn") is not None
-        ):
-            continue
-        if query_entities and _entity_overlap(query_entities, row, entities) == 0:
-            continue
-        narrowed.append(row)
-
-    ranked: list[dict[str, Any]] = []
-    for row in narrowed:
-        overlap = _entity_overlap(query_entities, row, entities)
-        subject_hit = 1 if subject and (
-            row.get("subject_id") == subject or subject in (row.get("knowers") or [])
-        ) else 0
-        source_turn = int(row.get("source_turn") or 0)
-        score = 4 * overlap + 2 * subject_hit + source_turn / 1000.0
-        item = dict(row)
-        item["score"] = round(score, 3)
-        item["authority"] = AUTHORITY
-        item["hard_gate"] = False
-        ranked.append(item)
-    ranked.sort(key=lambda row: (-row["score"], -int(row.get("source_turn") or 0), row["assertion_id"]))
-    ranked = ranked[:limit]
-
-    pending = [
+    recall_context = retrieval.build_recall_context(
+        subject_id=subject,
+        timeline_id=context.get("timeline_id") or contract.ROOT_TIMELINE_ID,
+        turn_number=context.get("as_of_turn"),
+        entities=[str(item) for item in (context.get("entities") or [])],
+        privacy=str(context.get("privacy") or context.get("view") or "keeper"),
+        campaign_id=camp.name,
+        kinds=[str(item) for item in (context.get("kinds") or [])],
+        include_superseded=bool(context.get("include_superseded")),
+        limit=context.get("limit"),
+        identity_bindings=list(load_subjects(camp).values()),
+    )
+    envelope = retrieval.build_warm_projection(
+        list(load_assertions(camp).values()), recall_context
+    )
+    envelope["pending_player_assertions"] = [
         row
-        for row in ranked
+        for row in envelope["candidates"]
         if row.get("kind") == "player_assertion"
     ]
-    return {
-        "schema_generation": SCHEMA_GENERATION,
-        "authority": AUTHORITY,
-        "hard_gate": False,
-        "view": view,
-        "count": len(ranked),
-        "candidates": ranked,
-        "pending_player_assertions": pending,
-    }
+    return envelope
 
 
 # ---------------------------------------------------------------------------
@@ -1305,10 +1301,11 @@ def open_hooks_with_age(
     consumers can join the canonical-event projection without ever inferring
     hook meaning from prose.
 
-    Deterministic: sorted by ``memory_id``, capped at ``limit``.
+    Deterministic: sorted by ``memory_id``, capped at ``limit``. Strictly
+    read-only: an absent temporal store is an empty advisory projection,
+    never bootstrapped by a read.
     """
     camp = _require_campaign_dir(campaign_dir)
-    ensure_store(camp)
     try:
         through = int(current_turn)
     except (TypeError, ValueError):
@@ -1370,6 +1367,29 @@ def _read_session_summaries(campaign_dir: Path, through_turn: int) -> list[dict[
     return rows[-6:]
 
 
+def _fail_closed_on_excluded_rows(stage: str, envelope: Mapping[str, Any]) -> None:
+    """Resume fails closed on contract-invalid temporal rows.
+
+    The resume capsule must never project a silently-dropped assertion: a
+    row that fails ``validate_assertion`` is store corruption, so it
+    surfaces here (``session.resume`` maps ``TemporalMemoryError`` to its
+    existing ``temporal_store_corrupt`` failure) instead of disappearing
+    between the raw store and the projection.
+    """
+    excluded = list(envelope.get("excluded") or [])
+    if not excluded:
+        return
+    detail = "; ".join(
+        f"{row.get('assertion_id')}: {row.get('message')}"
+        for row in excluded[:3]
+    )
+    raise TemporalMemoryError(
+        "canonical temporal store holds contract-invalid assertion rows "
+        f"({stage}); temporal store corruption fails closed rather than "
+        "projecting them: " + detail
+    )
+
+
 def build_resume_projection(
     campaign_id: str,
     turn_number: int,
@@ -1378,9 +1398,21 @@ def build_resume_projection(
     timeline_id: str = contract.ROOT_TIMELINE_ID,
     limit: int = 12,
 ) -> dict[str, Any]:
-    """Bounded advisory capsule from temporal history + session summaries."""
+    """Bounded advisory capsule from temporal history + session summaries.
+
+    General memory content comes from the canonical ``hot`` projection of
+    the retrieval core: newest currently-effective assertions of the exact
+    timeline, newest-first, under the same campaign pinning, identity
+    bindings, privacy, and row validation as every other recall path.
+    Pending player candidates come from the same canonical projection core
+    (kinds=[``player_assertion``], campaign/timeline/turn-pinned,
+    contract-validated) — never from raw unvalidated store rows. Any
+    contract-invalid row fails the capsule closed (store corruption), and
+    the capsule is strictly read-only: the store is never bootstrapped here
+    (``session.resume`` checks store existence first and reports an absent
+    store as explicit empty state).
+    """
     camp = _require_campaign_dir(campaign_dir)
-    ensure_store(camp)
     through = int(turn_number)
     episodes = [
         row
@@ -1400,16 +1432,39 @@ def build_resume_projection(
             item["keeper_text_sha256"] = ev.get("keeper_text_sha256")
         recent_episodes.append(item)
 
-    recalled = recall(
-        None,
-        {
-            "campaign_dir": camp,
-            "timeline_id": timeline_id,
-            "as_of_turn": through,
-            "view": "keeper",
-            "limit": max(1, min(24, int(limit))),
-        },
+    assertions = list(load_assertions(camp).values())
+    subjects = list(load_subjects(camp).values())
+    recalled = retrieval.build_hot_projection(
+        assertions,
+        retrieval.build_recall_context(
+            subject_id=None,
+            timeline_id=timeline_id,
+            turn_number=through,
+            privacy="keeper",
+            campaign_id=_campaign_id_of(camp, campaign_id),
+            limit=max(1, min(24, int(limit))),
+            identity_bindings=subjects,
+        ),
     )
+    _fail_closed_on_excluded_rows("resume hot projection", recalled)
+    # Pending player candidates come from the same validated, pinned core
+    # (not raw store rows), with disposition filtering, id ordering, and the
+    # bounded 16-row shape applied AFTER the uncapped canonical selection —
+    # a warm rank/cap must never drop a lexically or recency-late valid
+    # candidate before the deterministic id-ordered selection.
+    pending_sel = retrieval.select_candidates(
+        assertions,
+        retrieval.build_recall_context(
+            subject_id=None,
+            timeline_id=timeline_id,
+            turn_number=through,
+            privacy="keeper",
+            campaign_id=_campaign_id_of(camp, campaign_id),
+            kinds=["player_assertion"],
+            identity_bindings=subjects,
+        ),
+    )
+    _fail_closed_on_excluded_rows("resume pending projection", pending_sel)
     hooks = open_hooks_with_age(camp, through, limit=16)
     adjudications = load_adjudications(camp)
     accepted = {
@@ -1419,9 +1474,8 @@ def build_resume_projection(
     }
     pending = [
         row
-        for row in load_assertions(camp).values()
-        if row.get("kind") == "player_assertion"
-        and row["assertion_id"] not in accepted
+        for row in pending_sel["candidates"]
+        if row["assertion_id"] not in accepted
         and row.get("valid_until_turn") is None
     ]
     pending.sort(key=lambda row: row["assertion_id"])

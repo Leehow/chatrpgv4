@@ -4,12 +4,17 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO / "plugins" / "coc-keeper" / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import coc_temporal_retrieval
 
 COMMIT_A = "a" * 40
 COMMIT_B = "b" * 40
@@ -329,6 +334,178 @@ def test_recall_excludes_superseded_unless_as_of_includes_them(tmp_path):
     assert [row["assertion_id"] for row in historic["candidates"]] == [
         original["assertion_id"]
     ]
+
+
+# ---------------------------------------------------------------------------
+# Recall = thin read-only adapter over the canonical retrieval core
+# ---------------------------------------------------------------------------
+
+
+def test_recall_on_absent_store_is_read_only_and_empty(tmp_path):
+    camp = _camp(tmp_path)
+    result = tm.recall(
+        None,
+        {"campaign_dir": camp, "entities": ["entity-location-cellar"]},
+    )
+    assert result["tier"] == "warm"
+    assert result["count"] == 0
+    assert result["candidates"] == []
+    assert result["excluded_count"] == 0
+    assert result["pending_player_assertions"] == []
+    # A query never bootstraps the canonical store.
+    assert not (camp / "memory" / "temporal").exists()
+
+
+def test_recall_matches_canonical_warm_projection(tmp_path):
+    camp = _camp(tmp_path)
+    _assertion(
+        camp,
+        assertion_id="mem-test-parity-a",
+        entities=["entity-location-cellar"],
+        source_turn=5,
+        valid_from_turn=5,
+        occurred_turn=5,
+    )
+    _assertion(
+        camp,
+        assertion_id="mem-test-parity-b",
+        entities=["entity-location-attic"],
+        source_turn=7,
+        valid_from_turn=7,
+        occurred_turn=7,
+    )
+    adapted = tm.recall(
+        None,
+        {
+            "campaign_dir": camp,
+            "entities": ["entity-location-cellar"],
+            "view": "keeper",
+            "as_of_turn": 6,
+        },
+    )
+    canonical = coc_temporal_retrieval.build_warm_projection(
+        list(tm.load_assertions(camp).values()),
+        coc_temporal_retrieval.build_recall_context(
+            subject_id=None,
+            timeline_id="tl-main",
+            turn_number=6,
+            entities=["entity-location-cellar"],
+            privacy="keeper",
+            campaign_id=camp.name,
+            identity_bindings=list(tm.load_subjects(camp).values()),
+        ),
+    )
+    # Byte-equal candidates: the facade owns no ranking of its own.
+    assert adapted["candidates"] == canonical["candidates"]
+    assert [row["assertion_id"] for row in adapted["candidates"]] == [
+        "mem-test-parity-a"
+    ]
+
+
+def test_recall_default_limit_matches_canonical_warm_default(tmp_path):
+    """No explicit limit -> the canonical warm default (12), not the retired
+    facade default (8): nine qualifying candidates all return, byte-equal
+    with the core built the same way."""
+    camp = _camp(tmp_path)
+    for n in range(1, 10):
+        _assertion(
+            camp,
+            assertion_id=f"mem-test-default-{n:02d}",
+            entities=["entity-location-cellar"],
+            source_turn=n,
+            valid_from_turn=n,
+            occurred_turn=n,
+        )
+    adapted = tm.recall(
+        None,
+        {
+            "campaign_dir": camp,
+            "entities": ["entity-location-cellar"],
+            "view": "keeper",
+        },
+    )
+    canonical = coc_temporal_retrieval.build_warm_projection(
+        list(tm.load_assertions(camp).values()),
+        coc_temporal_retrieval.build_recall_context(
+            subject_id=None,
+            timeline_id="tl-main",
+            entities=["entity-location-cellar"],
+            privacy="keeper",
+            campaign_id=camp.name,
+            identity_bindings=list(tm.load_subjects(camp).values()),
+        ),
+    )
+    assert len(adapted["candidates"]) == 9
+    assert adapted["candidates"] == canonical["candidates"]
+    # Deterministic warm order (score tie -> newer source_turn first).
+    assert adapted["candidates"][0]["assertion_id"] == "mem-test-default-09"
+
+
+def test_recall_pins_campaign_against_foreign_rows(tmp_path):
+    camp = _camp(tmp_path)
+    _assertion(
+        camp,
+        assertion_id="mem-test-own",
+        entities=["entity-location-cellar"],
+    )
+    # A foreign campaign-scoped row physically present in this store is
+    # excluded by campaign pinning.
+    _assertion(
+        camp,
+        assertion_id="mem-other-foreign",
+        campaign_id="other",
+        entities=["entity-location-cellar"],
+    )
+
+    result = tm.recall(
+        None,
+        {"campaign_dir": camp, "entities": ["entity-location-cellar"]},
+    )
+    assert {row["assertion_id"] for row in result["candidates"]} == {
+        "mem-test-own"
+    }
+
+
+def test_recall_fails_closed_on_corrupt_assertion_rows(tmp_path):
+    """Strict assertion-store read boundary: idless objects, non-object
+    JSON, malformed JSON, and contract-invalid payloads are temporal store
+    corruption — the query fails closed and never writes or bootstraps."""
+    camp = _camp(tmp_path)
+    _assertion(
+        camp,
+        assertion_id="mem-test-own",
+        entities=["entity-location-cellar"],
+    )
+    assertions_path = camp / "memory" / "temporal" / "assertions.jsonl"
+    good = assertions_path.read_text(encoding="utf-8")
+    bad_lines = [
+        json.dumps({"kind": "belief"}),                        # idless dict
+        json.dumps([{"assertion_id": "mem-x"}]),              # JSON list
+        json.dumps("scalar"),                                  # JSON string
+        json.dumps(7),                                         # JSON number
+        '{"assertion_id": "mem-y", broken',                    # malformed JSON
+        json.dumps({"assertion_id": "mem-z", "kind": "belief"}),  # contract-invalid
+    ]
+    for bad in bad_lines:
+        assertions_path.write_text(good + bad + "\n", encoding="utf-8")
+        with pytest.raises(tm.TemporalMemoryError, match="corruption"):
+            tm.recall(
+                None,
+                {"campaign_dir": camp, "entities": ["entity-location-cellar"]},
+            )
+        # The failed query left the append-only store byte-identical.
+        assert assertions_path.read_text(encoding="utf-8") == good + bad + "\n"
+
+
+def test_recall_fails_closed_on_invalid_context(tmp_path):
+    camp = _camp(tmp_path)
+    _assertion(camp)
+    with pytest.raises(ValueError, match="privacy"):
+        tm.recall(None, {"campaign_dir": camp, "view": "secret"})
+    with pytest.raises(ValueError, match="turn_number"):
+        tm.recall(None, {"campaign_dir": camp, "as_of_turn": "3"})
+    with pytest.raises(ValueError, match="entities"):
+        tm.recall(None, {"campaign_dir": camp, "entities": ["cellar"]})
 
 
 # ---------------------------------------------------------------------------

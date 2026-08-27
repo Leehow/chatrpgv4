@@ -71,6 +71,17 @@ try:
 except Exception:
     coc_temporal_memory = None  # temporal memory optional; director degrades gracefully
 
+# Canonical recall semantics: director memory reads consume the retrieval
+# core's warm projection directly (the same validated narrow-then-rank
+# surface the typed ``memory.recall`` operation uses).
+coc_temporal_retrieval = None
+try:
+    coc_temporal_retrieval = _load_sibling(
+        "coc_temporal_retrieval_director", "coc_temporal_retrieval.py"
+    )
+except Exception:
+    coc_temporal_retrieval = None  # retrieval core optional; director degrades gracefully
+
 # Legacy Markdown card reader (``coc_memory``) is RETIRED from the Director
 # path (plan t6): director memory inputs come from the canonical temporal
 # store and maintained projections only. The module is no longer imported here.
@@ -2915,12 +2926,19 @@ def _advisory_timeline_id(campaign_dir: Any) -> str | None:
         return None
 
 
-def _derive_memory_entities(ctx: dict[str, Any]) -> list[str]:
+def _derive_memory_entities(ctx: dict[str, Any]) -> list[Any]:
     """Default memory query: active scene id + npc ids + available clue ids,
-    sharpened by rich-intent target entities. Structured ids only."""
+    sharpened by rich-intent target entities. Structured ids only.
+
+    An explicit ``memory_query_entities`` collection is returned verbatim
+    (falsey entries preserved) so consumers can distinguish a constrained
+    query whose refs all failed sanitization from an actually absent query;
+    the derived scene/npc/clue defaults stay sanitized because structural
+    absence (no scene) is not a constrained query.
+    """
     overrides = ctx.get("memory_query_entities")
     if overrides:
-        return [e for e in overrides if e]
+        return list(overrides)
     scene = ctx.get("active_scene") or {}
     ents = [ctx.get("active_scene_id", "")]
     ents += scene.get("npc_ids", [])
@@ -2944,28 +2962,87 @@ def _projection_unavailable_warning(exc: Exception, field: str) -> dict[str, Any
 def _retrieve_memory_for_ctx(ctx: dict[str, Any]) -> list[dict[str, Any]]:
     """Player-safe temporal-memory reads matching the current scene/intent.
 
-    Reads ONLY the canonical temporal store via the same deterministic
-    narrow-then-rank surface ``memory.recall`` uses. The retired Markdown
-    card scanner is never consulted. Returns [] on absence/corruption after
-    recording a structured warning — advice degrades, play never blocks.
+    Reads ONLY the canonical temporal store through the canonical warm
+    projection of ``coc_temporal_retrieval`` — the same validated
+    narrow-then-rank semantics the typed ``memory.recall`` operation uses
+    (row contract validation, campaign pinning, privacy view, deterministic
+    ranking). The retired Markdown card scanner is never consulted. Query
+    refs that are not canonical ``entity-*`` semantic ids are dropped from
+    the query instead of failing the whole read. Reading never bootstraps
+    the store. Returns [] on absence/corruption after recording a
+    structured warning — advice degrades, play never blocks.
     """
-    if coc_temporal_memory is None:
+    if coc_temporal_memory is None or coc_temporal_retrieval is None:
         return []
     campaign_dir = ctx.get("campaign_dir")
     if campaign_dir is None:
         return []
-    entities = _derive_memory_entities(ctx)
-    recall_context: dict[str, Any] = {
-        "campaign_dir": Path(campaign_dir),
-        "entities": entities,
-        "view": "player_safe",
-        "limit": _MEMORY_READ_LIMIT,
-    }
+    raw_refs = list(_derive_memory_entities(ctx))
+    # Each supplied ref is validated exactly as supplied against the
+    # canonical semantic-id/entity-prefix grammar (the exact grammar
+    # build_recall_context enforces — no normalization, no stripping), so
+    # one malformed item can never reject the whole list: exact valid refs
+    # narrow normally, anything else (whitespace-wrapped, whitespace-only,
+    # falsey, wrong prefix, grammar violations, non-strings) is discarded
+    # with a bounded warning.
+    entities: list[str] = []
+    discarded: list[str] = []
+    for item in raw_refs:
+        if coc_temporal_retrieval.is_canonical_entity_id(item):
+            if item not in entities:
+                entities.append(item)
+        else:
+            discarded.append(str(item))
+    if raw_refs and not entities:
+        # The caller supplied a constrained query (checked on the RAW
+        # collection, before any sanitization: falsey entries, whitespace-
+        # only strings, and malformed ids all count as supplied refs) but no
+        # canonical entity-* semantic id remains: narrowing to nothing must
+        # never widen into an unfiltered warm recall of unrelated memories.
+        # Report the bounded unavailable warning and return no candidates.
+        # Only a genuinely unconstrained query (no refs at all) keeps the
+        # canonical no-entity-narrowing warm behavior.
+        ctx.setdefault("validation_warnings", []).append(
+            _projection_unavailable_warning(
+                ValueError(
+                    "memory query refs are not canonical entity-* ids: "
+                    + ", ".join(str(item) for item in raw_refs[:5])
+                ),
+                "temporal_memory",
+            )
+        )
+        return []
+    if discarded:
+        ctx.setdefault("validation_warnings", []).append(
+            {
+                "field": "temporal_memory",
+                "reason_code": "invalid_query_refs",
+                "detail": (
+                    "discarded non-canonical memory query refs: "
+                    + ", ".join(discarded[:5])
+                )[:200],
+            }
+        )
+    camp = Path(campaign_dir)
     timeline_id = _advisory_timeline_id(campaign_dir)
-    if timeline_id:
-        recall_context["timeline_id"] = timeline_id
     try:
-        recalled = coc_temporal_memory.recall(None, recall_context)
+        recall_context = coc_temporal_retrieval.build_recall_context(
+            subject_id=None,
+            timeline_id=(
+                timeline_id or coc_temporal_memory.contract.ROOT_TIMELINE_ID
+            ),
+            entities=entities,
+            privacy="player_safe",
+            campaign_id=camp.name,
+            limit=_MEMORY_READ_LIMIT,
+            identity_bindings=list(
+                coc_temporal_memory.load_subjects(camp).values()
+            ),
+        )
+        recalled = coc_temporal_retrieval.build_warm_projection(
+            list(coc_temporal_memory.load_assertions(camp).values()),
+            recall_context,
+        )
     except Exception as exc:
         ctx.setdefault("validation_warnings", []).append(
             _projection_unavailable_warning(exc, "temporal_memory")

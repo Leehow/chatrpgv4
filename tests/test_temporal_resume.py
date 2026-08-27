@@ -395,6 +395,264 @@ def test_forked_active_timeline_scopes_capsule_to_active_timeline(
     assert resumed["history_projection_recovery"]["status"] == "rebuilt"
 
 
+def test_resume_projection_orders_hot_newest_first_and_isolates_foreign_campaign(
+    tmp_path: Path,
+) -> None:
+    """Direct capsule unit: hot tier = newest-effective-first, campaign-pinned."""
+    camp = tmp_path / ".coc" / "campaigns" / "resume-hot-order"
+    camp.mkdir(parents=True)
+    cid = camp.name
+    subject = coc_temporal_memory.contract.subject_id_for("party", cid, "")
+
+    def seed(assertion_id: str, source_turn: int, campaign_id: str = cid) -> None:
+        coc_temporal_memory.record_assertion(
+            {
+                "assertion_id": assertion_id,
+                "kind": "knowledge",
+                "scope": "campaign",
+                "campaign_id": campaign_id,
+                "timeline_id": "tl-main",
+                "subject_id": subject,
+                "knowers": [subject],
+                "privacy": "player_safe",
+                "state": "accurate",
+                "statement": f"{assertion_id} 的陈述。",
+                "entities": ["entity-location-cellar"],
+                "occurred_turn": source_turn,
+                "valid_from_turn": source_turn,
+                "source_commit": "a" * 40,
+                "source_turn": source_turn,
+                "source_receipts": [f"receipt-{assertion_id}"],
+            },
+            campaign_dir=camp,
+        )
+
+    seed("mem-resume-hot-order-early", 2)
+    seed("mem-resume-hot-order-late", 9)
+    # A foreign campaign row physically present in the same store never
+    # enters this campaign's resume capsule.
+    seed("mem-other-camp-foreign", 12, campaign_id="other-camp")
+
+    capsule = coc_temporal_memory.build_resume_projection(
+        cid, 10, campaign_dir=camp, timeline_id="tl-main",
+    )
+    assert capsule["authority"] == "advisory"
+    assert capsule["turn_number"] == 10
+    assert [row["assertion_id"] for row in capsule["active_assertions"]] == [
+        "mem-resume-hot-order-late",
+        "mem-resume-hot-order-early",
+    ]
+
+
+def test_resume_projection_read_never_bootstraps_store(tmp_path: Path) -> None:
+    camp = tmp_path / ".coc" / "campaigns" / "resume-absent-store"
+    camp.mkdir(parents=True)
+    capsule = coc_temporal_memory.build_resume_projection(
+        camp.name, 4, campaign_dir=camp,
+    )
+    for field in (
+        "recent_episodes", "active_assertions", "open_hooks",
+        "pending_candidates", "session_summaries",
+    ):
+        assert capsule[field] == []
+    # Reading an absent store must not materialize it.
+    assert not (camp / "memory" / "temporal").exists()
+
+
+def test_resume_capsule_pending_candidates_are_canonically_isolated(
+    tmp_path: Path,
+) -> None:
+    """Pending player candidates enter the capsule through the same pinned,
+    validated core: foreign / wrong-timeline / future / closed / non-candidate
+    / unbound-cross-campaign rows never leak, ordering stays id-ascending."""
+    camp = tmp_path / ".coc" / "campaigns" / "resume-pending"
+    camp.mkdir(parents=True)
+    cid = camp.name
+    subject = coc_temporal_memory.contract.subject_id_for("party", cid, "")
+
+    def seed(
+        assertion_id: str,
+        *,
+        source_turn: int = 3,
+        campaign_id: str = cid,
+        timeline_id: str = "tl-main",
+        kind: str = "player_assertion",
+        valid_until_turn: int | None = None,
+    ) -> None:
+        if kind == "player_assertion":
+            row_subject = "subject-player-table"
+        else:
+            row_subject = subject
+        coc_temporal_memory.record_assertion(
+            {
+                "assertion_id": assertion_id,
+                "kind": kind,
+                "scope": "campaign",
+                "campaign_id": campaign_id,
+                "timeline_id": timeline_id,
+                "subject_id": row_subject,
+                "knowers": [row_subject],
+                "privacy": "player_safe",
+                "state": "uncertain",
+                "statement": f"{assertion_id} 的猜测。",
+                "entities": ["entity-location-cellar"],
+                "occurred_turn": source_turn,
+                "valid_from_turn": source_turn,
+                "source_commit": "a" * 40,
+                "source_turn": source_turn,
+                "source_receipts": [f"receipt-{assertion_id}"],
+                "valid_until_turn": valid_until_turn,
+                "superseded_by": (
+                    [f"mem-{campaign_id}-superseding-{assertion_id}"]
+                    if valid_until_turn is not None
+                    else []
+                ),
+            },
+            campaign_dir=camp,
+        )
+
+    # id order differs from recency order: pins the id-ascending shape.
+    seed("mem-resume-pending-own", source_turn=3)
+    seed("mem-resume-pending-aearlier-id", source_turn=9)
+    seed("mem-resume-pending-future", source_turn=11)
+    seed("mem-resume-pending-fork", timeline_id="tl-fork")
+    seed("mem-resume-pending-closed", valid_until_turn=5)
+    seed("mem-resume-pending-known", kind="knowledge")
+    seed("mem-other-camp-foreign-pending", campaign_id="other-camp")
+    coc_temporal_memory.record_assertion(
+        {
+            "assertion_id": "mem-xc-unbound-pending",
+            "kind": "player_assertion",
+            "scope": "cross_campaign",
+            "campaign_id": None,
+            "timeline_id": None,
+            "subject_id": "subject-player-table",
+            "knowers": ["subject-player-table"],
+            "privacy": "player_safe",
+            "state": "uncertain",
+            "statement": "无绑定的跨战役猜测。",
+            "entities": [],
+            "occurred_turn": 3,
+            "valid_from_turn": 3,
+            "source_commit": "a" * 40,
+            "source_turn": 3,
+            "source_receipts": ["receipt-xc-unbound"],
+        },
+        campaign_dir=camp,
+    )
+
+    capsule = coc_temporal_memory.build_resume_projection(
+        cid, 10, campaign_dir=camp, timeline_id="tl-main",
+    )
+    assert [row["assertion_id"] for row in capsule["pending_candidates"]] == [
+        "mem-resume-pending-aearlier-id",
+        "mem-resume-pending-own",
+    ]
+    assert len(capsule["pending_candidates"]) <= 16
+
+
+def test_resume_capsule_fails_closed_on_contract_invalid_rows(
+    tmp_path: Path,
+) -> None:
+    """A contract-invalid row is store corruption: the capsule fails closed
+    (session.resume's temporal_store_corrupt path), it never silently drops
+    or projects the row."""
+    camp = tmp_path / ".coc" / "campaigns" / "resume-pending-corrupt"
+    camp.mkdir(parents=True)
+    cid = camp.name
+    coc_temporal_memory.record_assertion(
+        {
+            "assertion_id": f"mem-{cid}-pending-ok",
+            "kind": "player_assertion",
+            "scope": "campaign",
+            "campaign_id": cid,
+            "timeline_id": "tl-main",
+            "subject_id": "subject-player-table",
+            "knowers": ["subject-player-table"],
+            "privacy": "player_safe",
+            "state": "uncertain",
+            "statement": "有效的猜测。",
+            "entities": ["entity-location-cellar"],
+            "occurred_turn": 3,
+            "valid_from_turn": 3,
+            "source_commit": "a" * 40,
+            "source_turn": 3,
+            "source_receipts": ["receipt-ok"],
+        },
+        campaign_dir=camp,
+    )
+    assertions_path = camp / "memory" / "temporal" / "assertions.jsonl"
+    with assertions_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps({"assertion_id": f"mem-{cid}-broken", "kind": "belief"})
+            + "\n"
+        )
+
+    with pytest.raises(
+        coc_temporal_memory.TemporalMemoryError, match="corruption"
+    ):
+        coc_temporal_memory.build_resume_projection(
+            cid, 10, campaign_dir=camp, timeline_id="tl-main",
+        )
+
+
+def test_resume_capsule_pending_selection_is_not_precapped_or_preranked(
+    tmp_path: Path,
+) -> None:
+    """With 70 valid pending candidates the id-ordered first 16 win even
+    though the lexically-first ids are recency-late (a warm rank/cap would
+    drop exactly those); an accepted candidate is removed after full-pool
+    selection, never before."""
+    camp = tmp_path / ".coc" / "campaigns" / "resume-pending-cap"
+    camp.mkdir(parents=True)
+    cid = camp.name
+    subject = "subject-player-table"
+    ids = [f"mem-{cid}-pending-{i:03d}" for i in range(70)]
+    for i, assertion_id in enumerate(ids):
+        coc_temporal_memory.record_assertion(
+            {
+                "assertion_id": assertion_id,
+                "kind": "player_assertion",
+                "scope": "campaign",
+                "campaign_id": cid,
+                "timeline_id": "tl-main",
+                "subject_id": subject,
+                "knowers": [subject],
+                "privacy": "player_safe",
+                "state": "uncertain",
+                "statement": f"{assertion_id} 的猜测。",
+                "entities": ["entity-location-cellar"],
+                "occurred_turn": i + 1,
+                "valid_from_turn": i + 1,
+                "source_commit": "a" * 40,
+                "source_turn": i + 1,
+                "source_receipts": [f"receipt-{assertion_id}"],
+            },
+            campaign_dir=camp,
+        )
+
+    capsule = coc_temporal_memory.build_resume_projection(
+        cid, 200, campaign_dir=camp, timeline_id="tl-main",
+    )
+    # id-ascending, fill-to-16 over the complete valid pool: ids 000..005
+    # are the recency-late rows a warm rank/cap would have dropped first.
+    assert [row["assertion_id"] for row in capsule["pending_candidates"]] == (
+        ids[:16]
+    )
+
+    # Accepted adjudication is removed after full-pool selection.
+    coc_temporal_memory.adjudicate_candidate(
+        "adj-pending-cap-accept", ids[0], "accept",
+        campaign_dir=camp, kind="belief",
+    )
+    capsule = coc_temporal_memory.build_resume_projection(
+        cid, 200, campaign_dir=camp, timeline_id="tl-main",
+    )
+    assert [row["assertion_id"] for row in capsule["pending_candidates"]] == (
+        ids[1:17]
+    )
+
+
 def test_temporal_capsule_degrades_to_counts_under_budget() -> None:
     oversized = {
         "host_input": {"text": "玩家未分类输入" * 4000},
