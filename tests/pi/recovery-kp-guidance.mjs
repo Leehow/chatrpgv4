@@ -230,6 +230,424 @@ assert.deepEqual(
     },
   },
 );
+// No canonical cards supplied → no card fields fabricated, fallback intact.
+assert.equal(pendingDirect.envelope.data.host_recovery_guidance.card_projection, undefined);
+assert.equal(pendingDirect.envelope.data.host_recovery_guidance.review_recovery.card, undefined);
+assert.equal(pendingDirect.envelope.data.host_recovery_guidance.then.card, undefined);
+assert.deepEqual(pendingDirect.audit.operation_cards, {
+  agency_review_operation: false,
+  finalize_operation: false,
+});
+
+// ---- exact canonical operation cards survive projection verbatim ----
+// Fixtures mirror the kernel producer (coc_operation_turn_output.py
+// _tool_turn_output_context) and the wire projection (coc_mcp_wire.py),
+// including optional extras (span_repairs, argument_contract) that must be
+// carried through byte/structure-identical without whitelist loss.
+const reviewCardFixture = () => ({
+  operation: "narration.review",
+  invoke_via: "coc_narration_review",
+  prefilled_arguments: {
+    turn_id: "turn-v1-7b5c8d72",
+    source_digest: "sha256:a10b9171f3c2",
+    revision: 1,
+  },
+  missing_arguments: [
+    "decision_id", "draft_text", "findings", "state_authority_review",
+  ],
+  discovery_required: false,
+  authority: "semantic_agency_and_player_state_review",
+  hard_gate_scope: "agency_and_player_state_authority_only",
+  host_state_claim_compiler_required: true,
+  span_repairs: [{ span: "cupboard-reveal", repaired_revision: 1 }],
+});
+const finalizeCardFixture = () => ({
+  operation: "turn.finalize",
+  invoke_via: "coc_turn_finalize",
+  prefilled_arguments: {
+    decision_id: "bc1419c9:player-epoch-7:revision-2:finalize",
+    revision: 2,
+    coverage: [],
+  },
+  missing_arguments: [
+    "draft", "coverage", "narration_review_id", "agency_claims",
+  ],
+  discovery_required: false,
+  authority: "settled_output_completeness",
+  hard_gate: true,
+  argument_contract: {
+    required_arguments: [
+      "draft", "coverage", "decision_id", "revision",
+      "narration_review_id", "agency_claims",
+    ],
+    allowed_arguments: [
+      "draft", "coverage", "decision_id", "revision",
+      "narration_review_id", "agency_claims", "advisory_uptake",
+    ],
+    forbidden_aliases: ["draft_text", "journal_decision_id"],
+  },
+});
+
+const cardsEnvelope = resumeEnvelope("pending_finalization", {
+  next_operations: ["turn.finalize"],
+});
+cardsEnvelope.data.pending_output_context = {
+  journal_decision_id: "bc1419c9:player-epoch-7:revision-2",
+  agency_review_operation: reviewCardFixture(),
+  finalize_operation: finalizeCardFixture(),
+};
+const cardsGuided = applyPendingFinalizationRecoveryGuidance(
+  cardsEnvelope,
+  { root, campaign: "recovery-guide-campaign" },
+  { reviewRecoveryArmed: true, revision: 1 },
+);
+assert.equal(cardsGuided.attached, true);
+// 1. exact narration-review card: typed tool + prefilled + missing args survive
+//    byte/structure-identical.
+assert.deepEqual(
+  cardsGuided.envelope.data.host_recovery_guidance.review_recovery.card,
+  reviewCardFixture(),
+);
+assert.equal(
+  JSON.stringify(cardsGuided.envelope.data.host_recovery_guidance.review_recovery.card),
+  JSON.stringify(reviewCardFixture()),
+);
+assert.equal(
+  cardsGuided.envelope.data.host_recovery_guidance.review_recovery.card.invoke_via,
+  "coc_narration_review",
+);
+// 2. exact finalize card survives projection identically.
+assert.deepEqual(
+  cardsGuided.envelope.data.host_recovery_guidance.then.card,
+  finalizeCardFixture(),
+);
+assert.equal(
+  JSON.stringify(cardsGuided.envelope.data.host_recovery_guidance.then.card),
+  JSON.stringify(finalizeCardFixture()),
+);
+assert.equal(
+  cardsGuided.envelope.data.host_recovery_guidance.then.card.invoke_via,
+  "coc_turn_finalize",
+);
+// 3. Existing next_call/summary behavior remains; exact cards are additive.
+assert.deepEqual(
+  cardsGuided.envelope.data.host_recovery_guidance.next_call,
+  {
+    tool: "coc_turn_output_context",
+    arguments: { root, campaign: "recovery-guide-campaign" },
+  },
+);
+assert.equal(
+  cardsGuided.envelope.data.host_recovery_guidance.review_recovery.exact_card_path,
+  "coc_turn_output_context.data.agency_review_operation",
+);
+assert.equal(
+  cardsGuided.envelope.data.host_recovery_guidance.review_recovery.armed,
+  true,
+);
+assert.equal(
+  cardsGuided.envelope.data.host_recovery_guidance.review_recovery.revision,
+  1,
+);
+assert.deepEqual(
+  cardsGuided.envelope.data.host_recovery_guidance.card_projection,
+  {
+    source: "session.resume.pending_output_context",
+    authoritative_copy: "coc_turn_output_context",
+    instruction: cardsGuided.envelope.data.host_recovery_guidance.card_projection.instruction,
+  },
+);
+assert.equal(
+  cardsGuided.envelope.data.host_recovery_guidance.card_projection
+    .instruction.includes("fresh cards are authoritative"),
+  true,
+);
+assert.deepEqual(cardsGuided.audit.operation_cards, {
+  agency_review_operation: true,
+  finalize_operation: true,
+});
+// The projection must not alias the canonical card: later mutation of the
+// source envelope cannot alter the already-projected guidance.
+cardsEnvelope.data.pending_output_context.agency_review_operation
+  .prefilled_arguments.revision = 99;
+cardsEnvelope.data.pending_output_context.finalize_operation
+  .prefilled_arguments.decision_id = "mutated:finalize";
+assert.equal(
+  cardsGuided.envelope.data.host_recovery_guidance.review_recovery.card
+    .prefilled_arguments.revision,
+  1,
+);
+assert.equal(
+  cardsGuided.envelope.data.host_recovery_guidance.then.card
+    .prefilled_arguments.decision_id,
+  "bc1419c9:player-epoch-7:revision-2:finalize",
+);
+
+// 4. Missing/malformed optional cards never fabricate data (fail closed).
+const malformedEnvelope = resumeEnvelope("pending_finalization", {
+  next_operations: ["turn.finalize"],
+});
+malformedEnvelope.data.pending_output_context = {
+  agency_review_operation: { operation: "narration.review" },
+  finalize_operation: "turn.finalize",
+};
+const malformedGuided = applyPendingFinalizationRecoveryGuidance(
+  malformedEnvelope,
+  { root, campaign: "recovery-guide-campaign" },
+);
+assert.equal(malformedGuided.attached, true);
+assert.equal(malformedGuided.envelope.data.host_recovery_guidance.card_projection, undefined);
+assert.equal(malformedGuided.envelope.data.host_recovery_guidance.review_recovery.card, undefined);
+assert.equal(malformedGuided.envelope.data.host_recovery_guidance.then.card, undefined);
+assert.deepEqual(malformedGuided.audit.operation_cards, {
+  agency_review_operation: false,
+  finalize_operation: false,
+});
+
+const badMissingArgsEnvelope = resumeEnvelope("pending_finalization", {
+  next_operations: ["turn.finalize"],
+});
+badMissingArgsEnvelope.data.pending_output_context = {
+  agency_review_operation: {
+    operation: "narration.review",
+    invoke_via: "coc_narration_review",
+    prefilled_arguments: { turn_id: "turn-v1-7b5c8d72" },
+    missing_arguments: ["decision_id", 7],
+  },
+};
+const badMissingArgs = applyPendingFinalizationRecoveryGuidance(
+  badMissingArgsEnvelope,
+  { root, campaign: "recovery-guide-campaign" },
+);
+assert.equal(badMissingArgs.envelope.data.host_recovery_guidance.review_recovery.card, undefined);
+assert.equal(badMissingArgs.envelope.data.host_recovery_guidance.card_projection, undefined);
+
+// Partial validity: a valid review card plus a malformed finalize card
+// projects only the valid card and still labels the fresh call authoritative.
+const partialEnvelope = resumeEnvelope("pending_finalization", {
+  next_operations: ["turn.finalize"],
+});
+partialEnvelope.data.pending_output_context = {
+  agency_review_operation: reviewCardFixture(),
+  finalize_operation: { operation: "turn.finalize", invoke_via: "coc_invoke" },
+};
+const partialGuided = applyPendingFinalizationRecoveryGuidance(
+  partialEnvelope,
+  { root, campaign: "recovery-guide-campaign" },
+);
+assert.deepEqual(
+  partialGuided.envelope.data.host_recovery_guidance.review_recovery.card,
+  reviewCardFixture(),
+);
+assert.equal(partialGuided.envelope.data.host_recovery_guidance.then.card, undefined);
+assert.deepEqual(partialGuided.audit.operation_cards, {
+  agency_review_operation: true,
+  finalize_operation: false,
+});
+
+// 6. Card identity validation: each canonical slot accepts only its exact
+// operation + invoke_via pairing (review: narration.review via
+// coc_narration_review; finalize: turn.finalize via coc_turn_finalize or
+// coc_invoke). A structurally valid card with a wrong or swapped identity
+// is a corrupt instruction, not an exact card: the slot stays absent while
+// the ordinary host_recovery_guidance (next_call, tools, instructions,
+// fallback behavior) remains fully intact.
+const identityFailCases = [
+  {
+    label: "wrong review operation",
+    pending: {
+      agency_review_operation: {
+        ...reviewCardFixture(),
+        operation: "turn.finalize",
+      },
+      finalize_operation: finalizeCardFixture(),
+    },
+    expectReview: false,
+    expectFinalize: true,
+  },
+  {
+    label: "wrong review invoke_via",
+    pending: {
+      agency_review_operation: {
+        ...reviewCardFixture(),
+        invoke_via: "coc_invoke",
+      },
+      finalize_operation: finalizeCardFixture(),
+    },
+    expectReview: false,
+    expectFinalize: true,
+  },
+  {
+    label: "wrong finalize operation",
+    pending: {
+      agency_review_operation: reviewCardFixture(),
+      finalize_operation: {
+        ...finalizeCardFixture(),
+        operation: "state.journal",
+      },
+    },
+    expectReview: true,
+    expectFinalize: false,
+  },
+  {
+    label: "wrong finalize invoke_via",
+    pending: {
+      agency_review_operation: reviewCardFixture(),
+      finalize_operation: {
+        ...finalizeCardFixture(),
+        invoke_via: "coc_narration_review",
+      },
+    },
+    expectReview: true,
+    expectFinalize: false,
+  },
+  {
+    label: "swapped review/finalize cards",
+    pending: {
+      agency_review_operation: finalizeCardFixture(),
+      finalize_operation: reviewCardFixture(),
+    },
+    expectReview: false,
+    expectFinalize: false,
+  },
+];
+for (const failCase of identityFailCases) {
+  const envelope = resumeEnvelope("pending_finalization", {
+    next_operations: ["turn.finalize"],
+  });
+  envelope.data.pending_output_context = failCase.pending;
+  const guided = applyPendingFinalizationRecoveryGuidance(
+    envelope,
+    { root, campaign: "recovery-guide-campaign" },
+  );
+  // Ordinary guidance stays attached in every fail-closed case.
+  assert.equal(guided.attached, true, failCase.label);
+  assert.equal(
+    guided.envelope.data.host_recovery_guidance.contract_id,
+    PENDING_FINALIZATION_RECOVERY_GUIDANCE_CONTRACT,
+    failCase.label,
+  );
+  assert.deepEqual(
+    guided.envelope.data.host_recovery_guidance.next_call,
+    {
+      tool: "coc_turn_output_context",
+      arguments: { root, campaign: "recovery-guide-campaign" },
+    },
+    failCase.label,
+  );
+  assert.equal(
+    guided.envelope.data.host_recovery_guidance.review_recovery.tool,
+    "coc_narration_review",
+    failCase.label,
+  );
+  assert.equal(
+    guided.envelope.data.host_recovery_guidance.review_recovery.exact_card_path,
+    "coc_turn_output_context.data.agency_review_operation",
+    failCase.label,
+  );
+  assert.equal(
+    typeof guided.envelope.data.host_recovery_guidance.review_recovery.instruction,
+    "string",
+    failCase.label,
+  );
+  assert.equal(
+    guided.envelope.data.host_recovery_guidance.then.tool,
+    "coc_turn_finalize",
+    failCase.label,
+  );
+  assert.equal(
+    typeof guided.envelope.data.host_recovery_guidance.then.instruction,
+    "string",
+    failCase.label,
+  );
+  // Only cards whose identity matches their slot are projected; a wrong,
+  // swapped, or otherwise mis-identified card slot stays absent.
+  assert.equal(
+    guided.envelope.data.host_recovery_guidance.review_recovery.card !== undefined,
+    failCase.expectReview,
+    failCase.label,
+  );
+  assert.equal(
+    guided.envelope.data.host_recovery_guidance.then.card !== undefined,
+    failCase.expectFinalize,
+    failCase.label,
+  );
+  assert.equal(
+    guided.envelope.data.host_recovery_guidance.card_projection !== undefined,
+    failCase.expectReview || failCase.expectFinalize,
+    failCase.label,
+  );
+  assert.deepEqual(
+    guided.audit.operation_cards,
+    {
+      agency_review_operation: failCase.expectReview,
+      finalize_operation: failCase.expectFinalize,
+    },
+    failCase.label,
+  );
+}
+// The no-agency-review finalize variant is canonical too: turn.finalize via
+// coc_invoke projects exactly like the coc_turn_finalize variant.
+const invokeFinalizeEnvelope = resumeEnvelope("pending_finalization", {
+  next_operations: ["turn.finalize"],
+});
+invokeFinalizeEnvelope.data.pending_output_context = {
+  finalize_operation: {
+    ...finalizeCardFixture(),
+    invoke_via: "coc_invoke",
+    missing_arguments: ["draft"],
+  },
+};
+const invokeFinalizeGuided = applyPendingFinalizationRecoveryGuidance(
+  invokeFinalizeEnvelope,
+  { root, campaign: "recovery-guide-campaign" },
+);
+assert.equal(invokeFinalizeGuided.attached, true);
+assert.equal(
+  invokeFinalizeGuided.envelope.data.host_recovery_guidance.then.card
+    .invoke_via,
+  "coc_invoke",
+);
+assert.deepEqual(
+  invokeFinalizeGuided.audit.operation_cards,
+  { agency_review_operation: false, finalize_operation: true },
+);
+// A card-less pending_output_context (the recovery-index resume shape) keeps
+// the exact current fallback guidance.
+const indexShapedEnvelope = resumeEnvelope("pending_finalization", {
+  next_operations: ["turn.finalize"],
+});
+indexShapedEnvelope.data.pending_output_context = {
+  schema_version: 1,
+  turn_id: "turn-v1-7b5c8d72",
+  journal_decision_id: "bc1419c9:player-epoch-7:revision-2",
+  full_projection_operation: {
+    operation: "turn.output_context",
+    invoke_via: "coc_invoke",
+    prefilled_arguments: {},
+    missing_arguments: [],
+    authority: "advisory",
+    hard_gate: false,
+  },
+};
+const indexShaped = applyPendingFinalizationRecoveryGuidance(
+  indexShapedEnvelope,
+  { root, campaign: "recovery-guide-campaign" },
+);
+assert.equal(indexShaped.envelope.data.host_recovery_guidance.card_projection, undefined);
+assert.equal(indexShaped.envelope.data.host_recovery_guidance.review_recovery.card, undefined);
+assert.equal(indexShaped.envelope.data.host_recovery_guidance.then.card, undefined);
+// Absent pending_output_context entirely: same fail-closed fallback.
+const noContextEnvelope = resumeEnvelope("pending_finalization", {
+  next_operations: ["turn.finalize"],
+});
+const noContextGuided = applyPendingFinalizationRecoveryGuidance(
+  noContextEnvelope,
+  { root, campaign: "recovery-guide-campaign" },
+);
+assert.equal(noContextGuided.attached, true);
+assert.equal(noContextGuided.envelope.data.host_recovery_guidance.card_projection, undefined);
+assert.equal(noContextGuided.envelope.data.host_recovery_guidance.then.card, undefined);
 
 const welcomeAgentDir = mkdtempSync(path.join(tmpdir(), "pi-coc-recovery-guide-"));
 
@@ -433,6 +851,71 @@ assert.equal(
 );
 await recovery.shutdown();
 
+// Exact cards survive the full extension path (coc_setup invoke → gateway →
+// applyPendingFinalizationRecoveryGuidance), stay keeper-only, and never
+// reach the player-visible sendMessage channel. This block runs before the
+// pre-existing table_opening/quarantine sections so the projection contract
+// is proven on every run.
+const cardsCampaign = "startup-pending-finalization-cards";
+const cardsHost = harness((name, params) => {
+  if (name !== "coc_invoke" || params.operation !== "session.resume") {
+    throw new Error(`unexpected ${name}:${params.operation}`);
+  }
+  const envelope = resumeEnvelope("pending_finalization", {
+    campaign_id: cardsCampaign,
+    next_operations: ["turn.finalize"],
+  });
+  envelope.data.pending_output_context = {
+    agency_review_operation: reviewCardFixture(),
+    finalize_operation: finalizeCardFixture(),
+  };
+  return envelope;
+}, cardsCampaign);
+await cardsHost.start();
+const cardsResumed = await invoke(
+  cardsHost,
+  "cards-resume",
+  resumeParams(cardsCampaign),
+  "coc_setup",
+);
+assert.equal(cardsResumed.ok, true);
+assert.equal(
+  cardsResumed.data.host_recovery_guidance.audience,
+  "keeper_only",
+  "exact recovery cards stay keeper-only guidance",
+);
+assert.deepEqual(
+  cardsResumed.data.host_recovery_guidance.review_recovery.card,
+  reviewCardFixture(),
+);
+assert.deepEqual(
+  cardsResumed.data.host_recovery_guidance.then.card,
+  finalizeCardFixture(),
+);
+assert.equal(
+  cardsResumed.data.host_recovery_guidance.card_projection.authoritative_copy,
+  "coc_turn_output_context",
+);
+assert.ok(
+  cardsHost.audits.some((entry) => (
+    entry.name === PENDING_FINALIZATION_RECOVERY_GUIDANCE_AUDIT
+    && entry.value?.operation_cards?.agency_review_operation === true
+    && entry.value?.operation_cards?.finalize_operation === true
+  )),
+);
+// 5. Player-visible boundary: the keeper-only recovery payload (guidance,
+// cards, card fields) must never enter the player-visible channel.
+assert.ok(
+  cardsHost.sent.every((entry) => {
+    const serialized = JSON.stringify(entry);
+    return !serialized.includes("host_recovery_guidance")
+      && !serialized.includes("agency_review_operation")
+      && !serialized.includes("finalize_operation");
+  }),
+  "keeper-only recovery operation cards must not leak into player-visible sends",
+);
+await cardsHost.shutdown();
+
 for (const [label, mode, next] of [
   ["table_opening", "table_opening", ["evidence.table_opening"]],
   ["awaiting_player", "awaiting_player", ["interpret_current_player_message"]],
@@ -462,6 +945,15 @@ for (const [label, mode, next] of [
       h.activeTools.length > 0 && h.activeTools.at(-1).length > 0,
       "table_opening must not quarantine the active tool surface",
     );
+    // The normal output gate adjudicates an assistant final only against
+    // the current external player epoch. Mark that epoch first (the same
+    // message_start fixture the silent-resume blocks use below) so the
+    // gate and canonical progress agree when the settled-output recovery
+    // claim runs on the suppressed final.
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我推开了教堂的大门，里面一片漆黑。" }],
+    });
     const openingProse = await h.emit("message_end", {
       role: "assistant",
       content: [{ type: "text", text: "你翻开手边的守则，准备宣布开场。" }],
@@ -625,6 +1117,22 @@ await pending.shutdown();
 // epoch — and no prose or history replays), then the normal tool surface
 // returns after agent_end for the next genuine external player turn.
 const QUARANTINE_MECHANICAL_FINAL = "【明骰】D100=45，你听见远处教堂的钟声。";
+// An accepted settled startup resume flips the grant-less session to the
+// play role, and a play working set with no loaded module grants honestly
+// projects to tools-none. What an unmatched trailing player user keeps is
+// the NORMAL audited projection path after the resume: the silent settled
+// quarantine (settled/cleared blocks below) applies the empty surface
+// directly with no working-set audit at all.
+const keepsNormalProjectionSurface = (h, label) => {
+  const projections = h.audits.filter(
+    (entry) => entry.name === "coc-tool-working-set",
+  );
+  assert.ok(
+    projections.length > 0
+      && projections.every((entry) => entry.value?.status === "projected"),
+    label,
+  );
+};
 for (const mode of ["already_acknowledged", "awaiting_player"]) {
   const campaignId = `startup-silent-${mode}`;
   const h = harness((name, params) => {
@@ -999,6 +1507,14 @@ for (const mode of ["already_acknowledged", "awaiting_player"]) {
     return resumeEnvelope(mode, { campaign_id: trailingCampaignId });
   }, trailingCampaignId, root, trailingUserBranch());
   await trailing.start();
+  // The unmatched player turn predates the respawn: replay its user
+  // message_start (same fixture the settled block above uses) so the gate
+  // and canonical progress share the external player epoch before the
+  // auto-open turn's final is adjudicated.
+  await trailing.emit("message_start", {
+    role: "user",
+    content: [{ type: "text", text: PLAYER_SETUP_ANSWER }],
+  });
   const trailingToolsBeforeResume = trailing.activeTools.length;
   const trailingSentBeforeResume = trailing.sent.length;
   const trailingResumed = await invoke(
@@ -1013,10 +1529,8 @@ for (const mode of ["already_acknowledged", "awaiting_player"]) {
     trailing.activeTools.length > trailingToolsBeforeResume,
     `trailing ${mode}: silent resume reapplies the tool surface`,
   );
-  assert.ok(
-    trailing.activeTools
-      .slice(trailingToolsBeforeResume)
-      .every((tools) => Array.isArray(tools) && tools.length > 0),
+  keepsNormalProjectionSurface(
+    trailing,
     `trailing ${mode}: unmatched player user keeps the normal tool surface`,
   );
   const trailingFinal = await trailing.emit("message_end", {
@@ -1065,6 +1579,13 @@ for (const mode of ["already_acknowledged", "awaiting_player"]) {
     return resumeEnvelope(mode, { campaign_id: stringCampaignId });
   }, stringCampaignId, root, stringContentUserBranch());
   await stringContent.start();
+  // Replay the string-content player turn as a live user message_start so
+  // the external player epoch is marked (the branch fixture already proves
+  // the string content shape arms the pending fact).
+  await stringContent.emit("message_start", {
+    role: "user",
+    content: [{ type: "text", text: PLAYER_SETUP_ANSWER }],
+  });
   const stringToolsBeforeResume = stringContent.activeTools.length;
   const stringSentBeforeResume = stringContent.sent.length;
   const stringResumed = await invoke(
@@ -1079,10 +1600,8 @@ for (const mode of ["already_acknowledged", "awaiting_player"]) {
     stringContent.activeTools.length > stringToolsBeforeResume,
     `string ${mode}: silent resume reapplies the tool surface`,
   );
-  assert.ok(
-    stringContent.activeTools
-      .slice(stringToolsBeforeResume)
-      .every((tools) => Array.isArray(tools) && tools.length > 0),
+  keepsNormalProjectionSurface(
+    stringContent,
     `string ${mode}: string-content player user keeps the normal tool surface`,
   );
   const stringFinal = await stringContent.emit("message_end", {
@@ -1184,10 +1703,8 @@ for (const mode of ["already_acknowledged", "awaiting_player"]) {
     "coc_setup",
   );
   assert.equal(pendingResumed.ok, true, `pending ${mode}`);
-  assert.ok(
-    pendingBranch.activeTools
-      .slice(pendingToolsBeforeResume)
-      .every((tools) => Array.isArray(tools) && tools.length > 0),
+  keepsNormalProjectionSurface(
+    pendingBranch,
     `pending ${mode}: thinking/tool-only assistant after user stays pending (no quarantine)`,
   );
   assert.equal(
@@ -1258,6 +1775,14 @@ for (const mode of ["already_acknowledged", "awaiting_player"]) {
     return resumeEnvelope(mode, { campaign_id: attachmentCampaignId });
   }, attachmentCampaignId, root, attachmentOnlyUserBranch());
   await attachment.start();
+  // The branch fixture proves the attachment-only turn arms the pending
+  // fact; the fake runtime cannot replay an attachment-only event through
+  // the live surface, so mark the replayed external player epoch with a
+  // text-bearing user message_start before the final is adjudicated.
+  await attachment.emit("message_start", {
+    role: "user",
+    content: [{ type: "text", text: PLAYER_SETUP_ANSWER }],
+  });
   const attachmentToolsBeforeResume = attachment.activeTools.length;
   const attachmentSentBeforeResume = attachment.sent.length;
   const attachmentResumed = await invoke(
@@ -1272,10 +1797,8 @@ for (const mode of ["already_acknowledged", "awaiting_player"]) {
     attachment.activeTools.length > attachmentToolsBeforeResume,
     `attachment ${mode}: silent resume reapplies the tool surface`,
   );
-  assert.ok(
-    attachment.activeTools
-      .slice(attachmentToolsBeforeResume)
-      .every((tools) => Array.isArray(tools) && tools.length > 0),
+  keepsNormalProjectionSurface(
+    attachment,
     `attachment ${mode}: attachment-only player user keeps the normal tool surface`,
   );
   const attachmentFinal = await attachment.emit("message_end", {
@@ -1494,6 +2017,15 @@ process.stdout.write(JSON.stringify({
   attachmentOnlyUserClearedByVisibleAssistant: true,
   stringContentUserTurnArmsPending: true,
   stringContentUserClearedByVisibleAssistant: true,
+  exactOperationCardsProjected: [
+    "agency_review_operation",
+    "finalize_operation",
+  ],
+  malformedCardsFailClosed: true,
+  cardIdentityFailClosed: true,
+  canonicalInvokeViaFinalizeCard: true,
+  cardsSurviveFullExtensionPath: true,
+  keeperOnlyCardsNoPlayerLeak: true,
   nonQuarantineModes: [
     "open_turn_recovery",
     "table_opening",
