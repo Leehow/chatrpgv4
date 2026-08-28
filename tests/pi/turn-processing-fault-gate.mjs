@@ -16,6 +16,9 @@ const {
 } = await import(path.join(
   root, "plugins/coc-keeper/pi/lib/state-claim-compiler.ts",
 ));
+const { NonRetryableFailureCircuit } = await import(path.join(
+  root, "plugins/coc-keeper/pi/lib/nonretry-circuit.ts",
+));
 
 const campaign = "turn-processing-fault";
 const baseReview = {
@@ -31,6 +34,15 @@ const baseReview = {
     claims: [],
   },
 };
+// Canonical producer shape (coc_operation_turn_output.py
+// _tool_turn_output_context + coc_mcp_wire.py projection): explicit
+// agency_review_required, complete agency-authority subject refs, a full
+// review card carrying the exact turn/source/revision identities, and the
+// review-required finalize card on its coc_turn_finalize surface. The
+// pre-fa8deb27 fixture (implicit agency mode, card-less review stub, no
+// finalize card) predates the output-context acceptance hardening and has
+// been failing the suite since; this is test upkeep to the current producer
+// contract, not an expectation change.
 const outputContext = {
   ok: true,
   tool: "turn.output_context",
@@ -40,10 +52,35 @@ const outputContext = {
     settlement_snapshot_id: "turn-settlement-v1:fault-1",
     mechanics_bundle_sha256: "sha256:mechanics-fault-1",
     contract_projection: {
+      agency_review_required: true,
       agency_authority: { pc_subject_refs: ["pc:fault-investigator"] },
     },
     agency_review_operation: {
-      prefilled_arguments: { revision: 1 },
+      operation: "narration.review",
+      invoke_via: "coc_narration_review",
+      prefilled_arguments: {
+        turn_id: baseReview.turn_id,
+        source_digest: baseReview.source_digest,
+        revision: 1,
+      },
+      missing_arguments: [
+        "decision_id", "draft_text", "findings", "state_authority_review",
+      ],
+      discovery_required: false,
+      authority: "semantic_agency_and_player_state_review",
+    },
+    finalize_operation: {
+      operation: "turn.finalize",
+      invoke_via: "coc_turn_finalize",
+      prefilled_arguments: {
+        decision_id: "journal-1:finalize",
+        revision: 1,
+        coverage: [],
+      },
+      missing_arguments: ["draft", "narration_review_id", "agency_claims"],
+      discovery_required: false,
+      authority: "settled_output_completeness",
+      hard_gate: true,
     },
   },
 };
@@ -998,7 +1035,18 @@ test("frozen revision 2 recovery uses the host card revision", async () => {
       data: {
         ...outputContext.data,
         agency_review_operation: {
-          prefilled_arguments: { revision: 2 },
+          ...outputContext.data.agency_review_operation,
+          prefilled_arguments: {
+            ...outputContext.data.agency_review_operation.prefilled_arguments,
+            revision: 2,
+          },
+        },
+        finalize_operation: {
+          ...outputContext.data.finalize_operation,
+          prefilled_arguments: {
+            ...outputContext.data.finalize_operation.prefilled_arguments,
+            revision: 2,
+          },
         },
       },
     };
@@ -1049,5 +1097,255 @@ test("frozen revision 2 recovery uses the host card revision", async () => {
   } finally {
     if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
     else process.env.COC_PI_SESSION_ROLE = previousRole;
+  }
+});
+
+// Generic progress APIs reject every regression. The only accepted faulted
+// → output_context_ready transition uses the circuit's public opaque,
+// single-use host-binding-refresh authorization API; it binds operation,
+// turn/source/revision, player epoch, session generation, and eligibility.
+test("nonretry circuit requires explicit host-binding-refresh authorization", () => {
+  const circuitCampaign = "turn-processing-fault";
+  const faultedProgress = {
+    playerTurnEpoch: 1,
+    canonicalProgressRevision: 2,
+    stage: "faulted",
+    campaignRevision: "manifest:9",
+    journalRevision: "turn-fault-1",
+    reviewRevision: null,
+    finalizedRenderedSha256: null,
+    closedObligationCount: 0,
+  };
+  const recoveredProgress = (overrides = {}) => ({
+    ...faultedProgress,
+    stage: "output_context_ready",
+    canonicalProgressRevision: 3,
+    ...overrides,
+  });
+  const latchedCircuit = () => {
+    const circuit = new NonRetryableFailureCircuit();
+    circuit.advance({
+      campaignId: circuitCampaign,
+      playerTurnEpoch: faultedProgress.playerTurnEpoch,
+      canonicalProgress: faultedProgress,
+    });
+    return circuit;
+  };
+  const authorizationArgs = (overrides = {}) => ({
+    kind: "host_binding_refresh",
+    operation: "turn.output_context",
+    recoverableBy: "host_binding_refresh",
+    recoveryEligible: true,
+    campaignId: circuitCampaign,
+    turnId: faultedProgress.journalRevision,
+    sourceDigest: "sha256:source-fault-1",
+    outputRevision: 3,
+    playerTurnEpoch: 1,
+    sessionGeneration: 7,
+    fromProgress: faultedProgress,
+    toProgress: recoveredProgress(),
+    ...overrides,
+  });
+  const consumeAuthorization = (circuit, authorization, overrides = {}) => (
+    circuit.advanceAuthorizedHostBindingRefresh({
+      campaignId: circuitCampaign,
+      authorization,
+      operation: "turn.output_context",
+      turnId: faultedProgress.journalRevision,
+      sourceDigest: "sha256:source-fault-1",
+      outputRevision: 3,
+      playerTurnEpoch: 1,
+      sessionGeneration: 7,
+      canonicalProgress: recoveredProgress(),
+      ...overrides,
+    })
+  );
+  const progressBlocked = (circuit, progress, salt) => {
+    const blocked = circuit.preflight({
+      campaignId: circuitCampaign,
+      operation: "narration.review",
+      phase: "live_turn",
+      operationArgs: { decision_id: salt },
+      playerTurnEpoch: progress.playerTurnEpoch,
+      canonicalProgress: progress,
+    });
+    return blocked !== null && blocked.error?.code === "canonical_progress_rejected";
+  };
+
+  // Missing authorization: the generic API remains strict.
+  {
+    const circuit = latchedCircuit();
+    circuit.advance({
+      campaignId: circuitCampaign,
+      playerTurnEpoch: 1,
+      canonicalProgress: recoveredProgress(),
+    });
+    assert.equal(
+      progressBlocked(circuit, recoveredProgress(), "missing-authorization"),
+      true,
+    );
+  }
+
+  // Public authorization succeeds only for the exact validated host lane.
+  {
+    const circuit = latchedCircuit();
+    const authorization = circuit.authorizeHostBindingRefresh(
+      authorizationArgs(),
+    );
+    assert.ok(authorization !== null);
+    assert.equal(consumeAuthorization(circuit, authorization), true);
+    assert.equal(
+      progressBlocked(circuit, recoveredProgress(), "recovered-live"),
+      false,
+      "authorized fault recovery must be accepted",
+    );
+    assert.equal(
+      consumeAuthorization(circuit, authorization),
+      false,
+      "authorization is consumed exactly once",
+    );
+  }
+
+  // The public mint rejects wrong kind/operation/identity/epoch/revision and
+  // non-recoverable state. No accepted private shape is manufactured.
+  for (const [label, overrides] of [
+    ["wrong kind", { kind: "generic_refresh" }],
+    ["wrong operation", { operation: "narration.review" }],
+    ["missing turn identity", { turnId: "" }],
+    ["wrong turn identity", { turnId: "turn-other-9" }],
+    ["wrong player epoch", { playerTurnEpoch: 2 }],
+    ["wrong output revision", { outputRevision: 0 }],
+    ["wrong canonical revision", {
+      toProgress: recoveredProgress({ canonicalProgressRevision: 4 }),
+    }],
+    ["non-recoverable state", { recoveryEligible: false }],
+    ["wrong recoverable-by", { recoverableBy: "model_next_action" }],
+  ]) {
+    const circuit = latchedCircuit();
+    assert.equal(
+      circuit.authorizeHostBindingRefresh(authorizationArgs(overrides)),
+      null,
+      label,
+    );
+  }
+
+  // A real opaque authorization rejects divergent use fields and is consumed
+  // on the first bad use, including source, session, identity, and revision.
+  for (const [label, useOverrides] of [
+    ["wrong source", { sourceDigest: "sha256:other-source" }],
+    ["wrong session generation", { sessionGeneration: 8 }],
+    ["wrong use identity", { turnId: "turn-other-9" }],
+    ["wrong use epoch", { playerTurnEpoch: 2 }],
+    ["wrong use output revision", { outputRevision: 4 }],
+    ["wrong use progress", {
+      canonicalProgress: recoveredProgress({ canonicalProgressRevision: 4 }),
+    }],
+  ]) {
+    const circuit = latchedCircuit();
+    const authorization = circuit.authorizeHostBindingRefresh(
+      authorizationArgs(),
+    );
+    assert.ok(authorization !== null, label);
+    assert.equal(consumeAuthorization(circuit, authorization, useOverrides), false, label);
+    assert.equal(consumeAuthorization(circuit, authorization), false, `${label}: consumed`);
+  }
+
+  // Authorized recovery retains existing failure fingerprints and budget.
+  {
+    const circuit = latchedCircuit();
+    circuit.observe({
+      campaignId: circuitCampaign,
+      operation: "narration.review",
+      phase: "live_turn",
+      operationArgs: { draft_text: "same semantic draft" },
+      envelope: {
+        ok: false,
+        error: { code: "state_claim_compiler_invalid", class: "compiler" },
+        retryable: false,
+        will_retry: false,
+      },
+      playerTurnEpoch: 1,
+      canonicalProgress: faultedProgress,
+    });
+    const before = circuit.captureHostHydrationState(circuitCampaign);
+    const authorization = circuit.authorizeHostBindingRefresh(
+      authorizationArgs(),
+    );
+    assert.ok(authorization !== null);
+    assert.equal(consumeAuthorization(circuit, authorization), true);
+    const after = circuit.captureHostHydrationState(circuitCampaign);
+    assert.deepEqual(
+      after.failures,
+      before.failures,
+      "authorized refresh must retain failure fingerprints/recovery budget",
+    );
+  }
+
+  // Near-miss candidates keep the existing regressive refusal.
+  for (const [label, overrides] of [
+    ["wrong stage review_ready", { stage: "review_ready" }],
+    ["wrong stage journaled", { stage: "journaled" }],
+    ["wrong stage acting", { stage: "acting" }],
+    ["wrong stage finalized", { stage: "finalized" }],
+    ["missing turn identity", { journalRevision: null }],
+    ["divergent turn identity", { journalRevision: "turn-other-9" }],
+    ["same revision", { canonicalProgressRevision: 2 }],
+    ["two revisions forward", { canonicalProgressRevision: 4 }],
+    ["stale player epoch", { playerTurnEpoch: 0 }],
+  ]) {
+    const circuit = latchedCircuit();
+    const candidate = recoveredProgress(overrides);
+    circuit.advance({
+      campaignId: circuitCampaign,
+      playerTurnEpoch: candidate.playerTurnEpoch,
+      canonicalProgress: candidate,
+    });
+    assert.equal(
+      progressBlocked(circuit, candidate, label),
+      true,
+      `${label}: near-miss recovery must stay rejected`,
+    );
+  }
+
+  // A divergent repeat after a successful recovery is a projection conflict,
+  // not another authorized transition.
+  {
+    const circuit = latchedCircuit();
+    const authorization = circuit.authorizeHostBindingRefresh(
+      authorizationArgs(),
+    );
+    assert.ok(authorization !== null);
+    assert.equal(consumeAuthorization(circuit, authorization), true);
+    const divergent = recoveredProgress({ journalRevision: "turn-forged-9" });
+    assert.equal(
+      progressBlocked(circuit, divergent, "divergent-after-recovery"),
+      true,
+      "divergent repeat after recovery must stay rejected",
+    );
+  }
+
+  // Regression from a non-faulted progress is never authorized.
+  {
+    const circuit = new NonRetryableFailureCircuit();
+    circuit.advance({
+      campaignId: circuitCampaign,
+      playerTurnEpoch: 1,
+      canonicalProgress: recoveredProgress(),
+    });
+    const regressing = {
+      ...faultedProgress,
+      stage: "journaled",
+      canonicalProgressRevision: 4,
+    };
+    circuit.advance({
+      campaignId: circuitCampaign,
+      playerTurnEpoch: 1,
+      canonicalProgress: regressing,
+    });
+    assert.equal(
+      progressBlocked(circuit, regressing, "non-faulted-regression"),
+      true,
+      "regression against non-faulted progress must stay rejected",
+    );
   }
 });

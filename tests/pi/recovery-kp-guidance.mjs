@@ -14,12 +14,21 @@ const guidanceMod = await import(
 const main = await import(
   path.join(root, "plugins/coc-keeper/pi/extensions/index.ts")
 );
+const {
+  PiStateClaimCompiler,
+  canonicalDigest,
+  draftParagraphs,
+} = await import(
+  path.join(root, "plugins/coc-keeper/pi/lib/state-claim-compiler.ts")
+);
 
 const {
   applyPendingFinalizationRecoveryGuidance,
   applyOpenTurnRecoveryGuidance,
   isPendingFinalizationResume,
   isOpenTurnRecoveryResume,
+  pendingFinalizationInlineCardsComplete,
+  validateLiveOutputContext,
   OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT,
   OPEN_TURN_RECOVERY_GUIDANCE_AUDIT,
   OPEN_TURN_RECOVERY_CLOSURE_SEQUENCE,
@@ -651,7 +660,7 @@ assert.equal(noContextGuided.envelope.data.host_recovery_guidance.then.card, und
 
 const welcomeAgentDir = mkdtempSync(path.join(tmpdir(), "pi-coc-recovery-guide-"));
 
-function harness(responseForCall, startupCampaignId, workspaceCwd = root, branch = []) {
+function harness(responseForCall, startupCampaignId, workspaceCwd = root, branch = [], extraOverrides = {}) {
   const registered = new Map();
   const handlers = new Map();
   const sent = [];
@@ -679,6 +688,7 @@ function harness(responseForCall, startupCampaignId, workspaceCwd = root, branch
     getThinkingLevel: () => "off",
   };
   main.default(fakePi, {
+    ...extraOverrides,
     coordinatorEnabled: async () => false,
     createClient: () => {
       const callTool = async (name, params) => {
@@ -735,6 +745,9 @@ function harness(responseForCall, startupCampaignId, workspaceCwd = root, branch
         await handler({ reason: "tool-test" }, ctx);
       }
     },
+    async restart() {
+      await handlers.get("session_start").at(-1)({ reason: "startup" }, ctx);
+    },
     async emit(name, message) {
       let current = message;
       for (const handler of handlers.get(name) || []) {
@@ -758,6 +771,18 @@ async function invoke(h, id, params, toolName = "coc_invoke") {
     id,
     params,
     undefined,
+    undefined,
+    h.ctx,
+  )).content[0].text);
+}
+
+async function invokeWithSignal(h, id, params, signal, toolName = "coc_invoke") {
+  const tool = h.registered.get(toolName);
+  if (!tool) throw new Error(`missing tool ${toolName}`);
+  return JSON.parse((await tool.execute(
+    id,
+    params,
+    signal,
     undefined,
     h.ctx,
   )).content[0].text);
@@ -914,7 +939,1163 @@ assert.ok(
   }),
   "keeper-only recovery operation cards must not leak into player-visible sends",
 );
+// A complete inline snapshot chain suppresses host hydration entirely:
+// the model already holds exact cards, so no output-context fetch happens.
+assert.equal(
+  cardsHost.clientCalls.filter((call) => (
+    call.name === "coc_invoke"
+    && call.params?.operation === "turn.output_context"
+  )).length,
+  0,
+  "valid inline cards must not trigger a host output-context fetch",
+);
 await cardsHost.shutdown();
+
+// ---- host-owned live output-context hydration (real pointer-only resume) ----
+// Real-replay shape: the canonical session.resume for a pending-finalization
+// turn carries no inline operation cards. The host performs one bounded
+// read-only turn.output_context typed invocation, ingests the validated
+// receipt through the existing compiler/binding/progress observers at the
+// output_context_ready stage (before the resume's review_ready inference),
+// and inlines the exact live cards as keeper-only guidance whose next model
+// action is the live review card. Fixtures mirror the kernel producer
+// (coc_operation_turn_output.py) and the wire projection (coc_mcp_wire.py),
+// including the mode-specific finalize invoke_via surface.
+const liveTurnId = "turn-live-hydrate-1";
+const liveSourceDigest = "sha256:live-source-hydrate-1";
+const liveReviewCard = () => ({
+  operation: "narration.review",
+  invoke_via: "coc_narration_review",
+  prefilled_arguments: {
+    turn_id: liveTurnId,
+    source_digest: liveSourceDigest,
+    revision: 3,
+  },
+  missing_arguments: [
+    "decision_id", "draft_text", "findings", "state_authority_review",
+  ],
+  discovery_required: false,
+  authority: "semantic_agency_and_player_state_review",
+});
+const liveFinalizeCard = (invokeVia = "coc_turn_finalize") => ({
+  operation: "turn.finalize",
+  invoke_via: invokeVia,
+  prefilled_arguments: {
+    decision_id: `${liveTurnId}:player-epoch-7:revision-3:finalize`,
+    revision: 3,
+    coverage: [],
+  },
+  missing_arguments: ["draft", "narration_review_id", "agency_claims"],
+  discovery_required: false,
+  authority: "settled_output_completeness",
+  hard_gate: true,
+});
+const liveEnvelope = (mutateData = () => {}) => {
+  const envelope = {
+    ok: true,
+    tool: "turn.output_context",
+    data: {
+      turn_id: liveTurnId,
+      source_digest: liveSourceDigest,
+      settlement_snapshot_id: "turn-settlement-v1:live-hydrate-1",
+      mechanics_bundle_sha256: "sha256:live-mechanics-hydrate-1",
+      manifest_revision: 41,
+      contract_projection: {
+        agency_review_required: true,
+        agency_authority: { pc_subject_refs: ["pc:live-hydrate-investigator"] },
+      },
+      agency_review_operation: liveReviewCard(),
+      finalize_operation: liveFinalizeCard(),
+    },
+  };
+  mutateData(envelope.data);
+  return envelope;
+};
+const pointerOnlyPendingEnvelope = (campaignId) => {
+  const envelope = resumeEnvelope("pending_finalization", {
+    campaign_id: campaignId,
+    next_operations: ["turn.finalize"],
+  });
+  envelope.data.current_turn = { rows: [{ tool: "rules.roll", ok: true }] };
+  return envelope;
+};
+// Kernel recovery-index resume shape (coc_mcp_wire.py pending index):
+// semantic pending identity, no inline cards.
+const pendingIndexEnvelope = (
+  campaignId,
+  turnId = liveTurnId,
+  sourceDigest = liveSourceDigest,
+) => {
+  const envelope = pointerOnlyPendingEnvelope(campaignId);
+  envelope.data.pending_output_context = {
+    schema_version: 1,
+    turn_id: turnId,
+    source_digest: sourceDigest,
+    full_projection_operation: {
+      operation: "turn.output_context",
+      invoke_via: "coc_invoke",
+      prefilled_arguments: {},
+      missing_arguments: [],
+      authority: "advisory",
+      hard_gate: false,
+    },
+  };
+  return envelope;
+};
+const outputContextFetchCount = (h) => h.clientCalls.filter((call) => (
+  call.name === "coc_invoke"
+  && call.params?.operation === "turn.output_context"
+)).length;
+const assertNoPlayerLeak = (h, label) => {
+  assert.ok(
+    h.sent.every((entry) => {
+      const serialized = JSON.stringify(entry);
+      return !serialized.includes("host_recovery_guidance")
+        && !serialized.includes("agency_review_operation")
+        && !serialized.includes("finalize_operation")
+        && !serialized.includes(liveTurnId);
+    }),
+    `${label}: no card content in player-visible sends`,
+  );
+};
+const assertCardFreePointerGuidance = (h, campaignId, resumed, label) => {
+  const guidance = resumed.data.host_recovery_guidance;
+  assert.deepEqual(
+    guidance.next_call,
+    {
+      tool: "coc_turn_output_context",
+      arguments: { root, campaign: campaignId },
+    },
+    `${label}: card-free pointer guidance retained`,
+  );
+  assert.equal(guidance.review_recovery.card, undefined, label);
+  assert.equal(guidance.then.card, undefined, label);
+  assert.equal(guidance.card_projection, undefined, label);
+  assert.equal(guidance.output_context_status, undefined, label);
+  assert.deepEqual(resumed.data.pending_output_context, {
+    status: "read_via_exact_typed_call",
+    next_call: {
+      tool: "coc_turn_output_context",
+      arguments: { root, campaign: campaignId },
+    },
+  }, label);
+  assertNoPlayerLeak(h, label);
+};
+
+// Strict pure validation: producer-shaped receipts, table-driven fail-close.
+for (const [label, envelope, resumeData, expectNull] of [
+  ["complete review-required receipt", liveEnvelope(), pendingIndexEnvelope("c").data, false],
+  ["direct-finalize receipt via coc_invoke", liveEnvelope((data) => {
+    data.contract_projection = { agency_review_required: false };
+    delete data.agency_review_operation;
+    data.finalize_operation = liveFinalizeCard("coc_invoke");
+  }), null, false],
+  ["correlated pending identity and revision", liveEnvelope(), {
+    pending_output_context: { turn_id: liveTurnId, source_digest: liveSourceDigest, revision: 3 },
+  }, false],
+  ["not ok", { ok: false, tool: "turn.output_context" }, null, true],
+  ["wrong tool", { ok: true, tool: "state.journal" }, null, true],
+  ["missing data", { ok: true, tool: "turn.output_context" }, null, true],
+  ["missing settlement snapshot", liveEnvelope((d) => { delete d.settlement_snapshot_id; }), null, true],
+  ["missing mechanics bundle", liveEnvelope((d) => { delete d.mechanics_bundle_sha256; }), null, true],
+  ["implicit agency mode", liveEnvelope((d) => { delete d.contract_projection.agency_review_required; }), null, true],
+  ["review required but card absent", liveEnvelope((d) => { delete d.agency_review_operation; }), null, true],
+  ["direct finalize with stray review card", liveEnvelope((d) => {
+    d.contract_projection = { agency_review_required: false };
+    d.finalize_operation = liveFinalizeCard("coc_invoke");
+  }), null, true],
+  ["review card missing turn identity", liveEnvelope((d) => {
+    d.agency_review_operation.prefilled_arguments.turn_id = undefined;
+  }), null, true],
+  ["review card missing source identity", liveEnvelope((d) => {
+    delete d.agency_review_operation.prefilled_arguments.source_digest;
+  }), null, true],
+  ["review card wrong turn identity", liveEnvelope((d) => {
+    d.agency_review_operation.prefilled_arguments.turn_id = "turn-forged-live-9";
+  }), null, true],
+  ["review-required finalize via coc_invoke", liveEnvelope((d) => {
+    d.finalize_operation = liveFinalizeCard("coc_invoke");
+  }), null, true],
+  ["direct finalize via coc_turn_finalize", liveEnvelope((d) => {
+    d.contract_projection = { agency_review_required: false };
+    delete d.agency_review_operation;
+  }), null, true],
+  ["finalize card without revision", liveEnvelope((d) => {
+    delete d.finalize_operation.prefilled_arguments.revision;
+  }), null, true],
+  ["revision mismatch across chain", liveEnvelope((d) => {
+    d.agency_review_operation.prefilled_arguments.revision = 4;
+  }), null, true],
+  ["swapped cards", liveEnvelope((d) => {
+    const review = d.agency_review_operation;
+    d.agency_review_operation = d.finalize_operation;
+    d.finalize_operation = review;
+  }), null, true],
+  ["finalize wrong operation", liveEnvelope((d) => {
+    d.finalize_operation = { ...d.finalize_operation, operation: "state.journal" };
+  }), null, true],
+  ["agency subject refs missing", liveEnvelope((d) => {
+    d.contract_projection = { agency_review_required: true };
+  }), null, true],
+  ["agency subject refs empty", liveEnvelope((d) => {
+    d.contract_projection.agency_authority.pc_subject_refs = [];
+  }), null, true],
+  ["resume pending turn mismatch", liveEnvelope(), {
+    pending_output_context: { turn_id: "turn-resume-other-9" },
+  }, true],
+  ["resume pending source mismatch", liveEnvelope(), {
+    pending_output_context: { source_digest: "sha256:resume-other-9" },
+  }, true],
+  ["resume pending revision mismatch", liveEnvelope(), {
+    pending_output_context: { turn_id: liveTurnId, revision: 9 },
+  }, true],
+]) {
+  const validated = validateLiveOutputContext(envelope, resumeData);
+  assert.equal(validated === null, expectNull, label);
+  if (!expectNull) {
+    assert.deepEqual(
+      validated.reviewCard,
+      envelope.data.agency_review_operation ?? null,
+      label,
+    );
+    assert.deepEqual(validated.finalizeCard, envelope.data.finalize_operation, label);
+  }
+}
+// Validated cards are exact deep copies: later mutation of the source
+// envelope cannot alter a validation result already returned.
+{
+  const mutationSource = liveEnvelope();
+  const mutationValidated = validateLiveOutputContext(mutationSource, null);
+  mutationSource.data.agency_review_operation.prefilled_arguments.revision = 99;
+  mutationSource.data.finalize_operation.prefilled_arguments.decision_id = "mutated:finalize";
+  assert.equal(mutationValidated.reviewCard.prefilled_arguments.revision, 3);
+  assert.equal(
+    mutationValidated.finalizeCard.prefilled_arguments.decision_id,
+    `${liveTurnId}:player-epoch-7:revision-3:finalize`,
+  );
+}
+
+// Inline-completeness trigger: only a complete applicable inline chain
+// suppresses the host fetch.
+{
+  const complete = resumeEnvelope("pending_finalization", {
+    next_operations: ["turn.finalize"],
+  });
+  complete.data.pending_output_context = {
+    agency_review_operation: reviewCardFixture(),
+    finalize_operation: finalizeCardFixture(),
+  };
+  assert.equal(pendingFinalizationInlineCardsComplete(complete), true);
+  const directComplete = resumeEnvelope("pending_finalization", {
+    next_operations: ["turn.finalize"],
+  });
+  directComplete.data.pending_output_context = {
+    finalize_operation: { ...finalizeCardFixture(), invoke_via: "coc_invoke" },
+  };
+  assert.equal(pendingFinalizationInlineCardsComplete(directComplete), true);
+  assert.equal(
+    pendingFinalizationInlineCardsComplete(pointerOnlyPendingEnvelope("x")),
+    false,
+  );
+  assert.equal(
+    pendingFinalizationInlineCardsComplete(pendingIndexEnvelope("x")),
+    false,
+  );
+  const partial = resumeEnvelope("pending_finalization", {
+    next_operations: ["turn.finalize"],
+  });
+  partial.data.pending_output_context = {
+    agency_review_operation: reviewCardFixture(),
+    finalize_operation: { operation: "turn.finalize", invoke_via: "coc_invoke" },
+  };
+  assert.equal(pendingFinalizationInlineCardsComplete(partial), false);
+}
+
+// Pure projection: live cards are authoritative over a conflicting snapshot
+// chain; an attempted-and-failed hydration suppresses every snapshot card.
+{
+  const conflictEnvelope = resumeEnvelope("pending_finalization", {
+    next_operations: ["turn.finalize"],
+  });
+  conflictEnvelope.data.pending_output_context = {
+    agency_review_operation: reviewCardFixture(),
+    finalize_operation: finalizeCardFixture(),
+  };
+  const liveCards = validateLiveOutputContext(liveEnvelope(), conflictEnvelope.data);
+  assert.ok(liveCards !== null);
+  const liveGuided = applyPendingFinalizationRecoveryGuidance(
+    conflictEnvelope,
+    { root, campaign: "recovery-guide-campaign" },
+    { liveHydration: { status: "success", cards: liveCards } },
+  );
+  assert.equal(
+    liveGuided.envelope.data.host_recovery_guidance.output_context_status,
+    "host_refreshed_live",
+  );
+  assert.deepEqual(
+    liveGuided.envelope.data.host_recovery_guidance.next_call,
+    { tool: "coc_narration_review" },
+  );
+  assert.deepEqual(
+    liveGuided.envelope.data.host_recovery_guidance.review_recovery.card,
+    liveReviewCard(),
+  );
+  assert.deepEqual(
+    liveGuided.envelope.data.host_recovery_guidance.then.card,
+    liveFinalizeCard(),
+  );
+  assert.deepEqual(
+    liveGuided.envelope.data.pending_output_context,
+    { status: "host_refreshed_live" },
+  );
+  assert.equal(liveGuided.audit.card_source, "host_refreshed_turn_output_context");
+  const liveGuidance = liveGuided.envelope.data.host_recovery_guidance;
+  assert.equal(liveGuidance.card_projection.source, "host_refreshed_live_context");
+  assert.equal(liveGuidance.card_projection.authoritative_copy, undefined);
+  assert.equal(liveGuidance.review_recovery.exact_card_path, undefined);
+  assert.equal(liveGuidance.then.exact_card_path, undefined);
+  assert.equal(
+    JSON.stringify(liveGuidance).includes("coc_turn_output_context"),
+    false,
+    "successful live guidance must be card-driven and pointer-free",
+  );
+  const directEnvelope = liveEnvelope((directData) => {
+    directData.contract_projection = { agency_review_required: false };
+    delete directData.agency_review_operation;
+    directData.finalize_operation = liveFinalizeCard("coc_invoke");
+  });
+  const directCards = validateLiveOutputContext(directEnvelope, null);
+  assert.ok(directCards !== null);
+  const directGuided = applyPendingFinalizationRecoveryGuidance(
+    conflictEnvelope,
+    { root, campaign: "recovery-guide-campaign" },
+    { liveHydration: { status: "success", cards: directCards } },
+  );
+  assert.deepEqual(
+    directGuided.envelope.data.host_recovery_guidance.next_call,
+    { tool: "coc_invoke" },
+  );
+  assert.equal(
+    directGuided.envelope.data.host_recovery_guidance.then.tool,
+    "coc_invoke",
+  );
+  assert.equal(
+    JSON.stringify(directGuided.envelope.data.host_recovery_guidance)
+      .includes("coc_turn_output_context"),
+    false,
+    "direct-finalize live guidance has no stale output-context pointer",
+  );
+  const unavailableGuided = applyPendingFinalizationRecoveryGuidance(
+    conflictEnvelope,
+    { root, campaign: "recovery-guide-campaign" },
+    { liveHydration: { status: "unavailable" } },
+  );
+  assert.deepEqual(
+    unavailableGuided.envelope.data.host_recovery_guidance.next_call,
+    {
+      tool: "coc_turn_output_context",
+      arguments: { root, campaign: "recovery-guide-campaign" },
+    },
+    "failed hydration must project no snapshot card at all",
+  );
+  assert.equal(
+    unavailableGuided.envelope.data.host_recovery_guidance.review_recovery.card,
+    undefined,
+  );
+  assert.equal(
+    unavailableGuided.envelope.data.host_recovery_guidance.then.card,
+    undefined,
+  );
+  assert.equal(
+    unavailableGuided.envelope.data.host_recovery_guidance.card_projection,
+    undefined,
+  );
+  assert.equal(
+    unavailableGuided.audit.card_source,
+    "host_refresh_unavailable_card_free",
+  );
+}
+
+// Full extension path: pointer-only resume → exactly one host-owned fetch →
+// live cards with the review card as the next model action, progress
+// advancing output_context_ready BEFORE the resume's review_ready inference,
+// and a subsequent typed narration.review free of the compiler-context
+// precondition failure.
+const stubCompilerInfer = async (input) => ({
+  result: {
+    schema_version: 1,
+    contract_id: "coc.pi-state-claim-compiler-result.v1",
+    disposition: "no_claims_detected",
+    reason: "每一段草稿都已复核。",
+    claims: [],
+    paragraph_coverage: draftParagraphs(input.draft_text).map((text, paragraph_index) => ({
+      paragraph_index,
+      paragraph_sha256: canonicalDigest(text),
+      claim_indices: [],
+    })),
+  },
+  responseModel: { provider: "offline", id: "offline", api: "openai-responses" },
+});
+const liveCampaign = "startup-pending-live-hydrate";
+process.env.COC_PI_SESSION_ROLE = "play";
+const liveHost = harness((name, params) => {
+  if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
+  if (params.operation === "session.resume") return pointerOnlyPendingEnvelope(liveCampaign);
+  if (params.operation === "turn.output_context") return liveEnvelope();
+  if (params.operation === "narration.review") {
+    return {
+      ok: true,
+      tool: "narration.review",
+      data: {
+        accepted: true,
+        review_id: "review-live-1",
+        revision: 3,
+        state_claim_compilation: params.arguments.state_claim_compilation,
+      },
+    };
+  }
+  throw new Error(`unexpected ${params.operation}`);
+}, liveCampaign, root, [], {
+  createStateClaimCompiler: () => new PiStateClaimCompiler(stubCompilerInfer),
+});
+await liveHost.start();
+delete process.env.COC_PI_SESSION_ROLE;
+const liveResumed = await invoke(
+  liveHost,
+  "live-hydrate-resume",
+  resumeParams(liveCampaign),
+  "coc_setup",
+);
+assert.equal(liveResumed.ok, true);
+const liveFetches = liveHost.clientCalls.filter((call) => (
+  call.name === "coc_invoke"
+  && call.params?.operation === "turn.output_context"
+));
+assert.equal(liveFetches.length, 1, "exactly one host output-context fetch");
+assert.deepEqual(liveFetches[0].params, {
+  operation: "turn.output_context",
+  root,
+  campaign: liveCampaign,
+  arguments: {},
+});
+// Hydration is context observation only: the host never invokes review,
+// finalize, rules, or state operations on the KP's behalf.
+assert.equal(
+  liveHost.clientCalls.filter((call) => (
+    call.name === "coc_invoke"
+    && (
+      call.params?.operation === "narration.review"
+      || call.params?.operation === "turn.finalize"
+      || String(call.params?.operation || "").startsWith("rules.")
+      || String(call.params?.operation || "").startsWith("state.")
+    )
+  )).length,
+  0,
+  "hydration must never invoke review, finalize, rules, or state operations",
+);
+const liveGuidance = liveResumed.data.host_recovery_guidance;
+assert.equal(liveGuidance.output_context_status, "host_refreshed_live");
+assert.deepEqual(liveGuidance.next_call, { tool: "coc_narration_review" });
+assert.equal(liveGuidance.next_call.card, undefined, "first card is not duplicated");
+assert.deepEqual(liveGuidance.review_recovery.card, liveReviewCard());
+assert.deepEqual(liveGuidance.then.card, liveFinalizeCard());
+assert.equal(liveGuidance.review_recovery.revision, 3);
+assert.equal(liveGuidance.card_projection.source, "host_refreshed_live_context");
+assert.equal(liveGuidance.card_projection.authoritative_copy, undefined);
+assert.equal(liveGuidance.review_recovery.exact_card_path, undefined);
+assert.equal(liveGuidance.then.exact_card_path, undefined);
+assert.equal(liveGuidance.then.tool, liveFinalizeCard().invoke_via);
+assert.equal(
+  JSON.stringify(liveGuidance).includes("coc_turn_output_context"),
+  false,
+  "full-path successful guidance must contain no output-context pointer",
+);
+assert.equal(
+  liveGuidance.card_projection.instruction.includes("already ingested"),
+  true,
+);
+assert.deepEqual(
+  liveResumed.data.pending_output_context,
+  { status: "host_refreshed_live" },
+);
+// Guidance carries only the exact cards plus minimal authority metadata.
+const liveGuidanceJson = JSON.stringify(liveGuidance);
+assert.equal(liveGuidanceJson.includes("settlement_snapshot_id"), false);
+assert.equal(liveGuidanceJson.includes("mechanics_bundle_sha256"), false);
+assert.equal(liveGuidanceJson.includes("pc_subject_refs"), false);
+assert.equal(liveGuidanceJson.includes("manifest_revision"), false);
+// The live receipt is ingested at its true stage first: an advanced
+// output_context_ready entry must precede the resume's review_ready entry,
+// with no regressive rejection of the output-context observation.
+{
+  const progressEntries = liveHost.audits.filter((entry) => (
+    entry.name === "coc-canonical-turn-progress"
+  ));
+  const advancedStages = progressEntries
+    .filter((entry) => entry.value?.status === "advanced")
+    .map((entry) => entry.value.stage);
+  assert.ok(advancedStages.includes("output_context_ready"), "live receipt advances progress");
+  assert.ok(advancedStages.includes("review_ready"), "resume inference advances progress");
+  assert.ok(
+    advancedStages.indexOf("output_context_ready") < advancedStages.indexOf("review_ready"),
+    "output_context_ready must be reached before review_ready",
+  );
+  assert.ok(
+    !progressEntries.some((entry) => (
+      entry.value?.status === "rejected" && entry.value?.stage === "output_context_ready"
+    )),
+    "output-context observation must never be regressive",
+  );
+}
+assert.ok(
+  liveHost.audits.some((entry) => (
+    entry.name === "coc-typed-tool-binding"
+    && entry.value?.operation === "narration.review"
+    && entry.value?.status === "armed"
+  )),
+  "live hydration must arm the retained narration-review binding",
+);
+assert.ok(
+  liveHost.audits.some((entry) => (
+    entry.name === "coc-pending-finalization-live-context"
+    && entry.value?.status === "refreshed"
+    && entry.value?.campaign_id === liveCampaign
+    && entry.value?.turn_id === liveTurnId
+  )),
+);
+assertNoPlayerLeak(liveHost, "live hydration");
+// The precondition the whole feature exists to remove: a real typed
+// narration.review over the hydrated context must compile and be accepted,
+// with host-bound identities on the canonical call.
+const liveReview = await invoke(
+  liveHost,
+  "live-hydrate-review",
+  {
+    draft_text: "诺特仍坐在桌后等你的答复，烛火映着未寄出的信。",
+    findings: [],
+    state_authority_review: {
+      disposition: "no_player_state_change_claimed",
+      reason: "没有调查员状态变化。",
+      claims: [],
+    },
+  },
+  "coc_narration_review",
+);
+assert.equal(liveReview.ok, true, JSON.stringify(liveReview));
+assert.equal(liveReview.error, undefined, "no state_claim_compiler_context_missing");
+const liveReviewCalls = liveHost.clientCalls.filter((call) => (
+  call.name === "coc_invoke" && call.params?.operation === "narration.review"
+));
+assert.equal(liveReviewCalls.length, 1);
+assert.equal(liveReviewCalls[0].params.arguments.turn_id, liveTurnId);
+assert.equal(liveReviewCalls[0].params.arguments.source_digest, liveSourceDigest);
+assert.equal(liveReviewCalls[0].params.arguments.revision, 3);
+assert.equal(
+  liveReviewCalls[0].params.arguments.state_claim_compilation?.contract_id,
+  "coc.pi-state-claim-compilation-receipt.v1",
+);
+assertNoPlayerLeak(liveHost, "live hydration review");
+// Repeated resume of the same pending identity coalesces: no refetch, the
+// same live guidance.
+const liveResumedAgain = await invoke(
+  liveHost,
+  "live-hydrate-resume-2",
+  resumeParams(liveCampaign),
+  "coc_setup",
+);
+assert.equal(outputContextFetchCount(liveHost), 1, "repeated pending identity must not refetch");
+assert.equal(
+  liveResumedAgain.data.host_recovery_guidance.output_context_status,
+  "host_refreshed_live",
+);
+assert.deepEqual(
+  liveResumedAgain.data.host_recovery_guidance.review_recovery.card,
+  liveReviewCard(),
+);
+await liveHost.shutdown();
+
+// Concurrent resume handling of the same pending identity shares one fetch.
+{
+  const concurrentCampaign = "startup-pending-live-concurrent";
+  const concurrentHost = harness((name, params) => {
+    if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
+    if (params.operation === "session.resume") {
+      return pointerOnlyPendingEnvelope(concurrentCampaign);
+    }
+    if (params.operation === "turn.output_context") {
+      return (async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        return liveEnvelope();
+      })();
+    }
+    throw new Error(`unexpected ${params.operation}`);
+  }, concurrentCampaign);
+  await concurrentHost.start();
+  const [first, second] = await Promise.all([
+    invoke(concurrentHost, "concurrent-resume-1", resumeParams(concurrentCampaign), "coc_setup"),
+    invoke(concurrentHost, "concurrent-resume-2", resumeParams(concurrentCampaign), "coc_setup"),
+  ]);
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  assert.equal(
+    outputContextFetchCount(concurrentHost),
+    1,
+    "concurrent same-identity resumes share one in-flight fetch",
+  );
+  assert.equal(first.data.host_recovery_guidance.output_context_status, "host_refreshed_live");
+  assert.equal(second.data.host_recovery_guidance.output_context_status, "host_refreshed_live");
+  assertNoPlayerLeak(concurrentHost, "concurrent hydration");
+  await concurrentHost.shutdown();
+}
+
+// Session reset clears the latch: a new generation refetches once.
+{
+  const resetCampaign = "startup-pending-live-reset";
+  const resetHost = harness((name, params) => {
+    if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
+    if (params.operation === "session.resume") return pointerOnlyPendingEnvelope(resetCampaign);
+    if (params.operation === "turn.output_context") return liveEnvelope();
+    throw new Error(`unexpected ${params.operation}`);
+  }, resetCampaign);
+  await resetHost.start();
+  const beforeReset = await invoke(resetHost, "reset-resume-1", resumeParams(resetCampaign), "coc_setup");
+  assert.equal(beforeReset.data.host_recovery_guidance.output_context_status, "host_refreshed_live");
+  assert.equal(outputContextFetchCount(resetHost), 1);
+  await resetHost.restart();
+  const afterReset = await invoke(resetHost, "reset-resume-2", resumeParams(resetCampaign), "coc_setup");
+  assert.equal(outputContextFetchCount(resetHost), 2, "session reset permits one fresh fetch");
+  assert.equal(afterReset.data.host_recovery_guidance.output_context_status, "host_refreshed_live");
+  await resetHost.shutdown();
+}
+
+// An identity-less pending resume never wildcard-reuses an identified
+// attempt; a genuinely changed identity gets one new fetch.
+{
+  const identityCampaign = "startup-pending-live-identity";
+  let resumeCount = 0;
+  const identityHost = harness((name, params) => {
+    if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
+    if (params.operation === "session.resume") {
+      resumeCount += 1;
+      return resumeCount === 1
+        ? pendingIndexEnvelope(identityCampaign)
+        : pointerOnlyPendingEnvelope(identityCampaign);
+    }
+    if (params.operation === "turn.output_context") return liveEnvelope();
+    throw new Error(`unexpected ${params.operation}`);
+  }, identityCampaign);
+  await identityHost.start();
+  const identified = await invoke(identityHost, "identity-resume-1", resumeParams(identityCampaign), "coc_setup");
+  assert.equal(identified.data.host_recovery_guidance.output_context_status, "host_refreshed_live");
+  const identityLess = await invoke(identityHost, "identity-resume-2", resumeParams(identityCampaign), "coc_setup");
+  assert.equal(
+    outputContextFetchCount(identityHost),
+    2,
+    "identity-less pending must not reuse an identified attempt",
+  );
+  assert.equal(
+    identityLess.data.host_recovery_guidance.output_context_status,
+    "host_refreshed_live",
+  );
+  await identityHost.shutdown();
+}
+{
+  const turnTwoId = "turn-live-hydrate-2";
+  const turnTwoSource = "sha256:live-source-hydrate-2";
+  const turnTwoEnvelope = () => liveEnvelope((data) => {
+    data.turn_id = turnTwoId;
+    data.source_digest = turnTwoSource;
+    data.settlement_snapshot_id = "turn-settlement-v1:live-hydrate-2";
+    data.mechanics_bundle_sha256 = "sha256:live-mechanics-hydrate-2";
+    data.agency_review_operation = {
+      ...liveReviewCard(),
+      prefilled_arguments: { turn_id: turnTwoId, source_digest: turnTwoSource, revision: 5 },
+    };
+    data.finalize_operation = {
+      ...liveFinalizeCard(),
+      prefilled_arguments: {
+        decision_id: `${turnTwoId}:player-epoch-8:revision-5:finalize`,
+        revision: 5,
+        coverage: [],
+      },
+    };
+  });
+  let resumeCount = 0;
+  const changedCampaign = "startup-pending-live-changed";
+  const changedHost = harness((name, params) => {
+    if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
+    if (params.operation === "session.resume") {
+      resumeCount += 1;
+      return resumeCount === 1
+        ? pendingIndexEnvelope(changedCampaign)
+        : pendingIndexEnvelope(changedCampaign, turnTwoId, turnTwoSource);
+    }
+    if (params.operation === "turn.output_context") {
+      return resumeCount === 1 ? liveEnvelope() : turnTwoEnvelope();
+    }
+    throw new Error(`unexpected ${params.operation}`);
+  }, changedCampaign);
+  await changedHost.start();
+  const firstChanged = await invoke(changedHost, "changed-resume-1", resumeParams(changedCampaign), "coc_setup");
+  assert.equal(
+    firstChanged.data.host_recovery_guidance.review_recovery.card.prefilled_arguments.turn_id,
+    liveTurnId,
+  );
+  const secondChanged = await invoke(changedHost, "changed-resume-2", resumeParams(changedCampaign), "coc_setup");
+  assert.equal(outputContextFetchCount(changedHost), 2, "changed identity refetches once");
+  assert.equal(
+    secondChanged.data.host_recovery_guidance.review_recovery.card.prefilled_arguments.turn_id,
+    turnTwoId,
+  );
+  assert.equal(secondChanged.data.host_recovery_guidance.review_recovery.revision, 5);
+  await changedHost.shutdown();
+}
+
+// A deferred old attempt that is superseded by a revision-qualified pending
+// identity is discarded whole. Only the new identity may commit/fetch once.
+{
+  const raceCampaign = "startup-pending-live-identity-race";
+  const revisionFourEnvelope = () => liveEnvelope((data) => {
+    data.agency_review_operation.prefilled_arguments.revision = 4;
+    data.finalize_operation.prefilled_arguments = {
+      ...data.finalize_operation.prefilled_arguments,
+      decision_id: `${liveTurnId}:player-epoch-7:revision-4:finalize`,
+      revision: 4,
+    };
+  });
+  let resumeCount = 0;
+  let contextCount = 0;
+  let releaseOld = () => {};
+  const oldGate = new Promise((resolve) => { releaseOld = resolve; });
+  const raceHost = harness((name, params) => {
+    if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
+    if (params.operation === "session.resume") {
+      resumeCount += 1;
+      const pending = pendingIndexEnvelope(raceCampaign);
+      pending.data.pending_output_context.revision = resumeCount === 1 ? 3 : 4;
+      return pending;
+    }
+    if (params.operation === "turn.output_context") {
+      contextCount += 1;
+      if (contextCount === 1) {
+        return (async () => {
+          await oldGate;
+          return liveEnvelope();
+        })();
+      }
+      return revisionFourEnvelope();
+    }
+    throw new Error(`unexpected ${params.operation}`);
+  }, raceCampaign);
+  await raceHost.start();
+  const oldResume = invoke(
+    raceHost,
+    "identity-race-old",
+    resumeParams(raceCampaign),
+    "coc_setup",
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  const newResume = await invoke(
+    raceHost,
+    "identity-race-new",
+    resumeParams(raceCampaign),
+    "coc_setup",
+  );
+  releaseOld();
+  const staleResume = await oldResume;
+  assert.equal(outputContextFetchCount(raceHost), 2);
+  assert.equal(
+    newResume.data.host_recovery_guidance.review_recovery.revision,
+    4,
+    "new revision-qualified identity commits its one live fetch",
+  );
+  assert.equal(
+    staleResume.data.host_recovery_guidance,
+    undefined,
+    "superseded result receives no recovery guidance",
+  );
+  const refreshedTurns = raceHost.audits
+    .filter((entry) => (
+      entry.name === "coc-pending-finalization-live-context"
+      && entry.value?.status === "refreshed"
+    ))
+    .map((entry) => entry.value.turn_id);
+  assert.deepEqual(refreshedTurns, [liveTurnId]);
+  await raceHost.shutdown();
+}
+
+// A new external-player epoch supersedes an in-flight hydration even when
+// the semantic pending pointer is unchanged. The old result cannot commit;
+// the current epoch gets exactly one fresh attempt.
+{
+  const epochRaceCampaign = "startup-pending-live-player-epoch-race";
+  let contextCount = 0;
+  let releaseOld = () => {};
+  const oldGate = new Promise((resolve) => { releaseOld = resolve; });
+  const epochRaceHost = harness((name, params) => {
+    if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
+    if (params.operation === "session.resume") {
+      return pendingIndexEnvelope(epochRaceCampaign);
+    }
+    if (params.operation === "turn.output_context") {
+      contextCount += 1;
+      if (contextCount === 1) {
+        return (async () => {
+          await oldGate;
+          return liveEnvelope();
+        })();
+      }
+      return liveEnvelope();
+    }
+    throw new Error(`unexpected ${params.operation}`);
+  }, epochRaceCampaign);
+  await epochRaceHost.start();
+  const oldResume = invoke(
+    epochRaceHost,
+    "epoch-race-old",
+    resumeParams(epochRaceCampaign),
+    "coc_setup",
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  await epochRaceHost.emit("message_start", {
+    role: "user",
+    content: [{ type: "text", text: "我重新确认现在要说的话。" }],
+  });
+  releaseOld();
+  const staleResume = await oldResume;
+  assert.equal(staleResume.data.host_recovery_guidance, undefined);
+  assert.equal(
+    epochRaceHost.audits.some((entry) => (
+      entry.name === "coc-pending-finalization-live-context"
+      && entry.value?.status === "refreshed"
+    )),
+    false,
+    "old player epoch cannot record a refreshed hydration",
+  );
+  const currentResume = await invoke(
+    epochRaceHost,
+    "epoch-race-current",
+    resumeParams(epochRaceCampaign),
+    "coc_setup",
+  );
+  assert.equal(outputContextFetchCount(epochRaceHost), 2);
+  assert.equal(
+    currentResume.data.host_recovery_guidance.output_context_status,
+    "host_refreshed_live",
+  );
+  await epochRaceHost.shutdown();
+}
+
+// Cancellation before transport: no fetch at all, card-free guidance.
+{
+  const abortCampaign = "startup-pending-live-abort";
+  const abortHost = harness((name, params) => {
+    if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
+    if (params.operation === "session.resume") return pointerOnlyPendingEnvelope(abortCampaign);
+    if (params.operation === "turn.output_context") return liveEnvelope();
+    throw new Error(`unexpected ${params.operation}`);
+  }, abortCampaign);
+  await abortHost.start();
+  const aborted = new AbortController();
+  aborted.abort("cancelled");
+  const abortedResumed = await invokeWithSignal(
+    abortHost,
+    "abort-resume",
+    resumeParams(abortCampaign),
+    aborted.signal,
+    "coc_setup",
+  );
+  assert.equal(abortedResumed.ok, true);
+  assert.equal(outputContextFetchCount(abortHost), 0, "pre-transport abort performs no fetch");
+  assertCardFreePointerGuidance(abortHost, abortCampaign, abortedResumed, "pre-transport abort");
+  // The aborted caller did not cache a failure: a normal retry fetches once.
+  const retryResumed = await invoke(abortHost, "abort-retry", resumeParams(abortCampaign), "coc_setup");
+  assert.equal(outputContextFetchCount(abortHost), 1);
+  assert.equal(
+    retryResumed.data.host_recovery_guidance.output_context_status,
+    "host_refreshed_live",
+  );
+  await abortHost.shutdown();
+}
+
+// Cancellation after transport: the fetched receipt is discarded whole — no
+// compiler/binding/progress observation ran — and the failure is not cached.
+{
+  const lateAbortCampaign = "startup-pending-live-late-abort";
+  let releaseFetch = () => {};
+  const fetchGate = new Promise((resolve) => { releaseFetch = resolve; });
+  const lateAbortHost = harness((name, params) => {
+    if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
+    if (params.operation === "session.resume") {
+      return pointerOnlyPendingEnvelope(lateAbortCampaign);
+    }
+    if (params.operation === "turn.output_context") {
+      return (async () => {
+        await fetchGate;
+        return liveEnvelope();
+      })();
+    }
+    throw new Error(`unexpected ${params.operation}`);
+  }, lateAbortCampaign);
+  await lateAbortHost.start();
+  const controller = new AbortController();
+  const resumePromise = (async () => invokeWithSignal(
+    lateAbortHost,
+    "late-abort-resume",
+    resumeParams(lateAbortCampaign),
+    controller.signal,
+    "coc_setup",
+  ))();
+  await new Promise((resolve) => setImmediate(resolve));
+  controller.abort("cancelled");
+  releaseFetch();
+  const lateAborted = await resumePromise;
+  assert.equal(lateAborted.ok, true);
+  assert.equal(outputContextFetchCount(lateAbortHost), 1);
+  assertCardFreePointerGuidance(lateAbortHost, lateAbortCampaign, lateAborted, "post-transport abort");
+  assert.equal(
+    lateAbortHost.audits.some((entry) => (
+      entry.name === "coc-typed-tool-binding"
+      && entry.value?.operation === "narration.review"
+      && entry.value?.status === "armed"
+    )),
+    false,
+    "a cancelled hydration must leave no armed binding",
+  );
+  assert.equal(
+    lateAbortHost.audits.some((entry) => (
+      entry.name === "coc-canonical-turn-progress"
+      && entry.value?.stage === "output_context_ready"
+    )),
+    false,
+    "a cancelled hydration must not advance canonical progress",
+  );
+  // Caller-local cancellation is not a cached failure: a fresh resume for
+  // the same identity fetches once and succeeds.
+  const afterCancel = await invoke(
+    lateAbortHost,
+    "late-abort-retry",
+    resumeParams(lateAbortCampaign),
+    "coc_setup",
+  );
+  assert.equal(outputContextFetchCount(lateAbortHost), 2);
+  assert.equal(
+    afterCancel.data.host_recovery_guidance.output_context_status,
+    "host_refreshed_live",
+  );
+  await lateAbortHost.shutdown();
+}
+
+// Failure matrix: every attempted-and-failed hydration is card-free (even
+// with a partially valid snapshot chain), fetches exactly once, caches the
+// failure against refetch storms, and never latches a fault.
+const partialSnapshotPendingEnvelope = (campaignId) => {
+  const envelope = pointerOnlyPendingEnvelope(campaignId);
+  envelope.data.pending_output_context = {
+    agency_review_operation: reviewCardFixture(),
+    finalize_operation: { operation: "turn.finalize", invoke_via: "coc_invoke" },
+  };
+  return envelope;
+};
+for (const [label, liveResponse, resumeBuilder] of [
+  ["transport rejection", () => {
+    throw new Error("coc transport unavailable");
+  }, pointerOnlyPendingEnvelope],
+  ["canonical failure envelope", () => ({
+    ok: false,
+    tool: "turn.output_context",
+    error: { code: "campaign_not_found", message: "missing" },
+  }), pointerOnlyPendingEnvelope],
+  ["malformed live chain", () => liveEnvelope((data) => {
+    data.finalize_operation = { operation: "turn.finalize", invoke_via: "coc_invoke" };
+  }), pointerOnlyPendingEnvelope],
+  ["missing review identities", () => liveEnvelope((data) => {
+    delete data.agency_review_operation.prefilled_arguments.turn_id;
+    delete data.agency_review_operation.prefilled_arguments.source_digest;
+  }), pointerOnlyPendingEnvelope],
+  ["wrong mode-specific finalize surface", () => liveEnvelope((data) => {
+    data.finalize_operation = liveFinalizeCard("coc_invoke");
+  }), pointerOnlyPendingEnvelope],
+  ["identity mismatch with pending turn", () => liveEnvelope((data) => {
+    data.turn_id = "turn-forged-live-9";
+    data.agency_review_operation = {
+      ...liveReviewCard(),
+      prefilled_arguments: {
+        turn_id: "turn-forged-live-9",
+        source_digest: liveSourceDigest,
+        revision: 3,
+      },
+    };
+  }), pendingIndexEnvelope],
+  ["partial snapshot plus failed hydration", () => {
+    throw new Error("coc transport unavailable");
+  }, partialSnapshotPendingEnvelope],
+]) {
+  const failCampaign = `startup-pending-live-fail-${label.replace(/[^a-z]+/g, "-")}`;
+  const failHost = harness((name, params) => {
+    if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
+    if (params.operation === "session.resume") return resumeBuilder(failCampaign);
+    if (params.operation === "turn.output_context") return liveResponse();
+    throw new Error(`unexpected ${params.operation}`);
+  }, failCampaign);
+  await failHost.start();
+  const failResumed = await invoke(
+    failHost,
+    `fail-resume-${label}`,
+    resumeParams(failCampaign),
+    "coc_setup",
+  );
+  assert.equal(failResumed.ok, true, label);
+  assertCardFreePointerGuidance(failHost, failCampaign, failResumed, label);
+  assert.equal(outputContextFetchCount(failHost), 1, `${label}: exactly one attempt, no retry`);
+  assert.ok(
+    failHost.audits.some((entry) => (
+      entry.name === "coc-pending-finalization-live-context"
+      && entry.value?.status === "unavailable"
+      && entry.value?.campaign_id === failCampaign
+    )),
+    label,
+  );
+  assert.equal(
+    failHost.audits.some((entry) => entry.name === "coc-turn-processing-fault"),
+    false,
+    `${label}: private hydration failure never latches a fault`,
+  );
+  // The failed identity is cached: a repeated resume does not refetch.
+  const failRepeated = await invoke(
+    failHost,
+    `fail-resume-repeat-${label}`,
+    resumeParams(failCampaign),
+    "coc_setup",
+  );
+  assert.equal(failRepeated.ok, true, label);
+  assert.equal(outputContextFetchCount(failHost), 1, `${label}: repeated failure identity does not refetch`);
+  assertCardFreePointerGuidance(failHost, failCampaign, failRepeated, label);
+  await failHost.shutdown();
+}
+
+// Every private hydration observer checkpoint is transactional. Inject a
+// failure after compiler fact creation, after retained binding creation, and
+// after canonical progress/circuit observation; each must restore the exact
+// pre-attempt compiler fact, leave no binding/progress audit, cache one
+// card-free failure, and never reach the canonical review transport.
+for (const failureStage of ["compiler", "binding", "progress"]) {
+  const observerCampaign = `startup-pending-live-observer-${failureStage}`;
+  const retained = new Map();
+  const compiler = {
+    retained,
+    observeOutputContext(campaignId, envelope) {
+      retained.set(campaignId, {
+        turnId: envelope.data.turn_id,
+        sourceDigest: envelope.data.source_digest,
+        revision: envelope.data.agency_review_operation.prefilled_arguments.revision,
+      });
+    },
+    compileReview() {
+      throw new Error("compiler context should have rolled back");
+    },
+    releaseLatchedFailure() { return false; },
+    beginExternalTurn() {},
+    clear() { retained.clear(); },
+  };
+  const observerHost = harness((name, params) => {
+    if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
+    if (params.operation === "session.resume") {
+      return pointerOnlyPendingEnvelope(observerCampaign);
+    }
+    if (params.operation === "turn.output_context") return liveEnvelope();
+    if (params.operation === "narration.review") {
+      throw new Error("rolled-back review binding reached transport");
+    }
+    throw new Error(`unexpected ${params.operation}`);
+  }, observerCampaign, root, [], {
+    createStateClaimCompiler: () => compiler,
+    hostHydrationObserverCheckpoint: (stage) => {
+      if (stage === failureStage) throw new Error(`injected after ${stage}`);
+    },
+  });
+  await observerHost.start();
+  const baselineFact = { turnId: "turn-before-hydration", revision: 2 };
+  retained.set(observerCampaign, baselineFact);
+  const observerResumed = await invoke(
+    observerHost,
+    `observer-${failureStage}-resume`,
+    resumeParams(observerCampaign),
+    "coc_setup",
+  );
+  assert.equal(observerResumed.ok, true);
+  assertCardFreePointerGuidance(
+    observerHost,
+    observerCampaign,
+    observerResumed,
+    `observer ${failureStage} failure`,
+  );
+  assert.equal(outputContextFetchCount(observerHost), 1);
+  assert.equal(
+    retained.get(observerCampaign),
+    baselineFact,
+    `${failureStage}: compiler campaign fact restored by identity`,
+  );
+  assert.equal(
+    observerHost.audits.some((entry) => (
+      entry.name === "coc-typed-tool-binding"
+      && entry.value?.operation === "narration.review"
+      && entry.value?.status === "armed"
+    )),
+    false,
+    `${failureStage}: no committed binding observation`,
+  );
+  assert.equal(
+    observerHost.audits.some((entry) => (
+      entry.name === "coc-canonical-turn-progress"
+      && entry.value?.stage === "output_context_ready"
+    )),
+    false,
+    `${failureStage}: no committed progress observation`,
+  );
+  const observerRepeated = await invoke(
+    observerHost,
+    `observer-${failureStage}-resume-2`,
+    resumeParams(observerCampaign),
+    "coc_setup",
+  );
+  assert.equal(
+    outputContextFetchCount(observerHost),
+    1,
+    `${failureStage}: failed identity is cached`,
+  );
+  assertCardFreePointerGuidance(
+    observerHost,
+    observerCampaign,
+    observerRepeated,
+    `observer ${failureStage} repeat`,
+  );
+  const reviewAttempt = await invoke(
+    observerHost,
+    `observer-${failureStage}-review`,
+    {
+      draft_text: "这段文字不应越过已回滚的绑定。",
+      findings: [],
+      state_authority_review: {
+        disposition: "no_player_state_change_claimed",
+        reason: "无状态变化。",
+        claims: [],
+      },
+    },
+    "coc_narration_review",
+  );
+  assert.equal(reviewAttempt.ok, false, failureStage);
+  assert.equal(
+    observerHost.clientCalls.filter((call) => (
+      call.name === "coc_invoke"
+      && call.params?.operation === "narration.review"
+    )).length,
+    0,
+    `${failureStage}: rolled-back binding cannot invoke review`,
+  );
+  await observerHost.shutdown();
+}
+
 
 for (const [label, mode, next] of [
   ["table_opening", "table_opening", ["evidence.table_opening"]],
@@ -939,6 +2120,15 @@ for (const [label, mode, next] of [
     h.audits.some((entry) => entry.name === OPEN_TURN_RECOVERY_GUIDANCE_AUDIT),
     false,
     label,
+  );
+  // Non-pending resume modes never trigger a host output-context fetch.
+  assert.equal(
+    h.clientCalls.filter((call) => (
+      call.name === "coc_invoke"
+      && call.params?.operation === "turn.output_context"
+    )).length,
+    0,
+    `${label}: no host output-context fetch`,
   );
   if (label === "table_opening") {
     assert.ok(
@@ -2026,6 +3216,40 @@ process.stdout.write(JSON.stringify({
   canonicalInvokeViaFinalizeCard: true,
   cardsSurviveFullExtensionPath: true,
   keeperOnlyCardsNoPlayerLeak: true,
+  completeInlineCardsSuppressHostFetch: true,
+  pointerOnlyResumeHydratesLiveCards: true,
+  hydrationSingleTypedFetchExactEnvelope: true,
+  hydrationProgressOutputContextReadyBeforeReviewReady: true,
+  hydrationOutputContextObservationNeverRegressive: true,
+  hydrationTypedReviewFreeOfCompilerContextMissing: true,
+  hydrationBindingArmedBeforeReview: true,
+  hydratedLiveCardsAuthoritativeOverSnapshot: true,
+  hydrationReviewCardIsNextActionNoDuplicateCopy: true,
+  hydrationNoOutputContextPointerRemains: true,
+  hydrationNeverInvokesReviewFinalizeRulesOrState: true,
+  sequentialSameIdentityCoalesces: true,
+  concurrentSameIdentitySharesOneInFlightFetch: true,
+  repeatedFailedIdentityFetchesOnceTotal: true,
+  changedPendingIdentityRefetchesOnce: true,
+  identityLessPendingNeverReusesIdentifiedAttempt: true,
+  sessionResetPermitsOneFreshFetch: true,
+  preTransportAbortPerformsNoFetch: true,
+  postTransportAbortDiscardsReceiptWholeAndRefetchesOnce: true,
+  observerFailureLeavesNoPartialBindingOrProgress: true,
+  hydrationFailureCardFreePointerGuidance: [
+    "transport rejection",
+    "canonical failure envelope",
+    "malformed live chain",
+    "missing review identities",
+    "wrong mode-specific finalize surface",
+    "identity mismatch",
+    "partial snapshot plus failed hydration",
+    "observer failure",
+  ],
+  strictLiveIdentityValidation: true,
+  modeSpecificFinalizeSurfaceEnforced: true,
+  liveValidatorFailClosed: true,
+  nonPendingModesNoHostFetch: true,
   nonQuarantineModes: [
     "open_turn_recovery",
     "table_opening",

@@ -149,6 +149,10 @@ import {
   applyPendingFinalizationRecoveryGuidance,
   applyOpenTurnRecoveryGuidance,
   isPendingFinalizationResume,
+  pendingFinalizationInlineCardsComplete,
+  validateLiveOutputContext,
+  type LiveOutputContextCards,
+  type PendingFinalizationHydration,
   OPEN_TURN_RECOVERY_GUIDANCE_AUDIT,
   PENDING_FINALIZATION_RECOVERY_GUIDANCE_AUDIT,
 } from "../lib/recovery-guidance.ts";
@@ -3496,6 +3500,9 @@ interface MainExtensionOverrides {
     request: MemoryHostBridgeRequest,
   ) => Promise<JsonObject>;
   createStateClaimCompiler?: () => PiStateClaimCompiler;
+  hostHydrationObserverCheckpoint?: (
+    stage: "compiler" | "binding" | "progress",
+  ) => void;
 }
 
 export function explicitPiStartupCampaignId(
@@ -3682,6 +3689,25 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let kpPlayPhase: PlayPhase = "live_turn";
   let currentWorkspaceRoot = "";
   let canonicalProgressCampaignId = "";
+  // One host-owned live hydration attempt per strict pending identity:
+  // campaign + pending turn/source identity (an identity-less marker for
+  // pointer-only resumes) + player epoch + session generation. Concurrent
+  // resume handling shares the in-flight fetch; both success and failure
+  // outcomes are cached so repeated handling of the same unresolved pending
+  // identity never refetches. A changed identity, session reset, or new
+  // player epoch replaces the attempt. Identity-less resumes can never
+  // wildcard-reuse an identified attempt and vice versa.
+  let pendingFinalizationHydrationState: {
+    campaign: string;
+    pendingKey: string;
+    playerTurnEpoch: number;
+    sessionEpoch: number;
+    inFlight: Promise<PendingFinalizationHydration> | null;
+    outcome:
+      | { status: "success"; cards: LiveOutputContextCards }
+      | { status: "unavailable" }
+      | null;
+  } | null = null;
   // Boot-unique namespace element for machine-generated decision ids. The
   // campaign's durable idempotency ledger outlives this process, and
   // playerTurnEpoch restarts from 0 on every boot — so ids composed without
@@ -3716,6 +3742,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   >();
   const revokedSceneBindingOperations = new Set<string>();
   let refreshTypedToolDefinition = (_operation: string): void => {};
+  let hostHydrationObservationTransaction: {
+    audits: Array<{ name: string; value: JsonObject }>;
+    bindingRefreshes: Set<string>;
+    reprojectTools: boolean;
+  } | null = null;
+  const appendObservationAudit = (name: string, value: JsonObject): void => {
+    if (hostHydrationObservationTransaction !== null) {
+      hostHydrationObservationTransaction.audits.push({ name, value });
+      return;
+    }
+    pi.appendEntry(name, value);
+  };
   let retainedOutputContextFacts: {
     root: string;
     campaign: string;
@@ -3832,9 +3870,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   ): void => {
     retainedTypedBindings.set(binding.operation, binding);
     currentTypedBindingFactories.set(binding.operation, currentFactory);
-    refreshTypedToolDefinition(binding.operation);
+    if (hostHydrationObservationTransaction !== null) {
+      hostHydrationObservationTransaction.bindingRefreshes.add(binding.operation);
+    } else {
+      refreshTypedToolDefinition(binding.operation);
+    }
     try {
-      pi.appendEntry("coc-typed-tool-binding", {
+      appendObservationAudit("coc-typed-tool-binding", {
         schema_version: 1,
         status: "armed",
         operation: binding.operation,
@@ -4021,7 +4063,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     options: {
       newPlayerEpoch?: number;
       reprojectTools?: boolean;
-      authorizedFaultRecoveryOperation?: string;
+      hostBindingRefresh?: {
+        kind: "host_binding_refresh";
+        operation: "turn.output_context";
+        turnId: string;
+        sourceDigest: string;
+        outputRevision: number;
+        sessionGeneration: number;
+      };
     } = {},
   ): boolean => {
     const newEpoch = options.newPlayerEpoch;
@@ -4046,28 +4095,52 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             canonicalProgressRevision: base.canonicalProgressRevision + 1,
           }
       : unversioned;
+    const refresh = options.hostBindingRefresh;
     const authorizedFaultRecovery = (
       canonicalProgress.stage === "faulted"
       && newEpoch === undefined
-      && typeof options.authorizedFaultRecoveryOperation === "string"
-      && options.authorizedFaultRecoveryOperation === faultRecoveryOperation
-      && candidate.stage !== "faulted"
+      && refresh !== undefined
+      && refresh.kind === "host_binding_refresh"
+      && refresh.operation === "turn.output_context"
+      && refresh.operation === faultRecoveryOperation
+      && candidate.stage === "output_context_ready"
       && candidate.playerTurnEpoch === canonicalProgress.playerTurnEpoch
       && candidate.canonicalProgressRevision
         === canonicalProgress.canonicalProgressRevision + 1
     );
-    if (authorizedFaultRecovery) {
+    if (authorizedFaultRecovery && refresh !== undefined && campaignId) {
+      const authorization = nonRetryableFailureCircuit.authorizeHostBindingRefresh({
+        kind: refresh.kind,
+        operation: refresh.operation,
+        recoverableBy: "host_binding_refresh",
+        recoveryEligible: faultRecoveryOperation === refresh.operation,
+        campaignId,
+        turnId: refresh.turnId,
+        sourceDigest: refresh.sourceDigest,
+        outputRevision: refresh.outputRevision,
+        playerTurnEpoch: candidate.playerTurnEpoch,
+        sessionGeneration: refresh.sessionGeneration,
+        fromProgress: canonicalProgress,
+        toProgress: candidate,
+      });
+      if (
+        authorization === null
+        || !nonRetryableFailureCircuit.advanceAuthorizedHostBindingRefresh({
+          campaignId,
+          authorization,
+          operation: refresh.operation,
+          turnId: refresh.turnId,
+          sourceDigest: refresh.sourceDigest,
+          outputRevision: refresh.outputRevision,
+          playerTurnEpoch: candidate.playerTurnEpoch,
+          sessionGeneration: refresh.sessionGeneration,
+          canonicalProgress: candidate,
+        })
+      ) return false;
       canonicalProgress = candidate;
       faultRecoveryOperation = null;
       openingContinuationGate.clearTurnProcessingFault();
-      if (campaignId) canonicalProgressCampaignId = campaignId;
-      if (campaignId) {
-        nonRetryableFailureCircuit.advance({
-          campaignId,
-          playerTurnEpoch: candidate.playerTurnEpoch,
-          canonicalProgress: candidate,
-        });
-      }
+      canonicalProgressCampaignId = campaignId;
       try {
         pi.appendEntry("coc-canonical-turn-progress", {
           schema_version: 1,
@@ -4076,16 +4149,22 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           canonical_progress_revision: candidate.canonicalProgressRevision,
           stage: candidate.stage,
           reason: "authorized_fault_recovery_receipt",
-          recovery_operation: options.authorizedFaultRecoveryOperation,
+          recovery_operation: refresh.operation,
         });
       } catch { /* progress audit is best effort */ }
-      if (options.reprojectTools !== false) applyKpActiveTools();
+      if (options.reprojectTools !== false) {
+        if (hostHydrationObservationTransaction !== null) {
+          hostHydrationObservationTransaction.reprojectTools = true;
+        } else {
+          applyKpActiveTools();
+        }
+      }
       return true;
     }
     const comparison = compareCanonicalTurnProgress(canonicalProgress, candidate);
     if (comparison.order === "stale" || comparison.order === "regressive") {
       try {
-        pi.appendEntry("coc-canonical-turn-progress", {
+        appendObservationAudit("coc-canonical-turn-progress", {
           schema_version: 1,
           status: "rejected",
           reason: comparison.reason,
@@ -4107,7 +4186,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       });
     }
     try {
-      pi.appendEntry("coc-canonical-turn-progress", {
+      appendObservationAudit("coc-canonical-turn-progress", {
         schema_version: 1,
         status: "advanced",
         player_turn_epoch: candidate.playerTurnEpoch,
@@ -4116,7 +4195,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         reason: comparison.reason,
       });
     } catch { /* progress audit is best effort */ }
-    if (options.reprojectTools !== false) applyKpActiveTools();
+    if (options.reprojectTools !== false) {
+      if (hostHydrationObservationTransaction !== null) {
+        hostHydrationObservationTransaction.reprojectTools = true;
+      } else {
+        applyKpActiveTools();
+      }
+    }
     return true;
   };
 
@@ -4182,6 +4267,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     operation: string,
     params: JsonObject,
     value: unknown,
+    validatedLiveCards: LiveOutputContextCards | null = null,
   ): void => {
     const envelope = objectOrNull(value);
     const data = objectOrNull(envelope?.data);
@@ -4195,10 +4281,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       advanceCanonicalProgress(campaignId, {
         stage: "journaled",
         journalRevision: data.turn_id,
-      }, {
-        ...(canonicalProgress.stage === "faulted"
-          ? { authorizedFaultRecoveryOperation: operation }
-          : {}),
       });
       clearTypedBinding("state.journal");
       return;
@@ -4258,6 +4340,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               state_claim_compilation: {},
             };
           });
+          if (hostHydrationObservationTransaction !== null) {
+            overrides.hostHydrationObserverCheckpoint?.("binding");
+          }
         }
       }
       advanceCanonicalProgress(campaignId, {
@@ -4267,8 +4352,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           : canonicalProgress.campaignRevision,
         journalRevision: data.turn_id,
       }, {
-        ...(canonicalProgress.stage === "faulted"
-          ? { authorizedFaultRecoveryOperation: operation }
+        ...(canonicalProgress.stage === "faulted" && validatedLiveCards !== null
+          ? {
+              hostBindingRefresh: {
+                kind: "host_binding_refresh" as const,
+                operation: "turn.output_context" as const,
+                turnId: validatedLiveCards.turnId,
+                sourceDigest: validatedLiveCards.sourceDigest,
+                outputRevision: validatedLiveCards.revision,
+                sessionGeneration: sessionEpoch,
+              },
+            }
           : {}),
       });
       return;
@@ -4324,10 +4418,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         advanceCanonicalProgress(campaignId, {
           stage: "review_ready",
           reviewRevision: revision,
-        }, {
-          ...(canonicalProgress.stage === "faulted"
-            ? { authorizedFaultRecoveryOperation: operation }
-            : {}),
         });
       }
       return;
@@ -4342,10 +4432,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         closedObligationCount: Array.isArray(data.obligation_ids)
           ? data.obligation_ids.length
           : canonicalProgress.closedObligationCount,
-      }, {
-        ...(canonicalProgress.stage === "faulted"
-          ? { authorizedFaultRecoveryOperation: operation }
-          : {}),
       });
       clearTurnTypedBindings();
       return;
@@ -5499,6 +5585,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     loadedOperations = [];
     lastWorkingSet = null;
     faultRecoveryOperation = null;
+    pendingFinalizationHydrationState = null;
     clearTurnTypedBindings();
     startupSilentResumeQuarantine = null;
     startupBranchTrailingPlayerUser = branchEndsWithUnmatchedPlayerUser(
@@ -6446,6 +6533,291 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       },
     };
   };
+  const observeHydratedOutputContextTransaction = (args: {
+    campaign: string;
+    liveParams: JsonObject;
+    envelope: JsonObject;
+    cards: LiveOutputContextCards;
+    isAttemptCurrent: () => boolean;
+  }): void => {
+    const { campaign, liveParams, envelope, cards, isAttemptCurrent } = args;
+    if (!isAttemptCurrent()) throw new Error("live_output_context_superseded");
+    const compilerRetained = Reflect.get(
+      stateClaimCompiler as object,
+      "retained",
+    );
+    if (!(compilerRetained instanceof Map)) {
+      throw new Error("state_claim_compiler_hydration_transaction_unavailable");
+    }
+    const compilerHadCampaign = compilerRetained.has(campaign);
+    const compilerCampaignValue = compilerRetained.get(campaign);
+    const retainedFactsSnapshot = retainedOutputContextFacts;
+    const bindingSnapshot = new Map(retainedTypedBindings);
+    const bindingFactorySnapshot = new Map(currentTypedBindingFactories);
+    const progressSnapshot = { ...canonicalProgress };
+    const progressCampaignSnapshot = canonicalProgressCampaignId;
+    const faultRecoverySnapshot = faultRecoveryOperation;
+    const loadedNamespacesSnapshot = [...loadedNamespaces];
+    const loadedOperationsSnapshot = [...loadedOperations];
+    const workingSetSnapshotValue = lastWorkingSet;
+    const circuitSnapshot = nonRetryableFailureCircuit
+      .captureHostHydrationState(campaign);
+    const transaction = {
+      audits: [] as Array<{ name: string; value: JsonObject }>,
+      bindingRefreshes: new Set<string>(),
+      reprojectTools: false,
+    };
+    hostHydrationObservationTransaction = transaction;
+    let committed = false;
+    try {
+      if (cards.agencyReviewRequired) {
+        stateClaimCompiler.observeOutputContext(campaign, envelope);
+        overrides.hostHydrationObserverCheckpoint?.("compiler");
+      }
+      observeCanonicalProgress(
+        "turn.output_context",
+        liveParams,
+        envelope,
+        cards,
+      );
+      nonRetryableFailureCircuit.observe({
+        campaignId: campaign,
+        operation: "turn.output_context",
+        phase: resolveAclPhase(campaign),
+        operationArgs: {},
+        envelope,
+        playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+        canonicalProgress,
+      });
+      overrides.hostHydrationObserverCheckpoint?.("progress");
+      if (!isAttemptCurrent()) throw new Error("live_output_context_superseded");
+      for (const operation of transaction.bindingRefreshes) {
+        refreshTypedToolDefinition(operation);
+      }
+      if (transaction.reprojectTools) applyKpActiveTools();
+      hostHydrationObservationTransaction = null;
+      for (const audit of transaction.audits) {
+        try { pi.appendEntry(audit.name, audit.value); }
+        catch { /* observation audit is best effort */ }
+      }
+      committed = true;
+    } finally {
+      hostHydrationObservationTransaction = null;
+      if (!committed) {
+        if (compilerHadCampaign) {
+          compilerRetained.set(campaign, compilerCampaignValue);
+        } else {
+          compilerRetained.delete(campaign);
+        }
+        retainedOutputContextFacts = retainedFactsSnapshot;
+        retainedTypedBindings.clear();
+        for (const [operation, binding] of bindingSnapshot) {
+          retainedTypedBindings.set(operation, binding);
+        }
+        currentTypedBindingFactories.clear();
+        for (const [operation, factory] of bindingFactorySnapshot) {
+          currentTypedBindingFactories.set(operation, factory);
+        }
+        canonicalProgress = progressSnapshot;
+        canonicalProgressCampaignId = progressCampaignSnapshot;
+        faultRecoveryOperation = faultRecoverySnapshot;
+        loadedNamespaces = loadedNamespacesSnapshot;
+        loadedOperations = loadedOperationsSnapshot;
+        lastWorkingSet = workingSetSnapshotValue;
+        nonRetryableFailureCircuit.restoreHostHydrationState(circuitSnapshot);
+        const refreshes = new Set([
+          ...transaction.bindingRefreshes,
+          ...bindingSnapshot.keys(),
+        ]);
+        for (const operation of refreshes) {
+          try { refreshTypedToolDefinition(operation); }
+          catch { /* restored host maps remain authoritative */ }
+        }
+        if (transaction.reprojectTools) {
+          try { applyKpActiveTools(); }
+          catch { /* restored observer state remains authoritative */ }
+        }
+      }
+    }
+  };
+
+  // Host-owned live output-context hydration for an accepted
+  // pending-finalization resume whose canonical snapshot carries no valid
+  // inline card chain (the real pointer-only recovery shape). One bounded
+  // read-only turn.output_context typed invocation through the existing
+  // transport — never a recursive gateway() call. The validated receipt is
+  // fed through the same compiler/binding/progress observation path as an
+  // explicit canonical output-context call, so a later narration.review
+  // does not fail with state_claim_compiler_context_missing. Coalesces
+  // concurrent and repeated handling of the same unresolved pending
+  // identity (success and failure both cache); a changed identity gets one
+  // new fetch. Cancellation, stale sessions, transport errors, invalid
+  // receipts, identity mismatch, and observer failure return `unavailable`
+  // with no retry and no cards — the card-free pointer guidance remains the
+  // model's path, and no turn-processing fault is ever latched for this
+  // private read. Never invokes narration.review or turn.finalize, never
+  // retries model actions, never creates a player epoch, never mutates
+  // campaign state or output gates.
+  const runPendingFinalizationHydration = (args: {
+    resumeValue: JsonObject;
+    campaign: string;
+    root: string;
+    ctx: ExtensionContext;
+    signal: AbortSignal | undefined;
+    epoch: number;
+  }): Promise<PendingFinalizationHydration> => {
+    const { resumeValue, campaign, root, ctx, signal, epoch } = args;
+    const resumeData = objectOrNull(resumeValue.data);
+    const pendingContext = objectOrNull(resumeData?.pending_output_context);
+    const pendingTurnId = typeof pendingContext?.turn_id === "string"
+      && pendingContext.turn_id
+      ? pendingContext.turn_id
+      : "";
+    const pendingSourceDigest = typeof pendingContext?.source_digest === "string"
+      && pendingContext.source_digest
+      ? pendingContext.source_digest
+      : "";
+    const pendingRevision = Number.isInteger(pendingContext?.revision)
+      && Number(pendingContext?.revision) > 0
+      ? Number(pendingContext?.revision)
+      : null;
+    const pendingKey = pendingTurnId || pendingSourceDigest || pendingRevision !== null
+      ? JSON.stringify({
+          kind: "pending_identity",
+          turn: pendingTurnId || null,
+          source: pendingSourceDigest || null,
+          revision: pendingRevision,
+        })
+      : JSON.stringify({ kind: "identity_less" });
+    const latch = pendingFinalizationHydrationState;
+    if (
+      latch !== null
+      && latch.campaign === campaign
+      && latch.pendingKey === pendingKey
+      && latch.sessionEpoch === epoch
+      && latch.playerTurnEpoch === canonicalProgress.playerTurnEpoch
+    ) {
+      if (latch.outcome !== null) {
+        // Cached outcome: guidance re-projects from the compact validated
+        // cards; the observations from the first attempt remain in force
+        // within this identity/epoch/session window.
+        return latch.outcome.status === "success"
+          ? { status: "success", cards: latch.outcome.cards }
+          : { status: "unavailable" };
+      }
+      if (latch.inFlight !== null) return latch.inFlight;
+    }
+    // Caller-local cancellation before invocation: no fetch, no latch
+    // interaction, no cards. (Checked outside the attempt so an aborted
+    // caller never installs a resolved in-flight promise for its identity.)
+    if (signal?.aborted) return { status: "unavailable" };
+    const entry: {
+      campaign: string;
+      pendingKey: string;
+      playerTurnEpoch: number;
+      sessionEpoch: number;
+      inFlight: Promise<PendingFinalizationHydration> | null;
+      outcome:
+        | { status: "success"; cards: LiveOutputContextCards }
+        | { status: "unavailable" }
+        | null;
+    } = {
+      campaign,
+      pendingKey,
+      playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+      sessionEpoch: epoch,
+      inFlight: null,
+      outcome: null,
+    };
+    const isAttemptOwnerCurrent = (): boolean => (
+      pendingFinalizationHydrationState === entry
+      && entry.campaign === campaign
+      && entry.pendingKey === pendingKey
+      && entry.playerTurnEpoch === canonicalProgress.playerTurnEpoch
+      && entry.sessionEpoch === epoch
+    );
+    const isAttemptCurrent = (): boolean => (
+      isAttemptOwnerCurrent()
+      && signal?.aborted !== true
+      && isCurrent(epoch)
+    );
+    const auditHydration = (status: string, cards: LiveOutputContextCards | null): void => {
+      try {
+        pi.appendEntry("coc-pending-finalization-live-context", {
+          schema_version: 1,
+          status,
+          campaign_id: campaign,
+          ...(cards !== null ? { turn_id: cards.turnId } : {}),
+          ...(pendingTurnId ? { pending_turn_id: pendingTurnId } : {}),
+          ...(cards !== null
+            ? {
+                operation_cards: {
+                  agency_review_operation: cards.reviewCard !== null,
+                  finalize_operation: true,
+                },
+              }
+            : {}),
+        });
+      } catch { /* hydration audit is best effort */ }
+    };
+    const attempt = (async (): Promise<PendingFinalizationHydration> => {
+      try {
+        const liveParams = wrapTypedToolInvokeParams(
+          typedToolNameForOperation("turn.output_context"),
+          { root, campaign },
+        ) as JsonObject;
+        // The MCP transport bounds this read (head-request hang timer plus
+        // the caller's abort signal); the host adds no second timeout lane.
+        const fetched = await client(ctx).callToolWithTransportMeta(
+          "coc_invoke",
+          liveParams,
+          signal,
+        );
+        // First post-transport ownership check: a superseded attempt cannot
+        // even validate or cache against the new pending identity.
+        if (signal?.aborted) return { status: "unavailable" };
+        if (!isCurrent(epoch) || !isAttemptOwnerCurrent()) {
+          return { status: "superseded" };
+        }
+        const envelope = objectOrNull(fetched.value);
+        if (envelope === null) throw new Error("live_output_context_invalid");
+        const cards = validateLiveOutputContext(envelope, resumeData);
+        if (cards === null) throw new Error("live_output_context_invalid");
+        // Second ownership check is immediately before the all-or-nothing
+        // observer transaction. No stale attempt may create compiler facts,
+        // bindings, progress, circuit state, audits, or keeper cards.
+        if (signal?.aborted) return { status: "unavailable" };
+        if (!isCurrent(epoch) || !isAttemptOwnerCurrent()) {
+          return { status: "superseded" };
+        }
+        observeHydratedOutputContextTransaction({
+          campaign,
+          liveParams,
+          envelope,
+          cards,
+          isAttemptCurrent,
+        });
+        if (signal?.aborted) return { status: "unavailable" };
+        if (!isCurrent(epoch) || !isAttemptOwnerCurrent()) {
+          return { status: "superseded" };
+        }
+        entry.outcome = { status: "success", cards };
+        auditHydration("refreshed", cards);
+        return { status: "success", cards };
+      } catch {
+        // Genuine fetch/validation/observer failure for this identity:
+        // fail closed, cache the failure, no error dumps.
+        entry.outcome = { status: "unavailable" };
+        auditHydration("unavailable", null);
+        return { status: "unavailable" };
+      } finally {
+        entry.inFlight = null;
+      }
+    })();
+    entry.inFlight = attempt;
+    pendingFinalizationHydrationState = entry;
+    return attempt;
+  };
   const gateway = (name: string) => async (_id: string, params: JsonObject, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) => {
     const epoch = sessionEpoch;
     const typedDefinition = typedToolDefinitions.find((tool) => tool.name === name);
@@ -7191,6 +7563,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (!isCurrent(epoch)) {
       return gatewayResult(asObject(value, "late canonical result"));
     }
+    let liveHydration: PendingFinalizationHydration = { status: "not_attempted" };
     if (isCanonicalInvokeSurface(name)) {
       const accepted = acceptCanonicalStructuredResult(
         String(params.operation || ""),
@@ -7201,6 +7574,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const acceptedContractProjection = objectOrNull(
         acceptedData?.contract_projection,
       );
+      const validatedOutputContextCards = (
+        accepted.accepted
+        && params.operation === "turn.output_context"
+      ) ? validateLiveOutputContext(value, null) : null;
       if (
         accepted.accepted
         && params.operation === "turn.output_context"
@@ -7210,18 +7587,70 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ) {
         stateClaimCompiler.observeOutputContext(params.campaign, value);
       }
-      observeCanonicalProgress(String(params.operation || ""), params, value);
-      nonRetryableFailureCircuit.observe({
-        campaignId: typeof params.campaign === "string" ? params.campaign : "",
-        operation: String(params.operation || ""),
-        phase: resolveAclPhase(
-          typeof params.campaign === "string" ? params.campaign : "",
-        ),
-        operationArgs: objectOrNull(params.arguments) ?? {},
-        envelope: value,
-        playerTurnEpoch: canonicalProgress.playerTurnEpoch,
-        canonicalProgress,
-      });
+      // Host-owned live output-context hydration for an accepted pointer-only
+      // pending-finalization resume. It must run BEFORE the resume progress
+      // observation below: the live receipt is ingested at its true canonical
+      // stage (output_context_ready), and the resume's inferred review_ready
+      // advance is then forward instead of regressive. Skipped whenever a
+      // fault-latched frozen recovery lane owns the turn, the snapshot already
+      // carries a complete inline card chain, or the call is cancelled/stale;
+      // failures are card-free and never latch a fault.
+      if (
+        accepted.accepted
+        && params.operation === "session.resume"
+        && isCurrent(epoch)
+        && signal?.aborted !== true
+        && typeof params.campaign === "string"
+        && params.campaign.trim()
+        && openingContinuationGate.currentTurnProcessingFault() === null
+        && isPendingFinalizationResume(value)
+        && acceptedData?.campaign_id === params.campaign
+        && !pendingFinalizationInlineCardsComplete(value)
+      ) {
+        liveHydration = await runPendingFinalizationHydration({
+          resumeValue: value,
+          campaign: params.campaign,
+          root: typeof params.root === "string" && params.root
+            ? params.root
+            : ctx.cwd,
+          ctx,
+          signal,
+          epoch,
+        });
+        if (liveHydration.status === "superseded") {
+          return gatewayResult(value as JsonObject);
+        }
+      }
+      const authorizedHostBindingRefreshPending = (
+        params.operation === "turn.output_context"
+        && validatedOutputContextCards !== null
+        && canonicalProgress.stage === "faulted"
+        && faultRecoveryOperation === "turn.output_context"
+      );
+      observeCanonicalProgress(
+        String(params.operation || ""),
+        params,
+        value,
+        validatedOutputContextCards,
+      );
+      const authorizedHostBindingRefreshCommitted = (
+        authorizedHostBindingRefreshPending
+        && canonicalProgress.stage === "output_context_ready"
+        && faultRecoveryOperation === null
+      );
+      if (!authorizedHostBindingRefreshCommitted) {
+        nonRetryableFailureCircuit.observe({
+          campaignId: typeof params.campaign === "string" ? params.campaign : "",
+          operation: String(params.operation || ""),
+          phase: resolveAclPhase(
+            typeof params.campaign === "string" ? params.campaign : "",
+          ),
+          operationArgs: objectOrNull(params.arguments) ?? {},
+          envelope: value,
+          playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+          canonicalProgress,
+        });
+      }
       const briefingOperation = String(params.operation);
       const briefingEnvelope = objectOrNull(value);
       const briefingReason = briefingOperation === "session.resume"
@@ -7951,6 +8380,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           revision: recoveryIdentity.revision,
           source_digest: recoveryIdentity.source_digest,
         });
+      // A live success that can no longer be safely attached (caller
+      // cancelled or session went stale between ingestion and guidance)
+      // degrades to the card-free fallback; cancelled/stale sessions can
+      // never attach cards.
+      const effectiveLiveHydration: PendingFinalizationHydration = (
+        liveHydration.status === "success"
+        && (signal?.aborted || !isCurrent(epoch))
+      )
+        ? { status: "unavailable" }
+        : liveHydration;
       const pendingGuided = applyPendingFinalizationRecoveryGuidance(value, {
         root: typeof params.root === "string" && params.root
           ? params.root
@@ -7959,6 +8398,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }, {
         reviewRecoveryArmed,
         ...(reviewRecoveryArmed ? { revision: recoveryIdentity.revision } : {}),
+        ...(effectiveLiveHydration.status !== "not_attempted"
+          ? { liveHydration: effectiveLiveHydration }
+          : {}),
       });
       if (pendingGuided.attached) {
         value = pendingGuided.envelope as JsonObject;

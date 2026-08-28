@@ -126,20 +126,83 @@ export function nonRetryableFailureFingerprint(args: {
   return createHash("sha256").update(body, "utf8").digest("hex");
 }
 
+type RetainedFailure = {
+  campaignId: string;
+  code: string;
+  errorClass: string;
+  operation: string;
+  playerTurnEpoch: number;
+  canonicalProgressToken: string;
+};
+
+type HostBindingRefreshAuthorizationRecord = {
+  campaignId: string;
+  operation: "turn.output_context";
+  turnId: string;
+  sourceDigest: string;
+  outputRevision: number;
+  playerTurnEpoch: number;
+  sessionGeneration: number;
+  fromProgressToken: string;
+  toProgressToken: string;
+};
+
+export type HostBindingRefreshAuthorization = Readonly<{
+  kind: "host_binding_refresh";
+  operation: "turn.output_context";
+  turnId: string;
+  sourceDigest: string;
+  outputRevision: number;
+  playerTurnEpoch: number;
+  sessionGeneration: number;
+}>;
+
+export type HostHydrationCircuitSnapshot = Readonly<{
+  campaignId: string;
+  latestProgress: CanonicalTurnProgress | null;
+  failures: ReadonlyArray<readonly [string, RetainedFailure]>;
+}>;
+
 export class NonRetryableFailureCircuit {
-  #failures = new Map<string, {
-    campaignId: string;
-    code: string;
-    errorClass: string;
-    operation: string;
-    playerTurnEpoch: number;
-    canonicalProgressToken: string;
-  }>();
+  #failures = new Map<string, RetainedFailure>();
   #latestProgress = new Map<string, CanonicalTurnProgress>();
+  #hostBindingRefreshAuthorizations = new WeakMap<
+    HostBindingRefreshAuthorization,
+    HostBindingRefreshAuthorizationRecord
+  >();
 
   reset(): void {
     this.#failures.clear();
     this.#latestProgress.clear();
+    this.#hostBindingRefreshAuthorizations = new WeakMap();
+  }
+
+  /** Narrow rollback state for the private host hydration observation only. */
+  captureHostHydrationState(campaignId: string): HostHydrationCircuitSnapshot {
+    const latest = this.#latestProgress.get(campaignId);
+    return {
+      campaignId,
+      latestProgress: latest === undefined ? null : { ...latest },
+      failures: [...this.#failures.entries()]
+        .filter(([, failure]) => failure.campaignId === campaignId)
+        .map(([fingerprint, failure]) => [fingerprint, { ...failure }] as const),
+    };
+  }
+
+  restoreHostHydrationState(snapshot: HostHydrationCircuitSnapshot): void {
+    for (const [fingerprint, failure] of this.#failures) {
+      if (failure.campaignId === snapshot.campaignId) {
+        this.#failures.delete(fingerprint);
+      }
+    }
+    for (const [fingerprint, failure] of snapshot.failures) {
+      this.#failures.set(fingerprint, { ...failure });
+    }
+    if (snapshot.latestProgress === null) {
+      this.#latestProgress.delete(snapshot.campaignId);
+    } else {
+      this.#latestProgress.set(snapshot.campaignId, { ...snapshot.latestProgress });
+    }
   }
 
   preflight(args: {
@@ -271,6 +334,106 @@ export class NonRetryableFailureCircuit {
       playerTurnEpoch: scope.playerTurnEpoch,
       canonicalProgressToken: scope.canonicalProgressToken,
     });
+  }
+
+  authorizeHostBindingRefresh(args: {
+    kind: string;
+    operation: string;
+    recoverableBy: string;
+    recoveryEligible: boolean;
+    campaignId: string;
+    turnId: string;
+    sourceDigest: string;
+    outputRevision: number;
+    playerTurnEpoch: number;
+    sessionGeneration: number;
+    fromProgress: CanonicalTurnProgress;
+    toProgress: CanonicalTurnProgress;
+  }): HostBindingRefreshAuthorization | null {
+    const from = normalizeCanonicalTurnProgress(args.fromProgress);
+    const to = normalizeCanonicalTurnProgress(args.toProgress);
+    const current = this.#latestProgress.get(args.campaignId) ?? null;
+    if (
+      args.kind !== "host_binding_refresh"
+      || args.operation !== "turn.output_context"
+      || args.recoverableBy !== "host_binding_refresh"
+      || args.recoveryEligible !== true
+      || !args.campaignId
+      || !args.turnId
+      || !args.sourceDigest
+      || !Number.isInteger(args.outputRevision)
+      || args.outputRevision < 1
+      || !Number.isInteger(args.sessionGeneration)
+      || args.sessionGeneration < 0
+      || from.stage !== "faulted"
+      || to.stage !== "output_context_ready"
+      || to.journalRevision !== args.turnId
+      || from.playerTurnEpoch !== args.playerTurnEpoch
+      || to.playerTurnEpoch !== args.playerTurnEpoch
+      || to.canonicalProgressRevision !== from.canonicalProgressRevision + 1
+      || (from.journalRevision !== null && from.journalRevision !== args.turnId)
+      || current === null
+      || compareCanonicalTurnProgress(current, from).order !== "equal"
+      || compareCanonicalTurnProgress(from, to).order !== "regressive"
+    ) return null;
+    const authorization: HostBindingRefreshAuthorization = Object.freeze({
+      kind: "host_binding_refresh",
+      operation: "turn.output_context",
+      turnId: args.turnId,
+      sourceDigest: args.sourceDigest,
+      outputRevision: args.outputRevision,
+      playerTurnEpoch: args.playerTurnEpoch,
+      sessionGeneration: args.sessionGeneration,
+    });
+    this.#hostBindingRefreshAuthorizations.set(authorization, {
+      campaignId: args.campaignId,
+      operation: "turn.output_context",
+      turnId: args.turnId,
+      sourceDigest: args.sourceDigest,
+      outputRevision: args.outputRevision,
+      playerTurnEpoch: args.playerTurnEpoch,
+      sessionGeneration: args.sessionGeneration,
+      fromProgressToken: canonicalTurnProgressToken(from),
+      toProgressToken: canonicalTurnProgressToken(to),
+    });
+    return authorization;
+  }
+
+  advanceAuthorizedHostBindingRefresh(args: {
+    campaignId: string;
+    authorization: HostBindingRefreshAuthorization;
+    operation: string;
+    turnId: string;
+    sourceDigest: string;
+    outputRevision: number;
+    playerTurnEpoch: number;
+    sessionGeneration: number;
+    canonicalProgress: CanonicalTurnProgress;
+  }): boolean {
+    const record = this.#hostBindingRefreshAuthorizations.get(args.authorization);
+    if (record === undefined) return false;
+    // Single-use even on a divergent attempt.
+    this.#hostBindingRefreshAuthorizations.delete(args.authorization);
+    const candidate = normalizeCanonicalTurnProgress(args.canonicalProgress);
+    const current = this.#latestProgress.get(args.campaignId) ?? null;
+    if (
+      record.campaignId !== args.campaignId
+      || record.operation !== args.operation
+      || record.turnId !== args.turnId
+      || record.sourceDigest !== args.sourceDigest
+      || record.outputRevision !== args.outputRevision
+      || record.playerTurnEpoch !== args.playerTurnEpoch
+      || record.sessionGeneration !== args.sessionGeneration
+      || candidate.playerTurnEpoch !== args.playerTurnEpoch
+      || candidate.journalRevision !== args.turnId
+      || canonicalTurnProgressToken(candidate) !== record.toProgressToken
+      || current === null
+      || canonicalTurnProgressToken(current) !== record.fromProgressToken
+    ) return false;
+    this.#latestProgress.set(args.campaignId, candidate);
+    // Do not call #advanceResolved: an authorized host-binding refresh does
+    // not erase failure fingerprints or consume/reset recovery budget.
+    return true;
   }
 
   advance(args: {
