@@ -189,6 +189,24 @@ export function validateMemoryExtractorResult(
     throw new Error("memory extractor result candidates must be a list");
   }
   const contract_ = asObject(packet.result_contract, "packet.result_contract");
+  const allowedFields = contract_.fields;
+  const requiredFields = contract_.required_fields;
+  if (
+    !Array.isArray(allowedFields)
+    || allowedFields.some((field) => typeof field !== "string" || !field)
+  ) {
+    throw new Error("memory extractor result contract fields must be a string list");
+  }
+  if (
+    !Array.isArray(requiredFields)
+    || requiredFields.some((field) => typeof field !== "string" || !field)
+  ) {
+    throw new Error("memory extractor required fields must be a string list");
+  }
+  const allowedFieldSet = new Set(allowedFields as string[]);
+  if ((requiredFields as string[]).some((field) => !allowedFieldSet.has(field))) {
+    throw new Error("memory extractor required fields drift outside result contract");
+  }
   const maxCandidates = typeof contract_.max_candidates === "number"
     ? contract_.max_candidates
     : 32;
@@ -197,22 +215,15 @@ export function validateMemoryExtractorResult(
   }
   const candidates: ExtractorCandidate[] = rawCandidates.map((row, index) => {
     const candidate = asObject(row, `memory extractor candidate[${index}]`);
-    exactKeys(
-      candidate,
-      [
-        "assertion_id",
-        "kind",
-        "subject_id",
-        "knowers",
-        "privacy",
-        "state",
-        "statement",
-        "entities",
-        "occurred_turn",
-        "valid_from_turn",
-      ],
-      `memory extractor candidate[${index}]`,
+    exactKeys(candidate, allowedFields as string[], `memory extractor candidate[${index}]`);
+    const missing = (requiredFields as string[]).filter(
+      (field) => candidate[field] === undefined || candidate[field] === null,
     );
+    if (missing.length) {
+      throw new Error(
+        `memory extractor candidate[${index}] is missing required fields: ${missing.join(", ")}`,
+      );
+    }
     nonEmpty(candidate.assertion_id, `candidate[${index}].assertion_id`);
     nonEmpty(candidate.kind, `candidate[${index}].kind`);
     nonEmpty(candidate.subject_id, `candidate[${index}].subject_id`);

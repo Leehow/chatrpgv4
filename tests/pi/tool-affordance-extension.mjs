@@ -31,6 +31,7 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
   const active = [];
   const sent = [];
   const appended = [];
+  let aborts = 0;
   let hideRead = false;
   const pi = {
     registerTool(tool) {
@@ -99,11 +100,12 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
       getBranch: () => [],
     },
     hasUI: false,
+    abort() { aborts += 1; },
   };
-  const emit = async (type, message) => {
+  const emit = async (type, message, eventExtra = {}) => {
     let projected;
     for (const handler of handlers.get(type) || []) {
-      projected = await handler({ type, message }, ctx);
+      projected = await handler({ type, message, ...eventExtra }, ctx);
     }
     return projected;
   };
@@ -119,6 +121,7 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
   };
   return {
     tools, handlers, active, sent, appended, clientCalls, ctx, emit, start, shutdown,
+    get aborts() { return aborts; },
     hideRead() { hideRead = true; },
   };
 }
@@ -286,6 +289,37 @@ test("settled-output recovery schedules exactly two hidden follow-ups then fault
   });
 });
 
+test("leading whitespace stream aborts early and schedules one same-epoch recovery", async () => {
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我沿着走廊继续调查。" }],
+    });
+    const streaming = {
+      role: "assistant",
+      content: [{ type: "text", text: "\n" }],
+    };
+    await h.emit("message_start", streaming);
+    for (let index = 0; index < 40; index += 1) {
+      await h.emit("message_update", streaming, {
+        assistantMessageEvent: { type: "text_delta", delta: "\n" },
+      });
+    }
+    assert.equal(h.aborts, 1);
+    const recoveries = h.sent.filter((row) => (
+      row.message.customType === main.EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE
+    ));
+    assert.equal(recoveries.length, 1);
+    assert.equal(recoveries[0].options.triggerTurn, true);
+    assert.equal(recoveries[0].options.deliverAs, "followUp");
+    const audits = h.appended.filter((row) => (
+      row.type === "coc-leading-whitespace-stream-abort"
+    ));
+    assert.equal(audits.length, 1);
+    assert.equal(audits[0].value.failure_class, "leading_whitespace_stream_limit");
+  });
+});
+
 test("extension nonretry scope ignores host identity churn and clears on real progress", async () => {
   let contextAttempts = 0;
   await withPlayHarness(async (h) => {
@@ -372,6 +406,12 @@ test("typed journal hides host identity and restores it from independent live tu
     await h.emit("message_start", {
       role: "user",
       content: [{ type: "text", text: playerText }],
+    });
+    await h.emit("message_start", {
+      role: "user",
+      customType: main.EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE,
+      content: [{ type: "text", text: "host recovery control" }],
+      details: { player_turn_epoch: 1 },
     });
     const journal = h.tools.get("coc_state_journal");
     for (const hostField of ["root", "campaign", "player_text", "decision_id", "run_id"]) {
@@ -1497,9 +1537,21 @@ test("state-claim compiler terminal failure enters the same narrow fault working
   process.env[ROLE_ENV] = "play";
   process.env[CAMPAIGN_ENV] = "tool-affordance-campaign";
   try {
+    let recoveryResume = false;
     const h = makeHarness((_name, params) => {
       if (params.operation === "session.resume") {
-        return { ok: true, tool: "session.resume", data: { mode: "awaiting_player", next_operations: [] } };
+        return recoveryResume
+          ? {
+              ok: true,
+              tool: "session.resume",
+              data: {
+                schema_version: 1,
+                campaign_id: "tool-affordance-campaign",
+                mode: "pending_finalization",
+                next_operations: ["turn.finalize"],
+              },
+            }
+          : { ok: true, tool: "session.resume", data: { mode: "awaiting_player", next_operations: [] } };
       }
       if (params.operation === "turn.output_context") {
         return {
@@ -1562,6 +1614,15 @@ test("state-claim compiler terminal failure enters the same narrow fault working
     assert.equal(h.sent.filter((row) => (
       row.message.customType === main.TURN_PROCESSING_FAULT_CUSTOM_TYPE
     )).length, 1);
+
+    recoveryResume = true;
+    await invokeCompat(h, "compiler-resume", "session.resume");
+    assert.ok(h.active.at(-1).includes("coc_turn_output_context"));
+    assert.ok(!h.active.at(-1).includes("coc_turn_finalize"));
+    assert.ok(!h.active.at(-1).includes("coc_narration_review"));
+    await invokeCompat(h, "compiler-context-recovery", "turn.output_context");
+    assert.ok(h.active.at(-1).includes("coc_narration_review"));
+    assert.ok(!h.active.at(-1).includes("coc_turn_output_context"));
   } finally {
     if (priorRole === undefined) delete process.env[ROLE_ENV];
     else process.env[ROLE_ENV] = priorRole;

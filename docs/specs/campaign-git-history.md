@@ -84,20 +84,30 @@ trailer 值与 subject 一律净化为单行（≤200 字符）：多行 git std
 
 ### 3.3 追踪面与忽略面
 
-追踪：`campaign.json`、`party.json`、`save/`（除忽略项）、`logs/` 下
-canonical JSONL、`memory/`、scenario 绑定清单。
+追踪：`campaign.json`、`party.json`、`save/`（除忽略项）、剧情/规则/状态的
+canonical JSONL、`memory/` 的权威记录、scenario 绑定清单。工具调用审计等
+取证日志可以随战役保留和提交，但时态历史投影只读取
+`events.jsonl`、`rolls.jsonl`、`table-transcript.jsonl`、
+`turn-finalizations.jsonl`；它们不是同一个数据面，取证日志不会被解释为剧情事实。
 
 忽略面是单一事实源常量 `IGNORE_PATHS`，写入 bare repo 的 `info/exclude`，
 **不**在战役目录落 `.gitignore`：
 
 - `logs/pending-turns/`
+- `.campaign.lock`、`setup-handoff.lock`、`logs/.recorder.lock`
 - `save/session-state.json`
 - `save/toolbox-ledger.json`
 - `save/commit-snapshots/`
 - `save/development-settlements/`
 - `save/roll-operation-receipts.json`
 - `save/run-identity.lock`
+- `save/working-set-cache/`、`save/working-set-revisions.json`
 - `memory/index.json`
+- `memory/events-projection.db`（含 `-shm` / `-wal`）
+- `memory/history-projection.db`
+
+提交前会从 index 精确移除上述路径，所以旧版本曾经误追踪的运行时文件会在
+下一次提交中停止追踪，但工作树文件原样保留；不会用清理命令删除运行证据。
 
 ### 3.4 恢复子集（独立于忽略面）
 
@@ -183,6 +193,8 @@ projection; audit schema 2 carries the full `git_history` proof.
   `.coc/campaigns/` 下真实数据。
 - 本切片不改 state 写入协议；只在 finalize 之后加提交。不得手工编辑 live save。
 - 规则 JSON 未改则不跑 rulebook audit；`tests/test_plugin_metadata.py` 必跑。
+- 大历史夹具仍必须建立真实 commit DAG，但应使用一次 `git fast-import`
+  构造批量提交，避免为 200+ 个节点逐次创建进程、逐次 push。
 - 只读诊断（比照 `coc_pdf_bundle.py`）：
 
 ```bash

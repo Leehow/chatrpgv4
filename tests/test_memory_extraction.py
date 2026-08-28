@@ -990,16 +990,24 @@ def test_apply_never_touches_hard_state(tmp_path):
         }
 
     before = snapshot()
-    receipt = ext.apply_extraction_result(camp, job, _result(job, [_candidate(1)]))
-    assert receipt["status"] == "applied"
-    assert snapshot() == before
-    assert (save / "state.json").read_text(encoding="utf-8") == '{"hp": 12, "san": 50}\n'
-    # Everything new lives under memory/temporal only.
-    new = {
+    memory_before = {
         str(p.relative_to(camp))
         for p in camp.rglob("*")
         if p.is_file() and str(p.relative_to(camp)).startswith("memory")
     }
+    receipt = ext.apply_extraction_result(camp, job, _result(job, [_candidate(1)]))
+    assert receipt["status"] == "applied"
+    assert snapshot() == before
+    assert (save / "state.json").read_text(encoding="utf-8") == '{"hp": 12, "san": 50}\n'
+    # Everything created by apply lives under memory/temporal only. The
+    # episode setup may already have produced the rebuildable canonical-event
+    # projection at memory/events-projection.db.
+    memory_after = {
+        str(p.relative_to(camp))
+        for p in camp.rglob("*")
+        if p.is_file() and str(p.relative_to(camp)).startswith("memory")
+    }
+    new = memory_after - memory_before
     assert new
     assert all(path.startswith("memory/temporal/") for path in new)
 

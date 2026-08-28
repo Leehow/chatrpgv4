@@ -57,6 +57,18 @@
 ### Episode
 每个 finalized turn commit 确定性生成一条：id 逐字等于 `episode_id_for()`，`turn_number ≥ 1`，绑定 `commit` 与 `finalization_receipt`。**重放等价**：同 episode id 的重放要求 episode 记录与 evidence 边车（receipts、player/keeper 文本哈希、candidates）双双 canonical 等价；任何漂移（不同 commit、文本、收据、参与者、实体、候选）一律 fail closed，绝不静默接受。
 
+Finalize 后的 episode 上下文只从结构化战役状态编译，不扫描叙事关键词：固定包含
+world、party、当前 party 调查员，并按 `active_scene_id` 加入当前 location entity；
+NPC 来自 authored scene `npc_ids` 与 `state.npc_presence` 的当前 overlay，生成各自
+npc subject 与 person entity。该上下文是后台语义提取器可复用的 ID 白名单，不把
+任何候选自动提升为世界事实。
+
+后台提取结果的 TS framing gate 必须以任务包自身的 `result_contract.fields` 与
+`required_fields` 为准。`scope` / `campaign_id` / `timeline_id` 是可选绑定字段：
+省略时由机器补齐，出现时必须逐字匹配任务包；最终 schema、隐私、主体与 provenance
+仍由 Python 核心 fail closed 校验。成功产物留在每 job 的不可变候选 artifact 中，
+只有后续 KP 裁决才能 materialize 为 canonical assertion。
+
 ### Timeline / Confluence / Transfer / Backlog
 - Timeline：root（唯一 `tl-main`、无 parent）/ fork（恰 1 parent + fork_point）/ confluence（恰 2 distinct parents + fork_point）。`validate_timeline_set` 校验唯一 id、parent 可达、无环（diamond 合法）、active 指针在集合内。
 - Confluence：第三时间线 + 完整冲突清单。`HARD_STATE_CONFLICT_CLASSES`（数值/资源，diff 由确定性 resolver 产出，disposition 必须带 `resolver_receipt`）vs `KP_SEMANTIC_CONFLICT_CLASSES`（KP 裁决）。每个冲突必须有 disposition（mode ∈ `DISPOSITION_MODES` + receipt）；`NON_DUPLICABLE_CONFLICT_CLASSES`（roll_receipt/one_time_effect/consumed_resource/death）禁止 `combine`/`duplicate`——骰、一次性效果、消耗、死亡绝不跨线重复。left/right 时间线顺序确定性（= parents 顺序）。

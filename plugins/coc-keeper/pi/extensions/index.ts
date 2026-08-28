@@ -1637,12 +1637,59 @@ export function registerPlayerTranscriptGate(
   onMessageStart?: (message: unknown) => void,
   allowEmptyFinalReplacement?: () => boolean,
   onEmptyAssistantFinal?: () => void,
+  onLeadingWhitespaceStreamLimit?: (
+    details: { deltaCount: number; charCount: number },
+    ctx: ExtensionContext,
+  ) => void,
 ): void {
+  const LEADING_WHITESPACE_DELTA_LIMIT = 32;
+  const LEADING_WHITESPACE_CHAR_LIMIT = 128;
+  let whitespaceDeltaCount = 0;
+  let whitespaceCharCount = 0;
+  let streamHasSemanticOutput = false;
+  let whitespaceLimitDelivered = false;
+  const resetWhitespaceWatch = () => {
+    whitespaceDeltaCount = 0;
+    whitespaceCharCount = 0;
+    streamHasSemanticOutput = false;
+    whitespaceLimitDelivered = false;
+  };
   pi.on("message_start", (event) => {
+    if (assistantContentMessage(event.message) !== null) resetWhitespaceWatch();
     onMessageStart?.(event.message);
     hideUnsettledAssistantText(event.message);
   });
-  pi.on("message_update", (event) => {
+  pi.on("message_update", (event, ctx) => {
+    const update = event.assistantMessageEvent as {
+      type?: unknown;
+      delta?: unknown;
+    };
+    if (update?.type === "text_delta" && typeof update.delta === "string") {
+      if (update.delta.trim().length > 0) {
+        streamHasSemanticOutput = true;
+      } else if (update.delta.length > 0 && !streamHasSemanticOutput) {
+        whitespaceDeltaCount += 1;
+        whitespaceCharCount += update.delta.length;
+        if (
+          !whitespaceLimitDelivered
+          && (
+            whitespaceDeltaCount >= LEADING_WHITESPACE_DELTA_LIMIT
+            || whitespaceCharCount >= LEADING_WHITESPACE_CHAR_LIMIT
+          )
+        ) {
+          whitespaceLimitDelivered = true;
+          onLeadingWhitespaceStreamLimit?.({
+            deltaCount: whitespaceDeltaCount,
+            charCount: whitespaceCharCount,
+          }, ctx);
+        }
+      }
+    } else if (
+      typeof update?.type === "string"
+      && update.type.startsWith("toolcall_")
+    ) {
+      streamHasSemanticOutput = true;
+    }
     hideUnsettledAssistantText(event.message);
   });
   pi.on("message_end", (event) => {
@@ -1654,6 +1701,7 @@ export function registerPlayerTranscriptGate(
       // Sending its empty/error payload through the settlement gate creates a
       // hidden follow-up model call and can turn one non-retryable provider
       // error into an unbounded host loop.
+      resetWhitespaceWatch();
       return { message: withoutAssistantText(event.message) };
     }
     if (!assistant.content.some((part) => part.type === "toolCall")) {
@@ -1668,11 +1716,13 @@ export function registerPlayerTranscriptGate(
         // bounded same-epoch recovery can answer a swallowed external
         // player turn without duplicating the player's message.
         onEmptyAssistantFinal?.();
+        resetWhitespaceWatch();
         return { message: withoutAssistantText(event.message) };
       }
       {
         const decision = onVisibleAssistantFinal?.(visibleText);
         if (decision === false) {
+          resetWhitespaceWatch();
           return { message: withoutAssistantText(event.message) };
         }
         if (
@@ -1680,6 +1730,7 @@ export function registerPlayerTranscriptGate(
           && typeof decision === "object"
           && typeof decision.replacementText === "string"
         ) {
+          resetWhitespaceWatch();
           return {
             message: withExactAssistantText(
               event.message,
@@ -1688,8 +1739,10 @@ export function registerPlayerTranscriptGate(
           };
         }
       }
+      resetWhitespaceWatch();
       return;
     }
+    resetWhitespaceWatch();
     return { message: withoutAssistantText(event.message) };
   });
 }
@@ -4332,9 +4385,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ? data.next_operations.filter((item): item is string => typeof item === "string")
         : [];
       if (canonicalProgress.stage === "faulted") {
-        faultRecoveryOperation = nextOperations.find((candidate) => (
-          OPERATION_POLICY[candidate] !== undefined
-        )) ?? null;
+        const retainedFault = openingContinuationGate.currentTurnProcessingFault();
+        // A pending-finalization resume advertises turn.finalize as the
+        // canonical state machine's eventual next operation, while the host
+        // recovery contract requires a fresh output-context receipt first.
+        // Route the model-visible fault lane to that exact first host step;
+        // exposing finalize here deadlocks on narration_review_required.
+        faultRecoveryOperation = (
+          data.mode === "pending_finalization"
+          && retainedFault?.stage === "state_claim_compilation"
+        )
+          ? "turn.output_context"
+          : nextOperations.find((candidate) => (
+              OPERATION_POLICY[candidate] !== undefined
+            )) ?? null;
         applyKpActiveTools();
         return;
       }
@@ -8442,6 +8506,42 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       if (deliverable !== null) deliverTurnProcessingFault(deliverable);
     }
   };
+  const recoverEmptyAssistantOutput = () => {
+    // Startup resume owns its own reprompt/quarantine lifecycle; a blank
+    // stream or terminal there must not re-awaken historical player input.
+    if (startupResumeGate !== null || startupSilentResumeQuarantine !== null) {
+      return;
+    }
+    const recovery = openingContinuationGate.takeEmptyTerminalRecovery();
+    if (recovery !== null) {
+      const scheduled = deliverEmptyTerminalRecovery(
+        pi,
+        recovery,
+        buildEmptyTerminalRecoveryInstruction(
+          turnFinalizationRequiredForPhase(kpPlayPhase),
+        ),
+      );
+      if (scheduled) return;
+      armAndDeliverEmptyTerminalFault(
+        "empty_terminal_recovery_delivery_failed",
+        "回合处理失败：空终态恢复指令投递失败，本回合外部玩家输入仍未回答。"
+          + "不要重发玩家输入，也不要重放或重跑本回合已执行的规则与状态操作；"
+          + "本回合可能已有 canonical 写入。保留现有证据与收据，经 "
+          + "session.resume 核对既有收据后，仅补齐缺失的 finalization 与"
+          + "玩家输出。",
+      );
+      return;
+    }
+    if (!openingContinuationGate.hasAnswerPendingExternalPlayerInput()) return;
+    armAndDeliverEmptyTerminalFault(
+      "empty_terminal_no_player_output",
+      "回合处理失败：本回合外部玩家输入已受理，但助手终态仍未产生任何"
+        + "玩家可见输出。不要重发玩家输入，也不要重放或重跑本回合已执行的"
+        + "规则与状态操作；本回合可能已有 canonical 写入。保留现有证据与"
+        + "收据，经 session.resume 核对既有收据后，仅补齐缺失的 "
+        + "finalization 与玩家输出。",
+    );
+  };
   registerPlayerTranscriptGate(
     pi,
     (visibleText) => {
@@ -8610,59 +8710,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       applyKpActiveTools();
     },
     () => openingContinuationGate.hasPendingFinalizedOutput(),
-    () => {
-      // Thinking-only provider-successful terminal (stopReason "stop",
-      // zero visible text, zero tool calls). Startup-resume sessions keep
-      // their own reprompt flow, and a silent settled startup resume keeps
-      // its quarantine: neither may reach the concurrent empty-terminal
-      // recovery path, whose follow-up would re-awaken the historical
-      // player epoch the quarantine just closed.
-      if (startupResumeGate !== null || startupSilentResumeQuarantine !== null) {
-        return;
-      }
-      const recovery = openingContinuationGate.takeEmptyTerminalRecovery();
-      if (recovery !== null) {
-        const scheduled = deliverEmptyTerminalRecovery(
-          pi,
-          recovery,
-          buildEmptyTerminalRecoveryInstruction(
-            turnFinalizationRequiredForPhase(kpPlayPhase),
-          ),
-        );
-        if (scheduled) return;
-        // Scheduling failed: no recovery turn exists and none will arrive.
-        // Fail closed now instead of waiting for another settle that cannot
-        // come. Never tell anyone to resend the player input; canonical
-        // rules/state writes may already exist for this epoch.
-        armAndDeliverEmptyTerminalFault(
-          "empty_terminal_recovery_delivery_failed",
-          "回合处理失败：空终态恢复指令投递失败，本回合外部玩家输入仍未回答。"
-            + "不要重发玩家输入，也不要重放或重跑本回合已执行的规则与状态操作；"
-            + "本回合可能已有 canonical 写入。保留现有证据与收据，经 "
-            + "session.resume 核对既有收据后，仅补齐缺失的 finalization 与"
-            + "玩家输出。",
-        );
-        return;
-      }
-      if (!openingContinuationGate.hasAnswerPendingExternalPlayerInput()) {
-        return;
-      }
-      // The epoch's single hidden recovery is already spent and the external
-      // player input is still unanswered: fail closed through the structured
-      // turn-processing fault channel. Never loop hidden re-prompts and never
-      // let the swallowed turn pass as a successful player-visible settle.
-      // The recovery turn may already have performed canonical rules/state
-      // writes, so the fault must forbid resending input and rerunning
-      // mechanics; reconciliation happens through session.resume and the
-      // existing receipts.
-      armAndDeliverEmptyTerminalFault(
-        "empty_terminal_no_player_output",
-        "回合处理失败：本回合外部玩家输入已受理，但助手终态仍未产生任何"
-          + "玩家可见输出。不要重发玩家输入，也不要重放或重跑本回合已执行的"
-          + "规则与状态操作；本回合可能已有 canonical 写入。保留现有证据与"
-          + "收据，经 session.resume 核对既有收据后，仅补齐缺失的 "
-          + "finalization 与玩家输出。",
-      );
+    recoverEmptyAssistantOutput,
+    (details, ctx) => {
+      try {
+        pi.appendEntry("coc-leading-whitespace-stream-abort", {
+          schema_version: 1,
+          status: "aborted",
+          failure_class: "leading_whitespace_stream_limit",
+          player_turn_epoch: canonicalProgress.playerTurnEpoch,
+          whitespace_delta_count: details.deltaCount,
+          whitespace_char_count: details.charCount,
+        });
+      } catch { /* watchdog audit is best effort */ }
+      ctx.abort();
+      recoverEmptyAssistantOutput();
     },
   );
   // Forced raw-PDF bind injection: the KP must not need to read coc-module-init

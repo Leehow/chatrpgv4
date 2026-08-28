@@ -335,6 +335,43 @@ def test_ignored_paths_are_absent_from_tree(tmp_path):
     })
 
 
+def test_finalize_prunes_runtime_only_paths_even_if_an_old_repo_tracked_them(tmp_path):
+    worktree = _seed_campaign_files(tmp_path)
+    hist.ensure_repo(tmp_path, CAMPAIGN_ID)
+    hist.commit_baseline(
+        tmp_path, CAMPAIGN_ID, schema_generation=SCHEMA, note="initial campaign generation"
+    )
+
+    runtime_only = {
+        ".campaign.lock": "held\n",
+        "setup-handoff.lock": "held\n",
+        "logs/.recorder.lock": "held\n",
+        "save/working-set-cache/scene.context/cache.json": "{}\n",
+        "save/working-set-revisions.json": "{}\n",
+        "memory/events-projection.db": "derived\n",
+    }
+    for relpath, contents in runtime_only.items():
+        path = worktree / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(contents, encoding="utf-8")
+
+    # Simulate a pre-fix sidecar that already tracked these paths.  A later
+    # ignore rule alone is insufficient because Git continues tracking files
+    # already present in the index.
+    _git(tmp_path, "add", "-f", "--", *runtime_only)
+    _git(tmp_path, "commit", "-m", "legacy runtime sweep")
+    assert set(runtime_only).issubset(_tree_names(tmp_path))
+
+    (worktree / "save" / "world-state.json").write_text(
+        '{"status":"active","turn":1}\n', encoding="utf-8"
+    )
+    _commit_turn(tmp_path, 1, "fin-runtime-prune")
+    names = _tree_names(tmp_path)
+    assert set(runtime_only).isdisjoint(names)
+    for relpath, contents in runtime_only.items():
+        assert (worktree / relpath).read_text(encoding="utf-8") == contents
+
+
 def test_projection_cache_and_crash_temps_untracked_memory_canonical_tracked(tmp_path):
     worktree = _seed_campaign_files(tmp_path)
     hist.ensure_repo(tmp_path, CAMPAIGN_ID)

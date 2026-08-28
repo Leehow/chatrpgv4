@@ -187,6 +187,9 @@ const extractorResult = {
   candidates: [{
     assertion_id: "mem-hoyk-pi-grok-fix7-20260727-t1-c1",
     kind: "belief",
+    scope: "campaign",
+    campaign_id: campaignId,
+    timeline_id: timelineId,
     subject_id: "subject-party-probe",
     knowers: ["subject-party-probe"],
     privacy: "player_safe",

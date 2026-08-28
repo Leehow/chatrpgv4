@@ -41,6 +41,9 @@ TIMELINE_STATE_SCHEMA = "timeline-state-1"
 # Single source of truth for the ignore face. Written to the bare repo's
 # ``info/exclude``; never materialized as a campaign-tree ``.gitignore``.
 IGNORE_PATHS: tuple[str, ...] = (
+    ".campaign.lock",
+    "setup-handoff.lock",
+    "logs/.recorder.lock",
     "logs/pending-turns/",
     "save/session-state.json",
     "save/toolbox-ledger.json",
@@ -49,7 +52,12 @@ IGNORE_PATHS: tuple[str, ...] = (
     "save/roll-operation-receipts.json",
     "save/run-identity.lock",
     "save/timeline-state.json",
+    "save/working-set-cache/",
+    "save/working-set-revisions.json",
     "memory/index.json",
+    "memory/events-projection.db",
+    "memory/events-projection.db-shm",
+    "memory/events-projection.db-wal",
     "memory/history-projection.db",
     # Derived, rebuildable confluence enumeration cache written by
     # timeline.confluence_query (coc_confluence_manifest_store): a pure
@@ -216,7 +224,9 @@ def path_is_ignored(relpath: str) -> bool:
     files (fixed prefix, fixed suffix, non-empty middle). No general glob
     behavior exists here.
     """
-    normalized = relpath.replace("\\", "/").lstrip("./")
+    normalized = relpath.replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
     if not normalized:
         return False
     for pattern in IGNORE_PATHS:
@@ -499,6 +509,7 @@ def _stage_and_commit(
 ) -> str:
     worktree.mkdir(parents=True, exist_ok=True)
     _run_git(["add", "-A", "--", "."], repo=repo, worktree=worktree)
+    _prune_ignored_index_paths(repo, worktree)
     _run_git(
         ["commit", "--allow-empty", "-m", message],
         repo=repo,
@@ -508,6 +519,29 @@ def _stage_and_commit(
     if sha is None:
         raise GitHistoryError("git commit succeeded but HEAD is missing")
     return sha
+
+
+def _prune_ignored_index_paths(repo: Path, worktree: Path) -> None:
+    """Remove runtime-only paths from the index while preserving files.
+
+    ``info/exclude`` prevents new files from being added, but Git continues
+    tracking paths that entered an older campaign commit.  Finalization is
+    the one writer seam, so it also repairs that historical over-tracking on
+    the next commit.  ``update-index --force-remove`` changes only the private
+    sidecar index; campaign files remain byte-for-byte in the worktree.
+    """
+    listed = _run_git(
+        ["ls-files", "-z"], repo=repo, worktree=worktree
+    ).stdout.split("\0")
+    ignored = sorted(path for path in listed if path and path_is_ignored(path))
+    if not ignored:
+        return
+    _run_git(
+        ["update-index", "--force-remove", "-z", "--stdin"],
+        repo=repo,
+        worktree=worktree,
+        input_text="\0".join(ignored) + "\0",
+    )
 
 
 def _recover_corrupt_repo(
@@ -929,6 +963,7 @@ def _commit_to_timeline(
         raise GitHistoryError(f"timeline ref missing: {timeline_id}")
     worktree.mkdir(parents=True, exist_ok=True)
     _run_git(["add", "-A", "--", "."], repo=repo, worktree=worktree)
+    _prune_ignored_index_paths(repo, worktree)
     tree = _run_git(["write-tree"], repo=repo, worktree=worktree).stdout.strip()
     if not tree:
         raise GitHistoryError("git write-tree produced an empty tree id")

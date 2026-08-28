@@ -48,6 +48,9 @@ TRAILER_FINALIZATION_ID = "Finalization-Id"
 # from coc_git_history: that list is the writer's staging face and is being
 # extended separately; the projection face is stable on its own.
 IGNORE_PATHS: tuple[str, ...] = (
+    ".campaign.lock",
+    "setup-handoff.lock",
+    "logs/.recorder.lock",
     "logs/pending-turns/",
     "save/session-state.json",
     "save/toolbox-ledger.json",
@@ -56,18 +59,32 @@ IGNORE_PATHS: tuple[str, ...] = (
     "save/roll-operation-receipts.json",
     "save/run-identity.lock",
     "save/timeline-state.json",
+    "save/working-set-cache/",
+    "save/working-set-revisions.json",
     "memory/index.json",
+    "memory/events-projection.db",
+    "memory/events-projection.db-shm",
+    "memory/events-projection.db-wal",
     "memory/history-projection.db",
 )
 
 # The read face: only these tracked paths are listed and read. Everything
 # else in the tree is invisible to the projection.
 ALLOWED_ROOT_FILES: frozenset[str] = frozenset({"campaign.json", "party.json"})
+# Only settled fictional/mechanical evidence is projected as temporal memory.
+# Operational audit streams such as toolbox calls, narration review attempts,
+# retry telemetry and canonical-event transport remain available in the
+# campaign worktree for diagnosis but are never interpreted as story facts.
+ALLOWED_LOG_FILES: frozenset[str] = frozenset({
+    "logs/events.jsonl",
+    "logs/rolls.jsonl",
+    "logs/table-transcript.jsonl",
+    "logs/turn-finalizations.jsonl",
+})
 # (prefix, allowed suffixes) pairs; a path qualifies when it starts with the
 # prefix, ends with one of the suffixes, and has a non-empty name between.
 ALLOWED_PREFIX_SUFFIXES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("save/", (".json",)),
-    ("logs/", (".jsonl",)),
     ("scenario/", (".json",)),
     ("memory/temporal/", (".json", ".jsonl")),
 )
@@ -178,6 +195,8 @@ def path_is_allowed(relpath: str) -> bool:
     if path_is_ignored(relpath):
         return False
     if relpath in ALLOWED_ROOT_FILES:
+        return True
+    if relpath in ALLOWED_LOG_FILES:
         return True
     for prefix, suffixes in ALLOWED_PREFIX_SUFFIXES:
         if not relpath.startswith(prefix):

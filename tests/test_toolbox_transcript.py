@@ -578,17 +578,43 @@ def add_post_opening_transcript_commits(
         opening["text"] = "后续检查点中被伪造的开场台词。"
         opening["text_sha256"] = _digest(opening["text"])
     payload = _jsonl(rows)
+    parent = _git("rev-parse", "main", cwd=worktree).strip()
+    stream = bytearray()
     for index in range(count):
         # Blank lines are harmless JSONL formatting but make each commit a
         # real transcript-path mutation. The first checkpoint retains the
         # optional forged opening, later ones prove >200 horizon stability.
         payload += "\n"
-        _write(worktree, "logs/table-transcript.jsonl", payload)
-        _commit(worktree, f"transcript checkpoint {index + 1:04d}", [
-            ("COC-Commit-Type", "checkpoint"),
-            ("Campaign-Id", CAMP),
-            ("Timeline-Id", TIMELINE_MAIN),
-        ])
+        message = (
+            f"transcript checkpoint {index + 1:04d}\n\n"
+            "COC-Commit-Type: checkpoint\n"
+            f"Campaign-Id: {CAMP}\n"
+            f"Timeline-Id: {TIMELINE_MAIN}\n"
+        ).encode("utf-8")
+        blob = payload.encode("utf-8")
+        mark = index + 1
+        from_ref = parent if index == 0 else f":{mark - 1}"
+        stream.extend(f"commit refs/heads/main\nmark :{mark}\n".encode())
+        stream.extend(
+            (
+                f"author xscript-test <xscript-test@localhost> {mark} +0000\n"
+                f"committer xscript-test <xscript-test@localhost> {mark} +0000\n"
+            ).encode()
+        )
+        stream.extend(f"data {len(message)}\n".encode())
+        stream.extend(message)
+        stream.extend(f"from {from_ref}\n".encode())
+        stream.extend(b"M 100644 inline logs/table-transcript.jsonl\n")
+        stream.extend(f"data {len(blob)}\n".encode())
+        stream.extend(blob)
+        stream.extend(b"\n")
+    stream.extend(b"done\n")
+    imported = subprocess.run(
+        ["git", "fast-import", "--quiet"],
+        cwd=str(worktree), env=_env(), input=bytes(stream),
+        capture_output=True, check=False,
+    )
+    assert imported.returncode == 0, imported.stderr.decode("utf-8", "replace")
     _git("push", str(_repo(ws["workspace"])), "main", cwd=worktree)
 
 

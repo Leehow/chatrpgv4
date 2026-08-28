@@ -144,6 +144,14 @@ def _backlog(ws) -> list[dict]:
     return _jsonl(ws["campaign_dir"] / "memory" / "temporal" / "backlog.jsonl")
 
 
+def _subjects(ws) -> list[dict]:
+    return _jsonl(ws["campaign_dir"] / "memory" / "temporal" / "subjects.jsonl")
+
+
+def _entities(ws) -> list[dict]:
+    return _jsonl(ws["campaign_dir"] / "memory" / "temporal" / "entities.jsonl")
+
+
 def _build_finalize_args(ws, decision_id: str) -> dict:
     journaled = _run(
         ws,
@@ -229,6 +237,22 @@ def test_finalize_success_enqueues_one_extraction_backlog_entry(campaign_ws):
     assert episode["episode_id"] == expected_episode_id
     assert episode["commit"] == _head_sha(campaign_ws)
     assert episode["finalization_receipt"] == finalization_id
+    assert episode["subjects_present"] == [
+        f"subject-world-{campaign_id}",
+        f"subject-party-{campaign_id}",
+        "subject-investigator-thomas-hayes",
+        f"subject-npc-{campaign_id}-npc-steven-knott",
+    ]
+    assert episode["entities"] == [
+        f"entity-location-{campaign_id}-commission-briefing",
+        f"entity-person-{campaign_id}-npc-steven-knott",
+    ]
+    assert {row["subject_id"] for row in _subjects(campaign_ws)} >= set(
+        episode["subjects_present"]
+    )
+    assert {row["entity_id"] for row in _entities(campaign_ws)} == set(
+        episode["entities"]
+    )
 
     backlog_rows = _backlog(campaign_ws)
     assert len(backlog_rows) == 1

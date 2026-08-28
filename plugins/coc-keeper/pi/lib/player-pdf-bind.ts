@@ -44,8 +44,19 @@ export type PlayerPdfBindDetection =
  */
 export function userMessageText(message: unknown): string | null {
   if (!message || typeof message !== "object") return null;
-  const value = message as { role?: unknown; content?: unknown };
-  if (value.role !== "user" || !Array.isArray(value.content)) return null;
+  const value = message as {
+    role?: unknown;
+    content?: unknown;
+    customType?: unknown;
+  };
+  // Pi may present a queued custom steer/follow-up through a role=user
+  // message-shaped event. customType is the authoritative host provenance;
+  // never promote that control instruction into a player epoch or journal.
+  if (
+    value.role !== "user"
+    || typeof value.customType === "string"
+    || !Array.isArray(value.content)
+  ) return null;
   const texts: string[] = [];
   for (const part of value.content) {
     if (!part || typeof part !== "object") continue;

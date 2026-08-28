@@ -398,6 +398,114 @@ def ensure_default_subjects(
     return written
 
 
+def ensure_episode_identities(
+    campaign_dir: Path | str,
+    *,
+    campaign_id: str,
+    investigators: Mapping[str, str] | None = None,
+    active_scene_id: str | None = None,
+    present_npcs: Mapping[str, str] | None = None,
+) -> dict[str, list[str]]:
+    """Materialize the structured identity refs used by one turn episode.
+
+    This boundary accepts only already-resolved campaign state: party member
+    ids, the active scene id, and NPCs whose structured presence is current.
+    It deliberately does not inspect narration or infer meaning from prose.
+    World/party refs let the extractor bind world events and shared party
+    knowledge; investigator/NPC/location refs preserve the concrete turn
+    context needed for later temporal recall.
+    """
+    camp = _require_campaign_dir(campaign_dir)
+    defaults = ensure_default_subjects(camp, campaign_id=campaign_id)
+    subjects = [
+        defaults["world"]["subject_id"],
+        defaults["party"]["subject_id"],
+    ]
+    entities: list[str] = []
+
+    for investigator_id, display_name in (investigators or {}).items():
+        slug = _slugify(investigator_id)
+        record = _ensure_subject_record(
+            camp,
+            {
+                "subject_id": contract.subject_id_for(
+                    "investigator", None, slug
+                ),
+                "kind": "investigator",
+                "campaign_id": None,
+                "display_name": str(display_name or investigator_id),
+                "same_subject_as": [],
+            },
+        )
+        subjects.append(record["subject_id"])
+
+    scene_id = str(active_scene_id or "").strip()
+    if scene_id:
+        entity_id = contract.entity_id_for(
+            "location", f"{_slugify(campaign_id)}-{_slugify(scene_id)}"
+        )
+        record = _ensure_entity_record(
+            camp,
+            {
+                "entity_id": entity_id,
+                "kind": "location",
+                "campaign_id": campaign_id,
+                "display_name": scene_id,
+                "aliases": [scene_id],
+                "same_entity_as": [],
+                "subject_ref": None,
+            },
+        )
+        entities.append(record["entity_id"])
+
+    for npc_id, display_name in (present_npcs or {}).items():
+        npc_slug = _slugify(npc_id)
+        subject = _ensure_subject_record(
+            camp,
+            {
+                "subject_id": contract.subject_id_for(
+                    "npc", campaign_id, npc_slug
+                ),
+                "kind": "npc",
+                "campaign_id": campaign_id,
+                "display_name": str(display_name or npc_id),
+                "same_subject_as": [],
+            },
+        )
+        subjects.append(subject["subject_id"])
+        entity = _ensure_entity_record(
+            camp,
+            {
+                "entity_id": contract.entity_id_for(
+                    "person", f"{_slugify(campaign_id)}-{npc_slug}"
+                ),
+                "kind": "person",
+                "campaign_id": campaign_id,
+                "display_name": str(display_name or npc_id),
+                "aliases": [str(npc_id)],
+                "same_entity_as": [],
+                "subject_ref": subject["subject_id"],
+            },
+        )
+        entities.append(entity["entity_id"])
+
+    return {
+        "subjects_present": list(dict.fromkeys(subjects)),
+        "entities": list(dict.fromkeys(entities)),
+    }
+
+
+def _ensure_entity_record(
+    campaign_dir: Path, record: dict[str, Any]
+) -> dict[str, Any]:
+    """Bootstrap an entity without rewriting an existing stable identity."""
+    existing = _load_latest(_path(campaign_dir, "entities"), "entity_id")
+    prior = existing.get(record["entity_id"])
+    if prior is not None:
+        return prior
+    return _write_entity(campaign_dir, record)
+
+
 def _ensure_entity(
     campaign_dir: Path, entity_id: str, *, campaign_id: str
 ) -> dict[str, Any]:

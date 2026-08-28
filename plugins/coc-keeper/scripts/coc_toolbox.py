@@ -2827,6 +2827,60 @@ def _finalization_turn_number(ctx: Ctx, receipt: dict[str, Any]) -> int:
     raise ToolError("state_corrupt", "finalization receipt has no turn_number")
 
 
+def _finalized_turn_episode_context(ctx: Ctx) -> dict[str, list[str]]:
+    """Resolve episode identities from canonical structured campaign state."""
+    investigators: dict[str, str] = {}
+    for investigator_id in ctx.party_ids():
+        display_name = investigator_id
+        try:
+            sheet = ctx.sheet(investigator_id)
+            display_name = str(sheet.get("name") or investigator_id)
+        except (OSError, ValueError, ToolError):
+            # Memory extraction is advisory and fail-open after finalization;
+            # retain the stable investigator id even if its display label is
+            # temporarily unavailable.
+            pass
+        investigators[str(investigator_id)] = display_name
+
+    active_scene_id = str(ctx.world().get("active_scene_id") or "").strip()
+    scene = _scene_by_id(ctx.story_graph, active_scene_id)
+    presence_document = _load_npc_presence_document(ctx)
+    live_presence = presence_document.get("presence") or {}
+    authored_ids = [
+        str(npc_id)
+        for npc_id in ((scene or {}).get("npc_ids") or [])
+        if str(npc_id or "").strip()
+    ]
+    present_ids: list[str] = []
+    for npc_id in authored_ids:
+        live = live_presence.get(npc_id)
+        if live is None or (
+            live.get("status") == "present"
+            and str(live.get("scene_id")) == active_scene_id
+        ):
+            present_ids.append(npc_id)
+    for npc_id, live in live_presence.items():
+        if (
+            live.get("status") == "present"
+            and str(live.get("scene_id")) == active_scene_id
+            and str(npc_id) not in present_ids
+        ):
+            present_ids.append(str(npc_id))
+
+    present_npcs: dict[str, str] = {}
+    for npc_id in present_ids:
+        agenda = _npc_by_id(ctx.npc_agendas, npc_id) or {}
+        present_npcs[npc_id] = str(agenda.get("name") or npc_id)
+
+    return coc_temporal_memory.ensure_episode_identities(
+        ctx.campaign_dir,
+        campaign_id=str(ctx.campaign_id),
+        investigators=investigators,
+        active_scene_id=active_scene_id or None,
+        present_npcs=present_npcs,
+    )
+
+
 def _enqueue_finalized_turn_memory_extraction(
     ctx: Ctx, receipt: dict[str, Any]
 ) -> dict[str, Any] | str | None:
@@ -2859,6 +2913,7 @@ def _enqueue_finalized_turn_memory_extraction(
             # Episodes/backlog rows bind finalized turns >= 1 only.
             return None
         timeline_id = coc_git_history.active_timeline_id(ctx.root, campaign_id)
+        episode_context = _finalized_turn_episode_context(ctx)
         episode = coc_temporal_memory.record_turn_episode(
             ctx.root,
             campaign_id,
@@ -2867,8 +2922,8 @@ def _enqueue_finalized_turn_memory_extraction(
             [finalization_id],
             None,
             None,
-            subjects_present=[],
-            entities=[],
+            subjects_present=episode_context["subjects_present"],
+            entities=episode_context["entities"],
             finalization_receipt=finalization_id,
         )
         episode_core = {

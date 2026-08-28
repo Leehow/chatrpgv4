@@ -47,10 +47,12 @@ IGNORE_SAVE_PATHS: frozenset[str] = frozenset({
     "save/toolbox-ledger.json",
     "save/roll-operation-receipts.json",
     "save/timeline-state.json",
+    "save/working-set-revisions.json",
 })
 IGNORE_SAVE_PREFIXES: tuple[str, ...] = (
     "save/commit-snapshots/",
     "save/development-settlements/",
+    "save/working-set-cache/",
 )
 
 # Structured entity-id field names (shared contract). A non-empty string
