@@ -319,7 +319,7 @@ name: steward-<domain>
 # tools 白名单（实现期按 pi-subagents custom-agents schema 对齐）
 tools: [read, grep, find, bash(限定缓存目录), steward.deliver, steward.notebook_put]
 # 扩展：仅仓库插件（coc-keeper），不继承通用子代理扩展
-model: grok-4.5
+model: grok-4.6
 ---
 
 你是 COC 模组解析管家，负责 <domain> 域。

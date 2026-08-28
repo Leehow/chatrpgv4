@@ -358,7 +358,7 @@ def test_pi_coc_launcher_exports_pdf_inspector_defaults():
         '$HOME/.pi/coc-tools/pdf-inspector/coc-pi-pdf-inspector-router}"'
     ) in script
     assert (
-        'export COC_PI_PDF_MODEL="${COC_PI_PDF_MODEL:-xai/grok-4.5}"'
+        'export COC_PI_PDF_MODEL="${COC_PI_PDF_MODEL:-xai/grok-4.6}"'
     ) in script
     assert (
         'export COC_PI_OPENING_MODEL="${COC_PI_OPENING_MODEL:-'

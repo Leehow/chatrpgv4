@@ -73,7 +73,7 @@ const task = [
 
 const args = [
   "--mode", "json", "-p",
-  "--model", "xai/grok-4.5:medium",
+  "--model", "xai/grok-4.6:medium",
   "--tools", stewardsAllowlist,
   "--system-prompt", promptFile,
   "--no-context-files",

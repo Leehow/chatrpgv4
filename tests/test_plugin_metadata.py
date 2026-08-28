@@ -1190,13 +1190,28 @@ def test_pi_coordinator_capability_separates_failed_grok_probe_from_promotion():
     readme = _text(PLUGIN_ROOT / "pi" / "README.md")
     for phrase in (
         "openai/gpt-5.6-luna",
-        "xai/grok-4.5",
+        "xai/grok-4.6",
         '"defaultProvider": "xai"',
         '"defaultThinkingLevel": "low"',
         '"hideThinkingBlock": true',
+        "xAI Grok 4.6 supports `low`, `medium`, `high`, and",
+        "`xhigh`; true `off` is unsupported",
+        # hideThinkingBlock hides table-UI output only; provider reasoning
+        # (and its latency) still runs — the README must keep that distinction.
+        "`hideThinkingBlock: true`; hiding thought summaries from",
+        "but does not disable provider reasoning",
         "must never discover",
     ):
         assert phrase in readme
+
+
+def test_opening_handoff_labels_dated_grok45_evidence_as_historical():
+    handoff = _text(ROOT / "docs" / "status" / "opening-lifecycle-handoff.md")
+    # Dated acceptance-scene evidence stays grok-relay / grok-4.5 and must
+    # remain explicitly labeled historical; the current pi-coc default is
+    # xai/grok-4.6 pinned elsewhere.
+    assert "2026-08-20" in handoff
+    assert "历史验收证据所用模型：grok-relay / grok-4.5" in handoff
 
 
 def test_pi_ocr_adapter_does_not_produce_source_bundles():

@@ -98,7 +98,7 @@ B1 目标（计划原文）：扩展只缓存最近一次 `setup.phase`；startu
 隔离 web：`http://127.0.0.1:8801`  
 workspace：`artifacts/opening-acceptance-20260820/workspace`  
 驱动：`node artifacts/opening-acceptance-20260820/turn.mjs <base> <sid> <jsonl> attach|input '…'`  
-模型：grok-relay / grok-4.5。子代理不要用 fable5。
+历史验收证据所用模型：grok-relay / grok-4.5。子代理不要用 fable5。
 
 | 战役 | 用途 |
 | --- | --- |

@@ -935,7 +935,7 @@ def test_pi_coc_exports_pdf_inspector_router_default_from_home(
     )
     assert (
         tmp_path / "pi-coc-pdf-model.txt"
-    ).read_text(encoding="utf-8") == "xai/grok-4.5"
+    ).read_text(encoding="utf-8") == "xai/grok-4.6"
     assert (
         tmp_path / "pi-coc-opening-model.txt"
     ).read_text(encoding="utf-8") == "deepseek/deepseek-v4-flash"
@@ -1542,6 +1542,11 @@ def test_pi_coc_tui_still_requires_settings_without_attached_ui(tmp_path: Path):
     )
     assert completed.returncode == 1
     assert "missing COC agent home settings" in completed.stderr
+    # The one-time bootstrap example must name the supported current pairing
+    # exactly (xai/grok-4.6), never the unproven grok-relay host.
+    assert '"defaultProvider": "xai"' in completed.stderr
+    assert '"defaultModel": "grok-4.6"' in completed.stderr
+    assert "grok-relay" not in completed.stderr
     assert not (bare / "settings.json").exists()
 
 
@@ -4139,7 +4144,7 @@ print('{{"status":"ok"}}')
         "--no-extensions", "--no-skills", "--no-prompt-templates",
         "--no-context-files", "--approve",
         "--tools", "read,bash,write",
-        "--model", "xai/grok-4.5",
+        "--model", "xai/grok-4.6",
         "--thinking", "low",
         "--skill", str(skill.resolve()),
         "closed task",
@@ -4915,7 +4920,7 @@ def test_pdf_skill_adapter_opening_review_routes_router_materialization_not_pi_s
     )[1].split("\ndef _validate_opening_extractor_result", 1)[0]
     assert "--skill" not in extractor_fn
     assert "_opening_text_model()" in extractor_fn
-    assert "xai/grok-4.5" not in extractor_fn
+    assert "xai/grok-4.6" not in extractor_fn
 
 
 def test_pdf_skill_adapter_opening_text_model_env_override(monkeypatch):
@@ -4934,7 +4939,7 @@ def test_pdf_skill_adapter_opening_text_model_env_override(monkeypatch):
     # Locator/full-parse Pi skill path: Grok stays the default but is also
     # env-overridable, so it is a selectable option, not a hardcoded pin.
     monkeypatch.delenv("COC_PI_PDF_MODEL", raising=False)
-    assert adapter._pi_model() == "xai/grok-4.5"
+    assert adapter._pi_model() == "xai/grok-4.6"
     monkeypatch.setenv("COC_PI_PDF_MODEL", "openai/gpt-5")
     assert adapter._pi_model() == "openai/gpt-5"
 

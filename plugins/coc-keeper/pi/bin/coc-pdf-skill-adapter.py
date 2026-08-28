@@ -52,7 +52,7 @@ OPENING_COORDINATOR_CONTRACT = (
 MCP_OPERATION_CONTRACTS = (
     PLUGIN_ROOT / "references" / "mcp-operation-contracts.json"
 )
-PI_MODEL = "xai/grok-4.5"
+PI_MODEL = "xai/grok-4.6"
 # Opening semantic extraction consumes only preseeded bound native Markdown
 # pages and must never depend on the visual Grok/PDF-skill child.
 # The default is a text model; COC_PI_OPENING_MODEL overrides it (Grok stays

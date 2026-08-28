@@ -144,8 +144,8 @@ One-time bootstrap (example):
   mkdir -p "$REPO_ROOT/.pi/coc-agent/sessions"
   cat > "$REPO_ROOT/.pi/coc-agent/settings.json" <<'JSON'
   {
-    "defaultProvider": "grok-relay",
-    "defaultModel": "grok-4.5",
+    "defaultProvider": "xai",
+    "defaultModel": "grok-4.6",
     "packages": ["$REPO_ROOT"],
     "theme": "light",
     "quietStartup": true
@@ -416,11 +416,11 @@ export COC_PROGRESSIVE_OCR_COMMAND="${COC_PROGRESSIVE_OCR_COMMAND:-$SCRIPT_DIR/c
 # is harmless. User env overrides win.
 export COC_PI_PDF_INSPECTOR_COMMAND="${COC_PI_PDF_INSPECTOR_COMMAND:-$HOME/.pi/coc-tools/pdf-inspector/coc-pi-pdf-inspector-router}"
 # Adapter child model defaults (user env overrides win):
-#   COC_PI_PDF_MODEL     locator/full-parse visual PDF-skill child (Grok 4.5)
+#   COC_PI_PDF_MODEL     locator/full-parse visual PDF-skill child (Grok 4.6)
 #   COC_PI_OPENING_MODEL opening facts+L0 text extractor (DeepSeek text model,
 #                       never a vision model — it reads router materialized
 #                       Markdown only)
-export COC_PI_PDF_MODEL="${COC_PI_PDF_MODEL:-xai/grok-4.5}"
+export COC_PI_PDF_MODEL="${COC_PI_PDF_MODEL:-xai/grok-4.6}"
 export COC_PI_OPENING_MODEL="${COC_PI_OPENING_MODEL:-deepseek/deepseek-v4-flash}"
 
 # Quiet game desktop: suppress pi update/package/changelog noise inside the

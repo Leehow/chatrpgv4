@@ -30,7 +30,7 @@ def test_steward_agents_are_distributable_project_definitions():
     for filename, name in expected.items():
         frontmatter = _frontmatter(AGENTS / filename)
         assert frontmatter["name"] == name
-        assert frontmatter["model"] == "grok-4.5"
+        assert frontmatter["model"] == "grok-4.6"
         assert frontmatter["tools"] == "read, grep, find, bash, subagent, subagent_wait"
         assert frontmatter["inheritProjectContext"] == "false"
         assert frontmatter["inheritSkills"] == "false"

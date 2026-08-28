@@ -1,6 +1,7 @@
 # 不息的渴望 — 完整 playtest 记录与发现
 
-进行中的真实游玩测试：pi-coc（grok-4.5）当 KP，ZCode agent 当玩家。
+进行中的真实游玩测试：pi-coc（grok-4.6）当 KP，ZCode agent 当玩家。
+（2026-08-28 起 KP 模型改为 grok-4.6；下文各条观察仍是 grok-4.5 时期的实测证据，保留不改。）
 RPC 模式驱动，headless 降级已生效（claim/fulfill 不循环）。
 **不清理日志**（吸取之前教训）——异常证据保留到问题解决。
 

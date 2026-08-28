@@ -23,7 +23,7 @@ prompt drift, finalization pressure, or scenario exhaustion. Merely producing
 
 ## Live protocol
 
-- Keeper: one persistent Grok Build / Grok 4.5 high session using the installed
+- Keeper: one persistent Grok Build / Grok 4.6 high session using the installed
   canonical COC plugin and MCP only.
 - Player: one persistent protocol-isolated Codex subagent. It receives only the
   investigator sheet and exact player-visible Keeper output; it never reads

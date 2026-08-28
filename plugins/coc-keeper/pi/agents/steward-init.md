@@ -2,7 +2,7 @@
 name: steward-init
 description: COC 模组建卡最小包 L0 解析管家；仅在显式任务中执行阻塞初始化。
 tools: read, grep, find, bash, subagent, subagent_wait
-model: grok-4.5
+model: grok-4.6
 thinking: medium
 systemPromptMode: replace
 inheritProjectContext: false

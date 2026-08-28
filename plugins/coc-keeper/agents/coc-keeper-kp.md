@@ -32,7 +32,7 @@ On Pi, canonical tools are provided by the package rooted at
 `plugins/coc-keeper`. Use only a returned exact `pi_task` with
 `coc_dispatch_source_work`; never construct a generic subagent prompt or pass
 player transcript into source work. Pi coordinator capability is experimental;
-the recorded lifecycle probe used `openai/gpt-5.6-luna`, so `xai/grok-4.5`
+the recorded lifecycle probe used `openai/gpt-5.6-luna`, so `xai/grok-4.6`
 provider evidence remains pending the lead's fresh lifecycle run. Component
 coverage is not parity or acceptance.
 

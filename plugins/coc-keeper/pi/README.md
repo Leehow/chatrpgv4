@@ -92,7 +92,7 @@ mkdir -p "$COC_HOME/sessions"
 cat > "$COC_HOME/settings.json" <<EOF
 {
   "defaultProvider": "xai",
-  "defaultModel": "grok-4.5",
+  "defaultModel": "grok-4.6",
   "defaultThinkingLevel": "low",
   "hideThinkingBlock": true,
   "packages": ["$REPO"],
@@ -327,15 +327,15 @@ The bundled thin adapter starts one isolated, logged-in Pi child in one-shot
 `pi -p` mode and loads the installed external `pdf` skill explicitly. Override
 the Pi executable with `COC_PI_COMMAND` and the skill directory or `SKILL.md`
 path with `COC_PI_PDF_SKILL` when needed. The locator/full-parse PDF-skill
-child defaults to `xai/grok-4.5` with `thinking low` (overridable via
+child defaults to `xai/grok-4.6` with `thinking low` (overridable via
 `COC_PI_PDF_MODEL`) and receives only the `read,bash,write` tool allowlist.
 Sessions, implicit skills/extensions, prompt
 templates, and context files stay disabled. The main KP receives no PDF/image
-tools or child built-ins. xAI Grok 4.5 does not support true thinking-off: Pi
-would clamp a direct `off` request to `low`. The matching
-`hideThinkingBlock: true` setting keeps reasoning summaries out of the table UI
-to reduce spoiler exposure, but it does not disable provider reasoning or its
-latency.
+tools or child built-ins. xAI Grok 4.6 supports `low`, `medium`, `high`, and
+`xhigh`; true `off` is unsupported, so Pi would clamp a direct `off` request to
+`low`. Using `low` with `hideThinkingBlock: true` keeps reasoning summaries out
+of the table UI to reduce spoiler exposure, but it does not disable provider
+reasoning or its latency.
 
 Optional external native router (locator + full-parse batch): the router is
 a thin Node subprocess over the Firecrawl `@firecrawl/pdf-inspector` binding
@@ -464,7 +464,7 @@ Pi source coordination remains capability-enabled as `experimental`. The
 recorded isolated Pi 0.81.1 claim -> nested leaves -> exact fulfillment probe
 used `openai/gpt-5.6-luna`
 (`tests/pi/real-lifecycle-probe.mjs`, engineering-probe only). It is not
-provider evidence for the configured `xai/grok-4.5` Keeper. Typed-thinking
+provider evidence for the configured `xai/grok-4.6` Keeper. Typed-thinking
 framing has component coverage. The repository `pi-coc` wrapper forwards an
 explicit `--thinking off` unchanged and now checks the selected model metadata
 before Pi starts. Pi 0.81.1's bundled `xai/grok-4.5` model declares
