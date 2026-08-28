@@ -58,6 +58,10 @@ coc_temporal_memory_contract = _load_sibling(
     "coc_temporal_memory_contract", "coc_temporal_memory_contract.py"
 )
 
+coc_transcript_history = _load_sibling(
+    "coc_transcript_history", "coc_transcript_history.py"
+)
+
 # Machine-internal commit handles never appear on the model-facing surface:
 # selectors are semantic timeline/turn pairs, and returned commit records
 # carry only semantic identity fields (timeline, turn, type, finalization,
@@ -476,6 +480,35 @@ def _tool_memory_adjudicate(ctx: Ctx, args: dict[str, Any]):
     ]
 
 
+_TRANSCRIPT_LOCATE_HINTS = [
+    "locators are structural cards only; which turn and wording the "
+    "player means is your semantic judgment — never a keyword match",
+    "pass transcript_ref values to transcript.read for the exact "
+    "verified wording",
+]
+
+_TRANSCRIPT_READ_HINTS = [
+    "this is the exact stored wording at the resolved historical commit; "
+    "quote it verbatim and never regenerate or paraphrase it as a quote",
+]
+
+
+def _tool_transcript_locate(ctx: Ctx, args: dict[str, Any]):
+    data, warnings, hints = coc_transcript_history.locate(ctx, args)
+    return data, warnings, list(_TRANSCRIPT_LOCATE_HINTS)
+
+
+def _tool_transcript_read(ctx: Ctx, args: dict[str, Any]):
+    data, warnings, _core_hints = coc_transcript_history.read(ctx, args)
+    hints = list(_TRANSCRIPT_READ_HINTS)
+    if any(row.get("inherited") for row in data.get("rows") or []):
+        hints.append(
+            "some rows were inherited from an ancestor worldline at the "
+            "fork point; timeline_id on each row names the owning timeline"
+        )
+    return data, warnings, hints
+
+
 def register_operations(registry) -> None:
     global TOOLS
     TOOLS = registry.legacy_tools
@@ -552,6 +585,48 @@ def register_operations(registry) -> None:
     },
     write_domains=("memory",),
 )(_tool_memory_adjudicate)
+    registry.tool(
+    "transcript.locate",
+    "Bounded deterministic narrowing of exact table-transcript rows (player and KP wording) by timeline, turn/range, role, speaker, or structured identity. Returns semantic locator cards without text; relevance is the KP's semantic judgment, never a keyword match. Strict read-only.",
+    {
+        "timeline": {"type": "string", "desc": "timeline id (tl-<slug>); defaults to the campaign's active timeline"},
+        "turn": {"type": "integer", "desc": "exact turn number (0 = the table opening)"},
+        "turn_from": {"type": "integer", "desc": "inclusive lower turn bound of a bounded range"},
+        "turn_to": {"type": "integer", "desc": "inclusive upper turn bound of a bounded range (max span 200)"},
+        "role": {"type": "string", "enum": ["player", "keeper"], "desc": "table role of the row"},
+        "speaker": {"type": "string", "desc": "exact speaker identity (player-chosen name or KP)"},
+        "turn_id": {"type": "string", "desc": "exact structured turn id"},
+        "journal_decision_id": {"type": "string", "desc": "exact journal decision id owning a row (player row and its settled keeper row)"},
+        "finalization_id": {"type": "string", "desc": "exact finalization id owning the finalized KP row"},
+        "offset": {"type": "integer", "desc": "candidate page offset (default 0)"},
+        "limit": {"type": "integer", "desc": "candidates per page (default 6, max 8)"},
+    },
+    access="query",
+    read_domains=("history",),
+    write_domains=(),
+    recovery_domains=(),
+    response_mode="full",
+    audit_mode="reference",
+    strict_read_only=True,
+    execution_class="serial_campaign",
+)(_tool_transcript_locate)
+    registry.tool(
+    "transcript.read",
+    "Read the exact hash-verified historical wording of table-transcript rows through semantic locators returned by transcript.locate, resolved through the immutable campaign Git history (never the active worktree). Returns bounded contiguous chunks with total length and full-text digest — rows are never truncated. KP wording is bound to its turn-finalization receipt under the canonical production contract. Strict read-only.",
+    {
+        "refs": {"type": "array", "items": {"type": "string"}, "required": True, "minItems": 1, "maxItems": 8, "uniqueItems": True, "desc": "semantic transcript_ref locators from transcript.locate (never a digest)"},
+        "text_offset": {"type": "integer", "desc": "character offset of the exact text chunk within each row (default 0)"},
+        "text_limit": {"type": "integer", "desc": "max characters of exact text per row per call (default and max 12000)"},
+    },
+    access="query",
+    read_domains=("history",),
+    write_domains=(),
+    recovery_domains=(),
+    response_mode="full",
+    audit_mode="reference",
+    strict_read_only=True,
+    execution_class="serial_campaign",
+)(_tool_transcript_read)
 
 
 OPERATION_EXPORTS = (
@@ -577,4 +652,9 @@ OPERATION_EXPORTS = (
     'coc_temporal_memory',
     'coc_temporal_memory_contract',
     'coc_temporal_retrieval',
+    'coc_transcript_history',
+    '_tool_transcript_locate',
+    '_tool_transcript_read',
+    '_TRANSCRIPT_LOCATE_HINTS',
+    '_TRANSCRIPT_READ_HINTS',
 )

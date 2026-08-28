@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:615c3672e7abe663a3b91acf1beb4ce003ee972e09aa54088b71e5f09893db04",
+  "content_sha256": "sha256:4cd0212e917957427a44c50a4c921b84c837938d3907405e9cdc39d999664f3f",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 139,
+  "operation_count": 141,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -9130,6 +9130,143 @@
         ]
       },
       "summary": "Move chosen character memories from one campaign worldline onto another as one authoritative cross-timeline transfer event, deriving new cross_timeline_echo assertions with preserved provenance and their own lifecycle. Semantic inputs only (source/target timelines, entries with credibility/distortion/privacy, KP cause); source commit/turn anchors are machine-resolved. Returns advisory cost_requests — apply each through its canonical rules.*/state.* operation; this operation never applies mechanics itself. Idempotent per decision_id on byte-equal replay."
+    },
+    "transcript.locate": {
+      "access": "query",
+      "canonical_operation": "transcript.locate",
+      "description": "Bounded deterministic narrowing of exact table-transcript rows (player and KP wording) by timeline, turn/range, role, speaker, or structured identity. Returns semantic locator cards without text; relevance is the KP's semantic judgment, never a keyword match. Strict read-only. Canonical operation `transcript.locate`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "finalization_id": {
+            "description": "exact finalization id owning the finalized KP row",
+            "type": "string"
+          },
+          "journal_decision_id": {
+            "description": "exact journal decision id owning a row (player row and its settled keeper row)",
+            "type": "string"
+          },
+          "limit": {
+            "description": "candidates per page (default 6, max 8)",
+            "type": "integer"
+          },
+          "offset": {
+            "description": "candidate page offset (default 0)",
+            "type": "integer"
+          },
+          "role": {
+            "description": "table role of the row",
+            "enum": [
+              "player",
+              "keeper"
+            ],
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "speaker": {
+            "description": "exact speaker identity (player-chosen name or KP)",
+            "type": "string"
+          },
+          "timeline": {
+            "description": "timeline id (tl-<slug>); defaults to the campaign's active timeline",
+            "type": "string"
+          },
+          "turn": {
+            "description": "exact turn number (0 = the table opening)",
+            "type": "integer"
+          },
+          "turn_from": {
+            "description": "inclusive lower turn bound of a bounded range",
+            "type": "integer"
+          },
+          "turn_id": {
+            "description": "exact structured turn id",
+            "type": "string"
+          },
+          "turn_to": {
+            "description": "inclusive upper turn bound of a bounded range (max span 200)",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "live_turn",
+          "recovery"
+        ]
+      },
+      "summary": "Bounded deterministic narrowing of exact table-transcript rows (player and KP wording) by timeline, turn/range, role, speaker, or structured identity. Returns semantic locator cards without text; relevance is the KP's semantic judgment, never a keyword match. Strict read-only."
+    },
+    "transcript.read": {
+      "access": "query",
+      "canonical_operation": "transcript.read",
+      "description": "Read the exact hash-verified historical wording of table-transcript rows through semantic locators returned by transcript.locate, resolved through the immutable campaign Git history (never the active worktree). Returns bounded contiguous chunks with total length and full-text digest — rows are never truncated. KP wording is bound to its turn-finalization receipt under the canonical production contract. Strict read-only. Canonical operation `transcript.read`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "refs": {
+            "description": "semantic transcript_ref locators from transcript.locate (never a digest)",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "text_limit": {
+            "description": "max characters of exact text per row per call (default and max 12000)",
+            "type": "integer"
+          },
+          "text_offset": {
+            "description": "character offset of the exact text chunk within each row (default 0)",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "refs"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "live_turn",
+          "recovery"
+        ]
+      },
+      "summary": "Read the exact hash-verified historical wording of table-transcript rows through semantic locators returned by transcript.locate, resolved through the immutable campaign Git history (never the active worktree). Returns bounded contiguous chunks with total length and full-text digest — rows are never truncated. KP wording is bound to its turn-finalization receipt under the canonical production contract. Strict read-only."
     },
     "turn.finalize": {
       "access": "mutation",

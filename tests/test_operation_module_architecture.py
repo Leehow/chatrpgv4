@@ -67,7 +67,7 @@ def test_manifest_is_complete_and_all_cells_are_migrated():
         "module_count": 24,
         "python_module_count": 21,
         "pi_module_count": 3,
-        "operation_count": 139,
+        "operation_count": 141,
     }
     assert {row["migration_state"] for row in ownership.all_modules(manifest)} == {
         "migrated"

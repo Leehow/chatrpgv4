@@ -58,15 +58,17 @@ export const MCP_LAUNCH = join(PLUGIN_ROOT, "mcp", "launch");
 export const MAIN_EXTENSION = join(PLUGIN_ROOT, "pi", "extensions", "index.ts");
 export const COORDINATOR_EXTENSION = join(PLUGIN_ROOT, "pi", "extensions", "coordinator.ts");
 export const LEAF_EXTENSION = join(PLUGIN_ROOT, "pi", "extensions", "leaf.ts");
+export const MEMORY_EXTRACTOR_EXTENSION = join(PLUGIN_ROOT, "pi", "extensions", "memory-extractor.ts");
 export const COORDINATOR_INSTRUCTION = join(PLUGIN_ROOT, "agents", "coc-source-coordinator.md");
 export const LEAF_INSTRUCTION = join(PLUGIN_ROOT, "agents", "coc-source-pack-worker.md");
+export const MEMORY_EXTRACTOR_INSTRUCTION = join(PLUGIN_ROOT, "agents", "coc-memory-extractor.md");
 export const SOURCE_WORKER_CONTRACT = join(
   PLUGIN_ROOT,
   "references",
   "source-pack-worker-v1.json",
 );
 
-export type PrivateRole = "coordinator" | "leaf";
+export type PrivateRole = "coordinator" | "leaf" | "memory-extractor";
 export interface PrivateLaunchContext {
   cwd: string;
   provider: string;
@@ -78,16 +80,31 @@ const PRIVATE_ROLE_RESOURCES: Record<PrivateRole, {
   extensionPath: string;
   instructionPath: string;
   toolName: string | null;
+  loadSkills: boolean;
+  initialPrompt: string;
 }> = {
   coordinator: {
     extensionPath: COORDINATOR_EXTENSION,
     instructionPath: COORDINATOR_INSTRUCTION,
     toolName: "coc_run_source_coordinator",
+    loadSkills: true,
+    initialPrompt: "Execute the one active private COC coordinator tool, then return its strict bare coc.source-coordinator-result.v1 JSON result only.\n",
   },
   leaf: {
     extensionPath: LEAF_EXTENSION,
     instructionPath: LEAF_INSTRUCTION,
     toolName: null,
+    loadSkills: true,
+    initialPrompt: "Compile the exact injected evidence context and return one strict bare coc.source-pack-worker.v1 JSON object only.\n",
+  },
+  "memory-extractor": {
+    extensionPath: MEMORY_EXTRACTOR_EXTENSION,
+    instructionPath: MEMORY_EXTRACTOR_INSTRUCTION,
+    // Zero tools and no inherited skill roots: this derived worker receives
+    // only its closed task/read payload and cannot become a second KP.
+    toolName: null,
+    loadSkills: false,
+    initialPrompt: "Read the exact injected memory-extraction task and return one strict bare coc.memory-extractor.v1 JSON object only.\n",
   },
 };
 
@@ -1663,8 +1680,7 @@ export function spawnPiChild(options: {
     "--model", `${options.provider}/${options.modelId}`,
     "--thinking", options.thinking,
     "--extension", role.extensionPath,
-    "--skill", KERNEL_SKILLS,
-    "--skill", COC7_SKILLS,
+    ...(role.loadSkills ? ["--skill", KERNEL_SKILLS, "--skill", COC7_SKILLS] : []),
     "--append-system-prompt", role.instructionPath,
   ];
   const child = spawn(invocation.command, args, {
@@ -1676,9 +1692,7 @@ export function spawnPiChild(options: {
   }) as ChildProcessWithoutNullStreams;
   const nonce = randomBytes(32).toString("hex");
   (child.stdio[3] as NodeJS.WritableStream).end(JSON.stringify({ nonce, task: options.task }));
-  child.stdin.end(options.role === "leaf"
-    ? "Compile the exact injected evidence context and return one strict bare coc.source-pack-worker.v1 JSON object only.\n"
-    : "Execute the one active private COC coordinator tool, then return its strict bare coc.source-coordinator-result.v1 JSON result only.\n");
+  child.stdin.end(role.initialPrompt);
 
   const events: JsonObject[] = [];
   let stdout = "";

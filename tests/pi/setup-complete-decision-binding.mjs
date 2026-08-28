@@ -174,10 +174,20 @@ try {
     name: "coc_setup_complete",
     arguments: { campaign_id: campaign, campaign, root },
   };
-  assert.throws(
-    () => validateToolCall([typed], missingDecisionCall),
-    /decision_id/,
-    "the public archive schema must remain strict",
+  // Identifier Law contract: once the chargen receipt arms the handoff
+  // card, the presented schema drops the required decision_id (the model
+  // must never author machine identity). Pure schema validation therefore
+  // accepts the omitted field; Pi then calls prepareArguments to attach the
+  // retained pi-setup-handoff id before execution. Consent is still enforced
+  // by the execute-time external-player-message gate below.
+  const missingDecisionValidated = validateToolCall(
+    [typed],
+    missingDecisionCall,
+  );
+  assert.equal(
+    missingDecisionValidated.decision_id,
+    undefined,
+    "schema validation must accept an omitted host-owned decision_id",
   );
 
   const sameTurnPrepared = typed.prepareArguments(missingDecisionCall.arguments);
@@ -246,13 +256,27 @@ try {
     missingDecisionCall.arguments,
   );
   assert.equal(afterSuccessPrepared.decision_id, undefined);
-  assert.throws(
-    () => validateToolCall([typed], {
-      ...missingDecisionCall,
-      arguments: afterSuccessPrepared,
-    }),
-    /decision_id/,
-    "a consumed route must not bind or deliver the handoff twice",
+  const afterSuccessValidated = validateToolCall([typed], {
+    ...missingDecisionCall,
+    arguments: afterSuccessPrepared,
+  });
+  assert.equal(afterSuccessValidated.decision_id, undefined);
+  await assert.rejects(
+    typed.execute(
+      "after-success",
+      afterSuccessValidated,
+      undefined,
+      undefined,
+      ctx,
+    ),
+    /setup\.complete has no owned Pi opening route/,
+    "a consumed route must fail closed before canonical delivery",
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    clientCalls.filter((call) => call.params.operation === "setup.complete").length,
+    1,
+    "a consumed route must not reach the canonical provider twice",
   );
   assert.equal(handoffMessages.length, 1);
   assert.equal(handoffEntries.length, 1);

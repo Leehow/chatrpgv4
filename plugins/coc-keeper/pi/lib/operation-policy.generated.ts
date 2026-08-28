@@ -1526,6 +1526,28 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "live_turn"
     ]
   },
+  "transcript.locate": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "none",
+    "execution_class": "serial_campaign",
+    "kp_surface": "context",
+    "phases": [
+      "live_turn",
+      "recovery"
+    ]
+  },
+  "transcript.read": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "none",
+    "execution_class": "serial_campaign",
+    "kp_surface": "context",
+    "phases": [
+      "live_turn",
+      "recovery"
+    ]
+  },
   "turn.finalize": {
     "advisory": false,
     "audience": "keeper",
@@ -1581,7 +1603,9 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "steward.notebook",
     "steward.scene_supply",
     "threat.query",
-    "timeline.confluence_query"
+    "timeline.confluence_query",
+    "transcript.locate",
+    "transcript.read"
   ],
   "npc": [
     "npc.query",

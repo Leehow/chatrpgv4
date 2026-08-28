@@ -63,6 +63,13 @@ import {
   PiSemanticSupplyCoordinator,
 } from "./coordinator.ts";
 import {
+  MemoryExtractionDispatcher,
+  defaultRunMemoryHostBridge,
+  memoryHostBridgeCommand,
+  type MemoryExtractionRefs,
+  type MemoryHostBridgeRequest,
+} from "../lib/memory-extraction-dispatch.ts";
+import {
   buildMechanicalOutputGateEnvelope,
   buildSettledOutputGateEnvelope,
   buildSettledOutputPreflightEnvelope,
@@ -261,6 +268,7 @@ const EXISTING_CAMPAIGN_SETUP_KINDS = new Set([
 const OWNED_OPENING_ROUTE_OPERATIONS = new Set([
   "progressive.prepare_opening",
   "progressive.opening_bootstrap",
+  "setup.complete",
 ]);
 const mapSupplySchema = {
   type: "object",
@@ -3204,6 +3212,51 @@ export async function autoDispatchPiPendingStewardDomains(
   return { status: "submitted", campaign_id: campaignId, domains: queued.sort() };
 }
 
+/**
+ * Semantic finalize evidence → one scheduled memory-extraction worker.
+ * Scheduling is fire-and-forget: the returned promise settles when the
+ * background worker settles and is never awaited by the player path.
+ */
+export function autoDispatchPiMemoryExtraction(
+  dispatcher: MemoryExtractionDispatcher,
+  params: JsonObject,
+  value: unknown,
+  isCurrent: () => boolean,
+): Promise<unknown> {
+  const campaignId = typeof params.campaign === "string"
+    ? params.campaign.trim()
+    : "";
+  if (!campaignId || params.operation !== "turn.finalize" || !isCurrent()) {
+    return Promise.resolve(null);
+  }
+  const envelope = objectOrNull(value);
+  if (envelope?.ok !== true) return Promise.resolve(null);
+  const data = objectOrNull(envelope.data);
+  const extraction = objectOrNull(data?.memory_extraction);
+  if (extraction === null) return Promise.resolve(null);
+  const turn = extraction.turn_number;
+  if (
+    typeof extraction.job_id !== "string"
+    || typeof extraction.episode_id !== "string"
+    || typeof extraction.backlog_id !== "string"
+    || typeof extraction.timeline_id !== "string"
+    || typeof turn !== "number"
+    || !Number.isInteger(turn)
+    || turn < 1
+  ) {
+    return Promise.resolve(null);
+  }
+  const refs: MemoryExtractionRefs = {
+    campaign_id: campaignId,
+    job_id: extraction.job_id,
+    episode_id: extraction.episode_id,
+    timeline_id: extraction.timeline_id,
+    turn_number: turn,
+    backlog_id: extraction.backlog_id,
+  };
+  return dispatcher.schedule(refs);
+}
+
 function blockingOpeningProjectionCall(
   originalParams: JsonObject,
   bootstrapValue: unknown,
@@ -3381,6 +3434,14 @@ interface MainExtensionOverrides {
     context: PrivateLaunchContext,
     signal?: AbortSignal,
   ) => ChildRun;
+  launchMemoryExtractor?: (
+    task: JsonObject,
+    context: PrivateLaunchContext,
+    signal?: AbortSignal,
+  ) => ChildRun;
+  runMemoryHostBridge?: (
+    request: MemoryHostBridgeRequest,
+  ) => Promise<JsonObject>;
   createStateClaimCompiler?: () => PiStateClaimCompiler;
 }
 
@@ -3562,6 +3623,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     overrides.createStateClaimCompiler?.() ?? new PiStateClaimCompiler()
   );
   const supplyCoordinator = new PiSemanticSupplyCoordinator();
+  let memoryExtractionRuns = new Set<Promise<unknown>>();
+  const memoryExtractionDispatcher = new MemoryExtractionDispatcher();
   const sceneSupplyDispatches = new Map<string, SceneSupplyDispatchStatus>();
   let kpPlayPhase: PlayPhase = "live_turn";
   let currentWorkspaceRoot = "";
@@ -5151,6 +5214,84 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       createManager: overrides.createManager,
     });
   };
+  // Finalize-after asynchronous semantic memory extraction: one bounded
+  // fire-and-forget derived worker. It never delays the canonical envelope,
+  // never writes hard state/rules/transcript/output, and persists only
+  // through the deterministic private Python host bridge.
+  const startMemoryExtraction = (ctx: ExtensionContext, epoch: number) => {
+    memoryExtractionDispatcher.start({
+      isCurrent: () => isCurrent(epoch),
+      workspaceRoot: () => resolve(ctx.cwd),
+      launchContext: () => {
+        const model = ctx.model;
+        if (!model) return null;
+        try {
+          return {
+            cwd: ctx.cwd,
+            provider: nonEmpty(model.provider, "model.provider"),
+            modelId: nonEmpty(model.id, "model.id"),
+            thinking: pi.getThinkingLevel(),
+          };
+        } catch { return null; }
+      },
+      launchExtractor: (task, launch, signal) => (
+        overrides.launchMemoryExtractor?.(task, launch, signal)
+        ?? spawnPiChild({ role: "memory-extractor", task, ...launch, signal })
+      ),
+      runHostBridge: overrides.runMemoryHostBridge
+        ?? defaultRunMemoryHostBridge(memoryHostBridgeCommand, () => resolve(ctx.cwd)),
+      appendAudit: (entry) => {
+        try { pi.appendEntry("coc-memory-extraction-async", entry); }
+        catch { /* audit is best effort */ }
+      },
+    });
+  };
+  // Re-arm durable pending extraction rows exactly once per boundary
+  // (successful session.resume or session start). One read-only canonical
+  // status call, fired off the critical path; never a polling loop and
+  // never a trigger that interrupts player narration.
+  const rearmPendingMemoryExtraction = (
+    ctx: ExtensionContext,
+    campaignId: string,
+    epoch: number,
+  ) => {
+    if (!campaignId || !isCurrent(epoch)) return;
+    void (async () => {
+      try {
+        const response = await client(ctx).callTool("coc_invoke", {
+          operation: "memory.extraction_status",
+          campaign: campaignId,
+          arguments: {},
+        });
+        if (!isCurrent(epoch)) return;
+        const envelope = objectOrNull(response);
+        if (envelope?.ok !== true) return;
+        const data = objectOrNull(envelope.data);
+        const rawEntries = Array.isArray(data?.entries) ? data.entries : [];
+        const entries = rawEntries.flatMap((row) => {
+          const entry = objectOrNull(row);
+          const turn = entry?.turn_number;
+          if (
+            typeof entry?.backlog_id !== "string"
+            || typeof entry?.timeline_id !== "string"
+            || typeof turn !== "number"
+            || !Number.isInteger(turn)
+            || typeof entry?.status !== "string"
+          ) return [];
+          return [{
+            backlog_id: entry.backlog_id,
+            timeline_id: entry.timeline_id,
+            turn_number: turn,
+            status: entry.status,
+          }];
+        });
+        memoryExtractionDispatcher.rearm(campaignId, entries);
+      } catch {
+        // Re-arm is best effort: the durable backlog row stays pending and
+        // the next session boundary re-arms it again.
+      }
+    })();
+  };
   const rawPdfBindBundleDispatchDeps = (
     ctx: ExtensionContext,
     epoch: number,
@@ -5308,6 +5449,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     nonRetryableFailureCircuit.reset();
     stateClaimCompiler.clear();
     startSemanticSupply(ctx, sessionEpoch);
+    startMemoryExtraction(ctx, sessionEpoch);
     sourceProducerStates = new Map<string, JsonObject>();
     sourceProducerControllers = new Map<string, AbortController>();
     sourceProducerRuns = new Set<Promise<unknown>>();
@@ -6282,6 +6424,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ),
         ));
       }
+      if (
+        typedDefinition.operation === "setup.complete"
+        && !Object.hasOwn(params, "decision_id")
+      ) {
+        // Identifier Law: the model's payload carries only the semantic
+        // close request; identity is attached by code. One boot-salted id
+        // per arm epoch keeps a KP retry idempotent instead of forked.
+        params = {
+          ...params,
+          decision_id: semanticDecisionId("setup.complete", 1),
+        };
+      }
       const binding = retainedTypedBindings.get(typedDefinition.operation);
       if (binding !== undefined) {
         try {
@@ -7024,6 +7178,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           briefingReason,
           epoch,
         );
+        if (briefingReason === "session_resume") {
+          rearmPendingMemoryExtraction(ctx, params.campaign.trim(), epoch);
+        }
         if (!isCurrent(epoch)) {
           return gatewayResult(asObject(value, "late canonical result"));
         }
@@ -7141,6 +7298,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       pendingStewardRefillRuns.add(pendingStewardRefillRun);
       void pendingStewardRefillRun.catch(() => {}).finally(() => {
         pendingStewardRefillRuns.delete(pendingStewardRefillRun);
+      });
+      // Finalize-after asynchronous memory extraction: schedule the derived
+      // semantic worker from the canonical finalize evidence and return the
+      // player-facing envelope immediately — the worker is never awaited on
+      // the player path.
+      const memoryExtractionRun = autoDispatchPiMemoryExtraction(
+        memoryExtractionDispatcher,
+        params,
+        value,
+        () => isCurrent(epoch),
+      );
+      memoryExtractionRuns.add(memoryExtractionRun);
+      void memoryExtractionRun.catch(() => {}).finally(() => {
+        memoryExtractionRuns.delete(memoryExtractionRun);
       });
       if (startupResumeAttempt) {
         const selectedCampaignId = startupResumeGate?.campaignId ?? "";
@@ -7954,6 +8125,49 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
       parameters = projected;
     } else if (
+      launcherRole !== null
+      && typed.operation === "setup.complete"
+    ) {
+      // Web/setup sessions: once the chargen receipt has armed the handoff
+      // card, surface its machine-issued decision_id as a const on the
+      // presented schema and stop requiring the model to author one. The
+      // retained-binding prepare path fills it when omitted, so the model
+      // never has to invent identity (Model-Facing Identifier Law) while
+      // the unready state keeps the strict schema that rejects premature
+      // completion attempts.
+      const projected = structuredClone(parameters);
+      projected.required = (projected.required ?? []).filter(
+        (key) => key !== "decision_id",
+      );
+      if (projected.properties === undefined || typeof projected.properties !== "object") {
+        projected.properties = {};
+      }
+      const state = openingContinuationGate.openingSetupStateForTranscript();
+      const card = objectOrNull(state?.route.next_operation);
+      const prefilled = objectOrNull(card?.prefilled_arguments);
+      const readyDecisionId = (
+        state?.characterSetupComplete === true
+        && state.phase === "handoff_decision"
+        && card?.operation === "setup.complete"
+        && typeof prefilled?.decision_id === "string"
+        && prefilled.decision_id
+      ) ? prefilled.decision_id : null;
+      const baseSchema = objectOrNull(projected.properties.decision_id) ?? {};
+      projected.properties.decision_id = readyDecisionId === null
+        ? {
+          ...baseSchema,
+          description: (
+            "Machine-issued handoff decision id. Omit this field unless "
+            + "the table-opening card supplied an exact value to echo."
+          ),
+        }
+        : {
+          ...baseSchema,
+          const: readyDecisionId,
+          description: "Omit this field; the host attaches the exact value.",
+        };
+      parameters = projected;
+    } else if (
       launcherRole === null
       && typed.operation === "session.resume"
       && startupResumeGate?.origin === "role_null_handoff"
@@ -8611,6 +8825,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     const startupCampaignId = initializeSession(ctx);
     if (startupCampaignId !== null) {
       await refreshKeeperBriefing(ctx, startupCampaignId, "session_start");
+      rearmPendingMemoryExtraction(ctx, startupCampaignId, sessionEpoch);
     }
     await startCocWelcome(event, ctx, startupCampaignId);
   });
@@ -8635,6 +8850,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     openingContinuationGate.reset();
     stateClaimCompiler.clear();
     await supplyCoordinator.shutdown();
+    await memoryExtractionDispatcher.shutdown();
     for (const controller of sourceProducerControllers.values()) {
       controller.abort("session_shutdown");
     }
@@ -8645,6 +8861,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ...sourceProducerRuns,
       ...rawPdfBindBundleRuns,
       ...pendingStewardRefillRuns,
+      ...memoryExtractionRuns,
     ]);
     sourceProducerControllers.clear();
     sourceProducerRuns.clear();
@@ -8675,6 +8892,7 @@ export const __test = {
   autoDispatchPiRawPdfBindBundle,
   findPiOpeningSourceReviewTrigger,
   autoDispatchPiPendingStewardDomains,
+  autoDispatchPiMemoryExtraction,
   runPiSourceScopeProducer,
   validatePiSourceScopeLocatorTask,
   MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN,

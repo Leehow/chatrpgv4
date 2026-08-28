@@ -177,6 +177,22 @@ _DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
         "advisory": False,
         "kp_surface": "context",
     },
+    # transcript.* is the exact historical table-transcript surface:
+    # transcript.locate is bounded deterministic structured narrowing over
+    # committed campaign git history, and transcript.read returns exact
+    # hash-verified wording bound to turn-finalization receipts under the
+    # canonical production contract. A strict context read like history.*:
+    # never a play gate, never a mutation, never free-prose matching.
+    # Deliberately NOT legal during pending_finalization: the settled-turn
+    # output boundary owns that phase, and historical wording retrieval is
+    # a live-turn or recovery activity.
+    "transcript": {
+        "audience": "keeper",
+        "phases": ("live_turn", "recovery"),
+        "contract": "none",
+        "advisory": False,
+        "kp_surface": "context",
+    },
     # memory.* is the KP-facing temporal story-memory surface under schema
     # generation temporal-memory-1: memory.adjudicate and extraction settle
     # are state-contract mutations on the temporal store, while the strict
