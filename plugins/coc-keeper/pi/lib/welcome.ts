@@ -153,8 +153,10 @@ export function tableOpenInstruction(
       "For table_opening, call evidence.table_opening exactly once and deliver",
       "only the player-visible formal opening from its receipt.",
       "For awaiting_player, emit no new table prose and wait for the player.",
-      "For an exact pending delivery, emit only session.delivery_text or",
-      "delivery.exact_text. Never replay an older assistant opening.",
+      "For an exact pending delivery, call session.delivery_text with mode",
+      "replay once: the host owns the delivery identity, streams the exact",
+      "text, and suppresses extra prose.",
+      "Never replay an older assistant opening.",
     ].join(" ");
   }
   return [

@@ -211,9 +211,18 @@ def _run(ws, tool: str, args: dict | None = None) -> dict:
     )
 
 def _finalize_pending_turn_for_test(
-    ws: dict, *, decision_id: str
+    ws: dict,
+    *,
+    decision_id: str,
+    draft: str | None = None,
+    result_paragraph: str | None = None,
 ) -> dict:
-    """Close a journaled component-test turn through the current contract."""
+    """Close a journaled component-test turn through the current contract.
+
+    Ending-flow tests may pass their own ``draft``/``result_paragraph``; the
+    excerpt must sit in a non-initial paragraph of ``draft`` so every public
+    check keeps a safe preceding paragraph.
+    """
     output = _run(ws, "turn.output_context")
     assert output["ok"] is True, output
     context = output["data"]
@@ -224,8 +233,10 @@ def _finalize_pending_turn_for_test(
         f"{context['journal_decision_id']}:finalize"
     )
     assert "draft" in finalize_card["missing_arguments"]
-    result_paragraph = "已结算的测试结果按其原有因果关系发生。"
-    draft = "测试中的行动继续推进。\n\n" + result_paragraph
+    if result_paragraph is None:
+        result_paragraph = "已结算的测试结果按其原有因果关系发生。"
+    if draft is None:
+        draft = "测试中的行动继续推进。\n\n" + result_paragraph
     coverage = [
         {
             "obligation_id": obligation["obligation_id"],

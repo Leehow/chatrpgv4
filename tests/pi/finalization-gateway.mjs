@@ -2,9 +2,13 @@
 // turn.finalize string digest used by the live FIX7 receipt.
 import "./_lib/preload-embedded-pi.mjs";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 import { embeddedPiFile } from "./_lib/embedded-pi-path.mjs";
 
 const root = path.resolve(process.argv[2] || process.cwd());
@@ -378,6 +382,766 @@ assert.equal(rawReturnedEnvelope.isError, true);
 assert.equal(rawReturnedEnvelope.error?.code, "finalization_receipt_invalid");
 assert.equal(rawExactResult === undefined, false);
 assert.equal(rawFollowUpResult === undefined, false);
+// ---------------------------------------------------------------------------
+// Exact-delivery replay probes (attempt-05): a fresh play host process binds
+// the machine-owned delivery identity from session.resume.delivery (restart),
+// the typed semantic-only call streams every canonical chunk byte-for-byte as
+// player-visible coc_delivery_replay events, the host acknowledges the
+// replay, the same-epoch quarantine rejects state/rules/finalize calls and
+// suppresses model prose, and ordinary context mode stays byte-unchanged.
+// ---------------------------------------------------------------------------
+const ATTEMPT05_CANONICAL_TEXT = (
+  "林默仍站在门槛外，借窄缝把目光压低，一寸寸扫过近处地板与能看见的墙角。"
+  + "昏黄灯下，那一片地砖干净，没有血迹，也没有蜷伏或倒卧的轮廓；角落里没有"
+  + "拖曳的痕迹，也没有突然一闪而过的动静。\n\n"
+  + "【明骰】侦查｜掷骰：23；基础值：51；门槛：普通（≤51）；达到：困难成功（超出 1 级）；通过\n\n"
+  + "他压低嗓子，对着门缝轻唤一声：「考夫特？」回声在门后短促地散开，仍无人应。"
+);
+assert.equal([...ATTEMPT05_CANONICAL_TEXT].length, 179);
+assert.equal(Buffer.byteLength(ATTEMPT05_CANONICAL_TEXT, "utf8"), 511);
+const ATTEMPT05_CAMPAIGN = "attempt05-replay-campaign";
+const ATTEMPT05_FINALIZATION_ID = "turn-effect-v1:attempt05-replay-probe";
+const ATTEMPT05_SHA = sha256(JSON.stringify(ATTEMPT05_CANONICAL_TEXT));
+
+// Python _utf8_chunk_end port: chunk ends never split a UTF-8 code point.
+function utf8ChunkEnd(data, start, limit) {
+  let end = Math.min(start + limit, data.length);
+  if (end < data.length) {
+    while (end > start && (data[end] & 0xC0) === 0x80) end -= 1;
+    if (end === start) {
+      end = start + 1;
+      while (end < data.length && (data[end] & 0xC0) === 0x80) end += 1;
+    }
+  }
+  return end;
+}
+
+function attempt05ReplayServer(chunkLimit) {
+  const data = Buffer.from(ATTEMPT05_CANONICAL_TEXT, "utf8");
+  const chunks = [];
+  let position = 0;
+  while (position < data.length) {
+    const end = utf8ChunkEnd(data, position, chunkLimit);
+    chunks.push([position, end]);
+    position = end;
+  }
+  const acks = [];
+  const chunkRequests = [];
+  // The mock models the canonical latest delivery as already
+  // confirmed/displayed (attempt-05): replay must still serve it, and the
+  // first replay request must establish identity from the canonical side.
+  const firstIdentity = { finalization_id: "", rendered_sha256: "" };
+  let firstRequestObserved = false;
+  const chunkEnvelope = (index) => {
+    const [start, end] = chunks[index];
+    return {
+      ok: true,
+      tool: "session.delivery_text",
+      data: {
+        mode: "replay",
+        finalization_id: ATTEMPT05_FINALIZATION_ID,
+        rendered_sha256: ATTEMPT05_SHA,
+        rendered_text_sha256: ATTEMPT05_SHA,
+        text: data.subarray(start, end).toString("utf8"),
+        text_offset: start,
+        returned_bytes: end - start,
+        total_bytes: data.length,
+        chunk_ordinal: index,
+        chunk_count: chunks.length,
+        final: index === chunks.length - 1,
+        next_offset: end < data.length ? end : null,
+      },
+    };
+  };
+  const serve = (params) => {
+    if (params?.operation === "session.delivery_ack") {
+      acks.push(params.arguments ?? {});
+      return {
+        ok: true,
+        tool: "session.delivery_ack",
+        data: {
+          status: "confirmed",
+          ack_kind: params.arguments?.ack_kind ?? null,
+          idempotent_repeat: true,
+        },
+      };
+    }
+    if (params?.operation !== "session.delivery_text") {
+      return { ok: false, error: { code: "probe_no_route" } };
+    }
+    const args = params.arguments ?? {};
+    if (!firstRequestObserved) {
+      // Fresh/no-arm contract: the first canonical replay request carries
+      // ONLY the semantic mode — any identity/offset field is rejected.
+      if (
+        args.finalization_id !== undefined
+        || args.rendered_sha256 !== undefined
+        || args.text_offset !== undefined
+      ) {
+        return {
+          ok: false,
+          tool: "session.delivery_text",
+          error: { code: "invalid_param" },
+        };
+      }
+      if (args.mode !== "replay") {
+        return { ok: false, tool: "session.delivery_text", error: { code: "invalid_param" } };
+      }
+      firstRequestObserved = true;
+      firstIdentity.finalization_id = ATTEMPT05_FINALIZATION_ID;
+      firstIdentity.rendered_sha256 = ATTEMPT05_SHA;
+      return chunkEnvelope(0);
+    }
+    // Later chunks are machine-bound: they must carry exactly the identity
+    // the canonical first response returned.
+    if (args.finalization_id !== firstIdentity.finalization_id) {
+      return { ok: false, tool: "session.delivery_text", error: { code: "delivery_conflict" } };
+    }
+    if (args.rendered_sha256 !== firstIdentity.rendered_sha256) {
+      return { ok: false, tool: "session.delivery_text", error: { code: "delivery_conflict" } };
+    }
+    const index = chunks.findIndex(([start]) => start === args.text_offset);
+    if (index === -1) {
+      return { ok: false, tool: "session.delivery_text", error: { code: "invalid_param" } };
+    }
+    return chunkEnvelope(index);
+  };
+  const recordingServe = (params) => {
+    const response = serve(params);
+    if (params?.operation === "session.delivery_text" && response.ok === true) {
+      chunkRequests.push(params.arguments ?? {});
+    }
+    return response;
+  };
+  return {
+    serve: recordingServe,
+    acks,
+    firstIdentity,
+    chunkCount: chunks.length,
+    chunkRequests,
+    latestStatus: "confirmed_displayed",
+  };
+}
+
+async function bootReplayProbeHost() {
+  const probeHandlers = new Map();
+  const probeTools = new Map();
+  const probeCalls = [];
+  const probeSent = [];
+  const probeEntries = [];
+  let serveRpc = () => ({ ok: false, error: { code: "probe_no_route" } });
+  const probePi = {
+    registerTool: (tool) => probeTools.set(tool.name, tool),
+    registerCommand() {},
+    registerShortcut() {},
+    on(type, handler) {
+      const registered = probeHandlers.get(type) || [];
+      registered.push(handler);
+      probeHandlers.set(type, registered);
+    },
+    appendEntry(type, details) {
+      probeEntries.push({ type, details });
+    },
+    sendMessage(message, options) {
+      probeSent.push({ message, options });
+    },
+    setActiveTools() {},
+    getThinkingLevel: () => "off",
+  };
+  main.default(probePi, {
+    coordinatorEnabled: () => false,
+    startupCampaignId: () => null,
+    createClient: () => ({
+      callTool: async (name, params) => {
+        probeCalls.push({ name, params });
+        return serveRpc(params);
+      },
+      callToolWithTransportMeta: async (name, params) => ({
+        value: await (async () => {
+          probeCalls.push({ name, params });
+          return serveRpc(params);
+        })(),
+        transport: null,
+      }),
+      async close() {},
+    }),
+  });
+  const probeCtx = {
+    cwd: root,
+    mode: "rpc",
+    model: { provider: "probe", id: "probe" },
+    sessionManager: {
+      getSessionId: () => "delivery-replay-probe",
+      getEntries: () => [],
+    },
+    hasUI: false,
+  };
+  for (const handler of probeHandlers.get("session_start") || []) {
+    await handler({ type: "session_start", reason: "probe" }, probeCtx);
+  }
+  const emit = async (type, message) => {
+    let transformed;
+    for (const handler of probeHandlers.get(type) || []) {
+      transformed = await handler({ type, message }, probeCtx);
+    }
+    return transformed;
+  };
+  const agentEnd = async () => {
+    for (const handler of probeHandlers.get("agent_end") || []) {
+      await handler({}, probeCtx);
+    }
+  };
+  return {
+    probeTools,
+    probeCalls,
+    probeSent,
+    probeEntries,
+    probeCtx,
+    emit,
+    agentEnd,
+    setServe: (fn) => {
+      serveRpc = fn;
+    },
+  };
+}
+
+const replayProbe = await bootReplayProbeHost();
+
+// Fresh/no-arm phase advance ONLY: the resume envelope carries no delivery
+// projection, so no identity reaches the lane before the first canonical
+// replay response (attempt-05: latest output already confirmed/displayed).
+const attempt05Resume = {
+  ok: true,
+  tool: "session.resume",
+  data: {
+    schema_version: 1,
+    campaign_id: ATTEMPT05_CAMPAIGN,
+    mode: "awaiting_player",
+    next_operations: [],
+  },
+};
+replayProbe.setServe(() => attempt05Resume);
+await replayProbe.probeTools.get("coc_invoke").execute(
+  "replay-resume-probe",
+  { operation: "session.resume", campaign: ATTEMPT05_CAMPAIGN, arguments: {} },
+  undefined,
+  undefined,
+  replayProbe.probeCtx,
+);
+
+// Ordinary context mode is untouched: explicit identity passes through the
+// generic canonical path in exactly one call, no chunk loop, no stripping.
+const contextCalls = [];
+replayProbe.setServe((params) => {
+  if (params?.operation === "session.delivery_text" && params.arguments?.mode === "context") {
+    contextCalls.push(params);
+    return {
+      ok: true,
+      tool: "session.delivery_text",
+      data: {
+        finalization_id: "ctx-fid",
+        rendered_sha256: "ctx-sha",
+        exact_text: "context text stays byte-identical",
+      },
+    };
+  }
+  return { ok: false, error: { code: "probe_no_route" } };
+});
+const contextGatewayResult = await replayProbe.probeTools.get("coc_invoke").execute(
+  "replay-context-probe",
+  {
+    operation: "session.delivery_text",
+    campaign: ATTEMPT05_CAMPAIGN,
+    arguments: {
+      mode: "context",
+      finalization_id: "ctx-fid",
+      rendered_sha256: "ctx-sha",
+    },
+  },
+  undefined,
+  undefined,
+  replayProbe.probeCtx,
+);
+const contextEnvelope = JSON.parse(contextGatewayResult.content[0].text);
+assert.equal(contextEnvelope.ok, true);
+assert.equal(contextEnvelope.data?.exact_text, "context text stays byte-identical");
+assert.equal(contextCalls.length, 1);
+assert.deepEqual(contextCalls[0].arguments, {
+  mode: "context",
+  finalization_id: "ctx-fid",
+  rendered_sha256: "ctx-sha",
+});
+
+// Multi-chunk exact replay through the typed semantic-only surface.
+const server128 = attempt05ReplayServer(128);
+replayProbe.setServe(server128.serve);
+const replayGatewayResult = await replayProbe.probeTools.get(
+  "coc_session_delivery_text",
+).execute(
+  "replay-typed-probe",
+  { campaign: ATTEMPT05_CAMPAIGN, mode: "replay" },
+  undefined,
+  undefined,
+  replayProbe.probeCtx,
+);
+const replayEnvelope = JSON.parse(replayGatewayResult.content[0].text);
+const replayChunks = replayProbe.probeSent.filter((row) => (
+  row.message?.customType === "coc_delivery_replay"
+));
+const replayJoined = replayChunks.map((row) => row.message.details.text).join("");
+const replayDeliveryCalls = replayProbe.probeCalls.filter((row) => (
+  row.params?.operation === "session.delivery_text"
+  && row.params.arguments?.mode === "replay"
+));
+const replayReport = {
+  plannedChunks: server128.chunkCount,
+  emittedChunks: replayChunks.length,
+  chars: [...replayJoined].length,
+  bytes: Buffer.byteLength(replayJoined, "utf8"),
+  exact: replayJoined === ATTEMPT05_CANONICAL_TEXT,
+  whitespaceKept: replayJoined.includes("\n\n"),
+  ordinals: replayChunks.map((row) => row.message.details.chunk_ordinal),
+  finalFlags: replayChunks.map((row) => row.message.details.final === true),
+  playerVisible: replayChunks.every((row) => row.message.display === true),
+  schemaV1: replayChunks.every((row) => (
+    row.message.details.schema_version === 1
+    && row.message.details.kind === "coc_delivery_replay"
+  )),
+  identityBinding: {
+    mockLatestStatus: server128.latestStatus,
+    resumeCarriedDelivery: !("delivery" in attempt05Resume.data),
+    firstRequestSemanticOnly: JSON.stringify(
+      replayDeliveryCalls[0]?.params.arguments,
+    ) === JSON.stringify({ mode: "replay" }),
+    laterCallsBoundToFirstResponseIdentity: replayDeliveryCalls.slice(1).every((row) => (
+      typeof row.params.arguments.text_offset === "number"
+      && row.params.arguments.finalization_id
+        === server128.firstIdentity.finalization_id
+      && row.params.arguments.rendered_sha256
+        === server128.firstIdentity.rendered_sha256
+    )),
+  },
+  semanticResult: {
+    ok: replayEnvelope.ok === true,
+    mode: replayEnvelope.data?.mode,
+    delivered: replayEnvelope.data?.delivered === true,
+    chunkCount: replayEnvelope.data?.chunk_count,
+    totalBytes: replayEnvelope.data?.total_bytes,
+    opaqueFree: !/finalization_id|rendered_sha|text_offset|next_offset/.test(
+      replayGatewayResult.content[0].text,
+    ),
+  },
+  ack: {
+    count: server128.acks.length,
+    kind: server128.acks[0]?.ack_kind,
+    finalizationId: server128.acks[0]?.finalization_id,
+    renderedSha: server128.acks[0]?.rendered_sha256,
+    semanticDecisionId: typeof server128.acks[0]?.decision_id === "string"
+      && server128.acks[0].decision_id.startsWith("pi-session-delivery_ack:"),
+  },
+};
+assert.equal(replayReport.plannedChunks > 1, true);
+assert.equal(replayReport.emittedChunks, replayReport.plannedChunks);
+assert.equal(replayReport.chars, 179);
+assert.equal(replayReport.bytes, 511);
+assert.equal(replayReport.exact, true);
+assert.equal(replayReport.whitespaceKept, true);
+assert.equal(replayReport.identityBinding.mockLatestStatus, "confirmed_displayed");
+assert.equal(replayReport.identityBinding.resumeCarriedDelivery, true);
+assert.equal(replayReport.identityBinding.firstRequestSemanticOnly, true);
+assert.equal(replayReport.identityBinding.laterCallsBoundToFirstResponseIdentity, true);
+assert.deepEqual(
+  replayReport.ordinals,
+  Array.from({ length: replayReport.emittedChunks }, (_, index) => index),
+);
+assert.deepEqual(replayReport.finalFlags, [
+  ...Array.from({ length: replayReport.emittedChunks - 1 }, () => false),
+  true,
+]);
+assert.equal(replayReport.playerVisible, true);
+assert.equal(replayReport.schemaV1, true);
+assert.equal(replayReport.identityBinding.firstRequestSemanticOnly, true);
+assert.equal(replayReport.identityBinding.laterCallsBoundToFirstResponseIdentity, true);
+assert.equal(replayReport.semanticResult.ok, true);
+assert.equal(replayReport.semanticResult.mode, "replay");
+assert.equal(replayReport.semanticResult.delivered, true);
+assert.equal(replayReport.semanticResult.chunkCount, replayReport.emittedChunks);
+assert.equal(replayReport.semanticResult.totalBytes, 511);
+assert.equal(replayReport.semanticResult.opaqueFree, true);
+assert.equal(replayReport.ack.count, 1);
+assert.equal(replayReport.ack.kind, "replayed");
+assert.equal(replayReport.ack.finalizationId, ATTEMPT05_FINALIZATION_ID);
+assert.equal(replayReport.ack.renderedSha, ATTEMPT05_SHA);
+assert.equal(replayReport.ack.semanticDecisionId, true);
+
+// Same-epoch replay quarantine: state/rules/finalize calls are rejected
+// host-side without reaching the canonical transport, and model prose is
+// suppressed so the player receives only the exact replay stream.
+const baseProbeAssistant = {
+  role: "assistant",
+  api: "openai-responses",
+  provider: "probe",
+  model: "probe",
+  usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+  stopReason: "stop",
+};
+const quarantineRejections = {};
+for (const operation of ["state.journal", "rules.roll", "turn.finalize", "narration.review"]) {
+  const rejected = await replayProbe.probeTools.get("coc_invoke").execute(
+    `replay-quarantine-${operation}`,
+    { operation, campaign: ATTEMPT05_CAMPAIGN, arguments: {} },
+    undefined,
+    undefined,
+    replayProbe.probeCtx,
+  );
+  const envelope = JSON.parse(rejected.content[0].text);
+  quarantineRejections[operation] = envelope.error?.code ?? null;
+}
+assert.deepEqual(quarantineRejections, {
+  "state.journal": "delivery_replay_owns_delivery",
+  "rules.roll": "delivery_replay_owns_delivery",
+  "turn.finalize": "delivery_replay_owns_delivery",
+  "narration.review": "delivery_replay_owns_delivery",
+});
+assert.equal(
+  replayProbe.probeCalls.some((row) => [
+    "state.journal",
+    "rules.roll",
+    "turn.finalize",
+    "narration.review",
+  ].includes(row.params?.operation)),
+  false,
+);
+const paraphraseSuppressed = await replayProbe.emit("message_end", {
+  ...baseProbeAssistant,
+  content: [{ type: "text", text: "这是模型附带的额外转述，必须被整段抑制。" }],
+  timestamp: 401,
+});
+assert.equal(
+  (paraphraseSuppressed?.message?.content ?? [])
+    .some((part) => part.type === "text"),
+  false,
+);
+const emptyFinalDuringQuarantine = await replayProbe.emit("message_end", {
+  ...baseProbeAssistant,
+  content: [],
+  timestamp: 402,
+});
+assert.equal(
+  (emptyFinalDuringQuarantine?.message?.content ?? [])
+    .some((part) => part.type === "text"),
+  false,
+);
+assert.equal(
+  replayProbe.probeEntries.some((row) => String(row.type).includes("empty-terminal")),
+  false,
+);
+
+// agent_end ends the quarantine: the next input gets the normal surface.
+await replayProbe.agentEnd();
+replayProbe.setServe((params) => params?.operation === "state.cash_query"
+  ? { ok: true, tool: "state.cash_query", data: { probe: "post-quarantine" } }
+  : { ok: false, error: { code: "probe_no_route" } });
+const postQuarantineProbe = await replayProbe.probeTools.get("coc_invoke").execute(
+  "post-quarantine-state",
+  { operation: "state.cash_query", campaign: ATTEMPT05_CAMPAIGN, arguments: {} },
+  undefined,
+  undefined,
+  replayProbe.probeCtx,
+);
+assert.equal(JSON.parse(postQuarantineProbe.content[0].text).ok, true);
+
+// Canonical default chunking (511-byte text fits one bounded chunk) replays
+// in a single final chunk with the same exact reassembly and ack contract.
+const serverDefault = attempt05ReplayServer(4096);
+replayProbe.setServe(serverDefault.serve);
+await replayProbe.probeTools.get("coc_session_delivery_text").execute(
+  "replay-single-chunk-probe",
+  { campaign: ATTEMPT05_CAMPAIGN },
+  undefined,
+  undefined,
+  replayProbe.probeCtx,
+);
+const singleChunks = replayProbe.probeSent.filter((row) => (
+  row.message?.customType === "coc_delivery_replay"
+)).slice(replayReport.emittedChunks);
+const singleJoined = singleChunks.map((row) => row.message.details.text).join("");
+assert.equal(singleChunks.length, 1);
+assert.equal(singleChunks[0].message.details.final, true);
+assert.equal(singleJoined === ATTEMPT05_CANONICAL_TEXT, true);
+assert.equal(Buffer.byteLength(singleJoined, "utf8"), 511);
+assert.equal(serverDefault.acks.length, 1);
+assert.equal(serverDefault.acks[0].ack_kind, "replayed");
+replayReport.singleChunk = {
+  chunks: singleChunks.length,
+  exact: singleJoined === ATTEMPT05_CANONICAL_TEXT,
+  acked: serverDefault.acks[0].ack_kind,
+};
+// Fresh-process restart probe (attempt-05, honest): a brand-new Node
+// process boots a brand-new extension instance with no arm/cache, its resume
+// envelope carries no delivery projection, the canonical latest is already
+// confirmed/displayed, and the mock rejects any identity field on the first
+// replay request. All assertions run parent-side on the raw child report.
+const freshRestartDir = mkdtempSync(path.join(tmpdir(), "pi-fresh-replay-"));
+const childPath = path.join(freshRestartDir, "fresh-replay-child.mjs");
+const childSource = `// generated by tests/pi/finalization-gateway.mjs
+import { createHash } from "node:crypto";
+import { pathToFileURL } from "node:url";
+await import(${JSON.stringify(pathToFileURL(path.join(root, "tests/pi/_lib/preload-embedded-pi.mjs")).href)});
+const main = await import(pathToFileURL(${JSON.stringify(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"))}).href);
+const ROOT = process.argv[2];
+const CANONICAL = ${JSON.stringify(ATTEMPT05_CANONICAL_TEXT)};
+const sha256 = (value) => (
+  "sha256:" + createHash("sha256").update(value, "utf8").digest("hex")
+);
+const SHA = sha256(JSON.stringify(CANONICAL));
+const FID = "turn-effect-v1:attempt05-fresh-restart";
+function utf8ChunkEnd(data, start, limit) {
+  let end = Math.min(start + limit, data.length);
+  if (end < data.length) {
+    while (end > start && (data[end] & 0xC0) === 0x80) end -= 1;
+    if (end === start) {
+      end = start + 1;
+      while (end < data.length && (data[end] & 0xC0) === 0x80) end += 1;
+    }
+  }
+  return end;
+}
+const data = Buffer.from(CANONICAL, "utf8");
+const chunks = [];
+let position = 0;
+while (position < data.length) {
+  const end = utf8ChunkEnd(data, position, 128);
+  chunks.push([position, end]);
+  position = end;
+}
+// Canonical latest is already confirmed/displayed; first request must be
+// semantic-only, later chunks require the identity the first response gave.
+const state = { chunkCalls: [], acks: [], firstSeen: false };
+const chunkEnvelope = (index) => ({
+  ok: true,
+  tool: "session.delivery_text",
+  data: {
+    mode: "replay",
+    finalization_id: FID,
+    rendered_sha256: SHA,
+    rendered_text_sha256: SHA,
+    text: data.subarray(...chunks[index]).toString("utf8"),
+    text_offset: chunks[index][0],
+    returned_bytes: chunks[index][1] - chunks[index][0],
+    total_bytes: data.length,
+    chunk_ordinal: index,
+    chunk_count: chunks.length,
+    final: index === chunks.length - 1,
+    next_offset: chunks[index][1] < data.length ? chunks[index][1] : null,
+  },
+});
+const serve = (params) => {
+  if (params?.operation === "session.delivery_ack") {
+    state.acks.push(params.arguments ?? {});
+    return { ok: true, tool: "session.delivery_ack", data: { status: "confirmed", ack_kind: params.arguments?.ack_kind ?? null } };
+  }
+  if (params?.operation !== "session.delivery_text") {
+    return { ok: false, error: { code: "probe_no_route" } };
+  }
+  const args = params.arguments ?? {};
+  if (!state.firstSeen) {
+    if (args.finalization_id !== undefined || args.rendered_sha256 !== undefined || args.text_offset !== undefined) {
+      return { ok: false, tool: "session.delivery_text", error: { code: "invalid_param" } };
+    }
+    if (args.mode !== "replay") {
+      return { ok: false, tool: "session.delivery_text", error: { code: "invalid_param" } };
+    }
+    state.firstSeen = true;
+    state.chunkCalls.push(args);
+    return chunkEnvelope(0);
+  }
+  if (args.finalization_id !== FID || args.rendered_sha256 !== SHA) {
+    return { ok: false, tool: "session.delivery_text", error: { code: "delivery_conflict" } };
+  }
+  const index = chunks.findIndex(([start]) => start === args.text_offset);
+  if (index === -1) return { ok: false, tool: "session.delivery_text", error: { code: "invalid_param" } };
+  state.chunkCalls.push(args);
+  return chunkEnvelope(index);
+};
+const calls = [];
+const sent = [];
+const handlers = new Map();
+const tools = new Map();
+const pi = {
+  registerTool: (tool) => tools.set(tool.name, tool),
+  registerCommand() {},
+  registerShortcut() {},
+  on(type, handler) {
+    const registered = handlers.get(type) || [];
+    registered.push(handler);
+    handlers.set(type, registered);
+  },
+  appendEntry() {},
+  sendMessage(message) { sent.push(message); },
+  setActiveTools() {},
+  getThinkingLevel: () => "off",
+};
+main.default(pi, {
+  coordinatorEnabled: () => false,
+  startupCampaignId: () => null,
+  createClient: () => ({
+    callTool: async (name, params) => {
+      calls.push({ name, params });
+      return serve(params);
+    },
+    callToolWithTransportMeta: async (name, params) => ({
+      value: await (async () => {
+        calls.push({ name, params });
+        return serve(params);
+      })(),
+      transport: null,
+    }),
+    async close() {},
+  }),
+});
+const ctx = {
+  cwd: ROOT,
+  mode: "rpc",
+  model: { provider: "probe", id: "probe" },
+  sessionManager: { getSessionId: () => "fresh-replay-probe", getEntries: () => [] },
+  hasUI: false,
+};
+for (const handler of handlers.get("session_start") || []) {
+  await handler({ type: "session_start", reason: "probe" }, ctx);
+}
+await tools.get("coc_invoke").execute(
+  "resume",
+  { operation: "session.resume", campaign: "attempt05-fresh-restart", arguments: {} },
+  undefined,
+  undefined,
+  ctx,
+);
+const replayResult = await tools.get("coc_session_delivery_text").execute(
+  "replay",
+  { campaign: "attempt05-fresh-restart", mode: "replay" },
+  undefined,
+  undefined,
+  ctx,
+);
+const journalAttempt = await tools.get("coc_invoke").execute(
+  "quarantine",
+  { operation: "state.journal", campaign: "attempt05-fresh-restart", arguments: {} },
+  undefined,
+  undefined,
+  ctx,
+);
+let transformed;
+for (const handler of handlers.get("message_end") || []) {
+  transformed = await handler({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      api: "openai-responses",
+      provider: "probe",
+      model: "probe",
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+      stopReason: "stop",
+      timestamp: 9,
+      content: [{ type: "text", text: "这是模型附带的额外转述，必须被抑制。" }],
+    },
+  }, ctx);
+}
+for (const handler of handlers.get("agent_end") || []) await handler({}, ctx);
+const events = sent.filter((message) => message?.customType === "coc_delivery_replay");
+const joined = events.map((message) => message.details.text).join("");
+const resumeCalls = calls.filter((row) => row.params?.operation === "session.resume");
+process.stdout.write(JSON.stringify({
+  freshProcess: true,
+  resumeDataKeys: resumeCalls.map((row) => Object.keys(row.params.data ?? {})),
+  resumeCount: resumeCalls.length,
+  chunkCalls: state.chunkCalls,
+  firstResponseIdentity: { finalization_id: FID, rendered_sha256: SHA },
+  acks: state.acks,
+  events: events.map((message) => ({
+    display: message.display === true,
+    details: {
+      schema_version: message.details.schema_version,
+      kind: message.details.kind,
+      chunk_ordinal: message.details.chunk_ordinal,
+      chunk_count: message.details.chunk_count,
+      final: message.details.final,
+      text: message.details.text,
+    },
+  })),
+  joinedChars: [...joined].length,
+  joinedBytes: Buffer.byteLength(joined, "utf8"),
+  joinedExact: joined === CANONICAL,
+  resultText: replayResult.content[0].text,
+  journalErrorCode: JSON.parse(journalAttempt.content[0].text).error?.code ?? null,
+  paraphraseHidden: !((transformed?.message?.content ?? [])).some((part) => part.type === "text"),
+}));
+`;
+writeFileSync(childPath, childSource);
+const freshRun = spawnSync(
+  process.execPath,
+  ["--experimental-strip-types", childPath, root],
+  { encoding: "utf8", cwd: root },
+);
+assert.equal(freshRun.status, 0, freshRun.stderr?.slice(-2000));
+const fresh = JSON.parse(freshRun.stdout);
+const freshEventsText = fresh.events.map((event) => event.details.text).join("");
+const freshReport = {
+  freshProcess: fresh.freshProcess === true,
+  resumeDeliveryFree: fresh.resumeCount === 1
+    && fresh.resumeDataKeys.every((keys) => !keys.includes("delivery")),
+  firstRequestSemanticOnly: JSON.stringify(fresh.chunkCalls[0])
+    === JSON.stringify({ mode: "replay" }),
+  chunkCalls: fresh.chunkCalls.length,
+  laterCallsBound: fresh.chunkCalls.slice(1).every((args) => (
+    typeof args.text_offset === "number"
+    && args.finalization_id === fresh.firstResponseIdentity.finalization_id
+    && args.rendered_sha256 === fresh.firstResponseIdentity.rendered_sha256
+  )),
+  chars: freshEventsText.length === 0 ? fresh.joinedChars : [...freshEventsText].length,
+  bytes: Buffer.byteLength(freshEventsText, "utf8") || fresh.joinedBytes,
+  exact: freshEventsText === "" ? fresh.joinedExact : freshEventsText === ATTEMPT05_CANONICAL_TEXT,
+  ordinals: fresh.events.map((event) => event.details.chunk_ordinal),
+  finals: fresh.events.map((event) => event.details.final),
+  playerVisible: fresh.events.every((event) => event.display),
+  schemaV1: fresh.events.every((event) => (
+    event.details.schema_version === 1 && event.details.kind === "coc_delivery_replay"
+  )),
+  ack: {
+    count: fresh.acks.length,
+    kind: fresh.acks[0]?.ack_kind,
+    identityBound: fresh.acks[0]?.finalization_id === fresh.firstResponseIdentity.finalization_id
+      && fresh.acks[0]?.rendered_sha256 === fresh.firstResponseIdentity.rendered_sha256,
+  },
+  resultOpaqueFree: !/finalization_id|rendered_sha|text_offset|next_offset/.test(fresh.resultText),
+  resultDelivered: JSON.parse(fresh.resultText).data?.delivered === true,
+  journalRejected: fresh.journalErrorCode === "delivery_replay_owns_delivery",
+  paraphraseHidden: fresh.paraphraseHidden === true,
+};
+assert.equal(freshReport.freshProcess, true);
+assert.equal(freshReport.resumeDeliveryFree, true);
+assert.equal(freshReport.firstRequestSemanticOnly, true);
+assert.equal(freshReport.chunkCalls > 1, true);
+assert.equal(freshReport.laterCallsBound, true);
+assert.equal(freshReport.chars, 179);
+assert.equal(freshReport.bytes, 511);
+assert.equal(freshReport.exact, true);
+assert.deepEqual(freshReport.ordinals, Array.from({ length: freshReport.chunkCalls }, (_, index) => index));
+assert.equal(freshReport.finals.at(-1), true);
+assert.equal(freshReport.playerVisible, true);
+assert.equal(freshReport.schemaV1, true);
+assert.equal(freshReport.ack.count, 1);
+assert.equal(freshReport.ack.kind, "replayed");
+assert.equal(freshReport.ack.identityBound, true);
+assert.equal(freshReport.resultOpaqueFree, true);
+assert.equal(freshReport.resultDelivered, true);
+assert.equal(freshReport.journalRejected, true);
+assert.equal(freshReport.paraphraseHidden, true);
+replayReport.freshRestart = freshReport;
+process.stderr.write(
+  `deliveryReplayReport: ${JSON.stringify(replayReport)}\n`,
+);
+
 process.stdout.write(JSON.stringify({
   piVersion: "0.81.1",
   gatewayCalls: clientCalls,

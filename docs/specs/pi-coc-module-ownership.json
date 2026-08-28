@@ -420,7 +420,6 @@
       ],
       "implementation_dependencies": [
         "plugins/coc-keeper/scripts/coc_epistemic_resolve.py",
-        "plugins/coc-keeper/scripts/coc_memory.py",
         "plugins/coc-keeper/scripts/coc_quest_state.py",
         "plugins/coc-keeper/scripts/coc_threat_state.py"
       ],

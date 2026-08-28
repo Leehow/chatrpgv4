@@ -66,7 +66,6 @@ export const HOST_INVOKE_COMPAT_OPERATIONS = new Set([
   "session.begin",
   "session.continuation_detail",
   "session.delivery_ack",
-  "session.delivery_text",
 ]);
 
 export const DOMAIN_TOOL_NAMES = [

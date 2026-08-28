@@ -2241,7 +2241,7 @@ def test_generate_plan_has_required_fields(tmp_path):
     plan = coc_story_director.generate_director_plan(ctx, decision_id="d2")
     required = ["decision_id", "turn_input", "scene_action", "dramatic_question", "pacing_mode",
                 "tension_delta", "rule_signals", "clue_policy", "npc_moves", "pressure_moves",
-                "rules_requests", "memory_reads", "memory_writes", "narrative_directives",
+                "rules_requests", "memory_reads", "narrative_directives",
                 "handoff", "rationale"]
     for field in required:
         assert field in plan, f"missing {field}"

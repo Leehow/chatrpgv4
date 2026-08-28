@@ -862,14 +862,13 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "session.delivery_text": {
     "advisory": false,
-    "audience": "host",
+    "audience": "keeper",
     "contract": "none",
     "execution_class": "serial_campaign",
-    "kp_surface": "none",
+    "kp_surface": "context",
     "phases": [
-      "cold_start",
-      "recovery",
-      "live_turn"
+      "live_turn",
+      "recovery"
     ]
   },
   "session.resume": {
@@ -1599,6 +1598,7 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "scene.context",
     "scene.map",
     "secrets.briefing",
+    "session.delivery_text",
     "steward.deliveries",
     "steward.notebook",
     "steward.scene_supply",

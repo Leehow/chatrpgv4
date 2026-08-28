@@ -3859,3 +3859,106 @@ test("attachOpening surfaces an undelivered recovery finalization as a turn faul
     unhandled.stop();
   }
 });
+
+test("coc_delivery_replay chunks map to verbatim deltas with no trim (attempt-05)", () => {
+  // Historical attempt-05 canonical text: 179 chars / 511 UTF-8 bytes.
+  const canonical = "林默仍站在门槛外，借窄缝把目光压低，一寸寸扫过近处地板与能看见的墙角。"
+    + "昏黄灯下，那一片地砖干净，没有血迹，也没有蜷伏或倒卧的轮廓；角落里没有"
+    + "拖曳的痕迹，也没有突然一闪而过的动静。\n\n"
+    + "【明骰】侦查｜掷骰：23；基础值：51；门槛：普通（≤51）；达到：困难成功（超出 1 级）；通过\n\n"
+    + "他压低嗓子，对着门缝轻唤一声：「考夫特？」回声在门后短促地散开，仍无人应。";
+  assert.equal([...canonical].length, 179);
+  assert.equal(Buffer.byteLength(canonical, "utf8"), 511);
+  // Split at a code-point boundary; chunk one starts with whitespace the
+  // mapper must never trim, chunk two ends with a newline it must keep.
+  const chunks = ["\n\n" + canonical.slice(0, 90), canonical.slice(90) + "\n"];
+  const reassembled = chunks.map((text) => mapRpcEventToSse({
+    type: "custom_message",
+    customType: "coc_delivery_replay",
+    content: text,
+    details: {
+      schema_version: 1,
+      kind: "coc_delivery_replay",
+      campaign_id: "attempt05-replay-campaign",
+      text,
+      chunk_ordinal: chunks.indexOf(text),
+      chunk_count: chunks.length,
+      chunk_bytes: Buffer.byteLength(text, "utf8"),
+      total_bytes: Buffer.byteLength(chunks.join(""), "utf8"),
+      final: chunks.indexOf(text) === chunks.length - 1,
+    },
+  }));
+  assert.equal(reassembled.length, 2);
+  for (const [index, frames] of reassembled.entries()) {
+    assert.equal(frames.length, 1);
+    assert.equal(frames[0].event, "delta");
+    assert.equal(frames[0].data.text, chunks[index]);
+    assert.deepEqual(
+      {
+        schema_version: frames[0].data.replay.schema_version,
+        chunk_ordinal: frames[0].data.replay.chunk_ordinal,
+        chunk_count: frames[0].data.replay.chunk_count,
+        final: frames[0].data.replay.final,
+      },
+      {
+        schema_version: 1,
+        chunk_ordinal: index,
+        chunk_count: 2,
+        final: index === 1,
+      },
+    );
+  }
+  const joined = reassembled.map(([frame]) => frame.data.text).join("");
+  assert.equal(joined, "\n\n" + canonical + "\n");
+  assert.equal(Buffer.byteLength(joined, "utf8"), 511 + 3);
+  assert.ok(joined.includes("\n\n"));
+});
+
+test("only genuine coc_delivery_replay custom events map to replay deltas", () => {
+  // Wrong customType, wrong schema, wrong kind, and non-custom events never
+  // become replay deltas; ordinary assistant mapping stays unchanged.
+  assert.deepEqual(mapRpcEventToSse({
+    type: "custom_message",
+    customType: "coc-something-else",
+    content: "x",
+    details: { schema_version: 1, kind: "coc_delivery_replay" },
+  }), []);
+  assert.deepEqual(mapRpcEventToSse({
+    type: "custom_message",
+    customType: "coc_delivery_replay",
+    content: "x",
+    details: { schema_version: 2, kind: "coc_delivery_replay", text: "x" },
+  }), []);
+  assert.deepEqual(mapRpcEventToSse({
+    type: "custom_message",
+    customType: "coc_delivery_replay",
+    content: "x",
+    details: { schema_version: 1, kind: "other", text: "x" },
+  }), []);
+  const missingText = mapRpcEventToSse({
+    type: "custom_message",
+    customType: "coc_delivery_replay",
+    details: { schema_version: 1, kind: "coc_delivery_replay" },
+  });
+  assert.deepEqual(missingText, []);
+  // content fallback when details carries the envelope but no text field.
+  const fromContent = mapRpcEventToSse({
+    type: "custom",
+    customType: "coc_delivery_replay",
+    content: "逐字原文",
+    details: { schema_version: 1, kind: "coc_delivery_replay", final: true },
+  });
+  assert.equal(fromContent.length, 1);
+  assert.equal(fromContent[0].event, "delta");
+  assert.equal(fromContent[0].data.text, "逐字原文");
+  assert.equal(fromContent[0].data.replay.final, true);
+  // Ordinary assistant message_end mapping is unchanged (still trims drafts).
+  const ordinary = mapRpcEventToSse({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "  普通叙述  \n" }],
+    },
+  });
+  assert.deepEqual(ordinary, [{ event: "delta", data: { text: "普通叙述" } }]);
+});

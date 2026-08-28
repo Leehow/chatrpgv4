@@ -1769,7 +1769,6 @@ def _plan_from_typed_subsystem_request(
             },
             "rule_signals": {},
             "pressure_moves": [],
-            "memory_writes": [],
             "time_advance": {
                 "mode": "none",
                 "reason": "destination limitation consumes no game time",
@@ -1805,7 +1804,6 @@ def _plan_from_typed_subsystem_request(
             },
             "rule_signals": {},
             "pressure_moves": [],
-            "memory_writes": [],
             "time_advance": {
                 "mode": "none",
                 "reason": "push limitation consumes no game time",
@@ -1843,7 +1841,6 @@ def _plan_from_typed_subsystem_request(
             "narrative_directives": {},
             "rule_signals": {},
             "pressure_moves": [],
-            "memory_writes": [],
         }
     if not push_keys <= set(request) or set(request) - push_keys - {"source_time_profile"}:
         raise ValueError(
@@ -1881,7 +1878,6 @@ def _plan_from_typed_subsystem_request(
         "narrative_directives": {},
         "rule_signals": {},
         "pressure_moves": [],
-        "memory_writes": [],
     }
 
 

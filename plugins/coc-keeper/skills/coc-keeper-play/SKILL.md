@@ -26,7 +26,7 @@ routed**, not optional; ordinary turns stay here and do not re-read them all.
 | Investigator selection / parameters in play; personal horror weaving; first contact, multi-NPC engagement, live relationships | `references/investigators-horror-npc.md` |
 | Style, Table Wit, foreign-language dialogue, action-prompt shape, scene craft | `references/style-scene-craft.md` |
 | Action-shaped quests (`quest.*`): offering, accepting, settling, improvising | `references/turn-tooling-and-typed-ops.md` |
-| Temporal memory (`memory.recall` / `memory.adjudicate`) and extraction backlog (`memory.extraction_status` / `memory.extraction_settle`); `history.query` / `history.diff`; rewind / fork / counterfactual / worldline-merge requests (`timeline.*`); exact transcript verification (`transcript.locate` / `transcript.read`) | `references/turn-tooling-and-typed-ops.md` |
+| Temporal memory (`memory.recall` / `memory.adjudicate`) and extraction backlog (`memory.extraction_status` / `memory.extraction_settle`); `history.query` / `history.diff`; rewind / fork / counterfactual / worldline-merge requests (`timeline.*`); exact transcript verification (`transcript.locate` / `transcript.read`); exact delivery replay (`session.delivery_text` `mode:"replay"`) | `references/turn-tooling-and-typed-ops.md` |
 | Failed SAN table performance; horror craft; content boundaries; ending a story / `state.end_session` | `references/horror-san-content-endings.md` |
 | Pi-Coc source-backed建卡期间的后台管家解析、resume、完成通知 | `../coc-steward-parse/SKILL.md` |
 | Full ordinary-turn tool walkthrough, combat/dying/recovery chains, typed non-turn operations | `references/turn-tooling-and-typed-ops.md` |
@@ -70,7 +70,7 @@ rescan files or replay full history to rebuild memory context.
 - `pending_finalization`: repair only the returned `pending_output_context` blocker, then finalize; never reroll, replay mutation, accept another action, or redraft deterministic mechanics.
 - `open_turn_recovery`: continue successful `current_turn.rows` in order, reuse returned identities/opportunities, and settle only missing work; do not reroll, rediscover, or ask the player to restate intent.
 - `awaiting_player`: interpret the message from recovered scene, public tail, threads, decisions, and style commitments.
-- `delivery.status=unconfirmed`: if the last reply is absent from the player's screen, replay `delivery.exact_text`, or externalized `session.delivery_text`, byte-for-byte; do not call rules/state/finalization again or regenerate prose.
+- `delivery.status=unconfirmed`: if the last reply is absent from the player's screen, replay `delivery.exact_text`, or externalized `session.delivery_text`, byte-for-byte; do not call rules/state/finalization again or regenerate prose. When the player semantically reports the latest finalized output missing or asks for its exact replay, invoke typed `session.delivery_text` with `mode:"replay"`: the host reattaches machine-owned delivery identity and delivers the exact text. During replay you never paraphrase, journal, reroll, mutate state, call any narration review or turn finalization operation, or emit additional prose. Detail: `references/turn-tooling-and-typed-ops.md`.
 - `host_input` is unclassified transport evidence. Decide its meaning semantically; never promote it automatically into an investigator action.
 
 Preserve craft, NPC agency, causality, play language, and Table Wit; recovery is never permission to become a dice machine.

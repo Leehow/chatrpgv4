@@ -403,3 +403,53 @@ test("table_opening and open_turn_recovery keep typed closure, not generic wrapp
   assert.ok(unsetOpening.includes("coc_rules"));
   assert.ok(!unsetOpening.includes("coc_rules_roll"));
 });
+
+test("session.delivery_text replay surface is semantic-only (attempt-05 schema)", () => {
+  const operation = "session.delivery_text";
+  const tool = catalog.byOperation.get(operation);
+  assert.ok(tool, operation);
+  const presented = JSON.stringify(tool.parameters);
+  // Model-visible schema hides every machine-owned delivery identity and
+  // chunk transport field (Identifier Law: never model-relayed).
+  for (const opaque of [
+    "finalization_id",
+    "rendered_sha256",
+    "text_offset",
+    "text_limit",
+  ]) {
+    assert.equal(
+      Object.hasOwn(tool.parameters.properties, opaque),
+      false,
+      `model surface must hide ${opaque}`,
+    );
+    assert.equal(presented.includes(`"${opaque}"`), false, opaque);
+  }
+  // Replay is the only exposed mode; the archive keeps context mode
+  // backward-compatible for non-typed canonical consumers.
+  assert.deepEqual(tool.parameters.properties.mode.enum, ["replay"]);
+  // Exact surface pin: exactly campaign + semantic mode, nothing inherited.
+  assert.deepEqual(
+    Object.keys(tool.parameters.properties).sort(),
+    ["campaign", "mode"],
+  );
+  assert.deepEqual(tool.parameters.required, ["campaign"]);
+  assert.equal(tool.parameters.additionalProperties, false);
+  assert.equal(tool.parameters.properties.root, undefined);
+  assert.equal(tool.parameters.type, "object");
+  assert.notDeepEqual(tool.parameters, archive.operations[operation].inputSchema);
+
+  // Host wrapper lifts the campaign into the gateway envelope and forwards
+  // only the semantic mode argument.
+  const wrapped = typed.wrapTypedToolInvokeParams("coc_session_delivery_text", {
+    campaign: "attempt05-campaign",
+    mode: "replay",
+  });
+  assert.equal(wrapped.operation, operation);
+  assert.equal(wrapped.campaign, "attempt05-campaign");
+  assert.deepEqual(wrapped.arguments, { mode: "replay" });
+
+  // Play-role live_turn surface exposes the replay tool by its typed name.
+  assert.ok(
+    domain.activeToolsForPhase("live_turn", "play").includes("coc_session_delivery_text"),
+  );
+});

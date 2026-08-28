@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:4cd0212e917957427a44c50a4c921b84c837938d3907405e9cdc39d999664f3f",
+  "content_sha256": "sha256:56e8b951ac62fb5d4814aa0ebb8f1b6b97bea278a61fa6279c1fda9922a1e26f",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -4560,35 +4560,44 @@
             "type": "string"
           },
           "finalization_id": {
-            "description": "latest finalization identity from session.resume.delivery",
+            "description": "context mode: finalization identity from session.resume.delivery; replay mode: optional machine-injected identity validated against the latest canonical delivery",
+            "type": "string"
+          },
+          "mode": {
+            "description": "context (default) reads an explicit hash-bound receipt; replay reads the latest canonical delivery as bounded exact chunks with host-bound identity",
             "type": "string"
           },
           "rendered_sha256": {
-            "description": "exact rendered hash from session.resume.delivery",
+            "description": "context mode: exact rendered hash from session.resume.delivery; replay mode: optional machine-injected hash validated against the latest canonical delivery",
             "type": "string"
           },
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
+          },
+          "text_limit": {
+            "description": "replay mode: maximum UTF-8 bytes in this exact chunk; follow next_offset until final",
+            "type": "integer"
+          },
+          "text_offset": {
+            "description": "replay mode: UTF-8 byte offset where this exact chunk starts (0 for the first chunk)",
+            "type": "integer"
           }
         },
         "required": [
-          "campaign",
-          "finalization_id",
-          "rendered_sha256"
+          "campaign"
         ],
         "type": "object"
       },
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "host",
+        "audience": "keeper",
         "contract": "none",
-        "kp_surface": "none",
+        "kp_surface": "context",
         "phases": [
-          "cold_start",
-          "recovery",
-          "live_turn"
+          "live_turn",
+          "recovery"
         ]
       },
       "summary": "Read the latest hash-bound immutable Keeper output when session.resume externalized it to stay inside the recovery byte budget."

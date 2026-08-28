@@ -1682,10 +1682,9 @@ def _compact_delivery(value: Any, *, tight: bool) -> Any:
         projected["exact_text"] = None
         projected["replay_operation"] = _operation_card(
             "session.delivery_text",
-            prefilled={
-                "finalization_id": projected.get("finalization_id"),
-                "rendered_sha256": projected.get("rendered_sha256"),
-            },
+            # Semantic replay card only: the host binds the latest canonical
+            # delivery identity; the model never copies ids or hashes.
+            prefilled={"mode": "replay"},
         )
     return projected
 

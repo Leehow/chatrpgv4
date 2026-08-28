@@ -89,7 +89,7 @@ def campaign_ws(tmp_path: Path):
 
 
 # --------------------------------------------------------------------------- #
-# Log-row helpers (unit-level: drive _tool_loop_warning directly)
+# Log-row helpers (unit-level: drive _loop_guard_warning directly)
 # --------------------------------------------------------------------------- #
 
 
@@ -176,7 +176,7 @@ def _bump_turn(ws: dict) -> int:
 
 def _probe(ws: dict, tool: str, args: dict | None = None) -> str | None:
     ctx = coc_toolbox.Ctx(ws["workspace"], ws["campaign_id"])
-    return coc_toolbox._tool_loop_warning(ctx, tool, dict(args or {}))
+    return coc_toolbox._loop_guard_warning(ctx, tool, dict(args or {}))
 
 
 # --------------------------------------------------------------------------- #
@@ -362,10 +362,10 @@ def test_no_campaign_context_yields_no_warning(campaign_ws):
     ctx_without_campaign = coc_toolbox.Ctx(ws["workspace"], None)
     assert ctx_without_campaign.campaign_dir is None
     assert (
-        coc_toolbox._tool_loop_warning(ctx_without_campaign, "scene.context", {})
+        coc_toolbox._loop_guard_warning(ctx_without_campaign, "scene.context", {})
         is None
     )
-    assert coc_toolbox._tool_loop_warning(None, "scene.context", {}) is None
+    assert coc_toolbox._loop_guard_warning(None, "scene.context", {}) is None
 
 
 def test_unreadable_pacing_degrades_to_no_warning(campaign_ws):

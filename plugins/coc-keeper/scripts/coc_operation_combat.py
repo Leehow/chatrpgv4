@@ -441,11 +441,26 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
         raise ToolError("invalid_param", "weapon_effect_ids must be non-empty strings")
     if len(selected_effect_ids) != len(set(selected_effect_ids)):
         raise ToolError("invalid_param", "weapon_effect_ids must be unique")
-    catalog = coc_subsystem_executor.coc_combat.resolve_module_weapons(None)
     owned_rows = [
         row for row in (investigator_profile.get("weapons") or [])
         if isinstance(row, dict) and row.get("weapon_id")
     ]
+    base_catalog = coc_subsystem_executor.coc_combat.resolve_module_weapons(None)
+    # Owned ``extends`` weapons are catalog-backed: resolve them through the
+    # same merge the engine applies, so a granted module-style weapon is as
+    # resolvable as the canonical weapon it extends.
+    owned_extends_profiles = [
+        deepcopy(row) for row in owned_rows
+        if str(row.get("extends") or "").strip()
+        and str(row.get("weapon_id") or "") not in base_catalog
+    ]
+    catalog = (
+        coc_subsystem_executor.coc_combat.resolve_module_weapons(
+            owned_extends_profiles, base_catalog
+        )
+        if owned_extends_profiles
+        else base_catalog
+    )
     for row in owned_rows:
         catalog_row = catalog.get(str(row.get("weapon_id") or ""))
         if isinstance(catalog_row, dict):

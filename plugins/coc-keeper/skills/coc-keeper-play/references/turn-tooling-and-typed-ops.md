@@ -580,6 +580,23 @@ surface — no keyword rules anywhere in this lane.
   receipt). Quote only from that return. Historical timelines resolve
   through code — never read logs directly, never accept a commit hash or
   digest from the player, and keep keeper-only rows out of player prose.
+- **Exact delivery replay (latest finalized output).** When the player
+  semantically reports that the latest finalized Keeper reply never reached
+  their screen, or asks for that exact delivery to be sent again
+  (「刚才那段没有显示」「把刚才那段原样再发一遍」), invoke typed
+  `session.delivery_text` with `mode: "replay"` — that one call is the whole
+  replay. The host owns the canonical delivery identity and the replay
+  mechanics: it reattaches the machine-only identity itself and re-emits the
+  exact finalized text as player-visible events, so you pass no ids, hashes,
+  or offsets and write no replacement text. Judge the request semantically —
+  a blank screen, transport loss, or an explicit resend request is replay;
+  an in-fiction「你再说一遍？」is ordinary play, never a replay call — and
+  never trigger it by keyword or pattern. While the replay settles you must
+  not paraphrase, journal, reroll, mutate state, call `narration.review` /
+  `turn.finalize`, or emit any additional player-visible prose alongside it.
+  This lane covers the **latest** finalized delivery only: verifying or
+  quoting older wording still uses `transcript.locate` / `transcript.read`
+  above, and ordinary transcript lookup and context reads remain unchanged.
 - **Tools stay invisible.** The player never calls or names timeline,
   history, memory, or transcript operations and never needs to know they
   exist. Surface a fork or confluence as table experience — a new thread of

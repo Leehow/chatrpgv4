@@ -3643,6 +3643,12 @@ type StartupSilentResumeQuarantine = {
   mode: "already_acknowledged" | "awaiting_player";
 };
 
+// Exact-delivery replay quarantine for the current player input: while it is
+// armed, the host replay stream owns the visible output — model-authored
+// prose is suppressed and state/rules/journal/narration.review/turn.finalize
+// calls are rejected until the replaying agent turn ends.
+type DeliveryReplayQuarantine = { campaignId: string };
+
 export default function mainExtension(pi: ExtensionAPI, overrides: MainExtensionOverrides = {}) {
   let mcp: McpJsonlClient | null = null;
   let turnTelemetry: TurnTelemetry | null = null;
@@ -3666,6 +3672,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let idleTakeoverContext: ExtensionContext | null = null;
   let startupResumeGate: StartupResumeGate | null = null;
   let startupSilentResumeQuarantine: StartupSilentResumeQuarantine | null = null;
+  let deliveryReplayQuarantine: DeliveryReplayQuarantine | null = null;
   // Startup-only fact from the persistent session branch (read once in
   // initializeSession): the branch ends with a real unmatched external
   // player turn. While true, a silent settled startup resume
@@ -5100,6 +5107,262 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     overrides.createClient?.(ctx)
     ?? new McpJsonlClient(ctx.cwd, ctx.sessionManager.getSessionId(), ctx.mode === "tui")
   );
+  // Exact-delivery replay constants: the custom event is the player-visible
+  // stream contract; the blocked set is the same-epoch mutation quarantine.
+  const DELIVERY_REPLAY_CUSTOM_TYPE = "coc_delivery_replay";
+  const deliveryReplayBlockedOperation = (operation: string): boolean => (
+    operation === "narration.review"
+    || operation === "turn.finalize"
+    || operation.startsWith("state.")
+    || operation.startsWith("rules.")
+  );
+  /**
+   * Host-owned exact replay of the latest canonical delivery. The model's
+   * typed call carries only the semantic replay request; the first canonical
+   * request is semantic-only (campaign + mode, no in-memory arm required),
+   * the machine-only identity returned by the first chunk is bound and
+   * validated on every later chunk request and the replay ack, chunks stream
+   * byte-for-byte as player-visible `coc_delivery_replay` events, and the
+   * model-visible result carries no opaque identity.
+   */
+  const runExactDeliveryReplayLane = async (
+    campaignId: string,
+    ctx: ExtensionContext,
+    signal: AbortSignal | undefined,
+    epoch: number,
+  ): Promise<JsonObject> => {
+    deliveryReplayQuarantine = { campaignId };
+    let offset: number | null = null;
+    let totalBytes = 0;
+    let chunkCount = 0;
+    let finalizationId = "";
+    let renderedSha256 = "";
+    try {
+      while (true) {
+        const chunkArguments: JsonObject = offset === null
+          ? { mode: "replay" }
+          : {
+            mode: "replay",
+            text_offset: offset,
+            finalization_id: finalizationId,
+            rendered_sha256: renderedSha256,
+          };
+        const response = await client(ctx).callTool("coc_invoke", {
+          operation: "session.delivery_text",
+          campaign: campaignId,
+          arguments: chunkArguments,
+        }, signal);
+        const envelope = objectOrNull(response);
+        const data = envelope?.ok === true ? objectOrNull(envelope.data) : null;
+        if (data === null || typeof data.text !== "string") {
+          return {
+            ok: false,
+            tool: "session.delivery_text",
+            error: {
+              code: "delivery_replay_failed",
+              message: (
+                "逐字重放未能完成：规范交付块不可用或已漂移。可整次重试 "
+                + "session.delivery_text mode=replay。"
+              ),
+              retryable: true,
+            },
+            warnings: [],
+            hints: [],
+          };
+        }
+        const chunkText = data.text;
+        const returnedBytes = typeof data.returned_bytes === "number"
+          ? data.returned_bytes
+          : Buffer.byteLength(chunkText, "utf8");
+        totalBytes = typeof data.total_bytes === "number"
+          ? data.total_bytes
+          : totalBytes;
+        chunkCount = typeof data.chunk_count === "number"
+          ? data.chunk_count
+          : chunkCount;
+        const responseFinalizationId = typeof data.finalization_id === "string"
+          ? data.finalization_id
+          : "";
+        const responseRenderedSha256 = typeof data.rendered_sha256 === "string"
+          ? data.rendered_sha256
+          : "";
+        if (!responseFinalizationId || !responseRenderedSha256) {
+          return {
+            ok: false,
+            tool: "session.delivery_text",
+            error: {
+              code: "delivery_replay_failed",
+              message: (
+                "重放块缺少规范交付身份：无法绑定后续块请求；可整次重试。"
+              ),
+              retryable: true,
+            },
+            warnings: [],
+            hints: [],
+          };
+        }
+        if (!finalizationId) {
+          // First chunk establishes the machine-bound canonical identity for
+          // every later chunk request and the replay ack.
+          finalizationId = responseFinalizationId;
+          renderedSha256 = responseRenderedSha256;
+        } else if (
+          responseFinalizationId !== finalizationId
+          || responseRenderedSha256 !== renderedSha256
+        ) {
+          return {
+            ok: false,
+            tool: "session.delivery_text",
+            error: {
+              code: "delivery_conflict",
+              message: (
+                "重放块序列返回了不一致的规范交付身份；已中止以避免混排两次交付。"
+              ),
+              retryable: true,
+            },
+            warnings: [],
+            hints: [],
+          };
+        }
+        const chunkOrdinal = typeof data.chunk_ordinal === "number"
+          ? data.chunk_ordinal
+          : 0;
+        const isFinal = data.final === true;
+        try {
+          pi.sendMessage({
+            customType: DELIVERY_REPLAY_CUSTOM_TYPE,
+            content: chunkText,
+            display: true,
+            details: {
+              schema_version: 1,
+              kind: "coc_delivery_replay",
+              campaign_id: campaignId,
+              text: chunkText,
+              chunk_ordinal: chunkOrdinal,
+              chunk_count: chunkCount,
+              chunk_bytes: returnedBytes,
+              total_bytes: totalBytes,
+              final: isFinal,
+            },
+          }, { triggerTurn: false });
+        } catch {
+          return {
+            ok: false,
+            tool: "session.delivery_text",
+            error: {
+              code: "delivery_replay_stream_failed",
+              message: "逐字重放事件发送失败，本块未送达玩家；可整次重试。",
+              retryable: true,
+            },
+            warnings: [],
+            hints: [],
+          };
+        }
+        if (isFinal) break;
+        const nextOffset = data.next_offset;
+        if (typeof nextOffset !== "number" || nextOffset <= offset) {
+          return {
+            ok: false,
+            tool: "session.delivery_text",
+            error: {
+              code: "delivery_replay_failed",
+              message: "逐字重放块序列中断：缺少有效的 next_offset；可整次重试。",
+              retryable: true,
+            },
+            warnings: [],
+            hints: [],
+          };
+        }
+        offset = nextOffset;
+      }
+    } catch (error) {
+      if (signal?.aborted) {
+        return {
+          ok: false,
+          tool: "session.delivery_text",
+          error: {
+            code: "delivery_replay_aborted",
+            message: "逐字重放被中止；本块未送达玩家。",
+            retryable: true,
+          },
+          warnings: [],
+          hints: [],
+        };
+      }
+      void error;
+      return {
+        ok: false,
+        tool: "session.delivery_text",
+        error: {
+          code: "delivery_replay_failed",
+          message: "逐字重放传输失败；可整次重试 session.delivery_text mode=replay。",
+          retryable: true,
+        },
+        warnings: [],
+        hints: [],
+      };
+    }
+    if (!isCurrent(epoch)) {
+      return {
+        ok: false,
+        tool: "session.delivery_text",
+        error: {
+          code: "session_reset",
+          message: "会话已在重放后重置；本结果不再属于当前回合。",
+          retryable: false,
+        },
+        warnings: [],
+        hints: [],
+      };
+    }
+    let acknowledged = false;
+    if (finalizationId && renderedSha256) {
+      try {
+        const ack = await client(ctx).callTool("coc_invoke", {
+          operation: "session.delivery_ack",
+          campaign: campaignId,
+          arguments: {
+            finalization_id: finalizationId,
+            rendered_sha256: renderedSha256,
+            ack_kind: "replayed",
+            source_id: (
+              `pi-delivery-replay:${campaignId}`
+              + `:player-epoch-${canonicalProgress.playerTurnEpoch}`
+            ),
+            decision_id: semanticDecisionId("session.delivery_ack", 1),
+          },
+        }, signal);
+        acknowledged = objectOrNull(ack)?.ok === true;
+      } catch { /* ack is machine-owned and idempotent; retry is safe */ }
+      if (!acknowledged) {
+        try {
+          pi.appendEntry("coc-delivery-replay-ack-failed", {
+            schema_version: 1,
+            campaign_id: campaignId,
+            player_turn_epoch: canonicalProgress.playerTurnEpoch,
+          });
+        } catch { /* audit is best effort */ }
+      }
+    }
+    return {
+      ok: true,
+      tool: "session.delivery_text",
+      data: {
+        schema_version: 1,
+        mode: "replay",
+        delivered: true,
+        acknowledged,
+        campaign_id: campaignId,
+        chunk_count: chunkCount,
+        total_bytes: totalBytes,
+      },
+      warnings: [],
+      hints: [
+        "the host streamed the exact canonical text; emit no additional "
+        + "player-visible prose and no state/rules/journal/finalize calls",
+      ],
+    };
+  };
   const deliverTurnProcessingFault = (fault: JsonObject): boolean => {
     try {
       pi.sendMessage({
@@ -6821,6 +7084,31 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   const gateway = (name: string) => async (_id: string, params: JsonObject, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) => {
     const epoch = sessionEpoch;
     const typedDefinition = typedToolDefinitions.find((tool) => tool.name === name);
+    if (deliveryReplayQuarantine !== null) {
+      const quarantinedOperation = typedDefinition?.operation ?? (
+        isCanonicalInvokeSurface(name) ? String(params.operation || "") : ""
+      );
+      if (deliveryReplayBlockedOperation(quarantinedOperation)) {
+        return hostFailureResult({
+          ok: false,
+          tool: quarantinedOperation,
+          error: {
+            code: "delivery_replay_owns_delivery",
+            message: (
+              "本回合的最新交付正由宿主逐字重放：不要调用 state/rules/日志、"
+              + "narration.review 或 turn.finalize，也不要追加玩家可见文本。"
+            ),
+            retryable: false,
+            details: {
+              class: "invariant_terminal",
+              recoverable_by: "none",
+            },
+          },
+          warnings: [],
+          hints: [],
+        });
+      }
+    }
     if (typedDefinition !== undefined) {
       if (
         launcherRole === null
@@ -6871,6 +7159,41 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ...params,
           decision_id: semanticDecisionId("setup.complete", 1),
         };
+      }
+      if (typedDefinition.operation === "session.delivery_text") {
+        // Semantic replay request only: the model passes campaign (and at
+        // most mode:"replay"); machine-owned identity and chunk transport
+        // stay host-side. Any model-supplied identity/offset fields are
+        // ignored by construction — the lane binds them itself.
+        const replayCampaign = (
+          typeof params.campaign === "string" && params.campaign.trim()
+            ? params.campaign.trim()
+            : typeof params.campaign_id === "string" && params.campaign_id.trim()
+            ? params.campaign_id.trim()
+            : ""
+        );
+        if (!replayCampaign) {
+          return hostFailureResult({
+            ok: false,
+            tool: typedDefinition.operation,
+            error: {
+              code: "invalid_param",
+              message: "session.delivery_text replay 需要 campaign。",
+              retryable: false,
+            },
+            warnings: [],
+            hints: [],
+          });
+        }
+        const replayOutcome = await runExactDeliveryReplayLane(
+          replayCampaign,
+          ctx,
+          signal,
+          epoch,
+        );
+        return replayOutcome.ok === true
+          ? result(replayOutcome)
+          : hostFailureResult(replayOutcome);
       }
       const binding = retainedTypedBindings.get(typedDefinition.operation);
       if (binding !== undefined) {
@@ -9029,6 +9352,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         // settled resume output.
         return false;
       }
+      if (deliveryReplayQuarantine !== null) {
+        // Exact-delivery replay owns this input's visible output: hide any
+        // model-authored prose so the player receives only the exact host
+        // replay stream, and no settled/mechanical gate arms alongside it.
+        return false;
+      }
       const decision = openingContinuationGate.acceptVisibleAssistantFinal(
         visibleText,
         turnFinalizationRequiredForPhase(kpPlayPhase),
@@ -9151,7 +9480,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
       applyKpActiveTools();
     },
-    () => openingContinuationGate.hasPendingFinalizedOutput(),
+    () => openingContinuationGate.hasPendingFinalizedOutput()
+      || deliveryReplayQuarantine !== null,
     recoverEmptyAssistantOutput,
     (details, ctx) => {
       try {
@@ -9262,6 +9592,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       startupSilentResumeQuarantine = null;
       applyKpActiveTools();
     }
+    // The replay quarantine lives exactly one agent turn: that player input's
+    // delivery was owned by the host replay stream; the next input gets the
+    // normal tool/output surface again.
+    deliveryReplayQuarantine = null;
     openingContinuationGate.markAgentEnd();
     // Terminal-delivery retries are bookkeeping recovery, not part of the
     // player turn's settlement boundary. Run them after this lifecycle hook

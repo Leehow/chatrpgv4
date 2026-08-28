@@ -1511,6 +1511,51 @@ def test_opening_selector_and_page_schemas_match_every_mcp_projection():
             assert schema["properties"]["opening_pdf_indices"][key] == value
 
 
+def test_delivery_replay_contract_projects_typed_keeper_context():
+    """Exact replay extends session.delivery_text without a new operation."""
+    archive_mod = _load_archive_module()
+    server = _load_server()
+    archive = archive_mod.load_and_validate(ARCHIVE_PATH, server.toolbox)
+
+    # Extending the existing operation keeps the canonical count at 141.
+    assert archive["operation_count"] == 141
+    assert "session.delivery_text" in archive["operations"]
+    contract = archive["operations"]["session.delivery_text"]
+
+    schema = contract["inputSchema"]
+    assert schema["required"] == ["campaign"]
+    assert set(schema["properties"]) == {
+        "root", "campaign", "mode",
+        "finalization_id", "rendered_sha256", "text_offset", "text_limit",
+    }
+    assert schema["properties"]["mode"]["type"] == "string"
+    assert schema["properties"]["text_offset"]["type"] == "integer"
+    assert schema["properties"]["text_limit"]["type"] == "integer"
+
+    policy = contract["policy"]
+    assert policy["audience"] == "keeper"
+    assert policy["kp_surface"] == "context"
+    assert policy["phases"] == ["live_turn", "recovery"]
+    assert policy["contract"] == "none"
+    assert policy["advisory"] is False
+
+    projection = archive_mod.build_policy_projection(server.toolbox)
+    assert "session.delivery_text" in (
+        projection["operations_by_surface"]["context"]
+    )
+    generated = (PLUGIN_ROOT / "pi" / "lib" / "operation-policy.generated.ts").read_text(
+        encoding="utf-8",
+    )
+    assert '"session.delivery_text": {' in generated
+    adapter = (PLUGIN_ROOT / "pi" / "lib" / "operation-policy.ts").read_text(
+        encoding="utf-8",
+    )
+    assert "session.delivery_text" not in adapter
+    assert "session.delivery_text" not in (
+        server.toolbox.coc_operation_policy.HOST_INVOKE_COMPAT_OPERATIONS
+    )
+
+
 def test_mcp_contract_archive_check_detects_drift(tmp_path):
     archive_mod = _load_archive_module()
     server = _load_server()
@@ -4658,6 +4703,10 @@ def test_mcp_wire_resume_uses_typed_recovery_index_before_identity_only():
     assert data["delivery"]["replay_operation"]["operation"] == (
         "session.delivery_text"
     )
+    assert data["delivery"]["replay_operation"]["prefilled_arguments"] == {
+        "mode": "replay"
+    }
+    assert data["delivery"]["replay_operation"]["missing_arguments"] == []
 
 
 def test_mcp_wire_npc_reaction_carries_exact_engagement_contract():

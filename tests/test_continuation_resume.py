@@ -246,6 +246,12 @@ def test_finalize_publishes_checkpoint_and_player_reply_confirms_delivery(
         "rendered_sha256": resumed["delivery"]["rendered_sha256"],
     })
     assert exact_delivery["data"]["exact_text"] == finalized["data"]["rendered_text"]
+    explicit_context = _call(ws, "session.delivery_text", {
+        "mode": "context",
+        "finalization_id": resumed["delivery"]["finalization_id"],
+        "rendered_sha256": resumed["delivery"]["rendered_sha256"],
+    })
+    assert explicit_context["data"] == exact_delivery["data"]
     wrong_hash = coc_toolbox.run_tool(
         "session.delivery_text",
         Path(ws["workspace"]),
@@ -289,6 +295,336 @@ def test_finalize_publishes_checkpoint_and_player_reply_confirms_delivery(
     assert merged["semantic_capsule"]["threads"][0]["status"] == "resolved"
 
 
+def test_delivery_replay_mode_reassembles_exact_latest_delivery(
+    tmp_path: Path,
+) -> None:
+    ws = _workspace(tmp_path, "delivery-replay-exact")
+    _journal(
+        ws,
+        decision_id="journal-replay",
+        player_text="我贴着墙根检查那些新鲜划痕，并小声念出发现的细节。",
+    )
+    finalized = _finalize(ws, decision_id="finalize-replay")
+    rendered = finalized["data"]["rendered_text"]
+    assert len(rendered.encode("utf-8")) > 8
+
+    # Semantic replay invocation: no finalization id, hash, or offset is
+    # copied by the caller; the host binds the latest canonical identity.
+    first = _call(ws, "session.delivery_text", {"mode": "replay"})["data"]
+    assert first["mode"] == "replay"
+    assert first["finalization_id"] == finalized["data"]["finalization_id"]
+    assert first["rendered_text_sha256"] == (
+        finalized["data"]["rendered_text_sha256"]
+    )
+    assert first["text"] == rendered
+    assert first["text_offset"] == 0
+    assert first["total_bytes"] == len(rendered.encode("utf-8"))
+    assert first["chunk_ordinal"] == 0
+    assert first["chunk_count"] == 1
+    assert first["final"] is True
+    assert first["next_offset"] is None
+
+    # Bounded exact chunks reassemble byte-for-byte; UTF-8 code points stay
+    # whole and every chunk stays inside its byte limit.
+    chunks = []
+    offset = 0
+    while True:
+        row = _call(ws, "session.delivery_text", {
+            "mode": "replay", "text_offset": offset, "text_limit": 8,
+        })["data"]
+        chunks.append(row)
+        if row["final"]:
+            break
+        assert row["next_offset"] > offset
+        offset = row["next_offset"]
+    assert len(chunks) > 1
+    assert all(row["returned_bytes"] <= 8 for row in chunks)
+    assert "".join(row["text"] for row in chunks) == rendered
+    assert chunks[-1]["chunk_ordinal"] == chunks[-1]["chunk_count"] - 1
+    for index, row in enumerate(chunks):
+        assert row["chunk_ordinal"] == index
+        assert row["chunk_count"] == len(chunks)
+
+    # Strict identity validation: machine-injected identity must match the
+    # latest canonical delivery exactly.
+    stale = coc_toolbox.run_tool(
+        "session.delivery_text",
+        Path(ws["workspace"]),
+        str(ws["campaign_id"]),
+        {
+            "mode": "replay",
+            "finalization_id": first["finalization_id"],
+            "rendered_sha256": "0" * 64,
+        },
+    )
+    assert stale["ok"] is False
+    assert stale["error"]["code"] == "delivery_conflict"
+    invalid_mode = coc_toolbox.run_tool(
+        "session.delivery_text",
+        Path(ws["workspace"]),
+        str(ws["campaign_id"]),
+        {"mode": "paraphrase"},
+    )
+    assert invalid_mode["ok"] is False
+    assert invalid_mode["error"]["code"] == "invalid_param"
+
+    # Replay is a pure query: no ack, journal, or settlement side effect.
+    after = _call(ws, "session.resume")["data"]["delivery"]
+    assert after["status"] == "unconfirmed"
+    assert after["exact_text"] == rendered
+
+
+def test_delivery_replay_after_restart_reads_durable_checkpoint(
+    tmp_path: Path,
+) -> None:
+    ws = _workspace(tmp_path, "delivery-replay-restart")
+    _journal(
+        ws,
+        decision_id="journal-restart",
+        player_text="我在门边停下，先检查门锁，然后轻轻敲了三下。",
+    )
+    finalized = _finalize(ws, decision_id="finalize-restart")
+    rendered = finalized["data"]["rendered_text"]
+
+    # A fresh process replays the same durable delivery from disk only.
+    driver = (
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        "sys.path.insert(0, sys.argv[1])\n"
+        "import coc_toolbox\n"
+        "result = coc_toolbox.run_tool(\n"
+        "    'session.delivery_text', Path(sys.argv[2]), sys.argv[3],\n"
+        "    {'mode': 'replay'},\n"
+        ")\n"
+        "print(json.dumps(result, ensure_ascii=False))\n"
+    )
+    completed = subprocess.run(
+        [
+            sys.executable, "-c", driver,
+            os.fspath(SCRIPTS),
+            os.fspath(ws["workspace"]),
+            str(ws["campaign_id"]),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    assert completed.returncode == 0, completed.stderr
+    replayed = json.loads(completed.stdout)
+    assert replayed["ok"] is True, replayed
+    assert replayed["data"]["mode"] == "replay"
+    assert replayed["data"]["text"] == rendered
+    assert replayed["data"]["final"] is True
+    assert replayed["data"]["chunk_count"] == 1
+
+
+# Historical attempt-05 canonical delivery: the exact finalized Keeper text
+# from the 2026-08-28 pi-coc RPC acceptance run (attempt-03 output, digest
+# sha256:c171f90702ee97ebe7656fb6a6b715f48e5142c4833f79529e4b6f95cbca3994)
+# whose paraphrased 170-character replay failed the acceptance replay.
+# 179 characters, 511 UTF-8 bytes, whitespace (blank-line paragraphs) intact.
+ATTEMPT05_CANONICAL_TEXT = (
+    "林默仍站在门槛外，借窄缝把目光压低，一寸寸扫过近处地板与能看见的墙角。"
+    "昏黄灯下，那一片地砖干净，没有血迹，也没有蜷伏或倒卧的轮廓；角落里没有"
+    "拖曳的痕迹，也没有突然一闪而过的动静。\n\n"
+    "【明骰】侦查｜掷骰：23；基础值：51；门槛：普通（≤51）；达到：困难成功（超出 1 级）；通过\n\n"
+    "他压低嗓子，对着门缝轻唤一声：「考夫特？」回声在门后短促地散开，仍无人应。"
+)
+assert len(ATTEMPT05_CANONICAL_TEXT) == 179
+assert len(ATTEMPT05_CANONICAL_TEXT.encode("utf-8")) == 511
+
+
+def test_delivery_replay_attempt05_acknowledged_delivery_replays_179_exactly(
+    tmp_path: Path,
+) -> None:
+    """The real already-acknowledged case: confirmed/displayed delivery still
+    replays byte-for-byte (179/179) after restart, with zero mutation."""
+    ws = _workspace(tmp_path, "delivery-replay-attempt05")
+    _journal(
+        ws,
+        decision_id="journal-attempt05",
+        player_text="我仍站在门槛外，借门缝观察屋内，然后压低嗓子对着门缝轻唤一声。",
+    )
+    output = _call(ws, "turn.output_context")["data"]
+    exact_excerpt = ATTEMPT05_CANONICAL_TEXT.split("\n\n")[-1]
+    coverage = [
+        {
+            "obligation_id": row["obligation_id"],
+            "realization": "fictional_beat",
+            "action_realization": "调查员在门槛外借窄缝观察并低声呼唤，行动已按声明发生",
+            "response": "门后依旧无人应答，屋内保持观察到的安静与空旷",
+            "causal_explanation": "回应直接来自本轮已记录的玩家行动",
+            "persona_fit": "保持调查员谨慎观察的既有立场",
+            "player_input_handling": "specific_preserved",
+            "exact_excerpt": exact_excerpt,
+            "exceptional_beat": "",
+        }
+        for row in output["obligations"]
+    ]
+    placements = []
+    for segment_type, source_key, after in (
+        ("public_check", "roll_id", 0),
+        ("state_delta", "effect_id", 1),
+        ("exceptional_effect", "event_id", 1),
+    ):
+        rows = output["mechanics_bundle"].get(segment_type) or []
+        if rows:
+            placements.append({
+                "after_paragraph": after,
+                "segment_type": segment_type,
+                "source_ids": [str(row[source_key]) for row in rows],
+            })
+    finalized = _call(
+        ws,
+        "turn.finalize",
+        {
+            "draft": ATTEMPT05_CANONICAL_TEXT,
+            "coverage": coverage,
+            "mechanics_placements": placements,
+            "revision": 1,
+            "decision_id": "finalize-attempt05",
+        },
+    )
+    # The canonical finalized text is exactly the historical string.
+    assert finalized["data"]["rendered_text"] == ATTEMPT05_CANONICAL_TEXT
+    finalization_id = finalized["data"]["finalization_id"]
+    rendered_sha256 = finalized["data"]["rendered_text_sha256"]
+
+    # The real case: the host already recorded the delivery as displayed.
+    ack = _call(
+        ws,
+        "session.delivery_ack",
+        {
+            "finalization_id": finalization_id,
+            "rendered_sha256": rendered_sha256,
+            "ack_kind": "displayed",
+            "source_id": "attempt05-ui-display-01",
+            "decision_id": "ack-attempt05-displayed",
+        },
+    )["data"]
+    assert ack["ack_kind"] == "displayed"
+    resumed = _call(ws, "session.resume")["data"]
+    assert resumed["delivery"]["status"] == "confirmed"
+    assert resumed["delivery"]["ack_kind"] == "displayed"
+
+    # Replay through the canonical handler with host-owned identity, then
+    # reassemble bounded chunks: exact 179/179 characters and 511/511 bytes.
+    first = _call(
+        ws,
+        "session.delivery_text",
+        {
+            "mode": "replay",
+            "finalization_id": finalization_id,
+            "rendered_sha256": rendered_sha256,
+        },
+    )["data"]
+    assert first["mode"] == "replay"
+    assert first["text"] == ATTEMPT05_CANONICAL_TEXT
+    assert len(first["text"]) == 179
+    assert len(first["text"].encode("utf-8")) == 511
+    assert first["total_bytes"] == 511
+    assert first["final"] is True
+    assert "\n\n" in first["text"]
+
+    chunks = []
+    offset = 0
+    while True:
+        row = _call(
+            ws,
+            "session.delivery_text",
+            {
+                "mode": "replay",
+                "text_offset": offset,
+                "text_limit": 128,
+            },
+        )["data"]
+        chunks.append(row)
+        if row["final"]:
+            break
+        offset = row["next_offset"]
+    reassembled = "".join(row["text"] for row in chunks)
+    assert len(chunks) > 1
+    assert reassembled == ATTEMPT05_CANONICAL_TEXT
+    assert len(reassembled) == 179
+    assert len(reassembled.encode("utf-8")) == 511
+    assert "\n\n" in reassembled
+    for index, row in enumerate(chunks):
+        assert row["chunk_ordinal"] == index
+        assert row["chunk_count"] == len(chunks)
+
+    # Strict identity: wrong finalization_id and wrong SHA both conflict.
+    for mismatch in (
+        {
+            "finalization_id": "turn-effect-v1:stale",
+            "rendered_sha256": rendered_sha256,
+        },
+        {"finalization_id": finalization_id, "rendered_sha256": "0" * 64},
+    ):
+        rejected = coc_toolbox.run_tool(
+            "session.delivery_text",
+            Path(ws["workspace"]),
+            str(ws["campaign_id"]),
+            {"mode": "replay", **mismatch},
+        )
+        assert rejected["ok"] is False
+        assert rejected["error"]["code"] == "delivery_conflict"
+
+    # Replay is a pure query: delivery, finalization, transcript, and
+    # checkpoint files are byte-identical, and the ack stays confirmed.
+    campaign_dir = Path(ws["campaign_dir"])
+    watched = [
+        campaign_dir / "save" / "continuation" / "delivery-receipts.jsonl",
+        campaign_dir / "logs" / "turn-finalizations.jsonl",
+        campaign_dir / "logs" / "table-transcript.jsonl",
+        *sorted(
+            (campaign_dir / "save" / "continuation" / "checkpoints").glob("*")
+        ),
+    ]
+    before = {path: path.read_bytes() for path in watched if path.is_file()}
+    _call(ws, "session.delivery_text", {"mode": "replay"})
+    after = {path: path.read_bytes() for path in watched if path.is_file()}
+    assert after == before
+    still = _call(ws, "session.resume")["data"]["delivery"]
+    assert still["status"] == "confirmed"
+    assert still["ack_kind"] == "displayed"
+    assert still["accepted_revision"] == finalized["data"]["accepted_revision"]
+
+    # A fresh process replays the acknowledged latest delivery exactly.
+    driver = (
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        "sys.path.insert(0, sys.argv[1])\n"
+        "import coc_toolbox\n"
+        "result = coc_toolbox.run_tool(\n"
+        "    'session.delivery_text', Path(sys.argv[2]), sys.argv[3],\n"
+        "    {'mode': 'replay'},\n"
+        ")\n"
+        "print(json.dumps(result, ensure_ascii=False))\n"
+    )
+    completed = subprocess.run(
+        [
+            sys.executable, "-c", driver,
+            os.fspath(SCRIPTS),
+            os.fspath(ws["workspace"]),
+            str(ws["campaign_id"]),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    assert completed.returncode == 0, completed.stderr
+    replayed = json.loads(completed.stdout)
+    assert replayed["ok"] is True, replayed
+    assert replayed["data"]["text"] == ATTEMPT05_CANONICAL_TEXT
+    assert len(replayed["data"]["text"]) == 179
+    assert len(replayed["data"]["text"].encode("utf-8")) == 511
+    assert replayed["data"]["final"] is True
+
+
 def test_resume_projection_has_a_fixed_total_byte_budget() -> None:
     oversized = {
         "host_input": {"text": "玩家未分类输入" * 6000},
@@ -327,6 +663,10 @@ def test_resume_projection_has_a_fixed_total_byte_budget() -> None:
     assert "delivery_text_to_typed_read" in budget["reductions"]
     assert bounded["delivery"]["exact_text"] is None
     assert bounded["delivery"]["replay_operation"]["operation"] == "session.delivery_text"
+    assert bounded["delivery"]["replay_operation"]["prefilled_arguments"] == {
+        "mode": "replay"
+    }
+    assert bounded["delivery"]["replay_operation"]["missing_arguments"] == []
     summaries = bounded["semantic_capsule"]["recent_summaries"]
     assert len(summaries) == 2
     assert all(

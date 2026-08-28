@@ -109,6 +109,7 @@ def _write_chapter_package(
                                 "clue_id": f"{clue_prefix}-a",
                                 "delivery": "handout",
                                 "delivery_kind": "handout",
+                                "handout_asset_id": f"handout-{clue_prefix}-a",
                                 "visibility": "player-safe",
                             },
                             {
@@ -127,6 +128,24 @@ def _write_chapter_package(
                         ],
                     }
                 ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (sc / "handouts.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "handouts": [
+                    {
+                        "asset_id": f"handout-{clue_prefix}-a",
+                        "kind": "document",
+                        "content_origin": "authored_derivative",
+                        "title": f"{chapter} briefing",
+                        "authored_text": "Structured test handout for the linked clue.",
+                        "player_visible": True,
+                    }
+                ],
             }
         ),
         encoding="utf-8",

@@ -288,7 +288,7 @@ def _log_tool_call(
         return None
 
 
-def _tool_loop_log_rows(log_path: Path) -> list[dict[str, Any] | None]:
+def _loop_guard_log_rows(log_path: Path) -> list[dict[str, Any] | None]:
     """Read a bounded tail of the toolbox audit log with continuity markers.
 
     Read-side is intentionally lock-free; an IO failure degrades to an empty
@@ -322,7 +322,7 @@ def _tool_loop_log_rows(log_path: Path) -> list[dict[str, Any] | None]:
     return rows
 
 
-def _tool_loop_warning(ctx: Ctx | None, name: str, args: dict[str, Any]) -> str | None:
+def _loop_guard_warning(ctx: Ctx | None, name: str, args: dict[str, Any]) -> str | None:
     """Advisory tool-loop guardrail: one warning string, or None.
 
     Warning-first and strictly read-only: this never mutates state, never
@@ -349,7 +349,7 @@ def _tool_loop_warning(ctx: Ctx | None, name: str, args: dict[str, Any]) -> str 
             {k: v for k, v in args.items() if k != "seed"}
         )
         consecutive = 0
-        for row in reversed(_tool_loop_log_rows(log_path)):
+        for row in reversed(_loop_guard_log_rows(log_path)):
             if row is None:
                 break  # unknown record: never assume continuity across it
             if row.get("turn_number") != turn_number:
@@ -1161,9 +1161,9 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
         will_retry = bool(retryable and attempt < max_attempts)
         # Warning-first loop guardrail: append the probe result to whatever
         # envelope this attempt produced. It never changes ok/error/data and
-        # never blocks; `_tool_loop_warning` already swallowed any failure.
+        # never blocks; `_loop_guard_warning` already swallowed any failure.
         if attempt == 1:
-            loop_warning = _tool_loop_warning(ctx, name, args)
+            loop_warning = _loop_guard_warning(ctx, name, args)
         if loop_warning is not None:
             envelope.setdefault("warnings", []).append(loop_warning)
         # Recovery conflict is a strict, non-mutating reusable-state barrier;

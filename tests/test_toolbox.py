@@ -1,6 +1,10 @@
 """Cross-cell toolbox compatibility and vertical-contract tests."""
 from toolbox_test_support import *
 
+# transcript.* (exact-transcript retrieval) is a canonical namespace; extend the
+# shared pin here so this file's namespace coverage includes it.
+EXPECTED_NAMESPACES = EXPECTED_NAMESPACES | {"transcript"}
+
 def test_source_edge_destination_deepens_after_travel_without_opening_reuse(
     tmp_path: Path,
     monkeypatch,
@@ -955,13 +959,15 @@ def test_terminal_state_precedes_journal_and_finalization(campaign_ws):
     assert journaled["ok"] is True
     assert coc_toolbox.coc_turn_manifest.pending_manifest(campaign_ws["campaign_dir"]) is not None
 
-    finalized = _run(campaign_ws, "turn.finalize", {
-        "coverage": [],
-        "revision": 1,
-        "decision_id": "terminal-state-before-finalize:receipt",
-        "draft": "调查员没有接过钥匙，转身离开。这个故事至此结束。",
-    })
-    assert finalized["ok"] is True, finalized
+    # The ending settles a public development luck-recovery roll, so the
+    # finalize contract requires causal coverage and a mechanics placement.
+    ending_result = "已结算的幸运恢复与拒绝委托的结局按其原有因果关系落地。这个故事至此结束。"
+    finalized = _finalize_pending_turn_for_test(
+        campaign_ws,
+        decision_id="terminal-state-before-finalize:receipt",
+        draft="调查员没有接过钥匙，转身离开。\n\n" + ending_result,
+        result_paragraph=ending_result,
+    )
     assert finalized["data"]["rendered_text"].endswith("这个故事至此结束。")
 
     resumed = _run(campaign_ws, "session.resume")
@@ -969,7 +975,7 @@ def test_terminal_state_precedes_journal_and_finalization(campaign_ws):
     assert resumed["data"]["mode"] == "ending"
     assert resumed["data"]["next_operations"] == []
     assert resumed["data"]["ending_output"]["rendered_text"] == finalized["data"]["rendered_text"]
-    assert resumed["data"]["ending_output"]["rendered_sha256"] == finalized["data"]["rendered_sha256"]
+    assert resumed["data"]["ending_output"]["rendered_sha256"] == finalized["data"]["rendered_text_sha256"]
 
 def test_pending_journal_allows_scene_context_before_finalization(campaign_ws):
     journaled = _run(campaign_ws, "state.journal", {
@@ -2040,20 +2046,17 @@ def test_state_end_session_appends_session_ending_event(campaign_ws):
     })
     assert journaled["ok"] is True
 
-    finalized = _run(campaign_ws, "turn.finalize", {
-        "coverage": [],
-        "revision": 1,
-        "decision_id": "toolbox-end-1-finalize",
-        "draft": "The session closes here.",
-    })
-    assert finalized["ok"] is True, finalized
+    finalized = _finalize_pending_turn_for_test(
+        campaign_ws,
+        decision_id="toolbox-end-1-finalize",
+    )
 
     resumed = _run(campaign_ws, "session.resume")
     assert resumed["ok"] is True, resumed
     assert resumed["data"]["mode"] == "ending"
     assert resumed["data"]["next_operations"] == []
     assert resumed["data"]["ending_output"]["rendered_text"] == finalized["data"]["rendered_text"]
-    assert resumed["data"]["ending_output"]["rendered_sha256"] == finalized["data"]["rendered_sha256"]
+    assert resumed["data"]["ending_output"]["rendered_sha256"] == finalized["data"]["rendered_text_sha256"]
     assert resumed["data"]["ending_output"]["ending_id"] == last["ending_id"]
 
 def test_evicted_roll_replay_does_not_reearn_consumed_development_check(
@@ -8492,6 +8495,7 @@ def test_parallel_reads_keep_current_projection_host_work_pure(
             "work_level": "bounded_warm",
             "requested_pdf_indices": [0],
             "cached_scope_complete": lifecycle_case != "pending",
+            "play_languages": ["zh-Hans"],
         }
         if lifecycle_case == "stale":
             request.update({

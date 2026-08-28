@@ -123,11 +123,10 @@ Campaigns store temporary and scenario-specific state:
 ├── index/
 ├── memory/
 │   ├── session-summaries.jsonl     # player-safe running recaps (resume + battle reports)
-│   ├── cards/
-│   │   ├── player-safe/            # retrievable memory cards, player-visible
-│   │   └── keeper-only/            # retrievable memory cards, keeper-side
-│   ├── context-packs/              # precomputed retrieval packs
-│   └── index.json                  # memory card index
+│   ├── temporal/                   # sole live temporal-memory runtime records
+│   ├── cards/                      # immutable legacy Markdown-card evidence
+│   ├── context-packs/              # immutable legacy evidence
+│   └── index.json                  # immutable legacy card evidence index
 ├── logs/
 │   ├── events.jsonl                # story events
 │   ├── rolls.jsonl                 # mechanical roll events
@@ -302,12 +301,16 @@ list, and conflicting overlapping schedule domains are invalid (runtime reads
 fail closed if an unvalidated conflict reaches them). Narrator envelopes expose a field-level public projection and omit
 raw agendas, fact registries, lies, schedules, secrets, and internal agency.
 
-Memory has two complementary tracks: `memory/session-summaries.jsonl` is the
-append-only player-safe recap stream consumed by resume flows and battle
-reports; `memory/cards/` + `context-packs/` + `index.json` is the retrievable
-card store the Story Director queries (via `coc_memory`) for PAYOFF-style
-recall. Session summaries are written at session boundaries; memory cards are
-written by the apply layer when a plan carries memory_write intents.
+Live memory is solely `temporal-memory-1`: Git-backed history, its rebuildable
+projection, and `memory/temporal/` records provide all runtime recall and
+adjudication. `memory/session-summaries.jsonl` remains append-only player-safe
+recap evidence for resume flows and battle reports. Legacy `memory/cards/`,
+`context-packs/`, and `index.json` remain immutable historical evidence on
+disk; live runtime never reads or writes them. Only the explicit
+non-destructive historical converter (`coc_legacy_memory_convert.py`) or
+report/export evidence path may read them; the converter creates a fresh
+temporal target without mutating source bytes or evidence. They are never
+silently migrated or deleted.
 
 `save/director-strategy-state.json` has `schema_version: 1` and one canonical
 strategy payload: `generic`, `time_loop` (non-negative loop number plus unique
@@ -503,7 +506,7 @@ uv run --frozen python plugins/coc-keeper/scripts/coc_git_history_verify.py --ro
 - `logs/*.jsonl` is append-only event history.
 - `logs/events.jsonl` stores story events, `logs/rolls.jsonl` stores mechanical roll events, and `logs/audit.jsonl` stores Keeper-facing audit events such as confirmed spoiler reveals.
 - In fast recording mode, verbose JSONL writes are queued under `logs/pending-turns/` and flushed by a background recorder or maintenance pass; never poll or block narration on that flush.
-- `memory/session-summaries.jsonl` stores player-safe running recaps for resume and battle reports; `memory/cards/` is the director-retrievable memory store (see Campaigns above for the split).
+- `memory/session-summaries.jsonl` stores player-safe running recaps for resume and battle reports. Live memory is solely `memory/temporal/` plus its Git-backed history and rebuildable projection; legacy `memory/cards/`, `context-packs/`, and `index.json` are immutable evidence, readable only through the explicit non-destructive historical converter (`coc_legacy_memory_convert.py`) or report/export path. The converter creates a fresh temporal target without mutating source bytes or evidence; legacy campaigns and cards are never silently migrated or deleted.
 - `snapshots/` stores point-in-time recovery copies.
 
 ## Playtests

@@ -3,10 +3,10 @@
 Memory layer for the live KP under schema generation `temporal-memory-1`.
 The canonical path is the Git-backed temporal memory: Git immutable history,
 a rebuildable SQLite projection, and canonical advisory temporal records under
-`memory/temporal/`. The older grep-native Markdown card store is retained at
-the bottom of this document as explicitly **non-canonical legacy technical
-debt**; the historical card-era design spec is retired (see the tombstone
-index `docs/status/DIAGNOSIS-LEDGER.md`).
+`memory/temporal/`. Legacy Markdown cards are immutable historical evidence,
+not a runtime store: only the explicit non-destructive converter or
+report/export evidence path may read them. They remain on disk and are never
+silently migrated or deleted.
 
 Memory is **never authoritative truth**: HP, clue permissions, timeline,
 items, and dice are answered only by `state.*` / `rules.*`. Temporal memory
@@ -21,9 +21,8 @@ This memory system is distinct from host-context recovery. Per-turn
 startup/compaction recovery uses the typed `session.resume` operation and the
 hash-bound `save/continuation/` checkpoint described in `state-schema.md`.
 Resume never makes a new model context grep the whole memory store or session
-history; it returns the bounded temporal capsule described below, and cards
-or assertions are retrieved later only when the current semantic beat needs
-them.
+history; it returns the bounded temporal capsule described below, and temporal
+assertions are retrieved later only when the current semantic beat needs them.
 
 ## Canonical layers (`temporal-memory-1`)
 
@@ -149,101 +148,25 @@ A campaign's Git history, `memory/` (including `memory/temporal/`), logs,
 receipts, and exported reports are the sole evidence for battle reports, bug
 diagnosis, and acceptance. Never delete a campaign, its memory, its logs, or
 its playtest artifacts after a run — start a new campaign id instead. Old
-schema campaigns stay read-only: no import, no migration, no cleanup.
+schema campaigns and legacy card evidence stay read-only: no implicit,
+in-place, live-runtime, or automatic import, migration, fallback, or cleanup.
+The explicit non-destructive historical converter
+(`coc_legacy_memory_convert.py`) may read preserved evidence only to create a
+fresh temporal target; it never mutates source bytes or evidence.
 
 ## Legacy Markdown card store (non-canonical technical debt)
 
-The Markdown card store below is **not** an alternate normal memory path.
-Its typed model-facing surfaces — `memory.search`, `memory.write`,
-`memory.resolve_hook` — have been **retired**: they are no longer registered
-in the toolbox, the operation archive, or any generated policy surface, so a
-live KP cannot discover or invoke them. The deterministic `coc_memory.py`
-internals (card schema, retrieval, hook lifecycle) remain available to
-non-model callers only — the Director's advisory callback candidates still
-read open hooks through them. Existing campaign card files stay on disk
-read-only: no migration, no dual reading, no cleanup. New play writes
-canonical temporal memory only (the operations above); do not build new flows
-on the card store, and do not bridge or dual-read between the two stores. The
-material below documents the retired legacy formats for reading old campaign
-evidence.
+This non-canonical legacy technical debt is immutable historical evidence, not
+a normal or fallback memory path: `memory/cards/`, `memory/context-packs/`,
+and `memory/index.json`. The
+retired `memory.search`, `memory.write`, and `memory.resolve_hook` operations
+are no longer registered on any live surface, and no live KP, Director, or
+runtime reads or writes card-era data.
 
-### Legacy layout
-```
-.coc/campaigns/<id>/memory/
-  cards/player-safe/mem-*.md     # player-visible memory
-  cards/keeper-only/mem-*.md     # keeper/system-only
-  context-packs/turn-NNNNN.md    # per-turn director context
-  index.json                     # retrieval accelerator (valid + invalid_cards)
-  session-summaries.jsonl        # append-only session recaps
-```
-
-### Legacy card format
-Markdown + YAML frontmatter. Frontmatter keys (English, stable): `memory_id`,
-`kind`, `scope`, `privacy`, `salience`, `status`, `introduced_at`,
-`resolved_at`, `entities`, `tags`, `reactivation_cues`, `scenes`,
-`source_events`, `possible_payoff`. Body: short play-language summary.
-
-### Legacy kinds (required, closed namespace)
-
-Every card requires `kind`; clean-slate law: a card without a valid `kind`
-fails validation, is listed under `index.json.invalid_cards`, and is never
-served by retrieval. No migrations, no dual readers.
-
-| kind | what it records |
-| --- | --- |
-| `fact` | a stable campaign-local truth the table established |
-| `event` | something that happened in play (default for Director plan writes) |
-| `npc_relationship` | how an investigator/NPC pair stands and why |
-| `unresolved_hook` | an open thread the table planted and expects to matter |
-| `foreshadowing` | a keeper-planted signal awaiting payoff |
-| `player_preference` | how this player likes to play (pace, tone, focus) |
-| `keeper_correction` | a mistake the KP made and the correction adopted |
-
-### Legacy hook lifecycle (`unresolved_hook` / `foreshadowing` only)
-
-`status`: `open` (default) → `resolved` / `paid_off` / `abandoned`; while the
-card era was live, transitions moved through the retired `memory.resolve_hook`
-surface, which stamped `resolved_at` evidence. Historical cards keep that
-stamped evidence read-only; nothing moves it now. `status`
-on any other kind is a validation error. `introduced_at` / `resolved_at` are
-turn/scene reference strings, not wall-clock time.
-
-### Legacy tool surface (retired)
-
-The former typed operations — `memory.search` (structured filter/privacy
-view), `memory.write` (typed idempotent card write), and `memory.resolve_hook`
-(hook lifecycle transition) — are no longer registered anywhere on the model
-surface. Use canonical `memory.recall` / `memory.adjudicate` instead; read
-historical cards directly from disk only when auditing old campaigns.
-
-The Director consumes the same store: `director.advise` returns advisory
-`callback_candidates` (open hooks/foreshadowing overlapping the current scene,
-each with a reason). Adopt, modify, or ignore them; they never gate play.
-
-### Legacy grep examples
-```
-grep -R "kind: unresolved_hook" memory/cards
-grep -R "status: open" memory/cards
-grep -R "entities:.*ada-king" memory/cards
-```
-
-### Legacy write triggers (don't write too often)
-1. player expresses preference/fear/hypothesis → `player_preference` (or `fact`)
-2. player spends big Luck or pushes a roll → `event`
-3. NPC attitude changes → `npc_relationship`
-4. critical clue understood/misunderstood → `fact` / `event`
-5. irreversible choice → `event`
-6. trauma/insanity/major wound → `event`
-7. foreshadow set → `foreshadowing` / `unresolved_hook`; paid off → lifecycle
-   supersession recorded as temporal assertions (`memory.adjudicate`)
-8. the player corrects a KP mistake, or the KP notices its own drift, and the
-   correction is adopted → `keeper_correction` (write once, at adoption time,
-   not on every reminder)
-
-`player_preference` and `keeper_correction` are written when the signal is
-**explicit and durable** (stated preference, accepted correction), never
-inferred from one-off keyword hits. The KP decides semantically when to write;
-the protocol only suggests triggers — there is no fixed per-turn memory
-pipeline. In canonical temporal play the same signals are carried by the
-assertion kinds (`player_preference`, `keeper_correction`, `player_assertion`,
-…) with provenance and adjudication instead of free-standing cards.
+Campaigns, cards, context packs, indexes, logs, and conversion evidence remain
+on disk byte-preserved: no in-place migration, dual read, cleanup, or deletion
+is permitted. The only permitted card reads are the explicit non-destructive
+historical converter (`coc_legacy_memory_convert.py`), which creates a fresh
+temporal target campaign, and the report/export evidence path. Neither path
+mutates its legacy source. All live play uses the canonical temporal operations
+above.

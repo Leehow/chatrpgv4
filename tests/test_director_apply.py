@@ -1,4 +1,4 @@
-"""Tests for coc_director_apply: persists DirectorPlan effects to save/logs/memory."""
+"""Tests for coc_director_apply: persists DirectorPlan effects to save/logs."""
 import importlib.util
 import json
 import os
@@ -37,7 +37,6 @@ def _campaign(tmp_path):
     (camp / "save" / "investigator-state").mkdir()
     (camp / "scenario").mkdir(parents=True)
     (camp / "logs").mkdir(parents=True)
-    (camp / "memory" / "cards" / "player-safe").mkdir(parents=True)
     (camp / "save" / "world-state.json").write_text(json.dumps({
         "schema_version": 1, "campaign_id": "test", "discovered_clue_ids": [],
         "active_scene_id": "scene-1"}))
@@ -1384,20 +1383,16 @@ def test_apply_writes_event_to_logs(tmp_path):
     assert "clue-X" in events_text
 
 
-def test_apply_memory_write_creates_card(tmp_path):
+def test_apply_plan_has_no_legacy_card_write_contract(tmp_path):
     camp = _campaign(tmp_path)
     plan = {"decision_id": "d4", "scene_action": "CHARACTER",
-            "clue_policy": {"reveal": []},
-            "pressure_moves": [],
-            "memory_writes": [{"type": "player_interest", "privacy": "player_safe",
-                               "salience": 0.7, "entities": ["npc-knott"],
-                               "tags": ["npc_relationship"], "summary": "玩家信任诺特",
-                               "reactivation_cues": ["knott"]}],
+            "clue_policy": {"reveal": []}, "pressure_moves": [],
             "rule_signals": {}}
+
+    assert "memory_writes" not in plan
+    assert not hasattr(coc_director_apply, "coc_memory")
     coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
-    cards = list((camp / "memory" / "cards" / "player-safe").glob("*.md"))
-    assert len(cards) >= 1
-    assert "玩家信任诺特" in cards[0].read_text(encoding="utf-8")
+    assert not (camp / "memory" / "cards").exists()
 
 
 def test_apply_marks_scene_exit_ready_when_clues_exhausted(tmp_path):
@@ -3091,7 +3086,6 @@ def _campaign_with_dev_investigator(tmp_path):
     (camp / "save" / "investigator-state").mkdir(parents=True)
     (camp / "scenario").mkdir(parents=True)
     (camp / "logs").mkdir(parents=True)
-    (camp / "memory" / "cards" / "player-safe").mkdir(parents=True)
     (camp / "save" / "world-state.json").write_text(json.dumps({
         "schema_version": 1, "campaign_id": "test", "discovered_clue_ids": [],
         "active_scene_id": "scene-1"}))

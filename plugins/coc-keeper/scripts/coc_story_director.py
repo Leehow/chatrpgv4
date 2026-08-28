@@ -4396,7 +4396,6 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     # v2: populate memory_reads from the canonical temporal store (the legacy
     # Markdown card reader is retired). PAYOFF actions mark the read as
     # PAYOFF (recalled payoff); everything else is TONE color.
-    # memory_writes stays empty here — writeback is decided by the apply layer.
     mem_cards = _retrieve_memory_for_ctx(ctx)
     payoff_use = action == "PAYOFF"
     memory_reads = [
@@ -4456,7 +4455,6 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "pressure_moves": pressure_moves,
         "rules_requests": rules_requests,
         "memory_reads": memory_reads,
-        "memory_writes": [],
         "callback_candidates": callback_candidates,
         "director_strategy_state": strategy_result.get("strategy_state") or {},
         "faction_rankings": strategy_result.get("faction_rankings") or [],

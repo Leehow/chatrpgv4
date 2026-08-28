@@ -483,7 +483,7 @@ _EXPECTED_PLAN_KEYS = (
     "callback_candidates", "capability_findings", "clue_policy",
     "decision_id", "director_strategy_state", "dramatic_question",
     "epistemic_contract", "faction_rankings", "handoff",
-    "memory_reads", "memory_writes", "narrative_directives",
+    "memory_reads", "narrative_directives",
     "npc_moves", "npc_state_writes", "pacing_mode", "pressure_moves",
     "rationale", "rule_signal_notes", "rule_signals", "rules_requests",
     "scene_action", "scene_function", "subsystem", "tension_delta",
@@ -781,31 +781,20 @@ def test_director_memory_empty_query_keeps_unconstrained_warm_behavior(tmp_path)
     assert [row["memory_id"] for row in reads] == ["mem-test-open-only"]
 
 
-def test_legacy_card_reader_not_referenced_and_not_consulted(tmp_path):
-    # Static: the module neither imports nor uses the retired reader.
-    # (The single allowed "coc_memory" mention is the retirement comment.)
+def test_director_plan_has_no_legacy_card_write_contract(tmp_path):
+    assert not (SCRIPTS / "coc_memory.py").exists()
     assert not hasattr(coc_story_director, "coc_memory")
-    assert "retrieve_memory_cards" not in inspect.getsource(coc_story_director)
-    assert '"coc_memory.py"' not in inspect.getsource(coc_story_director)
-    assert 'HOOK_KINDS' not in inspect.getsource(coc_story_director)
+    source = inspect.getsource(coc_story_director)
+    assert "retrieve_memory_cards" not in source
+    assert '"coc_memory.py"' not in source
 
-    # Dynamic: even a physically present Markdown card store is ignored.
     camp, character_path = _minimal_director_campaign(tmp_path)
-    coc_memory = _load("coc_memory_retired_probe", SCRIPTS / "coc_memory.py")
-    coc_memory.create_memory_card(
-        campaign_dir=camp, memory_id="mem-card-zombie",
-        privacy="player_safe", salience=0.99,
-        summary="僵尸卡不应被读取", entities=["entity-scene-archive"],
-        tags=[], reactivation_cues=[], kind="event", source_events=[])
     ctx = coc_story_director.build_director_context(
         campaign_dir=camp, character_path=character_path, investigator_id="inv1",
         player_intent="环顾四周", player_intent_class="investigate",
         rng=random.Random(42))
-    ctx["memory_query_entities"] = ["entity-scene-archive"]
     plan = coc_story_director.generate_director_plan(ctx, "ev6-retired-plan")
-    all_ids = {row.get("memory_id") for row in plan["memory_reads"]}
-    all_ids |= {row.get("memory_id") for row in plan["callback_candidates"]}
-    assert "mem-card-zombie" not in all_ids
+    assert "memory_writes" not in plan
 
 
 # ---------------------------------------------------------------------------

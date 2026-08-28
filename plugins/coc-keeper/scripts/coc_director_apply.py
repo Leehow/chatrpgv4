@@ -78,12 +78,6 @@ coc_quest_state = _load_sibling("coc_quest_state_apply", "coc_quest_state.py")
 coc_epistemic_resolve = _load_sibling("coc_epistemic_resolve", "coc_epistemic_resolve.py")
 coc_epistemic_lifecycle = _load_sibling("coc_epistemic_lifecycle", "coc_epistemic_lifecycle.py")
 
-coc_memory = None
-try:
-    coc_memory = _load_sibling("coc_memory", "coc_memory.py")
-except Exception:
-    coc_memory = None
-
 # Idea Roll signpost ladder (Keeper Rulebook ~p.199). Higher rank wins; never
 # downgrade an already-stronger signpost.
 _SIGNPOST_RANK = {
@@ -3708,7 +3702,6 @@ def _apply_plan_impl(
       the clue has been resolved as committed
     - failed obscured checks -> no exact clue reveal; log cost/fallback events
     - pressure_moves -> bump pacing tension + turn + event per move
-    - memory_writes -> create memory cards via coc_memory
     """
     events: list[dict[str, Any]] = []
     save = campaign_dir / "save"
@@ -4138,26 +4131,6 @@ def _apply_plan_impl(
         events.extend(time_events)
         for ev in time_events:
             _append_jsonl(logs / "events.jsonl", ev)
-
-    # 6. memory writes -> cards
-    if coc_memory is not None:
-        for i, mw in enumerate(plan.get("memory_writes", [])):
-            mid = f"mem-{decision_id}-{i}"
-            # Plan-authored writes default to `event` (a turn happening); the
-            # caller may declare any closed CARD_KINDS value explicitly.
-            coc_memory.create_memory_card(
-                campaign_dir=campaign_dir, memory_id=mid,
-                privacy=mw.get("privacy", "player_safe"),
-                salience=float(mw.get("salience", 0.5)),
-                summary=mw.get("summary", ""),
-                entities=mw.get("entities", []),
-                tags=mw.get("tags", []),
-                reactivation_cues=mw.get("reactivation_cues", []),
-                kind=str(mw.get("kind") or "event"),
-                status=mw.get("status"),
-                introduced_at=mw.get("introduced_at"),
-                source_events=[decision_id],
-            )
 
     # 7. scene transition — only an explicit CUT or typed force_transition may
     # commit travel. Satisfying an exit condition makes the current scene ready

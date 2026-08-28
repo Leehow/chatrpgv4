@@ -219,6 +219,23 @@ try {
 } finally {
   rmSync(lifecycleAgentDir, { recursive: true, force: true });
 }
+// Exact-delivery replay guidance invariants: the continue table-open
+// instruction must route exact delivery through the typed semantic replay
+// call, must never teach opaque identity relay, and must never mention the
+// retired exact_text operation. A violation fails the smoke (non-zero exit).
+const replayGuidanceChecks = {
+  namesTypedReplayCall: startupOpen.includes("session.delivery_text with mode"),
+  namesReplayMode: startupOpen.includes("replay"),
+  hostOwnedIdentity: startupOpen.includes("host owns the delivery identity"),
+  extraProseSuppressed: startupOpen.includes("suppresses extra prose"),
+  keepsOlderOpeningBan: startupOpen.includes("Never replay an older assistant opening"),
+  noRetiredExactTextOp: !startupOpen.includes("delivery.exact_text"),
+  noOpaqueIdentity: !/[a-f0-9]{16,}/i.test(startupOpen),
+};
+for (const [check, ok] of Object.entries(replayGuidanceChecks)) {
+  if (!ok) throw new Error(`welcome replay guidance check failed: ${check}`);
+}
+
 process.stdout.write(JSON.stringify({
   ok: true,
   fullHasWelcome: full.includes("欢迎使用 COC Keeper"),
@@ -327,5 +344,6 @@ process.stdout.write(JSON.stringify({
   rpcAttachedAutoOpen,
   rpcAttachedSetupReopenAutoOpen,
   rpcAttachedSetupKeepsExistingQuestion,
+  deliveryReplayGuidance: replayGuidanceChecks,
 }, null, 2));
 process.stdout.write("\n");

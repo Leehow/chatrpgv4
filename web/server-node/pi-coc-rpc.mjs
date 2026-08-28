@@ -739,6 +739,48 @@ export function parseSetupHandoffEvent(event) {
   };
 }
 
+/**
+ * Exact-delivery replay event produced by the Pi gateway
+ * (`customType: "coc_delivery_replay"`, schema v1). The chunk `text` is the
+ * authoritative byte-exact canonical delivery slice: it must reach the SSE
+ * stream verbatim — never trimmed or whitespace-collapsed. Chunks arrive in
+ * ordinal order and concatenate to the exact canonical text.
+ */
+export function deliveryReplayFromEvent(event) {
+  if (!event || typeof event !== "object") return null;
+  if (event.type !== "custom_message" && event.type !== "custom") return null;
+  if (event.customType !== "coc_delivery_replay") return null;
+  const details = event.details && typeof event.details === "object"
+    ? event.details
+    : null;
+  if (
+    !details
+    || details.schema_version !== 1
+    || details.kind !== "coc_delivery_replay"
+  ) return null;
+  const text = typeof details.text === "string"
+    ? details.text
+    : typeof event.content === "string"
+      ? event.content
+      : null;
+  if (text === null) return null;
+  return {
+    schema_version: 1,
+    campaign_id: typeof details.campaign_id === "string"
+      ? details.campaign_id : null,
+    text,
+    chunk_ordinal: Number.isInteger(details.chunk_ordinal)
+      ? details.chunk_ordinal : null,
+    chunk_count: Number.isInteger(details.chunk_count)
+      ? details.chunk_count : null,
+    chunk_bytes: Number.isInteger(details.chunk_bytes)
+      ? details.chunk_bytes : null,
+    total_bytes: Number.isInteger(details.total_bytes)
+      ? details.total_bytes : null,
+    final: details.final === true,
+  };
+}
+
 function turnProcessingFaultDetails(event) {
   if (
     !event
@@ -848,6 +890,28 @@ export function mapRpcEventToSse(event) {
   const handoff = parseSetupHandoffEvent(event);
   if (handoff) {
     return [{ event: "coc_setup_handoff", data: handoff }];
+  }
+  const deliveryReplay = deliveryReplayFromEvent(event);
+  if (deliveryReplay) {
+    // Map-and-aggregate: one verbatim delta per canonical replay chunk; the
+    // player surface concatenates deltas, reproducing the exact text with no
+    // trim or whitespace loss. Ordinary assistant messages keep their own
+    // unchanged mapping below.
+    return [{
+      event: "delta",
+      data: {
+        text: deliveryReplay.text,
+        replay: {
+          schema_version: deliveryReplay.schema_version,
+          campaign_id: deliveryReplay.campaign_id,
+          chunk_ordinal: deliveryReplay.chunk_ordinal,
+          chunk_count: deliveryReplay.chunk_count,
+          chunk_bytes: deliveryReplay.chunk_bytes,
+          total_bytes: deliveryReplay.total_bytes,
+          final: deliveryReplay.final,
+        },
+      },
+    }];
   }
   if (event.type === "process_exit" && isHandoffExit(event.code)) {
     return [{

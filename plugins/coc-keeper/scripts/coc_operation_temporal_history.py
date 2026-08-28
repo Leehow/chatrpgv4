@@ -20,10 +20,13 @@ and worldline kernel:
   replay plus the underlying request fingerprint reject semantic reuse of
   a ``decision_id``; old assertions are never edited or deleted.
 
-This cell never consults legacy ``coc_memory`` cards. Their former
-model-facing operations (``memory.search``/``memory.write``/
-``memory.resolve_hook``) have been retired from the registry entirely;
-``coc_memory`` internals remain available to non-model callers only.
+This cell never consults legacy Markdown-card evidence. The former
+model-facing card operations (``memory.search``/``memory.write``/
+``memory.resolve_hook``) are retired from the registry entirely. Card-era
+campaign evidence remains on disk for the explicit non-destructive historical
+converter (``coc_legacy_memory_convert.py``), which creates a fresh temporal
+target without mutating source bytes or evidence, and report/export paths only;
+it is never a live runtime dependency.
 """
 from __future__ import annotations
 
@@ -359,9 +362,9 @@ def _tool_memory_recall(ctx: Ctx, args: dict[str, Any]):
         raise ToolError(
             "invalid_param", "kinds must be an array of assertion kinds"
         )
-    # Read-only load of the canonical temporal store. The legacy card store
-    # (coc_memory) is never consulted, and no store is bootstrapped here:
-    # a query never writes.
+    # Read-only load of the canonical temporal store. Legacy Markdown-card
+    # evidence is never consulted, and no store is bootstrapped here: a query
+    # never writes.
     assertions = list(
         coc_temporal_memory.load_assertions(ctx.campaign_dir).values()
     )

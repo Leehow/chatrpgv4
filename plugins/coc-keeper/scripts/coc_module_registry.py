@@ -388,10 +388,18 @@ def discover_optional_scenario_sidecars(scenario_dir: Path) -> list[str]:
 
 
 def _copy_scenario_files(src: Path, dest: Path) -> list[str]:
-    """Copy the seven IR files plus an optional atomic epistemic sidecar set."""
+    """Copy the seven IR files plus optional IR and epistemic sidecar files.
+
+    Optional validated IR files (``handouts.json`` / ``quests.json``) must
+    travel with the install: a registered handout-linked clue graph whose
+    card store is dropped would fail every later target validation.
+    """
     dest.mkdir(parents=True, exist_ok=True)
     for fname in SCENARIO_FILES:
         shutil.copy2(src / fname, dest / fname)
+    for fname in coc_starter.STARTER_OPTIONAL_SCENARIO_FILES:
+        if (src / fname).is_file():
+            shutil.copy2(src / fname, dest / fname)
     sidecars = discover_optional_scenario_sidecars(src)
     for fname in sidecars:
         shutil.copy2(src / fname, dest / fname)

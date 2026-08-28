@@ -5190,7 +5190,6 @@ def _push_resume_plan_from_state(
         ),
         "rule_signals": _json_copy(resolution.get("rule_signals") or {}),
         "pressure_moves": [],
-        "memory_writes": [],
         "push_continuation": {
             "choice_id": choice_id,
             "action": action,
@@ -5276,7 +5275,6 @@ def _bout_resume_plan_from_state(
         "narrative_directives": {},
         "rule_signals": {},
         "pressure_moves": [],
-        "memory_writes": [],
         "bout_continuation": {
             "choice_id": choice_id,
             "bout_id": context["bout_id"],
@@ -5333,7 +5331,7 @@ def _chase_resume_plan_from_state(
     return {
         "decision_id": ids["decision_id"], "scene_action": "SUBSYSTEM",
         "rules_requests": [request], "clue_policy": {}, "narrative_directives": {},
-        "rule_signals": {}, "pressure_moves": [], "memory_writes": [],
+        "rule_signals": {}, "pressure_moves": [],
         "chase_continuation": {"choice_id": choice_id, "action": action},
     }
 

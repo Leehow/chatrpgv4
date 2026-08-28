@@ -68,12 +68,16 @@ via `decision_id`), plus the worldline operations `timeline.fork_request` /
 `timeline.fork_confirm` / `timeline.confluence_query` /
 `timeline.confluence_confirm`. Memory is never authoritative truth: HP,
 clues, items, time, and dice stay with `state.*` / `rules.*`; recall returns
-advisory candidates and the KP judges relevance semantically. The older
-Markdown card store and its retired `memory.search` / `memory.write` /
-`memory.resolve_hook` tools are non-canonical legacy technical debt, not an
-alternate normal path — those model-facing surfaces are no longer registered
-anywhere (the `coc_memory.py` internals remain non-model-only), so never
-route play through them — and live memory files are never hand-edited mid-play.
+advisory candidates and the KP judges relevance semantically. Legacy Markdown cards, context packs, and indexes are immutable historical
+evidence, never an alternate or fallback memory path: non-canonical legacy
+technical debt. Their retired `memory.search` / `memory.write` /
+`memory.resolve_hook` tools are no longer registered anywhere; no live KP,
+Director, or runtime reads or writes them.
+They remain on disk and are never silently migrated or deleted. Only the
+explicit non-destructive historical converter (`coc_legacy_memory_convert.py`)
+or report/export evidence path may read them; the converter creates a fresh
+temporal target without mutating source bytes or evidence. Ordinary play uses
+temporal memory only and never hand-edits live memory files.
 
 ## Operations
 

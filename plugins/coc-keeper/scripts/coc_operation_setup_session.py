@@ -102,10 +102,9 @@ def _bound_session_resume_data(data: dict[str, Any]) -> dict[str, Any]:
         delivery["replay_operation"] = {
             "operation": "session.delivery_text",
             "invoke_via": "coc_invoke",
-            "prefilled_arguments": {
-                "finalization_id": delivery.get("finalization_id"),
-                "rendered_sha256": delivery.get("rendered_sha256"),
-            },
+            # Semantic replay card only: the host binds the latest canonical
+            # delivery identity; the model never copies ids or hashes.
+            "prefilled_arguments": {"mode": "replay"},
             "missing_arguments": [],
         }
         reductions.append("delivery_text_to_typed_read")
@@ -1690,7 +1689,145 @@ def _tool_session_continuation_detail(ctx: Ctx, args: dict[str, Any]):
         "this is an exact paged continuation projection; use only facts relevant to the current semantic decision and retain the compact working set",
     ]
 
+_DELIVERY_REPLAY_MAX_CHUNK_BYTES = 4096
+
+
+def _exact_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _utf8_chunk_end(data: bytes, start: int, limit: int) -> int:
+    """One bounded chunk end that never splits a UTF-8 code point."""
+    end = min(start + limit, len(data))
+    if end < len(data):
+        while end > start and (data[end] & 0xC0) == 0x80:
+            end -= 1
+        if end == start:
+            # A single code point larger than the limit: emit it whole.
+            end = start + 1
+            while end < len(data) and (data[end] & 0xC0) == 0x80:
+                end += 1
+    return end
+
+
+def _delivery_replay_chunk(ctx: Ctx, args: dict[str, Any]):
+    """Host-bound exact replay of the latest canonical delivery.
+
+    Replay targets the durable latest continuation delivery, so the model
+    never copies finalization identity. Machine-injected identity arguments
+    are validated strictly against that latest delivery. This stays a pure
+    query: the host emits the exact chunks and owns any delivery ack.
+    """
+    checkpoint = coc_continuation.load_latest_checkpoint(ctx.campaign_dir)
+    if checkpoint is None:
+        raise ToolError(
+            "no_finalized_turn", "no finalized delivery exists to replay"
+        )
+    source = checkpoint["source"]
+    latest_id = str(source["finalization_id"])
+    latest_sha = str(source["rendered_text_sha256"])
+    for arg_name, expected in (
+        ("finalization_id", latest_id),
+        ("rendered_sha256", latest_sha),
+    ):
+        supplied = args.get(arg_name)
+        if supplied is not None and str(supplied) != expected:
+            raise ToolError(
+                "delivery_conflict",
+                "replay identity does not match the latest canonical delivery",
+            )
+    receipt = coc_turn_finalization.finalization_by_id(ctx.campaign_dir, latest_id)
+    if (
+        not isinstance(receipt, dict)
+        or receipt.get("rendered_text_sha256") != latest_sha
+    ):
+        raise ToolError(
+            "delivery_conflict",
+            "latest canonical delivery receipt is missing or drifted",
+        )
+    rendered = receipt.get("rendered_text")
+    if not isinstance(rendered, str):
+        raise ToolError(
+            "state_corrupt", "latest canonical delivery has no rendered text"
+        )
+    if coc_turn_finalization.canonical_digest(rendered) != latest_sha:
+        raise ToolError(
+            "delivery_conflict",
+            "latest canonical delivery text no longer matches its receipt hash",
+        )
+    data = rendered.encode("utf-8")
+    total_bytes = len(data)
+    raw_offset = args.get("text_offset")
+    if raw_offset is None:
+        offset = 0
+    elif _exact_int(raw_offset) and 0 <= raw_offset <= total_bytes:
+        offset = raw_offset
+    else:
+        raise ToolError(
+            "invalid_param",
+            "text_offset must be a byte offset inside the canonical text",
+        )
+    raw_limit = args.get("text_limit")
+    if raw_limit is None:
+        limit = _DELIVERY_REPLAY_MAX_CHUNK_BYTES
+    elif (
+        _exact_int(raw_limit)
+        and 0 < raw_limit <= _DELIVERY_REPLAY_MAX_CHUNK_BYTES
+    ):
+        limit = raw_limit
+    else:
+        raise ToolError(
+            "invalid_param",
+            "text_limit must be a positive byte count up to "
+            + str(_DELIVERY_REPLAY_MAX_CHUNK_BYTES),
+        )
+    while offset < total_bytes and (data[offset] & 0xC0) == 0x80:
+        offset += 1
+    end = _utf8_chunk_end(data, offset, limit)
+    # Ordinal/count are semantic chunk facts under the requested limit; the
+    # host loop follows next_offset boundaries, so they stay exact there.
+    ordinal = 0
+    position = 0
+    while position < offset:
+        position = _utf8_chunk_end(data, position, limit)
+        ordinal += 1
+    total_chunks = ordinal + 1
+    cursor = end
+    while cursor < total_bytes:
+        cursor = _utf8_chunk_end(data, cursor, limit)
+        total_chunks += 1
+    next_offset = end if end < total_bytes else None
+    return {
+        "mode": "replay",
+        "finalization_id": latest_id,
+        "accepted_revision": source.get("accepted_revision"),
+        "rendered_text_sha256": latest_sha,
+        "rendered_sha256": latest_sha,
+        "text": data[offset:end].decode("utf-8"),
+        "text_offset": offset,
+        "returned_bytes": end - offset,
+        "total_bytes": total_bytes,
+        "chunk_ordinal": ordinal,
+        "chunk_count": total_chunks,
+        "final": next_offset is None,
+        "next_offset": next_offset,
+    }, [], [
+        "host-owned replay: emit this exact text chunk untrimmed, follow "
+        "next_offset to completion, and never regenerate or extend the "
+        "canonical wording",
+    ]
+
+
 def _tool_session_delivery_text(ctx: Ctx, args: dict[str, Any]):
+    mode = args.get("mode")
+    if mode is not None:
+        normalized_mode = str(mode)
+        if normalized_mode == "replay":
+            return _delivery_replay_chunk(ctx, args)
+        if normalized_mode != "context":
+            raise ToolError(
+                "invalid_param", "mode must be 'context' or 'replay'"
+            )
     receipt = coc_turn_finalization.finalization_by_id(
         ctx.campaign_dir, str(args["finalization_id"])
     )
@@ -2383,13 +2520,25 @@ def register_operations(registry) -> None:
     "session.delivery_text",
     "Read the latest hash-bound immutable Keeper output when session.resume externalized it to stay inside the recovery byte budget.",
     {
+        "mode": {
+            "type": "string", "required": False,
+            "desc": "context (default) reads an explicit hash-bound receipt; replay reads the latest canonical delivery as bounded exact chunks with host-bound identity",
+        },
         "finalization_id": {
-            "type": "string", "required": True,
-            "desc": "latest finalization identity from session.resume.delivery",
+            "type": "string", "required": False,
+            "desc": "context mode: finalization identity from session.resume.delivery; replay mode: optional machine-injected identity validated against the latest canonical delivery",
         },
         "rendered_sha256": {
-            "type": "string", "required": True,
-            "desc": "exact rendered hash from session.resume.delivery",
+            "type": "string", "required": False,
+            "desc": "context mode: exact rendered hash from session.resume.delivery; replay mode: optional machine-injected hash validated against the latest canonical delivery",
+        },
+        "text_offset": {
+            "type": "integer", "required": False,
+            "desc": "replay mode: UTF-8 byte offset where this exact chunk starts (0 for the first chunk)",
+        },
+        "text_limit": {
+            "type": "integer", "required": False,
+            "desc": "replay mode: maximum UTF-8 bytes in this exact chunk; follow next_offset until final",
         },
     },
     access="query",

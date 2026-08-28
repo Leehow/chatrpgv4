@@ -84,8 +84,11 @@ visible `coc_session_resume` tool, then call visible
 - If `session.resume` already succeeded with `mode=awaiting_player` and
   `evidence.table_opening` already exists, do **not** call
   `evidence.table_opening` (or any `coc_evidence_table_opening` alias) and do
-  **not** invent a new opening. At most replay existing `session.delivery_text`
-  / `delivery.exact_text`, then wait for the player.
+  **not** invent a new opening. At most call typed `session.delivery_text`
+  with `mode:"replay"` — one call is the whole replay; the host reattaches the
+  machine-only delivery identity and streams the exact finalized text as
+  player-visible events — then wait for the player. Pass no ids, hashes, or
+  offsets, and emit no additional prose during the replay.
 - If `coc_evidence_table_opening` is absent from the active typed tools after
   resume, the persisted table opening already owns turn 0 even when an older
   resume envelope still says `mode=table_opening` or lists that operation.

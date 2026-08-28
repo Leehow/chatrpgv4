@@ -366,6 +366,17 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
         "phases": ("live_turn", "pending_finalization", "recovery", "ending"),
         "kp_surface": "turn",
     },
+    # session.delivery_text exact replay is a typed Keeper context read: the
+    # live KP may request a semantic replay of the latest canonical delivery
+    # while the host binds machine identity and streams exact chunks. Recovery
+    # is required: replay after restart reads the durable checkpoint, not
+    # memory. pending_finalization stays excluded like transcript.* — the
+    # settled-turn output boundary owns that phase.
+    "session.delivery_text": {
+        "audience": "keeper",
+        "kp_surface": "context",
+        "phases": ("live_turn", "recovery"),
+    },
     "state.exceptional_effect": {
         "phases": ("live_turn", "pending_finalization"),
     },
@@ -528,7 +539,8 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
 }
 
 # Hidden coc_invoke may reach these host-owned queries. They stay off every
-# domain enum and are never live-KP audience=keeper.
+# domain enum and are never live-KP audience=keeper. session.delivery_text
+# left this set when exact replay became a typed Keeper context read.
 HOST_INVOKE_COMPAT_OPERATIONS = frozenset({
     "progressive.status",
     "progressive.project_opening",
@@ -539,7 +551,6 @@ HOST_INVOKE_COMPAT_OPERATIONS = frozenset({
     "session.begin",
     "session.continuation_detail",
     "session.delivery_ack",
-    "session.delivery_text",
 })
 
 SOURCE_WORKER_LIFECYCLE_OPERATIONS = frozenset({

@@ -285,7 +285,7 @@
 - **Git / finalize 保持 fail-closed**：`turn.finalize` 在全部 canonical 写入后、交付前同步提交；commit 失败 = finalize 失败（与现行语义严格对等）。git 二进制缺失即硬失败，无降级。
 - **语义提炼失败不阻断 finalize**：提炼是后台/事后过程，失败进显式 backlog（`pending`），可恢复可放弃；episode 基底与 backlog 都可从 Git 确定性重建。
 - **投影损坏即重建**：SQLite、图索引、摘要、检索面全部可删除重建；重建从 Git 历史确定性导出，字节等价。**不做迁移、不做双读者、不做兼容回退**（clean-slate `temporal-memory-1`）。
-- **旧战役与证据只读**：旧 schema 战役、playtest 证据、battle reports 一律不导入、不迁移、不删除；历史报告保持只读。需要新玩法就开新 campaign id。
+- **旧战役与证据只读**：旧 schema 战役、playtest 证据与 battle reports 不得隐式、原地、live-runtime 或自动导入/迁移/回退/删除；历史报告保持只读。显式非破坏性 `coc_legacy_memory_convert.py` 可读取保留的历史卡片证据并创建新的 temporal target，绝不改动源字节或证据。需要新玩法就开新 campaign id。
 - **禁止历史破坏**：默认禁止 reset / force push / 历史重写；仓库内不存在执行这些操作的代码路径。对象库损坏的唯一处置是把原仓库改名保留为证据（绝不删除任何战役文件），以带显式 `COC-History-Reset` trailer 的 baseline 重初始化——这是恢复，不是重写。
 - 幂等贯穿全程：同一 finalization 重复提交返回 HEAD；同一 decision 重复执行不产生第二份记录；重复 fork confirm 不产生重复分支。
 
@@ -348,7 +348,7 @@
 - embeddings / LLM 推断作为权威：语义层只产出候选与建议，权威永远是 canonical 工具与 KP。
 - 静默自动状态合并：confluence 必须显式冲突清单 + 逐项 disposition，任何静默 JSON merge 都违规。
 - 默认破坏性回滚：不提供 reset / force push / 历史重写；旧线永不因新线牺牲。
-- 旧 schema 迁移：无迁移、无双读者、无兼容回退；旧战役只读。
+- 旧 schema 迁移：禁止隐式、原地、live-runtime 或自动迁移、双读与兼容回退；旧战役只读。显式非破坏性 `coc_legacy_memory_convert.py` 可读取保留的历史证据并创建新的 temporal target，绝不改动源字节或证据。
 - 云端多人同步 / 多写者协作。
 - Codex-host 专属实现、提示词、launcher、测试与文档。
 - 把全部历史或整份时间线倒进模型上下文；检索永远是收窄后的候选集。
@@ -369,7 +369,7 @@
   - `timeline-confluence`：`coc_timeline_confluence.py` 冲突枚举/裁决校验。
   - `scope-and-privacy`：跨战役 `same_subject_as` / `same_entity_as` 绑定与 player-safe / keeper-only / system-only 确定性投影。
   - typed 操作面已注册：`history.query` / `history.diff` / `memory.recall` / `memory.adjudicate`（`coc_operation_temporal_history.py`）与 `timeline.fork_request` / `fork_confirm` / `confluence_query` / `confluence_confirm`（`coc_operation_timeline.py`），经 OperationRegistry/toolbox 暴露；`session.resume` 返回有界 temporal capsule（`test_temporal_resume.py`）。
-  - 路由文档已把 `temporal-memory-1` 写为唯一 canonical 记忆路径（`coc-campaign-state` skill 与 `references/memory-protocol.md`）；旧 Markdown 卡片与 `memory.search` / `memory.write` / `memory.resolve_hook` 已标注为非 canonical 遗留技术债，且三个模型面操作已退役（不再注册于 toolbox / operation archive / generated policy；`coc_memory.py` 内部函数仅保留给非模型调用方，如 Director callback candidates 的只读召回）。
+  - 路由文档已把 `temporal-memory-1` 写为唯一 live runtime 记忆路径（`coc-campaign-state` skill 与 `references/memory-protocol.md`）。旧 Markdown 卡片及其 `memory.search` / `memory.write` / `memory.resolve_hook` 操作已彻底退役，不再注册于 toolbox / operation archive / generated policy，也不是任何 KP、Director 或运行时的读取依赖。旧战役、卡片、context pack、索引及其证据保留在磁盘上，绝不静默迁移或删除；仅显式非破坏性历史转换器与报告/导出证据路径可以读取它们。
 - **尚未完成**：`host-integration`（正常游玩中 KP 经常规技能/发现面使用全部 canonical 操作、玩家自然语言入口的真实验证）、`deterministic-verification` 收尾 sweep、`plugin-acceptance`（fresh campaign 的 Pi-Coc RPC 真实游玩验收）、`closeout`。
 - **整个特性当前状态为 `unintegrated`**：按 Feature Integration 纪律，在正常 Pi-Coc 真实游玩到达全部 canonical 消费面（KP 经正常技能发现并使用 `memory.recall` / `timeline.*` / `history.*`，玩家经自然语言触达 fork/rewind，战报呈现 fork/transfer/confluence）之前，不得宣称产品支持或验收完成。组件测试通过只证明组件契约，不证明可发现性与集成。
 - 本文档与 `docs/specs/temporal-memory-contract.md`（契约规格）的关系：契约文档冻结数据层细节；本文档是覆盖产品意图、架构、操作面、验收与计划映射的**完整产品规格**。两者冲突时以本文档的产品层决策为准，数据层细节以契约文档为准。

@@ -183,6 +183,37 @@ function presentedTypedToolParameters(
     }
     return cloned;
   }
+  if (operation === "session.delivery_text") {
+    // Exact delivery replay: the model surface is exactly campaign + the
+    // semantic mode. The host owns the canonical delivery identity
+    // (finalization id, rendered hash) and the chunk transport
+    // (offset/limit) and the host-routing root, so no other property —
+    // inherited or identity-bearing — is ever exposed to the model.
+    const campaignProperty = isPlainObject(presented.properties)
+      && isPlainObject(presented.properties.campaign)
+      ? structuredClone(presented.properties.campaign)
+      : {
+        type: "string",
+        description: "Campaign id. Required for campaign-bound operations.",
+      };
+    return {
+      type: "object",
+      additionalProperties: false,
+      required: ["campaign"],
+      properties: {
+        campaign: campaignProperty,
+        mode: {
+          type: "string",
+          enum: ["replay"],
+          default: "replay",
+          description: (
+            "Replay the latest canonical delivery as exact host-streamed "
+            + "chunks; the host binds the machine-only delivery identity."
+          ),
+        },
+      },
+    } satisfies JsonSchema;
+  }
   if (operation === "progressive.prepare_opening") {
     const cloned = structuredClone(presented);
     cloned.required = (cloned.required ?? []).filter((key) => key !== "campaign");

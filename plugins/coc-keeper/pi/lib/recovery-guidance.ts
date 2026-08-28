@@ -592,3 +592,303 @@ export function applyOpenTurnRecoveryGuidance(value: unknown): {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Draft-shape recovery card (run-02 paragraph-zero placement chain)
+//
+// Consumer: pi-coc play KP. When canonical `turn.finalize` rejects the frozen
+// draft with `default_mechanics_placement_unavailable` (the consequence prose
+// of a public roll sits in paragraph zero, or no paragraph carries the
+// coverage excerpt), the host builds this executable card from the exact
+// failed call plus the retained frozen-turn identities, persists it in the
+// session, and re-presents it after agent end or in a fresh play session —
+// even when `session.resume` lifecycle is already acknowledged. The card is
+// data + instruction only: it never reruns rules/state/journal/review and
+// never authors prose. Pure module; no host state.
+// ---------------------------------------------------------------------------
+
+export const DRAFT_SHAPE_RECOVERY_CARD_CONTRACT =
+  "coc.pi-draft-shape-recovery-card.v1";
+export const DRAFT_SHAPE_RECOVERY_CARD_AUDIT = "coc-draft-shape-recovery-card";
+export const DRAFT_SHAPE_PLACEMENT_ERROR_CODE =
+  "default_mechanics_placement_unavailable";
+export const DRAFT_SHAPE_RECOVERY_NEXT_ACTION =
+  "split_action_and_consequence_paragraphs";
+
+/** Python-finalizer-exact split (coc_turn_finalization._draft_paragraphs). */
+export function canonicalDraftParagraphs(draft: string): string[] {
+  return draft.split("\n\n");
+}
+
+export function isDraftShapePlacementFailure(value: unknown): boolean {
+  if (!isPlainObject(value) || value.ok !== false) return false;
+  if (value.tool !== "turn.finalize") return false;
+  const error = isPlainObject(value.error) ? value.error : null;
+  return error?.code === DRAFT_SHAPE_PLACEMENT_ERROR_CODE;
+}
+
+/** Offending public-roll source ids, parsed from the canonical error message. */
+export function placementFailureRollIds(message: string): string[] {
+  const ids: string[] = [];
+  const pattern =
+    /public roll (\S+?) (?:consequence is in paragraph zero|has no safe preceding paragraph)/gu;
+  for (const match of message.matchAll(pattern)) {
+    if (match[1] && !ids.includes(match[1])) ids.push(match[1]);
+  }
+  return ids;
+}
+
+function positiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
+export function isDraftShapeRecoveryCard(value: unknown): value is JsonObject {
+  if (!isPlainObject(value)) return false;
+  if (value.schema_version !== 1) return false;
+  if (value.contract_id !== DRAFT_SHAPE_RECOVERY_CARD_CONTRACT) return false;
+  if (value.kind !== "draft_shape_recovery") return false;
+  if (typeof value.campaign_id !== "string" || !value.campaign_id) return false;
+  if (typeof value.turn_id !== "string" || !value.turn_id) return false;
+  if (typeof value.source_digest !== "string" || !value.source_digest) {
+    return false;
+  }
+  if (!positiveInteger(value.revision)) return false;
+  if (typeof value.narration_review_id !== "string") return false;
+  if (!value.narration_review_id) return false;
+  return isPlainObject(value.diagnosis);
+}
+
+export type DraftShapeRecoveryCardInput = {
+  root: string;
+  campaign: string;
+  facts: {
+    turnId: string;
+    sourceDigest: string;
+    revision: number;
+    narrationReviewId: string;
+  } | null;
+  finalizeArguments: JsonObject | null;
+  failureEnvelope: JsonObject;
+};
+
+/**
+ * Build the executable recovery card from the exact failed finalize call.
+ * Fail-closed: any missing identity, draft, coverage row, or unparseable
+ * error message returns null — the host invents nothing.
+ */
+export function buildDraftShapeRecoveryCard(
+  input: DraftShapeRecoveryCardInput,
+): JsonObject | null {
+  if (!isDraftShapePlacementFailure(input.failureEnvelope)) return null;
+  const facts = input.facts;
+  if (facts === null) return null;
+  if (!facts.turnId || !facts.sourceDigest || !facts.narrationReviewId) {
+    return null;
+  }
+  if (!positiveInteger(facts.revision)) return null;
+  if (!input.campaign || !input.root) return null;
+  const error = isPlainObject(input.failureEnvelope.error)
+    ? input.failureEnvelope.error
+    : null;
+  const message = typeof error?.message === "string" ? error.message : "";
+  const rollIds = placementFailureRollIds(message);
+  if (rollIds.length === 0) return null;
+  const args = input.finalizeArguments;
+  if (args === null) return null;
+  const draft = typeof args.draft === "string" ? args.draft : "";
+  if (!draft.trim()) return null;
+  const coverage = Array.isArray(args.coverage) ? args.coverage : null;
+  if (coverage === null) return null;
+  const paragraphs = canonicalDraftParagraphs(draft);
+  const coverageRows: JsonObject[] = [];
+  let paragraphZero = false;
+  let excerptMissing = false;
+  for (const rollId of rollIds) {
+    const obligationId = `roll:${rollId}`;
+    const row = coverage.find((candidate) => (
+      isPlainObject(candidate) && candidate.obligation_id === obligationId
+    ));
+    const excerpt = isPlainObject(row) && typeof row.exact_excerpt === "string"
+      ? row.exact_excerpt
+      : "";
+    const excerptParagraphIndex = excerpt
+      ? paragraphs.findIndex((paragraph) => paragraph.includes(excerpt))
+      : -1;
+    if (excerptParagraphIndex === 0) paragraphZero = true;
+    if (excerptParagraphIndex < 0) excerptMissing = true;
+    coverageRows.push({
+      obligation_id: obligationId,
+      exact_excerpt: excerpt,
+      excerpt_paragraph_index: excerptParagraphIndex,
+    });
+  }
+  const card: JsonObject = {
+    schema_version: 1,
+    contract_id: DRAFT_SHAPE_RECOVERY_CARD_CONTRACT,
+    kind: "draft_shape_recovery",
+    audience: "keeper_only",
+    error_code: DRAFT_SHAPE_PLACEMENT_ERROR_CODE,
+    next_action: DRAFT_SHAPE_RECOVERY_NEXT_ACTION,
+    campaign_id: input.campaign,
+    root: input.root,
+    turn_id: facts.turnId,
+    source_digest: facts.sourceDigest,
+    revision: facts.revision,
+    narration_review_id: facts.narrationReviewId,
+    diagnosis: {
+      offending_roll_ids: rollIds,
+      coverage_rows: coverageRows,
+      draft_paragraph_count: paragraphs.length,
+      verdict: paragraphZero
+        ? "consequence_paragraph_zero"
+        : excerptMissing
+          ? "consequence_excerpt_missing"
+          : "unparsed",
+    },
+    preserved_bindings: {
+      public_rolls: "unchanged",
+      state_writes: "unchanged",
+      journal: "unchanged",
+      narration_review: {
+        review_id: facts.narrationReviewId,
+        revision: facts.revision,
+      },
+    },
+    finalize_replay: {
+      operation: "turn.finalize",
+      invoke_via: "coc_turn_finalize",
+      reuse_arguments: {
+        revision: facts.revision,
+        narration_review_id: facts.narrationReviewId,
+        coverage: "unchanged",
+        agency_claims: "unchanged",
+      },
+      adjust_arguments: {
+        draft: DRAFT_SHAPE_INSTRUCTION,
+      },
+    },
+    instruction: DRAFT_SHAPE_INSTRUCTION,
+    forbidden: [
+      "reroll",
+      "repeat_state_writes",
+      "rerun_state_journal",
+      "rerun_narration_review",
+      "edit_agency_claims_or_coverage",
+      "placeholder_prose",
+      "accept_new_player_action_before_finalization",
+    ],
+  };
+  return card;
+}
+
+const DRAFT_SHAPE_INSTRUCTION = (
+  "Insert one separate action/setup paragraph immediately before the "
+  "consequence paragraph of every listed public roll: the consequence "
+  "excerpt must not sit in paragraph zero, and each exact_excerpt must "
+  "appear verbatim in exactly one non-zero paragraph of the revised draft. "
+  "Keep every settled roll, state write, the existing state.journal, the "
+  "same narration review binding, and the coverage rows unchanged; change "
+  "only the draft shape. Then call turn.finalize again with the same "
+  "revision, narration_review_id, coverage, and agency_claims. Never "
+  "substitute placeholder prose, never rerun rules/state/journal/review, "
+  "and never accept a new player action before this turn finalizes."
+);
+
+/**
+ * Rehydrate the persisted card from session entries (custom entries survive
+ * a process restart on the same session file). Returns the newest valid card
+ * for the campaign, or null. Pure; never invents a card.
+ */
+export function draftShapeRecoveryCardFromSessionEntries(
+  entries: unknown,
+  campaign: string,
+): JsonObject | null {
+  if (!Array.isArray(entries) || !campaign) return null;
+  let found: JsonObject | null = null;
+  for (const entry of entries) {
+    if (!isPlainObject(entry)) continue;
+    if (entry.customType !== DRAFT_SHAPE_RECOVERY_CARD_AUDIT) continue;
+    const card = entry.data;
+    if (
+      isDraftShapeRecoveryCard(card)
+      && card.campaign_id === campaign
+    ) {
+      found = deepCopyValue(card) as JsonObject;
+    }
+  }
+  return found;
+}
+
+/**
+ * Attach the persisted recovery card onto an `already_acknowledged`
+ * `session.resume` result so a fresh play session re-arms the preserved
+ * pending turn instead of receiving a bare no-op. The canonical lifecycle
+ * fields (schema_version, campaign_id, mode, next_operations) are preserved
+ * untouched; only `data.host_recovery_guidance` is added. Pure.
+ */
+export function applyAcknowledgedResumeRecoveryGuidance(
+  value: unknown,
+  card: JsonObject,
+  invocation: { root: string; campaign: string },
+): {
+  attached: boolean;
+  envelope: unknown;
+  audit: JsonObject | null;
+} {
+  if (!isPlainObject(value) || value.ok !== true) {
+    return { attached: false, envelope: value, audit: null };
+  }
+  if (value.tool !== "session.resume") {
+    return { attached: false, envelope: value, audit: null };
+  }
+  const data = isPlainObject(value.data) ? value.data : null;
+  if (
+    data === null
+    || data.mode !== "already_acknowledged"
+    || data.campaign_id !== invocation.campaign
+    || !invocation.campaign
+  ) {
+    return { attached: false, envelope: value, audit: null };
+  }
+  if (!isDraftShapeRecoveryCard(card)) {
+    return { attached: false, envelope: value, audit: null };
+  }
+  const guidance = {
+    schema_version: 1,
+    contract_id: DRAFT_SHAPE_RECOVERY_CARD_CONTRACT,
+    audience: "keeper_only",
+    mode: "pending_finalization_recovery",
+    status: "journaled_settled_pending_finalization",
+    next_call: {
+      tool: "coc_turn_finalize",
+    },
+    recovery_card: deepCopyValue(card),
+    instruction: (
+      "A settled player turn from an earlier session is still preserved and "
+      "unfinalized. The exact executable recovery card in recovery_card was "
+      "frozen at the failed finalize attempt: repair only the draft shape it "
+      "diagnoses, keep its preserved bindings, and call turn.finalize via "
+      "next_call. Recovery ends only at the real finalize result; never "
+      "claim completion in prose."
+    ),
+  };
+  return {
+    attached: true,
+    envelope: {
+      ...value,
+      data: {
+        ...data,
+        host_recovery_guidance: guidance,
+      },
+    },
+    audit: {
+      schema_version: 1,
+      contract_id: DRAFT_SHAPE_RECOVERY_CARD_CONTRACT,
+      campaign_id: invocation.campaign,
+      mode: "already_acknowledged",
+      card_source: "session_entry",
+      card_turn_id: card.turn_id,
+      card_revision: card.revision,
+    },
+  };
+}
