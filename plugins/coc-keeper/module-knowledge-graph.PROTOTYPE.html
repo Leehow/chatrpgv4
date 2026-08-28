@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Module Knowledge Graph — Throwaway Prototype</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #11151b;
+      --panel: #18202a;
+      --panel-2: #202b37;
+      --line: #334152;
+      --text: #ecf2f8;
+      --muted: #9eb0c2;
+      --good: #68d391;
+      --bad: #fc8181;
+      --warn: #f6c85f;
+      --accent: #63b3ed;
+      --keeper: #d6bcfa;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top left, #192535, var(--bg) 50%);
+      color: var(--text);
+      font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    main { max-width: 1440px; margin: 0 auto; padding: 24px; }
+    h1, h2, h3 { margin: 0 0 12px; }
+    h1 { font-size: 26px; }
+    h2 { font-size: 18px; }
+    h3 { font-size: 14px; color: var(--accent); }
+    p { margin: 8px 0; }
+    code { color: #bee3f8; }
+    button, input, select {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #111923;
+      color: var(--text);
+      padding: 8px 10px;
+      font: inherit;
+    }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    button.primary { background: #174b69; border-color: #2b6f98; }
+    .warning {
+      border: 1px solid #8f6a1e;
+      background: #2e2717;
+      color: #ffe3a1;
+      padding: 12px 14px;
+      border-radius: 9px;
+      margin: 14px 0 20px;
+    }
+    .toolbar, .row { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
+    .toolbar { margin-bottom: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; }
+    .panel {
+      grid-column: span 6;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--panel) 96%, transparent);
+      border-radius: 10px;
+      padding: 14px;
+      min-width: 0;
+    }
+    .panel.full { grid-column: 1 / -1; }
+    .metric-grid { display: grid; grid-template-columns: repeat(6, minmax(110px, 1fr)); gap: 8px; }
+    .metric { background: var(--panel-2); border-radius: 7px; padding: 9px; }
+    .metric strong { display: block; font-size: 19px; }
+    .metric span { color: var(--muted); font-size: 12px; }
+    .tabs { display: flex; gap: 7px; margin: 18px 0 12px; }
+    .tab.active { background: #244761; border-color: var(--accent); }
+    .tab-page { display: none; }
+    .tab-page.active { display: block; }
+    .form-grid { display: grid; grid-template-columns: 1.2fr 2fr 1fr auto; gap: 8px; }
+    pre {
+      margin: 8px 0 0;
+      padding: 12px;
+      max-height: 430px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border-radius: 8px;
+      background: #0c1219;
+      border: 1px solid #263342;
+    }
+    .check-list { display: grid; gap: 8px; }
+    .check {
+      display: grid;
+      grid-template-columns: 26px 1fr auto;
+      gap: 8px;
+      align-items: start;
+      padding: 9px;
+      border-radius: 7px;
+      background: var(--panel-2);
+    }
+    .pass { color: var(--good); }
+    .fail { color: var(--bad); }
+    .muted { color: var(--muted); }
+    .tag { display: inline-block; padding: 2px 6px; border-radius: 999px; margin: 2px; background: #26384a; }
+    .tag.keeper { color: var(--keeper); }
+    .tag.player { color: var(--good); }
+    .coverage { display: grid; grid-template-columns: 170px repeat(6, 1fr); gap: 4px; }
+    .coverage > div { padding: 5px 7px; background: #101821; border-radius: 4px; }
+    .accepted { color: var(--good); }
+    .partial { color: var(--warn); }
+    .unresolved { color: var(--bad); }
+    @media (max-width: 900px) {
+      .panel { grid-column: 1 / -1; }
+      .metric-grid { grid-template-columns: repeat(2, 1fr); }
+      .form-grid { grid-template-columns: 1fr; }
+      .coverage { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Module Knowledge Graph — Logic Prototype</h1>
+  <p class="muted">Section GraphShard → validation/promotion → in-memory graph → keyword search → bounded traversal → causal assessment</p>
+  <div class="warning">
+    <strong>THROWAWAY PROTOTYPE.</strong>
+    It deliberately does not parse PDFs, call an LLM, persist campaign state, or replace the current Scenario IR.
+    The six datasets are small, paraphrased structural samples compiled from local modules; no module prose is embedded.
+    <br><strong>Provisional verdict:</strong> the GraphShard/promotion/search/context model survives the six structural cases;
+    automatic Section-to-GraphShard semantic extraction remains the next unanswered question.
+  </div>
+
+  <div class="toolbar">
+    <button class="primary" id="run-all" data-testid="run-all">Run all checks</button>
+    <button id="promote-all">Reset + promote all shards</button>
+    <button id="reset">Reset</button>
+    <span id="headline-status" class="muted" data-testid="headline-status">not run</span>
+  </div>
+
+  <section class="metric-grid" id="metrics"></section>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="free">Free play</button>
+    <button class="tab" data-tab="checks">Guided checks</button>
+    <button class="tab" data-tab="state">Full state</button>
+  </div>
+
+  <section class="tab-page active" id="tab-free">
+    <div class="grid">
+      <div class="panel full">
+        <h2>1. Keyword candidate search</h2>
+        <div class="form-grid">
+          <select id="search-module"></select>
+          <input id="search-query" value="农场" aria-label="search query">
+          <select id="search-viewer">
+            <option value="keeper">keeper</option>
+            <option value="player">player</option>
+          </select>
+          <button id="search">Search</button>
+        </div>
+        <pre id="search-output">[]</pre>
+      </div>
+
+      <div class="panel">
+        <h2>2. Bounded graph context</h2>
+        <div class="row">
+          <select id="context-module"></select>
+          <select id="context-seed"></select>
+          <select id="context-depth">
+            <option value="1">depth 1</option>
+            <option value="2" selected>depth 2</option>
+            <option value="3">depth 3</option>
+          </select>
+          <button id="context">Expand</button>
+        </div>
+        <pre id="context-output">{}</pre>
+      </div>
+
+      <div class="panel">
+        <h2>3. Causal assessment</h2>
+        <div class="row">
+          <select id="assessment-module"></select>
+          <select id="assessment-outcome"></select>
+          <button id="assess">Assess</button>
+        </div>
+        <pre id="assessment-output">{}</pre>
+      </div>
+
+      <div class="panel full">
+        <h2>Coverage by section/aspect</h2>
+        <div class="coverage" id="coverage"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-page" id="tab-checks">
+    <div class="panel full">
+      <h2>Built-in multi-module checks</h2>
+      <div id="checks" class="check-list" data-testid="checks"></div>
+    </div>
+  </section>
+
+  <section class="tab-page" id="tab-state">
+    <div class="grid">
+      <div class="panel"><h2>Promotion log</h2><pre id="promotion-log"></pre></div>
+      <div class="panel"><h2>Accepted graph</h2><pre id="graph-state"></pre></div>
+      <div class="panel full"><h2>Candidate datasets</h2><pre id="candidate-state"></pre></div>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  const CONTRACT = "coc.module-graph-shard.v1";
+  const VISIBILITIES = new Set(["keeper-only", "player-safe", "revealable"]);
+  const SEMANTIC_ID = /^[a-z0-9][a-z0-9._:-]*$/;
+  const ASPECTS = ["structure", "actors", "relationships", "knowledge", "causal", "mechanics"];
+
+  const n = (node_id, node_kind, name, visibility="keeper-only", aliases=[], summary="", properties={}) =>
+    ({node_id, node_kind, name, visibility, aliases, summary, properties});
+  const c = (claim_id, subject_id, predicate, object_id, source_ref, visibility="keeper-only") =>
+    ({claim_id, subject_id, predicate, object_id, status:"candidate", visibility, source_refs: source_ref ? [source_ref] : []});
+  const r = (relation_id, relation_kind, from_node_id, to_node_id, claim_id=null) =>
+    ({relation_id, relation_kind, from_node_id, to_node_id, claim_id});
+  const shard = (module_id, section_id, nodes, claims, relations, coverage) =>
+    ({contract_id:CONTRACT, module_id, section_id, source_refs:[`source://${module_id}/${section_id}`], nodes, claims, relations, coverage});
+
+  const MODULES = [
+    {
+      module_id:"cold-harvest", title:"Cold Harvest / 冰冷的收获", archetype:"branching investigation",
+      sections:[
+        ["section-cold-harvest-opening", "调查员任务与农场开场", "opening"],
+        ["section-cold-harvest-avenues", "各种调查分支", "investigation-region"]
+      ],
+      campaignFacts:[], expectedAssessment:"soft-bypass", defaultQuery:"农场", defaultSeed:"scene-krasivyi-farm",
+      shards:[
+        shard("cold-harvest", "section-cold-harvest-opening", [
+          n("scene-krasivyi-farm","scene","Krasivyi Oktabur-3","player-safe",["卡西维依阿克塔伯三号农场","国营农场"],"调查的主要地点"),
+          n("npc-pyotr-abramov","actor","Pyotr Abramov","keeper-only",["彼得·阿布拉莫夫"],"农场中的关键人物"),
+          n("quest-investigate-farm","quest","调查农场减产","player-safe",[],"查明减产与失踪问题"),
+          n("outcome-explain-farm-decline","outcome","解释农场异常","keeper-only"),
+          n("requirement-access-work-records","requirement","取得生产记录","keeper-only",[],"默认路线需要记录",{gate:"soft",requires_fact_ids:["fact-work-records-accessed"],bypass_affordance_ids:["affordance-interview-workers"],outcome_ceiling_when_missing:"partial-explanation"}),
+          n("fact-work-records-accessed","fact","已取得生产记录","keeper-only"),
+          n("affordance-interview-workers","affordance","访谈工人绕过记录缺口","keeper-only")
+        ],[
+          c("claim-abramov-present-at-farm","npc-pyotr-abramov","present-in","scene-krasivyi-farm","source://cold-harvest/printed-page-15"),
+          c("claim-farm-quest-has-outcome","quest-investigate-farm","has-outcome","outcome-explain-farm-decline","source://cold-harvest/printed-page-18","player-safe"),
+          c("claim-farm-outcome-requires-records","outcome-explain-farm-decline","has-requirement","requirement-access-work-records","source://cold-harvest/printed-page-20")
+        ],[
+          r("relation-abramov-present-at-farm","present-in","npc-pyotr-abramov","scene-krasivyi-farm","claim-abramov-present-at-farm"),
+          r("relation-farm-quest-outcome","has-outcome","quest-investigate-farm","outcome-explain-farm-decline","claim-farm-quest-has-outcome"),
+          r("relation-farm-outcome-requirement","has-requirement","outcome-explain-farm-decline","requirement-access-work-records","claim-farm-outcome-requires-records")
+        ],{structure:"accepted",actors:"accepted",relationships:"partial",knowledge:"partial",causal:"accepted",mechanics:"unresolved"}),
+        shard("cold-harvest", "section-cold-harvest-avenues", [
+          n("clue-work-level-pattern","clue","生产水平异常记录","player-safe",["减产记录"],"支持农场异常结论"),
+          n("conclusion-farm-threat-pattern","conclusion","异常并非普通管理问题","keeper-only"),
+          n("fact-farm-pattern-known","fact","调查员理解异常模式","keeper-only")
+        ],[
+          c("claim-work-clue-supports-pattern","clue-work-level-pattern","supports","conclusion-farm-threat-pattern","source://cold-harvest/printed-page-28","player-safe"),
+          c("claim-work-clue-establishes-fact","clue-work-level-pattern","may-establish","fact-farm-pattern-known","source://cold-harvest/printed-page-28")
+        ],[
+          r("relation-work-clue-supports-pattern","supports","clue-work-level-pattern","conclusion-farm-threat-pattern","claim-work-clue-supports-pattern"),
+          r("relation-work-clue-establishes-fact","may-establish","clue-work-level-pattern","fact-farm-pattern-known","claim-work-clue-establishes-fact"),
+          r("relation-farm-has-clue","available-in","scene-krasivyi-farm","clue-work-level-pattern")
+        ],{structure:"accepted",actors:"accepted",relationships:"partial",knowledge:"accepted",causal:"accepted",mechanics:"unresolved"})
+      ]
+    },
+    {
+      module_id:"amaranthine-desire", title:"An Amaranthine Desire / 不息的渴望", archetype:"time loop",
+      sections:[
+        ["section-amaranthine-loop", "时光圈与1287敦威治", "temporal-structure"],
+        ["section-amaranthine-resolution", "打破循环的知识条件", "resolution"]
+      ],
+      campaignFacts:["fact-loop-conspiracy-understood"], expectedAssessment:"direct", defaultQuery:"时光圈", defaultSeed:"event-dunwich-loop",
+      shards:[
+        shard("amaranthine-desire", "section-amaranthine-loop", [
+          n("temporal-frame-dunwich-1895","temporal-frame","Dunwich 1895","player-safe",["敦威治1895"]),
+          n("temporal-frame-dunwich-1287","temporal-frame","Dunwich 1287","player-safe",["敦威治1287"]),
+          n("event-dunwich-loop","event-template","重复的风暴之夜","keeper-only",["时光圈","time loop"],"物理状态重置但知识可保留"),
+          n("fact-loop-conspiracy-understood","fact","已理解循环中的阴谋","keeper-only"),
+          n("quest-break-dunwich-loop","quest","打破敦威治时光圈","player-safe"),
+          n("outcome-break-dunwich-loop","outcome","结束循环并保全未来","keeper-only"),
+          n("requirement-understand-loop-conspiracy","requirement","理解循环中的阴谋","keeper-only",[],"知识前置",{gate:"hard",requires_fact_ids:["fact-loop-conspiracy-understood"],bypass_affordance_ids:[],outcome_ceiling_when_missing:"learn-one-more-cycle"})
+        ],[
+          c("claim-loop-connects-eras","event-dunwich-loop","repeats-between","temporal-frame-dunwich-1287","source://amaranthine-desire/printed-page-4"),
+          c("claim-loop-quest-outcome","quest-break-dunwich-loop","has-outcome","outcome-break-dunwich-loop","source://amaranthine-desire/printed-page-4","player-safe"),
+          c("claim-loop-outcome-requirement","outcome-break-dunwich-loop","has-requirement","requirement-understand-loop-conspiracy","source://amaranthine-desire/printed-page-5")
+        ],[
+          r("relation-loop-to-1287","repeats-between","event-dunwich-loop","temporal-frame-dunwich-1287","claim-loop-connects-eras"),
+          r("relation-loop-quest-outcome","has-outcome","quest-break-dunwich-loop","outcome-break-dunwich-loop","claim-loop-quest-outcome"),
+          r("relation-loop-outcome-requirement","has-requirement","outcome-break-dunwich-loop","requirement-understand-loop-conspiracy","claim-loop-outcome-requirement")
+        ],{structure:"accepted",actors:"partial",relationships:"partial",knowledge:"accepted",causal:"accepted",mechanics:"unresolved"})
+      ]
+    },
+    {
+      module_id:"they-did-not-think-it-too-many", title:"They Did Not Think It Too Many / 他们也没想太多", archetype:"multi-faction",
+      sections:[["section-too-many-factions","罗马使者、莎比王国与六镰教派","faction-network"]],
+      campaignFacts:["fact-roman-delegation-authorized"], expectedAssessment:"hard-ceiling", defaultQuery:"条约", defaultSeed:"organization-shabi-kingdom",
+      shards:[
+        shard("they-did-not-think-it-too-many", "section-too-many-factions", [
+          n("organization-roman-delegation","organization","Roman Delegation","player-safe",["罗马使团"]),
+          n("organization-shabi-kingdom","organization","Shabi Kingdom","player-safe",["莎比王国"]),
+          n("faction-six-sickles","faction","Six Sickles Cult","keeper-only",["六镰教派"]),
+          n("actor-king-connir","actor","King Connir","keeper-only",["康尼尔国王"]),
+          n("actor-bradan","actor","Bradan mac Hafgan","keeper-only",["布拉丹"]),
+          n("fact-king-connir-alive","fact","康尼尔仍然在世","keeper-only"),
+          n("fact-roman-delegation-authorized","fact","罗马使团拥有谈判授权","player-safe"),
+          n("quest-negotiate-shabi-treaty","quest","谈成附庸条约","player-safe"),
+          n("outcome-valid-shabi-treaty","outcome","达成有效条约","keeper-only"),
+          n("requirement-king-can-ratify","requirement","国王能够批准条约","keeper-only",[],"当前方法的因果硬门",{gate:"hard",requires_fact_ids:["fact-king-connir-alive"],bypass_affordance_ids:[],outcome_ceiling_when_missing:"discover-succession-crisis"})
+        ],[
+          c("claim-king-leads-shabi","actor-king-connir","leads","organization-shabi-kingdom","source://they-did-not-think-it-too-many/opening"),
+          c("claim-bradan-leads-cult","actor-bradan","leads","faction-six-sickles","source://they-did-not-think-it-too-many/keeper-background"),
+          c("claim-treaty-quest-outcome","quest-negotiate-shabi-treaty","has-outcome","outcome-valid-shabi-treaty","source://they-did-not-think-it-too-many/opening","player-safe"),
+          c("claim-treaty-outcome-requires-king","outcome-valid-shabi-treaty","has-requirement","requirement-king-can-ratify","source://they-did-not-think-it-too-many/keeper-background")
+        ],[
+          r("relation-king-leads-shabi","leads","actor-king-connir","organization-shabi-kingdom","claim-king-leads-shabi"),
+          r("relation-bradan-leads-cult","leads","actor-bradan","faction-six-sickles","claim-bradan-leads-cult"),
+          r("relation-treaty-quest-outcome","has-outcome","quest-negotiate-shabi-treaty","outcome-valid-shabi-treaty","claim-treaty-quest-outcome"),
+          r("relation-treaty-outcome-requirement","has-requirement","outcome-valid-shabi-treaty","requirement-king-can-ratify","claim-treaty-outcome-requires-king")
+        ],{structure:"accepted",actors:"accepted",relationships:"accepted",knowledge:"partial",causal:"accepted",mechanics:"unresolved"})
+      ]
+    },
+    {
+      module_id:"blood-road", title:"Blood Road / 血色公路", archetype:"hybrid mega sandbox",
+      sections:[
+        ["section-blood-road-town","阿巴托尔镇与地点层级","region-hub"],
+        ["section-blood-road-hunt","狩猎事件时间线","threat-timeline"],
+        ["section-blood-road-temple","伊格神庙","uncompiled-region"]
+      ],
+      campaignFacts:["fact-vehicle-operational"], expectedAssessment:"source-gap", defaultQuery:"蛇庙", defaultSeed:"location-abattoir-town",
+      shards:[
+        shard("blood-road", "section-blood-road-town", [
+          n("location-abattoir-town","location","Abattoir, Texas","player-safe",["阿巴托尔镇"]),
+          n("location-weyland-mine","location","Weyland Mine","player-safe",["维兰德矿井"]),
+          n("location-yig-temple","location","Temple of Yig","keeper-only",["伊格神庙","蛇庙"]),
+          n("fact-vehicle-operational","fact","车辆仍可使用","player-safe"),
+          n("quest-escape-blood-road","quest","逃离阿巴托尔","player-safe"),
+          n("outcome-escape-desert","outcome","活着逃离沙漠","player-safe"),
+          n("requirement-temple-route-known","requirement","掌握神庙路线","keeper-only",[],"目标Section尚未编译",{gate:"hard",requires_fact_ids:["fact-temple-route-known"],bypass_affordance_ids:[],outcome_ceiling_when_missing:"survive-current-hunt",source_gap:true}),
+          n("fact-temple-route-known","fact","已掌握伊格神庙路线","keeper-only")
+        ],[
+          c("claim-town-contains-mine","location-abattoir-town","contains","location-weyland-mine","source://blood-road/town-map"),
+          c("claim-escape-quest-outcome","quest-escape-blood-road","has-outcome","outcome-escape-desert","source://blood-road/module-overview","player-safe"),
+          c("claim-escape-outcome-route","outcome-escape-desert","has-requirement","requirement-temple-route-known","source://blood-road/table-of-contents")
+        ],[
+          r("relation-town-contains-mine","contains","location-abattoir-town","location-weyland-mine","claim-town-contains-mine"),
+          r("relation-escape-quest-outcome","has-outcome","quest-escape-blood-road","outcome-escape-desert","claim-escape-quest-outcome"),
+          r("relation-escape-outcome-route","has-requirement","outcome-escape-desert","requirement-temple-route-known","claim-escape-outcome-route")
+        ],{structure:"accepted",actors:"partial",relationships:"partial",knowledge:"partial",causal:"partial",mechanics:"unresolved"}),
+        shard("blood-road", "section-blood-road-hunt", [
+          n("threat-dustbillies-hunt","threat","Dustbillies Hunt","keeper-only",["狩猎"]),
+          n("clock-hunt-escalation","clock","狩猎升级时钟","keeper-only")
+        ],[
+          c("claim-hunt-advances-clock","threat-dustbillies-hunt","advances","clock-hunt-escalation","source://blood-road/event-timeline")
+        ],[
+          r("relation-hunt-advances-clock","advances","threat-dustbillies-hunt","clock-hunt-escalation","claim-hunt-advances-clock"),
+          r("relation-hunt-endangers-town","endangers","threat-dustbillies-hunt","location-abattoir-town")
+        ],{structure:"accepted",actors:"partial",relationships:"partial",knowledge:"partial",causal:"accepted",mechanics:"partial"})
+      ]
+    },
+    {
+      module_id:"masks-of-nyarlathotep", title:"Masks of Nyarlathotep", archetype:"global chapter sandbox",
+      sections:[
+        ["section-masks-introduction","Campaign structure and global timeline","campaign-overview"],
+        ["section-masks-chapters","Seven locale chapters","chapter-index"]
+      ],
+      campaignFacts:["fact-jackson-notes-recovered"], expectedAssessment:"direct", defaultQuery:"Kenya", defaultSeed:"campaign-masks",
+      shards:[
+        shard("masks-of-nyarlathotep", "section-masks-introduction", [
+          n("campaign-masks","campaign","Masks of Nyarlathotep","player-safe"),
+          n("location-london","location","London","player-safe",["伦敦"]),
+          n("chapter-masks-england","chapter","England Chapter","keeper-only",["London chapter"]),
+          n("chapter-masks-egypt","chapter","Egypt Chapter","keeper-only",["Cairo"]),
+          n("chapter-masks-kenya","chapter","Kenya Chapter","keeper-only",["Nairobi","肯尼亚"]),
+          n("chapter-masks-china","chapter","China Chapter","keeper-only",["Shanghai"]),
+          n("fact-jackson-notes-recovered","fact","Jackson Elias notes recovered","keeper-only"),
+          n("quest-follow-global-leads","quest","Follow the global leads","player-safe"),
+          n("outcome-choose-next-country","outcome","Choose a viable next country","keeper-only"),
+          n("requirement-global-leads-known","requirement","Know at least one international lead","keeper-only",[],"sandbox navigation knowledge",{gate:"hard",requires_fact_ids:["fact-jackson-notes-recovered"],bypass_affordance_ids:[],outcome_ceiling_when_missing:"investigate-new-york-further"})
+        ],[
+          c("claim-masks-has-england","campaign-masks","contains","chapter-masks-england","source://masks/introduction"),
+          c("claim-masks-has-egypt","campaign-masks","contains","chapter-masks-egypt","source://masks/introduction"),
+          c("claim-masks-has-kenya","campaign-masks","contains","chapter-masks-kenya","source://masks/introduction"),
+          c("claim-masks-has-china","campaign-masks","contains","chapter-masks-china","source://masks/introduction"),
+          c("claim-masks-quest-outcome","quest-follow-global-leads","has-outcome","outcome-choose-next-country","source://masks/introduction","player-safe"),
+          c("claim-masks-outcome-requirement","outcome-choose-next-country","has-requirement","requirement-global-leads-known","source://masks/introduction")
+        ],[
+          r("relation-masks-england","contains","campaign-masks","chapter-masks-england","claim-masks-has-england"),
+          r("relation-masks-egypt","contains","campaign-masks","chapter-masks-egypt","claim-masks-has-egypt"),
+          r("relation-masks-kenya","contains","campaign-masks","chapter-masks-kenya","claim-masks-has-kenya"),
+          r("relation-masks-china","contains","campaign-masks","chapter-masks-china","claim-masks-has-china"),
+          r("relation-masks-england-egypt","may-follow","chapter-masks-england","chapter-masks-egypt"),
+          r("relation-masks-england-kenya","may-follow","chapter-masks-england","chapter-masks-kenya"),
+          r("relation-masks-england-china","may-follow","chapter-masks-england","chapter-masks-china"),
+          r("relation-masks-quest-outcome","has-outcome","quest-follow-global-leads","outcome-choose-next-country","claim-masks-quest-outcome"),
+          r("relation-masks-outcome-requirement","has-requirement","outcome-choose-next-country","requirement-global-leads-known","claim-masks-outcome-requirement")
+        ],{structure:"accepted",actors:"partial",relationships:"partial",knowledge:"accepted",causal:"accepted",mechanics:"unresolved"})
+      ]
+    },
+    {
+      module_id:"horror-on-the-orient-express", title:"Horror on the Orient Express", archetype:"artifact itinerary and multi-era campaign",
+      sections:[
+        ["section-hotoe-campaign","Core/optional scenario map","campaign-overview"],
+        ["section-hotoe-paris","Paris artifact route","core-scenario"],
+        ["section-hotoe-dreamlands","Dreamlands Express","optional-scenario"]
+      ],
+      campaignFacts:["fact-paris-route-known"], expectedAssessment:"hard-ceiling", defaultQuery:"left arm", defaultSeed:"campaign-hotoe",
+      shards:[
+        shard("horror-on-the-orient-express", "section-hotoe-campaign", [
+          n("campaign-hotoe","campaign","Horror on the Orient Express","player-safe"),
+          n("location-london","location","London","player-safe",["伦敦"]),
+          n("scenario-hotoe-paris","scenario","Les Fleurs Du Mal: Paris 1923","keeper-only",["Paris"]),
+          n("scenario-hotoe-dreamlands","scenario","The Dreamlands Express","keeper-only",["Dreamlands"],"Optional scenario",{scenario_role:"optional"}),
+          n("artifact-simulacrum-left-arm","artifact-part","Sedefkar Simulacrum Left Arm","keeper-only",["left arm","左臂"]),
+          n("fact-paris-route-known","fact","Paris route identified","keeper-only"),
+          n("fact-left-arm-recovered","fact","Left arm recovered","keeper-only"),
+          n("quest-assemble-simulacrum","quest","Recover the simulacrum parts","player-safe"),
+          n("outcome-complete-simulacrum","outcome","Assemble the complete simulacrum","keeper-only"),
+          n("requirement-left-arm-recovered","requirement","Recover the left arm","keeper-only",[],"one required artifact part",{gate:"hard",requires_fact_ids:["fact-left-arm-recovered"],bypass_affordance_ids:[],outcome_ceiling_when_missing:"continue-search"})
+        ],[
+          c("claim-hotoe-has-paris","campaign-hotoe","contains","scenario-hotoe-paris","source://hotoe/campaign-book"),
+          c("claim-hotoe-has-dreamlands","campaign-hotoe","contains","scenario-hotoe-dreamlands","source://hotoe/campaign-book"),
+          c("claim-left-arm-in-paris","artifact-simulacrum-left-arm","located-in","scenario-hotoe-paris","source://hotoe/campaign-book"),
+          c("claim-hotoe-quest-outcome","quest-assemble-simulacrum","has-outcome","outcome-complete-simulacrum","source://hotoe/campaign-book","player-safe"),
+          c("claim-hotoe-outcome-requirement","outcome-complete-simulacrum","has-requirement","requirement-left-arm-recovered","source://hotoe/campaign-book")
+        ],[
+          r("relation-hotoe-paris","contains","campaign-hotoe","scenario-hotoe-paris","claim-hotoe-has-paris"),
+          r("relation-hotoe-dreamlands","contains","campaign-hotoe","scenario-hotoe-dreamlands","claim-hotoe-has-dreamlands"),
+          r("relation-left-arm-paris","located-in","artifact-simulacrum-left-arm","scenario-hotoe-paris","claim-left-arm-in-paris"),
+          r("relation-hotoe-quest-outcome","has-outcome","quest-assemble-simulacrum","outcome-complete-simulacrum","claim-hotoe-quest-outcome"),
+          r("relation-hotoe-outcome-requirement","has-requirement","outcome-complete-simulacrum","requirement-left-arm-recovered","claim-hotoe-outcome-requirement")
+        ],{structure:"accepted",actors:"partial",relationships:"partial",knowledge:"partial",causal:"accepted",mechanics:"unresolved"})
+      ]
+    }
+  ];
+
+  // Deliberately invalid: proves source evidence is required before promotion.
+  const INVALID_SHARD = (() => {
+    const bad = structuredClone(MODULES[0].shards[0]);
+    bad.section_id = "section-invalid-missing-source";
+    bad.claims[0].source_refs = [];
+    return bad;
+  })();
+
+  let state;
+
+  function emptyState() {
+    return {nodes:new Map(), claims:new Map(), relations:new Map(), coverage:new Map(), promotionLog:[], checks:[]};
+  }
+
+  function moduleKey(moduleId, id) { return `${moduleId}::${id}`; }
+
+  function validateShard(candidate, moduleDef) {
+    const errors = [];
+    if (candidate.contract_id !== CONTRACT) errors.push("wrong contract_id");
+    if (candidate.module_id !== moduleDef.module_id) errors.push("module_id mismatch");
+    if (!SEMANTIC_ID.test(candidate.section_id || "")) errors.push("section_id is not semantic");
+    if (!Array.isArray(candidate.source_refs) || candidate.source_refs.length === 0) errors.push("shard source_refs required");
+    const catalog = new Set(moduleDef.sections.map(row => row[0]));
+    for (const s of moduleDef.shards) for (const node of s.nodes) catalog.add(node.node_id);
+    const claimCatalog = new Set(moduleDef.shards.flatMap(s => s.claims.map(x => x.claim_id)));
+    const localIds = new Set();
+    for (const node of candidate.nodes || []) {
+      if (!SEMANTIC_ID.test(node.node_id || "")) errors.push(`bad node id: ${node.node_id}`);
+      if (localIds.has(node.node_id)) errors.push(`duplicate node id: ${node.node_id}`);
+      localIds.add(node.node_id);
+      if (!VISIBILITIES.has(node.visibility)) errors.push(`bad visibility: ${node.node_id}`);
+    }
+    for (const claim of candidate.claims || []) {
+      if (!SEMANTIC_ID.test(claim.claim_id || "")) errors.push(`bad claim id: ${claim.claim_id}`);
+      if (!catalog.has(claim.subject_id)) errors.push(`unknown claim subject: ${claim.subject_id}`);
+      if (!catalog.has(claim.object_id)) errors.push(`unknown claim object: ${claim.object_id}`);
+      if (!Array.isArray(claim.source_refs) || claim.source_refs.length === 0) errors.push(`claim source_refs required: ${claim.claim_id}`);
+      if (!VISIBILITIES.has(claim.visibility)) errors.push(`bad claim visibility: ${claim.claim_id}`);
+    }
+    for (const relation of candidate.relations || []) {
+      if (!SEMANTIC_ID.test(relation.relation_id || "")) errors.push(`bad relation id: ${relation.relation_id}`);
+      if (!catalog.has(relation.from_node_id)) errors.push(`unknown relation source: ${relation.from_node_id}`);
+      if (!catalog.has(relation.to_node_id)) errors.push(`unknown relation target: ${relation.to_node_id}`);
+      if (relation.claim_id && !claimCatalog.has(relation.claim_id)) errors.push(`unknown relation claim: ${relation.claim_id}`);
+    }
+    return errors;
+  }
+
+  function installOutline(moduleDef) {
+    const moduleNode = n(`module-${moduleDef.module_id}`, "module", moduleDef.title, "player-safe", [], moduleDef.archetype);
+    state.nodes.set(moduleKey(moduleDef.module_id, moduleNode.node_id), {...moduleNode, module_id:moduleDef.module_id});
+    let previous = null;
+    moduleDef.sections.forEach(([section_id, title, section_kind], index) => {
+      const sectionNode = n(section_id, "section", title, "keeper-only", [], section_kind, {section_kind, ordinal:index + 1});
+      state.nodes.set(moduleKey(moduleDef.module_id, section_id), {...sectionNode, module_id:moduleDef.module_id});
+      const containsId = `relation-${moduleDef.module_id}-contains-section-${index + 1}`;
+      state.relations.set(moduleKey(moduleDef.module_id, containsId), {
+        module_id:moduleDef.module_id, relation_id:containsId, relation_kind:"contains",
+        from_node_id:moduleNode.node_id, to_node_id:section_id, claim_id:null, origin:"outline"
+      });
+      if (previous) {
+        const precedesId = `relation-${moduleDef.module_id}-section-${index}-precedes-${index + 1}`;
+        state.relations.set(moduleKey(moduleDef.module_id, precedesId), {
+          module_id:moduleDef.module_id, relation_id:precedesId, relation_kind:"precedes",
+          from_node_id:previous, to_node_id:section_id, claim_id:null, origin:"outline"
+        });
+      }
+      previous = section_id;
+    });
+  }
+
+  function promoteShard(candidate, moduleDef) {
+    const errors = validateShard(candidate, moduleDef);
+    if (errors.length) {
+      state.promotionLog.push({module_id:candidate.module_id, section_id:candidate.section_id, status:"rejected", errors});
+      return {ok:false, errors};
+    }
+    for (const node of candidate.nodes) {
+      const key = moduleKey(candidate.module_id, node.node_id);
+      const existing = state.nodes.get(key);
+      const normalized = {...node, module_id:candidate.module_id, section_id:candidate.section_id};
+      if (existing && existing.node_kind !== normalized.node_kind) {
+        const conflict = [`node kind conflict for ${node.node_id}`];
+        state.promotionLog.push({module_id:candidate.module_id, section_id:candidate.section_id, status:"rejected", errors:conflict});
+        return {ok:false, errors:conflict};
+      }
+      state.nodes.set(key, existing ? {...existing, ...normalized} : normalized);
+    }
+    for (const claim of candidate.claims) {
+      state.claims.set(moduleKey(candidate.module_id, claim.claim_id), {...claim, status:"accepted", module_id:candidate.module_id, section_id:candidate.section_id});
+    }
+    for (const relation of candidate.relations) {
+      state.relations.set(moduleKey(candidate.module_id, relation.relation_id), {...relation, module_id:candidate.module_id, section_id:candidate.section_id, origin:"graph-shard"});
+    }
+    state.coverage.set(moduleKey(candidate.module_id, candidate.section_id), {...candidate.coverage, module_id:candidate.module_id, section_id:candidate.section_id});
+    state.promotionLog.push({module_id:candidate.module_id, section_id:candidate.section_id, status:"accepted", node_count:candidate.nodes.length, claim_count:candidate.claims.length, relation_count:candidate.relations.length});
+    return {ok:true, errors:[]};
+  }
+
+  function resetState() {
+    state = emptyState();
+    renderAll();
+  }
+
+  function promoteAll() {
+    state = emptyState();
+    for (const moduleDef of MODULES) {
+      installOutline(moduleDef);
+      for (const candidate of moduleDef.shards) promoteShard(candidate, moduleDef);
+    }
+    renderAll();
+  }
+
+  function visibleTo(node, viewer) {
+    return viewer === "keeper" || node.visibility === "player-safe";
+  }
+
+  function trigrams(value) {
+    const text = value.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+    if (text.length < 3) return new Set(text ? [text] : []);
+    const out = new Set();
+    for (let i = 0; i <= text.length - 3; i++) out.add(text.slice(i, i + 3));
+    return out;
+  }
+
+  function trigramScore(query, text) {
+    const a = trigrams(query), b = trigrams(text);
+    if (!a.size || !b.size) return 0;
+    let intersection = 0;
+    for (const token of a) if (b.has(token)) intersection++;
+    return intersection / new Set([...a, ...b]).size;
+  }
+
+  function searchGraph(query, moduleId="all", viewer="keeper", limit=20) {
+    const q = query.toLocaleLowerCase().trim();
+    if (!q) return [];
+    const rows = [];
+    for (const node of state.nodes.values()) {
+      if (moduleId !== "all" && node.module_id !== moduleId) continue;
+      if (!visibleTo(node, viewer)) continue;
+      const corpus = [node.node_id, node.name, ...(node.aliases || []), node.summary || "", JSON.stringify(node.properties || {})].join(" ").toLocaleLowerCase();
+      let score = 0;
+      if (node.node_id === q || (node.name || "").toLocaleLowerCase() === q) score = 100;
+      else if (corpus.includes(q)) score = 60 + Math.min(20, q.length);
+      else score = Math.round(trigramScore(q, corpus) * 50);
+      if (score > 0) rows.push({module_id:node.module_id, node_id:node.node_id, node_kind:node.node_kind, name:node.name, visibility:node.visibility, score});
+    }
+    return rows.sort((a,b) => b.score - a.score || a.node_id.localeCompare(b.node_id)).slice(0, limit);
+  }
+
+  function graphContext(moduleId, seedId, depth=2, viewer="keeper") {
+    const nodeFor = id => state.nodes.get(moduleKey(moduleId, id));
+    const seed = nodeFor(seedId);
+    if (!seed || !visibleTo(seed, viewer)) return {error:"seed not found or hidden", nodes:[], relations:[]};
+    const seen = new Set([seedId]);
+    const relations = [];
+    let frontier = [seedId];
+    for (let step=0; step<depth; step++) {
+      const next = [];
+      for (const relation of state.relations.values()) {
+        if (relation.module_id !== moduleId) continue;
+        if (!frontier.includes(relation.from_node_id) && !frontier.includes(relation.to_node_id)) continue;
+        const other = frontier.includes(relation.from_node_id) ? relation.to_node_id : relation.from_node_id;
+        const target = nodeFor(other);
+        if (!target || !visibleTo(target, viewer)) continue;
+        relations.push(relation);
+        if (!seen.has(other)) { seen.add(other); next.push(other); }
+      }
+      frontier = next;
+      if (!frontier.length) break;
+    }
+    return {
+      module_id:moduleId,
+      seed_id:seedId,
+      depth,
+      nodes:[...seen].map(nodeFor).filter(Boolean).map(x => ({node_id:x.node_id,node_kind:x.node_kind,name:x.name,visibility:x.visibility})),
+      relations:[...new Map(relations.map(x => [x.relation_id,x])).values()].map(x => ({relation_kind:x.relation_kind,from:x.from_node_id,to:x.to_node_id,origin:x.origin}))
+    };
+  }
+
+  function assessOutcome(moduleId, outcomeId) {
+    const moduleDef = MODULES.find(x => x.module_id === moduleId);
+    const facts = new Set(moduleDef?.campaignFacts || []);
+    const requirementIds = [...state.relations.values()]
+      .filter(x => x.module_id === moduleId && x.relation_kind === "has-requirement" && x.from_node_id === outcomeId)
+      .map(x => x.to_node_id);
+    const requirements = requirementIds.map(id => state.nodes.get(moduleKey(moduleId,id))).filter(Boolean);
+    const missingHard = [], missingSoft = [], gaps = [];
+    for (const requirement of requirements) {
+      const p = requirement.properties || {};
+      const missing = (p.requires_fact_ids || []).filter(id => !facts.has(id));
+      if (p.source_gap) gaps.push({requirement_id:requirement.node_id, missing, reason:"source section not compiled"});
+      else if (missing.length && p.gate === "hard") missingHard.push({requirement_id:requirement.node_id,missing,outcome_ceiling:p.outcome_ceiling_when_missing});
+      else if (missing.length) missingSoft.push({requirement_id:requirement.node_id,missing,bypasses:p.bypass_affordance_ids || [],outcome_ceiling:p.outcome_ceiling_when_missing});
+    }
+    let assessment = "direct";
+    if (gaps.length) assessment = "source-gap";
+    else if (missingHard.length) assessment = "hard-ceiling";
+    else if (missingSoft.length) assessment = "soft-bypass";
+    return {module_id:moduleId,outcome_id:outcomeId,assessment,known_facts:[...facts],missing_hard:missingHard,missing_soft:missingSoft,source_gaps:gaps};
+  }
+
+  function outcomeNodes(moduleId) {
+    return [...state.nodes.values()].filter(x => x.module_id === moduleId && x.node_kind === "outcome");
+  }
+
+  function runAllChecks() {
+    promoteAll();
+    const checks = [];
+    const record = (name, pass, detail) => checks.push({name, pass:Boolean(pass), detail});
+    record("All six module datasets promoted", state.promotionLog.filter(x => x.status === "accepted").length === MODULES.reduce((n,m) => n + m.shards.length,0), `${state.promotionLog.length} promotion rows`);
+    const invalidPromotion = promoteShard(INVALID_SHARD, MODULES[0]);
+    record(
+      "Shard without source evidence is rejected",
+      !invalidPromotion.ok && invalidPromotion.errors.some(x => x.includes("source_refs required")),
+      invalidPromotion.errors.join("; ")
+    );
+    for (const moduleDef of MODULES) {
+      const outcome = outcomeNodes(moduleDef.module_id)[0];
+      const result = assessOutcome(moduleDef.module_id, outcome.node_id);
+      record(`${moduleDef.title}: ${moduleDef.expectedAssessment}`, result.assessment === moduleDef.expectedAssessment, JSON.stringify(result));
+      const search = searchGraph(moduleDef.defaultQuery, moduleDef.module_id, "keeper");
+      record(`${moduleDef.title}: keyword candidate search`, search.length > 0, `${moduleDef.defaultQuery} → ${search.map(x => x.node_id).join(", ")}`);
+      const context = graphContext(moduleDef.module_id, moduleDef.defaultSeed, 2, "keeper");
+      record(`${moduleDef.title}: bounded graph context`, !context.error && context.nodes.length >= 2 && context.relations.length >= 1, `${context.nodes.length} nodes / ${context.relations.length} relations`);
+    }
+    const london = searchGraph("London", "all", "keeper").filter(x => x.node_id === "location-london");
+    record("Same local ID remains module-scoped", london.length === 2 && new Set(london.map(x => x.module_id)).size === 2, JSON.stringify(london));
+    const keeperSecret = searchGraph("Six Sickles", "they-did-not-think-it-too-many", "keeper");
+    const playerSecret = searchGraph("Six Sickles", "they-did-not-think-it-too-many", "player");
+    record("Player search cannot see keeper-only faction", keeperSecret.length > 0 && playerSecret.length === 0, `keeper=${keeperSecret.length}, player=${playerSecret.length}`);
+    const bloodGap = assessOutcome("blood-road","outcome-escape-desert");
+    record("Uncompiled Blood Road region remains source-gap", bloodGap.assessment === "source-gap", JSON.stringify(bloodGap));
+    state.checks = checks;
+    renderAll();
+    return checks;
+  }
+
+  function summarizeState() {
+    return {
+      modules:MODULES.length,
+      accepted_shards:state.promotionLog.filter(x => x.status === "accepted").length,
+      rejected_shards:state.promotionLog.filter(x => x.status === "rejected").length,
+      nodes:state.nodes.size,
+      claims:state.claims.size,
+      relations:state.relations.size,
+      coverage_rows:state.coverage.size
+    };
+  }
+
+  const $ = id => document.getElementById(id);
+  function fillSelect(select, rows, valueKey, labelFn) {
+    const prior = select.value;
+    select.innerHTML = rows.map(row => `<option value="${row[valueKey]}">${labelFn(row)}</option>`).join("");
+    if ([...select.options].some(x => x.value === prior)) select.value = prior;
+  }
+
+  function renderMetrics() {
+    const m = summarizeState();
+    $("metrics").innerHTML = Object.entries(m).map(([key,value]) => `<div class="metric"><strong>${value}</strong><span>${key}</span></div>`).join("");
+  }
+
+  function renderSelectors() {
+    const allModules = [{module_id:"all",title:"All modules"}, ...MODULES];
+    fillSelect($("search-module"), allModules, "module_id", x => x.title);
+    for (const id of ["context-module","assessment-module"]) fillSelect($(id), MODULES, "module_id", x => x.title);
+    updateContextSeeds();
+    updateAssessmentOutcomes();
+  }
+
+  function updateContextSeeds() {
+    const moduleId = $("context-module").value || MODULES[0].module_id;
+    const nodes = [...state.nodes.values()].filter(x => x.module_id === moduleId);
+    fillSelect($("context-seed"), nodes, "node_id", x => `${x.node_kind}: ${x.name}`);
+  }
+
+  function updateAssessmentOutcomes() {
+    const moduleId = $("assessment-module").value || MODULES[0].module_id;
+    fillSelect($("assessment-outcome"), outcomeNodes(moduleId), "node_id", x => x.name);
+  }
+
+  function renderCoverage() {
+    const headers = ["section", ...ASPECTS];
+    const cells = headers.map(x => `<div><strong>${x}</strong></div>`);
+    for (const row of state.coverage.values()) {
+      cells.push(`<div>${row.module_id}<br><span class="muted">${row.section_id}</span></div>`);
+      for (const aspect of ASPECTS) {
+        const value = row[aspect] || "unresolved";
+        cells.push(`<div class="${value}">${value}</div>`);
+      }
+    }
+    $("coverage").innerHTML = cells.join("");
+  }
+
+  function renderChecks() {
+    $("checks").innerHTML = state.checks.length ? state.checks.map((check,index) => `
+      <div class="check" data-testid="check-${index}">
+        <div class="${check.pass ? "pass" : "fail"}">${check.pass ? "✓" : "✗"}</div>
+        <div><strong>${check.name}</strong><div class="muted">${check.detail}</div></div>
+        <div class="${check.pass ? "pass" : "fail"}">${check.pass ? "PASS" : "FAIL"}</div>
+      </div>`).join("") : `<div class="muted">Run checks to populate.</div>`;
+    const pass = state.checks.filter(x => x.pass).length;
+    const fail = state.checks.length - pass;
+    $("headline-status").textContent = state.checks.length ? `${pass} passed / ${fail} failed` : "not run";
+    $("headline-status").className = fail ? "fail" : (state.checks.length ? "pass" : "muted");
+  }
+
+  function renderState() {
+    $("promotion-log").textContent = JSON.stringify(state.promotionLog,null,2);
+    $("graph-state").textContent = JSON.stringify({
+      nodes:[...state.nodes.values()], claims:[...state.claims.values()], relations:[...state.relations.values()], coverage:[...state.coverage.values()]
+    },null,2);
+    $("candidate-state").textContent = JSON.stringify(MODULES,null,2);
+  }
+
+  function renderAll() {
+    renderMetrics();
+    renderSelectors();
+    renderCoverage();
+    renderChecks();
+    renderState();
+  }
+
+  $("run-all").addEventListener("click", runAllChecks);
+  $("promote-all").addEventListener("click", promoteAll);
+  $("reset").addEventListener("click", resetState);
+  $("search").addEventListener("click", () => {
+    $("search-output").textContent = JSON.stringify(searchGraph($("search-query").value,$("search-module").value,$("search-viewer").value),null,2);
+  });
+  $("context-module").addEventListener("change", updateContextSeeds);
+  $("context").addEventListener("click", () => {
+    $("context-output").textContent = JSON.stringify(graphContext($("context-module").value,$("context-seed").value,Number($("context-depth").value),"keeper"),null,2);
+  });
+  $("assessment-module").addEventListener("change", updateAssessmentOutcomes);
+  $("assess").addEventListener("click", () => {
+    $("assessment-output").textContent = JSON.stringify(assessOutcome($("assessment-module").value,$("assessment-outcome").value),null,2);
+  });
+  document.querySelectorAll(".tab").forEach(button => button.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === button));
+    document.querySelectorAll(".tab-page").forEach(x => x.classList.toggle("active", x.id === `tab-${button.dataset.tab}`));
+  }));
+
+  window.prototypeApi = {MODULES, INVALID_SHARD, validateShard, promoteAll, searchGraph, graphContext, assessOutcome, runAllChecks, getState:() => state};
+  promoteAll();
+  runAllChecks();
+})();
+</script>
+</body>
+</html>
