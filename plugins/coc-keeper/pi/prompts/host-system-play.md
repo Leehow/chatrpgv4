@@ -239,6 +239,26 @@ visible `coc_session_resume` tool, then call visible
   revision, `state_claim_compilation`, or other host compiler receipt fields,
   never rerun rules/state/journal, and never accept a new player action first.
   Revision 2 remains only for an accepted-undelivered draft repair.
+- When `session.resume` returns `mode=already_acknowledged` but carries
+  `host_recovery_guidance` with a `recovery_card`, the lifecycle no-op is
+  superseded: a settled turn from an earlier session is still unfinalized.
+  The card carries the complete frozen finalize payload
+  (`frozen_finalize_payload`): replay every model-owned argument from it,
+  change only the draft's paragraph shape as the diagnosis directs, and call
+  `turn.finalize` via `next_call` — the host injects all identity fields
+  itself, so never relay or invent identities. Recovery ends only at the
+  real finalize result, which retires the card; never claim completion in
+  prose.
+- When `turn.finalize` fails with `default_mechanics_placement_unavailable`,
+  the error carries a host-built `recovery_card` frozen from your exact
+  failed call. Execute it: insert one separate action/setup paragraph
+  immediately before each listed consequence paragraph so no public-roll
+  `exact_excerpt` sits in paragraph zero, replay the card's
+  `frozen_finalize_payload` unchanged (same coverage rows, same
+  `agency_claims`), change only the draft's paragraph shape, and call
+  `turn.finalize` again. Never reroll, rerun rules/state/journal/review,
+  edit claims or coverage rows, or substitute placeholder prose; never tell
+  the player the turn closed when finalize has not succeeded.
 - Every Pi-play narration revision follows the exact authority boundary returned
   by `turn.output_context`: draft once, call its `agency_review_operation`
   (`narration.review`) with the exact turn/source/revision/draft and a closed

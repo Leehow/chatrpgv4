@@ -23,18 +23,35 @@ const {
 );
 
 const {
+  applyAcknowledgedResumeRecoveryGuidance,
   applyPendingFinalizationRecoveryGuidance,
   applyOpenTurnRecoveryGuidance,
+  buildDraftShapeRecoveryCard,
+  canonicalDraftParagraphs,
+  draftShapePayloadDigest,
+  hasReviewEvidenceEntry,
+  isDraftShapePlacementFailure,
+  isDraftShapeRecoveryCard,
+  isDraftShapeRecoveryReplayUnchanged,
+  isFrozenFinalizePayload,
   isPendingFinalizationResume,
   isOpenTurnRecoveryResume,
   pendingFinalizationInlineCardsComplete,
+  placementFailureRollIds,
+  selectRecoverableDraftShapeCard,
   validateLiveOutputContext,
+  DRAFT_SHAPE_RECOVERY_COMPLETE_AUDIT,
+  DRAFT_SHAPE_RECOVERY_CARD_AUDIT,
+  DRAFT_SHAPE_RECOVERY_CARD_CONTRACT,
+  DRAFT_SHAPE_RECOVERY_SEAL_AUDIT,
+  NARRATION_REVIEW_EVIDENCE_AUDIT,
   OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT,
   OPEN_TURN_RECOVERY_GUIDANCE_AUDIT,
   OPEN_TURN_RECOVERY_CLOSURE_SEQUENCE,
   OPEN_TURN_RECOVERY_FORBIDDEN_UNTIL_CLOSED,
   PENDING_FINALIZATION_RECOVERY_GUIDANCE_CONTRACT,
   PENDING_FINALIZATION_RECOVERY_GUIDANCE_AUDIT,
+  HOST_BOUND_FINALIZE_ARGUMENTS,
 } = guidanceMod;
 
 // This harness drives the root KP extension surface directly. A worker-shell
@@ -3256,3 +3273,842 @@ process.stdout.write(JSON.stringify({
     "pending_finalization",
   ],
 }) + "\n");
+
+
+// ---------------------------------------------------------------------------
+// Draft-shape recovery card (run-02 paragraph-zero placement chain):
+// whitelist-derived frozen payload, machine-internal payload seal, exact
+// per-identity tombstone fold.
+// ---------------------------------------------------------------------------
+
+// Canonical typed turn.finalize schema model-owned whitelist (derived in the
+// host from typedTools properties minus host-injected binding fields).
+const MODEL_OWNED_FINALIZE_FIELDS = [
+  "draft",
+  "coverage",
+  "agency_claims",
+  "mechanics_placements",
+  "advisory_uptake",
+  "validate_only",
+];
+const buildCard = (input) => buildDraftShapeRecoveryCard({
+  ...input,
+  modelOwnedFields: input.modelOwnedFields
+    ?? MODEL_OWNED_FINALIZE_FIELDS,
+});
+
+const placementFailureEnvelope = (rollId, flavor) => ({
+  ok: false,
+  tool: "turn.finalize",
+  error: {
+    code: "default_mechanics_placement_unavailable",
+    message: flavor === "missing"
+      ? `public roll ${rollId} has no safe preceding paragraph; `
+        + "split action/setup and result prose into separate paragraphs"
+      : `public roll ${rollId} consequence is in paragraph zero; `
+        + "add a separate action/setup paragraph before the result paragraph",
+  },
+});
+
+// Python-finalizer-exact paragraph split (coc_turn_finalization._draft_paragraphs).
+assert.deepEqual(
+  canonicalDraftParagraphs("第一段。\n\n第二段。\n\n第三段。"),
+  ["第一段。", "第二段。", "第三段。"],
+);
+assert.deepEqual(canonicalDraftParagraphs("单段。"), ["单段。"]);
+
+assert.equal(isDraftShapePlacementFailure(
+  placementFailureEnvelope("roll-1"),
+), true);
+assert.equal(isDraftShapePlacementFailure({
+  ok: true,
+  tool: "turn.finalize",
+  data: {},
+}), false);
+assert.equal(isDraftShapePlacementFailure({
+  ok: false,
+  tool: "turn.finalize",
+  error: { code: "narration_review_mismatch", message: "x" },
+}), false);
+assert.equal(isDraftShapePlacementFailure(null), false);
+
+assert.deepEqual(placementFailureRollIds(
+  "public roll roll-spot-hidden consequence is in paragraph zero; "
+    + "add a separate action/setup paragraph before the result paragraph",
+), ["roll-spot-hidden"]);
+assert.deepEqual(placementFailureRollIds(
+  "public roll roll-listen has no safe preceding paragraph; "
+    + "split action/setup and result prose into separate paragraphs",
+), ["roll-listen"]);
+assert.deepEqual(placementFailureRollIds("无法解析的消息"), []);
+
+// Exact run-02 shape: two public checks (one critical Spot Hidden, one failed
+// Listen) plus an exceptional effect, all settled; the KP merged action and
+// consequence into paragraph zero, so finalize cannot place the roll block.
+const run02Draft = "你贴着墙根屏息，同时竖起耳朵听向门后的动静。";
+const run02Coverage = [
+  {
+    obligation_id: "roll:roll-spot-hidden",
+    realization: "observable_beat",
+    player_input_handling: "consumed",
+    action_realization: "你压低身形。",
+    response: "",
+    causal_explanation: "",
+    persona_fit: "",
+    exact_excerpt: "你贴着墙根屏息",
+    exceptional_beat: null,
+  },
+  {
+    obligation_id: "roll:roll-listen",
+    realization: "observable_beat",
+    player_input_handling: "consumed",
+    action_realization: "你听见门后有轻微的刮擦声。",
+    response: "",
+    causal_explanation: "",
+    persona_fit: "",
+    exact_excerpt: "竖起耳朵听向门后的动静",
+    exceptional_beat: null,
+  },
+];
+const run02Facts = {
+  turnId: "turn-run02-act02",
+  sourceDigest: "sha256:source-run02-act02",
+  revision: 2,
+  narrationReviewId: "narration-review-v2:dfd1d66b",
+};
+const run02AdvisoryUptake = {
+  schema_version: 1,
+  rows: [{ candidate_ref: "storylet-candidate:corridor-whisper", taken: true }],
+};
+const run02MechanicsPlacements = [
+  { after_paragraph: 0, segment_type: "public_check", source_ids: ["roll-spot-hidden"] },
+];
+const run02FailedCallArguments = {
+  draft: run02Draft,
+  coverage: run02Coverage,
+  agency_claims: [],
+  mechanics_placements: run02MechanicsPlacements,
+  advisory_uptake: run02AdvisoryUptake,
+  revision: 2,
+  narration_review_id: run02Facts.narrationReviewId,
+};
+const run02Card = buildCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: run02Facts,
+  finalizeArguments: run02FailedCallArguments,
+  failureEnvelope: placementFailureEnvelope("roll-spot-hidden"),
+});
+assert.equal(isDraftShapeRecoveryCard(run02Card), true);
+assert.equal(run02Card.contract_id, DRAFT_SHAPE_RECOVERY_CARD_CONTRACT);
+assert.equal(run02Card.kind, "draft_shape_recovery");
+assert.equal(run02Card.audience, "keeper_only");
+assert.equal(run02Card.campaign_id, "run02-campaign");
+assert.equal(run02Card.turn_id, run02Facts.turnId);
+assert.equal(run02Card.source_digest, run02Facts.sourceDigest);
+assert.equal(run02Card.revision, 2);
+assert.equal(run02Card.narration_review_id, run02Facts.narrationReviewId);
+assert.deepEqual(run02Card.diagnosis.offending_roll_ids, ["roll-spot-hidden"]);
+assert.equal(run02Card.diagnosis.draft_paragraph_count, 1);
+assert.equal(run02Card.diagnosis.verdict, "consequence_paragraph_zero");
+assert.deepEqual(run02Card.diagnosis.coverage_rows, [{
+  obligation_id: "roll:roll-spot-hidden",
+  exact_excerpt: "你贴着墙根屏息",
+  excerpt_paragraph_index: 0,
+}]);
+assert.equal(
+  run02Card.finalize_replay.invoke_via,
+  "coc_turn_finalize",
+);
+assert.equal(
+  run02Card.finalize_replay.replay_arguments_from,
+  "frozen_finalize_payload",
+);
+assert.deepEqual(run02Card.finalize_replay.host_bound_arguments, [
+  "root",
+  "campaign",
+  "decision_id",
+  "revision",
+  "narration_review_id",
+]);
+assert.match(run02Card.instruction, /action\/setup paragraph/);
+assert.match(run02Card.instruction, /paragraph zero/);
+assert.equal(
+  run02Card.forbidden.includes("reroll"),
+  true,
+);
+assert.equal(run02Card.forbidden.includes("rerun_narration_review"), true);
+assert.equal(run02Card.forbidden.includes("placeholder_prose"), true);
+
+// The preserved review binding and the no-speculation boundary are explicit.
+assert.equal(run02Card.preserved_bindings.narration_review.review_id, run02Facts.narrationReviewId);
+assert.equal(run02Card.preserved_bindings.journal, "unchanged");
+
+// The card preserves EVERY model-owned schema field present in the failed
+// call — including advisory_uptake and mechanics_placements — verbatim.
+assert.equal(isFrozenFinalizePayload(run02Card.frozen_finalize_payload), true);
+assert.deepEqual(run02Card.frozen_finalize_payload, {
+  draft: run02Draft,
+  coverage: run02Coverage,
+  agency_claims: [],
+  mechanics_placements: run02MechanicsPlacements,
+  advisory_uptake: run02AdvisoryUptake,
+});
+assert.notEqual(run02Card.frozen_finalize_payload.coverage, run02Coverage);
+assert.notEqual(
+  run02Card.frozen_finalize_payload.advisory_uptake,
+  run02AdvisoryUptake,
+);
+// The payload digest binds integrity; it is recomputable from the payload.
+assert.equal(
+  run02Card.payload_sha256,
+  draftShapePayloadDigest(run02Card.frozen_finalize_payload),
+);
+
+// Fail-closed: the host invents nothing when the frozen chain is incomplete.
+assert.equal(buildCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: null,
+  finalizeArguments: run02FailedCallArguments,
+  failureEnvelope: placementFailureEnvelope("roll-spot-hidden"),
+}), null);
+assert.equal(buildCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: { ...run02Facts, narrationReviewId: "" },
+  finalizeArguments: run02FailedCallArguments,
+  failureEnvelope: placementFailureEnvelope("roll-spot-hidden"),
+}), null);
+assert.equal(buildCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: run02Facts,
+  finalizeArguments: null,
+  failureEnvelope: placementFailureEnvelope("roll-spot-hidden"),
+}), null);
+assert.equal(buildCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: run02Facts,
+  finalizeArguments: { draft: "  ", coverage: run02Coverage },
+  failureEnvelope: placementFailureEnvelope("roll-spot-hidden"),
+}), null);
+assert.equal(buildCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: run02Facts,
+  finalizeArguments: { draft: run02Draft },
+  failureEnvelope: placementFailureEnvelope("roll-spot-hidden"),
+}), null);
+assert.equal(buildCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: run02Facts,
+  finalizeArguments: {
+    draft: run02Draft,
+    coverage: run02Coverage,
+    agency_claims: [],
+  },
+  failureEnvelope: {
+    ok: false,
+    tool: "turn.finalize",
+    error: { code: "narration_review_mismatch", message: "public roll x" },
+  },
+}), null);
+assert.equal(buildCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: run02Facts,
+  finalizeArguments: {
+    draft: run02Draft,
+    coverage: run02Coverage,
+    agency_claims: [],
+  },
+  failureEnvelope: {
+    ok: false,
+    tool: "turn.finalize",
+    error: { code: "default_mechanics_placement_unavailable", message: "???" },
+  },
+}), null);
+
+// The frozen call must be the same frozen turn the host retained: a stale or
+// mismatching revision/review identity freezes no card.
+assert.equal(buildCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: run02Facts,
+  finalizeArguments: {
+    ...run02FailedCallArguments,
+    revision: 1,
+  },
+  failureEnvelope: placementFailureEnvelope("roll-spot-hidden"),
+}), null);
+assert.equal(buildCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: run02Facts,
+  finalizeArguments: {
+    ...run02FailedCallArguments,
+    narration_review_id: "narration-review-v1:other",
+  },
+  failureEnvelope: placementFailureEnvelope("roll-spot-hidden"),
+}), null);
+// Missing agency_claims freezes no card.
+assert.equal(buildCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: run02Facts,
+  finalizeArguments: {
+    ...run02FailedCallArguments,
+    agency_claims: undefined,
+  },
+  failureEnvelope: placementFailureEnvelope("roll-spot-hidden"),
+}), null);
+// An offending roll without a coverage row, or with an empty excerpt, cannot
+// direct an exact paragraph repair: no card.
+assert.equal(buildCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: run02Facts,
+  finalizeArguments: {
+    ...run02FailedCallArguments,
+    coverage: [run02Coverage[1]],
+  },
+  failureEnvelope: placementFailureEnvelope("roll-spot-hidden"),
+}), null);
+assert.equal(buildCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: run02Facts,
+  finalizeArguments: {
+    ...run02FailedCallArguments,
+    coverage: [{ ...run02Coverage[0], exact_excerpt: "" }, run02Coverage[1]],
+  },
+  failureEnvelope: placementFailureEnvelope("roll-spot-hidden"),
+}), null);
+// Without the canonical typed-schema whitelist the host refuses to hand-pick
+// payload fields: no card.
+assert.equal(buildDraftShapeRecoveryCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: run02Facts,
+  finalizeArguments: run02FailedCallArguments,
+  failureEnvelope: placementFailureEnvelope("roll-spot-hidden"),
+  modelOwnedFields: null,
+}), null);
+assert.equal(buildDraftShapeRecoveryCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: run02Facts,
+  finalizeArguments: run02FailedCallArguments,
+  failureEnvelope: placementFailureEnvelope("roll-spot-hidden"),
+  modelOwnedFields: ["draft", "coverage"],
+}), null);
+
+// Excerpt-missing diagnosis keeps its own verdict and per-row index -1.
+const missingCard = buildCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: run02Facts,
+  finalizeArguments: {
+    draft: run02Draft,
+    coverage: [
+      ...run02Coverage,
+      {
+        obligation_id: "roll:roll-vanished",
+        realization: "observable_beat",
+        player_input_handling: "consumed",
+        action_realization: "x",
+        response: "",
+        causal_explanation: "",
+        persona_fit: "",
+        exact_excerpt: "这句摘要不在草稿的任何段落里",
+        exceptional_beat: null,
+      },
+    ],
+    revision: 2,
+    narration_review_id: run02Facts.narrationReviewId,
+    agency_claims: [],
+  },
+  failureEnvelope: placementFailureEnvelope("roll-vanished", "missing"),
+});
+assert.equal(missingCard.diagnosis.verdict, "consequence_excerpt_missing");
+assert.deepEqual(
+  missingCard.diagnosis.coverage_rows,
+  [{
+    obligation_id: "roll:roll-vanished",
+    exact_excerpt: "这句摘要不在草稿的任何段落里",
+    excerpt_paragraph_index: -1,
+  }],
+);
+
+// Authenticated recovery-card selection from session entries.
+const cardEntry = (card, overrides = {}) => ({
+  type: "custom",
+  customType: DRAFT_SHAPE_RECOVERY_CARD_AUDIT,
+  data: { ...card, ...overrides },
+});
+const sealEntry = (card, overrides = {}) => ({
+  type: "custom",
+  customType: DRAFT_SHAPE_RECOVERY_SEAL_AUDIT,
+  data: {
+    schema_version: 1,
+    campaign_id: card.campaign_id,
+    turn_id: card.turn_id,
+    source_digest: card.source_digest,
+    revision: card.revision,
+    narration_review_id: card.narration_review_id,
+    payload_sha256: card.payload_sha256,
+    ...overrides,
+  },
+});
+const evidenceFor = (card, overrides = {}) => ({
+  type: "custom",
+  customType: NARRATION_REVIEW_EVIDENCE_AUDIT,
+  data: {
+    schema_version: 1,
+    campaign_id: card.campaign_id,
+    turn_id: card.turn_id,
+    source_digest: card.source_digest,
+    revision: card.revision,
+    review_id: card.narration_review_id,
+    ...overrides,
+  },
+});
+const completeEntry = (card, overrides = {}) => ({
+  type: "custom",
+  customType: DRAFT_SHAPE_RECOVERY_COMPLETE_AUDIT,
+  data: {
+    schema_version: 1,
+    campaign_id: card.campaign_id,
+    turn_id: card.turn_id,
+    source_digest: card.source_digest,
+    revision: card.revision,
+    narration_review_id: card.narration_review_id,
+    payload_sha256: card.payload_sha256,
+    ...overrides,
+  },
+});
+const validTurnRecords = (card) => [
+  cardEntry(card),
+  sealEntry(card),
+  evidenceFor(card),
+];
+
+// Valid card + seal + matching accepted-review evidence → recovered.
+assert.equal(
+  selectRecoverableDraftShapeCard(validTurnRecords(missingCard), "run02-campaign").turn_id,
+  "turn-run02-act02",
+);
+// Missing seal, or any seal that does not authenticate the exact payload,
+// fails closed — card JSON alone is never trusted.
+assert.equal(
+  selectRecoverableDraftShapeCard([
+    cardEntry(missingCard),
+    evidenceFor(missingCard),
+  ], "run02-campaign"),
+  null,
+);
+assert.equal(selectRecoverableDraftShapeCard([
+  cardEntry(missingCard),
+  sealEntry(missingCard, { payload_sha256: "sha256:stale" }),
+  evidenceFor(missingCard),
+], "run02-campaign"), null);
+// Structurally valid tampering of ANY preserved payload family fails closed
+// before recovery: draft, coverage, claims, placements, advisory uptake.
+const tamper = (family, value) => selectRecoverableDraftShapeCard([
+  cardEntry({
+    ...missingCard,
+    frozen_finalize_payload: { ...missingCard.frozen_finalize_payload, [family]: value },
+  }),
+  sealEntry(missingCard),
+  evidenceFor(missingCard),
+], "run02-campaign");
+assert.equal(tamper("draft", "篡改后的草稿。"), null);
+assert.equal(tamper("coverage", [{ obligation_id: "roll:roll-x", exact_excerpt: "x" }]), null);
+assert.equal(tamper("agency_claims", [{ claim_id: "c1" }]), null);
+assert.equal(tamper("mechanics_placements", []), null);
+assert.equal(tamper("advisory_uptake", { rows: [] }), null);
+// A malformed seal attributable to the campaign is corruption evidence.
+assert.equal(selectRecoverableDraftShapeCard([
+  ...validTurnRecords(missingCard),
+  { type: "custom", customType: DRAFT_SHAPE_RECOVERY_SEAL_AUDIT, data: { campaign_id: "run02-campaign" } },
+], "run02-campaign"), null);
+// Missing or mismatching review evidence → never trusted.
+assert.equal(
+  selectRecoverableDraftShapeCard(
+    [cardEntry(missingCard), sealEntry(missingCard)],
+    "run02-campaign",
+  ),
+  null,
+);
+assert.equal(selectRecoverableDraftShapeCard([
+  cardEntry(missingCard),
+  sealEntry(missingCard),
+  evidenceFor(missingCard, { review_id: "narration-review-v1:other" }),
+], "run02-campaign"), null);
+// Malformed card-typed entry for the campaign is tamper evidence → null.
+assert.equal(selectRecoverableDraftShapeCard([
+  ...validTurnRecords(missingCard),
+  { type: "custom", customType: DRAFT_SHAPE_RECOVERY_CARD_AUDIT, data: {} },
+], "run02-campaign"), null);
+// Partial card (missing frozen payload) is malformed → null.
+assert.equal(selectRecoverableDraftShapeCard([
+  cardEntry(missingCard, { frozen_finalize_payload: undefined }),
+  sealEntry(missingCard),
+  evidenceFor(missingCard),
+], "run02-campaign"), null);
+// Structurally broken payload fails closed.
+assert.equal(selectRecoverableDraftShapeCard([
+  cardEntry({ ...missingCard, frozen_finalize_payload: { draft: "x" } }),
+  sealEntry(missingCard),
+  evidenceFor(missingCard),
+], "run02-campaign"), null);
+// Two unresolved identities in one campaign are ambiguous → null.
+assert.equal(selectRecoverableDraftShapeCard([
+  ...validTurnRecords(missingCard),
+  ...validTurnRecords({ ...run02Card, turn_id: "turn-run02-act03" }),
+], "run02-campaign"), null);
+// Identical-identity refresh dedupes to the newest entry.
+assert.equal(
+  selectRecoverableDraftShapeCard([
+    ...validTurnRecords(missingCard),
+    cardEntry(missingCard),
+  ], "run02-campaign").turn_id,
+  "turn-run02-act02",
+);
+// Exact full-identity tombstone retires the identity.
+assert.equal(selectRecoverableDraftShapeCard([
+  ...validTurnRecords(missingCard),
+  completeEntry(missingCard),
+], "run02-campaign"), null);
+// A tombstone for a foreign campaign does not retire this card.
+assert.equal(
+  selectRecoverableDraftShapeCard([
+    ...validTurnRecords(missingCard),
+    completeEntry(missingCard, { campaign_id: "other-campaign" }),
+  ], "run02-campaign").turn_id,
+  "turn-run02-act02",
+);
+// Partial tombstones — missing revision, review id, or payload seal — retire
+// nothing.
+assert.equal(selectRecoverableDraftShapeCard([
+  ...validTurnRecords(missingCard),
+  completeEntry(missingCard, { revision: undefined }),
+], "run02-campaign").turn_id, "turn-run02-act02");
+assert.equal(selectRecoverableDraftShapeCard([
+  ...validTurnRecords(missingCard),
+  completeEntry(missingCard, { narration_review_id: undefined }),
+], "run02-campaign").turn_id, "turn-run02-act02");
+assert.equal(selectRecoverableDraftShapeCard([
+  ...validTurnRecords(missingCard),
+  completeEntry(missingCard, { payload_sha256: undefined }),
+], "run02-campaign").turn_id, "turn-run02-act02");
+// A stale tombstone for a different turn does not retire the pending one.
+assert.equal(selectRecoverableDraftShapeCard([
+  ...validTurnRecords(missingCard),
+  completeEntry({
+    ...missingCard,
+    turn_id: "turn-old",
+    source_digest: "sha256:old",
+    payload_sha256: draftShapePayloadDigest({ old: true }),
+  }),
+], "run02-campaign").turn_id, "turn-run02-act02");
+// Lifecycle fold: completed historical turn A, then a newer unrelated
+// pending turn B in the same campaign — A's tombstone retires only A and B
+// recovers.
+const turnA = {
+  ...missingCard,
+  turn_id: "turn-run02-act01",
+  source_digest: "sha256:source-run02-act01",
+  revision: 1,
+  narration_review_id: "narration-review-v1:aaa",
+};
+assert.equal(
+  selectRecoverableDraftShapeCard([
+    ...validTurnRecords(turnA),
+    completeEntry(turnA),
+    ...validTurnRecords(missingCard),
+  ], "run02-campaign").turn_id,
+  "turn-run02-act02",
+);
+// Empty entries and other campaigns return null.
+assert.equal(selectRecoverableDraftShapeCard([], "run02-campaign"), null);
+assert.equal(selectRecoverableDraftShapeCard("not-a-list", "run02-campaign"), null);
+
+// Review-evidence pre-check helper used by the host before persisting a card.
+assert.equal(hasReviewEvidenceEntry(validTurnRecords(missingCard), {
+  campaign: "run02-campaign",
+  turnId: missingCard.turn_id,
+  sourceDigest: missingCard.source_digest,
+  revision: missingCard.revision,
+  narrationReviewId: missingCard.narration_review_id,
+}), true);
+assert.equal(hasReviewEvidenceEntry([], {
+  campaign: "run02-campaign",
+  turnId: missingCard.turn_id,
+  sourceDigest: missingCard.source_digest,
+  revision: missingCard.revision,
+  narrationReviewId: missingCard.narration_review_id,
+}), false);
+
+// Acknowledged-resume attachment: canonical lifecycle fields preserved, the
+// exact card inlined, audit bound; wrong mode/campaign/card fail closed.
+const acknowledgedResume = {
+  ok: true,
+  tool: "session.resume",
+  data: {
+    schema_version: 1,
+    campaign_id: "run02-campaign",
+    mode: "already_acknowledged",
+    reuse_existing_working_set: true,
+    host_context: { acknowledged: { requires_resume: false } },
+    next_operations: ["continue_from_existing_working_set"],
+  },
+};
+const guidedResume = applyAcknowledgedResumeRecoveryGuidance(
+  acknowledgedResume,
+  run02Card,
+  { root: "/tmp/run02-root", campaign: "run02-campaign" },
+);
+assert.equal(guidedResume.attached, true);
+assert.equal(guidedResume.envelope.data.mode, "already_acknowledged");
+assert.equal(guidedResume.envelope.data.schema_version, 1);
+assert.equal(guidedResume.envelope.data.campaign_id, "run02-campaign");
+assert.deepEqual(
+  guidedResume.envelope.data.next_operations,
+  ["continue_from_existing_working_set"],
+);
+assert.deepEqual(
+  guidedResume.envelope.data.host_context,
+  { acknowledged: { requires_resume: false } },
+);
+const attachedGuidance = guidedResume.envelope.data.host_recovery_guidance;
+assert.equal(attachedGuidance.contract_id, DRAFT_SHAPE_RECOVERY_CARD_CONTRACT);
+assert.equal(attachedGuidance.audience, "keeper_only");
+assert.equal(attachedGuidance.mode, "pending_finalization_recovery");
+assert.equal(attachedGuidance.next_call.tool, "coc_turn_finalize");
+assert.equal(attachedGuidance.recovery_card.turn_id, run02Card.turn_id);
+assert.deepEqual(
+  attachedGuidance.recovery_card.frozen_finalize_payload.advisory_uptake,
+  run02AdvisoryUptake,
+);
+assert.match(attachedGuidance.instruction, /never\s/);
+assert.match(attachedGuidance.instruction, /real finalize result/);
+assert.equal(guidedResume.audit.card_source, "session_entry");
+assert.equal(guidedResume.audit.card_turn_id, run02Card.turn_id);
+assert.equal(guidedResume.audit.mode, "already_acknowledged");
+
+// Not attached: pending_finalization mode, campaign mismatch, bad card, non-resume.
+assert.equal(applyAcknowledgedResumeRecoveryGuidance({
+  ok: true,
+  tool: "session.resume",
+  data: { schema_version: 1, campaign_id: "run02-campaign", mode: "pending_finalization" },
+}, run02Card, { root: "/tmp/r", campaign: "run02-campaign" }).attached, false);
+assert.equal(applyAcknowledgedResumeRecoveryGuidance(
+  acknowledgedResume,
+  run02Card,
+  { root: "/tmp/r", campaign: "other-campaign" },
+).attached, false);
+assert.equal(applyAcknowledgedResumeRecoveryGuidance(
+  acknowledgedResume,
+  { contract_id: DRAFT_SHAPE_RECOVERY_CARD_CONTRACT },
+  { root: "/tmp/r", campaign: "run02-campaign" },
+).attached, false);
+assert.equal(applyAcknowledgedResumeRecoveryGuidance(
+  { ok: false, tool: "session.resume", error: {} },
+  run02Card,
+  { root: "/tmp/r", campaign: "run02-campaign" },
+).attached, false);
+assert.equal(applyAcknowledgedResumeRecoveryGuidance(
+  { ok: true, tool: "turn.finalize", data: { mode: "already_acknowledged" } },
+  run02Card,
+  { root: "/tmp/r", campaign: "run02-campaign" },
+).attached, false);
+
+// ---------------------------------------------------------------------------
+// Host-side pre-transport replay authentication: every model-owned argument
+// except the draft's paragraph shape must be deep-canonical-equal to the
+// frozen payload before a recovered finalize reaches the transport.
+// ---------------------------------------------------------------------------
+const frozenReplayPayload = run02Card.frozen_finalize_payload;
+// Draft-only paragraph-shape repair is the single editable surface.
+assert.equal(isDraftShapeRecoveryReplayUnchanged(
+  {
+    ...frozenReplayPayload,
+    draft: `${frozenReplayPayload.draft}\n\n你先贴着墙根压低身形，屏住呼吸。`,
+  },
+  frozenReplayPayload,
+), true);
+// Deep-equal with different key order inside a preserved family is canonical.
+assert.equal(isDraftShapeRecoveryReplayUnchanged(
+  {
+    ...frozenReplayPayload,
+    coverage: frozenReplayPayload.coverage.map((row) =>
+      Object.fromEntries(Object.entries(row).reverse())),
+  },
+  frozenReplayPayload,
+), true);
+// Any mutation of a preserved family fails.
+assert.equal(isDraftShapeRecoveryReplayUnchanged(
+  {
+    ...frozenReplayPayload,
+    coverage: [{ ...frozenReplayPayload.coverage[0], exact_excerpt: "改动" }],
+  },
+  frozenReplayPayload,
+), false);
+assert.equal(isDraftShapeRecoveryReplayUnchanged(
+  { ...frozenReplayPayload, agency_claims: [{ claim_id: "c1" }] },
+  frozenReplayPayload,
+), false);
+assert.equal(isDraftShapeRecoveryReplayUnchanged(
+  { ...frozenReplayPayload, mechanics_placements: [] },
+  frozenReplayPayload,
+), false);
+assert.equal(isDraftShapeRecoveryReplayUnchanged(
+  { ...frozenReplayPayload, advisory_uptake: { rows: [] } },
+  frozenReplayPayload,
+), false);
+// A dropped model-owned field and an added one both reject the replay.
+const {
+  advisory_uptake: _droppedAdvisory,
+  ...withoutAdvisory
+} = frozenReplayPayload;
+assert.equal(
+  isDraftShapeRecoveryReplayUnchanged(withoutAdvisory, frozenReplayPayload),
+  false,
+);
+assert.equal(isDraftShapeRecoveryReplayUnchanged(
+  { ...frozenReplayPayload, validate_only: true },
+  frozenReplayPayload,
+), false);
+
+// ---------------------------------------------------------------------------
+// Real-schema whitelist derivation, canonical digest stability, and
+// chronological per-identity folding.
+// ---------------------------------------------------------------------------
+const { listTypedOperationTools } = await import(
+  path.join(root, "plugins/coc-keeper/pi/lib/typed-tools.ts")
+);
+const realFinalizeProperties = Object.keys(
+  listTypedOperationTools().find((tool) => tool.operation === "turn.finalize")
+    ?.parameters.properties ?? {},
+);
+// The real schema exposes the optional host-owned repair identity and the
+// optional model-owned validation flag; the derived whitelist must keep the
+// latter and drop the former.
+assert.equal(realFinalizeProperties.includes("repair_finalization_id"), true);
+assert.equal(realFinalizeProperties.includes("validate_only"), true);
+const realModelOwnedFields = realFinalizeProperties.filter(
+  (field) => !HOST_BOUND_FINALIZE_ARGUMENTS.includes(field),
+);
+assert.deepEqual([...realModelOwnedFields].sort(), [
+  "advisory_uptake",
+  "agency_claims",
+  "coverage",
+  "draft",
+  "mechanics_placements",
+  "validate_only",
+]);
+// A card built through the real-schema whitelist preserves exactly the
+// schema-derived families present in the failed call.
+const realSchemaCard = buildDraftShapeRecoveryCard({
+  root: "/tmp/run02-root",
+  campaign: "run02-campaign",
+  facts: run02Facts,
+  finalizeArguments: {
+    ...run02FailedCallArguments,
+    validate_only: false,
+  },
+  failureEnvelope: placementFailureEnvelope("roll-spot-hidden"),
+  modelOwnedFields: realModelOwnedFields,
+});
+assert.deepEqual(
+  Object.keys(realSchemaCard.frozen_finalize_payload).sort(),
+  [...realModelOwnedFields].sort(),
+);
+assert.equal(realSchemaCard.frozen_finalize_payload.validate_only, false);
+assert.equal(
+  "repair_finalization_id" in realSchemaCard.frozen_finalize_payload,
+  false,
+);
+
+// Canonical digest: equivalent objects with reordered keys (top level and
+// nested) hash identically; array order is preserved.
+const reorderTarget = missingCard.frozen_finalize_payload;
+const reordered = {
+  ...reorderTarget,
+  coverage: reorderTarget.coverage.map((row) =>
+    Object.fromEntries(Object.entries(row).reverse())),
+};
+const reorderedCard = {
+  ...missingCard,
+  frozen_finalize_payload: reordered,
+};
+assert.equal(
+  draftShapePayloadDigest(reordered),
+  draftShapePayloadDigest(reorderTarget),
+);
+assert.equal(
+  draftShapePayloadDigest(reorderedCard.frozen_finalize_payload),
+  missingCard.payload_sha256,
+);
+// The reordered-but-equivalent payload still authenticates through the fold.
+assert.equal(
+  selectRecoverableDraftShapeCard([
+    cardEntry(reorderedCard),
+    sealEntry(missingCard),
+    evidenceFor(missingCard),
+  ], "run02-campaign").turn_id,
+  "turn-run02-act02",
+);
+// Array order is preserved: a reordered array is a different payload.
+assert.notEqual(
+  draftShapePayloadDigest({
+    ...reorderTarget,
+    coverage: [...reorderTarget.coverage].reverse(),
+  }),
+  draftShapePayloadDigest(reorderTarget),
+);
+// validate_only tampering fails closed.
+assert.equal(selectRecoverableDraftShapeCard([
+  cardEntry({
+    ...missingCard,
+    frozen_finalize_payload: { ...reorderTarget, validate_only: true },
+  }),
+  sealEntry(missingCard),
+  evidenceFor(missingCard),
+], "run02-campaign"), null);
+
+// Chronological fold: two sealed, evidenced cards for the SAME pending turn
+// with different payloads are conflicting identities → fail closed.
+const conflictingPayload = {
+  ...missingCard.frozen_finalize_payload,
+  draft: "重试后仍然合并段落的草稿。",
+};
+const conflictingCard = {
+  ...missingCard,
+  payload_sha256: draftShapePayloadDigest(conflictingPayload),
+  frozen_finalize_payload: conflictingPayload,
+  diagnosis: { ...missingCard.diagnosis },
+};
+assert.equal(selectRecoverableDraftShapeCard([
+  ...validTurnRecords(missingCard),
+  ...validTurnRecords(conflictingCard),
+], "run02-campaign"), null);
+// Chronological reopen: a tombstone retires only cards before it; a later
+// valid card for the same full identity is live again and recovers.
+assert.equal(
+  selectRecoverableDraftShapeCard([
+    ...validTurnRecords(missingCard),
+    completeEntry(missingCard),
+    ...validTurnRecords(conflictingCard),
+  ], "run02-campaign").turn_id,
+  "turn-run02-act02",
+);
+// Without the reopen: exact tombstone alone still retires the identity.
+assert.equal(selectRecoverableDraftShapeCard([
+  ...validTurnRecords(missingCard),
+  completeEntry(missingCard),
+], "run02-campaign"), null);

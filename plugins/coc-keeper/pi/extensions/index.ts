@@ -146,13 +146,26 @@ import {
 import { extraToolsForSessionRole } from "../lib/session-role-tools.ts";
 import { NonRetryableFailureCircuit } from "../lib/nonretry-circuit.ts";
 import {
+  applyAcknowledgedResumeRecoveryGuidance,
   applyPendingFinalizationRecoveryGuidance,
   applyOpenTurnRecoveryGuidance,
+  buildDraftShapeRecoveryCard,
+  draftShapePayloadDigest,
+  draftShapeRecoveryPayloadMismatch,
+  hasReviewEvidenceEntry,
+  canonicalJsonOf,
+  selectRecoverableDraftShapeCard,
+  isDraftShapePlacementFailure,
   isPendingFinalizationResume,
   pendingFinalizationInlineCardsComplete,
   validateLiveOutputContext,
   type LiveOutputContextCards,
   type PendingFinalizationHydration,
+  DRAFT_SHAPE_RECOVERY_CARD_AUDIT,
+  DRAFT_SHAPE_RECOVERY_COMPLETE_AUDIT,
+  DRAFT_SHAPE_RECOVERY_SEAL_AUDIT,
+  HOST_BOUND_FINALIZE_ARGUMENTS,
+  NARRATION_REVIEW_EVIDENCE_AUDIT,
   OPEN_TURN_RECOVERY_GUIDANCE_AUDIT,
   PENDING_FINALIZATION_RECOVERY_GUIDANCE_AUDIT,
 } from "../lib/recovery-guidance.ts";
@@ -3715,6 +3728,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       | { status: "unavailable" }
       | null;
   } | null = null;
+  // Failed `turn.finalize` draft-shape recovery cards, keyed by campaign.
+  // Built from the exact failed call plus the retained frozen-turn
+  // identities, persisted as a `coc-draft-shape-recovery-card` session entry
+  // (survives a process restart on the same session file), and re-presented
+  // on an already-acknowledged resume while the preserved pending turn
+  // remains. Cleared with the session's own in-memory turn state; a fresh
+  // session re-reads the persisted entry instead of inventing one.
+  const draftShapeRecoveryCards = new Map<string, JsonObject>();
   // Boot-unique namespace element for machine-generated decision ids. The
   // campaign's durable idempotency ledger outlives this process, and
   // playerTurnEpoch restarts from 0 on every boot — so ids composed without
@@ -4426,6 +4447,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           stage: "review_ready",
           reviewRevision: revision,
         });
+        // Durable host-owned accepted-review evidence. Recovery-card
+        // rehydration authenticates a card's narration review identity
+        // against this entry — card JSON alone is never trusted.
+        try {
+          pi.appendEntry(NARRATION_REVIEW_EVIDENCE_AUDIT, {
+            schema_version: 1,
+            campaign_id: campaignId,
+            turn_id: facts.turnId,
+            source_digest: facts.sourceDigest,
+            revision,
+            review_id: reviewId,
+          });
+        } catch { /* review evidence persistence is best effort */ }
       }
       return;
     }
@@ -4440,6 +4474,48 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ? data.obligation_ids.length
           : canonicalProgress.closedObligationCount,
       });
+      // An accepted finalize receipt is the only recovery completion: errors
+      // and prose never reach this branch, so they never retire a card. The
+      // exact-card tombstone is written only when the receipt AND the
+      // host-injected finalize arguments correlate exactly with the stored
+      // card — campaign, turn_id, source_digest, revision,
+      // narration_review_id, and payload seal — and the in-memory card is
+      // retired only after that exact tombstone append succeeded. An append
+      // failure stays fail-closed: recovery remains pending and the host
+      // never claims a durable retirement it did not achieve; rehydration
+      // of the unretired durable card still cannot re-arm, because the
+      // canonical probe of a finalized turn returns no unfinalized journal.
+      const recoveryCard = campaignId
+        ? draftShapeRecoveryCards.get(campaignId)
+        : undefined;
+      const finalizeArgs = objectOrNull(params.arguments);
+      if (
+        recoveryCard !== undefined
+        && typeof data.source_digest === "string"
+        && data.source_digest === recoveryCard.source_digest
+        && finalizeArgs !== null
+        && finalizeArgs.revision === recoveryCard.revision
+        && finalizeArgs.narration_review_id
+          === recoveryCard.narration_review_id
+      ) {
+        try {
+          pi.appendEntry(DRAFT_SHAPE_RECOVERY_COMPLETE_AUDIT, {
+            schema_version: 1,
+            campaign_id: campaignId,
+            turn_id: recoveryCard.turn_id,
+            source_digest: recoveryCard.source_digest,
+            revision: recoveryCard.revision,
+            narration_review_id: recoveryCard.narration_review_id,
+            payload_sha256: draftShapePayloadDigest(
+              recoveryCard.frozen_finalize_payload,
+            ),
+            rendered_text_sha256: data.rendered_text_sha256,
+          });
+          // Durable retirement succeeded — only now is the in-memory card
+          // cleared and recovery closure claimed.
+          draftShapeRecoveryCards.delete(campaignId);
+        } catch { /* recovery stays pending; no durable retirement claim */ }
+      }
       clearTurnTypedBindings();
       return;
     }
@@ -5849,6 +5925,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     lastWorkingSet = null;
     faultRecoveryOperation = null;
     pendingFinalizationHydrationState = null;
+    draftShapeRecoveryCards.clear();
     clearTurnTypedBindings();
     startupSilentResumeQuarantine = null;
     startupBranchTrailingPlayerUser = branchEndsWithUnmatchedPlayerUser(
@@ -6928,10 +7005,30 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     ctx: ExtensionContext;
     signal: AbortSignal | undefined;
     epoch: number;
+    /**
+     * Optional pending-turn identity override for a resume envelope that
+     * carries no `pending_output_context` (an already-acknowledged lifecycle
+     * no-op): the identity comes from the persisted draft-shape recovery
+     * card, and the live receipt must correlate with exactly that identity.
+     */
+    pendingIdentity?: {
+      turnId: string;
+      sourceDigest: string;
+      revision: number | null;
+    };
   }): Promise<PendingFinalizationHydration> => {
     const { resumeValue, campaign, root, ctx, signal, epoch } = args;
     const resumeData = objectOrNull(resumeValue.data);
-    const pendingContext = objectOrNull(resumeData?.pending_output_context);
+    const pendingIdentity = args.pendingIdentity ?? null;
+    const pendingContext = pendingIdentity !== null
+      ? {
+          turn_id: pendingIdentity.turnId,
+          source_digest: pendingIdentity.sourceDigest,
+          ...(pendingIdentity.revision === null
+            ? {}
+            : { revision: pendingIdentity.revision }),
+        }
+      : objectOrNull(resumeData?.pending_output_context);
     const pendingTurnId = typeof pendingContext?.turn_id === "string"
       && pendingContext.turn_id
       ? pendingContext.turn_id
@@ -7044,7 +7141,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         }
         const envelope = objectOrNull(fetched.value);
         if (envelope === null) throw new Error("live_output_context_invalid");
-        const cards = validateLiveOutputContext(envelope, resumeData);
+        const cards = validateLiveOutputContext(
+          envelope,
+          pendingIdentity !== null
+            ? { ...(resumeData ?? {}), pending_output_context: pendingContext }
+            : resumeData,
+        );
         if (cards === null) throw new Error("live_output_context_invalid");
         // Second ownership check is immediately before the all-or-nothing
         // observer transaction. No stale attempt may create compiler facts,
@@ -7080,6 +7182,107 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     entry.inFlight = attempt;
     pendingFinalizationHydrationState = entry;
     return attempt;
+  };
+  // Arm the preserved `turn.finalize` binding from a persisted draft-shape
+  // recovery card after a successful live hydration. The accepted review
+  // identity (narration_review_id) exists only in the frozen card — canonical
+  // output-context receipts carry no review id — so this is the only way a
+  // fresh session can re-arm typed finalize without re-reviewing. Every fact
+  // comes from the validated live hydration plus the exact invocation scope;
+  // a receipt without an exact journal fact refuses to arm — returning
+  // false so the caller attaches no guidance and suppresses no quarantine —
+  // rather than manufacturing a placeholder. Mirrors the narration.review
+  // observation arming exactly; binding and factory derive from the same
+  // retained facts so they validate as current host context.
+  const armRecoveredFinalizeBinding = (args: {
+    campaign: string;
+    root: string;
+    narrationReviewId: string;
+    cards: LiveOutputContextCards;
+  }): boolean => {
+    const revision = args.cards.revision;
+    if (args.cards.journalDecisionId === null) return false;
+    const finalizeDecisionId = semanticDecisionId("turn.finalize", revision);
+    retainedOutputContextFacts = {
+      root: args.root,
+      campaign: args.campaign,
+      turnId: args.cards.turnId,
+      sourceDigest: args.cards.sourceDigest,
+      revision,
+      journalDecisionId: args.cards.journalDecisionId,
+      finalizeDecisionId,
+      narrationReviewId: args.narrationReviewId,
+    };
+    const facts = retainedOutputContextFacts;
+    const retainedFinalizeBinding: TypedToolBindingCard = {
+      schema_version: 1,
+      operation: "turn.finalize",
+      binding_revision: `turn-finalize:${facts.turnId}:review-${revision}`,
+      root: facts.root,
+      campaign: facts.campaign,
+      decision_id: finalizeDecisionId,
+      revision,
+      turn_id: facts.turnId,
+      source_digest: facts.sourceDigest,
+      narration_review_id: facts.narrationReviewId,
+    };
+    armTypedBinding(retainedFinalizeBinding, () => {
+      const current = retainedOutputContextFacts;
+      if (
+        current === null
+        || current.finalizeDecisionId === null
+        || current.narrationReviewId === null
+      ) return null;
+      return {
+        schema_version: 1,
+        operation: "turn.finalize",
+        binding_revision: `turn-finalize:${current.turnId}:review-${current.revision}`,
+        root: current.root,
+        campaign: current.campaign,
+        decision_id: current.finalizeDecisionId,
+        revision: current.revision,
+        turn_id: current.turnId,
+        source_digest: current.sourceDigest,
+        narration_review_id: current.narrationReviewId,
+      };
+    });
+    return true;
+  };
+  // Host-injected `turn.finalize` identity fields: the canonical host-owned
+  // contract set (including optional identities a given binding may not
+  // currently carry, e.g. repair_finalization_id) — never model-owned replay
+  // material.
+  const RECOVERY_HOST_INJECTED_FINALIZE_ARGUMENTS = new Set([
+    ...HOST_BOUND_FINALIZE_ARGUMENTS,
+  ]);
+  // Model-owned `turn.finalize` argument whitelist, derived canonically:
+  // the typed schema's own properties minus the canonical host-owned set
+  // minus whatever the live binding injects. Returns null when the typed
+  // schema or a valid retained binding is unavailable — the card builder
+  // fails closed rather than hand-picking fields.
+  const modelOwnedFinalizeFields = (): string[] | null => {
+    const typed = typedToolByOperation.get("turn.finalize");
+    const properties = typed?.parameters?.properties;
+    if (objectOrNull(properties) === null) return null;
+    const binding = retainedTypedBindings.get("turn.finalize");
+    const current = currentTypedBindingFactories.get("turn.finalize")?.()
+      ?? null;
+    if (binding === undefined || current === null) return null;
+    try {
+      const hostInjected = bindRetainedTypedToolArguments(
+        "turn.finalize",
+        {},
+        binding,
+        current,
+      );
+      const hostOwned = new Set([
+        ...RECOVERY_HOST_INJECTED_FINALIZE_ARGUMENTS,
+        ...Object.keys(hostInjected),
+      ]);
+      return Object.keys(properties).filter((field) => !hostOwned.has(field));
+    } catch {
+      return null;
+    }
   };
   const gateway = (name: string) => async (_id: string, params: JsonObject, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) => {
     const epoch = sessionEpoch;
@@ -7207,6 +7410,142 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         } catch (error) {
           if (!(error instanceof ToolContractProjectionError)) throw error;
           return hostFailureResult(hostBindingFailure(typedDefinition.operation, error));
+        }
+      }
+    }
+    // Run-02 recovery pre-transport payload authentication: with an
+    // authenticated recovery card armed for this campaign, a recovered
+    // `turn.finalize` is a sealed replay on EVERY canonical surface — typed
+    // tool and generic coc_invoke alike. The armed binding is the only
+    // machine-injection authority for host-owned identity fields: omitted
+    // revision/narration_review_id/decision_id are bound from it into the
+    // transported arguments, while any explicit value that differs from the
+    // armed binding fails closed before transport. A missing armed binding
+    // rejects outright — nothing reaches the transport unverifiable. Then
+    // every model-owned argument except `draft` must be deep-canonical-equal
+    // to the frozen payload in the FINAL effective arguments — a mutated
+    // coverage row, agency claim, mechanics placement, advisory uptake, an
+    // added field, or a dropped field is rejected host-side: recovery stays
+    // pending, and no rules/state/journal/review call or player-visible
+    // output is produced. Only the draft's paragraph shape is editable; the
+    // canonical finalizer still owns its consequence/excerpt/mechanics
+    // checks.
+    if (
+      (typedDefinition?.operation === "turn.finalize"
+        || (isCanonicalInvokeSurface(name)
+          && params.operation === "turn.finalize"))
+      && effectiveTypedRole === "play"
+      && typeof params.campaign === "string"
+      && params.campaign.trim()
+    ) {
+      const recoveryCard = draftShapeRecoveryCards.get(params.campaign.trim());
+      if (recoveryCard !== undefined) {
+        const recoveryReplayRejection = (
+          code: string,
+          message: string,
+          recoverableBy: string,
+        ) => hostFailureResult({
+          ok: false,
+          tool: "turn.finalize",
+          error: {
+            code,
+            message,
+            retryable: false,
+            details: {
+              class: "invariant_terminal",
+              recoverable_by: recoverableBy,
+            },
+          },
+          warnings: [],
+          hints: [],
+        });
+        const binding = retainedTypedBindings.get("turn.finalize");
+        const current = currentTypedBindingFactories.get("turn.finalize")?.()
+          ?? null;
+        if (binding === undefined || current === null) {
+          return recoveryReplayRejection(
+            "recovery_binding_unarmed",
+            "恢复重放被拒绝：本会话没有已验证的冻结绑定，无法机器绑定恢复身份；"
+              + "请先完成恢复性 session.resume 重新武装，再调用 turn.finalize。",
+            "recovery_session_rearm",
+          );
+        }
+        let hostInjected: Record<string, unknown>;
+        try {
+          hostInjected = bindRetainedTypedToolArguments(
+            "turn.finalize",
+            {},
+            binding,
+            current,
+          );
+        } catch {
+          return recoveryReplayRejection(
+            "recovery_binding_unarmed",
+            "恢复重放被拒绝：已武装绑定与当前规范事实不一致，无法机器绑定恢复身份。",
+            "replay_exact_frozen_payload",
+          );
+        }
+        const typedSurface = typedDefinition?.operation === "turn.finalize";
+        let effectiveArguments: JsonObject = typedSurface
+          ? params
+          : (objectOrNull(params.arguments) ?? {});
+        let identityInjected = false;
+        for (const [field, value] of Object.entries(hostInjected)) {
+          if (Object.hasOwn(effectiveArguments, field)) {
+            if (
+              canonicalJsonOf(effectiveArguments[field])
+              !== canonicalJsonOf(value)
+            ) {
+              return recoveryReplayRejection(
+                "recovery_identity_mismatch",
+                `恢复重放被拒绝：模型提供的 ${field} 与已武装冻结绑定不一致；"
+                  + "恢复身份只能由宿主绑定注入，不得改写。",
+                "replay_exact_frozen_payload",
+              );
+            }
+          } else {
+            effectiveArguments = {
+              ...effectiveArguments,
+              [field]: value,
+            };
+            identityInjected = true;
+          }
+        }
+        if (!typedSurface && identityInjected) {
+          // The transported generic envelope carries the machine-bound
+          // identity exactly as injected from the armed binding.
+          params = { ...params, arguments: effectiveArguments };
+        }
+        const modelOwnedReplayArguments = Object.fromEntries(
+          Object.entries(effectiveArguments).filter(
+            ([field]) => !RECOVERY_HOST_INJECTED_FINALIZE_ARGUMENTS.has(field),
+          ),
+        );
+        const mutatedField = draftShapeRecoveryPayloadMismatch(
+          recoveryCard,
+          modelOwnedReplayArguments,
+          Object.keys(modelOwnedReplayArguments),
+        );
+        if (mutatedField !== null) {
+          return hostFailureResult({
+            ok: false,
+            tool: "turn.finalize",
+            error: {
+              code: "recovery_payload_mutated",
+              message: (
+                "恢复重放被拒绝：除 draft 段落形状外，coverage、agency_claims 与"
+                + "其余模型侧参数必须与冻结负载逐字一致，不得增删改任何字段。"
+                + "请按 frozen_finalize_payload 原样重放后重新调用 turn.finalize。"
+              ),
+              retryable: false,
+              details: {
+                class: "invariant_terminal",
+                recoverable_by: "replay_exact_frozen_payload",
+              },
+            },
+            warnings: [],
+            hints: [],
+          });
         }
       }
     }
@@ -7887,6 +8226,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       return gatewayResult(asObject(value, "late canonical result"));
     }
     let liveHydration: PendingFinalizationHydration = { status: "not_attempted" };
+    // True when this call attached a persisted draft-shape recovery card onto
+    // an already-acknowledged resume: the silent-settled-startup quarantine
+    // must stay disarmed so the recovery agent can reach the preserved turn.
+    let acknowledgedResumeRecoveryAttached = false;
     if (isCanonicalInvokeSurface(name)) {
       const accepted = acceptCanonicalStructuredResult(
         String(params.operation || ""),
@@ -7897,6 +8240,96 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const acceptedContractProjection = objectOrNull(
         acceptedData?.contract_projection,
       );
+      // Run-02 defect 1: a canonical `default_mechanics_placement_unavailable`
+      // rejection left the KP with only an action label — never an executable
+      // revision. Build the recovery card from the exact failed call plus the
+      // retained frozen-turn identities, persist it (card plus machine-internal
+      // payload seal) as session entries, and attach it to the model-visible
+      // failure. Fail-closed three times over: without the full frozen
+      // identity/draft/coverage/agency payload the host invents nothing; the
+      // payload whitelist is derived from the canonical typed schema, never
+      // hand-picked; and the card is cached or attached only after BOTH its
+      // durable appends succeeded — a persistence failure leaves the original
+      // canonical error and no recoverable claim. A card whose accepted-review
+      // evidence never persisted is never created (it could never
+      // authenticate).
+      if (
+        isCanonicalInvokeSurface(name)
+        && params.operation === "turn.finalize"
+        && effectiveTypedRole === "play"
+        && isDraftShapePlacementFailure(value)
+        && typeof params.campaign === "string"
+        && params.campaign.trim()
+      ) {
+        const campaignId = params.campaign.trim();
+        // One pending turn admits exactly one sealed payload. A repeat
+        // failure never appends a second (possibly conflicting) card: the
+        // armed card stays the single durable authority and is simply
+        // re-attached for visibility.
+        const existingCard = draftShapeRecoveryCards.get(campaignId);
+        const facts = retainedOutputContextFacts;
+        const modelOwnedFields = modelOwnedFinalizeFields();
+        const sessionEntries = typeof ctx.sessionManager?.getEntries === "function"
+          ? ctx.sessionManager.getEntries()
+          : [];
+        const evidenceDurable = facts === null
+          ? false
+          : hasReviewEvidenceEntry(sessionEntries, {
+              campaign: campaignId,
+              turnId: facts.turnId,
+              sourceDigest: facts.sourceDigest,
+              revision: facts.revision,
+              narrationReviewId: facts.narrationReviewId ?? "",
+            });
+        const card = existingCard ?? (evidenceDurable
+          ? buildDraftShapeRecoveryCard({
+              root: typeof params.root === "string" && params.root
+                ? params.root
+                : ctx.cwd,
+              campaign: campaignId,
+              facts: facts === null
+                ? null
+                : {
+                    turnId: facts.turnId,
+                    sourceDigest: facts.sourceDigest,
+                    revision: facts.revision,
+                    narrationReviewId: facts.narrationReviewId ?? "",
+                  },
+              finalizeArguments: objectOrNull(params.arguments),
+              failureEnvelope: value,
+              modelOwnedFields,
+            })
+            : null);
+        let persisted = existingCard !== undefined;
+        if (existingCard === undefined && card !== null) {
+          try {
+            pi.appendEntry(DRAFT_SHAPE_RECOVERY_CARD_AUDIT, card);
+            pi.appendEntry(DRAFT_SHAPE_RECOVERY_SEAL_AUDIT, {
+              schema_version: 1,
+              campaign_id: campaignId,
+              turn_id: card.turn_id,
+              source_digest: card.source_digest,
+              revision: card.revision,
+              narration_review_id: card.narration_review_id,
+              payload_sha256: card.payload_sha256,
+            });
+            persisted = true;
+          } catch {
+            // Durable recovery was not armed; the original canonical error
+            // below stays the model's only truth for this failure. A card
+            // entry without its seal never authenticates.
+            persisted = false;
+          }
+        }
+        if (persisted && card !== null) {
+          draftShapeRecoveryCards.set(campaignId, card);
+          const error = objectOrNull(value.error) ?? {};
+          value = {
+            ...value,
+            error: { ...error, recovery_card: card },
+          };
+        }
+      }
       const validatedOutputContextCards = (
         accepted.accepted
         && params.operation === "turn.output_context"
@@ -7942,6 +8375,88 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         });
         if (liveHydration.status === "superseded") {
           return gatewayResult(value as JsonObject);
+        }
+      } else if (
+        accepted.accepted
+        && params.operation === "session.resume"
+        && isCurrent(epoch)
+        && signal?.aborted !== true
+        && typeof params.campaign === "string"
+        && params.campaign.trim()
+        && effectiveTypedRole === "play"
+        && acceptedData?.campaign_id === params.campaign
+        && acceptedData?.mode === "already_acknowledged"
+      ) {
+        // Run-02 defect 2, cross-agent lane: the lifecycle may already be
+        // acknowledged while the preserved pending turn is still unfinalized.
+        // A bare no-op leaves turn.finalize unarmed (review gated, finalize
+        // projection with no current host context). Selection is always the
+        // authenticated session-entry fold — in-memory JSON is never
+        // trusted: the card must be structurally complete, the campaign's
+        // only unresolved frozen identity, unretired by any successful
+        // finalize, and its narration review identity must be authenticated
+        // by host-owned accepted-review evidence. Only then does the host
+        // probe the live canonical output context once (read-only,
+        // bounded); a validating receipt matching the frozen identity
+        // re-arms the host context, re-arms the preserved finalize binding,
+        // and attaches the exact executable card onto the resume result
+        // instead of the bare no-op. Anything else leaves the canonical
+        // no-op untouched (fail closed, no invention, no fault).
+        const campaignId = params.campaign.trim();
+        const recoveryRoot = typeof params.root === "string" && params.root
+          ? params.root
+          : ctx.cwd;
+        const card = selectRecoverableDraftShapeCard(
+          typeof ctx.sessionManager?.getEntries === "function"
+            ? ctx.sessionManager.getEntries()
+            : [],
+          campaignId,
+        );
+        if (card !== null) {
+          draftShapeRecoveryCards.set(campaignId, card);
+          const recoveredHydration = await runPendingFinalizationHydration({
+            resumeValue: value,
+            campaign: campaignId,
+            root: recoveryRoot,
+            ctx,
+            signal,
+            epoch,
+            pendingIdentity: {
+              turnId: String(card.turn_id),
+              sourceDigest: String(card.source_digest),
+              revision: Number.isInteger(card.revision)
+                ? Number(card.revision)
+                : null,
+            },
+          });
+          if (recoveredHydration.status === "success" && isCurrent(epoch)) {
+            // Missing or mismatched journal evidence fails the whole lane
+            // closed: no binding, no guidance, no quarantine suppression.
+            const recoveryArmed = armRecoveredFinalizeBinding({
+              campaign: campaignId,
+              root: recoveryRoot,
+              narrationReviewId: String(card.narration_review_id),
+              cards: recoveredHydration.cards,
+            });
+            if (recoveryArmed) {
+              const guided = applyAcknowledgedResumeRecoveryGuidance(
+                value,
+                card,
+                { root: recoveryRoot, campaign: campaignId },
+              );
+              if (guided.attached) {
+                value = guided.envelope as JsonObject;
+                acknowledgedResumeRecoveryAttached = true;
+                applyKpActiveTools();
+                try {
+                  pi.appendEntry(
+                    "coc-acknowledged-resume-recovery-guidance",
+                    guided.audit,
+                  );
+                } catch { /* recovery-guidance audit is best effort */ }
+              }
+            }
+          }
         }
       }
       const authorizedHostBindingRefreshPending = (
@@ -8161,8 +8676,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             }, { reprojectTools: false });
           }
           if (
-            disposition.mode === "already_acknowledged"
-            || disposition.mode === "awaiting_player"
+            (disposition.mode === "already_acknowledged"
+              || disposition.mode === "awaiting_player")
+            // A resumed-and-armed pending-finalization recovery owns this
+            // turn: the agent must finalize the preserved turn, not sit
+            // quarantined behind a silent acknowledged no-op.
+            && !acknowledgedResumeRecoveryAttached
           ) {
             if (!startupBranchTrailingPlayerUser) {
               // Arm the same-turn quarantine BEFORE clearing the startup gate
@@ -9679,6 +10198,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     lastWorkingSet = null;
     faultRecoveryOperation = null;
     retainedOutputContextFacts = null;
+    draftShapeRecoveryCards.clear();
     currentSceneBindingFacts = null;
     currentCombatBindingFacts = null;
     retainedTypedBindings.clear();

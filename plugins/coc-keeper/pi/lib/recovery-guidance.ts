@@ -5,6 +5,7 @@
  * result. This is host instruction, never player-visible fiction and never a
  * second narrative engine.
  */
+import { createHash } from "node:crypto";
 import type { JsonObject } from "./runtime.ts";
 
 export const OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT =
@@ -135,6 +136,8 @@ export type LiveOutputContextCards = {
   revision: number;
   turnId: string;
   sourceDigest: string;
+  /** Host-injected journal decision id from the validated receipt, if any. */
+  journalDecisionId: string | null;
 };
 
 export type PendingFinalizationHydration =
@@ -265,6 +268,10 @@ export function validateLiveOutputContext(
     revision: finalizeRevision,
     turnId,
     sourceDigest,
+    journalDecisionId: typeof data.journal_decision_id === "string"
+      && data.journal_decision_id
+      ? data.journal_decision_id
+      : null,
   };
 }
 
@@ -602,14 +609,33 @@ export function applyOpenTurnRecoveryGuidance(value: unknown): {
 // coverage excerpt), the host builds this executable card from the exact
 // failed call plus the retained frozen-turn identities, persists it in the
 // session, and re-presents it after agent end or in a fresh play session —
-// even when `session.resume` lifecycle is already acknowledged. The card is
-// data + instruction only: it never reruns rules/state/journal/review and
-// never authors prose. Pure module; no host state.
+// even when `session.resume` lifecycle is already acknowledged.
+//
+// Invariants (fail closed at every step):
+// - The card preserves the complete model-owned frozen finalize payload
+//   (draft, full coverage rows, agency_claims, optional mechanics_placements).
+//   A recovery retry may change only the draft's paragraph shape; every other
+//   model-owned argument is replayed byte-for-byte from the card. Host-bound
+//   identities (root/campaign/turn/source/revision/review/decision) are
+//   machine-injected at call time and never relayed through the model.
+// - A card exists only after its durable session entry append succeeded;
+//   persistence failure leaves the original canonical error and no
+//   recoverable claim.
+// - Rehydration authenticates the card against host-owned accepted-review
+//   evidence and never re-arms a card retired by a successful finalize.
+// Pure module; no host state.
 // ---------------------------------------------------------------------------
 
 export const DRAFT_SHAPE_RECOVERY_CARD_CONTRACT =
   "coc.pi-draft-shape-recovery-card.v1";
 export const DRAFT_SHAPE_RECOVERY_CARD_AUDIT = "coc-draft-shape-recovery-card";
+/** Durable machine-internal payload seal written beside each card append. */
+export const DRAFT_SHAPE_RECOVERY_SEAL_AUDIT = "coc-draft-shape-recovery-seal";
+/** Durable tombstone written only by an accepted `turn.finalize` receipt. */
+export const DRAFT_SHAPE_RECOVERY_COMPLETE_AUDIT =
+  "coc-draft-shape-recovery-complete";
+/** Durable host-owned evidence written by an accepted `narration.review`. */
+export const NARRATION_REVIEW_EVIDENCE_AUDIT = "coc-narration-review-accepted";
 export const DRAFT_SHAPE_PLACEMENT_ERROR_CODE =
   "default_mechanics_placement_unavailable";
 export const DRAFT_SHAPE_RECOVERY_NEXT_ACTION =
@@ -642,6 +668,140 @@ function positiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+/**
+ * Canonical host-owned `turn.finalize` argument names. Every key in this set
+ * is machine-injected by the host binding and must never enter the frozen
+ * model payload — including optional identities that a given binding may not
+ * currently carry (repair_finalization_id). Runtime-injected keys are
+ * subtracted in addition, so future host-binding identities stay excluded.
+ */
+export const HOST_BOUND_FINALIZE_ARGUMENTS: readonly string[] = [
+  "root",
+  "campaign",
+  "decision_id",
+  "revision",
+  "narration_review_id",
+  "repair_finalization_id",
+];
+
+/**
+ * Recursive canonical JSON: object keys sorted at every depth, array order
+ * preserved, exact JSON value normalization. Equivalent objects with
+ * reordered keys serialize identically.
+ */
+export function canonicalJsonOf(value: unknown): string {
+  if (
+    value === null
+    || typeof value === "number"
+    || typeof value === "boolean"
+  ) {
+    return JSON.stringify(value) ?? "null";
+  }
+  if (typeof value === "string") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalJsonOf(item)).join(",")}]`;
+  }
+  if (typeof value === "object") {
+    const record = value as JsonObject;
+    const keys = Object.keys(record).sort();
+    return `{${
+      keys.map((key) => `${JSON.stringify(key)}:${canonicalJsonOf(record[key])}`).join(",")
+    }}`;
+  }
+  return "null";
+}
+
+/**
+ * Machine-internal canonical digest of one frozen finalize payload. The
+ * digest is host-computed, stored only in the durable seal and tombstone
+ * entries, and never a model relay obligation.
+ */
+export function draftShapePayloadDigest(payload: unknown): string {
+  return `sha256:${
+    createHash("sha256").update(canonicalJsonOf(payload), "utf8").digest("hex")
+  }`;
+}
+
+/**
+ * Call-time recovery enforcement: for an armed recovery card, every actual
+ * model-owned finalize argument except `draft` must canonical-equal the
+ * frozen payload, and the key sets must match exactly (a field dropped or
+ * added by the model is a mismatch). Only the draft's paragraph shape may
+ * differ. Returns the offending field name, or null when the call exactly
+ * replays the frozen payload.
+ */
+export function draftShapeRecoveryPayloadMismatch(
+  card: JsonObject,
+  finalizeArguments: JsonObject | null,
+  modelOwnedFields: readonly string[],
+): string | null {
+  const payload = card.frozen_finalize_payload;
+  if (!isFrozenFinalizePayload(payload)) return "frozen_finalize_payload";
+  if (finalizeArguments === null) return "arguments";
+  // Key-set union: a schema field dropped from the call, or an unexpected
+  // field added to it, is as much a mutation as a changed value.
+  const fields = new Set<string>([
+    ...modelOwnedFields,
+    ...Object.keys(finalizeArguments),
+    ...Object.keys(payload),
+  ]);
+  for (const field of fields) {
+    if (field === "draft") continue;
+    const inCall = Object.hasOwn(finalizeArguments, field);
+    const inPayload = Object.hasOwn(payload, field);
+    if (inCall !== inPayload) return field;
+    if (
+      inCall
+      && canonicalJsonOf(finalizeArguments[field]) !== canonicalJsonOf(payload[field])
+    ) return field;
+  }
+  return null;
+}
+
+/**
+ * Host-side pre-transport replay authentication for a recovered finalize.
+ * Every model-owned argument except `draft` must be present on both sides
+ * and deep-canonical-equal to the frozen payload: a mutated coverage row,
+ * agency claim, mechanics placement, advisory uptake, an added field, or a
+ * dropped field rejects the whole replay. Only the draft's paragraph shape
+ * may differ; the canonical finalizer still owns its consequence, excerpt,
+ * and mechanics checks. Pure.
+ */
+export function isDraftShapeRecoveryReplayUnchanged(
+  modelOwnedArguments: JsonObject,
+  frozenPayload: JsonObject,
+): boolean {
+  return draftShapeRecoveryPayloadMismatch(
+    { frozen_finalize_payload: frozenPayload },
+    modelOwnedArguments,
+    Object.keys(frozenPayload),
+  ) === null;
+}
+
+/**
+ * Structural validation of the model-owned frozen finalize payload. Exactly
+ * the fields the model supplies on a finalize retry; host-bound identity
+ * fields are deliberately absent here.
+ */
+export function isFrozenFinalizePayload(value: unknown): value is JsonObject {
+  if (!isPlainObject(value)) return false;
+  if (!nonEmptyString(value.draft)) return false;
+  if (!Array.isArray(value.coverage) || value.coverage.length === 0) return false;
+  for (const row of value.coverage) {
+    if (!isPlainObject(row) || !nonEmptyString(row.obligation_id)) return false;
+  }
+  if (!Array.isArray(value.agency_claims)) return false;
+  if (
+    value.mechanics_placements !== undefined
+    && !Array.isArray(value.mechanics_placements)
+  ) return false;
+  return true;
+}
+
 export function isDraftShapeRecoveryCard(value: unknown): value is JsonObject {
   if (!isPlainObject(value)) return false;
   if (value.schema_version !== 1) return false;
@@ -655,7 +815,9 @@ export function isDraftShapeRecoveryCard(value: unknown): value is JsonObject {
   if (!positiveInteger(value.revision)) return false;
   if (typeof value.narration_review_id !== "string") return false;
   if (!value.narration_review_id) return false;
-  return isPlainObject(value.diagnosis);
+  if (!isPlainObject(value.diagnosis)) return false;
+  if (!nonEmptyString(value.payload_sha256)) return false;
+  return isFrozenFinalizePayload(value.frozen_finalize_payload);
 }
 
 export type DraftShapeRecoveryCardInput = {
@@ -669,12 +831,20 @@ export type DraftShapeRecoveryCardInput = {
   } | null;
   finalizeArguments: JsonObject | null;
   failureEnvelope: JsonObject;
+  /**
+   * Model-owned argument whitelist derived from the canonical typed
+   * `turn.finalize` schema minus the host-injected identity fields. Every
+   * listed field present in the failed call is preserved verbatim; anything
+   * outside the list is dropped and never becomes a model relay obligation.
+   */
+  modelOwnedFields: readonly string[] | null;
 };
 
 /**
  * Build the executable recovery card from the exact failed finalize call.
- * Fail-closed: any missing identity, draft, coverage row, or unparseable
- * error message returns null — the host invents nothing.
+ * Fail-closed: any missing or mismatching identity, empty draft/coverage/
+ * agency claims, coverage row without a usable exact_excerpt, or
+ * unparseable error message returns null — the host invents nothing.
  */
 export function buildDraftShapeRecoveryCard(
   input: DraftShapeRecoveryCardInput,
@@ -687,6 +857,14 @@ export function buildDraftShapeRecoveryCard(
   }
   if (!positiveInteger(facts.revision)) return null;
   if (!input.campaign || !input.root) return null;
+  const modelOwnedFields = input.modelOwnedFields ?? [];
+  // Without the canonical typed-schema whitelist the host cannot derive the
+  // exact model-owned payload: fail closed rather than hand-pick fields.
+  if (
+    !modelOwnedFields.includes("draft")
+    || !modelOwnedFields.includes("coverage")
+    || !modelOwnedFields.includes("agency_claims")
+  ) return null;
   const error = isPlainObject(input.failureEnvelope.error)
     ? input.failureEnvelope.error
     : null;
@@ -695,14 +873,19 @@ export function buildDraftShapeRecoveryCard(
   if (rollIds.length === 0) return null;
   const args = input.finalizeArguments;
   if (args === null) return null;
+  // The frozen call must be the same frozen turn the host retained: a
+  // revision or review id that diverges from the retained facts is a stale
+  // or mixed invocation and freezes no card.
+  if (args.revision !== facts.revision) return null;
+  if (args.narration_review_id !== facts.narrationReviewId) return null;
   const draft = typeof args.draft === "string" ? args.draft : "";
   if (!draft.trim()) return null;
   const coverage = Array.isArray(args.coverage) ? args.coverage : null;
-  if (coverage === null) return null;
+  if (coverage === null || coverage.length === 0) return null;
+  if (!Array.isArray(args.agency_claims)) return null;
   const paragraphs = canonicalDraftParagraphs(draft);
   const coverageRows: JsonObject[] = [];
   let paragraphZero = false;
-  let excerptMissing = false;
   for (const rollId of rollIds) {
     const obligationId = `roll:${rollId}`;
     const row = coverage.find((candidate) => (
@@ -711,17 +894,30 @@ export function buildDraftShapeRecoveryCard(
     const excerpt = isPlainObject(row) && typeof row.exact_excerpt === "string"
       ? row.exact_excerpt
       : "";
-    const excerptParagraphIndex = excerpt
-      ? paragraphs.findIndex((paragraph) => paragraph.includes(excerpt))
-      : -1;
+    // A card must direct an exact paragraph repair: an offending roll
+    // without a usable coverage excerpt cannot, so no card is frozen.
+    if (!excerpt) return null;
+    const excerptParagraphIndex = paragraphs.findIndex((paragraph) =>
+      paragraph.includes(excerpt));
     if (excerptParagraphIndex === 0) paragraphZero = true;
-    if (excerptParagraphIndex < 0) excerptMissing = true;
     coverageRows.push({
       obligation_id: obligationId,
       exact_excerpt: excerpt,
       excerpt_paragraph_index: excerptParagraphIndex,
     });
   }
+  // Preserve EVERY model-owned schema field present in the failed call —
+  // draft, coverage, agency_claims, mechanics_placements, advisory_uptake,
+  // validate_only, and any future optional model-owned validation field —
+  // verbatim from the canonical whitelist. Host-bound identities are never
+  // copied: the host re-injects them at call time.
+  const frozenPayload: JsonObject = {};
+  for (const field of modelOwnedFields) {
+    if (!Object.hasOwn(args, field)) continue;
+    frozenPayload[field] = deepCopyValue(args[field]);
+  }
+  if (!isFrozenFinalizePayload(frozenPayload)) return null;
+  const payloadDigest = draftShapePayloadDigest(frozenPayload);
   const card: JsonObject = {
     schema_version: 1,
     contract_id: DRAFT_SHAPE_RECOVERY_CARD_CONTRACT,
@@ -735,15 +931,15 @@ export function buildDraftShapeRecoveryCard(
     source_digest: facts.sourceDigest,
     revision: facts.revision,
     narration_review_id: facts.narrationReviewId,
+    frozen_finalize_payload: frozenPayload,
+    payload_sha256: payloadDigest,
     diagnosis: {
       offending_roll_ids: rollIds,
       coverage_rows: coverageRows,
       draft_paragraph_count: paragraphs.length,
       verdict: paragraphZero
         ? "consequence_paragraph_zero"
-        : excerptMissing
-          ? "consequence_excerpt_missing"
-          : "unparsed",
+        : "consequence_excerpt_missing",
     },
     preserved_bindings: {
       public_rolls: "unchanged",
@@ -757,15 +953,17 @@ export function buildDraftShapeRecoveryCard(
     finalize_replay: {
       operation: "turn.finalize",
       invoke_via: "coc_turn_finalize",
-      reuse_arguments: {
-        revision: facts.revision,
-        narration_review_id: facts.narrationReviewId,
-        coverage: "unchanged",
-        agency_claims: "unchanged",
-      },
+      replay_arguments_from: "frozen_finalize_payload",
       adjust_arguments: {
         draft: DRAFT_SHAPE_INSTRUCTION,
       },
+      host_bound_arguments: [
+        "root",
+        "campaign",
+        "decision_id",
+        "revision",
+        "narration_review_id",
+      ],
     },
     instruction: DRAFT_SHAPE_INSTRUCTION,
     forbidden: [
@@ -783,44 +981,264 @@ export function buildDraftShapeRecoveryCard(
 
 const DRAFT_SHAPE_INSTRUCTION = (
   "Insert one separate action/setup paragraph immediately before the "
-  "consequence paragraph of every listed public roll: the consequence "
-  "excerpt must not sit in paragraph zero, and each exact_excerpt must "
-  "appear verbatim in exactly one non-zero paragraph of the revised draft. "
-  "Keep every settled roll, state write, the existing state.journal, the "
-  "same narration review binding, and the coverage rows unchanged; change "
-  "only the draft shape. Then call turn.finalize again with the same "
-  "revision, narration_review_id, coverage, and agency_claims. Never "
-  "substitute placeholder prose, never rerun rules/state/journal/review, "
-  "and never accept a new player action before this turn finalizes."
+  + "consequence paragraph of every listed public roll: the consequence "
+  + "excerpt must not sit in paragraph zero, and each exact_excerpt must "
+  + "appear verbatim in exactly one non-zero paragraph of the revised "
+  + "draft. Replay every model-owned argument from frozen_finalize_payload "
+  + "unchanged — same coverage rows, same agency_claims — and change only "
+  + "the draft's paragraph shape. The host re-injects root, campaign, "
+  + "decision_id, revision, and narration_review_id; never relay or invent "
+  + "identities. Then call turn.finalize again. Never substitute placeholder "
+  + "prose, never rerun rules/state/journal/review, and never accept a new "
+  + "player action before this turn finalizes. Recovery ends only at the "
+  + "real finalize result, which retires this card."
 );
 
 /**
- * Rehydrate the persisted card from session entries (custom entries survive
- * a process restart on the same session file). Returns the newest valid card
- * for the campaign, or null. Pure; never invents a card.
+ * Full recovery identity: pending-turn identity plus the exact payload
+ * seal. Chronological folding keys on this; two different payloads under
+ * one pending turn are conflicting identities, never silently deduplicated.
  */
-export function draftShapeRecoveryCardFromSessionEntries(
+function cardFullIdentity(card: JsonObject): string {
+  return JSON.stringify([
+    card.turn_id,
+    card.source_digest,
+    card.revision,
+    card.narration_review_id,
+    card.payload_sha256,
+  ]);
+}
+
+function cardPendingTurnIdentity(card: JsonObject): string {
+  return JSON.stringify([
+    card.turn_id,
+    card.source_digest,
+    card.revision,
+    card.narration_review_id,
+  ]);
+}
+
+function isRecoverySealRow(value: JsonObject, campaign: string): boolean {
+  return value.campaign_id === campaign
+    && nonEmptyString(value.turn_id)
+    && nonEmptyString(value.source_digest)
+    && positiveInteger(value.revision)
+    && nonEmptyString(value.narration_review_id)
+    && nonEmptyString(value.payload_sha256);
+}
+
+function isCompletionTombstoneRow(
+  value: JsonObject,
+  campaign: string,
+): boolean {
+  return value.campaign_id === campaign
+    && nonEmptyString(value.turn_id)
+    && nonEmptyString(value.source_digest)
+    && positiveInteger(value.revision)
+    && nonEmptyString(value.narration_review_id)
+    && nonEmptyString(value.payload_sha256);
+}
+
+/**
+ * True when the session entries carry durable host-owned accepted-review
+ * evidence for this exact recovery identity.
+ */
+export function hasReviewEvidenceEntry(
+  entries: unknown,
+  identity: {
+    campaign: string;
+    turnId: string;
+    sourceDigest: string;
+    revision: number;
+    narrationReviewId: string;
+  },
+): boolean {
+  if (!Array.isArray(entries)) return false;
+  for (const entry of entries) {
+    const evidence = entryDataOf(entry, NARRATION_REVIEW_EVIDENCE_AUDIT);
+    if (evidence === null) continue;
+    if (!isReviewEvidenceRow(evidence, identity.campaign)) continue;
+    if (
+      evidence.turn_id === identity.turnId
+      && evidence.source_digest === identity.sourceDigest
+      && evidence.revision === identity.revision
+      && evidence.review_id === identity.narrationReviewId
+    ) return true;
+  }
+  return false;
+}
+
+function entryDataOf(entry: unknown, customType: string): JsonObject | null {
+  if (!isPlainObject(entry)) return null;
+  if (entry.customType !== customType) return null;
+  return isPlainObject(entry.data) ? entry.data : null;
+}
+
+function isReviewEvidenceRow(value: JsonObject, campaign: string): boolean {
+  return value.campaign_id === campaign
+    && nonEmptyString(value.turn_id)
+    && nonEmptyString(value.source_digest)
+    && positiveInteger(value.revision)
+    && nonEmptyString(value.review_id);
+}
+
+/**
+ * Authenticated recovery-card selection from session entries, folded per
+ * full recovery identity.
+ *
+ * - any card-typed entry for the campaign that is malformed, partial, or
+ *   fails structural validation is tamper evidence → null;
+ * - every card's payload digest is recomputed and must equal the attached
+ *   `payload_sha256`, and a durable machine-internal seal entry must
+ *   authenticate the exact payload — structurally valid edits of draft,
+ *   coverage, claims, placements, advisory uptake, or any preserved field
+ *   fail closed before any hydration or probe;
+ * - the card's narration review identity must be authenticated by at least
+ *   one host-owned accepted-review evidence row with the exact
+ *   campaign/turn/source/revision/review_id — card JSON alone is never
+ *   trusted;
+ * - an exact tombstone (full identity plus payload seal) retires its own
+ *   identity only: a completed historical turn never suppresses a later
+ *   unrelated recovery in the same campaign; partial, foreign, stale, or
+ *   mismatched tombstones retire nothing;
+ * - exactly one unresolved authenticated identity must remain — more than
+ *   one is ambiguous → null; identical-identity refreshes dedupe to the
+ *   newest entry.
+ */
+export function selectRecoverableDraftShapeCard(
   entries: unknown,
   campaign: string,
 ): JsonObject | null {
   if (!Array.isArray(entries) || !campaign) return null;
-  let found: JsonObject | null = null;
+  // Chronological per-full-identity fold of the append-only stream. Cards
+  // and exact tombstones are applied in entry order; seals and review
+  // evidence authenticate the selected identity without ordering.
+  interface IdentityState {
+    newestCard: JsonObject | null;
+    retired: boolean;
+  }
+  const states = new Map<string, IdentityState>();
+  const stateFor = (fullIdentity: string): IdentityState => {
+    let state = states.get(fullIdentity);
+    if (state === undefined) {
+      state = { newestCard: null, retired: false };
+      states.set(fullIdentity, state);
+    }
+    return state;
+  };
   for (const entry of entries) {
     if (!isPlainObject(entry)) continue;
-    if (entry.customType !== DRAFT_SHAPE_RECOVERY_CARD_AUDIT) continue;
-    const card = entry.data;
-    if (
-      isDraftShapeRecoveryCard(card)
-      && card.campaign_id === campaign
-    ) {
-      found = deepCopyValue(card) as JsonObject;
+    if (entry.customType === DRAFT_SHAPE_RECOVERY_CARD_AUDIT) {
+      const card = entry.data;
+      const entryCampaign = isPlainObject(card) ? card.campaign_id : undefined;
+      if (
+        typeof entryCampaign === "string"
+        && entryCampaign
+        && entryCampaign !== campaign
+      ) continue; // a clearly foreign campaign's card never blocks this one
+      if (
+        !isDraftShapeRecoveryCard(card)
+        || card.campaign_id !== campaign
+      ) {
+        // A card-typed entry attributable to this campaign that fails
+        // validation is tamper or corruption evidence: fail closed.
+        return null;
+      }
+      const state = stateFor(cardFullIdentity(card));
+      if (state.retired) {
+        // Chronological reopen: only a card appended after its identity's
+        // tombstone is live again.
+        state.retired = false;
+        state.newestCard = card;
+      } else if (state.newestCard !== null) {
+        // One pending turn admits exactly one sealed payload: a different
+        // payload under the same pending-turn identity is a conflict and
+        // fails closed; only a byte-identical refresh updates the record.
+        if (
+          cardPendingTurnIdentity(card)
+            !== cardPendingTurnIdentity(state.newestCard)
+        ) return null;
+        if (
+          canonicalJsonOf(card) !== canonicalJsonOf(state.newestCard)
+        ) return null;
+        state.newestCard = card;
+      } else {
+        state.newestCard = card;
+      }
+      continue;
+    }
+    if (entry.customType === DRAFT_SHAPE_RECOVERY_COMPLETE_AUDIT) {
+      const completion = entryDataOf(entry, DRAFT_SHAPE_RECOVERY_COMPLETE_AUDIT);
+      if (completion === null) continue;
+      const completionCampaign = completion.campaign_id;
+      if (
+        typeof completionCampaign === "string"
+        && completionCampaign
+        && completionCampaign !== campaign
+      ) continue; // a foreign campaign's tombstone never blocks this one
+      if (!isCompletionTombstoneRow(completion, campaign)) continue;
+      // An exact tombstone retires exactly its own full identity, applied
+      // in order: cards appended earlier are retired, later cards reopen.
+      const tombstoneFullIdentity = JSON.stringify([
+        completion.turn_id,
+        completion.source_digest,
+        completion.revision,
+        completion.narration_review_id,
+        completion.payload_sha256,
+      ]);
+      stateFor(tombstoneFullIdentity).retired = true;
     }
   }
-  return found;
+  // Seal and evidence indexes authenticate identities without ordering.
+  const seals: JsonObject[] = [];
+  for (const entry of entries) {
+    const seal = entryDataOf(entry, DRAFT_SHAPE_RECOVERY_SEAL_AUDIT);
+    if (seal === null) continue;
+    const sealCampaign = seal.campaign_id;
+    if (
+      typeof sealCampaign === "string"
+      && sealCampaign
+      && sealCampaign !== campaign
+    ) continue; // a foreign campaign's seal never blocks this one
+    if (!isRecoverySealRow(seal, campaign)) {
+      // A malformed seal attributable to this campaign is corruption
+      // evidence: fail closed.
+      return null;
+    }
+    seals.push(seal);
+  }
+  const isSealed = (card: JsonObject): boolean => seals.some((seal) =>
+    seal.turn_id === card.turn_id
+    && seal.source_digest === card.source_digest
+    && seal.revision === card.revision
+    && seal.narration_review_id === card.narration_review_id
+    && seal.payload_sha256 === card.payload_sha256);
+  const isEvidenced = (card: JsonObject): boolean => entries.some((entry) => {
+    const evidence = entryDataOf(entry, NARRATION_REVIEW_EVIDENCE_AUDIT);
+    if (evidence === null) return false;
+    if (!isReviewEvidenceRow(evidence, campaign)) return false;
+    return evidence.turn_id === card.turn_id
+      && evidence.source_digest === card.source_digest
+      && evidence.revision === card.revision
+      && evidence.review_id === card.narration_review_id;
+  });
+  // Exactly one unresolved authenticated identity may remain.
+  const unresolved: JsonObject[] = [];
+  for (const state of states.values()) {
+    if (state.retired || state.newestCard === null) continue;
+    const card = state.newestCard;
+    if (draftShapePayloadDigest(card.frozen_finalize_payload) !== card.payload_sha256) {
+      continue; // payload drift: this identity is unrecoverable
+    }
+    if (!isSealed(card) || !isEvidenced(card)) continue;
+    unresolved.push(card);
+  }
+  if (unresolved.length !== 1) return null;
+  return deepCopyValue(unresolved[0]) as JsonObject;
 }
 
 /**
- * Attach the persisted recovery card onto an `already_acknowledged`
+ * Attach the authenticated recovery card onto an `already_acknowledged`
  * `session.resume` result so a fresh play session re-arms the preserved
  * pending turn instead of receiving a bare no-op. The canonical lifecycle
  * fields (schema_version, campaign_id, mode, next_operations) are preserved
@@ -865,11 +1283,12 @@ export function applyAcknowledgedResumeRecoveryGuidance(
     recovery_card: deepCopyValue(card),
     instruction: (
       "A settled player turn from an earlier session is still preserved and "
-      "unfinalized. The exact executable recovery card in recovery_card was "
-      "frozen at the failed finalize attempt: repair only the draft shape it "
-      "diagnoses, keep its preserved bindings, and call turn.finalize via "
-      "next_call. Recovery ends only at the real finalize result; never "
-      "claim completion in prose."
+      + "unfinalized. The executable recovery card in recovery_card carries "
+      + "the complete frozen finalize payload: replay every model-owned "
+      + "argument from frozen_finalize_payload, change only the draft's "
+      + "paragraph shape as its diagnosis directs, and call turn.finalize "
+      + "via next_call; the host injects all identity fields. Recovery ends "
+      + "only at the real finalize result; never claim completion in prose."
     ),
   };
   return {
