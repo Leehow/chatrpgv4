@@ -606,6 +606,166 @@ def _compact_source_ref(value: Any) -> dict[str, Any]:
     }
 
 
+_MODULE_CONTEXT_RUNTIME_PROPERTY_KEYS = {
+    # Scenario-IR materialization payloads are already available through the
+    # owning scene/clue/NPC tools. Repeating them on every graph node can make
+    # a five-node neighbourhood exceed the entire MCP hot-envelope budget and
+    # collapse the semantic edges the Keeper actually requested.
+    "runtime_projection",
+    "runtime_record",
+}
+
+
+def _project_module_context_source_ref(value: Any) -> dict[str, Any]:
+    """Keep semantic page provenance, never archive/integrity machinery."""
+    if not isinstance(value, dict):
+        return {}
+    projected = _pick(
+        value,
+        ("source_id", "pdf_index", "printed_page", "page_ref"),
+    )
+    return {
+        key: deepcopy(item)
+        for key, item in projected.items()
+        if item is not None
+    }
+
+
+def _project_module_context_node(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    projected = _pick(
+        value,
+        (
+            "node_id",
+            "node_kind",
+            "name",
+            "aliases",
+            "summary",
+            "visibility",
+            "evidence_span_ids",
+        ),
+    )
+    properties = value.get("properties")
+    projected["properties"] = {
+        key: deepcopy(item)
+        for key, item in (properties.items() if isinstance(properties, dict) else [])
+        if key not in _MODULE_CONTEXT_RUNTIME_PROPERTY_KEYS
+        and not key.endswith("_sha256")
+    }
+    projected["source_refs"] = [
+        ref
+        for ref in (
+            _project_module_context_source_ref(row)
+            for row in value.get("source_refs") or []
+        )
+        if ref
+    ]
+    return projected
+
+
+def _project_module_context_claim(value: Any) -> dict[str, Any]:
+    """Keep claim semantics once; omit repeated empty extraction scaffolding."""
+    if not isinstance(value, dict):
+        return {}
+    projected = _pick(
+        value,
+        (
+            "claim_id",
+            "subject_id",
+            "predicate",
+            "object",
+            "truth_status",
+            "visibility",
+            "validity",
+            "confidence",
+            "reason",
+        ),
+    )
+    for field in ("evidence_span_ids", "asserted_by_ids", "known_by_ids"):
+        rows = value.get(field)
+        if isinstance(rows, list) and rows:
+            projected[field] = deepcopy(rows)
+    return projected
+
+
+def _project_module_context(data: Any) -> Any:
+    """Bound one ModuleGraph search/neighbourhood without losing its edges.
+
+    The graph already bounds node count and depth. This wire view removes only
+    duplicated Scenario-IR runtime records and machine provenance, while
+    preserving semantic node ids, authored properties, claims, relations,
+    secrecy, source pages, completeness, and language presentation. The full
+    canonical result remains hash-bound in the wire header.
+    """
+    if not isinstance(data, dict):
+        return deepcopy(data)
+    module = data.get("module")
+    context = data.get("context")
+    projected = _pick(
+        data,
+        (
+            "schema_version",
+            "mode",
+            "available",
+            "candidates",
+            "presentation",
+            "authority",
+        ),
+    )
+    if isinstance(module, dict):
+        projected["module"] = _pick(
+            module,
+            (
+                "module_id",
+                "graph_contract_id",
+                "graph_schema_version",
+                "build_status",
+                "source_languages",
+                "coverage",
+                "source_gaps",
+                "missing_shards",
+            ),
+        )
+    if isinstance(context, dict):
+        projected["context"] = {
+            **_pick(
+                context,
+                (
+                    "module_id",
+                    "seed_ids",
+                    "depth",
+                    "audience",
+                    "truncated",
+                ),
+            ),
+            "nodes": [
+                row
+                for row in (
+                    _project_module_context_node(item)
+                    for item in context.get("nodes") or []
+                )
+                if row
+            ],
+            "relations": [
+                deepcopy(row)
+                for row in context.get("relations") or []
+                if isinstance(row, dict)
+            ],
+            "claims": [
+                row
+                for row in (
+                    _project_module_context_claim(item)
+                    for item in context.get("claims") or []
+                )
+                if row
+            ],
+        }
+    elif context is None:
+        projected["context"] = None
+    return projected
+
+
 THREAD_OBJECTIVE_LIMIT = 3
 THREAD_CLUE_LIMIT = 3
 
@@ -2996,6 +3156,8 @@ def project_envelope(
         projector = _project_finalize
     elif operation == "setup.investigator_contract":
         projector = _project_investigator_contract
+    elif operation == "module.context":
+        projector = _project_module_context
 
     projected_data = projector(data) if projector is not None else deepcopy(data)
     result: dict[str, Any] = {
@@ -3047,6 +3209,8 @@ def project_envelope(
         contract_digest=contract_digest,
         argument_schemas=argument_schemas,
     )
+    if operation == "module.context" and projector is not None:
+        result["wire"]["module_context_projection"] = True
 
     if transport_bytes(result) > MAX_INLINE_BYTES and operation == "scene.context":
         tight_scene = _compact_scene(data, tight=True)

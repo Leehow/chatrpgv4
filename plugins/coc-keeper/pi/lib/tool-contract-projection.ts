@@ -1524,6 +1524,21 @@ const declaredIdentityTable = (
   integrity: new Set(integrity),
 });
 
+/**
+ * Identity-bearing fields emitted by the bounded `scene.context` wire view.
+ * `session.resume.data.scene_context` is the same canonical sub-document and
+ * must be projected through this exact closed declaration instead of widening
+ * the outer resume operation. Route ids are deliberately absent: they are
+ * projected only through the live semantic route registry.
+ */
+const SCENE_CONTEXT_SEMANTIC_IDENTITY_FIELDS = [
+  "active_scene_id", "affordance_id", "asset_root_id", "campaign_id",
+  "civil_segment_id", "clock_id", "clue_id", "clue_ids",
+  "conclusion_id", "drilldown_refs", "flag_id", "grants_clue_ids",
+  "location_id", "mechanics_ref", "npc_id", "npc_ids", "ref_id",
+  "scene_id", "source_ref", "trigger_id",
+] as const;
+
 const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   string,
   OperationIdentityDeclarations
@@ -1543,10 +1558,7 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [],
   )],
   ["scene.context", declaredIdentityTable(
-    [
-      "active_scene_id", "asset_root_id", "campaign_id", "civil_segment_id",
-      "drilldown_refs", "location_id", "source_ref",
-    ],
+    SCENE_CONTEXT_SEMANTIC_IDENTITY_FIELDS,
     [],
   )],
   ["clues.query", declaredIdentityTable(
@@ -2567,10 +2579,52 @@ function projectFinalizeData(
 }
 
 /**
+ * Project the canonical scene wire view through its own closed identity
+ * contract. The same projector is used for a direct `scene.context` result
+ * and for the identical sub-document embedded by `session.resume`.
+ */
+function projectSceneContextData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const view: Record<string, unknown> = { ...data };
+  if (isPlainObject(data.exit_operation_template)) {
+    const descriptor = projectOperationDescriptor(
+      data.exit_operation_template,
+      semanticIds,
+      diagnostics,
+    );
+    const argumentBinding = isPlainObject(
+      data.exit_operation_template.argument_binding,
+    )
+      ? data.exit_operation_template.argument_binding
+      : null;
+    if (
+      argumentBinding !== null
+      && typeof argumentBinding.scene_id === "string"
+    ) {
+      // The canonical card names this host-authored instruction `scene_id`,
+      // but its value is prose ("copy selected exit destination"), not an
+      // identifier for the model to relay. Preserve the guidance under a
+      // non-identity model-view name instead of weakening the ID grammar.
+      descriptor.destination_binding = argumentBinding.scene_id;
+    }
+    view.exit_operation_template = descriptor;
+  }
+  return sanitizeEnvelopeBranch(
+    view,
+    semanticIds,
+    diagnostics,
+    "scene.context",
+  ) as Record<string, unknown>;
+}
+
+/**
  * The single post-observer model-content projection for canonical envelopes.
- * Operation-aware for module.context / turn.output_context /
- * narration.review / turn.finalize; every other canonical family uses the
- * structured recursive sanitizer.
+ * Operation-aware for module.context / scene.context / session.resume /
+ * turn.output_context / narration.review / turn.finalize; every other
+ * canonical family uses the structured recursive sanitizer.
  */
 export function projectModelVisibleCanonicalResult(
   operation: string | null | undefined,
@@ -2594,7 +2648,29 @@ export function projectModelVisibleCanonicalResult(
   const data = isPlainObject(projected.data) ? projected.data : null;
   const operationName = typeof operation === "string" ? operation : null;
   if (data !== null) {
-    if (operation === "turn.output_context") {
+    if (operation === "scene.context") {
+      projected.data = projectSceneContextData(data, semanticIds, diagnostics);
+    } else if (operation === "session.resume") {
+      const sceneContext = isPlainObject(data.scene_context)
+        ? data.scene_context
+        : null;
+      const resumeData: Record<string, unknown> = { ...data };
+      delete resumeData.scene_context;
+      const resumeView = sanitizeEnvelopeBranch(
+        resumeData,
+        semanticIds,
+        diagnostics,
+        operationName,
+      ) as Record<string, unknown>;
+      if (sceneContext !== null) {
+        resumeView.scene_context = projectSceneContextData(
+          sceneContext,
+          semanticIds,
+          diagnostics,
+        );
+      }
+      projected.data = resumeView;
+    } else if (operation === "turn.output_context") {
       projected.data = projectOutputContextData(data, semanticIds, diagnostics);
     } else if (
       operation === "turn.finalize"

@@ -1041,7 +1041,63 @@ routeOperation("memory.extraction_status", { ok: true, data: { status: "idle" } 
 routeOperation("session.resume", () => resumeQueue.shift() ?? secondCampaignResume);
 routeOperation("*", { ok: true, data: {} });
 
-const resumeQueue = [FAMILIES.session_resume];
+// Real ready-for-table campaigns resume with the complete scene projection
+// nested under `data.scene_context`, not only the compact recovery index used
+// by the original attempt-02 fixture. This shape must reuse the exact
+// scene.context semantic boundary: semantic scene/clue/NPC/affordance ids
+// remain visible, route ids are registry handles, and host-only identities
+// stay private. A generic session.resume walk previously diagnosed every
+// nested field as undeclared and failed the whole resume.
+const populatedSceneResume = structuredClone(FAMILIES.session_resume);
+populatedSceneResume.data.scene_context = {
+  ...populatedSceneResume.data.scene_context,
+  active_scene_id: "commission-briefing",
+  scene: {
+    exit_conditions: [
+      { kind: "clue_discovered", clue_id: "clue-knott-research-leads" },
+    ],
+  },
+  npcs_present: [
+    { npc_id: "npc-steven-knott", name: "Steven Knott" },
+  ],
+  clues_here: [
+    {
+      clue_id: "clue-knott-commission",
+      conclusion_id: "commission-and-research-frame",
+      discovered: false,
+    },
+  ],
+  action_routes: [
+    {
+      route_id: "confirm-commission-terms",
+      resolution_kind: "direct_delivery",
+      grants_clue_ids: ["clue-knott-commission"],
+    },
+  ],
+  nearby_routes: {
+    destinations: [
+      {
+        scene_id: "newspaper-morgue",
+        open_routes: [
+          { affordance_id: "persuade-arty", cue: "Persuade the editor." },
+        ],
+      },
+    ],
+  },
+  exits: [
+    {
+      to: "newspaper-morgue",
+      kind: "unlock",
+      open: false,
+      when: { kind: "clue_discovered", clue_id: "clue-knott-research-leads" },
+    },
+  ],
+  exit_operation_template: {
+    operation: "state.move_scene",
+    argument_binding: { scene_id: "copy selected exit destination" },
+  },
+};
+const resumeQueue = [populatedSceneResume];
 const secondCampaign = "king-shreds-other-campaign";
 const secondCampaignResume = {
   ok: true,
@@ -1141,8 +1197,38 @@ const resumeResult = await executeTool("coc_invoke", {
   campaign,
   arguments: {},
 });
+const resumeVisible = JSON.parse(modelContents.at(-1).text);
+assert.deepEqual(
+  resumeVisible.ok,
+  true,
+  `populated session.resume must stay model-visible: ${JSON.stringify({
+    visible: resumeVisible,
+    diagnostics: resumeResult.details?.semantic_identity_diagnostics,
+  })}`,
+);
 assert.equal(resumeResult.details.wire.canonical_operation, "session.resume");
-assertModelSafeContent("session.resume content", JSON.parse(modelContents.at(-1).text));
+assert.equal(
+  resumeVisible.data.scene_context.clues_here[0].clue_id,
+  "clue-knott-commission",
+);
+assert.equal(
+  resumeVisible.data.scene_context.nearby_routes.destinations[0].scene_id,
+  "newspaper-morgue",
+);
+assert.equal(
+  resumeVisible.data.scene_context.nearby_routes.destinations[0]
+    .open_routes[0].affordance_id,
+  "persuade-arty",
+);
+assert.match(
+  resumeVisible.data.scene_context.action_routes[0].route_id,
+  /^route:/,
+);
+assert.ok(
+  !JSON.stringify(resumeVisible).includes("confirm-commission-terms"),
+  "nested authored route ids never reach model content unprojected",
+);
+assertModelSafeContent("session.resume content", resumeVisible);
 
 // 2) scene.context with the semantic investigator handle.
 routeOperation("scene.context", FAMILIES.scene_context);
@@ -1152,8 +1238,8 @@ const sceneResult = await executeTool("coc_scene_context", {
   investigator: CURRENT_INVESTIGATOR_HANDLE,
 });
 assert.equal(
-  clientCalls.find((call) => call.operation === "scene.context").arguments
-    .investigator,
+  clientCalls.filter((call) => call.operation === "scene.context").at(-1)
+    .arguments.investigator,
   "inv-x6a217e22-e0532209",
   "host must restore the exact investigator id before transport",
 );

@@ -1777,6 +1777,175 @@ def test_module_context_is_exact_discovery_only_keeper_context(monkeypatch):
     }
 
 
+def test_mcp_wire_module_context_keeps_bounded_nodes_and_relationships():
+    server = _load_server()
+    envelope = {
+        "ok": True,
+        "tool": "module.context",
+        "data": {
+            "schema_version": 1,
+            "mode": "expand",
+            "available": True,
+            "module": {
+                "module_id": "module-the-haunting",
+                "graph_contract_id": "coc.module-graph.v3",
+                "graph_schema_version": 3,
+                "build_status": "complete",
+                "source_languages": ["en"],
+                "coverage": {"assets": "accepted"},
+                "source_gaps": [],
+                "missing_shards": [],
+                "module_graph_sha256": "a" * 64,
+            },
+            "presentation": {
+                "play_language": "zh-Hans",
+                "localization_required": True,
+                "persistence": "none",
+            },
+            "candidates": [],
+            "context": {
+                "module_id": "module-the-haunting",
+                "seed_ids": ["asset-player-corbitt-house-map"],
+                "depth": 1,
+                "audience": "keeper",
+                "truncated": False,
+                "nodes": [
+                    {
+                        "node_id": "asset-player-corbitt-house-map",
+                        "node_kind": "asset",
+                        "name": "Corbitt House Investigator Map",
+                        "summary": "Reviewed player map.",
+                        "visibility": "player-safe",
+                        "aliases": [],
+                        "evidence_span_ids": [],
+                        "properties": {
+                            "asset_ref": (
+                                "assets/player/corbitt-house-investigator-map.png"
+                            ),
+                            "media_type": "image/png",
+                        },
+                        "source_refs": [{
+                            "source_id": "pdf:the-haunting",
+                            "pdf_index": 462,
+                            "grep_anchor": "player map",
+                        }],
+                    },
+                    {
+                        "node_id": (
+                            "handout-the-haunting-corbitt-house-investigator-map"
+                        ),
+                        "node_kind": "handout",
+                        "name": "Corbitt House Investigator Map",
+                        "summary": "Player information card for the map.",
+                        "visibility": "player-safe",
+                        "aliases": [],
+                        "evidence_span_ids": [],
+                        "properties": {
+                            "image_asset_id": "asset-player-corbitt-house-map",
+                            "image_ref": (
+                                "assets/player/corbitt-house-investigator-map.png"
+                            ),
+                            "player_visible": True,
+                        },
+                        "source_refs": [{
+                            "source_id": "pdf:the-haunting",
+                            "pdf_index": 462,
+                        }],
+                    },
+                    {
+                        "node_id": "scene-corbitt-house-ground",
+                        "node_kind": "scene",
+                        "name": "Corbitt House ground floor",
+                        "summary": "The mapped ground floor.",
+                        "visibility": "keeper-only",
+                        "aliases": [],
+                        "evidence_span_ids": ["span-page-451-anchor-1"],
+                        "properties": {
+                            "runtime_projection": {
+                                "record": {"padding": "source-runtime-record" * 2000}
+                            }
+                        },
+                        "source_refs": [{
+                            "source_id": "pdf:the-haunting",
+                            "pdf_index": 451,
+                        }],
+                    },
+                ],
+                "relations": [{
+                    "relation_id": "relation-contains-map",
+                    "relation_kind": "contains",
+                    "from_node_id": (
+                        "handout-the-haunting-corbitt-house-investigator-map"
+                    ),
+                    "to_node_id": "asset-player-corbitt-house-map",
+                    "claim_id": "claim-contains-map",
+                    "properties": {},
+                }],
+                "claims": [{
+                    "claim_id": "claim-contains-map",
+                    "subject_id": (
+                        "handout-the-haunting-corbitt-house-investigator-map"
+                    ),
+                    "predicate": "contains",
+                    "object": {"node_id": "asset-player-corbitt-house-map"},
+                    "truth_status": "authored-fact",
+                    "visibility": "player-safe",
+                    "evidence_span_ids": [],
+                    "asserted_by_ids": [],
+                    "known_by_ids": [],
+                    "validity": None,
+                    "confidence": 1.0,
+                    "reason": "Structured curated starter projection.",
+                }],
+            },
+            "authority": {
+                "source_truth": "module-graph",
+                "campaign_applicability": "live-state-and-kp-judgment",
+                "semantic_match": False,
+                "hard_gate": False,
+            },
+        },
+        "warnings": [],
+        "hints": [],
+    }
+
+    projected = server.wire_projection.project_envelope(
+        "module.context",
+        envelope,
+        contract_digest=server.CONTRACTS["content_sha256"],
+    )
+
+    assert projected["wire"]["full_result_bytes"] > projected["wire"][
+        "max_inline_bytes"
+    ]
+    assert projected["wire"].get("identity_only") is not True
+    assert projected["wire"]["module_context_projection"] is True
+    assert projected["wire"]["measured_inline_bytes"] <= projected["wire"][
+        "max_inline_bytes"
+    ]
+    context = projected["data"]["context"]
+    assert context["relations"] == [{
+        "relation_id": "relation-contains-map",
+        "relation_kind": "contains",
+        "from_node_id": (
+            "handout-the-haunting-corbitt-house-investigator-map"
+        ),
+        "to_node_id": "asset-player-corbitt-house-map",
+        "claim_id": "claim-contains-map",
+        "properties": {},
+    }]
+    nodes = {row["node_id"]: row for row in context["nodes"]}
+    assert nodes[
+        "handout-the-haunting-corbitt-house-investigator-map"
+    ]["properties"]["image_asset_id"] == "asset-player-corbitt-house-map"
+    assert nodes["asset-player-corbitt-house-map"]["properties"][
+        "asset_ref"
+    ] == "assets/player/corbitt-house-investigator-map.png"
+    assert nodes["scene-corbitt-house-ground"]["properties"] == {}
+    assert "runtime_projection" not in json.dumps(projected, ensure_ascii=False)
+    assert "grep_anchor" not in json.dumps(projected, ensure_ascii=False)
+
+
 def test_coc_discover_operation_and_domain(monkeypatch):
     server = _load_server()
     monkeypatch.setenv("COC_HOST", "grok")

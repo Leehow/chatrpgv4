@@ -4944,16 +4944,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       // structured `exits`/`action_routes` arrays the scene bindings consume.
       // Applying even an EMPTY snapshot retires routes the new scene state no
       // longer holds — replacement, never append.
-      if (operation === "scene.context") {
+      const sceneSnapshotData = operation === "scene.context"
+        ? data
+        : operation === "session.resume"
+          ? objectOrNull(data.scene_context)
+          : null;
+      if (sceneSnapshotData !== null) {
         const routeEntries: Array<{ canonicalId: string; facts: readonly unknown[] }> = [];
         const routeOwnerScope = {
           ...scope,
-          ownerKey: `scene:${typeof data.active_scene_id === "string" ? data.active_scene_id.trim() : "unknown"}`,
+          ownerKey: `scene:${typeof sceneSnapshotData.active_scene_id === "string" ? sceneSnapshotData.active_scene_id.trim() : "unknown"}`,
         };
-        const activeScene = typeof data.active_scene_id === "string"
-          ? data.active_scene_id.trim()
+        const activeScene = typeof sceneSnapshotData.active_scene_id === "string"
+          ? sceneSnapshotData.active_scene_id.trim()
           : "";
-        for (const exit of Array.isArray(data.exits) ? data.exits : []) {
+        for (const exit of Array.isArray(sceneSnapshotData.exits) ? sceneSnapshotData.exits : []) {
           const row = objectOrNull(exit);
           if (row === null) continue;
           const explicitId = [row.route_id, row.edge_id, row.id].find((candidate) => (
@@ -4975,7 +4980,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             });
           }
         }
-        for (const route of Array.isArray(data.action_routes) ? data.action_routes : []) {
+        for (
+          const route of Array.isArray(sceneSnapshotData.action_routes)
+            ? sceneSnapshotData.action_routes
+            : []
+        ) {
           const row = objectOrNull(route);
           if (row === null) continue;
           const id = typeof row.route_id === "string" && row.route_id.trim()
@@ -5272,6 +5281,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ? "acting"
           : "awaiting_player";
       advanceCanonicalProgress(campaignId, { stage: resumedStage });
+      const resumedSceneContext = objectOrNull(data.scene_context);
+      if (resumedSceneContext !== null) {
+        armStructuredSceneBindings(campaignId, params, {
+          ...envelope,
+          data: resumedSceneContext,
+        });
+      }
     }
   };
   const resolveAclPhase = (campaignId?: string): PlayPhase => {
@@ -8835,12 +8851,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ? params.campaign.trim()
         : "";
       const diagnostics = { unmapped: [] as UnmappedIdentityRef[] };
+      const canonicalData = objectOrNull(objectOrNull(canonical)?.data);
+      const identityScopeData = params.operation === "session.resume"
+        ? objectOrNull(canonicalData?.scene_context) ?? canonicalData
+        : canonicalData;
       const baseVisible = modelVisibleCanonicalEnvelope(
         params.operation,
         canonical,
         liveSemanticIdMap(
           gatewayCampaign,
-          objectOrNull(objectOrNull(canonical)?.data),
+          identityScopeData,
         ),
         diagnostics,
       );
