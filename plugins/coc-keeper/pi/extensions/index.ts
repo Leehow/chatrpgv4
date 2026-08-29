@@ -106,6 +106,7 @@ import { registerCocHud } from "../lib/hud.ts";
 import { registerTurnTelemetry, type TurnTelemetry } from "../lib/turn-telemetry.ts";
 import {
   latestExternalUserText,
+  recoveredOpenTurnPlayerText,
   registerCocSystemInstructionCommand,
   sendCocSystemInstruction,
 } from "../lib/system-instruction.ts";
@@ -5501,6 +5502,37 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ? "acting"
           : "awaiting_player";
       advanceCanonicalProgress(campaignId, { stage: resumedStage });
+      if (mode === "open_turn_recovery") {
+        const currentTurn = objectOrNull(data.current_turn);
+        const recoveredPlayer = recoveredOpenTurnPlayerText(
+          currentTurn,
+          openingContinuationGate.currentExternalPlayerText,
+        );
+        if (recoveredPlayer !== null) {
+          openingContinuationGate.currentExternalPlayerText = recoveredPlayer.text;
+          armJournalBinding(campaignId);
+          try {
+            pi.appendEntry("coc-open-turn-player-input-rebound", {
+              schema_version: 1,
+              status: "rebound",
+              campaign_id: campaignId,
+              player_turn_epoch: canonicalProgress.playerTurnEpoch,
+              source: recoveredPlayer.source,
+            });
+          } catch { /* recovery binding audit is best effort */ }
+        } else {
+          clearTypedBinding("state.journal");
+          try {
+            pi.appendEntry("coc-open-turn-player-input-rebound", {
+              schema_version: 1,
+              status: "unavailable",
+              campaign_id: campaignId,
+              player_turn_epoch: canonicalProgress.playerTurnEpoch,
+              source: "current_turn.actions.advise",
+            });
+          } catch { /* recovery binding audit is best effort */ }
+        }
+      }
       if (
         mode === "table_opening"
         && nextOperations.includes("evidence.table_opening")

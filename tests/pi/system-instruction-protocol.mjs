@@ -64,6 +64,26 @@ assert.equal(
   protocol.latestExternalUserText(branch),
   "我背靠墙盯着那张床。",
 );
+assert.deepEqual(
+  protocol.recoveredOpenTurnPlayerText(
+    { rows: [{ tool: "sanity.context", ok: true }] },
+    "我背靠墙盯着那张床。",
+  ),
+  {
+    text: "我背靠墙盯着那张床。",
+    source: "pi_session_branch",
+  },
+);
+assert.deepEqual(
+  protocol.recoveredOpenTurnPlayerText(
+    { player_input_text: "canonical player text" },
+    "stale branch text",
+  ),
+  {
+    text: "canonical player text",
+    source: "canonical_current_turn",
+  },
+);
 
 let rebound = null;
 protocol.registerCocSystemInstructionCommand(pi, {

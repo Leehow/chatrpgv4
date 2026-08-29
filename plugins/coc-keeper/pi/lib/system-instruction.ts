@@ -108,6 +108,23 @@ export function latestExternalUserText(branch: unknown): string | null {
   return null;
 }
 
+export function recoveredOpenTurnPlayerText(
+  currentTurn: unknown,
+  retainedPlayerText: unknown,
+): { text: string; source: "canonical_current_turn" | "pi_session_branch" } | null {
+  const turn = currentTurn && typeof currentTurn === "object"
+    ? currentTurn as { player_input_text?: unknown }
+    : null;
+  const canonical = typeof turn?.player_input_text === "string"
+    ? turn.player_input_text.trim()
+    : "";
+  if (canonical) return { text: canonical, source: "canonical_current_turn" };
+  const retained = typeof retainedPlayerText === "string"
+    ? retainedPlayerText.trim()
+    : "";
+  return retained ? { text: retained, source: "pi_session_branch" } : null;
+}
+
 export function registerCocSystemInstructionCommand(
   pi: Pick<ExtensionAPI, "registerCommand" | "sendMessage">,
   options: {
