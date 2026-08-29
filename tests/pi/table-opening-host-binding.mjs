@@ -25,6 +25,11 @@ const firstImpressionRef = (
   "npc-first-impression-v2:"
   + "1690ebc995c7b76d4881a04ba4152dff6f8de47b"
 );
+const npcIdentityRef = (
+  "npc-identity-v2:"
+  + "a1650c3896ef62dd2d904569"
+);
+let engagementCallCount = 0;
 
 const canonicalCall = async (name, params) => {
   assert.equal(name, "coc_invoke");
@@ -162,21 +167,71 @@ const canonicalCall = async (name, params) => {
       },
     };
   }
-  if (params.operation === "state.record_npc_engagement") {
-    assert.deepEqual(params.arguments, {
-      interaction_kind: "dialogue",
-      first_impression_realization: {
-        observable_manner: "诺特务实地把钥匙推过桌面。",
-        causal_explanation: "专业态度让他愿意直入正题。",
-        boundary_preserved: "雇佣关系和截止压力不变。",
-        opportunity_or_friction: "调查员可直接追问委托细节。",
+  if (params.operation === "npc.query") {
+    assert.equal(params.campaign, campaign);
+    assert.equal(params.arguments.investigator, "thomas-hayes");
+    assert.equal(params.arguments.npc_id, "npc-steven-knott");
+    return {
+      ok: true,
+      tool: "npc.query",
+      data: {
+        npcs: [{
+          npc_id: "npc-steven-knott",
+          name: "Steven Knott",
+          identity_ref: npcIdentityRef,
+          first_contact_readiness: {
+            requested_pair_first_impression: {
+              status: "settled",
+              investigator_id: "thomas-hayes",
+              receipt_exists: true,
+              first_impression_ref: firstImpressionRef,
+            },
+          },
+        }],
       },
-      npc_id: "npc-steven-knott",
-      investigator: "thomas-hayes",
-      first_impression_ref: firstImpressionRef,
-      run_id: `run-${campaign}`,
-      decision_id: `npc-engagement-${campaign}-npc-steven-knott-1`,
-    });
+    };
+  }
+  if (params.operation === "state.record_npc_engagement") {
+    engagementCallCount += 1;
+    if (engagementCallCount === 1) {
+      assert.deepEqual(params.arguments, {
+        interaction_kind: "dialogue",
+        first_impression_realization: {
+          observable_manner: "诺特务实地把钥匙推过桌面。",
+          causal_explanation: "专业态度让他愿意直入正题。",
+          boundary_preserved: "雇佣关系和截止压力不变。",
+          opportunity_or_friction: "调查员可直接追问委托细节。",
+        },
+        npc_id: "npc-steven-knott",
+        investigator: "thomas-hayes",
+        first_impression_ref: firstImpressionRef,
+        run_id: `run-${campaign}`,
+        decision_id: `npc-engagement-${campaign}-npc-steven-knott-1`,
+      });
+    } else {
+      const laterArguments = structuredClone(params.arguments);
+      const laterDecisionId = laterArguments.decision_id;
+      delete laterArguments.decision_id;
+      assert.match(
+        laterDecisionId,
+        new RegExp(
+          `^npc-engagement:${campaign}:npc-steven-knott:player-epoch-\\d+$`,
+        ),
+      );
+      assert.deepEqual(laterArguments, {
+        interaction_kind: "dialogue",
+        route_completion: {
+          scene_id: "commission-briefing",
+          route_id: "ask-macario-tragedy",
+          semantic_reason: "诺特直接回答了马卡里奥一家的遭遇。",
+        },
+        identity_ref: npcIdentityRef,
+        npc_id: "npc-steven-knott",
+        investigator: "thomas-hayes",
+        first_impression_ref: firstImpressionRef,
+        run_id: `run-${campaign}`,
+      });
+    }
     return {
       ok: true,
       tool: "state.record_npc_engagement",
@@ -328,6 +383,51 @@ try {
     calls.filter((call) => call.operation === "evidence.table_opening").length,
     1,
   );
+
+  // A later player turn clears the first-contact engagement binding. A
+  // successful exact npc.query for that already-met pair must re-arm the
+  // model-hidden campaign/NPC/investigator/run identity before another
+  // material engagement can be recorded.
+  await emit("before_agent_start", {
+    role: "user",
+    content: "我问诺特：马卡里奥一家到底出了什么事？",
+  });
+  const queried = JSON.parse((await tools.get("coc_npc_query").execute(
+    "query-knott-later-turn",
+    {
+      campaign,
+      investigator: "current-investigator",
+      npc_id: "npc-steven-knott",
+    },
+    undefined,
+    undefined,
+    ctx,
+  )).content[0].text);
+  assert.equal(queried.ok, true, JSON.stringify(queried));
+
+  const laterEngagement = tools.get("coc_state_record_npc_engagement");
+  for (const hostField of [
+    "root", "campaign", "npc_id", "investigator", "identity_ref",
+    "first_impression_ref", "run_id", "decision_id",
+  ]) {
+    assert.ok(!laterEngagement.parameters.properties[hostField], hostField);
+  }
+  const laterResult = JSON.parse((await laterEngagement.execute(
+    "record-later-engagement",
+    {
+      interaction_kind: "dialogue",
+      route_completion: {
+        scene_id: "commission-briefing",
+        route_id: "ask-macario-tragedy",
+        semantic_reason: "诺特直接回答了马卡里奥一家的遭遇。",
+      },
+    },
+    undefined,
+    undefined,
+    ctx,
+  )).content[0].text);
+  assert.equal(laterResult.ok, true, JSON.stringify(laterResult));
+  assert.equal(engagementCallCount, 2);
 } finally {
   if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
   else process.env.COC_PI_SESSION_ROLE = previousRole;

@@ -129,6 +129,7 @@ export type NpcEngagementBindingCard = {
   decision_id: string;
   npc_id: string;
   investigator: string;
+  identity_ref?: string;
   first_impression_ref: string;
   run_id: string;
 };
@@ -250,6 +251,7 @@ export const HOST_OWNED_FIELDS: Record<TypedToolBindingCard["operation"], readon
     "decision_id",
     "npc_id",
     "investigator",
+    "identity_ref",
     "first_impression_ref",
     "run_id",
   ],
@@ -831,6 +833,9 @@ function validateBindingShape(binding: TypedToolBindingCard): void {
   } else {
     nonEmptyString(binding.npc_id, "npc_id");
     nonEmptyString(binding.investigator, "investigator");
+    if (binding.identity_ref !== undefined) {
+      nonEmptyString(binding.identity_ref, "identity_ref");
+    }
     nonEmptyString(binding.first_impression_ref, "first_impression_ref");
     nonEmptyString(binding.run_id, "run_id");
   }
@@ -947,6 +952,9 @@ function bindingValues(binding: TypedToolBindingCard): Record<string, unknown> {
       decision_id: binding.decision_id,
       npc_id: binding.npc_id,
       investigator: binding.investigator,
+      ...(binding.identity_ref === undefined
+        ? {}
+        : { identity_ref: binding.identity_ref }),
       first_impression_ref: binding.first_impression_ref,
       run_id: binding.run_id,
     };

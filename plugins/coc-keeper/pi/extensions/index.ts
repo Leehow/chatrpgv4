@@ -4589,6 +4589,90 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       };
     });
   };
+  const armNpcEngagementBindingFromQuery = (
+    campaignId: string,
+    params: JsonObject,
+    data: JsonObject,
+  ): void => {
+    const args = objectOrNull(params.arguments) ?? {};
+    const requestedNpcId = typeof args.npc_id === "string"
+      ? args.npc_id.trim()
+      : "";
+    const rows = (Array.isArray(data.npcs) ? data.npcs : [])
+      .map((value) => objectOrNull(value))
+      .filter((value): value is JsonObject => value !== null)
+      .filter((value) => (
+        !requestedNpcId
+        || value.npc_id === requestedNpcId
+      ));
+    if (!campaignId || rows.length !== 1) {
+      clearTypedBinding("state.record_npc_engagement");
+      return;
+    }
+    const row = rows[0];
+    const readiness = objectOrNull(row.first_contact_readiness);
+    const impression = objectOrNull(
+      readiness?.requested_pair_first_impression,
+    );
+    const npcId = typeof row.npc_id === "string" ? row.npc_id.trim() : "";
+    const firstImpressionRef = typeof impression?.first_impression_ref === "string"
+      ? impression.first_impression_ref.trim()
+      : "";
+    if (
+      !npcId
+      || impression?.status !== "settled"
+      || impression?.receipt_exists !== true
+      || !firstImpressionRef
+    ) {
+      clearTypedBinding("state.record_npc_engagement");
+      return;
+    }
+    let investigatorId = typeof impression.investigator_id === "string"
+      ? impression.investigator_id.trim()
+      : "";
+    if (!investigatorId || investigatorId === CURRENT_INVESTIGATOR_HANDLE) {
+      const party = semanticRegistry.currentParty(registryScope(campaignId));
+      investigatorId = party.live && party.state === "single"
+        ? party.investigatorId
+        : "";
+    }
+    const root = typeof params.root === "string" && params.root
+      ? params.root
+      : currentWorkspaceRoot;
+    if (!investigatorId || !root) {
+      clearTypedBinding("state.record_npc_engagement");
+      return;
+    }
+    const identityRef = typeof row.identity_ref === "string"
+      ? row.identity_ref.trim()
+      : "";
+    const playerTurnEpoch = canonicalProgress.playerTurnEpoch;
+    const runId = `run-${campaignId}`;
+    const decisionId = (
+      `npc-engagement:${campaignId}:${npcId}:player-epoch-${playerTurnEpoch}`
+    );
+    const card = (): TypedToolBindingCard => ({
+      schema_version: 1,
+      operation: "state.record_npc_engagement",
+      binding_revision: (
+        `npc-engagement:${campaignId}:${npcId}:player-epoch-${playerTurnEpoch}`
+      ),
+      root,
+      campaign: campaignId,
+      decision_id: decisionId,
+      npc_id: npcId,
+      investigator: investigatorId,
+      ...(identityRef ? { identity_ref: identityRef } : {}),
+      first_impression_ref: firstImpressionRef,
+      run_id: runId,
+    });
+    armTypedBinding(card(), () => (
+      canonicalProgressCampaignId === campaignId
+      && canonicalProgress.playerTurnEpoch === playerTurnEpoch
+        ? card()
+        : null
+    ));
+  };
   const observeCanonicalProgress = (
     operation: string,
     params: JsonObject,
@@ -5320,6 +5404,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           };
         });
       }
+      return;
+    }
+    if (operation === "npc.query") {
+      armNpcEngagementBindingFromQuery(campaignId, params, data);
       return;
     }
     if (operation === "state.record_npc_engagement") {
