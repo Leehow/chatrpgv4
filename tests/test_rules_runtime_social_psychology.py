@@ -326,6 +326,26 @@ def test_social_settle_supporting_action_bare_string_fails_closed(tmp_path: Path
     assert result["failure"]["code"] == "invalid_semantic_input"
     assert "supporting_action" in result["failure"]["fields"]
     assert probe.calls == []
+    floated = runtime.settle({
+        "decision_ref": "decision:coc7:social:adjudicate-difficulty",
+        "semantic_inputs": {
+            "approach": "persuade",
+            "goal": "交出信件",
+            "motive_direction": "oppose",
+            "motive_intensity": 1,
+            "motive_evidence": ["npc_agenda:npc-test"],
+            "described_action": "出示档案",
+            "supporting_action": {
+                "description": "以信件为佐证",
+                "level": 0.0,
+                "provenance": "player-source",
+            },
+        },
+    }, "social:thomas:library:adj-float-sa", card_grant=grant, executor=probe)
+    assert floated["status"] == "invalid_semantic_input"
+    assert floated["failure"]["code"] == "invalid_semantic_input"
+    assert "supporting_action" in floated["failure"]["fields"]
+    assert probe.calls == []
 
 
 def test_social_settle_grant_required_and_stale_after_change(tmp_path: Path):
