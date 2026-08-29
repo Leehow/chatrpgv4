@@ -35,6 +35,7 @@ const exactTextSha256 = (text) => (
 
 function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
   const tools = new Map();
+  const commands = new Map();
   const handlers = new Map();
   const active = [];
   const sent = [];
@@ -46,7 +47,7 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
       hostFaults.beforeRegisterTool?.(tool);
       tools.set(tool.name, tool);
     },
-    registerCommand() {},
+    registerCommand(name, command) { commands.set(name, command); },
     registerShortcut() {},
     on(type, handler) {
       const rows = handlers.get(type) || [];
@@ -128,11 +129,56 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
     }
   };
   return {
-    tools, handlers, active, sent, appended, clientCalls, ctx, emit, start, shutdown,
+    tools, commands, handlers, active, sent, appended, clientCalls, ctx, emit, start, shutdown,
     get aborts() { return aborts; },
     hideRead() { hideRead = true; },
   };
 }
+
+test("/system opens one hidden bounded recovery scope and restores normal tools", async () => {
+  await withPlayHarness(async (h) => {
+    assert.ok(h.commands.has("system"));
+    assert.deepEqual(h.active.at(-1), []);
+
+    await h.commands.get("system").handler(
+      "先 session.resume，再对齐当前场景；这不是玩家行动。",
+      h.ctx,
+    );
+    assert.deepEqual(h.active.at(-1), [
+      "coc_session_resume",
+      "coc_scene_context",
+      "coc_state_move_scene",
+      "coc_state_journal",
+      "coc_turn_output_context",
+      "coc_narration_review",
+      "coc_turn_finalize",
+    ]);
+    assert.ok(!h.active.at(-1).some((name) => name.startsWith("coc_rules_")));
+
+    const projected = await h.emit("message_end", {
+      role: "assistant",
+      stopReason: "stop",
+      content: [{ type: "text", text: "内部恢复完成。" }],
+    });
+    assert.equal(
+      projected.message.content.some((part) => part.type === "text"),
+      false,
+    );
+    assert.ok(h.appended.some((row) => (
+      row.type === "coc-system-instruction-result"
+      && row.value.status === "completed"
+      && row.value.player_input === false
+      && row.value.journal_policy === "never"
+    )));
+
+    await h.emit("agent_end", null);
+    assert.deepEqual(h.active.at(-1), []);
+    assert.ok(h.appended.some((row) => (
+      row.type === "coc-system-instruction-tool-scope"
+      && row.value.status === "closed"
+    )));
+  });
+});
 
 async function withPlayHarness(fn, callTool = (_name, params) => (
   params.operation === "session.resume"

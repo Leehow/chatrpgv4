@@ -8,6 +8,41 @@ export const COC_SYSTEM_INSTRUCTION_CONTRACT_ID = (
   "coc.pi-system-instruction.v1"
 );
 
+/**
+ * Exact typed operations available while an operator `/system` instruction
+ * repairs or resumes existing canonical work. This is a control-plane scope,
+ * not a player-turn tool surface: it deliberately excludes rules and fresh
+ * player actions while retaining the closure operations needed to finish an
+ * already-open real player turn.
+ */
+export const COC_PLAY_SYSTEM_INSTRUCTION_OPERATIONS = [
+  "session.resume",
+  "scene.context",
+  "state.move_scene",
+  "state.journal",
+  "turn.output_context",
+  "narration.review",
+  "turn.finalize",
+] as const;
+
+export const COC_SETUP_SYSTEM_INSTRUCTION_OPERATIONS = [
+  "session.resume",
+  "setup.inspect",
+  "setup.phase",
+  "setup.complete",
+  "progressive.status",
+  "progressive.prepare_opening",
+  "progressive.opening_bootstrap",
+] as const;
+
+export function cocSystemInstructionOperations(
+  role: "setup" | "play",
+): readonly string[] {
+  return role === "setup"
+    ? COC_SETUP_SYSTEM_INSTRUCTION_OPERATIONS
+    : COC_PLAY_SYSTEM_INSTRUCTION_OPERATIONS;
+}
+
 export type CocSystemInstructionEnvelope = Record<string, unknown> & {
   schema_version: 1;
   contract_id: typeof COC_SYSTEM_INSTRUCTION_CONTRACT_ID;
@@ -132,6 +167,11 @@ export function registerCocSystemInstructionCommand(
       instruction: string,
       context: ExtensionContext,
     ) => void;
+    onDispatchError?: (
+      instruction: string,
+      context: ExtensionContext,
+      error: unknown,
+    ) => void;
   } = {},
 ): void {
   pi.registerCommand("system", {
@@ -146,12 +186,17 @@ export function registerCocSystemInstructionCommand(
       const commandContext = context as ExtensionContext & {
         isIdle?: () => boolean;
       };
-      sendCocSystemInstruction(pi, {
-        sourceType: "operator_command",
-        instruction,
-      }, commandContext.isIdle?.() === false
-        ? { triggerTurn: true, deliverAs: "steer" }
-        : { triggerTurn: true });
+      try {
+        sendCocSystemInstruction(pi, {
+          sourceType: "operator_command",
+          instruction,
+        }, commandContext.isIdle?.() === false
+          ? { triggerTurn: true, deliverAs: "steer" }
+          : { triggerTurn: true });
+      } catch (error) {
+        options.onDispatchError?.(instruction, context, error);
+        throw error;
+      }
     },
   });
 }

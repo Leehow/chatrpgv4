@@ -105,6 +105,7 @@ import {
 import { registerCocHud } from "../lib/hud.ts";
 import { registerTurnTelemetry, type TurnTelemetry } from "../lib/turn-telemetry.ts";
 import {
+  cocSystemInstructionOperations,
   latestExternalUserText,
   recoveredOpenTurnPlayerText,
   registerCocSystemInstructionCommand,
@@ -3923,6 +3924,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let loadedNamespaces: LoadedNamespace[] = [];
   let loadedOperations: LoadedExactOperation[] = [];
   let lastWorkingSet: ToolWorkingSet | null = null;
+  let operatorSystemInstructionScope: {
+    sourceType: "operator_command";
+    playerTurnEpoch: number;
+  } | null = null;
   const typedToolDefinitions = listTypedOperationTools();
   const typedToolByOperation = new Map(
     typedToolDefinitions.map((tool) => [tool.operation, tool]),
@@ -6152,6 +6157,27 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   applyKpActiveTools = () => {
 
     const role = effectiveTypedRole;
+    if (operatorSystemInstructionScope !== null) {
+      const operationTools = cocSystemInstructionOperations(role)
+        .flatMap((operation) => {
+          const definition = typedToolByOperation.get(operation);
+          return definition === undefined ? [] : [definition.name];
+        });
+      pi.setActiveTools(operationTools);
+      try {
+        pi.appendEntry("coc-system-instruction-tool-scope", {
+          schema_version: 1,
+          contract_id: "coc.pi-system-instruction-tool-scope.v1",
+          status: "active",
+          source_type: operatorSystemInstructionScope.sourceType,
+          role,
+          player_turn_epoch: operatorSystemInstructionScope.playerTurnEpoch,
+          operations: cocSystemInstructionOperations(role),
+          active_tool_count: operationTools.length,
+        });
+      } catch { /* control-plane scope audit is best effort */ }
+      return;
+    }
     const gate = startupResumeGate;
     // Schema-time union only. Execute ACL still uses resolveAclPhase (recovery
     // while pending) and startupResumeToolError still hard-rejects non-resume.
@@ -11393,6 +11419,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   );
   registerCocSystemInstructionCommand(pi, {
     beforeDispatch: (_instruction, context) => {
+      operatorSystemInstructionScope = {
+        sourceType: "operator_command",
+        playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+      };
       const branch = typeof context.sessionManager?.getBranch === "function"
         ? context.sessionManager.getBranch()
         : null;
@@ -11403,6 +11433,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ?? canonicalProgressCampaignId;
         if (campaignId) armJournalBinding(campaignId);
       }
+      applyKpActiveTools();
+    },
+    onDispatchError: () => {
+      operatorSystemInstructionScope = null;
+      applyKpActiveTools();
     },
   });
   const armAndDeliverEmptyTerminalFault = (code: string, message: string) => {
@@ -11468,6 +11503,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   registerPlayerTranscriptGate(
     pi,
     (visibleText) => {
+      if (operatorSystemInstructionScope !== null) {
+        try {
+          pi.appendEntry("coc-system-instruction-result", {
+            schema_version: 1,
+            contract_id: "coc.pi-system-instruction-result.v1",
+            status: visibleText.trim() ? "completed" : "completed_empty",
+            audience: "keeper_only",
+            player_input: false,
+            journal_policy: "never",
+            text: visibleText,
+          });
+        } catch { /* hidden operator result audit is best effort */ }
+        return false;
+      }
       if (startupResumeGate !== null) {
         const gate = startupResumeGate;
         if (gate.phase === "terminal_failure") {
@@ -11605,6 +11654,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     },
     (message) => {
       const externalUser = userMessageText(message) !== null;
+      if (externalUser) operatorSystemInstructionScope = null;
       openingContinuationGate.observeMessageStart(message);
       if (externalUser) {
         stateClaimCompiler.beginExternalTurn();
@@ -11641,7 +11691,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       applyKpActiveTools();
     },
     () => openingContinuationGate.hasPendingFinalizedOutput()
-      || deliveryReplayQuarantine !== null,
+      || deliveryReplayQuarantine !== null
+      || operatorSystemInstructionScope !== null,
     recoverEmptyAssistantOutput,
     (details, ctx) => {
       try {
@@ -11749,6 +11800,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     })();
   };
   pi.on("agent_end", () => {
+    if (operatorSystemInstructionScope !== null) {
+      try {
+        pi.appendEntry("coc-system-instruction-tool-scope", {
+          schema_version: 1,
+          contract_id: "coc.pi-system-instruction-tool-scope.v1",
+          status: "closed",
+          source_type: operatorSystemInstructionScope.sourceType,
+          role: effectiveTypedRole,
+          player_turn_epoch: operatorSystemInstructionScope.playerTurnEpoch,
+        });
+      } catch { /* control-plane scope audit is best effort */ }
+      operatorSystemInstructionScope = null;
+      applyKpActiveTools();
+    }
     if (startupSilentResumeQuarantine !== null) {
       // The quarantined auto-open agent turn has ended; the next turn (a
       // real player message or table opening) gets the normal tool surface.

@@ -119,6 +119,43 @@ const commandEnvelope = JSON.parse(commandMessage.message.content);
 assert.equal(commandEnvelope.source_type, "operator_command");
 assert.equal(commandEnvelope.player_input, false);
 assert.equal(commandEnvelope.journal_policy, "never");
+assert.deepEqual(
+  protocol.cocSystemInstructionOperations("play"),
+  [
+    "session.resume",
+    "scene.context",
+    "state.move_scene",
+    "state.journal",
+    "turn.output_context",
+    "narration.review",
+    "turn.finalize",
+  ],
+);
+assert.ok(
+  !protocol.cocSystemInstructionOperations("play")
+    .some((operation) => operation.startsWith("rules.")),
+);
+
+let dispatchError = null;
+protocol.registerCocSystemInstructionCommand({
+  registerCommand(name, options) { commands.set(`${name}-failure`, options); },
+  sendMessage() { throw new Error("dispatch failed"); },
+}, {
+  onDispatchError(instruction, _context, error) {
+    dispatchError = { instruction, message: error.message };
+  },
+});
+await assert.rejects(
+  commands.get("system-failure").handler(
+    "恢复工具域。",
+    { isIdle: () => true, ui: { notify() {} } },
+  ),
+  /dispatch failed/,
+);
+assert.deepEqual(dispatchError, {
+  instruction: "恢复工具域。",
+  message: "dispatch failed",
+});
 
 for (const prompt of [
   "host-system.md",
