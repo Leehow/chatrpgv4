@@ -142,7 +142,11 @@ def social_difficulty(
         if not isinstance(description, str):
             raise ValueError("supporting_action.description must be a string")
         level = supporting_action.get("level", 0)
-        if isinstance(level, bool) or level not in {0, 1}:
+        if (
+            isinstance(level, bool)
+            or not isinstance(level, int)
+            or level not in {0, 1}
+        ):
             raise ValueError("supporting_action.level must be 0 or 1")
         provenance = supporting_action.get("provenance", "")
         if not isinstance(provenance, str):

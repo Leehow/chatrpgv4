@@ -1965,7 +1965,11 @@ class RulesRuntime:
                     "fields": ["supporting_action"],
                 }
             level = supporting_action.get("level", 0)
-            if isinstance(level, bool) or level not in {0, 1}:
+            if (
+                isinstance(level, bool)
+                or not isinstance(level, int)
+                or level not in {0, 1}
+            ):
                 return {
                     "code": "invalid_semantic_input",
                     "message": "supporting_action.level must be 0 or 1",

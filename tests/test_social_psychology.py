@@ -891,6 +891,16 @@ def test_social_difficulty_unit_consumes_supporting_action_as_one_level():
             },
             55,
         )
+    with pytest.raises(ValueError, match="supporting_action.level must be 0 or 1"):
+        resolver.social_difficulty(
+            {
+                "approach": "intimidate",
+                "supporting_action": {
+                    "description": "x", "level": 0.0, "provenance": "",
+                },
+            },
+            55,
+        )
     legacy_two = resolver.social_difficulty(
         {"approach": "intimidate", "strategic_count": 2, "motive_direction": "oppose", "motive_intensity": 1},
         55,
