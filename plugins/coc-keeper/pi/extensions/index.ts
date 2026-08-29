@@ -4188,7 +4188,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       "combat.resolve",
       "evidence.table_opening",
       "state.record_npc_engagement",
-      "npc.reaction",
     ]) clearTypedBinding(operation);
   };
   const armTypedBinding = (
@@ -5329,6 +5328,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     if (operation === "scene.context") {
       armStructuredSceneBindings(campaignId, params, envelope);
+      armNpcReactionBindingFromScene(campaignId, params, envelope);
       return;
     }
     if (operation === "combat.context") {
@@ -5359,7 +5359,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     if (operation === "evidence.table_opening") {
       clearTypedBinding("evidence.table_opening");
-      clearTypedBinding("npc.reaction");
       return;
     }
     if (operation === "session.resume") {
@@ -5430,40 +5429,22 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             run_id: `run-${campaignId}`,
           };
         });
-        const reactionBinding: TypedToolBindingCard = {
-          schema_version: 1,
-          operation: "npc.reaction",
-          binding_revision: `npc-reaction-run:${campaignId}:opening-1`,
-          root: openingRoot,
-          campaign: campaignId,
-          decision_id: `npc-reaction-run:${campaignId}:opening-1`,
-          run_id: `run-${campaignId}`,
-        };
-        armTypedBinding(reactionBinding, () => {
-          if (
-            canonicalProgressCampaignId !== campaignId
-            || !currentWorkspaceRoot
-          ) return null;
-          return {
-            schema_version: 1,
-            operation: "npc.reaction",
-            binding_revision: `npc-reaction-run:${campaignId}:opening-1`,
-            root: openingRoot,
-            campaign: campaignId,
-            decision_id: `npc-reaction-run:${campaignId}:opening-1`,
-            run_id: `run-${campaignId}`,
-          };
-        });
       } else {
         clearTypedBinding("evidence.table_opening");
-        clearTypedBinding("npc.reaction");
       }
       const resumedSceneContext = objectOrNull(data.scene_context);
       if (resumedSceneContext !== null) {
-        armStructuredSceneBindings(campaignId, params, {
+        const sceneEnvelope = {
           ...envelope,
           data: resumedSceneContext,
-        });
+        };
+        armStructuredSceneBindings(campaignId, params, sceneEnvelope);
+        armNpcReactionBindingFromScene(
+          campaignId,
+          params,
+          sceneEnvelope,
+          mode === "table_opening" ? `run-${campaignId}` : undefined,
+        );
       }
     }
   };
@@ -5699,6 +5680,71 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       revokeSceneDerivedBindings();
       throw error;
     }
+  };
+  const armNpcReactionBindingFromScene = (
+    campaignId: string,
+    params: JsonObject,
+    envelope: JsonObject,
+    runIdOverride?: string,
+  ): void => {
+    const data = objectOrNull(envelope.data);
+    if (data === null || !campaignId) return;
+    const party = (Array.isArray(data.party) ? data.party : [])
+      .filter((value): value is string => (
+        typeof value === "string"
+        && value.trim().length > 0
+        && value !== CURRENT_INVESTIGATOR_HANDLE
+      ))
+      .map((value) => value.trim());
+    const partyRows = Array.isArray(data.party_investigators)
+      ? data.party_investigators
+      : [];
+    for (const entry of partyRows) {
+      const row = objectOrNull(entry);
+      const id = typeof row?.investigator_id === "string"
+        ? row.investigator_id.trim()
+        : "";
+      if (id && id !== CURRENT_INVESTIGATOR_HANDLE) party.push(id);
+    }
+    const exactParty = [...new Set(party)];
+    let investigatorId = exactParty.length === 1 ? exactParty[0] : "";
+    if (!investigatorId) {
+      const retainedParty = semanticRegistry.currentParty(
+        registryScope(campaignId),
+      );
+      if (
+        retainedParty.live
+        && retainedParty.state === "single"
+        && retainedParty.investigatorId !== CURRENT_INVESTIGATOR_HANDLE
+      ) {
+        investigatorId = retainedParty.investigatorId;
+      }
+    }
+    if (!investigatorId) {
+      clearTypedBinding("npc.reaction");
+      return;
+    }
+    const root = typeof params.root === "string" && params.root
+      ? params.root
+      : currentWorkspaceRoot;
+    if (!root) return;
+    const retained = retainedTypedBindings.get("npc.reaction");
+    const runId = runIdOverride ?? (
+      retained?.operation === "npc.reaction" ? retained.run_id : undefined
+    );
+    const card = (): TypedToolBindingCard => ({
+      schema_version: 1,
+      operation: "npc.reaction",
+      binding_revision: `npc-reaction:${campaignId}:${investigatorId}`,
+      root,
+      campaign: campaignId,
+      decision_id: `npc-reaction-binding:${campaignId}:${investigatorId}`,
+      investigator: investigatorId,
+      ...(runId === undefined ? {} : { run_id: runId }),
+    });
+    armTypedBinding(card(), () => (
+      canonicalProgressCampaignId === campaignId ? card() : null
+    ));
   };
   const armStructuredCombatBinding = (
     campaignId: string,
@@ -6810,6 +6856,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     pendingFinalizationHydrationState = null;
     draftShapeRecoveryCards.clear();
     clearTurnTypedBindings();
+    clearTypedBinding("npc.reaction");
     startupSilentResumeQuarantine = null;
     startupBranchTrailingPlayerUser = branchEndsWithUnmatchedPlayerUser(
       typeof ctx.sessionManager?.getBranch === "function"
@@ -8616,9 +8663,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         // would be mistaken for a forged model identity.
         const hostBoundAfterRestore: JsonObject = {};
         let semanticArgs = restoredArgs;
-        if (typedDefinition?.operation === "state.record_npc_engagement") {
+        if (
+          typedDefinition?.operation === "state.record_npc_engagement"
+          || typedDefinition?.operation === "npc.reaction"
+        ) {
           semanticArgs = { ...restoredArgs };
-          for (const field of HOST_OWNED_FIELDS["state.record_npc_engagement"]) {
+          for (const field of HOST_OWNED_FIELDS[typedDefinition.operation]) {
             if (Object.hasOwn(semanticArgs, field)) {
               hostBoundAfterRestore[field] = semanticArgs[field];
               delete semanticArgs[field];

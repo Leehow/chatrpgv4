@@ -90,6 +90,7 @@ const canonicalCall = async (name, params) => {
   if (params.operation === "npc.reaction") {
     assert.equal(params.root, root);
     assert.equal(params.campaign, campaign);
+    assert.equal(params.arguments.investigator, "thomas-hayes");
     assert.equal(params.arguments.run_id, `run-${campaign}`);
     assert.equal(
       params.arguments.decision_id,
@@ -252,12 +253,22 @@ try {
     /^route:/,
   );
 
-  const reaction = JSON.parse((await tools.get("coc_npc_reaction").execute(
+  // A real player turn clears turn-scoped bindings. The exact investigator
+  // identity belongs to the resumed session/scene and must remain host-bound.
+  await emit("before_agent_start", {
+    role: "user",
+    content: "我向诺特点头，先问清楚这栋房子的情况。",
+  });
+
+  const reactionTool = tools.get("coc_npc_reaction");
+  for (const hostField of ["root", "campaign", "investigator", "run_id"]) {
+    assert.ok(!reactionTool.parameters.properties[hostField], hostField);
+  }
+  const reaction = JSON.parse((await reactionTool.execute(
     "first-reaction",
     {
       npc_id: "npc-steven-knott",
       npc_display_name: "史蒂文·诺特",
-      investigator: "current-investigator",
       decision_id: "opening-reaction-steven-knott-1",
       context: { semantic_reason: "first material meeting" },
     },

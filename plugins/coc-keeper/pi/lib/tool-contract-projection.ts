@@ -141,7 +141,8 @@ export type NpcReactionRunBindingCard = {
   campaign: string;
   /** Binding-card identity only; the model still owns its per-NPC decision. */
   decision_id: string;
-  run_id: string;
+  investigator: string;
+  run_id?: string;
 };
 
 export type TypedToolBindingCard =
@@ -255,6 +256,7 @@ export const HOST_OWNED_FIELDS: Record<TypedToolBindingCard["operation"], readon
   "npc.reaction": [
     "root",
     "campaign",
+    "investigator",
     "run_id",
   ],
 };
@@ -821,9 +823,11 @@ function validateBindingShape(binding: TypedToolBindingCard): void {
     validateCombatCandidates(binding.candidates);
   } else if (
     binding.operation === "evidence.table_opening"
-    || binding.operation === "npc.reaction"
   ) {
     nonEmptyString(binding.run_id, "run_id");
+  } else if (binding.operation === "npc.reaction") {
+    nonEmptyString(binding.investigator, "investigator");
+    if (binding.run_id !== undefined) nonEmptyString(binding.run_id, "run_id");
   } else {
     nonEmptyString(binding.npc_id, "npc_id");
     nonEmptyString(binding.investigator, "investigator");
@@ -951,7 +955,8 @@ function bindingValues(binding: TypedToolBindingCard): Record<string, unknown> {
     return {
       root: binding.root,
       campaign: binding.campaign,
-      run_id: binding.run_id,
+      investigator: binding.investigator,
+      ...(binding.run_id === undefined ? {} : { run_id: binding.run_id }),
     };
   }
   return {
