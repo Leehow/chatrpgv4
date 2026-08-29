@@ -110,10 +110,15 @@ def writer_domains(tool: str, call: dict[str, Any] | None = None) -> frozenset[s
         return domains
     data = _data(call or {})
     result = data.get("result") if isinstance(data.get("result"), dict) else {}
-    resource = _scalar_resource_key(result.get("resource"))
-    if resource and resource in domains and data.get("state_bound") is True:
-        return frozenset({resource})
-    return frozenset()
+    if data.get("state_bound") is not True:
+        return frozenset()
+    raw = str(result.get("resource") or "").strip()
+    if not raw:
+        return frozenset()
+    canonical = _scalar_resource_key(raw)
+    if canonical and canonical in domains:
+        return frozenset({canonical})
+    return frozenset({raw})
 
 
 def receipt_proves_effect(
@@ -241,7 +246,7 @@ def _operation_may_write(
     effect: dict[str, Any],
 ) -> bool:
     if kind == "scalar":
-        resource = _scalar_resource_key(effect.get("resource"))
+        resource = _effect_scalar_resource(effect)
         return bool(resource) and resource in writer_domains(tool, call)
     if kind in PLAYER_STATE_EFFECT_KINDS:
         domain = "condition" if kind == "condition" else "loaded_ammunition"
@@ -326,7 +331,7 @@ def _structured_delta_matches(
 
 
 def _scalar_matches(tool: str, data: dict[str, Any], effect: dict[str, Any]) -> bool:
-    resource = _scalar_resource_key(effect.get("resource"))
+    resource = _effect_scalar_resource(effect)
     if not resource:
         return False
     for before, after in _scalar_pairs(tool, data, resource):
@@ -355,9 +360,10 @@ def _scalar_pairs(
         pairs.append((data.get("luck_before"), data.get("luck_after")))
     elif tool == "rules.resource_delta":
         result = data.get("result") if isinstance(data.get("result"), dict) else {}
-        if (
-            data.get("state_bound") is True
-            and _scalar_resource_key(result.get("resource")) == resource
+        result_key = str(result.get("resource") or "").strip()
+        canonical = _scalar_resource_key(result_key)
+        if data.get("state_bound") is True and result_key and (
+            resource == result_key or (canonical and resource == canonical)
         ):
             pairs.append((result.get("before"), result.get("after")))
     return pairs
@@ -478,6 +484,13 @@ def _valid_investigator_id(value: str) -> bool:
 
 def _scalar_resource_key(value: Any) -> str:
     return _SCALAR_RESOURCE_KEYS.get(str(value or "").strip(), "")
+
+
+def _effect_scalar_resource(effect: dict[str, Any]) -> str:
+    key = str(effect.get("resource_key") or "").strip()
+    if key:
+        return _scalar_resource_key(key) or key
+    return _scalar_resource_key(effect.get("resource"))
 
 
 def _pair_equals(before: Any, after: Any, expected_before: Any, expected_after: Any) -> bool:

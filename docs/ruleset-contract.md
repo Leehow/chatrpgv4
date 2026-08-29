@@ -48,7 +48,12 @@ at conformance time. Required fields:
   supports. Exact-match only, per the Clean-Slate Persistence Policy: no
   migrations, no dual readers.
 - `entry_points` — `{ "resolver": "resolver.py", "skills": "skills/",
-  "data": "rules-json/" }`.
+  "data": "rules-json/" }`. MAY additionally declare
+  `"rule_graph": "rule-graph.json"` and
+  `"rule_graph_manifest": "rule-graph-manifest.json"` for generated
+  RuleGraph artifacts (§2.1). Absence is legal: a package that ships no graph
+  defaults every rule family to `legacy` runtime ownership with a `visible`
+  legacy Keeper surface.
 - `resources` — the **resource registry** (§6).
 
 Optional fields (absent means the documented default, never an error):
@@ -68,6 +73,48 @@ Optional fields (absent means the documented default, never an error):
 - Per-resource `projected` (inside `resources` entries) — when `true`, the
   kernel projects `current_<key>` into the runtime player-safe investigator
   surface. Defaults to `false` when absent.
+
+### 2.1 RuleGraph artifacts (optional)
+
+A graph-backed ruleset package MAY add exactly two artifacts, referenced as
+optional `entry_points` keys:
+
+```
+plugins/coc-keeper/rulesets/<id>/rule-graph.json
+plugins/coc-keeper/rulesets/<id>/rule-graph-manifest.json
+```
+
+`rule-graph-manifest.json` carries the machine-owned identity fields:
+
+- `contract_id` — the rule-graph build manifest contract id
+  (`coc.rule-graph-build-manifest.v1`).
+- `schema_version` — the contract schema version.
+- `ruleset_id` — equals the package directory name; `ruleset_version` the
+  exact package version.
+- `source_bundles` — accepted source-bundle identity + machine digest.
+- `graph_content_digest` — the graph's deterministic content digest.
+- `shards` — accepted shard identities (`shard_id`) and digests.
+- `family_coverage` — per-family source coverage
+  (`accepted/partial/unresolved/absent`).
+- `family_promotion_eligibility` — per-family runtime promotion status. R1
+  always records `promotion_eligible: false` for every family.
+- `data_table_dependencies` and `resolver_capability_dependencies` — exact
+  rules-json data tables and resolver capabilities the graph references.
+- `compiler_identity`, `reviewer_identity`, `review_status` — compiler and
+  review status.
+- `findings` — deterministic findings, including any source-vs-derivative
+  mismatches.
+
+Digests are machine-owned integrity fields; a model-visible projection exposes
+semantic graph/rule/decision/source refs but never requires a model to relay a
+manifest or content hash.
+
+Absence of the graph artifacts is legal and default: a package that ships no
+`rule_graph` / `rule_graph_manifest` entry points keeps every rule family at
+`legacy` runtime ownership with its legacy Keeper surface `visible`. A package
+that declares one graph artifact must declare both and keep them consistent;
+`ruleset_conformance` validates contract id, ruleset identity match, and an
+accepted review status.
 
 A campaign records its bound ruleset at creation: public `campaign.create`
 accepts `ruleset_id` (default `coc7`), `campaign.json` persists it, and the

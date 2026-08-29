@@ -25,6 +25,11 @@ SCHEMA_PATH = (
     / "references"
     / "ruleset-manifest-schema.json"
 )
+RULE_GRAPH_CONTRACT_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "references"
+    / "rule-graph-contract-v1.json"
+)
 REQUIRED_RESOLVER_ATTRS = ("check", "resource_delta", "public_api_index")
 _FRONTMATTER_KEY = re.compile(r"^([A-Za-z_]+):", re.MULTILINE)
 
@@ -183,6 +188,79 @@ def _check_skills(package_dir: Path, problems: list[str]) -> None:
                 )
 
 
+def _check_rule_graph(package_dir: Path, manifest: dict | None, problems: list[str]) -> None:
+    """Validate optional rule-graph artifacts when the package declares them.
+
+    Contract (docs/ruleset-contract.md §2): a package MAY declare
+    ``entry_points.rule_graph`` and ``entry_points.rule_graph_manifest`` for
+    generated RuleGraph artifacts.  Absence is legal — every family then
+    defaults to legacy runtime ownership with a visible legacy surface.
+    """
+    entry_points = (manifest or {}).get("entry_points") or {}
+    graph_ref = entry_points.get("rule_graph")
+    manifest_ref = entry_points.get("rule_graph_manifest")
+    graph_declared = isinstance(graph_ref, str)
+    manifest_declared = isinstance(manifest_ref, str)
+    if graph_ref is not None and not graph_declared:
+        problems.append("manifest.json: entry_points.rule_graph must be a path string")
+    if manifest_ref is not None and not manifest_declared:
+        problems.append("manifest.json: entry_points.rule_graph_manifest must be a path string")
+    if not graph_declared and not manifest_declared:
+        return  # no graph artifacts declared; absence is legal
+    if graph_declared != manifest_declared:
+        problems.append(
+            "manifest.json: entry_points.rule_graph and "
+            "entry_points.rule_graph_manifest must be declared together"
+        )
+
+    graph_path = package_dir / graph_ref if graph_declared else None
+    manifest_path = package_dir / manifest_ref if manifest_declared else None
+
+    if graph_ref and graph_path is not None and not graph_path.is_file():
+        problems.append(f"{graph_ref}: rule graph file is missing")
+    if manifest_ref and manifest_path is not None and not manifest_path.is_file():
+        problems.append(f"{manifest_ref}: rule graph manifest file is missing")
+
+    graph = _load_json(graph_path, problems) if graph_ref and graph_path is not None else None
+    manifest = _load_json(manifest_path, problems) if manifest_ref and manifest_path is not None else None
+
+    if not isinstance(manifest, dict):
+        if manifest_ref:
+            problems.append(f"{manifest_ref}: rule graph manifest must be an object")
+        return
+
+    # Manifest identity fields, per the spec's rule-graph-manifest contract.
+    for field in ("contract_id", "ruleset_id", "ruleset_version",
+                  "graph_content_digest", "compiler_identity", "review_status"):
+        if field not in manifest:
+            problems.append(f"{manifest_ref}: missing rule graph manifest field {field!r}")
+
+    contract_id = manifest.get("contract_id")
+    if isinstance(contract_id, str) and RULE_GRAPH_CONTRACT_PATH.is_file():
+        contract = json.loads(RULE_GRAPH_CONTRACT_PATH.read_text(encoding="utf-8"))
+        if contract_id != contract.get("build_manifest_contract_id"):
+            problems.append(
+                f"{manifest_ref}: contract_id {contract_id!r} does not match "
+                f"{contract.get('build_manifest_contract_id')!r}"
+            )
+
+    if isinstance(graph, dict) and isinstance(manifest.get("ruleset_id"), str):
+        if graph.get("ruleset_id") != manifest.get("ruleset_id"):
+            problems.append(
+                f"{graph_ref}: ruleset_id does not match the rule graph manifest"
+            )
+
+    # A manifest that claims graph runtime ownership must not leave the legacy
+    # Keeper surface visible.  Without an accepted source bundle we cannot
+    # verify legacy surface, so we only check the manifest declares it.
+    if manifest.get("review_status") not in {
+        "deterministic-accepted", "accepted"
+    }:
+        problems.append(
+            f"{manifest_ref}: review_status must indicate an accepted build"
+        )
+
+
 def validate_package(package_dir: Path) -> list[str]:
     """Check one ruleset package directory; return human-readable problems.
 
@@ -197,4 +275,5 @@ def validate_package(package_dir: Path) -> list[str]:
     _check_resolver(package_dir, problems)
     _check_rules_json(package_dir, manifest, problems)
     _check_skills(package_dir, problems)
+    _check_rule_graph(package_dir, manifest, problems)
     return problems

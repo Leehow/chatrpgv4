@@ -424,7 +424,7 @@ def test_generic_check_recovers_frozen_receipt_before_roll_row(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     campaign_dir = _create_spark_actor(tmp_path)
-    original = coc_toolbox._ensure_roll_receipt_row
+    original = coc_toolbox.coc_operation_kernel._ensure_roll_receipt_row
     calls = 0
 
     def fail_first_materialization(ctx, receipt):
@@ -435,7 +435,9 @@ def test_generic_check_recovers_frozen_receipt_before_roll_row(
         return original(ctx, receipt)
 
     monkeypatch.setattr(
-        coc_toolbox, "_ensure_roll_receipt_row", fail_first_materialization
+        coc_toolbox.coc_operation_kernel,
+        "_ensure_roll_receipt_row",
+        fail_first_materialization,
     )
     args = {
         "actor": "spark-actor",

@@ -159,6 +159,103 @@ def test_valid_minimal_package_passes(tmp_path: Path):
     assert ruleset_conformance.validate_package(package_dir) == []
 
 
+def test_graph_artifact_absence_remains_legal(tmp_path: Path):
+    # A package shipping no rule-graph entry_points stays conformant.
+    package_dir = tmp_path / "testrs"
+    _build_minimal_package(package_dir)
+    assert ruleset_conformance.validate_package(package_dir) == []
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert "rule_graph" not in manifest["entry_points"]
+
+
+def test_rule_graph_artifact_missing_file_fails(tmp_path: Path):
+    # Declaring a graph artifact without the file on disk must fail.
+    package_dir = tmp_path / "testrs"
+    _build_minimal_package(package_dir)
+    manifest_path = package_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["entry_points"]["rule_graph"] = "rule-graph.json"
+    manifest["entry_points"]["rule_graph_manifest"] = "rule-graph-manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    problems = ruleset_conformance.validate_package(package_dir)
+    assert any("rule-graph.json" in p and "missing" in p for p in problems)
+
+
+def test_rule_graph_entry_points_must_be_paired(tmp_path: Path):
+    package_dir = tmp_path / "testrs"
+    _build_minimal_package(package_dir)
+    manifest_path = package_dir / "manifest.json"
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["entry_points"]["rule_graph"] = "rule-graph.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (package_dir / "rule-graph.json").write_text(
+        json.dumps({"ruleset_id": "testrs", "nodes": [], "relations": []}),
+        encoding="utf-8",
+    )
+    problems = ruleset_conformance.validate_package(package_dir)
+    assert any("declared together" in p for p in problems)
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["entry_points"]["rule_graph"]
+    manifest["entry_points"]["rule_graph_manifest"] = "rule-graph-manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (package_dir / "rule-graph-manifest.json").write_text(
+        json.dumps({
+            "contract_id": "coc.rule-graph-build-manifest.v1",
+            "schema_version": 1,
+            "ruleset_id": "testrs",
+            "ruleset_version": "0.1.0",
+            "graph_content_digest": "a" * 64,
+            "compiler_identity": "coc.rule-graph-compiler.v1",
+            "review_status": "deterministic-accepted",
+        }),
+        encoding="utf-8",
+    )
+    problems = ruleset_conformance.validate_package(package_dir)
+    assert any("declared together" in p for p in problems)
+
+
+def test_rule_graph_manifest_identity_mismatch_fails(tmp_path: Path):
+    # A manifest whose contract_id does not match the v1 build-manifest
+    # contract id, or whose ruleset_id omits, must fail.
+    package_dir = tmp_path / "testrs"
+    _build_minimal_package(package_dir)
+    manifest_path = package_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["entry_points"]["rule_graph"] = "rule-graph.json"
+    manifest["entry_points"]["rule_graph_manifest"] = "rule-graph-manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (package_dir / "rule-graph.json").write_text(
+        json.dumps({"ruleset_id": "testrs", "nodes": [], "relations": []}), encoding="utf-8")
+    (package_dir / "rule-graph-manifest.json").write_text(
+        json.dumps({
+            "contract_id": "coc.rule-graph-build-manifest.v1",
+            "schema_version": 1,
+            "ruleset_id": "testrs",
+            "ruleset_version": "0.1.0",
+            "source_bundles": [],
+            "graph_content_digest": "a" * 64,
+            "shards": [],
+            "family_coverage": {},
+            "family_promotion_eligibility": {},
+            "data_table_dependencies": [],
+            "resolver_capability_dependencies": [],
+            "compiler_identity": "coc.rule-graph-compiler.v1",
+            "reviewer_identity": "deterministic",
+            "review_status": "deterministic-accepted",
+            "findings": [],
+        }), encoding="utf-8")
+    assert ruleset_conformance.validate_package(package_dir) == []
+
+    # A wrong contract_id must now fail.
+    broken = json.loads((package_dir / "rule-graph-manifest.json").read_text(encoding="utf-8"))
+    broken["contract_id"] = "wrong-contract"
+    (package_dir / "rule-graph-manifest.json").write_text(json.dumps(broken), encoding="utf-8")
+    problems = ruleset_conformance.validate_package(package_dir)
+    assert any("contract_id" in p and "does not match" in p for p in problems)
+
+
 def test_broken_package_fails_conformance(tmp_path: Path):
     package_dir = tmp_path / "brokenrs"
     _build_minimal_package(package_dir)
