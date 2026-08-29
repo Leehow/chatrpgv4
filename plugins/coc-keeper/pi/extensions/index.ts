@@ -8480,6 +8480,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         });
       }
       if (
+        typedDefinition.operation === "session.resume"
+        && operatorSystemInstructionScope !== null
+      ) {
+        const campaign = canonicalProgressCampaignId
+          || explicitPiStartupCampaignId()
+          || "";
+        if (campaign) {
+          params = {
+            ...params,
+            root: currentWorkspaceRoot,
+            campaign,
+          };
+        }
+      }
+      if (
         launcherRole === null
         && typedDefinition.operation === "setup.quick_start"
         && (params.root !== undefined || params.campaign !== undefined)

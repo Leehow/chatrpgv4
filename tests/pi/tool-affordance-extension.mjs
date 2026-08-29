@@ -154,6 +154,23 @@ test("/system opens one hidden bounded recovery scope and restores normal tools"
       "coc_turn_finalize",
     ]);
     assert.ok(!h.active.at(-1).some((name) => name.startsWith("coc_rules_")));
+    await h.tools.get("coc_session_resume").execute(
+      "operator-system-resume",
+      {},
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const operatorResumeCall = h.clientCalls.findLast((call) => (
+      call.params.operation === "session.resume"
+      && call.params.campaign === "tool-affordance-campaign"
+    ));
+    assert.ok(operatorResumeCall);
+    assert.equal(
+      operatorResumeCall.params.campaign,
+      "tool-affordance-campaign",
+    );
+    assert.equal(operatorResumeCall.params.root, root);
 
     const projected = await h.emit("message_end", {
       role: "assistant",
