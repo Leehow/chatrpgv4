@@ -228,7 +228,6 @@ const canonicalCall = async (name, params) => {
         identity_ref: npcIdentityRef,
         npc_id: "npc-steven-knott",
         investigator: "thomas-hayes",
-        first_impression_ref: firstImpressionRef,
         run_id: `run-${campaign}`,
       });
     }

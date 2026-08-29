@@ -4663,7 +4663,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       npc_id: npcId,
       investigator: investigatorId,
       ...(identityRef ? { identity_ref: identityRef } : {}),
-      first_impression_ref: firstImpressionRef,
       run_id: runId,
     });
     armTypedBinding(card(), () => (

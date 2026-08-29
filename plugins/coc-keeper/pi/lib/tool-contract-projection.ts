@@ -130,7 +130,7 @@ export type NpcEngagementBindingCard = {
   npc_id: string;
   investigator: string;
   identity_ref?: string;
-  first_impression_ref: string;
+  first_impression_ref?: string;
   run_id: string;
 };
 
@@ -836,7 +836,9 @@ function validateBindingShape(binding: TypedToolBindingCard): void {
     if (binding.identity_ref !== undefined) {
       nonEmptyString(binding.identity_ref, "identity_ref");
     }
-    nonEmptyString(binding.first_impression_ref, "first_impression_ref");
+    if (binding.first_impression_ref !== undefined) {
+      nonEmptyString(binding.first_impression_ref, "first_impression_ref");
+    }
     nonEmptyString(binding.run_id, "run_id");
   }
 }
@@ -955,7 +957,9 @@ function bindingValues(binding: TypedToolBindingCard): Record<string, unknown> {
       ...(binding.identity_ref === undefined
         ? {}
         : { identity_ref: binding.identity_ref }),
-      first_impression_ref: binding.first_impression_ref,
+      ...(binding.first_impression_ref === undefined
+        ? {}
+        : { first_impression_ref: binding.first_impression_ref }),
       run_id: binding.run_id,
     };
   }
