@@ -89,7 +89,7 @@
     "independent-from", "print-precedes", "play-precedes", "hands-off-to",
     "located-in", "adjacent-to", "route-to", "present-in", "member-of", "worships",
     "allied-with", "opposes", "controls", "owns", "possesses", "knows",
-    "believes", "hides", "impersonates", "occurs-at", "occurs-during",
+    "believes", "asserts", "hides", "impersonates", "occurs-at", "occurs-during",
     "triggers", "enables", "threatens", "advances", "may-lead-to",
     "alternative-to", "resets-to", "persists-across-loop", "resolves",
     "supports", "contradicts", "reframes", "reveals", "misleads", "held-by",

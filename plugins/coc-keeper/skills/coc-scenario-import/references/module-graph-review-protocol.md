@@ -60,7 +60,8 @@ those after the semantic payload.
 4. `quest-semantics` — investigator objectives are Quests; villain plans and
    cognitive conclusions use their own kinds.
 5. `epistemic-truth` — fact, belief, rumor, lie, and inference remain distinct
-   and actor scope is preserved.
+   and actor scope is preserved; a spoken lie uses actor-to-proposition
+   `asserts/authored-lie`, while factual delivery stays authored-fact.
 6. `visibility` — Keeper truth does not enter player-safe nodes, properties, or
    claims; revealable is not already known.
 7. `requirements` — each requirement is outcome/method scoped; hard gates have

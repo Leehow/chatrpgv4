@@ -1,6 +1,6 @@
 # Module Knowledge Graph — pre-KP handoff
 
-> **Status:** PARTIAL — deterministic compiler and extraction Skill are implemented; real-source semantic acceptance is 7/8. The capability remains experimental and unintegrated.
+> **Status:** PARTIAL — deterministic compiler and extraction Skill are implemented; real-source semantic acceptance is 8/8. Source-language storage still needs a fresh forward-test, so the capability remains experimental and unintegrated.
 > **Date:** 2026-08-28
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`; Codex-host and KP/live-play implementation were not changed.
 > **Spec:** [module-knowledge-graph-extraction.md](../specs/module-knowledge-graph-extraction.md)
@@ -64,10 +64,10 @@ Raw module text, candidates, reviews, and installed acceptance assets remain und
 | Long sandbox campaign order | PASS | Masks of Nyarlathotep: 7 `print-precedes`, 0 `play-precedes`, 0 hard requirements |
 | Optional sidetrack independence | PASS | Masks: core campaign and sidetrack playable units joined only by `independent-from` |
 | Multi-era / virtual frame | PASS | Time After Time: 1954 and 2637 temporal frames with `occurs-during` neighborhoods |
-| Fact / rumor / belief / lie | **PARTIAL** | Blood folklore preserves fact+rumor; Simulacrum preserves actor belief; independent authored-lie shard did not pass review |
+| Fact / rumor / belief / lie | PASS | Blood folklore preserves fact+rumor; Simulacrum preserves actor belief; Dust to Dust preserves factual delivery plus actor-scoped `asserts/authored-lie` and contradiction against the false proposition |
 | Supporting asset pack | PASS | A Time to Harvest Keeper Map Pack: source documents/assets related through `contains` and `supplements` |
 
-Nine accepted graph generations were installed in the isolated acceptance workspace. They are
+Ten accepted graph generations were installed in the isolated acceptance workspace. They are
 correctly `partial` because each is a bounded acceptance slice rather than a declared whole-book
 build.
 
@@ -96,11 +96,14 @@ The review gate rejected candidates for real semantic reasons rather than schema
 - unused `known_nodes` were copied into `node_refs` → deterministic `unused_node_ref` rejection;
 - worship was forced into `supports` → explicit `worships` relation.
 
-The remaining authored-lie failure is precise: the model represented both the factual speech act and a misleading proposition, but attached `authored-lie` to the delivery fact and aimed the contradiction at that delivery instead of the false proposition. The Skill now states the correct distinction; a fresh independent forward test is still required before this acceptance row can pass.
+The authored-lie gap was closed by adding the explicit actor-to-proposition
+`asserts` relation. A fresh independent extraction now preserves factual
+delivery as `authored-fact`, the asserted search proposition as
+`authored-lie`, and the detecting clue's contradiction against that proposition.
 
 ## 5. Deterministic validation
 
-- `tests/test_module_graph.py` + `tests/test_plugin_metadata.py`: **57 passed**.
+- `tests/test_module_graph.py` + `tests/test_plugin_metadata.py`: **58 passed**.
 - Skill package validation: **Skill is valid**.
 - Python compilation: PASS.
 - Both graph contract JSON files parse successfully.
@@ -128,9 +131,9 @@ select one authority/promotion path and retire duplicate extraction before the K
 
 ## 7. Remaining pre-KP gates
 
-1. Run one fresh authored-lie proposition extraction that passes independent semantic review.
-2. Re-run at least one Chinese-source shard after the source-language alias rule and prove Chinese lexical retrieval.
-3. Re-run the complete focused deterministic suite after those changes.
+1. Freeze `source_language` on the extraction packet and require source-language canonical storage rather than translation-plus-alias.
+2. Re-run at least one Chinese-source shard and prove Chinese lexical retrieval from canonical names/summaries.
+3. Re-run the complete focused deterministic suite after that change.
 4. Only then change the parent spec status from partial to complete and draft the separate Graph-to-KP integration specification.
 
 Until these gates pass, the honest status is: **compiler implemented, semantic acceptance partial, product unintegrated**.

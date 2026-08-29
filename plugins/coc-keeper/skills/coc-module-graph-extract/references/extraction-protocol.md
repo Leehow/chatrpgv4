@@ -114,10 +114,9 @@ version into one string.
 
 Truth status belongs to the proposition, not automatically to its delivery.
 If Mary factually says "I am looking for my cat" while lying, model two
-meanings: the speech/delivery happened (`authored-fact`), while the search
-proposition or its `misleads` relation is `authored-lie`. A clue that detects
-the lie contradicts the false proposition, not the fact that the words were
-spoken.
+meanings: the speech/delivery happened (`authored-fact`), while Mary `asserts`
+the search proposition with `authored-lie`. A clue that detects the lie
+contradicts the false proposition, not the fact that the words were spoken.
 
 When a paragraph gives both folklore/rumor and a Keeper-only correction, make
 separate nodes or claims with separate visibility/truth. The revealable node's

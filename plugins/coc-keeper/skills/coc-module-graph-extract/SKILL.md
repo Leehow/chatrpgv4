@@ -86,7 +86,9 @@ module's language.
   `truth_status` values. A lucky guess or model inference is not authored fact.
 - Apply truth status to the proposition being asserted. The fact that an actor
   spoke/delivered a false proposition is `authored-fact`; the proposition they
-  asserted and its misleading relation carry `authored-lie`.
+  asserted is an actor-to-proposition `asserts` Claim carrying
+  `authored-lie`; its delivery, if separately modeled, remains
+  `authored-fact`.
 - Begin from the packet's `default_visibility`. Keeper-background text never
   becomes `player-safe` merely because it summarizes the module.
 - Use `node_refs` for semantic nodes defined by another shard; never duplicate

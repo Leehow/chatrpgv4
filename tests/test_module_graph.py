@@ -947,6 +947,16 @@ def test_validator_accepts_explicit_worship_relationship():
     ) == []
 
 
+def test_validator_accepts_actor_asserting_a_proposition():
+    graph = _load()
+    shard = _valid_shard()
+    shard["claims"][0]["predicate"] = "asserts"
+    shard["relations"][0]["relation_kind"] = "asserts"
+    assert graph.validate_shard(
+        shard, evidence_catalog=_evidence_catalog()
+    ) == []
+
+
 def test_validator_rejects_accepted_coverage_outside_declared_aspects():
     graph = _load()
     shard = _valid_shard()

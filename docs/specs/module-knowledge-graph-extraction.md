@@ -1,6 +1,6 @@
 # 模组知识图谱与自动抽取 Skill 规范
 
-> **Status:** Implemented core / acceptance partial — deterministic compiler、Skill、asset-root generations 与 7/8 real-source semantic cases 已实现；独立 authored-lie case 尚未通过，产品仍 `unintegrated`。
+> **Status:** Implemented core / acceptance partial — deterministic compiler、Skill、asset-root generations 与 8/8 real-source semantic cases 已实现；source-language storage forward-test 尚未通过，产品仍 `unintegrated`。
 > **ID:** `module-knowledge-graph-extraction`
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`；Codex-host 专属实现 off-limits。
 > **Scope:** 共享 `plugins/coc-keeper/` 的模组来源编译能力；不含 KP、live play、campaign state 或 Scenario IR 投影。
@@ -562,7 +562,7 @@ Neo4j 只能在出现真实第二 backend 需求后作为从 `module-graph.json`
 | GraphShard accept/build | Implemented | deterministic validation + independent semantic review + digest receipt |
 | Extraction child Skill | Implemented | parent-owned prepare/review/accept/build；Skill 只产 candidate |
 | Storage | Implemented | manifest-selected immutable generation，isolated real builds verified |
-| Corpus coverage | Partial | 7/8 cases accepted；authored-lie proposition 尚未闭合 |
+| Corpus coverage | Partial | 8/8 semantic cases accepted；source-language storage gate 尚未闭合 |
 | Scenario IR / KP | Intentionally absent | 后续独立 integration spec 才能授权 |
 
 完整证据和失败语义见 pre-KP handoff。本 spec 的 §20 completion contract 仍未满足，不能把 core implementation 写成 product completion。
@@ -649,7 +649,7 @@ Neo4j 只能在出现真实第二 backend 需求后作为从 `module-graph.json`
 
 在第 10 条之后，图谱能力仍只是 source compiler capability；只有后续正常 Pi-Coc Keeper 路径真实消费并通过自然跑团验收，才可能升级为产品能力。
 
-当前评估：第 3 条仍缺一个 semantic-accepted authored-lie proposition 样本，第 10 条已产出但明确为 PARTIAL；因此本阶段不能标记 complete。
+当前评估：第 3 条已闭合；第 4 条的 source-language retrieval 仍缺一次符合最新语言法则的 fresh sample，第 10 条 handoff 因此保持 PARTIAL。本阶段尚不能标记 complete。
 
 ---
 
