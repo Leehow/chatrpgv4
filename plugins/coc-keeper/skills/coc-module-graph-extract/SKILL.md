@@ -15,6 +15,8 @@ projection.
 Accept only a closed section packet containing:
 
 - one semantic `module_id` and `section_id`;
+- one `source_language` BCP 47 tag identifying the language of the parsed
+  source artifact;
 - one machine-created `coc.module-graph-evidence-view.v1` containing semantic
   evidence span IDs and exact page text, but no hashes or raw source refs;
 - the section's role and document/collection context;
@@ -34,12 +36,12 @@ Read both before extracting:
 
 1. [extraction-protocol.md](references/extraction-protocol.md) for the semantic
    decisions and corpus-derived traps;
-2. [module-graph-contract-v2.json](../../references/module-graph-contract-v2.json)
+2. [module-graph-contract-v3.json](../../references/module-graph-contract-v3.json)
    for the exact current node, relation, visibility, truth, and coverage enums.
 
 ## Output
 
-Return exactly one bare `coc.module-graph-shard.v2` JSON object. Do not wrap it
+Return exactly one bare `coc.module-graph-shard.v3` JSON object. Do not wrap it
 in Markdown and do not add commentary.
 
 The shard, every node, and every claim cite one or more supplied semantic span
@@ -62,16 +64,22 @@ identifier remains semantic and human-readable.
 
 Every new `node_id` starts with its exact `node_kind` plus `-` (for example
 `npc-kloppe`, `procedure-ghost-city-reconstruction`). Bare names are invalid.
-Every identifier is lowercase ASCII kebab-case; translated or source-language
-words belong in `name`, `aliases`, `summary`, `reason`, or `properties`, never
-inside an ID.
-When `name` is translated or normalized away from the source wording, retain
-the exact source-language term in `aliases` so lexical retrieval works in the
-module's language.
+Every identifier is lowercase ASCII kebab-case; source-language words belong
+in `name`, `aliases`, `summary`, `reason`, or `properties`, never inside an ID.
+
+All model-authored semantic prose stays in the packet's `source_language`:
+canonical names, aliases, summaries, reasons, and prose-valued properties.
+Never translate into the user's language or add translated aliases during
+extraction. If the PDF being parsed is a Chinese translation, its parsed source
+language is `zh-Hans`; the graph stores that Chinese edition's wording. A later
+KP presentation layer may localize to `play_language`, but it must not mutate
+or overwrite this source graph.
 
 ## Extraction laws
 
 - Extract the whole section's meaning, not only quests, clues, or named people.
+- Preserve all semantic prose in `source_language`; translation is never an
+  extraction or compiler responsibility.
 - Cite every node and claim directly; do not rely on root evidence scope as a
   substitute for per-assertion evidence.
 - Keep publication order, recommended play order, causal order, and anthology

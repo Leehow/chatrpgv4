@@ -67,6 +67,7 @@ def _extraction_packet(graph) -> dict:
         "module_id": "module-demo-archive",
         "section_id": "section-archive-opening",
         "section_role": "archive-opening",
+        "source_language": "en",
         "aspects": [
             "structure", "world", "actors", "relationships", "events",
             "knowledge", "causal", "mechanics", "assets", "direction"
@@ -96,6 +97,7 @@ def _accepted_review() -> dict:
             "ordering": "pass",
             "quest-semantics": "not-applicable",
             "epistemic-truth": "pass",
+            "source-language": "pass",
             "visibility": "pass",
             "requirements": "not-applicable",
             "absence-vs-unresolved": "pass",
@@ -142,10 +144,11 @@ def _write_real_source_bundle(tmp_path: Path) -> Path:
 
 def _valid_shard() -> dict:
     return {
-        "contract_id": "coc.module-graph-shard.v2",
-        "schema_version": 2,
+        "contract_id": "coc.module-graph-shard.v3",
+        "schema_version": 3,
         "module_id": "module-demo-archive",
         "section_id": "section-archive-opening",
+        "source_language": "en",
         "aspects": [
             "structure", "world", "actors", "relationships", "events",
             "knowledge", "causal", "mechanics", "assets", "direction"
@@ -169,7 +172,7 @@ def _valid_shard() -> dict:
                 "node_kind": "scene",
                 "name": "Archive opening",
                 "visibility": "player-safe",
-                "aliases": ["档案馆开场"],
+                "aliases": ["Reading room opening"],
                 "summary": "The investigators may inspect public records.",
                 "evidence_span_ids": [SPAN_ARCHIVE],
                 "properties": {},
@@ -215,7 +218,7 @@ def _second_shard() -> dict:
     shard["section_id"] = "section-archive-ledger"
     shard["evidence_span_ids"] = [SPAN_LEDGER]
     clue = deepcopy(shard["nodes"][1])
-    clue["aliases"] = ["教堂账本"]
+    clue["aliases"] = ["Trustee ledger"]
     clue["evidence_span_ids"] = [SPAN_LEDGER]
     conclusion = {
         "node_id": "conclusion-property-linked-to-chapel",
@@ -329,6 +332,21 @@ def test_validate_shard_rejects_non_kebab_semantic_identifier():
     }
 
 
+def test_validate_shard_rejects_object_coverage_status_without_crashing():
+    graph = _load()
+    shard = _valid_shard()
+    shard["coverage"]["actors"] = {
+        "status": "accepted",
+        "reason": "model invented a richer shape",
+    }
+
+    findings = graph.validate_shard(shard, evidence_catalog=_evidence_catalog())
+
+    assert {finding["code"] for finding in findings} == {
+        "invalid_coverage_status"
+    }
+
+
 def test_merge_shards_unifies_node_and_machine_attaches_source_evidence():
     graph = _load()
     merged = graph.merge_shards(
@@ -341,9 +359,9 @@ def test_merge_shards_unifies_node_and_machine_attaches_source_evidence():
         "aliases": clue["aliases"],
         "pages": [ref["pdf_index"] for ref in clue["source_refs"]],
     } == {
-        "contract": "coc.module-graph.v2",
+        "contract": "coc.module-graph.v3",
         "sections": ["section-archive-ledger", "section-archive-opening"],
-        "aliases": ["教堂账本"],
+        "aliases": ["Trustee ledger"],
         "pages": [3, 4],
     }
 
@@ -351,7 +369,7 @@ def test_merge_shards_unifies_node_and_machine_attaches_source_evidence():
 def test_search_and_context_enforce_visibility():
     graph = _load()
     merged = graph.merge_shards([_valid_shard()], evidence_catalog=_evidence_catalog())
-    assert [row["node_id"] for row in graph.search_graph(merged, "档案馆", audience="player")] == [
+    assert [row["node_id"] for row in graph.search_graph(merged, "archive", audience="player")] == [
         "scene-archive-opening"
     ]
     assert graph.search_graph(merged, "ledger", audience="player") == []
@@ -489,6 +507,7 @@ def test_prepare_returns_one_closed_model_safe_extraction_packet(tmp_path):
         module_id="module-demo",
         section_id="section-demo-background",
         section_role="keeper-background",
+        source_language="en",
         aspects=["world", "actors"],
         default_visibility="keeper-only",
         approved_player_safe_span_ids=[],
@@ -506,6 +525,7 @@ def test_prepare_returns_one_closed_model_safe_extraction_packet(tmp_path):
     encoded = json.dumps(packet, ensure_ascii=False, sort_keys=True)
     assert set(prepared) == {"evidence_packet", "extraction_packet"}
     assert packet["contract_id"] == "coc.module-graph-extraction-packet.v1"
+    assert packet["source_language"] == "en"
     assert packet["aspects"] == ["world", "actors"]
     assert packet["evidence_view"]["contract_id"] == (
         "coc.module-graph-evidence-view.v1"
@@ -525,6 +545,7 @@ def test_prepare_can_narrow_a_page_to_exact_machine_span_ids(tmp_path):
         module_id="module-demo-archive",
         section_id="section-archive-opening",
         section_role="archive-opening",
+        source_language="en",
         aspects=["structure"],
         default_visibility="player-safe",
         approved_player_safe_span_ids=[],
@@ -539,6 +560,7 @@ def test_prepare_can_narrow_a_page_to_exact_machine_span_ids(tmp_path):
         module_id="module-demo-archive",
         section_id="section-archive-opening",
         section_role="archive-opening",
+        source_language="en",
         aspects=["structure"],
         default_visibility="player-safe",
         approved_player_safe_span_ids=[],
@@ -572,6 +594,26 @@ def test_accept_requires_valid_candidate_scope_and_semantic_review():
     assert len(receipt["candidate_sha256"]) == 64
     assert len(receipt["evidence_packet_sha256"]) == 64
     assert len(receipt["review_payload_sha256"]) == 64
+
+
+def test_accept_rejects_candidate_source_language_mismatch():
+    graph = _load()
+    candidate = _valid_shard()
+    candidate["source_language"] = "zh-Hans"
+
+    try:
+        graph.accept_graph_shard(
+            _extraction_packet(graph),
+            _evidence_packet(),
+            candidate,
+            _accepted_review(),
+        )
+    except graph.ModuleGraphError as exc:
+        assert {finding["code"] for finding in exc.findings} == {
+            "candidate_scope_mismatch"
+        }
+    else:
+        raise AssertionError("candidate language must match its extraction packet")
 
 
 def test_accept_rejects_semantic_review_findings_without_mutating_candidate():
@@ -675,6 +717,7 @@ def test_build_installs_one_reproducible_asset_root_generation(tmp_path):
     assert manifest["missing_shards"] == []
     assert manifest["current_generation"].startswith("generation-")
     assert len(manifest["module_graph_sha256"]) == 64
+    assert manifest["source_languages"] == ["en"]
     module_graph = graph.load_installed_module_graph(
         tmp_path, asset_root_id="demo-archive"
     )
@@ -786,7 +829,7 @@ def test_cli_merges_shard_with_evidence_packet_and_serves_search(tmp_path, capsy
     ) == 0
     capsys.readouterr()
     assert graph.main(
-        ["search", str(graph_path), "档案馆", "--audience", "player", "--json"]
+        ["search", str(graph_path), "archive", "--audience", "player", "--json"]
     ) == 0
     output = json.loads(capsys.readouterr().out)
     assert [row["node_id"] for row in output["results"]] == ["scene-archive-opening"]
@@ -805,6 +848,7 @@ def test_cli_prepare_accept_build_installs_reviewed_graph(tmp_path, capsys):
             "module_id": "module-demo-archive",
             "section_id": "section-archive-opening",
             "section_role": "archive-opening",
+            "source_language": "en",
             "aspects": [
                 "structure", "world", "actors", "relationships", "events",
                 "knowledge", "causal", "mechanics", "assets", "direction"
@@ -891,7 +935,7 @@ def test_cli_prepare_accept_build_installs_reviewed_graph(tmp_path, capsys):
     assert installed["module_id"] == "module-demo-archive"
     assert graph.main([
         "installed-search", "--workspace", str(tmp_path),
-        "--asset-root-id", "demo-archive", "档案馆",
+            "--asset-root-id", "demo-archive", "archive",
         "--audience", "player", "--json",
     ]) == 0
     search_output = json.loads(capsys.readouterr().out)

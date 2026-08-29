@@ -1,6 +1,6 @@
 # Module Knowledge Graph — pre-KP handoff
 
-> **Status:** PARTIAL — deterministic compiler and extraction Skill are implemented; real-source semantic acceptance is 8/8. Source-language storage still needs a fresh forward-test, so the capability remains experimental and unintegrated.
+> **Status:** COMPLETE for the source-compiler phase — deterministic compiler, extraction Skill, 8/8 real-source semantic cases, and a fresh `zh-Hans` canonical-storage forward-test pass. KP/product integration remains experimental and unintegrated.
 > **Date:** 2026-08-28
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`; Codex-host and KP/live-play implementation were not changed.
 > **Spec:** [module-knowledge-graph-extraction.md](../specs/module-knowledge-graph-extraction.md)
@@ -29,6 +29,8 @@ The implementation includes:
 - exact EvidenceSpan selection within accepted pages;
 - model views without source path, source ID, hash, anchor, UUID, or digest;
 - closed extraction/review/build contracts;
+- v3 `source_language` binding from extraction packet through accepted shard,
+  ModuleGraph, BuildManifest, and installed-load verification;
 - aspect-scoped coverage with undeclared domains forced to `unresolved`;
 - machine-owned root evidence union;
 - semantic review as a required, non-mutating acceptance gate;
@@ -81,7 +83,13 @@ build.
 - Time After Time expands the 1954 frame to its module, chapter, place, and 2637 frame neighborhood.
 - A Time to Harvest asset lookup retrieves the Keeper map pack, player map reference, and parent campaign.
 
-One retrieval-quality gap remains: the accepted Amaranthine shard translated source terms into English without retaining Chinese aliases, so Chinese `时光圈` did not match while English `loop` does. The Skill and semantic review protocol now require exact source-language aliases, but that accepted shard predates the correction and is not claimed as proof of the fix.
+The former language gap is closed by a fresh v3 extraction from the Chinese
+`Dust to Dust` source artifact. Its packet and accepted shard declare
+`source_language: zh-Hans`; canonical names, summaries, and semantic properties
+remain Chinese; no English translation alias was added. Independent review
+passed the explicit `source-language` check. The installed manifest binds
+`source_languages: ["zh-Hans"]`; Chinese queries `玛丽` and `康拉德` retrieve
+the canonical nodes, while the unrevealed player query returns no result.
 
 ## 4. Rejected semantic candidates
 
@@ -95,6 +103,11 @@ The review gate rejected candidates for real semantic reasons rather than schema
 - speech delivery was confused with the truth of the spoken proposition → proposition-level truth-status guidance;
 - unused `known_nodes` were copied into `node_refs` → deterministic `unused_node_ref` rejection;
 - worship was forced into `supports` → explicit `worships` relation.
+- malformed object-valued coverage crashed membership validation → validator
+  now returns `invalid_coverage_status` without an exception;
+- a narrow `actors + knowledge` shard was incorrectly reviewed for undeclared
+  ordering/Quest/requirement domains → semantic review now treats packet
+  aspects as a hard boundary and marks those checks `not-applicable`.
 
 The authored-lie gap was closed by adding the explicit actor-to-proposition
 `asserts` relation. A fresh independent extraction now preserves factual
@@ -103,7 +116,7 @@ delivery as `authored-fact`, the asserted search proposition as
 
 ## 5. Deterministic validation
 
-- `tests/test_module_graph.py` + `tests/test_plugin_metadata.py`: **58 passed**.
+- `tests/test_module_graph.py` + `tests/test_plugin_metadata.py`: **60 passed**.
 - Skill package validation: **Skill is valid**.
 - Python compilation: PASS.
 - Both graph contract JSON files parse successfully.
@@ -129,11 +142,12 @@ This implementation does not:
 `module-graph.json` remains a compiled-source diagnostic index. A later integration spec must
 select one authority/promotion path and retire duplicate extraction before the KP consumes it.
 
-## 7. Remaining pre-KP gates
+## 7. Next phase boundary
 
-1. Freeze `source_language` on the extraction packet and require source-language canonical storage rather than translation-plus-alias.
-2. Re-run at least one Chinese-source shard and prove Chinese lexical retrieval from canonical names/summaries.
-3. Re-run the complete focused deterministic suite after that change.
-4. Only then change the parent spec status from partial to complete and draft the separate Graph-to-KP integration specification.
-
-Until these gates pass, the honest status is: **compiler implemented, semantic acceptance partial, product unintegrated**.
+The source-compiler gates are closed. The next work is a separate Graph-to-KP
+integration specification deciding the one canonical projection/consumer path,
+on-demand localization from source language to `play_language`, progressive
+deepen behavior, and the boundary between authored graph truth and
+campaign-local canon. Until that spec is approved and normal Pi-Coc play
+consumes the graph, the honest status is: **source compiler complete, product
+unintegrated**.

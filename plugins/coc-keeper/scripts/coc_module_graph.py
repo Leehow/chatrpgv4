@@ -31,7 +31,7 @@ import coc_pdf_bundle
 CONTRACT_PATH = (
     SCRIPT_DIR.parent
     / "references"
-    / "module-graph-contract-v2.json"
+    / "module-graph-contract-v3.json"
 )
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
 BUILD_CONTRACT_PATH = (
@@ -61,6 +61,7 @@ BUILD_MANIFEST_CONTRACT_ID = str(BUILD_CONTRACT["build_manifest_contract_id"])
 
 SEMANTIC_ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 SOURCE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
+SOURCE_LANGUAGE_RE = re.compile(r"^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 VISIBILITIES = frozenset(CONTRACT["visibility"])
@@ -228,6 +229,10 @@ def _valid_source_id(value: Any) -> bool:
     return isinstance(value, str) and bool(SOURCE_ID_RE.fullmatch(value))
 
 
+def _valid_source_language(value: Any) -> bool:
+    return isinstance(value, str) and bool(SOURCE_LANGUAGE_RE.fullmatch(value))
+
+
 def _validate_source_refs(
     value: Any,
     path: str,
@@ -387,6 +392,7 @@ def prepare_extraction_packet(
     module_id: str,
     section_id: str,
     section_role: str,
+    source_language: str,
     aspects: list[str],
     default_visibility: str,
     approved_player_safe_span_ids: list[str],
@@ -406,6 +412,15 @@ def prepare_extraction_packet(
             findings.append(
                 _finding("invalid_semantic_id", f"/{field}", "must be kebab-case")
             )
+
+    if not _valid_source_language(source_language):
+        findings.append(
+            _finding(
+                "invalid_source_language",
+                "/source_language",
+                "must be a BCP 47 language tag such as en or zh-Hans",
+            )
+        )
 
     declared_aspects: set[str] = set()
     if not isinstance(aspects, list) or not aspects:
@@ -552,6 +567,7 @@ def prepare_extraction_packet(
         "module_id": module_id,
         "section_id": section_id,
         "section_role": section_role,
+        "source_language": source_language,
         "aspects": list(aspects),
         "default_visibility": default_visibility,
         "approved_player_safe_span_ids": list(approved_player_safe_span_ids),
@@ -619,6 +635,7 @@ def prepare_from_request(
         module_id=request.get("module_id"),
         section_id=request.get("section_id"),
         section_role=request.get("section_role"),
+        source_language=request.get("source_language"),
         aspects=request.get("aspects"),
         default_visibility=request.get("default_visibility"),
         approved_player_safe_span_ids=request.get(
@@ -772,6 +789,14 @@ def validate_shard(
     for field in ("module_id", "section_id"):
         if not _valid_semantic_id(shard.get(field)):
             findings.append(_finding("invalid_semantic_id", f"/{field}", "must be semantic"))
+    if not _valid_source_language(shard.get("source_language")):
+        findings.append(
+            _finding(
+                "invalid_source_language",
+                "/source_language",
+                "must be a BCP 47 language tag such as en or zh-Hans",
+            )
+        )
     findings.extend(
         _validate_span_ids(
             shard.get("evidence_span_ids"), "/evidence_span_ids", evidence_catalog
@@ -788,7 +813,10 @@ def validate_shard(
                 "must account for every frozen graph domain exactly once",
             )
         )
-    elif any(value not in COVERAGE_STATUSES for value in coverage.values()):
+    elif any(
+        not isinstance(value, str) or value not in COVERAGE_STATUSES
+        for value in coverage.values()
+    ):
         findings.append(
             _finding("invalid_coverage_status", "/coverage", "contains an unknown status")
         )
@@ -1091,6 +1119,14 @@ def _validate_extraction_packet(
     for field in ("module_id", "section_id", "section_role"):
         if not _valid_semantic_id(packet.get(field)):
             findings.append(_finding("invalid_semantic_id", f"/{field}", "must be semantic"))
+    if not _valid_source_language(packet.get("source_language")):
+        findings.append(
+            _finding(
+                "invalid_source_language",
+                "/source_language",
+                "must be a BCP 47 language tag such as en or zh-Hans",
+            )
+        )
 
     aspects = packet.get("aspects")
     if (
@@ -1269,7 +1305,7 @@ def _check_graph_shard(
     assembled = assemble_model_shard(candidate)
     findings.extend(validate_shard(assembled, evidence_catalog=evidence_catalog or None))
     if isinstance(assembled, dict):
-        for field in ("module_id", "section_id", "aspects"):
+        for field in ("module_id", "section_id", "source_language", "aspects"):
             if assembled.get(field) != extraction_packet.get(field):
                 findings.append(
                     _finding("candidate_scope_mismatch", f"/{field}", "must match packet")
@@ -1566,6 +1602,7 @@ def merge_shards(
         "contract_id": GRAPH_CONTRACT_ID,
         "schema_version": SCHEMA_VERSION,
         "module_id": next(iter(module_ids)),
+        "source_languages": sorted({shard["source_language"] for shard in shards}),
         "section_ids": sorted(shard["section_id"] for shard in shards),
         "source_refs": source_refs,
         "coverage": _aggregate_coverage(promoted_shards),
@@ -1970,6 +2007,7 @@ def build_module_graph_asset(
 
     generation_digest = _json_digest({
         "module_graph": module_graph,
+        "source_languages": module_graph["source_languages"],
         "source_bundles": source_rows,
         "planned_shards": planned_rows,
         "accepted_shards": accepted_manifest_rows,
@@ -1994,6 +2032,7 @@ def build_module_graph_asset(
         "current_generation": generation_name,
         "module_graph_path": module_graph_path,
         "module_graph_sha256": _json_digest(module_graph),
+        "source_languages": list(module_graph["source_languages"]),
         "source_bundles": source_rows,
         "planned_shards": planned_rows,
         "accepted_shards": accepted_manifest_rows,
@@ -2074,7 +2113,11 @@ def load_installed_module_graph(
         raise ModuleGraphError(
             [_finding("installed_graph_digest_mismatch", str(graph_path), "content drifted")]
         )
-    if graph.get("contract_id") != GRAPH_CONTRACT_ID or graph.get("module_id") != manifest.get("module_id"):
+    if (
+        graph.get("contract_id") != GRAPH_CONTRACT_ID
+        or graph.get("module_id") != manifest.get("module_id")
+        or graph.get("source_languages") != manifest.get("source_languages")
+    ):
         raise ModuleGraphError(
             [_finding("installed_graph_scope_mismatch", str(graph_path), "manifest mismatch")]
         )

@@ -36,10 +36,15 @@ meaning. Neither changes candidate nodes, claims, relations, truth,
 visibility, or coverage. Only accepted shards enter the asset-root `build`.
 
 Only the frozen vocabulary in
-`plugins/coc-keeper/references/module-graph-contract-v2.json` is authored as
+`plugins/coc-keeper/references/module-graph-contract-v3.json` is authored as
 node/relation kinds. Preserve unusual source headings in `source_label`; do not
 turn the hundreds of free-form section labels observed across the corpus into
 new graph types.
+
+Set `source_language` from the parsed source artifact and keep all graph prose
+in that language. A Chinese translated PDF therefore compiles as `zh-Hans`.
+Translation into the user's `play_language` is a later KP presentation concern
+and must never rewrite the accepted source graph.
 
 Keep four kinds of order separate:
 

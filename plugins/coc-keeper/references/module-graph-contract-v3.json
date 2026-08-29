@@ -1,14 +1,15 @@
 {
-  "contract_id": "coc.module-graph-contract.v2",
-  "schema_version": 2,
+  "contract_id": "coc.module-graph-contract.v3",
+  "schema_version": 3,
   "evidence_contract_id": "coc.module-graph-evidence.v1",
-  "shard_contract_id": "coc.module-graph-shard.v2",
-  "graph_contract_id": "coc.module-graph.v2",
+  "shard_contract_id": "coc.module-graph-shard.v3",
+  "graph_contract_id": "coc.module-graph.v3",
   "shard_keys": [
     "contract_id",
     "schema_version",
     "module_id",
     "section_id",
+    "source_language",
     "aspects",
     "evidence_span_ids",
     "node_refs",
@@ -52,6 +53,7 @@
   "evidence_scope_law": "The deterministic assemble-shard step canonicalizes shard evidence_span_ids as at least the complete union of every node and claim citation before validation; model-proposed root scope is not authoritative.",
   "semantic_id_law": "Every model-authored identifier is lowercase ASCII kebab-case matching ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$; human-language labels belong in name, aliases, summary, reason, or properties rather than IDs.",
   "node_id_law": "Every node_id begins with its exact node_kind plus a hyphen, for example npc-kloppe.",
+  "source_language_law": "source_language identifies the language of the parsed source artifact. All model-authored semantic prose, including name, aliases, summary, reason, and prose-valued semantic properties, remains in that source language. The graph compiler never translates it. A later Keeper presentation layer may localize output to play_language without mutating this graph.",
   "visibility": ["keeper-only", "player-safe", "revealable"],
   "truth_status": [
     "authored-fact",
@@ -111,6 +113,8 @@
     "promotion": "explicit_merge",
     "runtime_authority": false,
     "keeper_retains_semantic_judgment": true,
-    "model_copies_hashes_or_anchors": false
+    "model_copies_hashes_or_anchors": false,
+    "compiler_translates_source_text": false,
+    "keeper_presentation_may_localize": true
   }
 }

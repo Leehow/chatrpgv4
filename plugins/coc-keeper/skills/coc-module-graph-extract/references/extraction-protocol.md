@@ -12,10 +12,11 @@ turning the graph into a fixed story pipeline.
 
 ```json
 {
-  "contract_id": "coc.module-graph-shard.v2",
-  "schema_version": 2,
+  "contract_id": "coc.module-graph-shard.v3",
+  "schema_version": 3,
   "module_id": "module-semantic-id",
   "section_id": "section-semantic-id",
+  "source_language": "en",
   "aspects": ["structure", "world", "direction"],
   "evidence_span_ids": ["span-example-page-1-block-1"],
   "node_refs": ["npc-defined-in-an-earlier-shard"],
@@ -60,10 +61,12 @@ All identifiers use lowercase ASCII kebab-case only. Keep Chinese characters,
 diacritics, punctuation, and display wording in labels or properties rather
 than mixing them into IDs.
 
-Preserve source terminology for retrieval. If `name` is translated,
-romanized, normalized, or summarized instead of using the exact source term,
-put the exact source-language wording in `aliases`. Do not force a source
-language out of the graph.
+Keep every model-authored semantic string in the packet's `source_language`.
+That includes `name`, `aliases`, `summary`, `reason`, and prose-valued semantic
+properties. Do not translate, romanize, or add user-language aliases. A parsed
+translation uses the language of that source artifact (for example `zh-Hans`),
+not the publication language of an unavailable original. Localization belongs
+to the future KP presentation layer and never overwrites the ModuleGraph.
 
 ## What to extract
 
@@ -186,25 +189,27 @@ uncertain OCR, missing sections, and extractor assumptions are soft,
 
 1. Identify the section's real role. A heading called "chapter" may be an
    independent scenario, appendix, historical sidetrack, or campaign leg.
-2. Apply `default_visibility` first. Change an item to `player-safe` only when
+2. Keep all semantic prose in the packet's exact `source_language`; do not
+   translate for the current user or Keeper.
+3. Apply `default_visibility` first. Change an item to `player-safe` only when
    its exact source span is explicitly approved as player-safe; use
    `revealable` only for authored material that play can earn.
-3. List semantic entities already known from the packet. Reuse their exact IDs
+4. List semantic entities already known from the packet. Reuse their exact IDs
    through `node_refs`.
-4. Extract source-grounded nodes before relations. Use the smallest useful
+5. Extract source-grounded nodes before relations. Use the smallest useful
    number of nodes; do not turn every sentence into an entity.
-5. Extract assertions with truth/visibility and exact evidence. Keep scalar
+6. Extract assertions with truth/visibility and exact evidence. Keep scalar
    facts in the owning node's properties.
-6. Add one relation for every node-to-node claim. Its relation kind and
+7. Add one relation for every node-to-node claim. Its relation kind and
    endpoints exactly equal that claim's predicate, subject, and object.
-7. Put evidence directly on every node and claim. Root evidence scope is
+8. Put evidence directly on every node and claim. Root evidence scope is
    machine-assembled later and does not replace these citations.
-8. Account for all ten coverage domains. Only packet-declared `aspects` may be
+9. Account for all ten coverage domains. Only packet-declared `aspects` may be
    `accepted`, `partial`, or `absent`; every undeclared domain is exactly
    `unresolved` because it was not reviewed. Within declared aspects, `absent`
    requires evidence that the domain is not present. `unresolved` is success
    when the supplied section cannot answer that domain.
-9. Return one bare JSON object for deterministic validation.
+10. Return one bare JSON object for deterministic validation.
 
 ## Reject these shortcuts
 
@@ -217,5 +222,7 @@ uncertain OCR, missing sections, and extractor assumptions are soft,
 - a player-safe node/property that contains Keeper-only truth;
 - unknown evidence span IDs or any model-created source IDs, anchors, digests;
 - a non-ASCII, mixed-script, snake-case, or otherwise non-kebab identifier;
+- translated or user-language semantic prose that does not match
+  `source_language`;
 - a node or claim with no direct evidence citation;
 - claiming whole-module coverage from one section shard.

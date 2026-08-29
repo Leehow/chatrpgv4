@@ -1,6 +1,6 @@
 # 模组知识图谱与自动抽取 Skill 规范
 
-> **Status:** Implemented core / acceptance partial — deterministic compiler、Skill、asset-root generations 与 8/8 real-source semantic cases 已实现；source-language storage forward-test 尚未通过，产品仍 `unintegrated`。
+> **Status:** Source-compiler phase complete — deterministic compiler、Skill、asset-root generations、8/8 real-source semantic cases 与 fresh `zh-Hans` canonical-storage acceptance 已完成；KP/product integration 仍 `unintegrated`。
 > **ID:** `module-knowledge-graph-extraction`
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`；Codex-host 专属实现 off-limits。
 > **Scope:** 共享 `plugins/coc-keeper/` 的模组来源编译能力；不含 KP、live play、campaign state 或 Scenario IR 投影。
@@ -24,6 +24,7 @@
 - 模组事实、角色信念、传闻、谎言和抽取器推断能够并存；
 - 长模组可以按 section 与 aspect 渐进构建，未解析内容保持 `unresolved`；
 - JSON 图谱可以用关键词召回和有限深度遍历检查，且 Keeper/player 可见性不会串线；
+- 图谱语义文本保持被解析模组的源语言；用户语言翻译只属于未来 KP 展示层，且不回写图谱；
 - 同一套抽取结果以后可以投影给现有 Scenario IR 或 KP，而不需要重新理解一次原文。
 
 Hollow delivery 包括：
@@ -139,12 +140,17 @@ campaign state / rules / Git history remain a separate authority plane.
 
 只有 packet 声明的 aspects 可以是 `accepted|partial|absent`。其它域必须恰为 `unresolved`，因为本次抽取没有审查它们。只要计划中的 section/aspect 有 `unresolved`，整个 module build 就是 `partial`，不得宣称整本完成。
 
+Semantic review 也受同一 aspect boundary 约束：不得因为一个
+`actors + knowledge` shard 没抽 ordering、Quest、requirement 或 mechanics
+而拒绝它；对应专项检查必须为 `not-applicable`。但已表示内容中的 truth、
+visibility、source-language 错误仍可跨域审查，因为它们会污染窄 shard。
+
 ---
 
 ## 6. Ontology laws
 
 精确 node kinds、relation kinds、truth statuses、visibility 与字段集合由单一机器合同
-[`plugins/coc-keeper/references/module-graph-contract-v2.json`](../../plugins/coc-keeper/references/module-graph-contract-v2.json)
+[`plugins/coc-keeper/references/module-graph-contract-v3.json`](../../plugins/coc-keeper/references/module-graph-contract-v3.json)
 冻结。本文只定义语义法则，不复制会漂移的完整枚举。
 
 ### 6.1 Identity
@@ -157,7 +163,15 @@ campaign state / rules / Git history remain a separate authority plane.
 - 同名不等于同一实体。版次、翻译、伪装身份、秘密身份、附身形态和生物形态必须由显式关系连接。
 - 禁止按名字相似度自动合并。碰撞进入 semantic reconciliation，不静默选择。
 
-### 6.2 Epistemic truth
+### 6.2 Source language
+
+- 每个 extraction packet 和 GraphShard 必须声明 `source_language`（BCP 47）。
+- `source_language` 指被解析来源文件本身的语言。解析中文译本时是 `zh-Hans`，而不是不可见英文原版的 `en`。
+- `name / aliases / summary / reason` 与 prose-valued semantic properties 必须保持该来源语言；compiler 不翻译、不罗马化、不追加用户语言 alias。
+- ModuleGraph 与 BuildManifest 聚合并绑定 `source_languages`，载入时验证两者一致。
+- 未来 KP 可以按 `play_language` 临时渲染本地化文本，但不得覆盖、回写或把翻译混入 accepted source graph。
+
+### 6.3 Epistemic truth
 
 Claim 的 truth status 恰为：
 
@@ -169,7 +183,7 @@ Claim 的 truth status 恰为：
 
 不同断言可以并存。`inferred-candidate` 始终 keeper-only，不得产生 hard requirement、来源事实或玩家知识。
 
-### 6.3 Visibility
+### 6.4 Visibility
 
 - `keeper-only`：来源秘密与 Keeper craft；
 - `revealable`：可通过 play 获得，但尚未自动成为玩家知识；
@@ -177,7 +191,7 @@ Claim 的 truth status 恰为：
 
 每个 packet 先给 `default_visibility`。只有 parent 明确批准的 player-safe spans 才能把相应内容降为 `player-safe`。标题公开不意味着同一节点的秘密 properties 也公开；若可见性不同，拆 Node/Claim。
 
-### 6.4 Ordering
+### 6.5 Ordering
 
 以下关系不可互推：
 
@@ -189,7 +203,7 @@ Claim 的 truth status 恰为：
 
 JSON 数组顺序永远不是图事实。来源明确列出具名单元时，用相邻 `print-precedes` 保存出版顺序；不得因此制造 `play-precedes` 或 hard gate。
 
-### 6.5 Quest and causality
+### 6.6 Quest and causality
 
 - `quest` 只表示调查员可承担/关闭的行动型目标。
 - 敌人计划使用 `procedure / event / threat / clock`，不因“有步骤”而成为 Quest。
@@ -562,7 +576,7 @@ Neo4j 只能在出现真实第二 backend 需求后作为从 `module-graph.json`
 | GraphShard accept/build | Implemented | deterministic validation + independent semantic review + digest receipt |
 | Extraction child Skill | Implemented | parent-owned prepare/review/accept/build；Skill 只产 candidate |
 | Storage | Implemented | manifest-selected immutable generation，isolated real builds verified |
-| Corpus coverage | Partial | 8/8 semantic cases accepted；source-language storage gate 尚未闭合 |
+| Corpus coverage | Complete for this source-compiler phase | 8/8 semantic cases accepted；fresh Chinese v3 shard accepted, built, and retrieved by canonical Chinese text |
 | Scenario IR / KP | Intentionally absent | 后续独立 integration spec 才能授权 |
 
 完整证据和失败语义见 pre-KP handoff。本 spec 的 §20 completion contract 仍未满足，不能把 core implementation 写成 product completion。
@@ -585,7 +599,7 @@ Neo4j 只能在出现真实第二 backend 需求后作为从 `module-graph.json`
 - closed JSON + deterministic validation 已实现；provider-native structured-output transport 仍由 host 能力决定，当前 relay 验收走 raw JSON；
 - 真实跑四个已验证案例并修复 systemic failures。
 
-### Slice 3 — corpus robustness — partial
+### Slice 3 — corpus robustness — implemented for this phase
 
 - 补 anthology、multi-era、epistemic conflict、edition/asset cases；
 - 完成 coverage planner、semantic reconciliation 与 partial rebuild；
@@ -595,7 +609,7 @@ Neo4j 只能在出现真实第二 backend 需求后作为从 `module-graph.json`
 
 - 输出图谱覆盖报告、失败模式、成本/延迟与代表性查询；
 - 明确哪些稳定语义能投影进现有 Scenario IR；
-- authored-lie 与 source-language alias 两个 gate 闭合后，才提交独立的 Graph → KP/Director/causal projection spec；
+- authored-lie 与 source-language canonical-storage 两个 gate 闭合后，才提交独立的 Graph → KP/Director/causal projection spec；
 - 在该 integration spec 获批前，不修改 live Keeper 或声称产品支持。
 
 ---
@@ -649,7 +663,7 @@ Neo4j 只能在出现真实第二 backend 需求后作为从 `module-graph.json`
 
 在第 10 条之后，图谱能力仍只是 source compiler capability；只有后续正常 Pi-Coc Keeper 路径真实消费并通过自然跑团验收，才可能升级为产品能力。
 
-当前评估：第 3 条已闭合；第 4 条的 source-language retrieval 仍缺一次符合最新语言法则的 fresh sample，第 10 条 handoff 因此保持 PARTIAL。本阶段尚不能标记 complete。
+当前评估：十项均已闭合。fresh Chinese sample 经过 prepare、模型抽取、机器校验、独立九项语义审查、accept、asset-root build、中文 lexical search、player isolation 与 bounded context。这里的 complete 仅指 source compiler phase；正常 Pi-Coc KP 尚未消费图谱，因此产品能力仍 `unintegrated`。
 
 ---
 
@@ -662,6 +676,7 @@ Neo4j 只能在出现真实第二 backend 需求后作为从 `module-graph.json`
 - progressive source gap 如何触发 deepen 而不阻塞 play；
 - authored module graph 与 campaign-local improvisation/temporal assertions 如何组合；
 - player-safe projection 在何时、以何种 receipt 建立 reveal；
+- KP 如何把 source-language canonical text 按 `play_language` 临时本地化，并保证 source graph 不被翻译结果污染；
 - Neo4j 是否在跨模组/大规模查询中具有经测量的必要性。
 
 未来 spec 必须选择单一 authority/promotion 路径并给出重复抽取的退休方案；这些 deferred decisions 不是当前实现可自行假定的授权。
