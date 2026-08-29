@@ -84,6 +84,18 @@ _SOCIAL_APPROACH_SKILLS = {
     "persuade": "Persuade",
 }
 _SOCIAL_DIFFICULTIES = ("regular", "hard", "extreme")
+_PSYCHOLOGY_OPPOSING_SOCIAL_SKILLS = ("Charm", "Fast Talk", "Intimidate", "Persuade")
+_PSYCHOLOGY_INFERENCE_DEPTHS = frozenset(
+    {"deep_conflict", "motive_link", "immediate_intent", "uncertain"}
+)
+_PSYCHOLOGY_FAILURE_OUTCOMES = frozenset({"failure", "fumble"})
+# Keeper Rulebook Psychology (10%) — pdf 83 / printed 72, block 48.
+# Graph nodes reference this resolver-owned constant; they must not carry it.
+PSYCHOLOGY_BASE_CHANCE = 10
+# §11.3: player-safe realization may release only the external-behavior conclusion.
+PSYCHOLOGY_REALIZATION_PUBLIC_KEYS = frozenset({"external_behavior"})
+_PSYCHOLOGY_REALIZATION_LOCKED_INPUTS = frozenset({"reroll", "reexecution"})
+_PSYCHOLOGY_OWNED_CONSTANTS = frozenset({"observer_skill_base_chance"})
 
 
 def social_difficulty(
@@ -105,17 +117,56 @@ def social_difficulty(
         raise ValueError("npc_defense must be an integer 0-100 or None")
     direction = str(request.get("motive_direction") or "neutral")
     intensity = request.get("motive_intensity", 0)
-    strategic_count = request.get("strategic_count", 0)
     bonus = request.get("bonus", 0)
     penalty = request.get("penalty", 0)
     if direction not in {"support", "neutral", "oppose"}:
         raise ValueError("invalid motive direction")
     if isinstance(intensity, bool) or intensity not in {0, 1, 2}:
         raise ValueError("invalid motive intensity")
-    if isinstance(strategic_count, bool) or not isinstance(strategic_count, int):
-        raise ValueError("strategic_count must be an integer")
-    if not 0 <= strategic_count <= 2:
-        raise ValueError("strategic_count must be 0-2")
+    described_action = request.get("described_action")
+    if described_action is not None and not isinstance(described_action, str):
+        raise ValueError("described_action must be a string")
+    goal = request.get("goal")
+    if goal is not None and not isinstance(goal, str):
+        raise ValueError("goal must be a string")
+    motive_evidence = request.get("motive_evidence")
+    if motive_evidence is not None and not isinstance(motive_evidence, list):
+        raise ValueError("motive_evidence must be a list")
+    supporting_action = request.get("supporting_action")
+    if supporting_action is None:
+        supporting_action = {"description": "", "level": 0, "provenance": ""}
+    elif not isinstance(supporting_action, dict):
+        raise ValueError("supporting_action must be an object")
+    else:
+        description = supporting_action.get("description", "")
+        if not isinstance(description, str):
+            raise ValueError("supporting_action.description must be a string")
+        level = supporting_action.get("level", 0)
+        if isinstance(level, bool) or level not in {0, 1}:
+            raise ValueError("supporting_action.level must be 0 or 1")
+        provenance = supporting_action.get("provenance", "")
+        if not isinstance(provenance, str):
+            raise ValueError("supporting_action.provenance must be a string")
+        supporting_action = {
+            "description": description,
+            "level": level,
+            "provenance": provenance,
+        }
+    sa_level = supporting_action["level"]
+    if "leverage_one_level" in request:
+        flag = request.get("leverage_one_level")
+        if flag not in {True, False}:
+            raise ValueError("leverage_one_level must be a boolean")
+        existing = 1 if flag else 0
+    else:
+        strategic_count = request.get("strategic_count", 0)
+        if isinstance(strategic_count, bool) or not isinstance(strategic_count, int):
+            raise ValueError("strategic_count must be an integer")
+        if not 0 <= strategic_count <= 2:
+            raise ValueError("strategic_count must be 0-2")
+        # Source (pdf 104 / printed 93 block 88) authorizes one level only.
+        existing = 1 if strategic_count else 0
+    leverage_adj = 1 if (existing or sa_level) else 0
     if any(isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 2 for value in (bonus, penalty)):
         raise ValueError("bonus and penalty must be integers 0-2")
 
@@ -125,8 +176,11 @@ def social_difficulty(
         if direction == "oppose"
         else (-1 if direction == "support" and intensity > 0 else 0)
     )
-    final = base + motive_delta - strategic_count
-    if direction == "oppose" and intensity == 2 and strategic_count == 0:
+    final = base + motive_delta - leverage_adj
+    if direction == "support" and intensity > 0:
+        # pdf 104 / printed 93 block 85: positively inclined NPCs agree without a roll.
+        feasibility = "automatic"
+    elif direction == "oppose" and intensity == 2 and leverage_adj == 0:
         feasibility = "conditional"
     elif final > 2:
         feasibility = "conditional"
@@ -139,7 +193,11 @@ def social_difficulty(
         "defense_skills": ["Psychology", _SOCIAL_APPROACH_SKILLS[approach]],
         "base_difficulty": _SOCIAL_DIFFICULTIES[base],
         "motive_adjustment": motive_delta,
-        "strategic_adjustment": -strategic_count,
+        "leverage_one_level": bool(leverage_adj),
+        "strategic_adjustment": -leverage_adj,
+        "described_action": str(described_action or ""),
+        "goal": str(goal or ""),
+        "supporting_action": supporting_action,
         "final_difficulty": _SOCIAL_DIFFICULTIES[max(0, min(2, final))],
         "feasibility": feasibility,
         "bonus_dice": bonus,
@@ -152,9 +210,60 @@ def social_skill_names() -> tuple[str, ...]:
     return tuple(_SOCIAL_APPROACH_SKILLS.values())
 
 
+def psychology_realization_public_projection(
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """Allowlist the player-safe realization: external-behavior conclusion only.
+
+    Concealed internals (inference ceiling, question, observable facts,
+    settlement identity, dice/outcome, and audit flags) never enter this view,
+    even when the payload is stuffed with them.  Spec §11.3.
+    """
+    if not isinstance(result, dict):
+        raise ValueError("realization result must be an object")
+    behavior = result.get("external_behavior")
+    if not isinstance(behavior, str) or not behavior.strip():
+        raise ValueError("external_behavior is required for public realization")
+    return {"external_behavior": behavior}
+
+
 def psychology_policy(check_result: dict[str, Any], question_kind: str) -> dict[str, Any]:
-    """Return the Keeper-only CoC 7e realization ceiling for a concealed read."""
+    """Return the Keeper-only CoC 7e realization ceiling for a concealed read.
+
+    Realization mode consumes frozen ``inference_ceiling`` plus
+    ``external_behavior`` and has no roll path: it never inspects a new roll,
+    never accepts ``reroll``/``reexecution`` payload constants, and never
+    returns those flags.  Settlement mode maps a concealed check outcome to
+    an inference depth.  Source (pdf 215 / printed 204 block 96): a lost roll
+    may yield any unreliable information including the opposite; inversion is
+    not compelled.
+    """
     del question_kind  # semantic question classification is Keeper-owned in v1.
+    if not isinstance(check_result, dict):
+        raise ValueError("check_result must be an object")
+    if "inference_ceiling" in check_result or "external_behavior" in check_result:
+        locked = sorted(
+            key for key in _PSYCHOLOGY_REALIZATION_LOCKED_INPUTS if key in check_result
+        )
+        if locked:
+            raise ValueError(
+                "realization has no roll path; do not supply " + ", ".join(locked)
+            )
+        ceiling = str(check_result.get("inference_ceiling") or "").strip()
+        behavior = str(check_result.get("external_behavior") or "").strip()
+        if not ceiling:
+            raise ValueError("inference_ceiling is required for realization")
+        if ceiling not in _PSYCHOLOGY_INFERENCE_DEPTHS:
+            raise ValueError("inference_ceiling is not a frozen observation depth")
+        if not behavior:
+            raise ValueError("external_behavior is required for realization")
+        public = psychology_realization_public_projection(
+            {"external_behavior": behavior}
+        )
+        return {
+            "player_projection": public,
+            "concealed_result": {"inference_ceiling": ceiling},
+        }
     outcome = str(check_result.get("outcome") or "failure")
     if outcome in {"critical", "extreme"}:
         depth = "deep_conflict"
@@ -167,32 +276,83 @@ def psychology_policy(check_result: dict[str, Any], question_kind: str) -> dict[
     return {
         "inference_depth": depth,
         "misread_policy": (
-            "plausible_wrong_on_fumble" if outcome == "fumble" else "none"
+            "any_unreliable_including_opposite"
+            if outcome in _PSYCHOLOGY_FAILURE_OUTCOMES or depth == "uncertain"
+            else "none"
         ),
     }
 
 
-def psychology_check_contract(npc_psychology: int | None) -> dict[str, Any]:
-    """Return the package-owned concealed Psychology check contract."""
-    if npc_psychology is not None and (
-        isinstance(npc_psychology, bool)
-        or not isinstance(npc_psychology, int)
-        or not 0 <= npc_psychology <= 100
-    ):
-        raise ValueError("npc_psychology must be an integer 0-100 or None")
+def _psychology_int_field(value: Any, name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
+        raise ValueError(f"{name} must be an integer 0-100 or None")
+    return value
+
+
+def psychology_check_contract(
+    npc_psychology: int | dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return the package-owned concealed Psychology check contract.
+
+    Difficulty comes from the *target's* relevant social skill (Charm, Fast
+    Talk, Intimidate, or Persuade) — pdf 84 / printed 73 blocks 52-53 — not
+    from the observer's or target's Psychology sheet value.  Observer
+    Psychology defaults to 10% (pdf 83 / printed 72 block 48).
+    """
+    if isinstance(npc_psychology, dict):
+        request = npc_psychology
+        owned = sorted(key for key in _PSYCHOLOGY_OWNED_CONSTANTS if key in request)
+        if owned:
+            raise ValueError(
+                "observer_skill_base_chance is resolver-owned "
+                "(PSYCHOLOGY_BASE_CHANCE); do not supply it as payload"
+            )
+        opposing = _psychology_int_field(
+            request.get("target_opposing_social"), "target_opposing_social"
+        )
+        observer_skill = _psychology_int_field(
+            request.get("observer_skill"), "observer_skill"
+        )
+        question = request.get("question")
+        if question is not None and not isinstance(question, str):
+            raise ValueError("question must be a string")
+        observable_facts = request.get("observable_facts")
+        if observable_facts is not None and not isinstance(observable_facts, list):
+            raise ValueError("observable_facts must be a list")
+    else:
+        opposing = _psychology_int_field(npc_psychology, "target_opposing_social")
+        observer_skill = None
+        question = None
+        observable_facts = None
+    if observer_skill is None:
+        observer_skill = PSYCHOLOGY_BASE_CHANCE
+        observer_skill_source = "rulebook_base"
+    else:
+        observer_skill_source = "sheet"
     difficulty = (
         "regular"
-        if npc_psychology is None or npc_psychology < 50
-        else "hard" if npc_psychology < 90 else "extreme"
+        if opposing is None or opposing < 50
+        else "hard" if opposing < 90 else "extreme"
     )
     return {
         "skill": "Psychology",
-        "defense_skills": ["Psychology"],
+        "observer_skill": observer_skill,
+        "observer_skill_base_chance": PSYCHOLOGY_BASE_CHANCE,
+        "observer_skill_source": observer_skill_source,
+        "target_opposing_social": opposing,
+        "question": question or "",
+        "observable_facts": list(observable_facts or []),
+        "defense_skills": list(_PSYCHOLOGY_OPPOSING_SOCIAL_SKILLS),
         "difficulty": difficulty,
         "difficulty_basis": "opponent_skill",
         "stakes": {
             "on_success": "the observer reads the current behavior correctly",
-            "on_failure": "the observer cannot settle the truth of the read",
+            "on_failure": (
+                "the Keeper may give any unreliable information including the "
+                "opposite of the truth; inversion is not compelled"
+            ),
         },
     }
 
@@ -684,12 +844,27 @@ def public_api_index() -> dict[str, dict[str, Any]]:
         "psychology_policy": {
             "aliases": [],
             "signature": "psychology_policy(check_result, question_kind)",
-            "returns": "Keeper-only concealed Psychology realization ceiling",
+            "returns": (
+                "concealed Psychology inference ceiling, or a no-roll realization "
+                "split into player_projection (external_behavior only) and "
+                "concealed_result (inference_ceiling)"
+            ),
+        },
+        "psychology_realization_public_projection": {
+            "aliases": [],
+            "signature": "psychology_realization_public_projection(result)",
+            "returns": (
+                "§11.3 allowlist: only external_behavior; concealed fields dropped"
+            ),
         },
         "psychology_check_contract": {
             "aliases": [],
             "signature": "psychology_check_contract(npc_psychology)",
-            "returns": "CoC 7e concealed Psychology skill, difficulty, and stakes contract",
+            "returns": (
+                "Psychology observer skill defaulting to resolver-owned "
+                "PSYCHOLOGY_BASE_CHANCE=10 and difficulty from the target's "
+                "relevant social skill"
+            ),
         },
         "roll_dice": {
             "aliases": ["roll_expression"],

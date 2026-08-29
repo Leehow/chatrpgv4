@@ -1,0 +1,218 @@
+{
+  "identities": {
+    "campaign_id": "social-psych-test",
+    "investigator_id": "thomas-hayes",
+    "npc_id": "npc-steven-knott"
+  },
+  "provenance": {
+    "generator": "tests/fixtures/generate_social_psychology_pre_slice_golden.py",
+    "main_commit": "c2090cf90a31cd72b81223ee05be6812bdeac987",
+    "note": "Captured by overlaying main HEAD's social operation + coc7 resolver onto a fresh toolbox load, then running the pin test's legacy calls against the-haunting/thomas-hayes quick_start.",
+    "source_files": [
+      "plugins/coc-keeper/scripts/coc_operation_social_psychology.py",
+      "plugins/coc-keeper/rulesets/coc7/resolver.py"
+    ]
+  },
+  "psychology_settle": {
+    "data": {
+      "conversation_window_id": "conv-legacy-pin",
+      "inference_depth": "immediate_intent",
+      "insight_id": "psych-insight-e5488d74b0f7",
+      "misread_policy": "none",
+      "observable_fact_refs": [
+        {
+          "grounding_scope": "keeper_target_truth",
+          "identifier": "npc-steven-knott/fact-knott-commission",
+          "kind": "npc_fact",
+          "player_known": false,
+          "record_digest": "sha256:908f90953efcd39daaadfd9a33bb44983c17500eabf7daa4c6f3af6c1423ebcb",
+          "source_ref": "npc_fact:npc-steven-knott/fact-knott-commission"
+        }
+      ],
+      "observation_revision": 0,
+      "outcome": "regular",
+      "question": "他在害怕谁？",
+      "request_digest": "sha256:678283e38803d30fd1631b902099ae9f8d89fc0982ea9550953ed76b9ad19fee",
+      "resolution": "settled",
+      "roll_id": "toolbox-social-psych-test-000001",
+      "window_key": "team:party:275313a07b2c4918\u0000npc-steven-knott\u0000conv-legacy-pin\u00000"
+    },
+    "hints": [
+      "the roll and outcome are keeper-concealed: the player sees only your observation prose; on a fumble, give one confident but wrong read instead of exposing the failure",
+      "this window is locked until an explicit allowed observation revision event; ordinary NPC state deltas do not reopen it",
+      "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-2c3c8b40c7a6779ef1 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+    ],
+    "ok": true,
+    "warnings": []
+  },
+  "social_first": {
+    "data": {
+      "approach": "persuade",
+      "approach_skill": "Persuade",
+      "base_difficulty": "regular",
+      "bonus_dice": 0,
+      "commitment_id": "adj-legacy-pin",
+      "conversation_window_id": "conv-main",
+      "defense_key": "explicit",
+      "defense_source": "explicit",
+      "defense_value": 45,
+      "feasibility": "roll",
+      "feasibility_refs": [],
+      "final_difficulty": "regular",
+      "goal_key": "ca5b40361b3528d6",
+      "goal_summary": "承认篡改了档案",
+      "investigator_id": "thomas-hayes",
+      "leverage": [],
+      "leverage_delta": 0,
+      "motive": {
+        "direction": "neutral",
+        "evidence_refs": [],
+        "intensity": 0,
+        "resolved_evidence": []
+      },
+      "motive_delta": 0,
+      "npc_id": "npc-steven-knott",
+      "outcome_ceiling": {
+        "forbidden_fact_refs": [],
+        "goal_scope": "承认篡改了档案",
+        "npc_knowledge_refs": [],
+        "resolved_forbidden_fact_refs": [],
+        "resolved_npc_knowledge_refs": [],
+        "scene_truth_max_tier": null
+      },
+      "penalty_dice": 0,
+      "replayed": false,
+      "request_digest": "sha256:626b69035ed153cf25bca89c24174e1ef1e4bb1435da9441b94aa231a667b6e0",
+      "requirements": [],
+      "resolution": "new",
+      "roll_operation": {
+        "argument_boundary": {
+          "forbidden_arguments": [
+            "target",
+            "reason"
+          ],
+          "submission_shape": "prefilled_plus_missing_only"
+        },
+        "invoke_via": "coc_rules_roll",
+        "missing_arguments": [
+          "stakes",
+          "decision_id"
+        ],
+        "operation": "rules.roll",
+        "prefilled_arguments": {
+          "bonus": 0,
+          "difficulty": "regular",
+          "difficulty_basis": "opponent_skill",
+          "goal": "承认篡改了档案",
+          "investigator": "thomas-hayes",
+          "npc_id": "npc-steven-knott",
+          "penalty": 0,
+          "skill": "Persuade",
+          "social_adjudication_ref": "ca5b40361b3528d6"
+        }
+      },
+      "schema_version": 2,
+      "source_digest": "sha256:b559e8343b74f0aa4b44f0341ac4d34a8332a53b406c072e7454913e1b76da7f"
+    },
+    "hints": [
+      "roll Persuade at regular difficulty with difficulty_basis=opponent_skill; bonus=0 penalty=0",
+      "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-c93356a128066a6855 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+    ],
+    "ok": true,
+    "warnings": []
+  },
+  "social_replay": {
+    "data": {
+      "approach": "persuade",
+      "approach_skill": "Persuade",
+      "base_difficulty": "regular",
+      "bonus_dice": 0,
+      "commitment_id": "adj-legacy-pin",
+      "conversation_window_id": "conv-main",
+      "defense_key": "explicit",
+      "defense_source": "explicit",
+      "defense_value": 45,
+      "feasibility": "roll",
+      "feasibility_refs": [],
+      "final_difficulty": "regular",
+      "goal_key": "ca5b40361b3528d6",
+      "goal_summary": "承认篡改了档案",
+      "investigator_id": "thomas-hayes",
+      "leverage": [],
+      "leverage_delta": 0,
+      "motive": {
+        "direction": "neutral",
+        "evidence_refs": [],
+        "intensity": 0,
+        "resolved_evidence": []
+      },
+      "motive_delta": 0,
+      "npc_id": "npc-steven-knott",
+      "outcome_ceiling": {
+        "forbidden_fact_refs": [],
+        "goal_scope": "承认篡改了档案",
+        "npc_knowledge_refs": [],
+        "resolved_forbidden_fact_refs": [],
+        "resolved_npc_knowledge_refs": [],
+        "scene_truth_max_tier": null
+      },
+      "penalty_dice": 0,
+      "replayed": true,
+      "request_digest": "sha256:4813f07125025bf5695b554a144462fe19e18b04a97e163dd3a126c34c671c3b",
+      "requirements": [],
+      "resolution": "reuse",
+      "roll_operation": {
+        "argument_boundary": {
+          "forbidden_arguments": [
+            "target",
+            "reason"
+          ],
+          "submission_shape": "prefilled_plus_missing_only"
+        },
+        "invoke_via": "coc_rules_roll",
+        "missing_arguments": [
+          "stakes",
+          "decision_id"
+        ],
+        "operation": "rules.roll",
+        "prefilled_arguments": {
+          "bonus": 0,
+          "difficulty": "regular",
+          "difficulty_basis": "opponent_skill",
+          "goal": "承认篡改了档案",
+          "investigator": "thomas-hayes",
+          "npc_id": "npc-steven-knott",
+          "penalty": 0,
+          "skill": "Persuade",
+          "social_adjudication_ref": "ca5b40361b3528d6"
+        }
+      },
+      "schema_version": 2,
+      "source_digest": "sha256:b559e8343b74f0aa4b44f0341ac4d34a8332a53b406c072e7454913e1b76da7f"
+    },
+    "hints": [
+      "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-c93356a128066a6855 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+    ],
+    "ok": true,
+    "warnings": [
+      "same goal key with unchanged motive/leverage: replaying the original adjudication — switching the approach skill name does not reopen the goal"
+    ]
+  },
+  "social_schema_params": [
+    "approach",
+    "commitment_id",
+    "conversation_window_id",
+    "decision_id",
+    "feasibility",
+    "feasibility_refs",
+    "goal_summary",
+    "investigator",
+    "leverage",
+    "motive",
+    "npc_defense_value",
+    "npc_id",
+    "outcome_ceiling",
+    "requirements",
+    "tactical"
+  ]
+}

@@ -172,7 +172,8 @@ def test_social_adjudicate_difficulty_ladder_and_motive(campaign_ws):
         npc_defense_value=55,
         motive={"direction": "support", "intensity": 1, "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"]},
     )
-    assert supported["data"]["final_difficulty"] == "regular"
+    assert supported["data"]["feasibility"] == "automatic"
+    assert "roll_operation" not in supported["data"]
     assert supported["data"]["motive_delta"] == -1
 
     automatic = _adjudicate(
@@ -182,6 +183,7 @@ def test_social_adjudicate_difficulty_ladder_and_motive(campaign_ws):
         motive={"direction": "support", "intensity": 1, "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"]},
     )
     assert automatic["data"]["feasibility"] == "automatic"
+    assert "roll_operation" not in automatic["data"]
 
 
 def test_social_adjudicate_leverage_cap_and_conditional(campaign_ws):
@@ -198,11 +200,23 @@ def test_social_adjudicate_leverage_cap_and_conditional(campaign_ws):
         tactical={"bonus": 1, "penalty": 0},
     )
     assert leveraged["ok"] is True, leveraged
-    assert leveraged["data"]["leverage_delta"] == 2
-    # hard(1) + oppose(1) - leverage(2) = 0 -> regular
-    assert leveraged["data"]["final_difficulty"] == "regular"
+    # KP envelope keeps pre-slice fields; one-level flag lives on the resolver.
+    assert "leverage_one_level" not in leveraged["data"]
+    assert leveraged["data"]["leverage_delta"] == 1
+    # hard(1) + oppose(1) - one-level leverage(1) = 1 -> hard (pdf 104 block 88)
+    assert leveraged["data"]["final_difficulty"] == "hard"
     assert leveraged["data"]["bonus_dice"] == 1
-    assert any("more than two" in warning for warning in leveraged["warnings"])
+    assert any("only one difficulty level" in warning for warning in leveraged["warnings"])
+    host = _invoke_social_host_internal(
+        approach="persuade",
+        motive_direction="oppose",
+        motive_intensity=1,
+        bonus=1,
+        leverage_one_level=True,
+    )
+    assert host["leverage_one_level"] is True
+    assert host["strategic_adjustment"] == -1
+    assert host["final_difficulty"] == "hard"
 
     conditional = _adjudicate(
         campaign_ws,
@@ -479,9 +493,14 @@ def test_psychology_observe_concealed_and_window_reuse(campaign_ws):
     assert realized["ok"] is True, realized
     assert realized["data"]["resolution"] == "realized"
     assert realized["data"]["insight_id"] == first["data"]["insight_id"]
-    assert realized["data"]["conversation_window_id"] == "conv-psych"
-    assert realized["data"]["observation_revision"] == 0
+    assert realized["data"]["player_projection"] == {
+        "external_behavior": "他说到区里检查时，先看了门口。"
+    }
     assert realized["data"]["visible_observation"] == "他说到区里检查时，先看了门口。"
+    concealed = realized["data"]["concealed_result"]
+    assert concealed["conversation_window_id"] == "conv-psych"
+    assert concealed["observation_revision"] == 0
+    assert concealed["question"] == first["data"]["question"]
     assert realized["data"]["request_digest"].startswith("sha256:")
 
     wrong_identity = _observe(
@@ -715,3 +734,578 @@ def test_psychology_four_party_investigators_share_one_team_window(campaign_ws):
     assert [result["data"]["resolution"] for result in results[1:]] == ["reuse"] * 3
     assert len({result["data"]["insight_id"] for result in results}) == 1
     assert len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")) == 1
+
+
+def _resolver():
+    return _load(
+        "coc7_resolver_social_psych_contract",
+        REPO / "plugins" / "coc-keeper" / "rulesets" / "coc7" / "resolver.py",
+    )
+
+
+def _social_ops():
+    return coc_toolbox.OPERATION_MODULES["social-psychology"]
+
+
+GOLDEN_PATH = REPO / "tests" / "fixtures" / "social-psychology-pre-slice-golden.json"
+_SCENE_HINT_PREFIX = "scene state was updated"
+_ENVELOPE_KEYS = ("ok", "data", "warnings", "hints")
+# Sole documented source-justified rewrite vs main HEAD (pdf 215 / printed 204 block 96).
+_PSYCHOLOGY_FIRST_HINT_REWRITE = (
+    "the roll and outcome are keeper-concealed: the player sees only your "
+    "observation prose; on failure you may give any unreliable information "
+    "including the opposite, but do not automatically invert and do not expose the roll"
+)
+
+
+def _load_pre_slice_golden() -> dict:
+    return json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
+
+
+def _canonical(value) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _without_scene_hints(hints: list) -> list:
+    if not isinstance(hints, list):
+        raise AssertionError(f"hints must be a list, got {type(hints).__name__}")
+    return [hint for hint in hints if not str(hint).startswith(_SCENE_HINT_PREFIX)]
+
+
+def _require_envelope_keys(result: dict) -> None:
+    missing = [key for key in _ENVELOPE_KEYS if key not in result]
+    if missing:
+        raise AssertionError(f"envelope missing keys: {missing}")
+
+
+def _normalized_tool_envelope(result: dict) -> dict:
+    """Complete run_tool envelope minus dynamic scene-revision bookkeeping hints.
+
+    Absent ``warnings``/``hints`` is a failure, distinct from a present empty list.
+    """
+    _require_envelope_keys(result)
+    warnings = result["warnings"]
+    hints = result["hints"]
+    if not isinstance(warnings, list):
+        raise AssertionError(f"warnings must be a list, got {type(warnings).__name__}")
+    return {
+        "ok": result["ok"],
+        "data": result["data"],
+        "warnings": list(warnings),
+        "hints": _without_scene_hints(hints),
+    }
+
+
+def _invoke_social_host_internal(
+    *,
+    approach: str = "intimidate",
+    motive_direction: str = "oppose",
+    motive_intensity: int = 1,
+    bonus: int = 0,
+    penalty: int = 0,
+    npc_defense: int | None = 55,
+    **overlay_kwargs,
+):
+    """The declared host-internal seam: overlay -> request -> resolver."""
+    ops = _social_ops()
+    overlay = ops.social_host_internal_overlay(**overlay_kwargs)
+    request = ops.build_social_difficulty_request(
+        approach=approach,
+        motive_direction=motive_direction,
+        motive_intensity=motive_intensity,
+        bonus=bonus,
+        penalty=penalty,
+        host_internal=overlay,
+    )
+    return _resolver().social_difficulty(request, npc_defense)
+
+
+def test_social_difficulty_unit_consumes_supporting_action_as_one_level():
+    """Resolver unit test (not the host-internal overlay/request seam)."""
+    resolver = _resolver()
+    supporting = {
+        "description": "holding a crowbar and clearly willing to use it",
+        "level": 1,
+        "provenance": "player-source",
+    }
+    stacked = resolver.social_difficulty(
+        {
+            "approach": "intimidate",
+            "described_action": "swings a crowbar near the doctor's head",
+            "goal": "name the police contact",
+            "motive_direction": "oppose",
+            "motive_intensity": 1,
+            "motive_evidence": ["npc_agenda:npc-1"],
+            "supporting_action": supporting,
+            "leverage_one_level": True,
+        },
+        55,
+    )
+    assert stacked["leverage_one_level"] is True
+    assert stacked["supporting_action"] == supporting
+    assert stacked["described_action"]
+    assert stacked["goal"] == "name the police contact"
+    # hard + oppose(1) - one level = hard; a second supporting item cannot stack.
+    assert stacked["final_difficulty"] == "hard"
+    assert stacked["feasibility"] == "roll"
+    from_action_only = resolver.social_difficulty(
+        {
+            "approach": "intimidate",
+            "motive_direction": "oppose",
+            "motive_intensity": 1,
+            "supporting_action": supporting,
+        },
+        55,
+    )
+    assert from_action_only["leverage_one_level"] is True
+    assert from_action_only["strategic_adjustment"] == -1
+    assert from_action_only["final_difficulty"] == "hard"
+    without = resolver.social_difficulty(
+        {
+            "approach": "intimidate",
+            "motive_direction": "oppose",
+            "motive_intensity": 1,
+        },
+        55,
+    )
+    assert without["leverage_one_level"] is False
+    assert without["final_difficulty"] == "extreme"
+    assert without["supporting_action"] == {
+        "description": "", "level": 0, "provenance": "",
+    }
+    with pytest.raises(ValueError, match="supporting_action must be an object"):
+        resolver.social_difficulty(
+            {
+                "approach": "intimidate",
+                "supporting_action": "holding a crowbar",
+            },
+            55,
+        )
+    with pytest.raises(ValueError, match="supporting_action.level must be 0 or 1"):
+        resolver.social_difficulty(
+            {
+                "approach": "intimidate",
+                "supporting_action": {
+                    "description": "x", "level": True, "provenance": "",
+                },
+            },
+            55,
+        )
+    legacy_two = resolver.social_difficulty(
+        {"approach": "intimidate", "strategic_count": 2, "motive_direction": "oppose", "motive_intensity": 1},
+        55,
+    )
+    assert legacy_two["leverage_one_level"] is True
+    assert legacy_two["strategic_adjustment"] == -1
+    assert legacy_two["final_difficulty"] == "hard"
+
+
+def test_positive_inclination_is_automatic_even_at_hard_and_extreme():
+    resolver = _resolver()
+    for defense, base in ((55, "hard"), (92, "extreme")):
+        policy = resolver.social_difficulty(
+            {"approach": "persuade", "motive_direction": "support", "motive_intensity": 1},
+            defense,
+        )
+        assert policy["base_difficulty"] == base
+        assert policy["feasibility"] == "automatic"
+
+
+def test_social_positive_inclination_produces_no_roll_operation(campaign_ws):
+    hard = _adjudicate(
+        campaign_ws,
+        "adj-inclined-hard",
+        npc_defense_value=55,
+        motive={
+            "direction": "support",
+            "intensity": 1,
+            "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"],
+        },
+    )
+    extreme = _adjudicate(
+        campaign_ws,
+        "adj-inclined-extreme",
+        npc_defense_value=92,
+        motive={
+            "direction": "support",
+            "intensity": 1,
+            "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"],
+        },
+    )
+    for result in (hard, extreme):
+        assert result["ok"] is True, result
+        assert result["data"]["feasibility"] == "automatic"
+        assert "roll_operation" not in result["data"]
+
+
+def test_social_supporting_action_with_host_provenance_is_one_level():
+    # Host-internal overlay/request seam (not the KP schema).
+    supporting = {
+        "description": "拿出撬棍对准太阳穴",
+        "level": 1,
+        "provenance": "host",
+    }
+    result = _invoke_social_host_internal(
+        described_action="慢慢靠近并用撬棍威胁",
+        supporting_action=supporting,
+        leverage_one_level=True,
+    )
+    assert result["described_action"] == "慢慢靠近并用撬棍威胁"
+    assert result["supporting_action"] == supporting
+    assert result["leverage_one_level"] is True
+    assert result["strategic_adjustment"] == -1
+    assert result["final_difficulty"] == "hard"
+    assert result["feasibility"] == "roll"
+    stacked = _invoke_social_host_internal(
+        supporting_action=supporting,
+        leverage_one_level=True,
+    )
+    assert stacked["leverage_one_level"] is True
+    assert stacked["strategic_adjustment"] == -1
+    assert stacked["final_difficulty"] == "hard"
+    from_action_only = _invoke_social_host_internal(
+        supporting_action=supporting,
+    )
+    assert from_action_only["leverage_one_level"] is True
+    assert from_action_only["strategic_adjustment"] == -1
+    assert from_action_only["final_difficulty"] == "hard"
+
+
+def test_social_host_internal_seam_break_fails_new_contract(monkeypatch):
+    ops = _social_ops()
+    monkeypatch.setattr(ops, "social_host_internal_overlay", lambda **_kwargs: {})
+    result = _invoke_social_host_internal(
+        described_action="慢慢靠近并用撬棍威胁",
+        supporting_action="拿出撬棍对准太阳穴",
+        leverage_one_level=True,
+    )
+    with pytest.raises(AssertionError):
+        assert result["described_action"] == "慢慢靠近并用撬棍威胁"
+        assert result["supporting_action"] == "拿出撬棍对准太阳穴"
+        assert result["leverage_one_level"] is True
+
+
+def test_psychology_policy_realize_consumes_ceiling_and_behavior_without_reroll():
+    resolver = _resolver()
+    realized = resolver.psychology_policy(
+        {
+            "inference_ceiling": "immediate_intent",
+            "external_behavior": "he glances at the door before answering",
+            "outcome": "regular",
+        },
+        "realize",
+    )
+    assert realized["player_projection"] == {
+        "external_behavior": "he glances at the door before answering"
+    }
+    assert realized["concealed_result"]["inference_ceiling"] == "immediate_intent"
+    assert "reroll" not in realized
+    assert "reexecution" not in realized
+    assert "inference_depth" not in realized
+    assert "external_behavior" not in realized
+    assert "inference_ceiling" not in realized
+
+
+def test_psychology_failure_is_unreliable_not_compelled_invert():
+    resolver = _resolver()
+    for outcome in ("failure", "fumble"):
+        policy = resolver.psychology_policy({"outcome": outcome}, "question")
+        assert policy["inference_depth"] == "uncertain"
+        assert policy["misread_policy"] == "any_unreliable_including_opposite"
+    success = resolver.psychology_policy({"outcome": "regular"}, "question")
+    assert success["misread_policy"] == "none"
+
+
+def test_psychology_check_contract_defaults_observer_to_ten_and_uses_target_social():
+    resolver = _resolver()
+    assert resolver.PSYCHOLOGY_BASE_CHANCE == 10
+    vacant = resolver.psychology_check_contract({})
+    assert vacant["observer_skill"] == 10
+    assert vacant["observer_skill_base_chance"] == 10
+    assert vacant["observer_skill_source"] == "rulebook_base"
+    assert vacant["defense_skills"] == ["Charm", "Fast Talk", "Intimidate", "Persuade"]
+    assert vacant["difficulty"] == "regular"
+    against_social = resolver.psychology_check_contract(
+        {
+            "observer_skill": 45,
+            "target_opposing_social": 70,
+            "question": "is he lying?",
+            "observable_facts": ["npc_fact:npc-1/fact-a"],
+        }
+    )
+    assert against_social["observer_skill"] == 45
+    assert against_social["observer_skill_source"] == "sheet"
+    assert against_social["target_opposing_social"] == 70
+    assert against_social["difficulty"] == "hard"
+    assert against_social["question"] == "is he lying?"
+    psychology_sheet_only = resolver.psychology_check_contract(10)
+    assert psychology_sheet_only["difficulty"] == "regular"
+    extreme = resolver.psychology_check_contract({"target_opposing_social": 90})
+    assert extreme["difficulty"] == "extreme"
+
+
+def test_psychology_observe_uses_target_social_not_psychology_sheet(campaign_ws):
+    agendas_path = campaign_ws["campaign_dir"] / "scenario" / "npc-agendas.json"
+    agendas = json.loads(agendas_path.read_text(encoding="utf-8"))
+    for npc in agendas.get("npcs") or []:
+        if npc.get("npc_id") == campaign_ws["npc_id"]:
+            npc["skills"] = {"Psychology": 10, "Persuade": 70, "Charm": 20, "Fast Talk": 15, "Intimidate": 25}
+    _write_json(agendas_path, agendas)
+    # Host-internal contract: difficulty from target Persuade 70, not Psychology 10.
+    contract = _resolver().psychology_check_contract({"target_opposing_social": 70})
+    assert contract["target_opposing_social"] == 70
+    assert contract["difficulty"] == "hard"
+    assert contract["defense_skills"] == ["Charm", "Fast Talk", "Intimidate", "Persuade"]
+    observed = _observe(
+        campaign_ws,
+        "psych-target-social",
+        conversation_window_id="conv-target-social",
+        seed=11,
+    )
+    assert observed["ok"] is True, observed
+    assert "target_opposing_social" not in observed["data"]
+    assert "target_opposing_social_key" not in observed["data"]
+    assert "difficulty" not in observed["data"]
+    rows = {
+        row["roll_id"]: row
+        for row in _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    }
+    roll = rows[observed["data"]["roll_id"]]
+    payload = roll.get("payload") if isinstance(roll.get("payload"), dict) else roll
+    assert payload.get("difficulty") == "hard" or roll.get("difficulty") == "hard"
+
+
+def test_psychology_observe_defaults_missing_skill_to_ten_percent(campaign_ws):
+    investigator_id = campaign_ws["investigator_id"]
+    sheet_path = campaign_ws["coc_root"] / "investigators" / investigator_id / "character.json"
+    sheet = json.loads(sheet_path.read_text(encoding="utf-8"))
+    skills = dict(sheet.get("skills") or {})
+    skills.pop("Psychology", None)
+    sheet["skills"] = skills
+    _write_json(sheet_path, sheet)
+    contract = _resolver().psychology_check_contract({})
+    assert contract["observer_skill"] == 10
+    assert contract["observer_skill_base_chance"] == 10
+    assert contract["observer_skill_source"] == "rulebook_base"
+    observed = _observe(
+        campaign_ws,
+        "psych-base-10",
+        conversation_window_id="conv-base-10",
+        seed=3,
+    )
+    assert observed["ok"] is True, observed
+    assert "observer_skill" not in observed["data"]
+    assert "observer_skill_base_chance" not in observed["data"]
+    assert "observer_skill_source" not in observed["data"]
+    rows = {
+        row["roll_id"]: row
+        for row in _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    }
+    roll = rows[observed["data"]["roll_id"]]
+    payload = roll.get("payload") if isinstance(roll.get("payload"), dict) else roll
+    assert payload.get("target") == 10 or roll.get("target") == 10
+
+
+def test_psychology_realize_binds_ceiling_without_a_second_roll(campaign_ws):
+    first = _observe(
+        campaign_ws,
+        "psych-realize-contract",
+        conversation_window_id="conv-realize-contract",
+        seed=7,
+    )
+    assert first["ok"] is True, first
+    rolls_before = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    realized = _observe(
+        campaign_ws,
+        "psych-realize-contract-bind",
+        action="realize",
+        conversation_window_id="conv-realize-contract",
+        insight_id=first["data"]["insight_id"],
+        visible_observation="他说到区里检查时，先看了门口。",
+        seed=99,
+    )
+    assert realized["ok"] is True, realized
+    assert realized["data"]["resolution"] == "realized"
+    assert realized["data"]["player_projection"] == {
+        "external_behavior": "他说到区里检查时，先看了门口。"
+    }
+    assert realized["data"]["concealed_result"]["inference_ceiling"] == first["data"][
+        "inference_depth"
+    ]
+    assert "reroll" not in realized["data"]
+    assert "reexecution" not in realized["data"]
+    assert "inference_ceiling" not in realized["data"]
+    rolls_after = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    assert len(rolls_after) == len(rolls_before)
+    if first["data"]["misread_policy"] != "none":
+        assert first["data"]["misread_policy"] == "any_unreliable_including_opposite"
+
+
+def test_psychology_realization_public_projection_strips_concealed_fields():
+    resolver = _resolver()
+    stuffed = {
+        "external_behavior": "he glances at the door before answering",
+        "inference_ceiling": "deep_conflict",
+        "question": "is he lying about the cellar?",
+        "observable_fact_refs": ["npc_fact:npc-1/secret-motive"],
+        "observable_facts": ["the cellar key is in his sleeve"],
+        "investigator_id": "inv-ada",
+        "observer_scope": "individual:inv-ada",
+        "npc_id": "npc-corbitt",
+        "insight_id": "psych-insight-deadbeef",
+        "conversation_window_id": "conv-secret",
+        "observation_revision": 2,
+        "window_key": "individual\\x00npc-corbitt\\x00conv-secret\\x000",
+        "outcome": "extreme",
+        "roll_id": "roll-concealed-99",
+        "inference_depth": "deep_conflict",
+        "misread_policy": "none",
+        "observer_skill": 70,
+        "observer_skill_base_chance": 10,
+        "target_opposing_social": 90,
+        "visible_observation": "should not leak as a second public key",
+        "reroll": False,
+        "reexecution": False,
+    }
+    public = resolver.psychology_realization_public_projection(stuffed)
+    assert public == {"external_behavior": stuffed["external_behavior"]}
+    assert set(public) == resolver.PSYCHOLOGY_REALIZATION_PUBLIC_KEYS
+    leaked = set(public) & {
+        "inference_ceiling",
+        "question",
+        "observable_fact_refs",
+        "observable_facts",
+        "investigator_id",
+        "observer_scope",
+        "npc_id",
+        "insight_id",
+        "conversation_window_id",
+        "observation_revision",
+        "window_key",
+        "outcome",
+        "roll_id",
+        "inference_depth",
+        "misread_policy",
+        "observer_skill",
+        "observer_skill_base_chance",
+        "target_opposing_social",
+        "visible_observation",
+        "reroll",
+        "reexecution",
+    }
+    assert leaked == set()
+    dumped = json.dumps(public, ensure_ascii=False)
+    for fragment in (
+        "deep_conflict",
+        "is he lying",
+        "secret-motive",
+        "inv-ada",
+        "npc-corbitt",
+        "roll-concealed-99",
+        "cellar key",
+    ):
+        assert fragment not in dumped
+
+
+def test_psychology_check_contract_rejects_payload_base_chance():
+    resolver = _resolver()
+    with pytest.raises(ValueError, match="PSYCHOLOGY_BASE_CHANCE"):
+        resolver.psychology_check_contract({"observer_skill_base_chance": 10})
+    vacant = resolver.psychology_check_contract({})
+    assert vacant["observer_skill"] == resolver.PSYCHOLOGY_BASE_CHANCE
+
+
+def test_psychology_policy_rejects_reroll_payload_constants():
+    resolver = _resolver()
+    payload = {
+        "inference_ceiling": "immediate_intent",
+        "external_behavior": "he glances at the door",
+        "reroll": False,
+        "reexecution": False,
+    }
+    with pytest.raises(ValueError, match="no roll path"):
+        resolver.psychology_policy(payload, "realize")
+
+
+def test_psychology_realize_public_projection_omits_concealed_fields(campaign_ws):
+    first = _observe(
+        campaign_ws,
+        "psych-realize-secrecy",
+        conversation_window_id="conv-realize-secrecy",
+        seed=7,
+    )
+    assert first["ok"] is True, first
+    realized = _observe(
+        campaign_ws,
+        "psych-realize-secrecy-bind",
+        action="realize",
+        conversation_window_id="conv-realize-secrecy",
+        insight_id=first["data"]["insight_id"],
+        visible_observation="他说到区里检查时，先看了门口。",
+    )
+    assert realized["ok"] is True, realized
+    public = realized["data"]["player_projection"]
+    assert set(public) == {"external_behavior"}
+    assert public["external_behavior"] == "他说到区里检查时，先看了门口。"
+    concealed = realized["data"]["concealed_result"]
+    assert concealed["inference_ceiling"] == first["data"]["inference_depth"]
+    assert concealed["question"] == first["data"]["question"]
+    assert "observable_fact_refs" in concealed
+    dumped = json.dumps(public, ensure_ascii=False)
+    for fragment in (
+        concealed["inference_ceiling"],
+        concealed["question"],
+        concealed["investigator_id"],
+        concealed["npc_id"],
+        first["data"]["roll_id"],
+    ):
+        assert fragment not in dumped
+
+
+def test_legacy_social_and_psychology_envelopes_match_pre_slice(campaign_ws):
+    # Golden captured from main HEAD (c2090cf9) by overlaying that commit's
+    # social operation + coc7 resolver and running these exact calls. See
+    # tests/fixtures/generate_social_psychology_pre_slice_golden.py.
+    golden = _load_pre_slice_golden()
+    assert golden["provenance"]["main_commit"].startswith("c2090cf9")
+    assert campaign_ws["investigator_id"] == golden["identities"]["investigator_id"]
+    assert campaign_ws["npc_id"] == golden["identities"]["npc_id"]
+    schema = coc_toolbox._describe("rules.social_adjudicate")["params"]
+    assert sorted(schema) == golden["social_schema_params"]
+    args = {
+        "investigator": campaign_ws["investigator_id"],
+        "npc_id": campaign_ws["npc_id"],
+        "conversation_window_id": "conv-main",
+        "commitment_id": "adj-legacy-pin",
+        "approach": "persuade",
+        "goal_summary": "承认篡改了档案",
+        "npc_defense_value": 45,
+        "decision_id": "adj-legacy-pin",
+    }
+    first = _run(campaign_ws, "rules.social_adjudicate", args)
+    assert _canonical(_normalized_tool_envelope(first)) == _canonical(
+        _normalized_tool_envelope(golden["social_first"])
+    )
+    replay_args = dict(args)
+    replay_args["decision_id"] = "adj-legacy-pin-replay"
+    replay = _run(campaign_ws, "rules.social_adjudicate", replay_args)
+    assert _canonical(_normalized_tool_envelope(replay)) == _canonical(
+        _normalized_tool_envelope(golden["social_replay"])
+    )
+    observed = _observe(
+        campaign_ws,
+        "psych-legacy-pin",
+        conversation_window_id="conv-legacy-pin",
+        seed=7,
+    )
+    live_psych = _normalized_tool_envelope(observed)
+    expected_psych = _normalized_tool_envelope(golden["psychology_settle"])
+    # Complete envelope pin. The first hint is the sole documented
+    # source-justified rewrite (pdf 215 / printed 204 block 96); substitute
+    # that exact string, then compare the whole envelope.
+    assert expected_psych["hints"], "golden psychology hints must be present"
+    expected_psych = {
+        **expected_psych,
+        "hints": [_PSYCHOLOGY_FIRST_HINT_REWRITE, *expected_psych["hints"][1:]],
+    }
+    assert _canonical(live_psych) == _canonical(expected_psych)

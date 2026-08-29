@@ -593,6 +593,161 @@ def _opening_projection_pacing_available(
         return False
 
 
+_SOCIAL_PSYCHOLOGY_SHADOW_TOOLS = frozenset({
+    "rules.social_adjudicate", "rules.psychology_observe",
+})
+
+
+def _shadow_legacy_command_for_social_psychology(
+    ctx: Ctx, name: str, args: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Reconstruct the legacy resolver request for a social/psychology op.
+
+    Uses the SAME exported helpers the ops use, so the shadow side is the
+    normalized request the handler will feed the resolver contract.  Returns
+    None when the op is not in a comparable mode (e.g. a legacy realization
+    without a settled observation) — the comparator then records a skipped
+    row and the legacy path continues.
+    """
+    if name == "rules.social_adjudicate":
+        approach = str(args.get("approach") or "").strip()
+        if not approach:
+            return None
+        motive = args.get("motive") or {}
+        if not isinstance(motive, dict):
+            return None
+        trajectory = str(motive.get("direction") or "neutral").strip()
+        try:
+            intensity = int(motive.get("intensity") or 0)
+        except (TypeError, ValueError):
+            return None
+        tactical = args.get("tactical") or {}
+        if not isinstance(tactical, dict):
+            return None
+        bonus = tactical.get("bonus", 0)
+        penalty = tactical.get("penalty", 0)
+        if isinstance(bonus, bool) or not isinstance(bonus, int):
+            bonus = 0
+        if isinstance(penalty, bool) or not isinstance(penalty, int):
+            penalty = 0
+        leverage = args.get("leverage") or []
+        leverage_one_level = True if isinstance(leverage, list) and leverage else None
+        request = build_social_difficulty_request(
+            approach=approach,
+            motive_direction=trajectory,
+            motive_intensity=intensity,
+            bonus=bonus,
+            penalty=penalty,
+            host_internal=social_host_internal_overlay(
+                leverage_one_level=leverage_one_level,
+            ),
+        )
+        npc_id = str(args.get("npc_id") or "").strip()
+        defense = args.get("npc_defense_value")
+        if isinstance(defense, bool) or not isinstance(defense, int):
+            defense = None
+        if defense is None and npc_id:
+            policy = _rules_resolver(ctx, "social_difficulty").social_difficulty(
+                {"approach": approach}, None,
+            )
+            defense, _key = _npc_authored_social_defense(
+                ctx, npc_id,
+                [str(value) for value in policy.get("defense_skills") or []],
+            )
+        request["npc_defense"] = defense
+        return {"kind": "social_difficulty", "phase": "resolve", "payload": request}
+    investigator_id = str(args.get("investigator") or "").strip()
+    if not investigator_id:
+        return None
+    if name == "rules.psychology_observe":
+        action = str(args.get("action") or "settle").strip()
+        if action == "realize":
+            insight_id = str(args.get("insight_id") or "").strip()
+            visible = str(args.get("visible_observation") or "").strip()
+            npc_id = str(args.get("npc_id") or "").strip()
+            if not insight_id:
+                return None
+            document = _load_json_document(
+                ctx, "psychology-observations.json", 2, "observations",
+            )
+            matching = next(
+                (
+                    row for row in document["observations"].values()
+                    if isinstance(row, dict) and row.get("insight_id") == insight_id
+                ),
+                None,
+            )
+            if not isinstance(matching, dict):
+                return None
+            ceiling = str(matching.get("inference_depth") or "").strip()
+            if not ceiling or not visible:
+                return None
+            return {
+                "kind": "psychology_policy",
+                "phase": "realize",
+                "payload": {
+                    "inference_ceiling": ceiling,
+                    "external_behavior": visible,
+                },
+            }
+        resolver = _rules_resolver(ctx, "psychology_check_contract")
+        provisional = resolver.psychology_check_contract({})
+        base = int(provisional["observer_skill_base_chance"])
+        observer_skill, _source = _observer_psychology_skill(
+            ctx, investigator_id, base,
+        )
+        npc_id = str(args.get("npc_id") or "").strip()
+        defense_skills = [
+            str(value) for value in provisional.get("defense_skills") or []
+        ]
+        defense, _key = (
+            _npc_authored_social_defense(ctx, npc_id, defense_skills)
+            if npc_id else (None, None)
+        )
+        observable_facts = [
+            str(value).strip()
+            for value in (args.get("observable_fact_refs") or [])
+            if str(value).strip()
+        ]
+        return {
+            "kind": "psychology_check_contract",
+            "phase": "resolve",
+            "payload": {
+                "observer_skill": observer_skill,
+                "target_opposing_social": defense,
+                "question": str(args.get("question") or "").strip(),
+                "observable_facts": observable_facts,
+            },
+        }
+    return None
+
+
+def _shadow_compare_social_psychology_fail_open(
+    ctx: Ctx, name: str, args: dict[str, Any],
+) -> None:
+    """Host-internal shadow compare for the two legacy ops; never raises."""
+    try:
+        command = _shadow_legacy_command_for_social_psychology(ctx, name, args)
+        coc_operation_kernel.coc_rules_runtime.maybe_shadow_compare_social_psychology(
+            ruleset_id=_active_ruleset_id(ctx),
+            tool_name=name,
+            decision_id=str(args.get("decision_id") or ""),
+            command=command,
+            args=args,
+            state_path=(
+                ctx.inv_state_path(str(args.get("investigator")))
+                if str(args.get("investigator") or "").strip() else None
+            ),
+            sheet_provider=(
+                lambda: ctx.sheet(str(args.get("investigator")))
+                if str(args.get("investigator") or "").strip() else None
+            ),
+        )
+    except Exception:
+        pass
+
+
+
 def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any]) -> dict[str, Any]:
     """Programmatic entry point. Returns the envelope dict."""
     spec = TOOLS.get(name)
@@ -886,6 +1041,9 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                         "ref": cache_ref,
                     }
             else:
+                if name in _SOCIAL_PSYCHOLOGY_SHADOW_TOOLS and isinstance(args, dict):
+                    # Host-internal, fail-open, compare-before-RNG (spec §14.1).
+                    _shadow_compare_social_psychology_fail_open(ctx, name, args)
                 data, warnings, hints = spec["handler"](ctx, args)
             # For write operations (access=mutation), attach a scene revision
             # hint so the KP can avoid the redundant scene.context full-fetch
