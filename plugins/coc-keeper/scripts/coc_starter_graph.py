@@ -30,7 +30,7 @@ PROJECTION_CONTRACT_ID = "coc.module-graph-runtime-projection.v1"
 ASSET_CATALOG_CONTRACT_ID = "coc.starter-graph-assets.v1"
 GRAPH_FILENAME = "module-graph.json"
 ASSET_CATALOG_FILENAME = "module-graph-assets.json"
-ASSET_ROOT_ID = "the-haunting-keeper-rulebook-40th"
+ASSET_ROOT_ID = "the-haunting-keeper-rulebook-40th-full-v1"
 SOURCE_ID = "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting"
 
 PROJECTED_DOCUMENTS: tuple[str, ...] = (

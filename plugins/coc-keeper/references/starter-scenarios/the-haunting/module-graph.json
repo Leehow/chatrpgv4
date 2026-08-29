@@ -3434,7 +3434,7 @@
         "span-page-460-anchor-1"
       ],
       "properties": {
-        "asset_root_id": "the-haunting-keeper-rulebook-40th",
+        "asset_root_id": "the-haunting-keeper-rulebook-40th-full-v1",
         "source_binding": {
           "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
           "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
@@ -3450,8 +3450,8 @@
               "root": {
                 "schema_version": 1,
                 "scenario_id": "the-haunting",
-                "handout_asset_root_id": "the-haunting-keeper-rulebook-40th",
-                "module_graph_asset_root_id": "the-haunting-keeper-rulebook-40th",
+                "handout_asset_root_id": "the-haunting-keeper-rulebook-40th-full-v1",
+                "module_graph_asset_root_id": "the-haunting-keeper-rulebook-40th-full-v1",
                 "source_language": "en",
                 "runtime_projection_contract": "coc.module-graph-runtime-projection.v1",
                 "title": "The Haunting",

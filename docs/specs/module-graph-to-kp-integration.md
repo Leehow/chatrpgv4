@@ -449,7 +449,7 @@ generated committed Scenario IR
 
 local ignored module-assets root
   -> validated source pages, exact handout bodies, image bytes, hashes
-  -> `.coc/module-assets/the-haunting-keeper-rulebook-40th/`
+  -> `.coc/module-assets/the-haunting-keeper-rulebook-40th-full-v1/`
 ```
 
 The repository may commit structured facts, semantic summaries, IDs, source
@@ -527,6 +527,9 @@ handouts merely because they occur in the source.
 
 No active campaign is migrated or overwritten. New quick-start/install calls
 use the graph-backed projection; historical campaign evidence remains intact.
+The complete 17-page source uses a versioned asset root distinct from any
+historical partial extraction, so source-page drift is never resolved by
+overwriting an old campaign's cached page evidence.
 
 ### 18.7 Validation and acceptance
 

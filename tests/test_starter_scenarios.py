@@ -500,7 +500,7 @@ def test_install_starter_the_haunting_copies_scenario_files(tmp_path):
 
     meta = json.loads((scenario_dir / "module-meta.json").read_text("utf-8"))
     assert meta["handout_asset_root_id"] == (
-        "the-haunting-keeper-rulebook-40th"
+        "the-haunting-keeper-rulebook-40th-full-v1"
     )
     assert not meta.get("progressive")
 
