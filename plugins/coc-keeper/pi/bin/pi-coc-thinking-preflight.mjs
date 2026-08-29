@@ -181,6 +181,9 @@ const settings = readJson(settingsPath, "COC settings");
 const modelPattern = splitModelPattern(parsed.model);
 const requestedThinking =
   parsed.thinking ?? modelPattern.thinking ?? settings.defaultThinkingLevel;
+const implicitThinking = (
+  parsed.thinking === undefined && modelPattern.thinking === undefined
+);
 
 if (requestedThinking === "none") {
   fail(
@@ -318,3 +321,9 @@ if (!available.includes(requestedThinking)) {
       "--thinking, or fix defaultThinkingLevel in settings.json",
   );
 }
+
+// The wrapper captures this value and passes it explicitly to fresh Pi
+// sessions. Some Pi RPC starts otherwise initialize at `off` even though the
+// same repository settings selected a validated non-off default. Explicit
+// CLI/model-suffix choices remain owned by the original user arguments.
+if (implicitThinking) process.stdout.write(requestedThinking);

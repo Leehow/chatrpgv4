@@ -1480,6 +1480,20 @@ def test_pi_coc_allows_deliberate_low_without_calling_it_off(tmp_path: Path):
     ]
 
 
+def test_pi_coc_forwards_validated_default_thinking_to_fresh_pi(tmp_path: Path):
+    settings, models = _supported_pi_settings()
+    settings["defaultThinkingLevel"] = "low"
+    completed, args_path = _run_pi_coc(
+        tmp_path,
+        settings=settings,
+        models=models,
+        args=["hello"],
+    )
+    assert completed.returncode == 0, completed.stderr
+    forwarded = args_path.read_text(encoding="utf-8").splitlines()
+    assert forwarded[-3:] == ["--thinking", "low", "hello"]
+
+
 def test_pi_coc_welcome_guide_copy():
     result = _node(ROOT / "tests/pi/welcome-smoke.mjs", str(ROOT))
     assert result["ok"] is True

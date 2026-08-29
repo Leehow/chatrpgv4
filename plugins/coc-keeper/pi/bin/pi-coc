@@ -586,6 +586,9 @@ build_pi_args() {
   if [[ "$WANT_NEW" -eq 0 && "$USER_SESSION_OPT" -eq 0 ]]; then
     PI_ARGS+=(--session-id "$DEFAULT_SESSION_ID")
   fi
+  if [[ -n "${IMPLICIT_THINKING_LEVEL:-}" ]]; then
+    PI_ARGS+=(--thinking "$IMPLICIT_THINKING_LEVEL")
+  fi
   # Under `set -u`, expanding an empty array as "${USER_ARGS[@]}" is unbound on
   # some bash builds (e.g. macOS). Only append when the user passed args.
   if ((${#USER_ARGS[@]} > 0)); then
@@ -595,8 +598,8 @@ build_pi_args() {
 
 # Pi clamps unsupported thinking levels before extensions load. Guard the
 # original request here so `--thinking off` can never become a silent `low`.
-node "$SCRIPT_DIR/pi-coc-thinking-preflight.mjs" \
-  "$PI_CODING_AGENT_DIR" "${USER_ARGS[@]+"${USER_ARGS[@]}"}"
+IMPLICIT_THINKING_LEVEL=$(node "$SCRIPT_DIR/pi-coc-thinking-preflight.mjs" \
+  "$PI_CODING_AGENT_DIR" "${USER_ARGS[@]+"${USER_ARGS[@]}"}")
 
 # Auto-configure bundled adapters (user env overrides win).
 export COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND="${COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND:-$SCRIPT_DIR/coc-pdf-skill-adapter.py}"
