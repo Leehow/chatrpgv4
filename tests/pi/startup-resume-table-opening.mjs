@@ -232,6 +232,15 @@ process.env.COC_PI_SESSION_ROLE = "play";
 const played = harness((name, params) => {
   if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
   if (params.operation === "session.resume") {
+    if (params.root !== playedRoot || params.campaign !== playedCampaign) {
+      throw new Error(`startup resume selectors were not host-bound: ${JSON.stringify(params)}`);
+    }
+    if (
+      JSON.stringify(params.arguments)
+      !== JSON.stringify({ host_session_id: "resume-table-opening" })
+    ) {
+      throw new Error(`startup resume carried model arguments: ${JSON.stringify(params)}`);
+    }
     return {
       ok: true,
       tool: "session.resume",
@@ -273,6 +282,17 @@ const played = harness((name, params) => {
 }, playedCampaign, playedRoot);
 try {
   await played.start();
+  const startupResumeTool = played.registered.get("coc_session_resume");
+  if (
+    startupResumeTool.parameters.type !== "object"
+    || Object.keys(startupResumeTool.parameters.properties ?? {}).length !== 0
+    || (startupResumeTool.parameters.required ?? []).length !== 0
+    || startupResumeTool.parameters.additionalProperties !== false
+  ) {
+    throw new Error(
+      `startup resume schema must be host-only: ${JSON.stringify(startupResumeTool.parameters)}`,
+    );
+  }
   const pendingTools = played.activeTools.at(-1) || [];
   if (!pendingTools.includes("coc_session_resume")) {
     throw new Error(`pending schema missing recovery coc_session_resume: ${pendingTools}`);
@@ -305,12 +325,17 @@ try {
   if (pendingRulesEscaped) {
     throw new Error("rules.roll escaped before session.resume");
   }
-  const playedResume = await invoke(played, "played-resume", {
-    operation: "session.resume",
-    root: playedRoot,
-    campaign: playedCampaign,
-    arguments: {},
-  });
+  const playedResume = JSON.parse((await startupResumeTool.execute(
+    "played-resume",
+    {
+      root: `${playedRoot}-model-typo`,
+      campaign: `${playedCampaign}-model-typo`,
+      investigator: "current-investigator",
+    },
+    undefined,
+    undefined,
+    played.ctx,
+  )).content[0].text);
   if (playedResume.ok !== true || playedResume.data.mode !== "table_opening") {
     throw new Error(`played resume rejected: ${JSON.stringify(playedResume)}`);
   }

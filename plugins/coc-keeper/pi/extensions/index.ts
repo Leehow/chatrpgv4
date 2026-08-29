@@ -6863,6 +6863,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     } else {
       kpPlayPhase = "cold_start";
     }
+    if (startupResumeGate !== null) {
+      refreshTypedToolDefinition("session.resume");
+    }
     // The host owns exact nested coordinator-task dispatch. Keep the
     // fail-closed tool registered for the private manager boundary and probes,
     // but never expose it to the KP model. A pi-subagents child process owns
@@ -8196,6 +8199,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
     }
     if (typedDefinition !== undefined) {
+      if (
+        typedDefinition.operation === "session.resume"
+        && startupResumeGate?.phase === "pending"
+      ) {
+        // Startup continuation identity is entirely host-owned. In
+        // particular, no current-investigator binding exists until this
+        // receipt establishes the party, so model-supplied selectors or
+        // investigator handles are ignored before validation/restoration.
+        params = {};
+      }
       // Raw model-identity validation runs BEFORE any host injection or
       // restoration: host-attached identity reaches arguments only after
       // this gate, by provenance. Model-authored `pi-*` values are always
@@ -10819,10 +10832,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         };
       parameters = projected;
     } else if (
-      launcherRole === null
-      && typed.operation === "session.resume"
-      && startupResumeGate?.origin === "role_null_handoff"
-      && startupResumeGate.phase === "pending"
+      typed.operation === "session.resume"
+      && startupResumeGate?.phase === "pending"
     ) {
       parameters = structuredClone(emptySchema);
     }
