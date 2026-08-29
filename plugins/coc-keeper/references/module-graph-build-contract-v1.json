@@ -1,0 +1,120 @@
+{
+  "contract_id": "coc.module-graph-build-contract.v1",
+  "schema_version": 1,
+  "prepare_request_contract_id": "coc.module-graph-prepare-request.v1",
+  "extraction_packet_contract_id": "coc.module-graph-extraction-packet.v1",
+  "semantic_review_contract_id": "coc.module-graph-semantic-review.v1",
+  "review_receipt_contract_id": "coc.module-graph-review-receipt.v1",
+  "build_plan_contract_id": "coc.module-graph-build-plan.v1",
+  "build_manifest_contract_id": "coc.module-graph-build-manifest.v1",
+  "extraction_packet_keys": [
+    "contract_id",
+    "schema_version",
+    "module_id",
+    "section_id",
+    "section_role",
+    "aspects",
+    "default_visibility",
+    "approved_player_safe_span_ids",
+    "known_nodes",
+    "output_budget",
+    "evidence_view"
+  ],
+  "prepare_request_keys": [
+    "contract_id",
+    "schema_version",
+    "module_id",
+    "section_id",
+    "section_role",
+    "aspects",
+    "default_visibility",
+    "approved_player_safe_span_ids",
+    "selected_evidence_span_ids",
+    "known_nodes",
+    "output_budget",
+    "page_refs"
+  ],
+  "page_ref_keys": ["source_id", "pdf_index"],
+  "known_node_keys": ["node_id", "node_kind", "name", "visibility"],
+  "output_budget_keys": ["max_nodes", "max_relations"],
+  "semantic_review_keys": [
+    "contract_id",
+    "schema_version",
+    "module_id",
+    "section_id",
+    "aspects",
+    "verdict",
+    "checks",
+    "findings"
+  ],
+  "semantic_review_checks": [
+    "section-role",
+    "coverage",
+    "ordering",
+    "quest-semantics",
+    "epistemic-truth",
+    "visibility",
+    "requirements",
+    "absence-vs-unresolved"
+  ],
+  "semantic_review_check_statuses": ["pass", "finding", "not-applicable"],
+  "semantic_review_verdicts": ["accepted", "revision-required"],
+  "semantic_finding_keys": [
+    "code",
+    "path",
+    "message",
+    "evidence_span_ids"
+  ],
+  "review_receipt_keys": [
+    "contract_id",
+    "schema_version",
+    "module_id",
+    "section_id",
+    "aspects",
+    "verdict",
+    "checks",
+    "candidate_sha256",
+    "evidence_packet_sha256",
+    "review_payload_sha256"
+  ],
+  "build_plan_keys": [
+    "contract_id",
+    "schema_version",
+    "module_id",
+    "planned_shards"
+  ],
+  "planned_shard_keys": ["section_id", "aspects"],
+  "source_bundle_binding_keys": [
+    "source_id",
+    "bundle_sha256",
+    "file_sha256"
+  ],
+  "accepted_shard_manifest_keys": [
+    "section_id",
+    "aspects",
+    "shard_path",
+    "shard_sha256",
+    "evidence_path",
+    "evidence_packet_sha256",
+    "review_path",
+    "review_receipt_sha256"
+  ],
+  "build_manifest_keys": [
+    "contract_id",
+    "schema_version",
+    "asset_root_id",
+    "module_id",
+    "graph_contract_id",
+    "graph_schema_version",
+    "build_status",
+    "current_generation",
+    "module_graph_path",
+    "module_graph_sha256",
+    "source_bundles",
+    "planned_shards",
+    "accepted_shards",
+    "missing_shards",
+    "coverage"
+  ],
+  "build_statuses": ["partial", "complete"]
+}

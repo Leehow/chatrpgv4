@@ -4,6 +4,54 @@
 
 ---
 
+## Graph-first framing
+
+The pre-KP source compiler can build one evidence-bound ModuleGraph generation
+without materializing or replacing the existing Scenario IR views. Corpus evidence spans 31
+deduplicated short/module documents (linear, loop, sandbox, political,
+multi-era, anthology, supplement) plus the multi-volume Masks, Orient Express,
+and A Time to Harvest families and their asset packs.
+
+`structure_type` is therefore one Director weighting view, not the graph
+ontology and never a hard gate. One module may combine several structural
+facets; a document chapter may be an independent scenario; a printed chapter
+order may be only a likely route through a sandbox.
+
+The graph extraction pass must cover, when authored:
+
+- source/edition/translation/collection/asset composition;
+- playable units, scenes, beats, locations, routes and travel schedules;
+- actors, identities, factions, relationships, possession and presence;
+- authored events, timelines, loops, reset/retained-memory behavior;
+- fact/belief/rumor/lie assertions, clues, questions, conclusions and secrets;
+- quests, outcomes, scoped requirements, bypasses, effects, threats and clocks;
+- rules, checks, procedures/ritual steps, hazards and custom mechanics;
+- handouts, maps, portraits, pregens, content warnings, Keeper craft, endings,
+  aftermath and rewards.
+
+Split mixed or long source sections into bounded aspect shards rather than one
+huge all-domain response. After extraction, `accept` owns only deterministic
+root EvidenceSpan assembly and validation; a separate semantic review owns
+meaning. Neither changes candidate nodes, claims, relations, truth,
+visibility, or coverage. Only accepted shards enter the asset-root `build`.
+
+Only the frozen vocabulary in
+`plugins/coc-keeper/references/module-graph-contract-v2.json` is authored as
+node/relation kinds. Preserve unusual source headings in `source_label`; do not
+turn the hundreds of free-form section labels observed across the corpus into
+new graph types.
+
+Keep four kinds of order separate:
+
+1. `print-precedes` — page/TOC order only;
+2. `play-precedes` — source-supported recommended/required play order;
+3. `triggers` — actual causal dependence;
+4. `independent-from` — anthology/sidetrack independence.
+
+Never derive one from another by array position.
+
+---
+
 ## 7 种 structure_type 判定指引
 
 每个原型来自对 12 个参考模组的归纳。按下列特征判断模组属于哪一类（填入 `module-meta.structure_type`）。如果模组同时强满足多个原型的核心特征，归为 `hybrid_mega`。

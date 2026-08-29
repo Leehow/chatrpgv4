@@ -1,0 +1,4 @@
+interface:
+  display_name: "COC Module Graph Extract"
+  short_description: "Compile source pages into evidence-bound module graph shards"
+  default_prompt: "Use $coc-module-graph-extract to compile this closed extraction packet into one candidate GraphShard."

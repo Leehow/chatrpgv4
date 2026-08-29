@@ -4,6 +4,7 @@
     "skills": [
       "plugins/coc-keeper/skills/coc-main",
       "plugins/coc-keeper/skills/coc-scenario-import",
+      "plugins/coc-keeper/skills/coc-module-graph-extract",
       "plugins/coc-keeper/skills/trpg-pdf-ingest",
       "plugins/coc-keeper/skills/coc-campaign-state",
       "plugins/coc-keeper/skills/coc-steward-parse",

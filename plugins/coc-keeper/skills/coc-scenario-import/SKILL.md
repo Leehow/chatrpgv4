@@ -455,6 +455,75 @@ document / read_aloud / map entity through the canonical progressive path.
 Pure-text cards remain complete when no image asset exists. Presentation and
 replay are owned by the live handout delivery path, not import.
 
+## 模组知识图谱来源编译（pre-KP）
+
+This is an explicit source-compilation branch, not a mandatory live-import
+pipeline. Read
+[`docs/specs/module-knowledge-graph-extraction.md`](../../../../docs/specs/module-knowledge-graph-extraction.md)
+and
+[`module-graph-review-protocol.md`](references/module-graph-review-protocol.md)
+before building a graph.
+
+`coc-scenario-import` owns the build:
+
+1. Freeze a semantic build plan. Extract identity/collection first, then
+   bounded section/aspect shards. Long mixed sections are split by aspect.
+2. For each shard, call `prepare` with one parent-authored request and exact
+   source bundles. It emits machine evidence plus one model-safe closed packet.
+3. Route that packet through `coc-module-graph-extract`. The child returns one
+   candidate only.
+4. Call `check` to reject shape, scope, visibility, budget, reference, or
+   source-binding errors before model review.
+5. Review the checked candidate semantically through the review protocol. Review is
+   independent and non-mutating.
+6. Call `accept`; only zero deterministic findings plus an accepted semantic
+   review produce an accepted directory.
+7. Call `build` with the complete planned-shard list and accepted directories.
+   It installs one immutable generation under
+   `.coc/module-assets/<asset-root-id>/graph/` and atomically switches the root
+   manifest. Missing or unresolved planned shards keep the build `partial`.
+8. Run keeper/player lexical search and bounded context diagnostics against the
+   manifest-selected graph. These are retrieval checks, not semantic decisions.
+
+```bash
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_graph.py \
+  prepare --request /path/to/prepare-request.json \
+  --source-bundle /path/to/source-bundle \
+  --output-dir /path/to/prepared --json
+
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_graph.py \
+  check --packet /path/to/prepared/extraction-packet.json \
+  --evidence-packet /path/to/prepared/evidence-packet.json \
+  --candidate /path/to/candidate.json \
+  --source-bundle /path/to/source-bundle \
+  --output /path/to/checked-candidate.json --json
+
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_graph.py \
+  accept --packet /path/to/prepared/extraction-packet.json \
+  --evidence-packet /path/to/prepared/evidence-packet.json \
+  --candidate /path/to/candidate.json --review /path/to/review.json \
+  --source-bundle /path/to/source-bundle \
+  --output-dir /path/to/accepted --json
+
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_graph.py \
+  build --workspace . --asset-root-id <asset-root-id> \
+  --plan /path/to/build-plan.json --accepted /path/to/accepted \
+  --source-bundle /path/to/source-bundle --json
+
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_graph.py \
+  installed-search '<query>' --workspace . \
+  --asset-root-id <asset-root-id> --audience keeper --json
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_graph.py \
+  installed-context --workspace . --asset-root-id <asset-root-id> \
+  --seed <semantic-node-id> --depth 2 --audience keeper --json
+```
+
+After the graph build and diagnostic report, STOP. This phase does not project
+the graph into Scenario IR, query it from the KP, mutate campaign state, or
+claim live-play support. Existing Story-Graph Compilation below remains its
+own path until a later Graph-to-KP integration specification selects one
+authority and retires duplicate extraction.
+
 ## 剧情图编译（Story-Graph Compilation）
 
 当用户要"编译模组"/"生成剧情图"/"为 <模组> 准备 director"时：

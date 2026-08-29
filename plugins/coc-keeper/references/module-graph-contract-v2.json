@@ -1,0 +1,116 @@
+{
+  "contract_id": "coc.module-graph-contract.v2",
+  "schema_version": 2,
+  "evidence_contract_id": "coc.module-graph-evidence.v1",
+  "shard_contract_id": "coc.module-graph-shard.v2",
+  "graph_contract_id": "coc.module-graph.v2",
+  "shard_keys": [
+    "contract_id",
+    "schema_version",
+    "module_id",
+    "section_id",
+    "aspects",
+    "evidence_span_ids",
+    "node_refs",
+    "coverage",
+    "nodes",
+    "claims",
+    "relations"
+  ],
+  "node_keys": [
+    "node_id",
+    "node_kind",
+    "name",
+    "visibility",
+    "aliases",
+    "summary",
+    "evidence_span_ids",
+    "properties"
+  ],
+  "claim_keys": [
+    "claim_id",
+    "subject_id",
+    "predicate",
+    "object",
+    "truth_status",
+    "visibility",
+    "evidence_span_ids",
+    "asserted_by_ids",
+    "known_by_ids",
+    "validity",
+    "confidence",
+    "reason"
+  ],
+  "relation_keys": [
+    "relation_id",
+    "relation_kind",
+    "from_node_id",
+    "to_node_id",
+    "claim_id",
+    "properties"
+  ],
+  "evidence_scope_law": "The deterministic assemble-shard step canonicalizes shard evidence_span_ids as at least the complete union of every node and claim citation before validation; model-proposed root scope is not authoritative.",
+  "semantic_id_law": "Every model-authored identifier is lowercase ASCII kebab-case matching ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$; human-language labels belong in name, aliases, summary, reason, or properties rather than IDs.",
+  "node_id_law": "Every node_id begins with its exact node_kind plus a hyphen, for example npc-kloppe.",
+  "visibility": ["keeper-only", "player-safe", "revealable"],
+  "truth_status": [
+    "authored-fact",
+    "authored-belief",
+    "authored-rumor",
+    "authored-lie",
+    "inferred-candidate"
+  ],
+  "coverage_domains": [
+    "structure",
+    "world",
+    "actors",
+    "relationships",
+    "events",
+    "knowledge",
+    "causal",
+    "mechanics",
+    "assets",
+    "direction"
+  ],
+  "coverage_status": ["accepted", "partial", "unresolved", "absent"],
+  "coverage_law": "Only declared aspects may be accepted, partial, or absent. Every undeclared aspect is exactly unresolved because that extraction did not review the domain.",
+  "node_kinds": [
+    "module", "source-document", "edition", "playable-unit", "section",
+    "asset", "scene", "beat", "event", "ending", "location", "route",
+    "npc", "creature", "investigator-template", "faction", "organization",
+    "object", "artifact", "handout", "tome", "spell", "vehicle", "hazard",
+    "clue", "question", "conclusion", "secret", "quest", "outcome",
+    "requirement", "effect", "threat", "clock", "rule", "procedure",
+    "procedure-step", "content-warning", "tone", "temporal-frame", "schedule",
+    "relationship-state", "concept"
+  ],
+  "relation_kinds": [
+    "contains", "part-of", "variant-of", "translates", "supplements",
+    "independent-from", "print-precedes", "play-precedes", "hands-off-to",
+    "located-in", "adjacent-to", "route-to", "present-in", "member-of", "worships",
+    "allied-with", "opposes", "controls", "owns", "possesses", "knows",
+    "believes", "hides", "impersonates", "occurs-at", "occurs-during",
+    "triggers", "enables", "threatens", "advances", "may-lead-to",
+    "alternative-to", "resets-to", "persists-across-loop", "resolves",
+    "supports", "contradicts", "reframes", "reveals", "misleads", "held-by",
+    "discoverable-at", "delivered-by", "has-outcome", "has-requirement",
+    "satisfies", "bypasses", "produces", "consumes", "caps-outcome",
+    "grants-effect", "uses-rule", "calls-for-check", "applies-condition",
+    "step-of", "depicts"
+  ],
+  "ordering_law": {
+    "print-precedes": "Only the publication order. When the source explicitly presents an ordered list of playable units, preserve adjacent order as traversable print-precedes claims and relations rather than relying on JSON array order.",
+    "play-precedes": "Only a source-supported recommended or required play order.",
+    "triggers": "A causal dependency, never inferred from array or chapter order.",
+    "independent-from": "Anthology or sidetrack members that do not form one task chain."
+  },
+  "authority": {
+    "semantic_extraction": "llm_candidate",
+    "source_evidence_validation": "deterministic_span_binding",
+    "evidence_scope_assembly": "deterministic_union",
+    "promotion": "explicit_merge",
+    "runtime_authority": false,
+    "keeper_retains_semantic_judgment": true,
+    "model_copies_hashes_or_anchors": false
+  }
+}
