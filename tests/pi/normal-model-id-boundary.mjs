@@ -388,6 +388,36 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
 
 // Context / NPC / progressive families keep semantic substance.
 {
+  const diagnostics = { unmapped: [] };
+  const out = projectModelVisibleCanonicalResult(
+    "state.record_clue",
+    FAMILIES.state_record_clue,
+    null,
+    diagnostics,
+  );
+  assert.equal(
+    out.data.route_completion.decision_id,
+    "record-clue-knott-macario-summary-t1",
+  );
+  assert.deepEqual(diagnostics.unmapped, []);
+
+  const opaque = structuredClone(FAMILIES.state_record_clue);
+  opaque.data.route_completion.decision_id =
+    "record-clue-7c9e6679-7425-40de-944b-e07fc1f90ae7";
+  const opaqueDiagnostics = { unmapped: [] };
+  const opaqueOut = projectModelVisibleCanonicalResult(
+    "state.record_clue",
+    opaque,
+    null,
+    opaqueDiagnostics,
+  );
+  assert.equal(opaqueOut.data.route_completion.decision_id, undefined);
+  assert.deepEqual(
+    opaqueDiagnostics.unmapped.map((entry) => entry.field),
+    ["decision_id"],
+  );
+}
+{
   const out = projectModelVisibleCanonicalResult(
     "scene.context",
     FAMILIES.scene_context,
@@ -410,11 +440,75 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
   assert.deepEqual(out.data.party, [CURRENT_INVESTIGATOR_HANDLE]);
 }
 {
-  const out = projectModelVisibleCanonicalResult("npc.query", FAMILIES.npc_query, emptySemanticProjectionView());
+  const diagnostics = { unmapped: [] };
+  const out = projectModelVisibleCanonicalResult(
+    "npc.query",
+    FAMILIES.npc_query,
+    emptySemanticProjectionView(),
+    diagnostics,
+  );
   assert.equal(out.data.npcs[0].npc_id, "npc-lucy-henry");
   assert.equal(out.data.npcs[0].name, "露西·亨利");
   assert.ok(out.data.npcs[0].agenda.includes("玛瑞杰"));
   assert.ok(!("identity_contract" in out.data.npcs[0]));
+  assert.equal(out.data.npcs[0].facts[0].fact_id, "fact-lucy-missing-cousin");
+  assert.equal(out.data.npcs[0].facts[0].clue_id, "clue-lucy-missing-cousin");
+  assert.equal(
+    out.data.npcs[0].deflect_options[0].deflect_id,
+    "deflect-lucy-wait-for-proof",
+  );
+  assert.equal(
+    out.data.npcs[0].schedule[0].schedule_id,
+    "lucy-opening-interview",
+  );
+  assert.equal(
+    out.data.npcs[0].first_contact_readiness.pending_source_dependency.subject_id,
+    "npc-lucy-henry",
+  );
+  assert.deepEqual(
+    out.data.npcs[0].first_contact_readiness
+      .social_adjudication_operation.valid_optional_evidence_refs,
+    ["npc_fact:npc-lucy-henry/fact-lucy-missing-cousin"],
+  );
+  assert.equal(
+    out.data.npcs[0].psych.impression.memories[0].memory_id,
+    undefined,
+    "opaque first-impression memory identity stays host-only",
+  );
+  assert.equal(
+    out.data.npcs[0].psych.impression.memories[0].source_ref,
+    undefined,
+    "opaque first-impression source identity stays host-only",
+  );
+  assert.equal(
+    out.data.npcs[0].first_contact_readiness
+      .social_adjudication_operation.safe_omissions.feasibility_refs,
+    undefined,
+    "prose under an id-like field is not projected as identity",
+  );
+  assert.deepEqual(diagnostics.unmapped, []);
+
+  const opaque = structuredClone(FAMILIES.npc_query);
+  opaque.data.npcs[0].first_contact_readiness
+    .social_adjudication_operation.valid_optional_evidence_refs = [
+      "npc_fact:npc-lucy-henry/7c9e6679742540de944be07fc1f90ae7",
+    ];
+  const opaqueDiagnostics = { unmapped: [] };
+  const opaqueOut = projectModelVisibleCanonicalResult(
+    "npc.query",
+    opaque,
+    emptySemanticProjectionView(),
+    opaqueDiagnostics,
+  );
+  assert.deepEqual(
+    opaqueOut.data.npcs[0].first_contact_readiness
+      .social_adjudication_operation.valid_optional_evidence_refs,
+    [],
+  );
+  assert.deepEqual(
+    opaqueDiagnostics.unmapped.map((entry) => entry.field),
+    ["valid_optional_evidence_refs"],
+  );
 }
 // Source-bound semantic provenance survives: pdf_index-* page handles are
 // kept exactly while nested digest integrity refs are dropped.

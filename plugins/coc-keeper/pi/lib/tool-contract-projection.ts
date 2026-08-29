@@ -1605,6 +1605,9 @@ const CLASSIFIED_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
  *   STILL pass the closed semantic grammar (meaning-bearing slug, approved
  *   namespace, anchored semantic, or entropy-free path); declared paths are
  *   never grammar-exempt, only path-allowed.
+ * - `hostOnly`: operation-known machine identity or identity-shaped guidance
+ *   that is intentionally stripped while the exact canonical value remains
+ *   available in host details.
  * The registry-domain projectors (roll/effect/item/weapon/route handle
  * mapping, lost-id arrays, current-entity handles, obligations, provenance)
  * are the declared registry-domain-mapping dispositions and stay closed
@@ -1616,14 +1619,17 @@ const CLASSIFIED_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
 type OperationIdentityDeclarations = {
   integrity: ReadonlySet<string>;
   semantic: ReadonlySet<string>;
+  hostOnly: ReadonlySet<string>;
 };
 
 const declaredIdentityTable = (
   semantic: readonly string[],
   integrity: readonly string[],
+  hostOnly: readonly string[] = [],
 ): OperationIdentityDeclarations => ({
   semantic: new Set(semantic),
   integrity: new Set(integrity),
+  hostOnly: new Set(hostOnly),
 });
 
 /**
@@ -1674,8 +1680,13 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [],
   )],
   ["npc.query", declaredIdentityTable(
-    ["known_fact_ids", "npc_id", "revealable_fact_ids"],
+    [
+      "clue_id", "deflect_id", "fact_id", "known_fact_ids", "npc_id",
+      "revealable_fact_ids", "schedule_id", "subject_id",
+      "valid_optional_evidence_refs",
+    ],
     [],
+    ["feasibility_refs", "memory_id", "source_ref"],
   )],
   ["secrets.briefing", declaredIdentityTable(
     ["clue_id", "clue_ids", "npc_id", "npc_ids", "scene_id"],
@@ -1744,7 +1755,7 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   ["state.item_remove", declaredIdentityTable(["npc_id"], [])],
   ["state.item_use", declaredIdentityTable(["npc_id"], [])],
   ["state.record_clue", declaredIdentityTable(
-    ["clue_id", "route_id", "scene_id"],
+    ["clue_id", "decision_id", "route_id", "scene_id"],
     [],
   )],
   ["state.deliver_handout", declaredIdentityTable(
@@ -1808,11 +1819,12 @@ for (const declarations of OPERATION_IDENTITY_DECLARATIONS.values()) {
 function declaredIdentityDisposition(
   operation: string | null,
   field: string,
-): "integrity" | "semantic" | null {
+): "host_only" | "integrity" | "semantic" | null {
   if (GLOBAL_SEMANTIC_IDENTITY_FIELDS.has(field)) return "semantic";
   if (operation === null) return null;
   const declarations = OPERATION_IDENTITY_DECLARATIONS.get(operation);
   if (declarations === undefined) return null;
+  if (declarations.hostOnly.has(field)) return "host_only";
   if (declarations.integrity.has(field)) return "integrity";
   if (declarations.semantic.has(field)) return "semantic";
   return null;
@@ -2097,7 +2109,28 @@ function projectSemanticIdField(
   parentField: string | null,
   semanticIds: SemanticIdMap | null,
   diagnostics: ProjectionIdentityDiagnostics | null,
+  operation: string | null = null,
 ): { action: "keep"; value?: unknown } | { action: "drop" } | null {
+  if (
+    operation === "npc.query"
+    && field === "valid_optional_evidence_refs"
+    && declaredIdentityDisposition(operation, field) === "semantic"
+    && Array.isArray(value)
+  ) {
+    const members: string[] = [];
+    for (const entry of value) {
+      if (typeof entry === "string" && isNpcFactEvidenceRef(entry)) {
+        members.push(entry);
+      } else if (typeof entry === "string") {
+        diagnostics?.unmapped.push({
+          field,
+          parentField,
+          domain: "evidence",
+        });
+      }
+    }
+    return { action: "keep", value: members };
+  }
   if (semanticIds === null) return null;
   const lostDomain = LOST_ID_ARRAY_FIELDS.get(field);
   if (lostDomain !== undefined && Array.isArray(value)) {
@@ -2293,6 +2326,7 @@ export function stripOpaqueModelIdentity(
   for (const [field, child] of Object.entries(value)) {
     const childPath = fieldPath ? `${fieldPath}.${field}` : field;
     if (DENIED_IDENTITY_FIELDS.has(field)) continue;
+    if (declaredIdentityDisposition(operation, field) === "host_only") continue;
     if (isIntegrityFieldName(field)) {
       // Integrity evidence is host-only. A field the operation DECLARED is
       // intentionally details-only (silent strip); an UNDECLARED integrity
@@ -2309,7 +2343,14 @@ export function stripOpaqueModelIdentity(
       continue;
     }
     if (isStringRevisionField(field) && typeof child === "string") continue;
-    const semanticId = projectSemanticIdField(field, child, parentField, semanticIds, diagnostics)
+    const semanticId = projectSemanticIdField(
+      field,
+      child,
+      parentField,
+      semanticIds,
+      diagnostics,
+      operation,
+    )
       ?? projectObligationValue(field, child, parentField, semanticIds, diagnostics);
     if (semanticId !== null) {
       if (semanticId.action === "drop") continue;
@@ -2790,6 +2831,14 @@ const NPC_REACTION_ROLL_KEPT_FIELDS = [
   "reaction_tier",
   "visibility",
 ] as const;
+
+/** Strict model-visible evidence handle emitted by npc.query social cards. */
+function isNpcFactEvidenceRef(value: string): boolean {
+  const match = /^npc_fact:([^/]+)\/([^/]+)$/.exec(value);
+  return match !== null
+    && isMultiTokenSlug(match[1])
+    && isMultiTokenSlug(match[2]);
+}
 
 /**
  * Public first-impression mechanics plus one executable semantic engagement

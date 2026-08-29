@@ -1226,6 +1226,36 @@
    "ref": "save/working-set-cache/clues.query/c19ef77303651631d4ef94c1a47145545521800d31b1a30943174dbfb5b0838c.json"
   }
  },
+ "state_record_clue": {
+  "ok": true,
+  "tool": "state.record_clue",
+  "data": {
+   "clue_id": "clue-knott-macario-summary",
+   "already_discovered": false,
+   "player_safe_summary": "Knott says the Macario family fled after a frightening breakdown.",
+   "discovered_total": 1,
+   "newly_unlocked_scenes": [],
+   "route_completion": {
+    "schema_version": 1,
+    "route_id": "ask-macario-tragedy",
+    "scene_id": "commission-briefing",
+    "status": "consumed",
+    "committed_clue_ids": [
+     "clue-knott-macario-summary"
+    ],
+    "committed_flag_ids": [],
+    "remaining_clue_ids": [],
+    "rule_request_ids": [],
+    "rule_outcomes": [],
+    "success": true,
+    "completion_quality": "clean",
+    "decision_id": "record-clue-knott-macario-summary-t1",
+    "source": "toolbox_context:state.record_clue"
+   }
+  },
+  "warnings": [],
+  "hints": []
+ },
  "npc_query": {
   "ok": true,
   "tool": "npc.query",
@@ -1301,12 +1331,36 @@
       "value": null,
       "secret": true
      },
-     "facts": null,
-     "known_fact_ids": null,
-     "revealable_fact_ids": null,
+     "facts": [
+      {
+       "fact_id": "fact-lucy-missing-cousin",
+       "clue_id": "clue-lucy-missing-cousin",
+       "min_trust": 0
+      }
+     ],
+     "known_fact_ids": [
+      "fact-lucy-missing-cousin"
+     ],
+     "revealable_fact_ids": [
+      "fact-lucy-missing-cousin"
+     ],
      "lie_options": null,
-     "deflect_options": null,
-     "schedule": null,
+     "deflect_options": [
+      {
+       "deflect_id": "deflect-lucy-wait-for-proof",
+       "fact_id": "fact-lucy-missing-cousin",
+       "player_safe_line": "Bring me something concrete first."
+      }
+     ],
+     "schedule": [
+      {
+       "schedule_id": "lucy-opening-interview",
+       "scene_ids": [
+        "stone-street-coft-lodging"
+       ],
+       "status": "available"
+      }
+     ],
      "psych": {
       "trust": 0,
       "fear": 0,
@@ -1317,7 +1371,37 @@
       "availability": {
        "status": "available"
       },
-      "impression": null
+      "impression": {
+       "schema_version": 1,
+       "summary": "A cautious but useful first meeting.",
+       "memories": [
+        {
+         "memory_id": "first-impression:npc-first-impression-v2:7a8f50d7d6685384401c4599ece9fdf2e6a40b34",
+         "event": "Lucy admitted the disappearance still frightened her.",
+         "interpretation": "She may answer a careful follow-up.",
+         "reason": "first_impression_result",
+         "source_ref": "npc-first-impression-v2:7a8f50d7d6685384401c4599ece9fdf2e6a40b34"
+        }
+       ]
+      }
+     },
+     "first_contact_readiness": {
+      "npc_id": "npc-lucy-henry",
+      "pending_source_dependency": {
+       "consumer": "mechanics.ensure",
+       "subject_id": "npc-lucy-henry",
+       "source_status": "source_unresolved"
+      },
+      "social_adjudication_operation": {
+       "operation": "rules.social_adjudicate",
+       "invoke_via": "coc_rules_social_adjudicate",
+       "valid_optional_evidence_refs": [
+        "npc_fact:npc-lucy-henry/fact-lucy-missing-cousin"
+       ],
+       "safe_omissions": {
+        "feasibility_refs": "omit together with feasibility"
+       }
+      }
      }
     }
    ],
