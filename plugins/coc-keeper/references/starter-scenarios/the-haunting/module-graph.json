@@ -5594,7 +5594,7 @@
                 "action_kind": "attack",
                 "cue": "Choose a suitable weapon at hand and attack Corbitt.",
                 "requires_discovered_clue_ids": [
-                  "clue-own-dagger-ends-him"
+                  "clue-ritual-dagger-is-his"
                 ],
                 "route_type": "environment",
                 "status": "open",

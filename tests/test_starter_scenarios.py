@@ -111,6 +111,8 @@ def test_basement_dagger_discovery_preserves_player_knowledge_boundary():
     finale = next(scene for scene in graph["scenes"] if scene["scene_id"] == "corbitt-confrontation")
     attack = next(row for row in finale["affordances"] if row["id"] == "strike-with-his-dagger")
     assert "spell" not in attack["cue"].lower()
+    assert attack["requires_discovered_clue_ids"] == ["clue-ritual-dagger-is-his"]
+    assert "clue-own-dagger-ends-him" not in attack["requires_discovered_clue_ids"]
 
 
 def test_haunting_module_ir_uses_english_source_without_translation_caches():

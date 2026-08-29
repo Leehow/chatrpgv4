@@ -4128,6 +4128,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     >;
   };
   let currentSceneBindingFacts: SceneBindingFacts | null = null;
+  let retainedSceneAffordanceOperations: string[] = [];
   let currentCombatBindingFacts: CombatBindingFacts | null = null;
   let faultRecoveryOperation: string | null = null;
   let noSelectorQuickStartRecovery: {
@@ -4147,6 +4148,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   const beginSceneDerivedBindingReplacement = (): void => {
     currentSceneBindingFacts = null;
+    retainedSceneAffordanceOperations = [];
     for (const operation of ["state.move_scene", "state.advance_time"]) {
       revokedSceneBindingOperations.add(operation);
       retainedTypedBindings.delete(operation);
@@ -4155,6 +4157,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   const revokeSceneDerivedBindings = (): void => {
     currentSceneBindingFacts = null;
+    retainedSceneAffordanceOperations = [];
     for (const operation of ["state.move_scene", "state.advance_time"]) {
       revokedSceneBindingOperations.add(operation);
       retainedTypedBindings.delete(operation);
@@ -5424,6 +5427,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     if (operation === "state.move_scene") {
       currentSceneBindingFacts = null;
+      retainedSceneAffordanceOperations = [];
       currentCombatBindingFacts = null;
       clearTypedBinding("state.move_scene");
       clearTypedBinding("state.advance_time");
@@ -5691,7 +5695,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         const npcId = typeof npc?.npc_id === "string" ? npc.npc_id.trim() : "";
         return npcId ? [npcId] : [];
       });
-    const combatAffordanceIds = (
+    const routedCombatAffordanceIds = (
       Array.isArray(data.action_routes) ? data.action_routes : []
     ).flatMap((row) => {
       const route = objectOrNull(row);
@@ -5700,6 +5704,32 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         : "";
       return routeId && route?.resolution_kind === "combat_engagement"
         ? [routeId]
+        : [];
+    });
+    const keeperMechanics = objectOrNull(data.keeper_mechanics);
+    const explicitAffordanceRows = (
+      Array.isArray(keeperMechanics?.affordance_operations)
+        ? keeperMechanics.affordance_operations
+        : []
+    );
+    // Compiled scene archives expose affordance operations as structured
+    // {affordance_id, kind, tool} rows. Retain the historical string form for
+    // third-party producers, but do not silently discard the canonical object
+    // form: these are the scene-authored tools the Keeper needs on the next
+    // player turn.
+    const explicitAffordanceOperations = explicitAffordanceRows.flatMap((entry) => {
+      if (typeof entry === "string" && entry.trim()) return [entry.trim()];
+      const row = objectOrNull(entry);
+      const tool = typeof row?.tool === "string" ? row.tool.trim() : "";
+      return tool ? [tool] : [];
+    });
+    const explicitCombatAffordanceIds = explicitAffordanceRows.flatMap((entry) => {
+      const row = objectOrNull(entry);
+      const affordanceId = typeof row?.affordance_id === "string"
+        ? row.affordance_id.trim()
+        : "";
+      return affordanceId && row?.tool === "combat.resolve"
+        ? [affordanceId]
         : [];
     });
     const rawPrecision = typeof time.time_precision === "string"
@@ -5731,11 +5761,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         : allSceneRoutes,
       clockPrecision,
       npcIds: [...new Set(npcIds)].sort(),
-      combatAffordanceIds: [...new Set(combatAffordanceIds)].sort(),
+      combatAffordanceIds: [...new Set([
+        ...routedCombatAffordanceIds,
+        ...explicitCombatAffordanceIds,
+      ])].sort(),
     };
     beginSceneDerivedBindingReplacement();
     try {
       currentSceneBindingFacts = facts;
+      retainedSceneAffordanceOperations = [
+        ...new Set(explicitAffordanceOperations),
+      ].sort();
       armTypedBinding(sceneMoveCardFromFacts(facts), () => {
         const current = currentSceneBindingFacts;
         return current !== null
@@ -5968,6 +6004,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       hostTools: resolvedWorkingSetHostTools(role),
       affordances: {
         operations: [
+          ...retainedSceneAffordanceOperations.map((operation) => ({
+            operation,
+            source: "scene" as const,
+          })),
           ...(startupQuickStart
             ? [{ operation: "setup.quick_start", source: "host" as const }]
             : []),
@@ -6938,6 +6978,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     };
     loadedNamespaces = [];
     loadedOperations = [];
+    retainedSceneAffordanceOperations = [];
     lastWorkingSet = null;
     faultRecoveryOperation = null;
     pendingFinalizationHydrationState = null;

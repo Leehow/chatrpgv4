@@ -486,6 +486,58 @@ const actualActiveSchemaBytes = (h) => h.active.at(-1).reduce((total, name) => (
   total + Buffer.byteLength(JSON.stringify(h.tools.get(name).parameters), "utf8")
 ), 0);
 
+test("structured scene combat affordances survive into the next player turn", async () => {
+  let confrontationActive = true;
+  const sceneEnvelope = () => contextReceipt("structured-combat", {
+    active_scene_id: confrontationActive ? "corbitt-confrontation" : "street",
+    exits: [],
+    time: { elapsed_minutes: 0 },
+    npcs_present: confrontationActive
+      ? [{ npc_id: "npc-walter-corbitt" }]
+      : [],
+    action_routes: confrontationActive ? [{
+      route_id: "conventional-assault",
+      resolution_kind: "keeper_judgment",
+    }] : [],
+    clues_here: [],
+    keeper_mechanics: {
+      affordance_operations: confrontationActive ? [{
+        affordance_id: "strike-with-his-dagger",
+        kind: "combat_engagement",
+        tool: "combat.resolve",
+      }] : [],
+    },
+  });
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我用科比特自己的匕首攻击他。" }],
+    });
+    await invokeCompat(h, "combat-affordance-scene", "scene.context");
+    assert.ok(h.active.at(-1).includes("coc_combat_resolve"));
+
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我继续这一击。" }],
+    });
+    assert.ok(
+      h.active.at(-1).includes("coc_combat_resolve"),
+      "the authored combat operation remains available while the scene is unchanged",
+    );
+
+    confrontationActive = false;
+    await invokeCompat(h, "combat-affordance-refresh", "scene.context");
+    assert.equal(
+      h.active.at(-1).includes("coc_combat_resolve"),
+      false,
+      "a fresh scene snapshot retires stale combat affordances",
+    );
+  }, (_name, params) => {
+    if (params.operation === "scene.context") return sceneEnvelope();
+    return { ok: true, tool: params.operation, data: {} };
+  });
+});
+
 test("projected same-destination scene routes preserve exact optional travel through canonical invoke", async () => {
   const forwarded = [];
   const sceneEnvelope = contextReceipt("multi-route", {
