@@ -434,8 +434,20 @@ async function directInference(
       maxRetries: 0, maxTokens: 1024,
       cacheRetention: "none", sessionId: randomUUID(),
       toolChoice: requiredToolChoice(model.api),
+      // Grok 4.5/4.6 reasoning cannot be disabled. Without an explicit
+      // effort pi-ai sends the generic off value (`none`), which xAI rejects
+      // before inference. `low` is xAI's least expensive supported effort and
+      // is sufficient for this bounded semantic compilation.
+      ...(model.provider === "xai"
+        && model.api === "openai-responses"
+        && model.reasoning
+        ? { reasoningEffort: "low" as const }
+        : {}),
     },
   );
+  if (response.stopReason === "error") {
+    throw new Error("state_claim_model_provider_error");
+  }
   const ordinary = response.content.filter((part) => part.type === "text" && part.text.trim());
   const calls = response.content.filter((part) => part.type === "toolCall");
   if (response.stopReason !== "toolUse" || ordinary.length > 0 || calls.length !== 1 || calls[0].name !== STATE_CLAIM_FUNCTION) throw new Error("state_claim_model_protocol_invalid");

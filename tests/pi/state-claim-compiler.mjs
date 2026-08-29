@@ -531,6 +531,102 @@ test("direct inference uses provider-supported one-tool requirement shapes", asy
   assert.equal(calls, 0);
 });
 
+test("reasoning-only xAI compiler uses low effort for a real no-claim draft", async () => {
+  const compiler = new PiStateClaimCompiler();
+  compiler.observeOutputContext(campaignId, contextEnvelope());
+  let calls = 0;
+  let observedReasoningEffort;
+  const ctx = {
+    model: {
+      provider: "xai",
+      id: "grok-4.6",
+      api: "openai-responses",
+      reasoning: true,
+    },
+    modelRegistry: {
+      complete: async (_model, context, options) => {
+        calls += 1;
+        observedReasoningEffort = options.reasoningEffort;
+        if (observedReasoningEffort !== "low") {
+          return {
+            stopReason: "error",
+            content: [],
+            errorMessage: "OpenAI API error (400): reasoning_effort none is unsupported",
+            provider: "xai",
+            model: "grok-4.6",
+            api: "openai-responses",
+          };
+        }
+        const input = JSON.parse(context.messages[0].content[0].text);
+        return {
+          stopReason: "toolUse",
+          content: [{
+            type: "toolCall",
+            name: "emit_state_claim_compilation",
+            arguments: resultFor(input, []),
+          }],
+          provider: "xai",
+          model: "grok-4.6",
+          api: "openai-responses",
+        };
+      },
+    },
+  };
+  const draft = [
+    "诺特正把一叠租约往一边推，听见你这句直问，眉头微微一紧，却没有绕弯子。",
+    "“马卡里奥一家？吓人得很。”他压低声音，“他们住进去没多久就出事了——吓人的崩溃，整家人连夜逃出那栋房子。男人现在还关在罗克斯伯里疗养院里，别指望他能把话说清楚。我要的是房子能租出去，不是听疯话。”",
+  ].join("\n\n");
+  const receipt = await compiler.compileReview({
+    ...runtime,
+    ctx,
+    arguments: reviewArguments(draft),
+  });
+  assert.equal(observedReasoningEffort, "low");
+  assert.equal(calls, 1);
+  assert.equal(receipt.status, "completed");
+  assert.equal(receipt.result.disposition, "no_claims_detected");
+});
+
+test("provider error response is not retried or relabeled as protocol invalid", async () => {
+  const compiler = new PiStateClaimCompiler();
+  compiler.observeOutputContext(campaignId, contextEnvelope());
+  let calls = 0;
+  const ctx = {
+    model: {
+      provider: "xai",
+      id: "grok-4.6",
+      api: "openai-responses",
+      reasoning: true,
+    },
+    modelRegistry: {
+      complete: async () => {
+        calls += 1;
+        return {
+          stopReason: "error",
+          content: [],
+          errorMessage: "OpenAI API error (503): provider unavailable",
+          provider: "xai",
+          model: "grok-4.6",
+          api: "openai-responses",
+        };
+      },
+    },
+  };
+  await assert.rejects(
+    () => compiler.compileReview({
+      ...runtime,
+      ctx,
+      arguments: reviewArguments("No player state changes."),
+    }),
+    (error) => {
+      assert.equal(error.failureClass, "provider_unavailable");
+      assert.match(error.message, /state_claim_model_provider_error/);
+      return true;
+    },
+  );
+  assert.equal(calls, 1);
+});
+
 test("direct inference prefers strict sampling without rejecting grok-4.5 capability", async () => {
   const compiler = new PiStateClaimCompiler();
   compiler.observeOutputContext(campaignId, contextEnvelope());
