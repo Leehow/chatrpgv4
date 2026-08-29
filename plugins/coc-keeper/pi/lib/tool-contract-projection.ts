@@ -1187,7 +1187,10 @@ export function projectPiTypedToolParameters(
   // Semantic-handle overlay first: every presented schema exposes only the
   // stable entity handles; exact canonical identities are host-bound.
   const handleOverlayed = projectSemanticHandleSchemaOverlay(inputSchema);
-  if (operation !== "rules.social_adjudicate") return handleOverlayed;
+  if (operation !== "rules.social_adjudicate") {
+    overlayClosedIdentityGrammarDescriptions(handleOverlayed);
+    return handleOverlayed;
+  }
   const cloned = handleOverlayed;
   if (!isPlainObject(cloned.properties)) return cloned;
   const direction = {
@@ -1226,6 +1229,7 @@ export function projectPiTypedToolParameters(
       },
     ],
   };
+  overlayClosedIdentityGrammarDescriptions(cloned);
   return cloned;
 }
 
@@ -3502,21 +3506,10 @@ export const DECISION_ID_FIELD_DESCRIPTION = (
   + "RIGHT: roll-persuade-arty-access-v1."
 );
 
-function overlayDecisionIdFieldDescriptions(schema: JsonSchema): void {
-  if (!isPlainObject(schema.properties)) return;
-  for (const [field, prop] of Object.entries(schema.properties)) {
-    if (!isPlainObject(prop)) continue;
-    if (field !== "decision_id" && !field.endsWith("_decision_id")) continue;
-    const current = typeof prop.description === "string" ? prop.description.trim() : "";
-    if (current.includes("Closed decision_id grammar")) continue;
-    schema.properties[field] = {
-      ...prop,
-      description: current
-        ? `${current.replace(/\.+$/, ".")} ${DECISION_ID_FIELD_DESCRIPTION}`
-        : DECISION_ID_FIELD_DESCRIPTION,
-    };
-  }
-}
+/** Docs-table heading shared with KP-facing play docs. */
+export const CLOSED_IDENTITY_GRAMMAR_TABLE_HEADING = (
+  "Closed model-facing identity grammar"
+);
 
 /**
  * Canonical colon-form decision vocabulary ("quick-start:<campaign>:attempt-N")
@@ -3742,6 +3735,17 @@ const RAW_NO_INTERNAL_ROLL_ID_FIELDS: ReadonlySet<string> = new Set([
 const isDecisionIdField = (field: string): boolean =>
   field === "decision_id" || field.endsWith("_decision_id");
 
+/**
+ * Model-facing `*_decision_id` fields besides literal `decision_id`.
+ * `isDecisionIdField` also matches host-bound suffix names; those stay in
+ * `RAW_NEVER_MODEL_AUTHORED_FIELDS` and are not cataloged. Completeness of
+ * this list against the live presented surface is locked by walking typed
+ * tool schemas in `tests/pi/decision-id-prefix-consistency.mjs`.
+ */
+export const MODEL_FACING_SUFFIX_DECISION_ID_FIELDS: readonly string[] = [
+  "original_check_decision_id",
+];
+
 export type ModelIdentityFieldClass =
   | "composed"
   | "echoed"
@@ -3830,6 +3834,285 @@ const RAW_VOCABULARY_FIELDS: ReadonlySet<string> = new Set([
   "pregen_id",
 ]);
 
+export type ClosedIdentityGrammarKind =
+  | "decision"
+  | "composed"
+  | "echoed"
+  | "handle_only"
+  | "handle_or_namespace"
+  | "provenance"
+  | "vocabulary";
+
+export type ClosedIdentityGrammarSpec = {
+  field: string;
+  kind: ClosedIdentityGrammarKind;
+  acceptedForm: string;
+  rightExample: string;
+  wrongExample: string;
+  marker: string;
+  description: string;
+};
+
+const GRAMMAR_EXAMPLE_SLUG = "example-slug";
+
+function grammarOverlayDescription(
+  marker: string,
+  acceptedForm: string,
+  rightExample: string,
+  wrongExample: string,
+  extra = "",
+): string {
+  return `${marker} (validator-bound): ${acceptedForm}. `
+    + extra
+    + `RIGHT: ${rightExample}. WRONG: ${wrongExample}.`;
+}
+
+function echoedWrongExample(namespaces: readonly string[], field: string): string {
+  if (
+    field === "matched_affordance_ids"
+    || field === "selected_affordance_ids"
+    || field === "affordance_id"
+  ) {
+    return "route:commission-briefing-8";
+  }
+  if (namespaces.includes("route:")) return "affordance:example-slug";
+  return "route:example-slug";
+}
+
+function handleOrNamespaceWrongExample(field: string): string {
+  if (field === "source_ref") return "player_input:other";
+  if (field === "advice_id") return "current-advice";
+  return "current-candidate";
+}
+
+/**
+ * Per-field closed grammar for model-facing identity values. Host-bound
+ * never-model-authored fields have no model-facing spec.
+ */
+export function closedIdentityGrammarSpec(
+  field: string,
+): ClosedIdentityGrammarSpec | null {
+  if (RAW_NEVER_MODEL_AUTHORED_FIELDS.has(field)) return null;
+  if (isDecisionIdField(field)) {
+    return {
+      field,
+      kind: "decision",
+      acceptedForm: (
+        "`{prefix}{slug}` with prefix one of the listed DECISION_ID_PREFIXES; "
+        + "or `quick-start:` / `setup-complete:` colon forms; `tN-` on prefixed "
+        + "forms only; `:finalize` on prefixed and colon forms"
+      ),
+      rightExample: "roll-persuade-arty-access-v1",
+      wrongExample: "first-impression-arty-wilmot",
+      marker: "Closed decision_id grammar",
+      description: DECISION_ID_FIELD_DESCRIPTION,
+    };
+  }
+  const composed = RAW_COMPOSED_FIELDS.get(field);
+  if (composed !== undefined) {
+    const right = field === "claim_id"
+      ? "claim-sit-notebook-smoke"
+      : `${composed[0]}${GRAMMAR_EXAMPLE_SLUG}`;
+    const wrong = field === "claim_id" ? "sit-notebook-smoke" : GRAMMAR_EXAMPLE_SLUG;
+    const acceptedForm = `\`{prefix}{slug}\` with prefix ${composed.map((p) => `\`${p}\``).join(", ")}`;
+    const marker = `Closed ${field} grammar`;
+    return {
+      field,
+      kind: "composed",
+      acceptedForm,
+      rightExample: right,
+      wrongExample: wrong,
+      marker,
+      description: grammarOverlayDescription(
+        marker,
+        acceptedForm,
+        right,
+        wrong,
+        field === "claim_id"
+          ? "Colon namespaces (`claim:…`) are not this field. "
+          : "",
+      ),
+    };
+  }
+  const echoed = RAW_ECHOED_FIELDS.get(field);
+  if (echoed !== undefined) {
+    const namespaces = [...echoed];
+    const nsText = namespaces.length > 0
+      ? `multi-token semantic slug or namespace ${namespaces.map((n) => `\`${n}\``).join(", ")}`
+      : "multi-token semantic slug (no colon namespace)";
+    const isAffordance = field === "matched_affordance_ids"
+      || field === "selected_affordance_ids"
+      || field === "affordance_id";
+    const right = isAffordance
+      ? "affordance:commission-briefing-8"
+      : namespaces.length > 0
+        ? `${namespaces[0]}${GRAMMAR_EXAMPLE_SLUG}`
+        : GRAMMAR_EXAMPLE_SLUG;
+    const wrong = echoedWrongExample(namespaces, field);
+    const marker = `Closed ${field} grammar`;
+    return {
+      field,
+      kind: "echoed",
+      acceptedForm: nsText,
+      rightExample: right,
+      wrongExample: wrong,
+      marker,
+      description: grammarOverlayDescription(marker, nsText, right, wrong),
+    };
+  }
+  const handles = RAW_HANDLE_ONLY.get(field);
+  if (handles !== undefined) {
+    const handleList = [...handles];
+    const right = handleList[0] ?? GRAMMAR_EXAMPLE_SLUG;
+    const wrong = field === "investigator" ? "investigator-1" : "pc:inv-other";
+    const acceptedForm = `exact handle ${handleList.map((h) => `\`${h}\``).join(", ")}`;
+    const marker = `Closed ${field} grammar`;
+    return {
+      field,
+      kind: "handle_only",
+      acceptedForm,
+      rightExample: right,
+      wrongExample: wrong,
+      marker,
+      description: grammarOverlayDescription(marker, acceptedForm, right, wrong),
+    };
+  }
+  const handleOrNs = RAW_HANDLE_OR_NAMESPACE.get(field);
+  if (handleOrNs !== undefined) {
+    const handleList = [...handleOrNs.handles];
+    const nsList = [...handleOrNs.namespaces];
+    const right = handleList[0] ?? GRAMMAR_EXAMPLE_SLUG;
+    const wrong = handleOrNamespaceWrongExample(field);
+    const acceptedForm = `exact handle ${handleList.map((h) => `\`${h}\``).join(", ")}`
+      + ` or namespace ${nsList.map((n) => `\`${n}\``).join(", ")}`;
+    const marker = `Closed ${field} grammar`;
+    return {
+      field,
+      kind: "handle_or_namespace",
+      acceptedForm,
+      rightExample: right,
+      wrongExample: wrong,
+      marker,
+      description: grammarOverlayDescription(marker, acceptedForm, right, wrong),
+    };
+  }
+  if (RAW_PROVENANCE_FIELDS.has(field)) {
+    const acceptedForm = (
+      "`pdf_index-<n>` or namespace `pdf:`, `module:`, `source:`, `handout:`"
+    );
+    const right = "pdf:haunting-full";
+    const wrong = "foo";
+    const marker = `Closed ${field} grammar`;
+    return {
+      field,
+      kind: "provenance",
+      acceptedForm,
+      rightExample: right,
+      wrongExample: wrong,
+      marker,
+      description: grammarOverlayDescription(marker, acceptedForm, right, wrong),
+    };
+  }
+  if (RAW_VOCABULARY_FIELDS.has(field)) {
+    const acceptedForm = (
+      "canonical vocabulary token; machine namespaces and opaque tokens rejected"
+    );
+    const right = "starter";
+    const wrong = "job-not-a-pregen";
+    const marker = `Closed ${field} grammar`;
+    return {
+      field,
+      kind: "vocabulary",
+      acceptedForm,
+      rightExample: right,
+      wrongExample: wrong,
+      marker,
+      description: grammarOverlayDescription(marker, acceptedForm, right, wrong),
+    };
+  }
+  return null;
+}
+
+/** Every model-facing closed-grammar identity field, decision_id first. */
+export function closedIdentityGrammarCatalog(): readonly ClosedIdentityGrammarSpec[] {
+  const fields = new Set<string>([
+    "decision_id",
+    ...MODEL_FACING_SUFFIX_DECISION_ID_FIELDS,
+    ...RAW_COMPOSED_FIELDS.keys(),
+    ...RAW_ECHOED_FIELDS.keys(),
+    ...RAW_HANDLE_ONLY.keys(),
+    ...RAW_HANDLE_OR_NAMESPACE.keys(),
+    ...RAW_PROVENANCE_FIELDS,
+    ...RAW_VOCABULARY_FIELDS,
+  ]);
+  const rows: ClosedIdentityGrammarSpec[] = [];
+  for (const field of [...fields].sort((a, b) => {
+    if (a === "decision_id") return -1;
+    if (b === "decision_id") return 1;
+    return a.localeCompare(b);
+  })) {
+    const spec = closedIdentityGrammarSpec(field);
+    if (spec !== null) rows.push(spec);
+  }
+  return rows;
+}
+
+function closedIdentityGrammarError(field: string): string {
+  const spec = closedIdentityGrammarSpec(field);
+  if (spec === null) {
+    return `${field} must use its closed semantic form: meaning-bearing `
+      + "slugs, the documented handles, or the field's allowed semantic "
+      + "namespaces. Arbitrary, unknown-namespace, or opaque values are rejected.";
+  }
+  return `${field} must use its closed semantic form: ${spec.acceptedForm}. `
+    + `RIGHT: ${spec.rightExample}. WRONG: ${spec.wrongExample}.`;
+}
+
+function isStringishIdentitySchema(prop: JsonSchema): boolean {
+  const type = prop.type;
+  if (type === "string") return true;
+  if (Array.isArray(type) && type.includes("string")) return true;
+  if (type === "array" || Object.hasOwn(prop, "items")) return true;
+  if (Array.isArray(prop.enum) && prop.enum.every((value) => typeof value === "string")) {
+    return true;
+  }
+  return false;
+}
+
+function applyClosedIdentityGrammarOverlay(field: string, prop: JsonSchema): void {
+  const spec = closedIdentityGrammarSpec(field);
+  if (spec === null) return;
+  if (!isStringishIdentitySchema(prop)) return;
+  const current = typeof prop.description === "string" ? prop.description.trim() : "";
+  if (current.includes(spec.marker)) return;
+  prop.description = current
+    ? `${current.replace(/\.+$/, ".")} ${spec.description}`
+    : spec.description;
+}
+
+function overlayClosedIdentityGrammarDescriptions(schema: JsonSchema): void {
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const entry of node) visit(entry);
+      return;
+    }
+    if (!isPlainObject(node)) return;
+    if (isPlainObject(node.properties)) {
+      for (const [field, prop] of Object.entries(node.properties)) {
+        if (!isPlainObject(prop)) continue;
+        applyClosedIdentityGrammarOverlay(field, prop);
+        visit(prop);
+      }
+    }
+    if (Object.hasOwn(node, "items")) visit(node.items);
+    if (isPlainObject(node.additionalProperties)) visit(node.additionalProperties);
+    for (const key of ["anyOf", "oneOf", "allOf", "prefixItems"]) {
+      if (Object.hasOwn(node, key)) visit(node[key]);
+    }
+  };
+  visit(schema);
+}
+
 /** Identity-shaped field names the machine rejection covers even when unruled. */
 const IDENTITY_FIELD_NAME_SHAPE = /(^|_)(id|ids|ref|refs)$/;
 
@@ -3917,9 +4200,7 @@ export function validateRawModelIdentityPayload(
         return {
           ok: false,
           field,
-          message: `${field} must use its closed semantic form: meaning-bearing `
-            + "slugs, the documented handles, or the field's allowed semantic "
-            + "namespaces. Arbitrary, unknown-namespace, or opaque values are rejected.",
+          message: closedIdentityGrammarError(field),
         };
       }
       return null;
@@ -4282,7 +4563,6 @@ export function restoreSemanticEntityHandles(
 function projectSemanticHandleSchemaOverlay(schema: JsonSchema): JsonSchema {
   const cloned = structuredClone(schema);
   if (!isPlainObject(cloned.properties)) return cloned;
-  overlayDecisionIdFieldDescriptions(cloned);
   if (isPlainObject(cloned.properties.investigator)) {
     cloned.properties.investigator = {
       type: "string",
