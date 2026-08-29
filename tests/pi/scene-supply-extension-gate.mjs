@@ -77,18 +77,18 @@ function takeover(task) {
 }
 
 const supplies = new Map([
-  ["sealed", {
+  ["sealed-archive-scene", {
     schema_version: 1,
-    scene_id: "sealed",
+    scene_id: "sealed-archive-scene",
     enforced: true,
     status: "pending",
     ready: false,
     fallback_available: false,
     source_cache_path: "pages",
   }],
-  ["tower", {
+  ["tower-scene", {
     schema_version: 1,
-    scene_id: "tower",
+    scene_id: "tower-scene",
     enforced: true,
     status: "pending",
     ready: false,
@@ -96,9 +96,9 @@ const supplies = new Map([
     source_cache_path: "pages",
     background_takeover: takeover(coordinatorTask("scene-tower-1")),
   }],
-  ["offline", {
+  ["offline-scene", {
     schema_version: 1,
-    scene_id: "offline",
+    scene_id: "offline-scene",
     enforced: true,
     status: "pending",
     ready: false,
@@ -106,9 +106,9 @@ const supplies = new Map([
     source_cache_path: "pages",
     background_takeover: takeover(coordinatorTask("scene-offline-1")),
   }],
-  ["late", {
+  ["late-scene", {
     schema_version: 1,
-    scene_id: "late",
+    scene_id: "late-scene",
     enforced: true,
     status: "blocked",
     ready: false,
@@ -128,7 +128,7 @@ async function canonical(name, params) {
   }
   if (params.operation === "steward.scene_supply") {
     if (
-      params.arguments?.scene_id === "late"
+      params.arguments?.scene_id === "late-scene"
       && params.arguments?.allow_minimal_fallback !== true
     ) {
       markLateSupplyRequested();
@@ -222,9 +222,9 @@ function poll(sceneId) {
 // No exact task means no real host dispatch can exist, so the very first move
 // is a stable block. Repetition and a direct readiness query cannot restart a
 // meaningless move-attempt counter or return to pending.
-const sealedFirst = await move("sealed");
-const sealedSecond = await move("sealed");
-const sealedPoll = await poll("sealed");
+const sealedFirst = await move("sealed-archive-scene");
+const sealedSecond = await move("sealed-archive-scene");
+const sealedPoll = await poll("sealed-archive-scene");
 assert.equal(sealedFirst.details.error.code, "scene_supply_blocked");
 assert.equal(sealedSecond.details.error.code, "scene_supply_blocked");
 assert.equal(sealedPoll.details.data.status, "blocked");
@@ -234,16 +234,16 @@ assert.equal(calls.filter((call) => call.params.operation === "state.move_scene"
 // An exact task without a usable host capability is equally terminal; the KP
 // is not asked to execute the task and no fake pending state is emitted.
 coordinatorCapability = false;
-const offline = await move("offline");
+const offline = await move("offline-scene");
 coordinatorCapability = true;
 assert.equal(offline.details.error.code, "scene_supply_blocked");
 assert.equal(submissions, 0);
 
 // A repository-produced exact task is submitted privately once. Repeated move
 // attempts and readiness polling observe the same live dispatch, not a counter.
-const towerFirst = await move("tower");
-const towerSecond = await move("tower");
-const towerPollActive = await poll("tower");
+const towerFirst = await move("tower-scene");
+const towerSecond = await move("tower-scene");
+const towerPollActive = await poll("tower-scene");
 assert.equal(towerFirst.details.error.code, "scene_supply_pending");
 assert.equal(towerSecond.details.error.code, "scene_supply_pending");
 assert.equal(towerPollActive.details.data.host_gate_status, "pending_with_live_dispatch");
@@ -257,15 +257,15 @@ managerStates.set("scene-tower-1", {
   dispatch_key: "scene-tower-1",
   failure_class: "coordinator_process_failed",
 });
-const towerPollTerminal = await poll("tower");
+const towerPollTerminal = await poll("tower-scene");
 assert.equal(towerPollTerminal.details.data.status, "blocked");
 assert.equal(towerPollTerminal.details.data.host_gate_status, "blocked");
 assert.equal(submissions, 1);
 
 // Canonical readiness always wins and permits the move without another task.
-supplies.set("tower", {
+supplies.set("tower-scene", {
   schema_version: 1,
-  scene_id: "tower",
+  scene_id: "tower-scene",
   enforced: true,
   status: "ready",
   ready: true,
@@ -275,7 +275,7 @@ supplies.set("tower", {
     neighbors: [],
   },
 });
-const moved = await move("tower");
+const moved = await move("tower-scene");
 assert.equal(moved.details.ok, true);
 assert.equal(moved.details.data.scene_supply.cache_hit, true);
 assert.equal(calls.filter((call) => call.params.operation === "state.move_scene").length, 1);
@@ -286,7 +286,7 @@ assert.equal(calls.filter((call) => call.params.operation === "state.move_scene"
 const movedBeforeLate = calls.filter((call) => (
   call.params.operation === "state.move_scene"
 )).length;
-const lateMove = move("late");
+const lateMove = move("late-scene");
 await lateSupplyRequested;
 for (const handler of handlers.get("session_shutdown") || []) {
   await handler({ type: "session_shutdown", reason: "late-preflight-probe" }, ctx);
@@ -299,7 +299,7 @@ const appendedAfterRestart = appended.length;
 releaseLateSupply({
   ok: true,
   tool: "steward.scene_supply",
-  data: structuredClone(supplies.get("late")),
+  data: structuredClone(supplies.get("late-scene")),
 });
 const lateResult = await lateMove;
 assert.equal(lateResult.isError, true);

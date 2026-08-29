@@ -132,6 +132,9 @@ Campaigns store temporary and scenario-specific state:
 │   ├── rolls.jsonl                 # mechanical roll events
 │   ├── audit.jsonl                 # Keeper-facing audit events (e.g. spoiler reveals)
 │   ├── toolbox-calls.jsonl         # ordered canonical operation evidence
+│   ├── pending-narration-drafts.jsonl
+│   │                               # append-only schema-v1 Keeper-only exact draft receipts;
+│   │                               # sole pending-draft text authority for review/recovery
 │   ├── turn-finalizations.jsonl    # immutable rendered turn receipts + exact hashes
 │   ├── table-transcript.jsonl      # exact player/Keeper text actually bound to play
 │   │                               #   record_kind: table_opening | player_turn |
@@ -153,6 +156,21 @@ Campaigns store temporary and scenario-specific state:
 │   └── maintenance-flush.jsonl     # out-of-band forced flush audits
 └── snapshots/
 ```
+
+`logs/pending-narration-drafts.jsonl` is the sole canonical authority for exact
+pending narration bytes. Each append-only schema-v1 receipt binds
+`campaign_id`, semantic `review_decision_id`, `review_id`, `turn_id`,
+`source_digest`, `revision`, `draft_sha256`, exact `draft_text`, UTF-8 byte
+count, review/request digests, `secrecy: keeper_only`, producer kind, and the
+materialization decision/provenance under one receipt digest. Normal
+`narration.review` writes/reuses this receipt before review evidence; an orphan
+receipt is harmless until a matching canonical review exists. Historical
+recovery is explicit through `state.recover_pending_narration_draft`, which
+may read only matching successful `narration.review` rows from
+`logs/toolbox-calls.jsonl`. `turn.output_context` never scans audit or session
+transcripts and fails closed when a reviewed pending turn lacks one unique,
+fully bound receipt. Draft text is bounded to 8192 UTF-8 bytes and never enters
+player projections before successful finalization.
 
 `party.json` references reusable investigator ids. Campaign-specific HP, SAN, conditions, and scene position live under `save/`.
 

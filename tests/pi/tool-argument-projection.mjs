@@ -23,20 +23,29 @@ function independentCurrent(binding) {
   return structuredClone(binding);
 }
 
-test("unarmed catalog keeps newly host-bindable fields model-visible", () => {
+test("registered catalog projects host-owned fields out of model schemas", () => {
+  // The REGISTERED model schemas are the projected model-owned views: the
+  // host-owned settle identity is absent (never merely exempted), and the
+  // model-owned semantics stay.
   const journal = catalog.byOperation.get("state.journal").parameters;
-  assert.ok(journal.required.includes("campaign"));
-  assert.ok(journal.required.includes("player_text"));
-  assert.ok(journal.required.includes("decision_id"));
-  assert.ok(journal.properties.root);
-  assert.ok(journal.properties.run_id);
+  for (const field of [
+    "campaign", "player_text", "decision_id", "root", "run_id",
+  ]) {
+    assert.ok(!Object.hasOwn(journal.properties, field), field);
+    assert.ok(!journal.required.includes(field), field);
+  }
+  assert.ok(journal.required.includes("summary"));
 
   const finalize = catalog.byOperation.get("turn.finalize").parameters;
-  assert.ok(finalize.required.includes("campaign"));
-  assert.ok(finalize.required.includes("decision_id"));
-  assert.ok(finalize.required.includes("revision"));
-  assert.ok(finalize.properties.narration_review_id);
-  assert.ok(finalize.properties.repair_finalization_id);
+  for (const field of [
+    "campaign", "decision_id", "revision",
+    "narration_review_id", "repair_finalization_id",
+  ]) {
+    assert.ok(!Object.hasOwn(finalize.properties, field), field);
+    assert.ok(!finalize.required.includes(field), field);
+  }
+  assert.ok(finalize.required.includes("draft"));
+  assert.ok(finalize.required.includes("coverage"));
 });
 
 test("state.journal binding hides transport/player identity but preserves KP semantics", () => {
@@ -1103,9 +1112,11 @@ test("attachExpectedSchema now adds normalized recovery metadata and preserves t
   assert.equal(projected.error.class, "schema_validation");
   assert.equal(projected.error.recoverable_by, "model_next_action");
   assert.equal(projected.error.allowed_next_actions[0].operation, "state.journal");
+  // expected_schema is the REGISTERED model-owned view (host-owned fields
+  // projected out), matching what the model actually fills.
   assert.deepEqual(
     projected.error.expected_schema,
-    catalog.contracts.operations.get("state.journal").inputSchema,
+    catalog.byOperation.get("state.journal").parameters,
   );
   assert.deepEqual(projected.error.details, { field: "summary" });
 
@@ -1190,4 +1201,180 @@ test("attachExpectedSchema now adds normalized recovery metadata and preserves t
       },
     },
   ), "binding_context_stale");
+});
+
+// ---- separate model-call projection, derived from the actual typed schemas ----
+
+/** Minimal schema execution check: args satisfy the schema's required set,
+ * contain no property outside the schema (no aliases), and match types. */
+function assertArgsExecuteSchema(schema, args, label) {
+  for (const field of schema.required ?? []) {
+    assert.ok(Object.hasOwn(args, field), `${label}: missing required ${field}`);
+  }
+  for (const [field, value] of Object.entries(args)) {
+    assert.ok(
+      Object.hasOwn(schema.properties ?? {}, field),
+      `${label}: ${field} is not a typed schema property (alias)`,
+    );
+    const property = schema.properties[field];
+    if (property?.type === "string") {
+      assert.equal(typeof value, "string", `${label}: ${field} must be a string`);
+    }
+  }
+}
+
+test("model-call projection derives review arguments from the actual narration.review schema", () => {
+  const operation = "narration.review";
+  const archiveSchema = catalog.contracts.operations.get(operation).inputSchema;
+  const projection = typed.projectModelCallArguments(
+    operation,
+    "coc_narration_review",
+    archiveSchema,
+  );
+  // Derived split, not a hand allowlist: model-owned = schema minus host-bound.
+  const modelOwned = [
+    ...projection.model_owned_required_arguments,
+    ...projection.model_owned_optional_arguments,
+  ];
+  const schemaProperties = Object.keys(archiveSchema.properties);
+  assert.deepEqual(
+    [...modelOwned, ...projection.host_bound_auto_attached_arguments].sort(),
+    [...schemaProperties].sort(),
+    "every typed schema field must be classified exactly once",
+  );
+  for (const field of projection.model_owned_required_arguments) {
+    assert.ok(archiveSchema.required.includes(field), field);
+  }
+  for (const field of projection.host_bound_auto_attached_arguments) {
+    assert.ok(!projection.model_owned_required_arguments.includes(field), field);
+    assert.ok(!projection.model_owned_optional_arguments.includes(field), field);
+  }
+  // The exact typed parameter name for the draft, and no host-owned echo.
+  assert.ok(projection.model_owned_required_arguments.includes("draft_text"));
+  for (const hostField of [
+    "decision_id", "turn_id", "source_digest", "revision",
+    "state_claim_compilation", "root", "campaign",
+  ]) {
+    assert.ok(
+      projection.host_bound_auto_attached_arguments.includes(hostField),
+      hostField,
+    );
+    assert.ok(!modelOwned.includes(hostField), hostField);
+  }
+  assert.equal(projection.invoke_via, "coc_narration_review");
+  assert.equal(projection.contract_source, "mcp_operation_contracts.inputSchema");
+
+  // The projected model-owned arguments execute the real schema: binding the
+  // model input yields a complete typed argument object with no alias and no
+  // forged host-owned field.
+  const revision = "turn:allan-ward:17:output-context-1";
+  const binding = {
+    schema_version: 1,
+    operation,
+    binding_revision: revision,
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-allan-ward",
+    decision_id: "review:allan-ward:turn-17:revision-1",
+    turn_id: "turn:allan-ward:17",
+    source_digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    revision: 1,
+    state_claim_compilation: {
+      contract_id: "coc.pi-state-claim-compilation.v1",
+      draft_sha256: `sha256:${"a".repeat(64)}`,
+    },
+  };
+  const modelInput = {
+    draft_text: "门后的木板发出低沉的呻吟。",
+    state_authority_review: {
+      disposition: "no_player_state_change_claimed",
+      reason: "只描述环境",
+      claims: [],
+    },
+    findings: [],
+    investigator: "allan-ward",
+  };
+  const projectedSchema = typed.projectBoundTypedToolParameters(
+    operation,
+    archiveSchema,
+    binding,
+    independentCurrent(binding),
+  );
+  assertArgsExecuteSchema(projectedSchema, modelInput, "model input");
+  const bound = typed.bindRetainedTypedToolArguments(
+    operation,
+    modelInput,
+    binding,
+    independentCurrent(binding),
+  );
+  assertArgsExecuteSchema(archiveSchema, bound, "bound arguments");
+  assert.equal(bound.draft_text, modelInput.draft_text);
+  assert.equal(bound.turn_id, binding.turn_id);
+  assert.equal(bound.decision_id, binding.decision_id);
+  assert.deepEqual(bound.state_claim_compilation, binding.state_claim_compilation);
+  // Forging any host-owned field stays rejected even at the projection level.
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    operation,
+    { ...modelInput, decision_id: binding.decision_id },
+    binding,
+    independentCurrent(binding),
+  ), "forged_host_argument");
+  // Unknown operations fail closed instead of guessing a split.
+  assertProjectionError(() => typed.projectModelCallArguments(
+    "narration.does_not_exist",
+    "coc_invoke",
+    archiveSchema,
+  ), "model_call_projection_unavailable");
+});
+
+test("model-call finalize projection supports both canonical invoke_via surfaces", () => {
+  const operation = "turn.finalize";
+  const archiveSchema = catalog.contracts.operations.get(operation).inputSchema;
+  for (const invokeVia of ["coc_turn_finalize", "coc_invoke"]) {
+    const projection = typed.projectModelCallArguments(
+      operation,
+      invokeVia,
+      archiveSchema,
+    );
+    assert.equal(projection.operation, operation);
+    assert.equal(projection.invoke_via, invokeVia);
+    assert.deepEqual(projection.model_owned_required_arguments, [
+      "coverage",
+      "draft",
+    ]);
+    assert.deepEqual(
+      [...projection.model_owned_optional_arguments].sort(),
+      ["advisory_uptake", "agency_claims", "mechanics_placements", "validate_only"],
+    );
+    assert.deepEqual(
+      [...projection.host_bound_auto_attached_arguments].sort(),
+      ["campaign", "decision_id", "narration_review_id", "repair_finalization_id", "revision", "root"],
+    );
+    // The card-owned draft parameter name is `draft`, never the review alias.
+    assert.ok(!projection.model_owned_required_arguments.includes("draft_text"));
+  }
+  const finalizeViaInvoke = typed.projectModelCallArguments(
+    operation,
+    "coc_invoke",
+    archiveSchema,
+  );
+  const finalizeViaTyped = typed.projectModelCallArguments(
+    operation,
+    "coc_turn_finalize",
+    archiveSchema,
+  );
+  // The generic gateway surface is projected as the real invocation shape:
+  // a nested {operation, arguments} envelope, never flat typed arguments.
+  assert.equal(finalizeViaInvoke.invocation_shape, "generic_envelope");
+  assert.equal(finalizeViaInvoke.envelope_operation, operation);
+  assert.equal(finalizeViaTyped.invocation_shape, "typed_flat");
+  assert.equal(finalizeViaTyped.envelope_operation, undefined);
+  assert.deepEqual(
+    {
+      ...finalizeViaInvoke,
+      invoke_via: finalizeViaTyped.invoke_via,
+      invocation_shape: finalizeViaTyped.invocation_shape,
+    },
+    { ...finalizeViaTyped, envelope_operation: finalizeViaInvoke.envelope_operation },
+    "only the exact card invoke_via and its real invocation shape may differ between the two surfaces",
+  );
 });

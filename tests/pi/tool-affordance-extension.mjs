@@ -13,6 +13,8 @@ const main = await import(path.join(
 const {
   PiStateClaimCompiler,
   PiStateClaimCompilerFailure,
+  canonicalDigest,
+  draftParagraphs,
 } = await import(path.join(
   root,
   "plugins/coc-keeper/pi/lib/state-claim-compiler.ts",
@@ -20,6 +22,12 @@ const {
 
 const ROLE_ENV = "COC_PI_SESSION_ROLE";
 const CAMPAIGN_ENV = "PI_COC_CAMPAIGN_ID";
+
+// This harness drives the root KP extension surface directly. A worker-shell
+// PI_SUBAGENT_CHILD=1 would silence applyKpActiveTools/setActiveTools and
+// make the active-tool projection unobservable (same guard as
+// recovery-kp-guidance.mjs).
+delete process.env.PI_SUBAGENT_CHILD;
 
 const exactTextSha256 = (text) => (
   `sha256:${createHash("sha256").update(JSON.stringify(text), "utf8").digest("hex")}`
@@ -336,34 +344,38 @@ test("extension nonretry scope ignores host identity churn and clears on real pr
       },
       undefined, undefined, h.ctx,
     );
-    const callContext = (probe, decisionId) => h.tools.get("coc_invoke").execute(
+    // The model-owned surface for turn.output_context is EMPTY (campaign and
+    // root are host-bound): repeated identical calls share one circuit key,
+    // so the first canonical failure arms the circuit and the repeat is
+    // blocked with zero further transport.
+    const callContext = (probe, decisionId, extra) => h.tools.get("coc_invoke").execute(
       `context-${probe}-${decisionId}`,
       {
         operation: "turn.output_context",
         campaign: "tool-affordance-campaign",
-        arguments: { probe, decision_id: decisionId },
+        arguments: { ...(extra ?? {}) },
       },
       undefined, undefined, h.ctx,
     );
-    const first = JSON.parse((await callContext("same", "host-id-1")).content[0].text);
+    const first = JSON.parse((await callContext("same", "journal-host-churn-1")).content[0].text);
     assert.equal(first.error.code, "invalid_param");
-    const repeated = JSON.parse((await callContext("same", "host-id-2")).content[0].text);
+    const repeated = JSON.parse((await callContext("same", "journal-host-churn-2")).content[0].text);
     assert.equal(repeated.error.code, "nonretryable_repeat_blocked");
     assert.equal(contextAttempts, 1);
 
-    const corrected = JSON.parse((await callContext("corrected", "host-id-3")).content[0].text);
-    assert.equal(corrected.ok, true);
-    assert.equal(contextAttempts, 2);
-    const afterProgress = JSON.parse((await callContext("same", "host-id-4")).content[0].text);
-    assert.equal(afterProgress.error.code, "invalid_param");
-    assert.equal(contextAttempts, 3);
+    // The model-owned surface for turn.output_context is campaign+root only:
+    // there is no model-owned churn lever, and unknown churn fields reject at
+    // the argument-shape gate with zero canonical attempts and zero transport.
+    const unknownChurn = JSON.parse((await callContext("churn-unknown", "journal-host-churn-3", { probe: "x" })).content[0].text);
+    assert.equal(unknownChurn.error.code, "unknown_model_argument");
+    assert.equal(contextAttempts, 1);
   }, (_name, params) => {
     if (params.operation === "state.journal") {
       return { ok: true, tool: "state.journal", data: { turn_id: "turn-affordance-1" } };
     }
     if (params.operation === "turn.output_context") {
       contextAttempts += 1;
-      if (params.arguments.probe !== "corrected") {
+      if (contextAttempts === 1) {
         return {
           ok: false,
           tool: "turn.output_context",
@@ -479,9 +491,9 @@ test("projected same-destination scene routes preserve exact optional travel thr
   const sceneEnvelope = contextReceipt("multi-route", {
     active_scene_id: "study",
     exits: [
-      { to: "archive", kind: "travel", open: true, travel_minutes: 5 },
-      { to: "archive", kind: "travel", open: true, travel_minutes: 10 },
-      { to: "archive", kind: "travel", open: true },
+      { to: "archive-scene", kind: "travel", open: true, travel_minutes: 5 },
+      { to: "archive-scene", kind: "travel", open: true, travel_minutes: 10 },
+      { to: "archive-scene", kind: "travel", open: true },
     ],
     time: { time_precision: "precise", local_datetime: "1920-10-12T10:00:00" },
     npcs_present: [],
@@ -508,19 +520,19 @@ test("projected same-destination scene routes preserve exact optional travel thr
     assert.deepEqual(
       discovery.data.operation_card.parameters.properties.candidate_id.enum,
       [
-        "scene-route:archive:travel:1",
-        "scene-route:archive:travel:2",
-        "scene-route:archive:travel:3",
+        "scene-route:archive-scene:travel:1",
+        "scene-route:archive-scene:travel:2",
+        "scene-route:archive-scene:travel:3",
       ],
     );
     await h.tools.get("coc_state_move_scene").execute(
       "multi-route-ten",
-      { candidate_id: "scene-route:archive:travel:2", reason: "走较长的回廊" },
+      { candidate_id: "scene-route:archive-scene:travel:2", reason: "走较长的回廊" },
       undefined,
       undefined,
       h.ctx,
     );
-    assert.equal(forwarded.at(-1).arguments.scene_id, "archive");
+    assert.equal(forwarded.at(-1).arguments.scene_id, "archive-scene");
     assert.equal(forwarded.at(-1).arguments.travel_minutes, 10);
     assert.equal(Object.hasOwn(forwarded.at(-1).arguments, "candidate_id"), false);
 
@@ -534,18 +546,18 @@ test("projected same-destination scene routes preserve exact optional travel thr
     );
     await h.tools.get("coc_state_move_scene").execute(
       "multi-route-five",
-      { candidate_id: "scene-route:archive:travel:1", reason: "走近路" },
+      { candidate_id: "scene-route:archive-scene:travel:1", reason: "走近路" },
       undefined,
       undefined,
       h.ctx,
     );
-    assert.equal(forwarded.at(-1).arguments.scene_id, "archive");
+    assert.equal(forwarded.at(-1).arguments.scene_id, "archive-scene");
     assert.equal(forwarded.at(-1).arguments.travel_minutes, 5);
 
     await invokeCompat(h, "multi-scene-untimed-refresh", "scene.context");
     const untimed = await h.tools.get("coc_state_move_scene").execute(
       "multi-route-untimed",
-      { candidate_id: "scene-route:archive:travel:3", reason: "走未标注时长的通路" },
+      { candidate_id: "scene-route:archive-scene:travel:3", reason: "走未标注时长的通路" },
       undefined,
       undefined,
       h.ctx,
@@ -553,7 +565,7 @@ test("projected same-destination scene routes preserve exact optional travel thr
     const untimedEnvelope = JSON.parse(untimed.content[0].text);
     assert.equal(untimedEnvelope.isError, true);
     assert.equal(untimedEnvelope.error.code, "invalid_param");
-    assert.equal(forwarded.at(-1).arguments.scene_id, "archive");
+    assert.equal(forwarded.at(-1).arguments.scene_id, "archive-scene");
     assert.equal(Object.hasOwn(forwarded.at(-1).arguments, "travel_minutes"), false);
   }, (_name, params) => {
     if (params.operation === "scene.context") return sceneEnvelope;
@@ -699,9 +711,11 @@ test("new invalid scene context revokes prior scene bindings before surfacing fa
 
     assert.equal(h.active.at(-1).includes("coc_state_move_scene"), false);
     assert.equal(h.active.at(-1).includes("coc_state_advance_time"), false);
+    // Registered model-owned schema: host-owned campaign/decision_id are
+    // projected out; the binding candidate remains host-managed.
     const unboundMoveSchema = h.tools.get("coc_state_move_scene").parameters;
-    assert.ok(Object.hasOwn(unboundMoveSchema.properties, "campaign"));
-    assert.ok(Object.hasOwn(unboundMoveSchema.properties, "decision_id"));
+    assert.ok(Object.hasOwn(unboundMoveSchema.properties, "campaign") === false);
+    assert.ok(Object.hasOwn(unboundMoveSchema.properties, "decision_id") === false);
     assert.equal(Object.hasOwn(unboundMoveSchema.properties, "candidate_id"), false);
     assert.equal(latestWorkingSetAudit(h).schema_bytes, actualActiveSchemaBytes(h));
 
@@ -820,7 +834,7 @@ test("scene binding re-arm rolls back atomically across host presentation failur
       const forwarded = [];
       let sceneEnvelope = contextReceipt(`atomic-valid-${stage}`, {
         active_scene_id: "hall",
-        exits: [{ to: "archive", open: true, travel_minutes: 5 }],
+        exits: [{ to: "archive-scene", open: true, travel_minutes: 5 }],
         time: { time_precision: "precise", local_datetime: "1920-10-12T10:00:00" },
         npcs_present: [],
         action_routes: [],
@@ -845,7 +859,7 @@ test("scene binding re-arm rolls back atomically across host presentation failur
 
         sceneEnvelope = contextReceipt(`atomic-invalid-${stage}`, {
           active_scene_id: "hall",
-          exits: [{ to: "archive", open: true, travel_minutes: "5" }],
+          exits: [{ to: "archive-scene", open: true, travel_minutes: "5" }],
           time: { time_precision: "precise", local_datetime: "1920-10-12T10:01:00" },
           npcs_present: [],
           action_routes: [],
@@ -857,7 +871,7 @@ test("scene binding re-arm rolls back atomically across host presentation failur
 
         sceneEnvelope = contextReceipt(`atomic-rearm-fails-${stage}`, {
           active_scene_id: "hall",
-          exits: [{ to: "archive", open: true, travel_minutes: 7 }],
+          exits: [{ to: "archive-scene", open: true, travel_minutes: 7 }],
           time: { time_precision: "precise", local_datetime: "1920-10-12T10:02:00" },
           npcs_present: [],
           action_routes: [],
@@ -874,7 +888,7 @@ test("scene binding re-arm rolls back atomically across host presentation failur
           row.operation === "state.move_scene" || row.operation === "state.advance_time"
         )).length;
         for (const [tool, id, args] of [
-          [staleMoveTool, `atomic-stale-move-${stage}`, { scene_id: "archive", reason: "旧 schema" }],
+          [staleMoveTool, `atomic-stale-move-${stage}`, { scene_id: "archive-scene", reason: "旧 schema" }],
           [staleTimeTool, `atomic-stale-time-${stage}`, { minutes: 5, reason: "旧 schema" }],
         ]) {
           const rejected = JSON.parse((await tool.execute(
@@ -893,13 +907,14 @@ test("scene binding re-arm rolls back atomically across host presentation failur
         assert.equal(h.active.at(-1).includes("coc_state_advance_time"), false);
         for (const name of ["coc_state_move_scene", "coc_state_advance_time"]) {
           const schema = h.tools.get(name).parameters;
-          assert.ok(Object.hasOwn(schema.properties, "campaign"));
-          assert.ok(Object.hasOwn(schema.properties, "decision_id"));
+          // Model-owned registration keeps transport identity projected out.
+          assert.ok(!Object.hasOwn(schema.properties, "campaign"), name);
+          assert.ok(!Object.hasOwn(schema.properties, "decision_id"), name);
         }
 
         sceneEnvelope = contextReceipt(`atomic-rearm-success-${stage}`, {
           active_scene_id: "hall",
-          exits: [{ to: "archive", open: true, travel_minutes: 9 }],
+          exits: [{ to: "archive-scene", open: true, travel_minutes: 9 }],
           time: { time_precision: "precise", local_datetime: "1920-10-12T10:03:00" },
           npcs_present: [],
           action_routes: [],
@@ -921,7 +936,7 @@ test("scene binding re-arm rolls back atomically across host presentation failur
         }
         await h.tools.get("coc_state_move_scene").execute(
           `atomic-move-success-${stage}`,
-          { scene_id: "archive", reason: "完整 re-arm 后执行" },
+          { scene_id: "archive-scene", reason: "完整 re-arm 后执行" },
           undefined,
           undefined,
           h.ctx,
@@ -945,7 +960,7 @@ test("scene, precise-clock, and combat cards bind discovered production tools an
   let sceneEnvelope = contextReceipt("scene-a", {
     active_scene_id: "study",
     exits: [
-      { to: "archive", open: true, travel_minutes: 35 },
+      { to: "archive-scene", open: true, travel_minutes: 35 },
       { to: "sealed-cellar", open: false, travel_minutes: 5 },
     ],
     time: { time_precision: "precise", local_datetime: "1920-10-12T10:00:00" },
@@ -977,7 +992,7 @@ test("scene, precise-clock, and combat cards bind discovered production tools an
       "discover-move", { operation: "state.move_scene" }, undefined, undefined, h.ctx,
     )).content[0].text);
     assert.equal(moveDiscovery.ok, true);
-    assert.deepEqual(moveDiscovery.data.operation_card.parameters.properties.scene_id.enum, ["archive"]);
+    assert.deepEqual(moveDiscovery.data.operation_card.parameters.properties.scene_id.enum, ["archive-scene"]);
     for (const field of ["root", "campaign", "decision_id", "travel_minutes"]) {
       assert.equal(Object.hasOwn(
         moveDiscovery.data.operation_card.parameters.properties,
@@ -989,7 +1004,7 @@ test("scene, precise-clock, and combat cards bind discovered production tools an
     const armedMoveRevision = latestWorkingSetAudit(h).revision;
     assert.ok(h.active.at(-1).includes("coc_state_move_scene"));
     const moved = JSON.parse((await h.tools.get("coc_state_move_scene").execute(
-      "move-bound", { scene_id: "archive", reason: "去档案室" },
+      "move-bound", { scene_id: "archive-scene", reason: "去档案室" },
       undefined, undefined, h.ctx,
     )).content[0].text);
     assert.equal(moved.ok, true);
@@ -1005,7 +1020,7 @@ test("scene, precise-clock, and combat cards bind discovered production tools an
     );
 
     sceneEnvelope = contextReceipt("scene-b", {
-      active_scene_id: "archive",
+      active_scene_id: "archive-scene",
       exits: [{ to: "street", open: true }],
       time: { time_precision: "precise", local_datetime: "1920-10-12T10:35:00" },
       npcs_present: [{ npc_id: "walter-corbitt" }],
@@ -1100,7 +1115,9 @@ test("scene, precise-clock, and combat cards bind discovered production tools an
     assert.equal(candidateStale.error.allowed_next_actions[0].operation, "scene.context");
     assert.equal(forwarded.length, beforeStale, "stale candidate must fail before MCP");
 
-    await invokeCompat(h, "journal-stage-change", "state.journal");
+    await invokeCompat(h, "journal-stage-change", "state.journal", {
+      summary: "阶段推进：这一轮调查整理完成。",
+    });
     const bindingStale = JSON.parse((await h.tools.get("coc_state_move_scene").execute(
       "stale-binding", { scene_id: "new-route", reason: "阶段已变" },
       undefined, undefined, h.ctx,
@@ -1176,8 +1193,46 @@ test("malformed output-context and finalization successes fault without progress
         role: "user",
         content: [{ type: "text", text: `验证 ${operation}。` }],
       });
+      // The finalize coverage obligation resolves through the registry, so
+      // observe one real roll first and reference its projected handle.
+      let obligationHandle = null;
+      if (operation === "turn.finalize") {
+        const rollRoute = h.clientCalls;
+        const rollResult = JSON.parse((await invokeCompat(
+          h, `roll-for-${operation}`, "rules.roll",
+          {
+            difficulty: "regular",
+            goal: "推开通往书房的门",
+            stakes: { on_success: "门开了", on_failure: "门纹丝不动" },
+            difficulty_basis: "keeper_judgment",
+            decision_id: "roll-malformed-finalize-probe",
+          },
+        )).content[0].text);
+        obligationHandle = rollResult.data?.roll_id;
+        assert.ok(
+          typeof obligationHandle === "string" && obligationHandle.startsWith("roll:"),
+          JSON.stringify(rollResult),
+        );
+        assert.notEqual(rollRoute, null);
+      }
+      const modelOwnedSettleArgs = operation === "turn.finalize"
+        ? {
+          draft: "探针草稿：你推开书房的门。",
+          coverage: [{
+            obligation_id: obligationHandle,
+            player_input_handling: "not_applicable",
+            realization: "concealed_no_player_visible_beat",
+            exact_excerpt: null,
+            action_realization: null,
+            causal_explanation: null,
+            exceptional_beat: null,
+            persona_fit: null,
+            response: null,
+          }],
+        }
+        : {};
       const response = JSON.parse((await invokeCompat(
-        h, `malformed-${operation}`, operation,
+        h, `malformed-${operation}`, operation, modelOwnedSettleArgs,
       )).content[0].text);
       assert.equal(response.ok, false);
       assert.equal(response.isError, true);
@@ -1195,6 +1250,18 @@ test("malformed output-context and finalization successes fault without progress
       assert.equal(stages.includes("output_context_ready"), false);
       assert.deepEqual(h.active.at(-1), ["coc_session_resume"]);
     }, (_name, params) => {
+      if (params.operation === "rules.roll") {
+        return {
+          ok: true,
+          tool: "rules.roll",
+          data: {
+            roll_id: "toolbox-affordance-malformed-000001",
+            skill: "侦查",
+            passed: true,
+            resolution_context: { attempt_id: "attempt-affordance-malformed" },
+          },
+        };
+      }
       if (params.operation === operation) {
         return operation === "turn.finalize"
           ? {
@@ -1255,6 +1322,7 @@ test("non-review output-context accepts the canonical finalize-card revision", a
     });
     const journal = JSON.parse((await invokeCompat(
       h, "non-review-journal", "state.journal",
+      { summary: "无需审查的结算：整理这一轮的线索与行动。" },
     )).content[0].text);
     assert.equal(journal.ok, true);
 
@@ -1478,52 +1546,11 @@ test("output-context operation cards require exact names and positive integer re
 });
 
 test("faulted turn advances only through the exact session-resume recovery receipt", async () => {
-  let recoveryResume = false;
-  await withPlayHarness(async (h) => {
-    await h.emit("message_start", {
-      role: "user",
-      content: [{ type: "text", text: "我搜查房间。" }],
-    });
-    for (const text of ["草稿一。", "草稿二。", "草稿三。"]) {
-      await h.emit("message_end", {
-        role: "assistant",
-        stopReason: "stop",
-        content: [{ type: "text", text }],
-      });
-    }
-    assert.deepEqual(h.active.at(-1), ["coc_session_resume"]);
-    recoveryResume = true;
-    await invokeCompat(h, "resume-fault", "session.resume");
-    assert.deepEqual(h.active.at(-1), ["coc_session_resume", "coc_state_journal"]);
-    await invokeCompat(h, "journal-recovery", "state.journal");
-    const progress = h.appended
-      .filter((row) => row.type === "coc-canonical-turn-progress")
-      .map((row) => row.value);
-    assert.equal(progress.at(-1).stage, "journaled");
-    assert.equal(progress.at(-1).reason, "authorized_fault_recovery_receipt");
-    assert.ok(h.active.at(-1).includes("coc_turn_output_context"));
-    assert.ok(!h.active.at(-1).includes("coc_state_journal"));
-  }, (_name, params) => {
-    if (params.operation === "session.resume") {
-      return recoveryResume
-        ? {
-            ok: true,
-            tool: "session.resume",
-            data: {
-              mode: "pending_finalization",
-              next_operations: ["state.journal", "turn.output_context"],
-            },
-          }
-        : { ok: true, tool: "session.resume", data: { mode: "awaiting_player", next_operations: [] } };
-    }
-    if (params.operation === "state.journal") {
-      return { ok: true, tool: "state.journal", data: { turn_id: "turn-recovered" } };
-    }
-    return { ok: true, tool: params.operation, data: {} };
-  });
-});
-
-test("state-claim compiler terminal failure enters the same narrow fault working set", async () => {
+  // Current contract: the only authorized exit from the faulted stage is the
+  // validated turn.output_context receipt (authorized_fault_recovery_receipt);
+  // any other step — e.g. state.journal — is rejected as regressive until the
+  // exact receipt arrives. The pending-finalization resume routes the fault
+  // lane to that exact first host step (never straight to turn.finalize).
   const compiler = new PiStateClaimCompiler(async () => {
     throw new PiStateClaimCompilerFailure(
       "state_claim_response_invalid",
@@ -1558,6 +1585,331 @@ test("state-claim compiler terminal failure enters the same narrow fault working
           ok: true,
           tool: "turn.output_context",
           data: {
+            turn_id: "turn-recovery-fault",
+            source_digest: `sha256:${"f".repeat(64)}`,
+            settlement_snapshot_id: "turn-settlement-v1:recovery-fault",
+            mechanics_bundle_sha256: `sha256:${"0".repeat(64)}`,
+            contract_projection: {
+              agency_review_required: true,
+              agency_authority: { pc_subject_refs: ["pc:probe"] },
+            },
+            agency_review_operation: {
+              operation: "narration.review",
+              invoke_via: "coc_narration_review",
+              prefilled_arguments: {
+                turn_id: "turn-recovery-fault",
+                source_digest: `sha256:${"f".repeat(64)}`,
+                revision: 1,
+              },
+              missing_arguments: [
+                "decision_id", "draft_text", "findings",
+                "state_authority_review",
+              ],
+            },
+            finalize_operation: {
+              operation: "turn.finalize",
+              invoke_via: "coc_turn_finalize",
+              prefilled_arguments: { revision: 1 },
+              missing_arguments: ["draft", "narration_review_id", "agency_claims"],
+            },
+          },
+        };
+      }
+      if (params.operation === "state.journal") {
+        return { ok: true, tool: "state.journal", data: { turn_id: "turn-recovery-fault" } };
+      }
+      return { ok: true, tool: params.operation, data: {} };
+    }, compiler);
+    await h.start();
+    await invokeCompat(h, "resume-live", "session.resume");
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "继续调查。" }],
+    });
+    await invokeCompat(h, "recovery-context", "turn.output_context");
+    // Host-owned settle identity (turn_id/source_digest/revision) is bound by
+    // the gateway; the model payload carries only the semantic review shape.
+    const reviewResponse = JSON.parse((await invokeCompat(
+      h,
+      "recovery-review",
+      "narration.review",
+      {
+        draft_text: "调查继续。",
+        findings: [],
+        state_authority_review: {
+          disposition: "no_player_state_change_claimed",
+          reason: "无状态变化。",
+          claims: [],
+        },
+      },
+    )).content[0].text);
+    assert.equal(reviewResponse.error.code, "state_claim_compiler_invalid");
+    const progressRows = () => h.appended
+      .filter((row) => row.type === "coc-canonical-turn-progress")
+      .map((row) => row.value);
+    assert.equal(progressRows().at(-1).stage, "faulted");
+    assert.equal(
+      h.sent.filter((row) => (
+        row.message.customType === main.TURN_PROCESSING_FAULT_CUSTOM_TYPE
+      )).length,
+      1,
+    );
+    // From faulted, a non-receipt step never advances: state.journal is
+    // rejected as regressive (the rejected row records the attempted
+    // candidate stage) and the fault stays latched.
+    recoveryResume = true;
+    await invokeCompat(h, "journal-recovery", "state.journal", {
+      summary: "恢复阶段：以日志推进回合阶段。",
+    });
+    assert.equal(progressRows().at(-1).status, "rejected");
+    assert.equal(progressRows().at(-1).reason, "turn_stage_regressed");
+    assert.equal(progressRows().at(-1).stage, "journaled");
+    // The exact session.resume recovery receipt routes the lane to the
+    // output-context refresh, never straight to turn.finalize.
+    await invokeCompat(h, "resume-fault", "session.resume");
+    assert.ok(h.active.at(-1).includes("coc_turn_output_context"));
+    assert.ok(!h.active.at(-1).includes("coc_state_journal"));
+    assert.ok(!h.active.at(-1).includes("coc_turn_finalize"));
+    // The exact validated output-context receipt advances the faulted turn
+    // with the authorized recovery reason and reprojects the review tool.
+    await invokeCompat(h, "recovery-context-2", "turn.output_context");
+    const authorized = progressRows().at(-1);
+    assert.equal(authorized.status, "advanced");
+    assert.equal(authorized.stage, "output_context_ready");
+    assert.equal(authorized.reason, "authorized_fault_recovery_receipt");
+    assert.equal(authorized.recovery_operation, "turn.output_context");
+    assert.ok(h.active.at(-1).includes("coc_narration_review"));
+    assert.ok(!h.active.at(-1).includes("coc_turn_output_context"));
+    assert.equal(
+      h.sent.filter((row) => (
+        row.message.customType === main.TURN_PROCESSING_FAULT_CUSTOM_TYPE
+      )).length,
+      1,
+      "the authorized receipt clears the fault without a second fault notice",
+    );
+  } finally {
+    if (priorRole === undefined) delete process.env[ROLE_ENV];
+    else process.env[ROLE_ENV] = priorRole;
+    if (priorCampaign === undefined) delete process.env[CAMPAIGN_ENV];
+    else process.env[CAMPAIGN_ENV] = priorCampaign;
+  }
+});
+
+// The explicit coc_invoke output-context lane binds the invocation campaign
+// before authorizing the faulted→output_context_ready recovery: a fully
+// valid receipt for ANOTHER campaign validates nothing, accepts no
+// cards/refresh, and leaves the fault latched; the matching campaign
+// authorizes the exact recovery receipt as before.
+test("explicit output-context receipt campaign binds fault recovery authorization", async () => {
+  const compiler = new PiStateClaimCompiler(async () => {
+    throw new PiStateClaimCompilerFailure(
+      "state_claim_response_invalid",
+      "protocol_invalid",
+      { provider: "probe", id: "probe", api: "openai-responses" },
+      1,
+    );
+  });
+  const priorRole = process.env[ROLE_ENV];
+  const priorCampaign = process.env[CAMPAIGN_ENV];
+  process.env[ROLE_ENV] = "play";
+  process.env[CAMPAIGN_ENV] = "tool-affordance-campaign";
+  try {
+    // Fully valid canonical receipt; only campaign_id varies between the
+    // matching and mismatched variants.
+    const frozenReceiptFor = (campaignId) => {
+      const reviewDecisionId = "pi-narration-review:campaign-binding:revision-1";
+      const draftText = "诺特仍坐在桌后等你的答复。";
+      const receipt = {
+        schema_version: 1,
+        kind: "pending_narration_draft",
+        secrecy: "keeper_only",
+        campaign_id: campaignId,
+        receipt_id: `pending-narration-draft:${reviewDecisionId}:revision-1`,
+        review_decision_id: reviewDecisionId,
+        review_id: "narration-review-v1:campaign-binding-1",
+        turn_id: "turn-recovery-fault",
+        source_digest: `sha256:${"f".repeat(64)}`,
+        revision: 1,
+        draft_sha256: canonicalDigest(draftText),
+        draft_text: draftText,
+        draft_utf8_bytes: Buffer.byteLength(draftText, "utf8"),
+        review_digest: `sha256:${"a1".repeat(32)}`,
+        request_digest: `sha256:${"b1".repeat(32)}`,
+        producer_kind: "narration_review_submission",
+        source_operation: "narration.review",
+        materialization_decision_id: reviewDecisionId,
+        provenance: { kind: "direct_review_submission" },
+      };
+      receipt.receipt_digest = canonicalDigest(receipt);
+      return receipt;
+    };
+    // Host-owned settle identity (turn_id/source_digest/revision) is bound
+    // by the gateway; the model payload carries only the semantic shape.
+    const reviewArguments = {
+      draft_text: "调查继续。",
+      findings: [],
+      state_authority_review: {
+        disposition: "no_player_state_change_claimed",
+        reason: "无状态变化。",
+        claims: [],
+      },
+    };
+    const driveToFaultedAndRefresh = async (receiptCampaign) => {
+      let recoveryResume = false;
+      const h = makeHarness((_name, params) => {
+        if (params.operation === "session.resume") {
+          return recoveryResume
+            ? {
+                ok: true,
+                tool: "session.resume",
+                data: {
+                  schema_version: 1,
+                  campaign_id: "tool-affordance-campaign",
+                  mode: "pending_finalization",
+                  next_operations: ["turn.finalize"],
+                },
+              }
+            : { ok: true, tool: "session.resume", data: { mode: "awaiting_player", next_operations: [] } };
+        }
+        if (params.operation === "turn.output_context") {
+          return {
+            ok: true,
+            tool: "turn.output_context",
+            data: {
+              turn_id: "turn-recovery-fault",
+              source_digest: `sha256:${"f".repeat(64)}`,
+              settlement_snapshot_id: "turn-settlement-v1:recovery-fault",
+              mechanics_bundle_sha256: `sha256:${"0".repeat(64)}`,
+              contract_projection: {
+                agency_review_required: true,
+                agency_authority: { pc_subject_refs: ["pc:probe"] },
+              },
+              frozen_narration_draft: frozenReceiptFor(receiptCampaign),
+              agency_review_operation: {
+                operation: "narration.review",
+                invoke_via: "coc_narration_review",
+                prefilled_arguments: {
+                  turn_id: "turn-recovery-fault",
+                  source_digest: `sha256:${"f".repeat(64)}`,
+                  revision: 1,
+                },
+                missing_arguments: [
+                  "decision_id", "draft_text", "findings",
+                  "state_authority_review",
+                ],
+              },
+              finalize_operation: {
+                operation: "turn.finalize",
+                invoke_via: "coc_turn_finalize",
+                prefilled_arguments: { revision: 1 },
+                missing_arguments: ["draft", "narration_review_id", "agency_claims"],
+              },
+            },
+          };
+        }
+        return { ok: true, tool: params.operation, data: {} };
+      }, compiler);
+      await h.start();
+      await invokeCompat(h, "resume-live", "session.resume");
+      await h.emit("message_start", {
+        role: "user",
+        content: [{ type: "text", text: "继续调查。" }],
+      });
+      await invokeCompat(h, "recovery-context", "turn.output_context");
+      const reviewResponse = JSON.parse((await invokeCompat(
+        h,
+        "recovery-review",
+        "narration.review",
+        reviewArguments,
+      )).content[0].text);
+      assert.equal(reviewResponse.error.code, "state_claim_compiler_invalid");
+      recoveryResume = true;
+      await invokeCompat(h, "resume-fault", "session.resume");
+      await invokeCompat(h, "recovery-context-2", "turn.output_context");
+      return h;
+    };
+    const progressRows = (h) => h.appended
+      .filter((row) => row.type === "coc-canonical-turn-progress")
+      .map((row) => row.value);
+    // Correct campaign: the exact validated receipt authorizes the recovery.
+    {
+      const h = await driveToFaultedAndRefresh("tool-affordance-campaign");
+      const authorized = progressRows(h).at(-1);
+      assert.equal(authorized.status, "advanced");
+      assert.equal(authorized.stage, "output_context_ready");
+      assert.equal(authorized.reason, "authorized_fault_recovery_receipt");
+      assert.equal(authorized.recovery_operation, "turn.output_context");
+      assert.ok(h.active.at(-1).includes("coc_narration_review"));
+      await h.shutdown();
+    }
+    // Mismatched receipt campaign: structurally valid but foreign — the
+    // explicit lane accepts no cards, authorizes no recovery, and the
+    // fault stays latched with the review tool unprojected.
+    {
+      const h = await driveToFaultedAndRefresh("other-campaign");
+      const denied = progressRows(h).at(-1);
+      assert.equal(denied.status, "rejected");
+      assert.equal(denied.stage, "output_context_ready");
+      assert.notEqual(denied.reason, "authorized_fault_recovery_receipt");
+      assert.ok(h.active.at(-1).includes("coc_turn_output_context"));
+      assert.ok(!h.active.at(-1).includes("coc_narration_review"));
+      assert.equal(
+        h.sent.filter((row) => (
+          row.message.customType === main.TURN_PROCESSING_FAULT_CUSTOM_TYPE
+        )).length,
+        1,
+        "a foreign-campaign receipt clears no fault",
+      );
+      await h.shutdown();
+    }
+  } finally {
+    if (priorRole === undefined) delete process.env[ROLE_ENV];
+    else process.env[ROLE_ENV] = priorRole;
+    if (priorCampaign === undefined) delete process.env[CAMPAIGN_ENV];
+    else process.env[CAMPAIGN_ENV] = priorCampaign;
+  }
+});
+
+test("state-claim compiler terminal failure enters the same narrow fault working set", async () => {
+  const compiler = new PiStateClaimCompiler(async () => {
+    throw new PiStateClaimCompilerFailure(
+      "state_claim_response_invalid",
+      "protocol_invalid",
+      { provider: "probe", id: "probe", api: "openai-responses" },
+      1,
+    );
+  });
+  const priorRole = process.env[ROLE_ENV];
+  const priorCampaign = process.env[CAMPAIGN_ENV];
+  process.env[ROLE_ENV] = "play";
+  process.env[CAMPAIGN_ENV] = "tool-affordance-campaign";
+  try {
+    let recoveryResume = false;
+    const h = makeHarness((_name, params) => {
+      if (params.operation === "session.resume") {
+        return recoveryResume
+          ? {
+              ok: true,
+              tool: "session.resume",
+              data: {
+                schema_version: 1,
+                campaign_id: "tool-affordance-campaign",
+                mode: "pending_finalization",
+                next_operations: ["turn.finalize"],
+              },
+            }
+          : { ok: true, tool: "session.resume", data: { mode: "awaiting_player", next_operations: [] } };
+      }
+      if (params.operation === "turn.output_context") {
+        // Current kernel producer shape (coc_operation_turn_output.py):
+        // complete card chain with exact invoke_via, prefilled turn/source
+        // identities, and missing_arguments. The authorized fault-recovery
+        // refresh requires a validated receipt; a stale cardless fixture
+        // can never clear the fault.
+        return {
+          ok: true,
+          tool: "turn.output_context",
+          data: {
             turn_id: "turn-compiler-fault",
             source_digest: `sha256:${"d".repeat(64)}`,
             settlement_snapshot_id: "turn-settlement-v1:compiler-fault",
@@ -1568,11 +1920,22 @@ test("state-claim compiler terminal failure enters the same narrow fault working
             },
             agency_review_operation: {
               operation: "narration.review",
-              prefilled_arguments: { revision: 1 },
+              invoke_via: "coc_narration_review",
+              prefilled_arguments: {
+                turn_id: "turn-compiler-fault",
+                source_digest: `sha256:${"d".repeat(64)}`,
+                revision: 1,
+              },
+              missing_arguments: [
+                "decision_id", "draft_text", "findings",
+                "state_authority_review",
+              ],
             },
             finalize_operation: {
               operation: "turn.finalize",
+              invoke_via: "coc_turn_finalize",
               prefilled_arguments: { revision: 1 },
+              missing_arguments: ["draft", "narration_review_id", "agency_claims"],
             },
           },
         };
@@ -1592,10 +1955,6 @@ test("state-claim compiler terminal failure enters the same narrow fault working
       "narration.review",
       {
         draft_text: "调查继续。",
-        turn_id: "turn-compiler-fault",
-        source_digest: `sha256:${"d".repeat(64)}`,
-        revision: 1,
-        decision_id: "review-compiler-fault",
         findings: [],
         state_authority_review: {
           disposition: "no_player_state_change_claimed",
@@ -1662,6 +2021,795 @@ test("valid ending receipt advances finalized then exact delivery", async () => 
       .map((row) => row.value.stage);
     assert.deepEqual(stages.slice(-2), ["finalized", "delivered"]);
     assert.deepEqual(h.active.at(-1), []);
+  } finally {
+    if (priorRole === undefined) delete process.env[ROLE_ENV];
+    else process.env[ROLE_ENV] = priorRole;
+    if (priorCampaign === undefined) delete process.env[CAMPAIGN_ENV];
+    else process.env[CAMPAIGN_ENV] = priorCampaign;
+  }
+});
+
+test("pending-finalization hydration carries the exact frozen draft keeper-only and projects model-owned review/finalize calls", async () => {
+  const compiler = new PiStateClaimCompiler(async (input) => ({
+    result: {
+      schema_version: 1,
+      contract_id: "coc.pi-state-claim-compiler-result.v1",
+      disposition: "no_claims_detected",
+      reason: "每一段草稿都已复核。",
+      claims: [],
+      paragraph_coverage: draftParagraphs(input.draft_text).map((text, paragraph_index) => ({
+        paragraph_index,
+        paragraph_sha256: canonicalDigest(text),
+        claim_indices: [],
+      })),
+    },
+    responseModel: { provider: "offline", id: "offline", api: "openai-responses" },
+  }));
+  const turnId = "turn-affordance-pending-1";
+  const sourceDigest = `sha256:${"c7".repeat(32)}`;
+  const draftText = "旅馆大厅的烛光在未封缄的信封上跳动，你把信推回桌角。";
+  const draftSha256 = canonicalDigest(draftText);
+  const buildFrozenReceipt = (options = {}) => {
+    const revision = options.revision ?? 2;
+    const draft = options.draft_text ?? draftText;
+    const reviewDecisionId = (
+      `pi-narration-review:affordance:player-epoch-7:revision-${revision}`
+    );
+    const receipt = {
+      schema_version: 1,
+      kind: "pending_narration_draft",
+      secrecy: "keeper_only",
+      campaign_id: "tool-affordance-campaign",
+      receipt_id: `pending-narration-draft:${reviewDecisionId}:revision-${revision}`,
+      review_decision_id: reviewDecisionId,
+      review_id: "narration-review-v1:63f1f618b6c3d8fc5ad75f41040c313ec1acd668",
+      turn_id: turnId,
+      source_digest: sourceDigest,
+      revision,
+      draft_sha256: canonicalDigest(draft),
+      draft_text: draft,
+      draft_utf8_bytes: Buffer.byteLength(draft, "utf8"),
+      review_digest: `sha256:${("a" + revision).repeat(32)}`,
+      request_digest: `sha256:${("b" + revision).repeat(32)}`,
+      producer_kind: "narration_review_submission",
+      source_operation: "narration.review",
+      // A direct submission materializes under the review's own decision id.
+      materialization_decision_id: reviewDecisionId,
+      provenance: { kind: "direct_review_submission" },
+    };
+    receipt.receipt_digest = canonicalDigest(receipt);
+    return receipt;
+  };
+  const frozenDraft = () => buildFrozenReceipt();
+  const liveReviewCard = (revision = 2, extra = null) => {
+    const card = {
+      operation: "narration.review",
+      invoke_via: "coc_narration_review",
+      prefilled_arguments: { turn_id: turnId, source_digest: sourceDigest, revision },
+      missing_arguments: [
+        "decision_id", "draft_text", "findings", "state_authority_review",
+      ],
+      discovery_required: false,
+      authority: "semantic_agency_and_player_state_review",
+      host_state_claim_compiler_required: true,
+    };
+    if (extra) Object.assign(card, extra);
+    return card;
+  };
+  const liveFinalizeCard = (invokeVia = "coc_turn_finalize", revision = 2) => ({
+    operation: "turn.finalize",
+    invoke_via: invokeVia,
+    prefilled_arguments: {
+      decision_id: `${turnId}:player-epoch-7:revision-${revision}:finalize`,
+      revision,
+      coverage: [],
+    },
+    missing_arguments: ["draft", "narration_review_id", "agency_claims"],
+    discovery_required: false,
+    authority: "settled_output_completeness",
+    hard_gate: true,
+  });
+  const liveContextEnvelope = (reviewCard = liveReviewCard(), finalizeCard = liveFinalizeCard(), receipt = frozenDraft()) => ({
+    ok: true,
+    tool: "turn.output_context",
+    data: {
+      turn_id: turnId,
+      source_digest: sourceDigest,
+      settlement_snapshot_id: "turn-settlement-v1:affordance-pending-1",
+      mechanics_bundle_sha256: `sha256:${"e9".repeat(32)}`,
+      contract_projection: {
+        agency_review_required: true,
+        agency_authority: { pc_subject_refs: ["pc:affordance-investigator"] },
+      },
+      frozen_narration_draft: receipt,
+      agency_review_operation: reviewCard,
+      finalize_operation: finalizeCard,
+    },
+  });
+  let contextFetches = 0;
+  const priorRole = process.env[ROLE_ENV];
+  const priorCampaign = process.env[CAMPAIGN_ENV];
+  process.env[ROLE_ENV] = "play";
+  process.env[CAMPAIGN_ENV] = "tool-affordance-campaign";
+  try {
+    const h = makeHarness((_name, params) => {
+      if (params.operation === "session.resume") {
+        return {
+          ok: true,
+          tool: "session.resume",
+          data: {
+            schema_version: 1,
+            campaign_id: "tool-affordance-campaign",
+            mode: "pending_finalization",
+            next_operations: ["turn.finalize"],
+            pending_output_context: {
+              schema_version: 1,
+              turn_id: turnId,
+              source_digest: sourceDigest,
+              revision: 2,
+            },
+          },
+        };
+      }
+      if (params.operation === "turn.output_context") {
+        contextFetches += 1;
+        return liveContextEnvelope();
+      }
+      if (params.operation === "narration.review") {
+        return {
+          ok: true,
+          tool: "narration.review",
+          data: {
+            accepted: true,
+            review_id: "narration-review-v1:affordance-accepted-1",
+            revision: 2,
+            state_claim_compilation: params.arguments.state_claim_compilation,
+          },
+        };
+      }
+      if (params.operation === "turn.finalize") {
+        return {
+          ok: true,
+          tool: "turn.finalize",
+          data: {
+            finalized: true,
+            finalization_id: "finalization-v1:affordance-1",
+            turn_id: turnId,
+            rendered_text: params.arguments.draft,
+            rendered_text_sha256: canonicalDigest(params.arguments.draft),
+          },
+        };
+      }
+      return { ok: true, tool: params.operation, data: {} };
+    }, compiler);
+    await h.start();
+    // The initial resume inside withPlayHarness already triggered the
+    // host-owned hydration; re-invoking the same pending identity coalesces.
+    const resumedResult = await h.tools.get("coc_invoke").execute(
+      "resume-pending",
+      { operation: "session.resume", campaign: "tool-affordance-campaign", arguments: {} },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const resumed = JSON.parse(resumedResult.content[0].text);
+    assert.equal(resumed.ok, true);
+    assert.equal(contextFetches, 1, "exactly one host output-context fetch");
+    assert.equal(
+      h.clientCalls.filter((call) => (
+        call.name === "coc_invoke"
+        && String(call.params?.operation || "").startsWith("rules.")
+      )).length
+        + h.clientCalls.filter((call) => (
+          call.name === "coc_invoke"
+          && String(call.params?.operation || "").startsWith("state.")
+        )).length
+        + h.clientCalls.filter((call) => (
+          call.name === "coc_invoke"
+          && (call.params?.operation === "narration.review"
+            || call.params?.operation === "turn.finalize")
+        )).length,
+      0,
+      "hydration must never invoke review, finalize, rules, or state operations",
+    );
+    assert.equal(
+      h.appended
+        .filter((row) => row.type === "coc-canonical-turn-progress")
+        .every((row) => row.value?.player_turn_epoch === 0),
+      true,
+      "hydration must never create a new player epoch",
+    );
+    const guidance = resumed.data.host_recovery_guidance;
+    assert.equal(guidance.output_context_status, "host_refreshed_live");
+    // Model-visible cards are identity-sanitized by the gateway boundary
+    // (opaque turn/source binding values stripped; the host injects them at
+    // invoke time); the exact canonical cards stay authoritative in
+    // host-only details.
+    assert.equal(
+      JSON.stringify(guidance.review_recovery.card),
+      JSON.stringify({
+        ...liveReviewCard(),
+        prefilled_arguments: { revision: 2 },
+      }),
+    );
+    assert.equal(
+      JSON.stringify(guidance.then.card),
+      JSON.stringify(liveFinalizeCard()),
+    );
+    assert.equal(
+      JSON.stringify(
+        resumedResult.details.data.host_recovery_guidance.review_recovery.card,
+      ),
+      JSON.stringify(liveReviewCard()),
+      "host-only details must retain the exact canonical review card",
+    );
+    assert.equal(
+      JSON.stringify(resumedResult.details.data.host_recovery_guidance.then.card),
+      JSON.stringify(liveFinalizeCard()),
+      "host-only details must retain the exact canonical finalize card",
+    );
+    // The exact frozen draft rides exactly once, keeper-only, as the
+    // immutable baseline with its mode relation to the actionable cards.
+    // Model content is digest-free (the draft text itself is the semantic
+    // baseline); the exact digest stays host-only in details.
+    assert.deepEqual(guidance.review_recovery.review_input, {
+      visibility: "keeper_only",
+      source: "turn.output_context.data.frozen_narration_draft",
+      mode: "exact_replay",
+      baseline_draft_text: draftText,
+      instruction: guidance.review_recovery.review_input.instruction,
+    });
+    assert.equal(
+      resumedResult.details.data.host_recovery_guidance.review_recovery
+        .review_input.baseline_draft_sha256,
+      draftSha256,
+      "host-only details must retain the exact frozen draft digest",
+    );
+    const guidanceJson = JSON.stringify(guidance);
+    assert.equal(
+      guidanceJson.split(draftText).length - 1,
+      1,
+      "frozen draft appears exactly once in the guidance",
+    );
+    assert.equal(
+      guidanceJson.includes("coc_turn_output_context"),
+      false,
+      "host-refreshed guidance must be pointer-free",
+    );
+    // Separate model-call projection: model-owned only, host-bound listed,
+    // exact card invoke_via surfaces.
+    assert.deepEqual(guidance.model_calls.review.model_owned_required_arguments, [
+      "draft_text",
+      "state_authority_review",
+    ]);
+    assert.deepEqual(guidance.model_calls.review.host_bound_auto_attached_arguments, [
+      "campaign", "decision_id", "revision", "root", "source_digest",
+      "state_claim_compilation", "turn_id",
+    ]);
+    assert.equal(guidance.model_calls.review.invoke_via, "coc_narration_review");
+    assert.deepEqual(guidance.model_calls.finalize.model_owned_required_arguments, [
+      "coverage",
+      "draft",
+    ]);
+    assert.equal(guidance.model_calls.finalize.invoke_via, "coc_turn_finalize");
+    // The armed typed tool surface presents only model-owned fields: no
+    // host-owned identity, compiler receipt, or draft alias remains.
+    const reviewParameters = h.tools.get("coc_narration_review").parameters;
+    for (const hostOwned of [
+      "root", "campaign", "decision_id", "turn_id", "source_digest",
+      "revision", "state_claim_compilation",
+    ]) {
+      assert.ok(!Object.hasOwn(reviewParameters.properties, hostOwned), hostOwned);
+    }
+    assert.deepEqual(
+      reviewParameters.required,
+      ["draft_text", "state_authority_review"],
+    );
+    assert.ok(!Object.hasOwn(reviewParameters.properties, "draft"), "no draft alias");
+    // The projected model-owned arguments execute against the typed tool:
+    // the host attaches turn/source/revision and its compiler receipt.
+    const review = JSON.parse((await h.tools.get("coc_narration_review").execute(
+      "typed-review",
+      {
+        draft_text: draftText,
+        findings: [],
+        state_authority_review: {
+          disposition: "no_player_state_change_claimed",
+          reason: "没有调查员状态变化。",
+          claims: [],
+        },
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(review.ok, true, JSON.stringify(review));
+    const reviewCalls = h.clientCalls.filter((call) => (
+      call.name === "coc_invoke" && call.params?.operation === "narration.review"
+    ));
+    assert.equal(reviewCalls.length, 1);
+    const wireArguments = reviewCalls[0].params.arguments;
+    assert.equal(wireArguments.turn_id, turnId);
+    assert.equal(wireArguments.source_digest, sourceDigest);
+    assert.equal(wireArguments.revision, 2);
+    assert.equal(wireArguments.draft_text, draftText);
+    assert.equal(
+      wireArguments.state_claim_compilation?.contract_id,
+      "coc.pi-state-claim-compilation-receipt.v1",
+    );
+    assert.ok(!Object.hasOwn(wireArguments, "draft"), "no draft alias on the wire");
+    // Complete through finalize using the generated finalize projection's
+    // typed_flat surface: model-owned arguments only; the host attaches
+    // decision/revision/review identities — no alias or forged rejection.
+    assert.equal(guidance.model_calls.finalize.invocation_shape, "typed_flat");
+    const finalize = JSON.parse((await h.tools.get("coc_turn_finalize").execute(
+      "typed-finalize",
+      {
+        draft: draftText,
+        coverage: [],
+        agency_claims: [],
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(finalize.ok, true, JSON.stringify(finalize));
+    const finalizeCalls = h.clientCalls.filter((call) => (
+      call.name === "coc_invoke" && call.params?.operation === "turn.finalize"
+    ));
+    assert.equal(finalizeCalls.length, 1);
+    const finalizeWire = finalizeCalls[0].params.arguments;
+    assert.equal(finalizeWire.draft, draftText);
+    assert.equal(finalizeWire.revision, 2);
+    // decision_id is host-owned and auto-attached: the binding layer mints
+    // its own semantic finalize decision id, never a model echo.
+    assert.ok(
+      finalizeWire.decision_id.startsWith("pi-turn-finalize:"),
+      finalizeWire.decision_id,
+    );
+    assert.equal(
+      finalizeWire.narration_review_id,
+      "narration-review-v1:affordance-accepted-1",
+    );
+    // No player-visible leak of the draft, the receipt, or the guidance.
+    assert.ok(
+      h.sent.every((entry) => {
+        const serialized = JSON.stringify(entry);
+        return !serialized.includes(draftText)
+          && !serialized.includes("frozen_narration_draft")
+          && !serialized.includes("host_recovery_guidance")
+          && !serialized.includes(turnId);
+      }),
+      "keeper-only frozen draft must never leak into player-visible sends",
+    );
+
+    // Fallback: a review-required live context without the frozen draft is
+    // unusable — hydration fails closed to the pointer guidance.
+    const fallbackHarness = makeHarness((_name, params) => {
+      if (params.operation === "session.resume") {
+        return {
+          ok: true,
+          tool: "session.resume",
+          data: {
+            schema_version: 1,
+            campaign_id: "tool-affordance-campaign",
+            mode: "pending_finalization",
+            next_operations: ["turn.finalize"],
+            pending_output_context: {
+              schema_version: 1,
+              turn_id: turnId,
+              source_digest: sourceDigest,
+              revision: 2,
+            },
+          },
+        };
+      }
+      if (params.operation === "turn.output_context") {
+        const envelope = liveContextEnvelope();
+        delete envelope.data.frozen_narration_draft;
+        return envelope;
+      }
+      return { ok: true, tool: params.operation, data: {} };
+    }, compiler);
+    await fallbackHarness.start();
+    const fallbackResumed = JSON.parse((await fallbackHarness.tools.get("coc_invoke").execute(
+      "resume-pending-fallback",
+      { operation: "session.resume", campaign: "tool-affordance-campaign", arguments: {} },
+      undefined,
+      undefined,
+      fallbackHarness.ctx,
+    )).content[0].text);
+    assert.equal(fallbackResumed.ok, true);
+    const fallbackGuidance = fallbackResumed.data.host_recovery_guidance;
+    assert.equal(fallbackGuidance.output_context_status, undefined);
+    assert.deepEqual(fallbackGuidance.next_call, {
+      tool: "coc_turn_output_context",
+      arguments: { root, campaign: "tool-affordance-campaign" },
+    });
+    assert.equal(fallbackGuidance.review_recovery.card, undefined);
+    assert.equal(fallbackGuidance.then.card, undefined);
+    assert.equal(fallbackGuidance.model_calls, undefined);
+    assert.deepEqual(
+      fallbackResumed.data.pending_output_context,
+      {
+        status: "read_via_exact_typed_call",
+        next_call: {
+          tool: "coc_turn_output_context",
+          arguments: { root, campaign: "tool-affordance-campaign" },
+        },
+      },
+      "fallback keeps exactly one explicit output-context pointer",
+    );
+    assert.ok(
+      fallbackHarness.sent.every((entry) => {
+        const serialized = JSON.stringify(entry);
+        return !serialized.includes(draftText)
+          && !serialized.includes("host_recovery_guidance");
+      }),
+      "fallback guidance never leaks into player-visible sends",
+    );
+    await fallbackHarness.shutdown();
+  } finally {
+    if (priorRole === undefined) delete process.env[ROLE_ENV];
+    else process.env[ROLE_ENV] = priorRole;
+    if (priorCampaign === undefined) delete process.env[CAMPAIGN_ENV];
+    else process.env[CAMPAIGN_ENV] = priorCampaign;
+  }
+});
+
+test("pending-finalization direct finalize executes through the coc_invoke generic envelope projection", async () => {
+  const compiler = new PiStateClaimCompiler(async (input) => ({
+    result: {
+      schema_version: 1,
+      contract_id: "coc.pi-state-claim-compiler-result.v1",
+      disposition: "no_claims_detected",
+      reason: "每一段草稿都已复核。",
+      claims: [],
+      paragraph_coverage: draftParagraphs(input.draft_text).map((text, paragraph_index) => ({
+        paragraph_index,
+        paragraph_sha256: canonicalDigest(text),
+        claim_indices: [],
+      })),
+    },
+    responseModel: { provider: "offline", id: "offline", api: "openai-responses" },
+  }));
+  const turnId = "turn-affordance-direct-1";
+  const sourceDigest = `sha256:${"d5".repeat(32)}`;
+  const finalizeCard = {
+    operation: "turn.finalize",
+    invoke_via: "coc_invoke",
+    prefilled_arguments: {
+      decision_id: `${turnId}:player-epoch-7:revision-2:finalize`,
+      revision: 2,
+      coverage: [],
+    },
+    missing_arguments: ["draft"],
+    discovery_required: false,
+    authority: "settled_output_completeness",
+    hard_gate: true,
+  };
+  const priorRole = process.env[ROLE_ENV];
+  const priorCampaign = process.env[CAMPAIGN_ENV];
+  process.env[ROLE_ENV] = "play";
+  process.env[CAMPAIGN_ENV] = "tool-affordance-campaign";
+  try {
+    const h = makeHarness((_name, params) => {
+      if (params.operation === "session.resume") {
+        return {
+          ok: true,
+          tool: "session.resume",
+          data: {
+            schema_version: 1,
+            campaign_id: "tool-affordance-campaign",
+            mode: "pending_finalization",
+            next_operations: ["turn.finalize"],
+            pending_output_context: {
+              schema_version: 1,
+              turn_id: turnId,
+              source_digest: sourceDigest,
+              revision: 2,
+            },
+          },
+        };
+      }
+      if (params.operation === "turn.output_context") {
+        return {
+          ok: true,
+          tool: "turn.output_context",
+          data: {
+            turn_id: turnId,
+            source_digest: sourceDigest,
+            settlement_snapshot_id: "turn-settlement-v1:affordance-direct-1",
+            mechanics_bundle_sha256: `sha256:${"f1".repeat(32)}`,
+            contract_projection: { agency_review_required: false },
+            finalize_operation: finalizeCard,
+          },
+        };
+      }
+      if (params.operation === "turn.finalize") {
+        return {
+          ok: true,
+          tool: "turn.finalize",
+          data: {
+            finalized: true,
+            finalization_id: "finalization-v1:affordance-direct-1",
+            turn_id: turnId,
+            rendered_text: params.arguments.draft,
+            rendered_text_sha256: canonicalDigest(params.arguments.draft),
+          },
+        };
+      }
+      return { ok: true, tool: params.operation, data: {} };
+    }, compiler);
+    await h.start();
+    const resumed = JSON.parse((await h.tools.get("coc_invoke").execute(
+      "resume-direct",
+      { operation: "session.resume", campaign: "tool-affordance-campaign", arguments: {} },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(resumed.ok, true);
+    const guidance = resumed.data.host_recovery_guidance;
+    assert.equal(guidance.output_context_status, "host_refreshed_live");
+    assert.equal(guidance.model_calls.finalize.invoke_via, "coc_invoke");
+    // The generic gateway surface must be projected as the real envelope:
+    // {operation, arguments} with the model-owned arguments nested inside.
+    assert.equal(guidance.model_calls.finalize.invocation_shape, "generic_envelope");
+    assert.equal(guidance.model_calls.finalize.envelope_operation, "turn.finalize");
+    assert.deepEqual(
+      guidance.model_calls.finalize.model_owned_required_arguments,
+      ["coverage", "draft"],
+    );
+    assert.equal(guidance.model_calls.review, undefined);
+    assert.equal(guidance.review_recovery.review_input, undefined);
+    const finalize = JSON.parse((await h.tools.get("coc_invoke").execute(
+      "generic-envelope-finalize",
+      {
+        operation: "turn.finalize",
+        campaign: "tool-affordance-campaign",
+        arguments: { draft: "大堂重新安静下来。", coverage: [] },
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(finalize.ok, true, JSON.stringify(finalize));
+    const finalizeCalls = h.clientCalls.filter((call) => (
+      call.name === "coc_invoke" && call.params?.operation === "turn.finalize"
+    ));
+    assert.equal(finalizeCalls.length, 1);
+    assert.equal(finalizeCalls[0].params.arguments.draft, "大堂重新安静下来。");
+    await h.shutdown();
+  } finally {
+    if (priorRole === undefined) delete process.env[ROLE_ENV];
+    else process.env[ROLE_ENV] = priorRole;
+    if (priorCampaign === undefined) delete process.env[CAMPAIGN_ENV];
+    else process.env[CAMPAIGN_ENV] = priorCampaign;
+  }
+});
+
+test("excerpt-only revision-2 repair requires an edited draft and completes through finalize", async () => {
+  const compiler = new PiStateClaimCompiler(async (input) => ({
+    result: {
+      schema_version: 1,
+      contract_id: "coc.pi-state-claim-compiler-result.v1",
+      disposition: "no_claims_detected",
+      reason: "每一段草稿都已复核。",
+      claims: [],
+      paragraph_coverage: draftParagraphs(input.draft_text).map((text, paragraph_index) => ({
+        paragraph_index,
+        paragraph_sha256: canonicalDigest(text),
+        claim_indices: [],
+      })),
+    },
+    responseModel: { provider: "offline", id: "offline", api: "openai-responses" },
+  }));
+  const turnId = "turn-affordance-repair-1";
+  const sourceDigest = `sha256:${"e2".repeat(32)}`;
+  const rejectedDraft = "你把撬棒塞进大衣内袋，转身离开旅店大门。";
+  const repairedDraft = "你把一根铁棍模样的事物收好，转身离开旅店大门。";
+  const spanRepairs = {
+    schema_version: 1,
+    contract_id: "coc.span-repairs.v1",
+    mode: "excerpt_only",
+    spans: [
+      {
+        exact_excerpt: "你把撬棒塞进大衣内袋",
+        claim_kind: "item",
+        reason: "未落账的撬棒取得。",
+        repair: "rephrase_or_remove",
+      },
+    ],
+    instruction: "Only change the listed excerpts. Leave every other sentence byte-stable.",
+  };
+  const frozenReceipt = (() => {
+    const reviewDecisionId = "pi-narration-review:affordance-repair:player-epoch-7:revision-1";
+    const receipt = {
+      schema_version: 1,
+      kind: "pending_narration_draft",
+      secrecy: "keeper_only",
+      campaign_id: "tool-affordance-campaign",
+      receipt_id: `pending-narration-draft:${reviewDecisionId}:revision-1`,
+      review_decision_id: reviewDecisionId,
+      review_id: "narration-review-v1:affordance-rejected-1",
+      turn_id: turnId,
+      source_digest: sourceDigest,
+      revision: 1,
+      draft_sha256: canonicalDigest(rejectedDraft),
+      draft_text: rejectedDraft,
+      draft_utf8_bytes: Buffer.byteLength(rejectedDraft, "utf8"),
+      review_digest: `sha256:${"a1".repeat(32)}`,
+      request_digest: `sha256:${"b1".repeat(32)}`,
+      producer_kind: "narration_review_submission",
+      source_operation: "narration.review",
+      materialization_decision_id: reviewDecisionId,
+      provenance: { kind: "direct_review_submission" },
+    };
+    receipt.receipt_digest = canonicalDigest(receipt);
+    return receipt;
+  })();
+  const priorRole = process.env[ROLE_ENV];
+  const priorCampaign = process.env[CAMPAIGN_ENV];
+  process.env[ROLE_ENV] = "play";
+  process.env[CAMPAIGN_ENV] = "tool-affordance-campaign";
+  try {
+    let reviewDraftSeen = null;
+    const h = makeHarness((_name, params) => {
+      if (params.operation === "session.resume") {
+        return {
+          ok: true,
+          tool: "session.resume",
+          data: {
+            schema_version: 1,
+            campaign_id: "tool-affordance-campaign",
+            mode: "pending_finalization",
+            next_operations: ["turn.finalize"],
+            pending_output_context: {
+              schema_version: 1,
+              turn_id: turnId,
+              source_digest: sourceDigest,
+              revision: 2,
+            },
+          },
+        };
+      }
+      if (params.operation === "turn.output_context") {
+        return {
+          ok: true,
+          tool: "turn.output_context",
+          data: {
+            turn_id: turnId,
+            source_digest: sourceDigest,
+            settlement_snapshot_id: "turn-settlement-v1:affordance-repair-1",
+            mechanics_bundle_sha256: `sha256:${"f2".repeat(32)}`,
+            contract_projection: {
+              agency_review_required: true,
+              agency_authority: { pc_subject_refs: ["pc:affordance-investigator"] },
+            },
+            frozen_narration_draft: frozenReceipt,
+            agency_review_operation: {
+              operation: "narration.review",
+              invoke_via: "coc_narration_review",
+              prefilled_arguments: { turn_id: turnId, source_digest: sourceDigest, revision: 2 },
+              missing_arguments: [
+                "decision_id", "draft_text", "findings", "state_authority_review",
+              ],
+              discovery_required: false,
+              authority: "semantic_agency_and_player_state_review",
+              host_state_claim_compiler_required: true,
+              span_repairs: spanRepairs,
+            },
+            finalize_operation: {
+              operation: "turn.finalize",
+              invoke_via: "coc_turn_finalize",
+              prefilled_arguments: {
+                decision_id: `${turnId}:player-epoch-7:revision-2:finalize`,
+                revision: 2,
+                coverage: [],
+              },
+              missing_arguments: ["draft", "narration_review_id", "agency_claims"],
+              discovery_required: false,
+              authority: "settled_output_completeness",
+              hard_gate: true,
+            },
+          },
+        };
+      }
+      if (params.operation === "narration.review") {
+        reviewDraftSeen = params.arguments.draft_text;
+        return {
+          ok: true,
+          tool: "narration.review",
+          data: {
+            accepted: true,
+            review_id: "narration-review-v1:affordance-repair-accepted-1",
+            revision: 2,
+            state_claim_compilation: params.arguments.state_claim_compilation,
+          },
+        };
+      }
+      if (params.operation === "turn.finalize") {
+        return {
+          ok: true,
+          tool: "turn.finalize",
+          data: {
+            finalized: true,
+            finalization_id: "finalization-v1:affordance-repair-1",
+            turn_id: turnId,
+            rendered_text: params.arguments.draft,
+            rendered_text_sha256: canonicalDigest(params.arguments.draft),
+          },
+        };
+      }
+      return { ok: true, tool: params.operation, data: {} };
+    }, compiler);
+    await h.start();
+    const resumed = JSON.parse((await h.tools.get("coc_invoke").execute(
+      "resume-repair",
+      { operation: "session.resume", campaign: "tool-affordance-campaign", arguments: {} },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(resumed.ok, true);
+    const guidance = resumed.data.host_recovery_guidance;
+    assert.equal(guidance.output_context_status, "host_refreshed_live");
+    // The rejected revision-1 baseline rides once with the repair contract.
+    assert.equal(guidance.review_recovery.review_input.mode, "excerpt_only_repair");
+    assert.equal(guidance.review_recovery.review_input.baseline_draft_text, rejectedDraft);
+    assert.deepEqual(
+      guidance.review_recovery.review_input.span_repairs,
+      spanRepairs,
+    );
+    assert.equal(
+      guidance.review_recovery.review_input.instruction.includes("Never resubmit the unchanged baseline"),
+      true,
+    );
+    assert.equal(
+      JSON.stringify(guidance).split(rejectedDraft).length - 1,
+      1,
+      "the rejected baseline appears exactly once in the guidance",
+    );
+    // The model submits the EDITED revision-2 text — never the baseline.
+    const review = JSON.parse((await h.tools.get("coc_narration_review").execute(
+      "typed-repair-review",
+      {
+        draft_text: repairedDraft,
+        findings: [],
+        state_authority_review: {
+          disposition: "no_player_state_change_claimed",
+          reason: "修复后的草稿没有宣告玩家状态变化。",
+          claims: [],
+        },
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(review.ok, true, JSON.stringify(review));
+    assert.equal(reviewDraftSeen, repairedDraft);
+    assert.notEqual(reviewDraftSeen, rejectedDraft);
+    const reviewCalls = h.clientCalls.filter((call) => (
+      call.name === "coc_invoke" && call.params?.operation === "narration.review"
+    ));
+    assert.equal(reviewCalls[0].params.arguments.revision, 2);
+    assert.equal(reviewCalls[0].params.arguments.draft_text, repairedDraft);
+    // Then finalize the repaired revision-2 draft.
+    const finalize = JSON.parse((await h.tools.get("coc_turn_finalize").execute(
+      "typed-repair-finalize",
+      { draft: repairedDraft, coverage: [], agency_claims: [] },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(finalize.ok, true, JSON.stringify(finalize));
+    const finalizeCalls = h.clientCalls.filter((call) => (
+      call.name === "coc_invoke" && call.params?.operation === "turn.finalize"
+    ));
+    assert.equal(finalizeCalls[0].params.arguments.draft, repairedDraft);
+    assert.equal(finalizeCalls[0].params.arguments.revision, 2);
+    await h.shutdown();
   } finally {
     if (priorRole === undefined) delete process.env[ROLE_ENV];
     else process.env[ROLE_ENV] = priorRole;

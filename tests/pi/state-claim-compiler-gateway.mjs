@@ -14,6 +14,7 @@ const { PiStateClaimCompiler, canonicalDigest, draftParagraphs } = await import(
 
 const campaign = "state-claim-gateway";
 const subjectRef = "pc:thomas-hayes";
+const CURRENT_PC_SUBJECT_HANDLE = "pc:current-investigator";
 const outputContext = {
   ok: true,
   tool: "turn.output_context",
@@ -23,10 +24,26 @@ const outputContext = {
     settlement_snapshot_id: "turn-settlement-v1:gateway-1",
     mechanics_bundle_sha256: "sha256:mechanics-gateway-1",
     contract_projection: {
+      agency_review_required: true,
       agency_authority: { pc_subject_refs: [subjectRef] },
     },
     agency_review_operation: {
+      operation: "narration.review",
+      invoke_via: "coc_narration_review",
+      prefilled_arguments: {
+        turn_id: "turn-gateway-1",
+        source_digest: "sha256:source-gateway-1",
+        revision: 1,
+      },
+      missing_arguments: [
+        "decision_id", "draft_text", "findings", "state_authority_review",
+      ],
+    },
+    finalize_operation: {
+      operation: "turn.finalize",
+      invoke_via: "coc_turn_finalize",
       prefilled_arguments: { revision: 1 },
+      missing_arguments: ["draft", "narration_review_id", "agency_claims"],
     },
   },
 };
@@ -44,6 +61,17 @@ const baseReview = {
     claims: [],
   },
 };
+// Host-owned settle identity (turn_id/source_digest/revision/decision_id)
+// is gateway-bound from the armed output-context card on every surface; the
+// model payload carries only this model-owned review shape.
+const modelOwnedReview = (({
+  turn_id: _turnId,
+  source_digest: _sourceDigest,
+  revision: _revision,
+  decision_id: _decisionId,
+  ...owned
+}) => owned)(baseReview);
+
 
 function resultFor(input) {
   return {
@@ -60,7 +88,7 @@ function resultFor(input) {
   };
 }
 
-function harness(compiler) {
+function harness(compiler, overrides = {}) {
   const tools = new Map();
   const handlers = new Map();
   const clientCalls = [];
@@ -81,6 +109,9 @@ function harness(compiler) {
   main.default(fakePi, {
     coordinatorEnabled: () => false,
     createStateClaimCompiler: () => compiler,
+    ...(overrides.createSemanticIdentityRegistry !== undefined
+      ? { createSemanticIdentityRegistry: overrides.createSemanticIdentityRegistry }
+      : {}),
     createClient: () => {
       const callTool = async (name, params) => {
         clientCalls.push({ name, params });
@@ -197,9 +228,17 @@ test("output-context observation is play-only and remains fail-closed in play", 
         );
         assert.equal(JSON.parse(response.content[0].text).ok, true);
       } else {
-        await assert.rejects(
-          () => invoke(h, "context-setup", "turn.output_context", {}),
-          /not allowed|unavailable/,
+        let rejected = null;
+        try {
+          await invoke(h, "context-setup", "turn.output_context", {});
+        } catch (error) {
+          rejected = error;
+        }
+        assert.ok(
+          rejected !== null
+            && /not allowed|unavailable/.test(String(rejected)),
+          "setup-role output_context must reject: "
+            + JSON.stringify(String(rejected ?? "<no rejection>")),
         );
       }
       assert.equal(observations, 0, `${role ?? "unset"} role observed compiler context`);
@@ -268,17 +307,56 @@ test("all invoke surfaces overwrite input and scrub host receipt from output", a
         decision_id: _decisionId,
         ...modelOwnedReview
       } = baseReview;
+      if (surface === "coc_invoke") {
+        // state_claim_compilation is HOST-owned on the registered generic
+        // surface: the forged receipt is rejected by the strict registered
+        // schema BEFORE the compiler runs and BEFORE transport — it can
+        // never be model-relayed on this surface.
+        const rejected = await invokeReviewSurface(
+          h,
+          surface,
+          `review-${index}`,
+          { ...modelOwnedReview, state_claim_compilation: forged },
+        );
+        const rejectedEnvelope = JSON.parse(rejected.content[0].text);
+        assert.equal(rejectedEnvelope.ok, false);
+        assert.equal(rejectedEnvelope.error.code, "unknown_model_argument");
+        assert.equal(
+          JSON.stringify(rejectedEnvelope).includes("host-receipt-must-not-reach-model"),
+          false,
+          "the forged receipt is never echoed",
+        );
+        assert.equal(
+          h.clientCalls.some((call) => call.params.operation === "narration.review"),
+          false,
+          "the forged generic receipt never reaches transport",
+        );
+        continue;
+      }
+      if (surface === "coc_advice") {
+        // The domain-tool surface enforces the same registered generic
+        // schema: a host-authored compiler receipt is rejected BEFORE the
+        // compiler runs and BEFORE transport — it can never be model-relayed.
+        const rejected = await invokeReviewSurface(
+          h,
+          surface,
+          `review-${index}`,
+          { ...modelOwnedReview, state_claim_compilation: forged },
+        );
+        const rejectedEnvelope = JSON.parse(rejected.content[0].text);
+        assert.equal(rejectedEnvelope.ok, false);
+        assert.equal(rejectedEnvelope.error.code, "unknown_model_argument");
+        assert.equal(
+          JSON.stringify(rejectedEnvelope).includes("host-receipt-must-not-reach-model"),
+          false,
+        );
+        continue;
+      }
       const result = await invokeReviewSurface(
         h,
         surface,
         `review-${index}`,
-        surface === "coc_narration_review"
-          ? modelOwnedReview
-          : {
-              ...baseReview,
-              decision_id: `review-gateway-${index}`,
-              state_claim_compilation: forged,
-            },
+        modelOwnedReview,
       );
       const envelope = JSON.parse(result.content[0].text);
       assert.equal(envelope.ok, true, JSON.stringify(envelope));
@@ -289,7 +367,7 @@ test("all invoke surfaces overwrite input and scrub host receipt from output", a
     const reviewCalls = h.clientCalls.filter(
       (call) => call.params.operation === "narration.review",
     );
-    assert.equal(reviewCalls.length, 3);
+    assert.equal(reviewCalls.length, 1);
     for (const call of reviewCalls) {
       const forwarded = call.params.arguments;
       assert.notDeepEqual(forwarded.state_claim_compilation, forged);
@@ -312,7 +390,13 @@ test("missing retained output context fails closed without MCP forwarding", asyn
     }));
     const h = harness(compiler);
     await initialize(h);
-    const result = await invoke(h, "review-missing", "narration.review", baseReview);
+    // Host-owned settle identity is gateway-bound; the model payload carries
+    // only the model-owned review shape.
+    const {
+      turn_id: _t, source_digest: _s, revision: _r, decision_id: _d,
+      ...modelOwnedReviewArgs
+    } = baseReview;
+    const result = await invoke(h, "review-missing", "narration.review", modelOwnedReviewArgs);
     const envelope = JSON.parse(result.content[0].text);
     assert.equal(envelope.ok, false);
     assert.equal(envelope.error.code, "state_claim_compiler_context_missing");
@@ -343,7 +427,7 @@ test("malformed compiler result fails closed without forwarding narration.review
     const h = harness(compiler);
     await initialize(h);
     await invoke(h, "context", "turn.output_context", {});
-    const result = await invoke(h, "review-malformed", "narration.review", baseReview);
+    const result = await invoke(h, "review-malformed", "narration.review", modelOwnedReview);
     const envelope = JSON.parse(result.content[0].text);
     assert.equal(envelope.ok, false);
     assert.equal(envelope.error.code, "state_claim_compiler_invalid");
@@ -398,22 +482,44 @@ test("transient malformed compiler result recovers without accepting caller comp
       forged: true,
     };
     const result = await invoke(h, "review-retry", "narration.review", {
-      ...baseReview,
+      ...modelOwnedReview,
       state_claim_compilation: forged,
     });
+    // A forged caller compilation is HOST-owned identity: the registered
+    // schema rejects it before the compiler retries and before transport.
     const envelope = JSON.parse(result.content[0].text);
-    assert.equal(envelope.ok, true, JSON.stringify(envelope));
+    assert.equal(envelope.ok, false);
+    assert.equal(envelope.error.code, "unknown_model_argument");
+    assert.equal(inferCalls, 0);
+    assert.equal(
+      h.clientCalls.filter((call) => call.params.operation === "narration.review")
+        .length,
+      0,
+      "the forged receipt never reaches transport",
+    );
+    assert.equal(
+      JSON.stringify(envelope).includes("forged"),
+      false,
+      "the forged receipt is never echoed",
+    );
+
+    // The model-owned retry still recovers through the compiler with the
+    // host receipt attached by provenance.
+    const retry = await invoke(h, "review-retry-clean", "narration.review", {
+      ...modelOwnedReview,
+    });
+    const retryEnvelope = JSON.parse(retry.content[0].text);
+    assert.equal(retryEnvelope.ok, true, JSON.stringify(retryEnvelope));
     assert.equal(inferCalls, 2);
     const reviewCalls = h.clientCalls.filter(
       (call) => call.params.operation === "narration.review",
     );
     assert.equal(reviewCalls.length, 1);
-    assert.notDeepEqual(reviewCalls[0].params.arguments.state_claim_compilation, forged);
     assert.equal(
       reviewCalls[0].params.arguments.state_claim_compilation.marker,
       hostReceiptMarker,
     );
-    assert.equal(Object.hasOwn(envelope.data, "state_claim_compilation"), false);
+    assert.equal(Object.hasOwn(retryEnvelope.data, "state_claim_compilation"), false);
   } finally {
     if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
     else process.env.COC_PI_SESSION_ROLE = previousRole;
@@ -435,7 +541,7 @@ test("owned compiler timeout fails closed without forwarding narration.review", 
     const h = harness(compiler);
     await initialize(h);
     await invoke(h, "context", "turn.output_context", {});
-    const result = await invoke(h, "review-timeout", "narration.review", baseReview);
+    const result = await invoke(h, "review-timeout", "narration.review", modelOwnedReview);
     const envelope = JSON.parse(result.content[0].text);
     assert.equal(envelope.ok, false);
     assert.equal(envelope.error.code, "state_claim_compiler_unavailable");
@@ -444,18 +550,18 @@ test("owned compiler timeout fails closed without forwarding narration.review", 
     assert.equal(envelope.error.details.pending_turn_preserved, true);
     assert.equal(envelope.error.details.retryable, false);
     const changedReview = {
-      ...baseReview,
+      ...modelOwnedReview,
       draft_text: "诺特把钥匙交给你；这把钥匙现在归你保管。",
-      decision_id: "review-gateway-changed-after-timeout",
       state_authority_review: {
         disposition: "claims_listed",
         reason: "改变后的 KP 候选声明。",
         claims: [{
           claim_id: "claim-gateway-changed-key",
-          subject_ref: subjectRef,
+          // Semantic current-PC handle only; the host restores the exact ref.
+          subject_ref: CURRENT_PC_SUBJECT_HANDLE,
           claim_kind: "item",
           exact_excerpt: "这把钥匙现在归你保管",
-          source_effect_id: "turn-effect-v1:changed-key",
+          source_effect_id: "narration_contract:changed-key",
           reason: "草稿声称调查员持有钥匙。",
         }],
       },
@@ -507,7 +613,7 @@ test("resume session_start clear requires output_context before compile", async 
     const h = harness(compiler);
     await initialize(h);
     const missing = JSON.parse(
-      (await invoke(h, "review-before-reregister", "narration.review", baseReview))
+      (await invoke(h, "review-before-reregister", "narration.review", modelOwnedReview))
         .content[0].text,
     );
     assert.equal(missing.ok, false);
@@ -518,13 +624,110 @@ test("resume session_start clear requires output_context before compile", async 
     );
     await invoke(h, "context-reregister", "turn.output_context", {});
     const compiled = JSON.parse(
-      (await invoke(h, "review-after-reregister", "narration.review", baseReview))
+      (await invoke(h, "review-after-reregister", "narration.review", modelOwnedReview))
         .content[0].text,
     );
     assert.equal(compiled.ok, true);
     assert.equal(
       h.clientCalls.filter((call) => call.params.operation === "narration.review").length,
       1,
+    );
+  } finally {
+    if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
+    else process.env.COC_PI_SESSION_ROLE = previousRole;
+  }
+});
+
+test("setup-role ACL rejects before any semantic-registry access (spy)", async () => {
+  const previousRole = process.env.COC_PI_SESSION_ROLE;
+  try {
+    // Counting wrapper around the REAL registry factory: every registry
+    // method call is recorded. Production never passes this override — it
+    // exists so regressions can prove the ACL boundary directly.
+    const { createSemanticIdentityRegistry } = await import(path.join(
+      root, "plugins/coc-keeper/pi/lib/semantic-identity-registry.ts",
+    ));
+    const makeCounting = () => {
+      const real = createSemanticIdentityRegistry();
+      const calls = Object.fromEntries(
+        [...Object.keys(real)].map((key) => [key, 0]),
+      );
+      const wrapped = Object.fromEntries(
+        [...Object.keys(real)].map((key) => [
+          key,
+          (...args) => {
+            calls[key] += 1;
+            return real[key](...args);
+          },
+        ]),
+      );
+      return { registry: wrapped, calls };
+    };
+
+    // Forbidden operation in the setup role: the established ACL error is
+    // thrown with ZERO registry calls or side effects.
+    process.env.COC_PI_SESSION_ROLE = "setup";
+    const setup = makeCounting();
+    const setupHarness = harness(
+      {
+        clear() {},
+        beginExternalTurn() {},
+        observeOutputContext() {
+          throw new Error("state_claim_observer_must_not_run");
+        },
+        async compileReview() {
+          throw new Error("state_claim_compiler_must_not_run");
+        },
+      },
+      { createSemanticIdentityRegistry: () => setup.registry },
+    );
+    await initialize(setupHarness);
+    let rejected = null;
+    // Zero the counters after the legitimate setup resume: the assertion is
+    // about the ACL-rejected call itself, not the accepted flow before it.
+    for (const key of Object.keys(setup.calls)) setup.calls[key] = 0;
+    try {
+      await invoke(setupHarness, "context-spy-setup", "turn.output_context", {});
+    } catch (error) {
+      rejected = String(error?.message || error);
+    }
+    assert.ok(
+      rejected !== null && /not allowed|unavailable/.test(rejected),
+      "setup-role output_context must reject at the ACL: "
+        + JSON.stringify(rejected ?? "<no rejection>"),
+    );
+    assert.deepEqual(
+      Object.fromEntries(
+        Object.entries(setup.calls).filter(([, count]) => count !== 0),
+      ),
+      {},
+      "zero registry calls for the ACL-rejected operation",
+    );
+
+    // Positive control: the SAME spy observes real registry work during an
+    // accepted play-role flow, proving the wrapper is live on this surface.
+    process.env.COC_PI_SESSION_ROLE = "play";
+    const play = makeCounting();
+    const playHarness = harness(
+      {
+        clear() {},
+        beginExternalTurn() {},
+        observeOutputContext() {},
+        async compileReview() {
+          throw new Error("state_claim_compiler_not_expected");
+        },
+      },
+      { createSemanticIdentityRegistry: () => play.registry },
+    );
+    await initialize(playHarness);
+    const playContext = await invoke(
+      playHarness, "context-spy-play", "turn.output_context", {},
+    );
+    assert.equal(JSON.parse(playContext.content[0].text).ok, true);
+    assert.equal(
+      Object.values(play.calls).some((count) => count > 0),
+      true,
+      "the counting wrapper observes registry access in play",
     );
   } finally {
     if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;

@@ -1,0 +1,3982 @@
+{
+ "session_resume": {
+  "ok": true,
+  "tool": "session.resume",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "session.resume",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 20938,
+   "full_result_sha256": "sha256:922bf5c6acc92d4784de36a7379e9d1a29e8520a30ef845440ae4ca7c2f6b9c2",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": true,
+   "control": {
+    "mode": "table_opening",
+    "context_epoch": 1,
+    "resume_acknowledged": true,
+    "working_set_revision": "ws-v1-11f7d8bb7aa068ff44ccf09e",
+    "next_operations": [
+     "evidence.table_opening"
+    ]
+   },
+   "tight_projection": true,
+   "recovery_index_projection": true,
+   "measured_inline_bytes": 15353
+  },
+  "data": {
+   "schema_version": 1,
+   "campaign_id": "king-shreds-recovery-live-01",
+   "mode": "table_opening",
+   "working_set": {
+    "mode": "full",
+    "revision": "ws-v1-11f7d8bb7aa068ff44ccf09e",
+    "read_domains": {
+     "active_effects": 1,
+     "attempts": 1,
+     "clues": 2,
+     "flags": 1,
+     "module_progressive": 1,
+     "npc": 1,
+     "npc_presence": 2,
+     "pacing": 1,
+     "party": 2,
+     "scene": 2,
+     "time": 2,
+     "world": 1
+    }
+   },
+   "pending_turn": null,
+   "host_context": {
+    "acknowledged": {
+     "host": "codex",
+     "session_id": "01a048ac-6473-7f90-888f-a8acf166f2d3",
+     "context_epoch": 1,
+     "lifecycle_event": "session_start",
+     "lifecycle_source": "startup",
+     "requires_resume": false
+    }
+   },
+   "next_operations": [
+    "evidence.table_opening"
+   ],
+   "compiled_archive_recovery": {
+    "status": "reused",
+    "archive_revision": "ca-v1-b38fd536355bc6dc1805afaa191cc3d0",
+    "canonical_sources_unchanged": true
+   },
+   "ending_output": null,
+   "delivery": {
+    "status": "none",
+    "finalization_id": null,
+    "rendered_sha256": null,
+    "rendered_text_sha256": null,
+    "accepted_revision": null,
+    "exact_text": null
+   },
+   "checkpoint": null,
+   "semantic_capsule": {
+    "schema_version": 1,
+    "kind": "coc_continuation_semantic_capsule",
+    "updated_from_turn": null,
+    "full_capsule_sha256": "sha256:fbe1acbf3a0720f8210493b9d34ca5b14ba4a59efa6e4b11208a0afae71d4492",
+    "full_counts": {
+     "recent_summaries": 0,
+     "threads": 0,
+     "confirmed_decisions": 0,
+     "do_not_repeat": 0,
+     "style_commitments": 3
+    },
+    "available_sections": [
+     "recent_summaries",
+     "threads",
+     "confirmed_decisions",
+     "do_not_repeat",
+     "style_commitments",
+     "current_turn"
+    ],
+    "detail_operation": {
+     "operation": "session.continuation_detail",
+     "invoke_via": "coc_invoke",
+     "prefilled_arguments": {},
+     "missing_arguments": [
+      "section"
+     ],
+     "authority": "advisory",
+     "hard_gate": false,
+     "contract_ref": "session.continuation_detail@007dd620090e96f4",
+     "discovery_required": false
+    }
+   },
+   "current_turn": null,
+   "pending_output_context": null,
+   "scene_context": {
+    "schema_version": 1,
+    "kind": "typed_scene_recovery_index",
+    "campaign_id": "king-shreds-recovery-live-01",
+    "active_scene_id": null,
+    "party": [
+     "inv-x6a217e22-e0532209"
+    ],
+    "time": {
+     "elapsed_minutes": 0,
+     "display": "",
+     "local_datetime": null,
+     "local_date": null,
+     "calendar_mode": "relative",
+     "time_precision": "unknown",
+     "timezone": null,
+     "location_id": null,
+     "day_phase": "night",
+     "civil_segment_id": "civil-start",
+     "minutes_since_civil_anchor": 0,
+     "player_time": {
+      "phase": "night",
+      "appearance_mode": "normal",
+      "display_label": null,
+      "source_ref": null
+     }
+    },
+    "tension_level": "low",
+    "turn_number": 0,
+    "exit_ready": false,
+    "progressive": {
+     "asset_root_id": "coc-king-colfix-verify-001",
+     "campaign_id": "king-shreds-recovery-live-01",
+     "open_host_work_count": 4,
+     "ready_for_background_count": 4,
+     "runnable_count": 4,
+     "leased_count": 0,
+     "awaiting_scope_count": 0,
+     "awaiting_cache_count": 0,
+     "stale_count": 0,
+     "stranded_ready_count": 0,
+     "blocking_micro_ready_count": 0,
+     "background_takeover": {
+      "schema_version": 1,
+      "kind": "ready_background_source_work",
+      "dispatch_mode": "coordinator_fanout",
+      "coordinator_dispatch": {
+       "agent_type": "coc-source-coordinator",
+       "run_in_background": true,
+       "task_prompt": "one exact host dispatch object without campaign transcript",
+       "packet": {
+        "schema_version": 1,
+        "contract_id": "coc.source-coordinator.v1",
+        "packet_id": "source-coordinator-f02b2e1f1429adf2cef8",
+        "adapter_mode": "manager_exact_forward",
+        "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.coc/playtests/final-pi-coc-draft-recovery-live-20260828-01/sandbox",
+        "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+        "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/scripts/coc_toolbox.py",
+        "campaign_id": "king-shreds-recovery-live-01",
+        "asset_root_id": "coc-king-colfix-verify-001",
+        "claim_operation": {
+         "operation": "progressive.claim_host_work",
+         "invoke_via": "canonical_typed_operation_gateway",
+         "prefilled_arguments": {
+          "executor_id": "source-coordinator:5a927c1fbf48fe52ec33",
+          "limit": 4,
+          "result_delivery": "task_return_to_parent",
+          "max_dispatch_attempts": 2
+         },
+         "missing_arguments": [],
+         "authority": "advisory",
+         "hard_gate": false,
+         "contract_ref": "progressive.claim_host_work@007dd620090e96f4",
+         "discovery_required": false
+        },
+        "fulfill_operation": {
+         "operation": "progressive.fulfill_host_work",
+         "invoke_via": "canonical_typed_operation_gateway",
+         "fixed_arguments": {},
+         "missing_arguments": [
+          "worker_result"
+         ],
+         "exact_forward_binding": "worker_result=one exact leaf results[] value",
+         "authority": "source_fulfillment",
+         "hard_gate": false,
+         "contract_ref": "progressive.fulfill_host_work@007dd620090e96f4",
+         "discovery_required": false
+        },
+        "max_leaves": 4,
+        "leaf_worker": {
+         "agent_type": "coc-source-pack-worker",
+         "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+         "model_policy": "inherit_parent",
+         "run_in_background": false,
+         "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+         "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work"
+        },
+        "failure_policy": {
+         "authority": "prompt_first_advisory",
+         "single_failure": "transient_allowed",
+         "same_failure_escalation_threshold": 3,
+         "threshold_outcome": "design_issue",
+         "same_task_retry": true,
+         "player_action_gate": false,
+         "narrative_gate": false,
+         "output_gate": false,
+         "automatic_retry": {
+          "retryable_failure_classes": [
+           "fulfill_rejected"
+          ],
+          "require_status": "failed",
+          "require_positive_claimed": true,
+          "require_zero_fulfilled": true,
+          "max_attempts": 2
+         }
+        }
+       },
+       "pi_task": {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-coordinator-task.v1",
+        "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-coordinator.md",
+        "model_policy": "inherit_parent",
+        "packet": {
+         "schema_version": 1,
+         "contract_id": "coc.source-coordinator.v1",
+         "packet_id": "source-coordinator-f02b2e1f1429adf2cef8",
+         "adapter_mode": "manager_exact_forward",
+         "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.coc/playtests/final-pi-coc-draft-recovery-live-20260828-01/sandbox",
+         "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+         "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/scripts/coc_toolbox.py",
+         "campaign_id": "king-shreds-recovery-live-01",
+         "asset_root_id": "coc-king-colfix-verify-001",
+         "claim_operation": {
+          "operation": "progressive.claim_host_work",
+          "invoke_via": "canonical_typed_operation_gateway",
+          "prefilled_arguments": {
+           "executor_id": "source-coordinator:5a927c1fbf48fe52ec33",
+           "limit": 4,
+           "result_delivery": "task_return_to_parent",
+           "max_dispatch_attempts": 2
+          },
+          "missing_arguments": [],
+          "authority": "advisory",
+          "hard_gate": false,
+          "contract_ref": "progressive.claim_host_work@007dd620090e96f4",
+          "discovery_required": false
+         },
+         "fulfill_operation": {
+          "operation": "progressive.fulfill_host_work",
+          "invoke_via": "canonical_typed_operation_gateway",
+          "fixed_arguments": {},
+          "missing_arguments": [
+           "worker_result"
+          ],
+          "exact_forward_binding": "worker_result=one exact leaf results[] value",
+          "authority": "source_fulfillment",
+          "hard_gate": false,
+          "contract_ref": "progressive.fulfill_host_work@007dd620090e96f4",
+          "discovery_required": false
+         },
+         "max_leaves": 4,
+         "leaf_worker": {
+          "agent_type": "coc-source-pack-worker",
+          "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+          "model_policy": "inherit_parent",
+          "run_in_background": false,
+          "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+          "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work"
+         },
+         "failure_policy": {
+          "authority": "prompt_first_advisory",
+          "single_failure": "transient_allowed",
+          "same_failure_escalation_threshold": 3,
+          "threshold_outcome": "design_issue",
+          "same_task_retry": true,
+          "player_action_gate": false,
+          "narrative_gate": false,
+          "output_gate": false,
+          "automatic_retry": {
+           "retryable_failure_classes": [
+            "fulfill_rejected"
+           ],
+           "require_status": "failed",
+           "require_positive_claimed": true,
+           "require_zero_fulfilled": true,
+           "max_attempts": 2
+          }
+         }
+        }
+       }
+      },
+      "host_adapter": "pi",
+      "capability_status": "unavailable_pending_real_lifecycle_probe",
+      "next_host_action": {
+       "schema_version": 1,
+       "action": "invoke_coc_dispatch_source_work",
+       "task": {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-coordinator-task.v1",
+        "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-coordinator.md",
+        "model_policy": "inherit_parent",
+        "packet": {
+         "schema_version": 1,
+         "contract_id": "coc.source-coordinator.v1",
+         "packet_id": "source-coordinator-f02b2e1f1429adf2cef8",
+         "adapter_mode": "manager_exact_forward",
+         "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.coc/playtests/final-pi-coc-draft-recovery-live-20260828-01/sandbox",
+         "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+         "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/scripts/coc_toolbox.py",
+         "campaign_id": "king-shreds-recovery-live-01",
+         "asset_root_id": "coc-king-colfix-verify-001",
+         "claim_operation": {
+          "operation": "progressive.claim_host_work",
+          "invoke_via": "canonical_typed_operation_gateway",
+          "prefilled_arguments": {
+           "executor_id": "source-coordinator:5a927c1fbf48fe52ec33",
+           "limit": 4,
+           "result_delivery": "task_return_to_parent",
+           "max_dispatch_attempts": 2
+          },
+          "missing_arguments": [],
+          "authority": "advisory",
+          "hard_gate": false,
+          "contract_ref": "progressive.claim_host_work@007dd620090e96f4",
+          "discovery_required": false
+         },
+         "fulfill_operation": {
+          "operation": "progressive.fulfill_host_work",
+          "invoke_via": "canonical_typed_operation_gateway",
+          "fixed_arguments": {},
+          "missing_arguments": [
+           "worker_result"
+          ],
+          "exact_forward_binding": "worker_result=one exact leaf results[] value",
+          "authority": "source_fulfillment",
+          "hard_gate": false,
+          "contract_ref": "progressive.fulfill_host_work@007dd620090e96f4",
+          "discovery_required": false
+         },
+         "max_leaves": 4,
+         "leaf_worker": {
+          "agent_type": "coc-source-pack-worker",
+          "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+          "model_policy": "inherit_parent",
+          "run_in_background": false,
+          "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+          "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work"
+         },
+         "failure_policy": {
+          "authority": "prompt_first_advisory",
+          "single_failure": "transient_allowed",
+          "same_failure_escalation_threshold": 3,
+          "threshold_outcome": "design_issue",
+          "same_task_retry": true,
+          "player_action_gate": false,
+          "narrative_gate": false,
+          "output_gate": false,
+          "automatic_retry": {
+           "retryable_failure_classes": [
+            "fulfill_rejected"
+           ],
+           "require_status": "failed",
+           "require_positive_claimed": true,
+           "require_zero_fulfilled": true,
+           "max_attempts": 2
+          }
+         }
+        }
+       },
+       "parent_waits": false,
+       "parent_result_polls": 0,
+       "parent_output_retrieval": false
+      },
+      "authority": "advisory",
+      "hard_gate": false,
+      "host_dispatch": {
+       "worker_profile": "coc-source-pack-worker",
+       "background": true,
+       "packet_binding": "one exact returned dispatch_tasks[] value per child when result_delivery=named_submit",
+       "direct_submit_parent_waits": false,
+       "direct_submit_parent_result_polls": 0,
+       "direct_submit_parent_output_retrieval": false,
+       "direct_submit_parent_calls_fulfill_host_work": false,
+       "fallback_without_direct_submit": "forward exact completed results[i] once through progressive.fulfill_host_work"
+      },
+      "play_boundary": {
+       "player_action_gate": false,
+       "narrative_gate": false,
+       "output_gate": false,
+       "nondependent_play_may_continue": true,
+       "blocking_micro_applies_only_to_current_dependent_settlement": true
+      }
+     },
+     "ready_background_requests": [
+      {
+       "job_id": "job-a9f20ae04169",
+       "kind": "deepen_handout",
+       "target_id": "handout-croft-letter",
+       "requested_pdf_indices": [
+        4
+       ],
+       "source_aspect": "body",
+       "deadline_class": "next_turn_hot",
+       "work_level": "near_term",
+       "work_group_id": "source-work-a2b0a9f8d799d6f7",
+       "dispatch_state": "ready",
+       "dispatch_attempts": 0,
+       "cached_scope_complete": true
+      },
+      {
+       "job_id": "job-434342abb82f",
+       "kind": "deepen_handout",
+       "target_id": "handout-croft-diary",
+       "requested_pdf_indices": [
+        6
+       ],
+       "source_aspect": "body",
+       "deadline_class": "next_turn_hot",
+       "work_level": "near_term",
+       "work_group_id": "source-work-4bcc6e9b7d521318",
+       "dispatch_state": "ready",
+       "dispatch_attempts": 0,
+       "cached_scope_complete": true
+      },
+      {
+       "job_id": "job-8f06a71569ab",
+       "kind": "classify_sections",
+       "target_id": "section-index",
+       "requested_pdf_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        "...30 more"
+       ],
+       "source_aspect": "structure",
+       "deadline_class": "next_turn_hot",
+       "work_level": "near_term",
+       "work_group_id": "source-work-1becdf816b58ed20",
+       "dispatch_state": "ready",
+       "dispatch_attempts": 0,
+       "cached_scope_complete": false
+      },
+      {
+       "job_id": "job-1bc65c9daa20",
+       "kind": "annotate_images",
+       "target_id": "image-annotations",
+       "requested_pdf_indices": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        "...29 more"
+       ],
+       "source_aspect": "body",
+       "deadline_class": "next_turn_hot",
+       "work_level": "near_term",
+       "work_group_id": "source-work-ae4d23624bdfeb74",
+       "dispatch_state": "ready",
+       "dispatch_attempts": 0,
+       "cached_scope_complete": true
+      }
+     ],
+     "current_dependency_snapshot_complete": true,
+     "current_dependency_waits": [],
+     "current_dependency_dispatches": [],
+     "current_dependency_projection_status": "complete_empty"
+    },
+    "scene_identity": {},
+    "npc_index": [],
+    "route_index": [],
+    "clue_index": [],
+    "exit_index": [],
+    "counts": {
+     "npcs_present": 0,
+     "action_routes": 0,
+     "clues_here": 0,
+     "exits": 0
+    },
+    "full_projection_operation": {
+     "operation": "scene.context",
+     "invoke_via": "coc_invoke",
+     "prefilled_arguments": {},
+     "missing_arguments": [],
+     "authority": "advisory",
+     "hard_gate": false,
+     "contract_ref": "scene.context@007dd620090e96f4",
+     "discovery_required": false
+    }
+   },
+   "operation_opportunities": [],
+   "ordinary_turn_operations": {},
+   "recovery_index": {
+    "schema_version": 1,
+    "kind": "typed_progressive_recovery_index",
+    "instruction": "Use only the returned exact scene/detail cards needed for the current decision; never read campaign files or rediscover tools."
+   }
+  },
+  "warnings": [
+   "active scene 'None' not found in story graph — use scene.map / state.move_scene"
+  ],
+  "hints": [
+   "the inline working set exceeded the transport budget; use the returned typed recovery index and exact read cards on demand, never campaign files or broad discovery",
+   "the playable campaign has no table transcript yet; open the table with evidence.table_opening rather than character setup"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "scene_map": {
+  "ok": true,
+  "tool": "scene.map",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "scene.map",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 1274,
+   "full_result_sha256": "sha256:e4c2e390e8a5b36bbc66be1c95301877065adb82c756747412781b9d13895bd5",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 1681
+  },
+  "data": {
+   "active_scene_id": null,
+   "scenes": [
+    {
+     "scene_id": "stone-street-coft-lodging",
+     "scene_type": "investigation",
+     "dramatic_question": "What do the investigators find at 约翰·考夫特在石街的住处?",
+     "location_tags": [
+      "约翰·考夫特在石街的住处"
+     ],
+     "unlocked": false,
+     "visited": false,
+     "exhausted": false,
+     "is_terminal": true,
+     "edges": [],
+     "parse_state": "partial",
+     "evidence_gap": false
+    },
+    {
+     "scene_id": "london-bridge-vandervick-shop",
+     "scene_type": "investigation",
+     "dramatic_question": "关门的店铺里藏着玛瑞杰的下落吗？",
+     "location_tags": [
+      "伦敦桥·范德威克店铺"
+     ],
+     "unlocked": false,
+     "visited": false,
+     "exhausted": false,
+     "is_terminal": true,
+     "edges": [],
+     "parse_state": "deep",
+     "evidence_gap": false
+    }
+   ],
+   "scene_history": [],
+   "progressive_asset_root_id": "coc-king-colfix-verify-001"
+  },
+  "warnings": [],
+  "hints": [
+   "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-82daa1b972f2bcdfe1 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "scene_context": {
+  "ok": true,
+  "tool": "scene.context",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "scene.context",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 16667,
+   "full_result_sha256": "sha256:cf64f258115c8dd2dac550f52b1dc6f9cf641d1d5aab9138a3c07d70e2d0b9cf",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": true,
+   "measured_inline_bytes": 15457
+  },
+  "data": {
+   "campaign_id": "king-shreds-recovery-live-01",
+   "active_scene_id": null,
+   "scene": null,
+   "npcs_present": [],
+   "party": [
+    "inv-x6a217e22-e0532209"
+   ],
+   "party_investigators": [
+    {
+     "investigator_id": "inv-x6a217e22-e0532209",
+     "name": "程远",
+     "occupation": {
+      "name": "Craftsperson",
+      "reason": "KP-guided era-adapted occupation Craftsperson",
+      "era_adaptive": true,
+      "skill_point_formula": "EDU*4",
+      "formula_reason": "default EDU*4 for a KP-named era-adapted occupation"
+     },
+     "age": 19,
+     "app": 50,
+     "credit_rating": 35,
+     "credit_tier": "average",
+     "build": 0,
+     "mov": 9,
+     "luck": 55,
+     "hp": {
+      "current": 8,
+      "max": 8
+     },
+     "mp": {
+      "current": 12,
+      "max": 12
+     },
+     "san": {
+      "current": 60,
+      "max": null
+     },
+     "cthulhu_mythos": 0,
+     "madness": {
+      "bout_active": false,
+      "temporary_insane": false,
+      "indefinite_insane": false,
+      "delusion_active": false
+     },
+     "conditions": []
+    }
+   ],
+   "time": {
+    "elapsed_minutes": 0,
+    "display": "",
+    "local_datetime": null,
+    "local_date": null,
+    "calendar_mode": "relative",
+    "time_precision": "unknown",
+    "timezone": null,
+    "location_id": null,
+    "day_phase": "night",
+    "civil_segment_id": "civil-start",
+    "minutes_since_civil_anchor": 0,
+    "player_time": {
+     "phase": "night",
+     "appearance_mode": "normal",
+     "display_label": null,
+     "source_ref": null
+    }
+   },
+   "tension_level": "low",
+   "turn_number": 0,
+   "clues_here": [],
+   "discovered_clue_count": 0,
+   "discovered_clues_public": [],
+   "action_routes": [],
+   "keeper_mechanics": {
+    "secret": true,
+    "affordance_operations": [],
+    "npc_profiles": {}
+   },
+   "exit_ready": false,
+   "drilldown_refs": {
+    "npc": [],
+    "clue": [],
+    "secret": []
+   },
+   "story_progress": {
+    "keeper_only": true,
+    "authority": "advisory",
+    "core_total": 0,
+    "core_answered": 0,
+    "main_line_complete": false,
+    "core_objectives": [],
+    "other_objectives": {
+     "answered": 0,
+     "open": 1
+    }
+   },
+   "nearby_routes": {
+    "keeper_only": true,
+    "authority": "advisory",
+    "note": "What neighbouring scenes are holding. When a player reaches for something this scene does not carry, the module usually keeps it one move away: move there and the route becomes executable, rather than improvising content the ledger never sees.",
+    "destinations": []
+   },
+   "story_thread": {
+    "keeper_only": true,
+    "authority": "advisory",
+    "note": "What the main line still wants, and where it can be reached from here. Proposes nothing and gates nothing — the beat is yours; this is the same facts in planning order.",
+    "outstanding": []
+   },
+   "pending_deliveries": {
+    "keeper_only": true,
+    "authority": "advisory",
+    "note": "Clues this scene delivers by event rather than by the players earning them. They are not routes and must not be offered as choices; the module means them to happen. Timing is yours.",
+    "clues": []
+   },
+   "progressive": {
+    "asset_root_id": "coc-king-colfix-verify-001",
+    "campaign_id": "king-shreds-recovery-live-01",
+    "open_host_work_count": 4,
+    "ready_for_background_count": 3,
+    "runnable_count": 3,
+    "leased_count": 1,
+    "awaiting_scope_count": 0,
+    "awaiting_cache_count": 0,
+    "stale_count": 0,
+    "stranded_ready_count": 0,
+    "blocking_micro_ready_count": 0,
+    "background_takeover": {
+     "schema_version": 1,
+     "kind": "ready_background_source_work",
+     "dispatch_mode": "coordinator_fanout",
+     "coordinator_dispatch": {
+      "agent_type": "coc-source-coordinator",
+      "run_in_background": true,
+      "task_prompt": "one exact host dispatch object without campaign transcript",
+      "packet": {
+       "schema_version": 1,
+       "contract_id": "coc.source-coordinator.v1",
+       "packet_id": "source-coordinator-6ef0ebb3d520e631005d",
+       "adapter_mode": "manager_exact_forward",
+       "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.coc/playtests/final-pi-coc-draft-recovery-live-20260828-01/sandbox",
+       "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+       "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/scripts/coc_toolbox.py",
+       "campaign_id": "king-shreds-recovery-live-01",
+       "asset_root_id": "coc-king-colfix-verify-001",
+       "claim_operation": {
+        "operation": "progressive.claim_host_work",
+        "invoke_via": "canonical_typed_operation_gateway",
+        "prefilled_arguments": {
+         "executor_id": "source-coordinator:5a927c1fbf48fe52ec33",
+         "limit": 3,
+         "result_delivery": "task_return_to_parent",
+         "max_dispatch_attempts": 2
+        },
+        "missing_arguments": [],
+        "authority": "advisory",
+        "hard_gate": false,
+        "contract_ref": "progressive.claim_host_work@007dd620090e96f4",
+        "discovery_required": false
+       },
+       "fulfill_operation": {
+        "operation": "progressive.fulfill_host_work",
+        "invoke_via": "canonical_typed_operation_gateway",
+        "fixed_arguments": {},
+        "missing_arguments": [
+         "worker_result"
+        ],
+        "exact_forward_binding": "worker_result=one exact leaf results[] value",
+        "authority": "source_fulfillment",
+        "hard_gate": false,
+        "contract_ref": "progressive.fulfill_host_work@007dd620090e96f4",
+        "discovery_required": false
+       },
+       "max_leaves": 3,
+       "leaf_worker": {
+        "agent_type": "coc-source-pack-worker",
+        "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+        "model_policy": "inherit_parent",
+        "run_in_background": false,
+        "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+        "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work"
+       },
+       "failure_policy": {
+        "authority": "prompt_first_advisory",
+        "single_failure": "transient_allowed",
+        "same_failure_escalation_threshold": 3,
+        "threshold_outcome": "design_issue",
+        "same_task_retry": true,
+        "player_action_gate": false,
+        "narrative_gate": false,
+        "output_gate": false,
+        "automatic_retry": {
+         "retryable_failure_classes": [
+          "fulfill_rejected"
+         ],
+         "require_status": "failed",
+         "require_positive_claimed": true,
+         "require_zero_fulfilled": true,
+         "max_attempts": 2
+        }
+       }
+      },
+      "pi_task": {
+       "schema_version": 1,
+       "contract_id": "coc.pi-source-coordinator-task.v1",
+       "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-coordinator.md",
+       "model_policy": "inherit_parent",
+       "packet": {
+        "schema_version": 1,
+        "contract_id": "coc.source-coordinator.v1",
+        "packet_id": "source-coordinator-6ef0ebb3d520e631005d",
+        "adapter_mode": "manager_exact_forward",
+        "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.coc/playtests/final-pi-coc-draft-recovery-live-20260828-01/sandbox",
+        "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+        "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/scripts/coc_toolbox.py",
+        "campaign_id": "king-shreds-recovery-live-01",
+        "asset_root_id": "coc-king-colfix-verify-001",
+        "claim_operation": {
+         "operation": "progressive.claim_host_work",
+         "invoke_via": "canonical_typed_operation_gateway",
+         "prefilled_arguments": {
+          "executor_id": "source-coordinator:5a927c1fbf48fe52ec33",
+          "limit": 3,
+          "result_delivery": "task_return_to_parent",
+          "max_dispatch_attempts": 2
+         },
+         "missing_arguments": [],
+         "authority": "advisory",
+         "hard_gate": false,
+         "contract_ref": "progressive.claim_host_work@007dd620090e96f4",
+         "discovery_required": false
+        },
+        "fulfill_operation": {
+         "operation": "progressive.fulfill_host_work",
+         "invoke_via": "canonical_typed_operation_gateway",
+         "fixed_arguments": {},
+         "missing_arguments": [
+          "worker_result"
+         ],
+         "exact_forward_binding": "worker_result=one exact leaf results[] value",
+         "authority": "source_fulfillment",
+         "hard_gate": false,
+         "contract_ref": "progressive.fulfill_host_work@007dd620090e96f4",
+         "discovery_required": false
+        },
+        "max_leaves": 3,
+        "leaf_worker": {
+         "agent_type": "coc-source-pack-worker",
+         "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+         "model_policy": "inherit_parent",
+         "run_in_background": false,
+         "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+         "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work"
+        },
+        "failure_policy": {
+         "authority": "prompt_first_advisory",
+         "single_failure": "transient_allowed",
+         "same_failure_escalation_threshold": 3,
+         "threshold_outcome": "design_issue",
+         "same_task_retry": true,
+         "player_action_gate": false,
+         "narrative_gate": false,
+         "output_gate": false,
+         "automatic_retry": {
+          "retryable_failure_classes": [
+           "fulfill_rejected"
+          ],
+          "require_status": "failed",
+          "require_positive_claimed": true,
+          "require_zero_fulfilled": true,
+          "max_attempts": 2
+         }
+        }
+       }
+      }
+     },
+     "host_adapter": "pi",
+     "capability_status": "unavailable_pending_real_lifecycle_probe",
+     "next_host_action": {
+      "schema_version": 1,
+      "action": "invoke_coc_dispatch_source_work",
+      "task": {
+       "schema_version": 1,
+       "contract_id": "coc.pi-source-coordinator-task.v1",
+       "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-coordinator.md",
+       "model_policy": "inherit_parent",
+       "packet": {
+        "schema_version": 1,
+        "contract_id": "coc.source-coordinator.v1",
+        "packet_id": "source-coordinator-6ef0ebb3d520e631005d",
+        "adapter_mode": "manager_exact_forward",
+        "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.coc/playtests/final-pi-coc-draft-recovery-live-20260828-01/sandbox",
+        "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+        "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/scripts/coc_toolbox.py",
+        "campaign_id": "king-shreds-recovery-live-01",
+        "asset_root_id": "coc-king-colfix-verify-001",
+        "claim_operation": {
+         "operation": "progressive.claim_host_work",
+         "invoke_via": "canonical_typed_operation_gateway",
+         "prefilled_arguments": {
+          "executor_id": "source-coordinator:5a927c1fbf48fe52ec33",
+          "limit": 3,
+          "result_delivery": "task_return_to_parent",
+          "max_dispatch_attempts": 2
+         },
+         "missing_arguments": [],
+         "authority": "advisory",
+         "hard_gate": false,
+         "contract_ref": "progressive.claim_host_work@007dd620090e96f4",
+         "discovery_required": false
+        },
+        "fulfill_operation": {
+         "operation": "progressive.fulfill_host_work",
+         "invoke_via": "canonical_typed_operation_gateway",
+         "fixed_arguments": {},
+         "missing_arguments": [
+          "worker_result"
+         ],
+         "exact_forward_binding": "worker_result=one exact leaf results[] value",
+         "authority": "source_fulfillment",
+         "hard_gate": false,
+         "contract_ref": "progressive.fulfill_host_work@007dd620090e96f4",
+         "discovery_required": false
+        },
+        "max_leaves": 3,
+        "leaf_worker": {
+         "agent_type": "coc-source-pack-worker",
+         "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+         "model_policy": "inherit_parent",
+         "run_in_background": false,
+         "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+         "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work"
+        },
+        "failure_policy": {
+         "authority": "prompt_first_advisory",
+         "single_failure": "transient_allowed",
+         "same_failure_escalation_threshold": 3,
+         "threshold_outcome": "design_issue",
+         "same_task_retry": true,
+         "player_action_gate": false,
+         "narrative_gate": false,
+         "output_gate": false,
+         "automatic_retry": {
+          "retryable_failure_classes": [
+           "fulfill_rejected"
+          ],
+          "require_status": "failed",
+          "require_positive_claimed": true,
+          "require_zero_fulfilled": true,
+          "max_attempts": 2
+         }
+        }
+       }
+      },
+      "parent_waits": false,
+      "parent_result_polls": 0,
+      "parent_output_retrieval": false
+     },
+     "authority": "advisory",
+     "hard_gate": false,
+     "host_dispatch": {
+      "worker_profile": "coc-source-pack-worker",
+      "background": true,
+      "packet_binding": "one exact returned dispatch_tasks[] value per child when result_delivery=named_submit",
+      "direct_submit_parent_waits": false,
+      "direct_submit_parent_result_polls": 0,
+      "direct_submit_parent_output_retrieval": false,
+      "direct_submit_parent_calls_fulfill_host_work": false,
+      "fallback_without_direct_submit": "forward exact completed results[i] once through progressive.fulfill_host_work"
+     },
+     "play_boundary": {
+      "player_action_gate": false,
+      "narrative_gate": false,
+      "output_gate": false,
+      "nondependent_play_may_continue": true,
+      "blocking_micro_applies_only_to_current_dependent_settlement": true
+     }
+    },
+    "ready_background_requests": [
+     {
+      "job_id": "job-434342abb82f",
+      "kind": "deepen_handout",
+      "target_id": "handout-croft-diary",
+      "requested_pdf_indices": [
+       6
+      ],
+      "source_aspect": "body",
+      "deadline_class": "next_turn_hot",
+      "work_level": "near_term",
+      "work_group_id": "source-work-4bcc6e9b7d521318",
+      "dispatch_state": "ready",
+      "dispatch_attempts": 0,
+      "cached_scope_complete": true
+     },
+     {
+      "job_id": "job-8f06a71569ab",
+      "kind": "classify_sections",
+      "target_id": "section-index",
+      "requested_pdf_indices": [
+       0,
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9,
+       10,
+       11,
+       "...30 more"
+      ],
+      "source_aspect": "structure",
+      "deadline_class": "next_turn_hot",
+      "work_level": "near_term",
+      "work_group_id": "source-work-1becdf816b58ed20",
+      "dispatch_state": "ready",
+      "dispatch_attempts": 0,
+      "cached_scope_complete": false
+     },
+     {
+      "job_id": "job-1bc65c9daa20",
+      "kind": "annotate_images",
+      "target_id": "image-annotations",
+      "requested_pdf_indices": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9,
+       10,
+       11,
+       12,
+       "...29 more"
+      ],
+      "source_aspect": "body",
+      "deadline_class": "next_turn_hot",
+      "work_level": "near_term",
+      "work_group_id": "source-work-ae4d23624bdfeb74",
+      "dispatch_state": "ready",
+      "dispatch_attempts": 0,
+      "cached_scope_complete": true
+     }
+    ],
+    "current_dependency_snapshot_complete": true,
+    "current_dependency_waits": [],
+    "current_dependency_dispatches": [],
+    "current_dependency_projection_status": "complete_empty"
+   },
+   "exits": [],
+   "continuity": {
+    "schema_version": 1,
+    "state_precedence": "live_over_authored_initial",
+    "keeper_only": true,
+    "active_time_markers": [],
+    "unverified_world_flags": [],
+    "live_world_flags": [],
+    "active_exceptional_effects": []
+   },
+   "full_projection_operation": {
+    "operation": "scene.context",
+    "invoke_via": "coc_invoke",
+    "prefilled_arguments": {},
+    "missing_arguments": [],
+    "authority": "advisory",
+    "hard_gate": false,
+    "contract_ref": "scene.context@007dd620090e96f4",
+    "discovery_required": false
+   }
+  },
+  "warnings": [
+   "active scene 'None' not found in story graph — use scene.map / state.move_scene"
+  ],
+  "hints": [
+   "progressive.background_takeover exposes exact cached source work for the existing progressive.claim_host_work operation; claim and dispatch it in the background. This is advisory and never gates player input, narration, or unrelated play; only a current settlement that depends on listed blocking_micro source may wait for that source result",
+   "npcs_present.impression is the bounded textual memory for investigator 'inv-x6a217e22-e0532209'; use it as semantic context, never as a hard gate",
+   "optional pacing support: call director.advise on scene entry, after repeated approaches, or when momentum stalls; its suggestions are advisory and may be ignored",
+   "optional enrichment support: call storylets.suggest when a personal callback or atmospheric beat would help; absence of a fitting storylet never blocks play"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false,
+  "cache": {
+   "status": "miss",
+   "revision": "ws-v1-bdc4c49436c854a67f8e922b",
+   "key": "bdc4c49436c854a67f8e922b20b8997eb643967bec48cc2b689ace58fd317af4",
+   "ref": "save/working-set-cache/scene.context/bdc4c49436c854a67f8e922b20b8997eb643967bec48cc2b689ace58fd317af4.json"
+  }
+ },
+ "clues_query": {
+  "ok": true,
+  "tool": "clues.query",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "clues.query",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 4130,
+   "full_result_sha256": "sha256:cbe2326a2849edf07044815cab37d0c2292af8078860d37577321b1dc88c12ec",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 4539
+  },
+  "data": {
+   "discovered_clue_ids": [],
+   "clues": [
+    {
+     "clue_id": "clue-mud-cloak",
+     "conclusion_id": "progressive-local",
+     "discovered": false,
+     "delivery": null,
+     "delivery_kind": "check",
+     "skill": null,
+     "difficulty": null,
+     "player_safe_summary": null,
+     "localized_text": null,
+     "secret": true,
+     "keeper_only": {
+      "secret": true,
+      "content_available_after": "state.record_clue"
+     }
+    }
+   ],
+   "conclusions": [
+    {
+     "conclusion_id": "progressive-local",
+     "importance": "supporting",
+     "minimum_routes": 1,
+     "progress": {
+      "discovered_route_ids": [],
+      "discovered_route_count": 0,
+      "supported": false
+     }
+    }
+   ],
+   "handouts": {
+    "projection": "keeper",
+    "delivered_handout_ids": [],
+    "cards": [
+     {
+      "asset_id": "croft-letter-card1",
+      "kind": "document",
+      "content_origin": "source_verbatim",
+      "title": "小卡片#1—考夫特的来信",
+      "summary": "约翰·考夫特写给西蒙·佩奇的信：告知异乡旅居已结束，现暂住萨瑟克区离桥不远的石街，邀请佩奇与友人前来把盏叙旧、共祝新年。",
+      "when_to_deliver": "开场时交给认识约翰·考夫特的调查员（如西蒙·佩奇），作为考夫特邀请前来叙旧的来信。",
+      "text": "1 月4 日 挚友，我的异乡旅居已画上句号。我现暂住萨瑟 克区，在离桥不远的石街，来与我把盏叙旧两 日，以祝新年。邀你朋友同来，我已经许久没与 温和有礼的英国绅士做伴，也期盼着能再度听到 悦耳乡音。 你的好友 约翰·考夫特",
+      "authored_text": null,
+      "localized_text": null,
+      "image_ref": "assets/pdf-index-0004-image-001.jpg",
+      "source_refs": [
+       "pdf_index-4"
+      ],
+      "player_visible": true,
+      "scene_refs": [
+       "stone-street-coft-lodging"
+      ],
+      "clue_refs": [],
+      "delivered": false
+     },
+     {
+      "asset_id": "lucy-letter-card4",
+      "kind": "document",
+      "content_origin": "source_verbatim",
+      "title": "小卡片#4—露西的信(Lucy‘s Letter)",
+      "summary": "露西·亨利留给罗伯特·弗莱彻的短信，请他帮忙寻找逾期未至的姻亲表妹玛瑞杰·巴伦茨。",
+      "when_to_deliver": "当调查员各自返回家中后，交给罗伯特·弗莱彻：好友露西·亨利因麻烦事来访并留下的这封短信。",
+      "text": "亲爱的罗伯特， 我留下此信，希望你能帮我。我那位姻亲表妹— —阿姆斯特丹的玛瑞杰·巴伦茨——本应两周前 与我在家中见面，但她至今仍未到达。我给她荷 兰的父亲写信询问，他说她已按时登船前往伦 敦。他让她先去拜访老朋友约翰内斯·范德威克 ——一位在伦敦桥开店的珠宝商人。我去过那家 店铺，敲门却无回应。真的，店铺看起来关门一 段时间了。我知道这要求有些唐突，但我实在别 无他法，请帮忙找找我的表妹吧，拜托了。 你亲切的， 露西",
+      "authored_text": null,
+      "localized_text": null,
+      "image_ref": "assets/pdf-index-0008-image-000.png",
+      "source_refs": [
+       "pdf_index-8"
+      ],
+      "player_visible": true,
+      "scene_refs": [
+       "stone-street-coft-lodging"
+      ],
+      "clue_refs": [],
+      "delivered": false
+     }
+    ]
+   },
+   "working_set": {
+    "mode": "full",
+    "revision": "ws-v1-c19ef77303651631d4ef94c1",
+    "read_domains": {
+     "clues": 2,
+     "handouts": 1,
+     "scene": 2,
+     "world": 1
+    }
+   }
+  },
+  "warnings": [],
+  "hints": [
+   "conclusion solution prose is intentionally omitted here; reveal only the player-safe text of clues already recorded as discovered",
+   "undelivered handout card bodies are keeper-only; deliver via state.deliver_handout when the fiction earns it, then present the registered card body exactly",
+   "when a handout's when_to_deliver matches the current scene or player action — especially annotated image cards (annotated-* ids with image_ref and a when_to_show hint) — call state.deliver_handout for that card in the same turn so the player sees it at the exact narrative moment it becomes relevant"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false,
+  "cache": {
+   "status": "miss",
+   "revision": "ws-v1-c19ef77303651631d4ef94c1",
+   "key": "c19ef77303651631d4ef94c1a47145545521800d31b1a30943174dbfb5b0838c",
+   "ref": "save/working-set-cache/clues.query/c19ef77303651631d4ef94c1a47145545521800d31b1a30943174dbfb5b0838c.json"
+  }
+ },
+ "npc_query": {
+  "ok": true,
+  "tool": "npc.query",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "npc.query",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 3653,
+   "full_result_sha256": "sha256:f3d6903ab4965bae8c56d576e9d54c62c890996022c506f6f5bc741e5ae49d36",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 3894
+  },
+  "data": {
+   "npcs": [
+    {
+     "npc_id": "npc-lucy-henry",
+     "name": "露西·亨利",
+     "identity_ref": "npc-identity-v2:1573d967d3e70e97744afcc5",
+     "profile_revision_ref": "npc-profile-v2:b761436bfb1e4aa9c1d0f397",
+     "identity_contract": {
+      "schema_version": 2,
+      "keeper_only": true,
+      "npc_id": "npc-lucy-henry",
+      "name": "露西·亨利",
+      "origin": "source",
+      "identity_ref": "npc-identity-v2:1573d967d3e70e97744afcc5",
+      "profile_revision_ref": "npc-profile-v2:b761436bfb1e4aa9c1d0f397",
+      "role": {
+       "relationship_to_investigators": "unknown",
+       "social_role": null,
+       "role_label": null
+      },
+      "agenda": "恳求调查员帮忙查明表妹玛瑞杰的下落；只在信任后才透露对罗伯特的旧情。",
+      "voice": "才思敏捷、克制不歇斯底里；谈及表妹时焦虑而恳切。",
+      "schedule": [],
+      "location_provenance": {
+       "active_scene_id": null,
+       "authored_scene_ids": [],
+       "active_scene_matches_schedule": null
+      },
+      "source_refs": [
+       {
+        "source_id": "pdf:colfix-verify",
+        "pdf_index": 9,
+        "text_sha256": "32f2dab7888d0fbd5b23c6621f6615e5210580520a14b7577f4c5a46202a57e0",
+        "bundle_sha256s": [
+         "4ebaaf4018dc4d085b0e2aab217be9cb2f4f381379a84dfe07bb8358b7e6d04e",
+         "89ec4b95fedf951f83f057f56de03b2c063e52c724d6f3a2238b2d5987a8b326"
+        ],
+        "review_state": "auto_accepted",
+        "parse_confidence": 0.7625000476837158,
+        "grep_anchors": [
+         "3. 各种线索(Divers"
+        ],
+        "printed_page": 10
+       }
+      ]
+     },
+     "origin": "source",
+     "voice": "才思敏捷、克制不歇斯底里；谈及表妹时焦虑而恳切。",
+     "agenda": "恳求调查员帮忙查明表妹玛瑞杰的下落；只在信任后才透露对罗伯特的旧情。",
+     "fear": null,
+     "relationship_to_investigators": "unknown",
+     "social_role": null,
+     "role_label": null,
+     "secret": {
+      "value": null,
+      "secret": true
+     },
+     "keeper_note": {
+      "value": null,
+      "secret": true
+     },
+     "facts": null,
+     "known_fact_ids": null,
+     "revealable_fact_ids": null,
+     "lie_options": null,
+     "deflect_options": null,
+     "schedule": null,
+     "psych": {
+      "trust": 0,
+      "fear": 0,
+      "suspicion": 0,
+      "known_facts": [],
+      "lies_told": [],
+      "promises": [],
+      "availability": {
+       "status": "available"
+      },
+      "impression": null
+     }
+    }
+   ],
+   "working_set": {
+    "mode": "full",
+    "revision": "ws-v1-09e8ad6b84b95a755cdf45d5",
+    "read_domains": {
+     "npc": 1,
+     "party": 2,
+     "scene": 2
+    }
+   }
+  },
+  "warnings": [],
+  "hints": [
+   "fields marked secret:true are your reference only — reveal through play, not exposition",
+   "origin=source plus relationship_to_investigators/social_role is an authored identity contract: preserve that NPC's institution and role; introduce a new stable NPC id for a different role",
+   "role_label is source-authored display context only; never infer structured authority from its free prose",
+   "origin=improvised is a campaign-local canonical contact projected from first-impression/persona/psych state; identity_contract stays null because the module did not author that identity",
+   "pass the returned identity_ref to state.record_npc_engagement only when this authored identity is the one portrayed; a missing or mismatched ref records the interaction but is not authored-NPC coverage",
+   "when an authored NPC has no pronoun or gender field, repeat the authored name; never invent a gendered pronoun"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false,
+  "cache": {
+   "status": "miss",
+   "revision": "ws-v1-09e8ad6b84b95a755cdf45d5",
+   "key": "09e8ad6b84b95a755cdf45d5cb8977ac82b96cf55de4bbc36c6899e247b372c5",
+   "ref": "save/working-set-cache/npc.query/09e8ad6b84b95a755cdf45d5cb8977ac82b96cf55de4bbc36c6899e247b372c5.json"
+  }
+ },
+ "secrets_briefing": {
+  "ok": true,
+  "tool": "secrets.briefing",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "secrets.briefing",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 1240,
+   "full_result_sha256": "sha256:6717e34cf71e2b1226e052b24e174a9bfd53408a6245acba65037e90a173dfbf",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 1654
+  },
+  "data": {
+   "module_truth_note": "module truth is read-only: tools never let you rewrite it, and you should not contradict it",
+   "module_meta": {
+    "title": "colfix verify"
+   },
+   "scope": "entities",
+   "scene_id": null,
+   "undiscovered_clues": [],
+   "npc_secrets": [
+    {
+     "npc_id": "npc-lucy-henry",
+     "name": "露西·亨利",
+     "secret": true,
+     "keeper_note": null,
+     "secret_marker": true
+    }
+   ],
+   "module_secrets": [],
+   "source_sections": [],
+   "source_sections_budget": {
+    "max_count": 8,
+    "max_body_bytes": 24576,
+    "returned_count": 0,
+    "returned_body_bytes": 0,
+    "truncated": false,
+    "omitted_count": 0,
+    "omitted_body_bytes": 0
+   },
+   "spoiler_reveals_so_far": [],
+   "compiled_archive": {
+    "archive_revision": "ca-v1-b38fd536355bc6dc1805afaa191cc3d0",
+    "source": "compiled_archive",
+    "scope": "entities",
+    "selected_counts": {
+     "scenes": 0,
+     "npcs": 1,
+     "clues": 0,
+     "secrets": 0
+    },
+    "whole_module": false
+   },
+   "secret": true
+  },
+  "warnings": [],
+  "hints": [
+   "reveal secrets only through play (successful rolls, NPC disclosure, discovery) — never as narration exposition",
+   "when a secret does surface, record it with state.record_clue or flags so the briefing stays current"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "steward_deliveries": {
+  "ok": true,
+  "tool": "steward.deliveries",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "steward.deliveries",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 431,
+   "full_result_sha256": "sha256:0c39ec2dc8bcf93ddbf33041aa15b3ef2fb1ff037ee0d5669ae7b1053a02128c",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 845
+  },
+  "data": {
+   "schema_version": 1,
+   "projection": "keeper",
+   "count": 0,
+   "deliveries": []
+  },
+  "warnings": [],
+  "hints": [
+   "keeper_only segments are KP-internal knowledge; never quote, paraphrase, or hand them to players",
+   "projection=player is the only surface from which module text may reach players verbatim"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "steward_scene_supply": {
+  "ok": true,
+  "tool": "steward.scene_supply",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "steward.scene_supply",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 293,
+   "full_result_sha256": "sha256:8185b5cff91d044e3f21bd734211dac08c3db8a0a9bcd6977828cc701907b864",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 709
+  },
+  "data": {
+   "schema_version": 1,
+   "scene_id": "stone-street-coft-lodging",
+   "enforced": false,
+   "status": "not_configured",
+   "ready": true,
+   "host_gate_status": "ready"
+  },
+  "warnings": [],
+  "hints": [],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "setup_inspect": {
+  "ok": true,
+  "tool": "setup.inspect",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "setup.inspect",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 35778,
+   "full_result_sha256": "sha256:c07e2cd4d1c327479ac9f504b5ac23dde25b47479c3bae2c661b95aee3c7ddac",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": true,
+   "identity_only": true,
+   "measured_inline_bytes": 1101
+  },
+  "data": {
+   "schema_version": 1,
+   "projection_sha256": "sha256:8ec693532cd4416df3a7137e14b8651041592d7bcff82910d1fc5af546f785f1",
+   "replay_operation": {
+    "operation": "setup.inspect",
+    "invoke_via": "coc_invoke",
+    "prefilled_arguments": {},
+    "missing_arguments": [],
+    "authority": "advisory",
+    "hard_gate": false,
+    "contract_ref": "setup.inspect@007dd620090e96f4",
+    "discovery_required": false
+   }
+  },
+  "warnings": [
+   "The canonical result exceeded the bounded coding-host projection; use the returned exact typed operation instead of reading files."
+  ],
+  "hints": [],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "setup_phase": {
+  "ok": true,
+  "tool": "setup.phase",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "setup.phase",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 1240,
+   "full_result_sha256": "sha256:9ed9a4baf595b7b90e1730204865f34c8731a3a7a8d433aaa0f1af9e841087cc",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 1737
+  },
+  "data": {
+   "schema_version": 1,
+   "campaign_id": "king-shreds-recovery-live-01",
+   "phase": "ready_for_table",
+   "detail": {
+    "campaign_exists": true,
+    "campaign_status": "ready_for_table",
+    "session_role": "play",
+    "module_preparation": {
+     "source_gated": true,
+     "satisfied": true,
+     "sub_phase": null,
+     "asset_root_id": "coc-king-colfix-verify-001",
+     "source_provenance": "coordinator_reviewed_playable_opening",
+     "contract_error": null,
+     "review_failure": null,
+     "review_task": null,
+     "facts_transport": null,
+     "watch": null,
+     "watch_status": null,
+     "readiness": {
+      "state": "ready",
+      "reason": "opening_projected"
+     },
+     "blocking_reason": null
+    },
+    "character_setup": {
+     "confirmed": true,
+     "party_linked": true,
+     "policy": "kp_guided_era_adaptive",
+     "input_mode": "kp_guided_era_adaptive",
+     "resume_gate_required": false,
+     "blocking_reason": null
+    }
+   },
+   "next_operation": {
+    "operation": "evidence.table_opening",
+    "invoke_via": "coc_invoke",
+    "campaign": "king-shreds-recovery-live-01",
+    "contract_ref": "evidence.table_opening@007dd620090e96f4",
+    "discovery_required": false
+   },
+   "blocking_reason": null
+  },
+  "warnings": [],
+  "hints": [
+   "this is the single opening lifecycle authority; follow next_operation when present instead of re-deriving setup progress"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "personal_horror_query": {
+  "ok": true,
+  "tool": "personal_horror.query",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "personal_horror.query",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 644,
+   "full_result_sha256": "sha256:defa6a8929ab8fcd75916b9877080f43f94230a99a71b5f04a276301d1cf87a2",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 1062
+  },
+  "data": {
+   "investigator_id": "inv-x6a217e22-e0532209",
+   "personal_horror_hooks": [],
+   "backstory_corruptions": []
+  },
+  "warnings": [],
+  "hints": [
+   "these are structured KP references; weave them only when naturally relevant",
+   "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-82daa1b972f2bcdfe1 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "epistemic_query": {
+  "ok": true,
+  "tool": "epistemic.query",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "epistemic.query",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 856,
+   "full_result_sha256": "sha256:57375276c8ec3c269e6e2b37865fe79039edf0c55da8779041b282b86a10c359",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 1268
+  },
+  "data": {
+   "schema_version": 1,
+   "authority": "advisory",
+   "questions": [],
+   "belief_state": {
+    "schema_version": 2,
+    "hypotheses": [],
+    "active_question_ids": [],
+    "answered_question_ids": [],
+    "applied_effect_ids": []
+   },
+   "candidate_transitions": {
+    "schema_version": 1,
+    "open_question_ids": [],
+    "answer_question_ids": [],
+    "findings": []
+   }
+  },
+  "warnings": [],
+  "hints": [
+   "candidate transitions are structured advice until an adopted plan is committed",
+   "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-82daa1b972f2bcdfe1 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "evidence_table_opening": {
+  "ok": true,
+  "tool": "evidence.table_opening",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "evidence.table_opening",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 2145,
+   "full_result_sha256": "sha256:e9cf292eeff59ffff483dfbb1a1a8ba9c3b1eb6376e5cc16b4b5a8f2d22c5905",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 2565
+  },
+  "data": {
+   "schema_version": 1,
+   "entry_id": "table-transcript-v1:9da485d333b5793db54c816ec17d335a2cee92b5",
+   "run_id": "run-1",
+   "run_segment_id": "run-1",
+   "run_segment_source": "table_opening",
+   "run_segment_trust": "authoritative",
+   "session_id": "01a048ac-6473-7f90-888f-a8acf166f2d3",
+   "session_source": "host_context",
+   "session_trust": "observed",
+   "turn": 0,
+   "turn_id": "opening:run-1",
+   "journal_decision_id": "",
+   "role": "keeper",
+   "speaker": "KP",
+   "text": "【开场时间】夜晚\n\n夜。\n\n一封信送到你——程远——手上。纸页折痕清晰，墨色沉稳。写信人是约翰·考夫特：他说异乡旅居已画上句号，现暂住萨瑟克区、离桥不远的石街，邀你前去把盏叙旧两日，以祝新年；友人亦不妨同来。\n\n信写于一月四日。窗外是夜色。石街并不远。\n\n[/in_game]",
+   "text_sha256": "sha256:8b97ca86d33f2c3c2588de943633f02c9683ae38dbb016ac802d95db68baeef0",
+   "source_id": "table-opening-king-shreds-recovery-live-01",
+   "source_ref": "table.opening#table-opening-king-shreds-recovery-live-01",
+   "record_kind": "table_opening",
+   "finalization_id": null,
+   "accepted_revision": null,
+   "rendered_text_sha256": null,
+   "presented_roll_ids": [],
+   "ts": "2026-08-28T15:53:55.252349+00:00",
+   "authoritative_time_anchor": {
+    "schema_version": 1,
+    "display": "夜晚",
+    "player_time": {
+     "phase": "night",
+     "appearance_mode": "normal",
+     "display_label": null,
+     "source_ref": null
+    },
+    "source_ref": null,
+    "rendered_line": "【开场时间】夜晚"
+   }
+  },
+  "warnings": [],
+  "hints": [
+   "deliver data.text exactly; its authoritative opening-time anchor and deterministic public first-impression block are canonical and must not be contradicted, recomputed, rewritten, or duplicated",
+   "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-82daa1b972f2bcdfe1 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "actions_list": {
+  "ok": true,
+  "tool": "actions.list",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "actions.list",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 860,
+   "full_result_sha256": "sha256:576545339e7076b6e1b934c2990b360b8c7c92911cb538d6944247f6877c564e",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 1269
+  },
+  "data": {
+   "scene_id": null,
+   "affordances": []
+  },
+  "warnings": [],
+  "hints": [
+   "these are authored suggestions — improvised player actions are equally valid; use rules.roll for risky ones",
+   "match action_kind to the player's explicit intent; keeper_adjudication is fully valid and must not be replaced by a typed combat route merely because that route has a tool",
+   "keeper_only operation fields are execution data, never player-facing narration",
+   "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-82daa1b972f2bcdfe1 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "actions_advise": {
+  "ok": true,
+  "tool": "actions.advise",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "actions.advise",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 4724,
+   "full_result_sha256": "sha256:d0e31d098392c4ce6fd34cfcf6a5a3c8b3569e265817665e45122c4a95cd6df8",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": true,
+   "measured_inline_bytes": 4637
+  },
+  "data": {
+   "schema_version": 1,
+   "authority": "advisory",
+   "hard_gate": false,
+   "scene_id": null,
+   "investigator_id": "inv-x6a217e22-e0532209",
+   "authored_roll_gate_count": 0,
+   "intent_evidence": {
+    "primary_intent": "examine_exterior_and_listen",
+    "semantic_reason": "The investigator has gone to Croft's Stone Street lodging, found no answer and dark windows, and now inspects doors, windows, and the wall-base for footprints or pry marks before listening at the door.",
+    "method": "lantern visual inspection of door/windows/foundation then ear to the door",
+    "target": "stone-street-coft-lodging exterior"
+   },
+   "resolution_advice": {
+    "kind": "keeper_judgment",
+    "authority": "advisory",
+    "hard_gate": false,
+    "may_improvise": true,
+    "reason": "No exact current authored route was selected. The KP may adjudicate the action semantically, ask a necessary clarification, or improvise."
+   },
+   "operation_opportunities": [],
+   "narrative_opportunity": {
+    "schema_version": 1,
+    "authority": "advisory",
+    "hard_gate": false,
+    "advice_id": "storylets:0:25e37caad4fed200661d",
+    "candidate_ref": "storylet-candidate-v1:67c32bc8e6c70ebdb4b5ffd237a53ea2",
+    "candidate": {
+     "storylet_id": "medium-clock-visible",
+     "family_id": "front_clock",
+     "trope_id": "clock_symptom_visible",
+     "title": "倒计时可见",
+     "cue": null,
+     "beat": null,
+     "conflict_level": "medium",
+     "target_conflict_level": "medium",
+     "bound_entities": {
+      "npc_id": null,
+      "clue_id": null,
+      "front_id": "threat-worship-chamber",
+      "clock_id": null,
+      "route_id": null,
+      "scene_id": "intro",
+      "location_id": "intro"
+     },
+     "rolled_variants": {},
+     "presentation_mode": "suppressed_unverified_fact",
+     "grounding_contract": {
+      "schema_version": 1,
+      "authorized_entity_refs": [
+       "threat-worship-chamber",
+       "intro"
+      ],
+      "authorized_route_ids": [],
+      "scene_capabilities": [],
+      "allow_new_actionable_fact": false,
+      "fact_authorization": {
+       "schema_version": 1,
+       "status": "not_authorized",
+       "reason": "missing_source_backed_fact_authorization"
+      },
+      "fallback_mode": "existing_route_only_or_suppress",
+      "source": "structured_storylet_grounding"
+     },
+     "serves": [
+      "mainline",
+      "can_tick_front",
+      "can_surface_choice"
+     ],
+     "ledger_update": {
+      "schema_version": 1,
+      "session_number": 1,
+      "used_storylets": [
+       {
+        "storylet_id": "medium-clock-visible",
+        "session_number": 1
+       }
+      ],
+      "used_families": [
+       "front_clock"
+      ],
+      "used_tropes": [
+       "clock_symptom_visible"
+      ],
+      "recent_families": [
+       "front_clock"
+      ],
+      "recent_tropes": [
+       "clock_symptom_visible"
+      ],
+      "used_targets": [
+       "intro"
+      ],
+      "last_storylet_id": "medium-clock-visible"
+     },
+     "source": "storylet-library.json"
+    },
+    "reason": "A stable existing Storylet candidate is available for this action. Adopt, modify, or ignore it according to current pacing; never insert it merely to satisfy a quota.",
+    "adoption_operation": {
+     "operation": "turn.finalize",
+     "invoke_via": "coc_invoke",
+     "prefilled_arguments": {
+      "advisory_uptake": {
+       "advice_id": "storylets:0:25e37caad4fed200661d",
+       "candidate_ref": "storylet-candidate-v1:67c32bc8e6c70ebdb4b5ffd237a53ea2"
+      }
+     },
+     "missing_arguments": [
+      "draft",
+      "coverage",
+      "decision_id",
+      "advisory_uptake.disposition",
+      "advisory_uptake.reason",
+      "advisory_uptake.adopted_fields",
+      "advisory_uptake.exact_excerpt"
+     ],
+     "authority": "advisory",
+     "hard_gate": false,
+     "contract_ref": "turn.finalize@007dd620090e96f4",
+     "discovery_required": false
+    }
+   }
+  },
+  "warnings": [],
+  "hints": [
+   "the returned route cards are the bounded authored source for this action; do not reread story-graph, clue-graph, module assets, tool logs, or old finalization examples",
+   "authored roll gates are cited rule advice, not a mandatory pipeline — accept, override with a reason, or ignore",
+   "direct_delivery means the authored route grants its clue/handout without a roll; invoke the prefilled state.record_clue cards and narrate the actual discovery",
+   "clue-bearing success must call state.record_clue before player-visible prose",
+   "push_or_context_change is a soft anti-roll-fishing reminder; it never rejects a player action or prevents the KP from honoring a deliberately chosen new check",
+   "narrative_opportunity is one stable optional Storylet candidate, not a random-event quota; record adoption only when its substance actually reaches play"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "state_move_scene": {
+  "ok": true,
+  "tool": "state.move_scene",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "state.move_scene",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 2184,
+   "full_result_sha256": "sha256:8eea304be74d9c10f4c68e0115fc8b7fda3e077878de552164e4ff9c3dd57beb",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 2677
+  },
+  "data": {
+   "from_scene_id": null,
+   "to_scene_id": "stone-street-coft-lodging",
+   "travel_minutes": 0,
+   "travel_time_source": "none",
+   "newly_unlocked_scenes": [],
+   "time_scene_change": {
+    "from_location_id": null,
+    "to_location_id": "stone-street-coft-lodging",
+    "elapsed_minutes": 0,
+    "travel_minutes": 0,
+    "fired_triggers": [],
+    "duplicate": false
+   },
+   "scene": {
+    "scene_type": "investigation",
+    "dramatic_question": "What do the investigators find at 约翰·考夫特在石街的住处?",
+    "tone": [],
+    "parse_state": "partial"
+   },
+   "next_operation": {
+    "operation": "scene.context",
+    "invoke_via": "coc_invoke",
+    "prefilled_arguments": {},
+    "missing_arguments": [],
+    "reason": "Read the newly active scene's bounded material after the transition.",
+    "hard_gate": false,
+    "contract_ref": "scene.context@007dd620090e96f4",
+    "discovery_required": false
+   },
+   "progressive": {
+    "merged_active": true,
+    "neighbors": [],
+    "prefetched_neighbors": [],
+    "deferred_neighbor_count": 0,
+    "neighbor_prefetch_budget": 4,
+    "host_hints": [
+     "host: deep-extract location 'stone-street-coft-lodging' and put_entity (parse_state=deep), then re-enter or call process-enter"
+    ],
+    "asset_root_id": "coc-king-colfix-verify-001"
+   },
+   "scene_supply": {
+    "schema_version": 1,
+    "scene_id": "stone-street-coft-lodging",
+    "enforced": false,
+    "status": "not_configured",
+    "ready": true
+   }
+  },
+  "warnings": [
+   "host: deep-extract location 'stone-street-coft-lodging' and put_entity (parse_state=deep), then re-enter or call process-enter"
+  ],
+  "hints": [
+   "call the returned exact scene.context card once after moving; never preview a destination by passing scene_id to scene.context or by reading story-graph, clue-graph, module assets, or prior tool logs",
+   "adjudication diagnostic: 0 recorded skill_check clue(s) lack roll evidence — review whether each reveal was earned by a check or was a conscious free reveal",
+   "adjudication diagnostic: 0 improvised NPC engagement(s) recorded — the KP adjudicated each one's plausibility against module truth and established fiction",
+   "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-7b4e26d7a70abf2370 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "state_inventory_list": {
+  "ok": true,
+  "tool": "state.inventory_list",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "state.inventory_list",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 884,
+   "full_result_sha256": "sha256:a6a685ec68a69e4da3c9ae5ce5b24b848a5c9765a698eb4965072e8f0f52507a",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 1301
+  },
+  "data": {
+   "investigator_id": "inv-x6a217e22-e0532209",
+   "items": [
+    {
+     "item_id": "sheet-gear-98f567dbea",
+     "kind": "gear",
+     "label": "打补丁的厚斗篷"
+    },
+    {
+     "item_id": "sheet-gear-c0443360de",
+     "kind": "gear",
+     "label": "油墨浸透的围裙"
+    },
+    {
+     "item_id": "sheet-gear-ccc4a95640",
+     "kind": "gear",
+     "label": "排字锵子"
+    },
+    {
+     "item_id": "sheet-gear-07bab94bfc",
+     "kind": "gear",
+     "label": "几枚备用铅字"
+    },
+    {
+     "item_id": "sheet-gear-903a701800",
+     "kind": "gear",
+     "label": "折叠小刀"
+    },
+    {
+     "item_id": "sheet-gear-576ded4944",
+     "kind": "gear",
+     "label": "半截蜡烛"
+    },
+    {
+     "item_id": "sheet-gear-c4291b8831",
+     "kind": "gear",
+     "label": "一张未送出的戏单样张"
+    }
+   ],
+   "weapons": [],
+   "lost_weapon_ids": [],
+   "lost_equipment_ids": []
+  },
+  "warnings": [],
+  "hints": [],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "progressive_on_enter_scene": {
+  "ok": true,
+  "tool": "progressive.on_enter_scene",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "progressive.on_enter_scene",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 10165,
+   "full_result_sha256": "sha256:c3a71ed5bf272ba4909b086ba28dbeb13402c5059327610c76546c155ab5ac79",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 11155
+  },
+  "data": {
+   "scene_id": "stone-street-coft-lodging",
+   "materialization": {
+    "progressive": true,
+    "merged_active": true,
+    "actions": [
+     {
+      "merged_pack": "stone-street-coft-lodging",
+      "parse_state": "partial"
+     },
+     {
+      "enqueue": {
+       "enqueued": false,
+       "job": {
+        "job_id": "job-45db308081f7",
+        "kind": "deepen_location",
+        "target_id": "stone-street-coft-lodging",
+        "priority": 100,
+        "reason": "enter:stone-street-coft-lodging",
+        "enqueued_at": "2026-08-28T15:56:45.506972+00:00",
+        "work_level": "near_term",
+        "consumer_refs": [
+         {
+          "campaign_id": "king-shreds-recovery-live-01",
+          "scenario_binding_sha256": "e4f53f7f1f06122ee0bf98df2f639f1597601d48d8c86ce17b0a1b0771be0956",
+          "intent_kind": "scene_enter"
+         }
+        ],
+        "supersedes_host_job_ids": [
+         "job-6aff20a89a8e"
+        ],
+        "claimed_at": "2026-08-28T15:56:45.636847+00:00",
+        "completed_at": "2026-08-28T15:56:45.670109+00:00",
+        "result": "awaiting_host_pack",
+        "failed": false,
+        "total_ms": 163,
+        "queue_wait_ms": 130,
+        "processing_ms": 33,
+        "detail": {
+         "kind": "deepen_location",
+         "target_id": "stone-street-coft-lodging",
+         "host_work_request": "/Users/haoli/leehow/code/chatrpgv4/.coc/playtests/final-pi-coc-draft-recovery-live-20260828-01/sandbox/.coc/module-assets/coc-king-colfix-verify-001/host-work/job-45db308081f7.json"
+        }
+       },
+       "deduped": true,
+       "dedupe_state": "awaiting_host_pack",
+       "superseded_host_job_ids": [],
+       "pending_supersede_host_job_ids": [
+        "job-6aff20a89a8e"
+       ],
+       "worker_kick": {
+        "started": false,
+        "reason": "host_request_already_open"
+       }
+      }
+     }
+    ],
+    "section_materialization": []
+   },
+   "projection": {
+    "asset_root_id": "coc-king-colfix-verify-001",
+    "host_work_open_count": 3
+   },
+   "background_takeover": {
+    "schema_version": 1,
+    "kind": "ready_background_source_work",
+    "dispatch_mode": "coordinator_fanout",
+    "coordinator_dispatch": {
+     "agent_type": "coc-source-coordinator",
+     "run_in_background": true,
+     "task_prompt": "one exact host dispatch object without campaign transcript",
+     "packet": {
+      "schema_version": 1,
+      "contract_id": "coc.source-coordinator.v1",
+      "packet_id": "source-coordinator-235f3263bf6dd02d66c1",
+      "adapter_mode": "manager_exact_forward",
+      "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.coc/playtests/final-pi-coc-draft-recovery-live-20260828-01/sandbox",
+      "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+      "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/scripts/coc_toolbox.py",
+      "campaign_id": "king-shreds-recovery-live-01",
+      "asset_root_id": "coc-king-colfix-verify-001",
+      "claim_operation": {
+       "operation": "progressive.claim_host_work",
+       "invoke_via": "canonical_typed_operation_gateway",
+       "prefilled_arguments": {
+        "executor_id": "source-coordinator:5a927c1fbf48fe52ec33",
+        "limit": 2,
+        "result_delivery": "task_return_to_parent",
+        "max_dispatch_attempts": 2
+       },
+       "missing_arguments": [],
+       "authority": "advisory",
+       "hard_gate": false,
+       "contract_ref": "progressive.claim_host_work@007dd620090e96f4",
+       "discovery_required": false
+      },
+      "fulfill_operation": {
+       "operation": "progressive.fulfill_host_work",
+       "invoke_via": "canonical_typed_operation_gateway",
+       "fixed_arguments": {},
+       "missing_arguments": [
+        "worker_result"
+       ],
+       "exact_forward_binding": "worker_result=one exact leaf results[] value",
+       "authority": "source_fulfillment",
+       "hard_gate": false,
+       "contract_ref": "progressive.fulfill_host_work@007dd620090e96f4",
+       "discovery_required": false
+      },
+      "max_leaves": 2,
+      "leaf_worker": {
+       "agent_type": "coc-source-pack-worker",
+       "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+       "model_policy": "inherit_parent",
+       "run_in_background": false,
+       "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+       "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work"
+      },
+      "failure_policy": {
+       "authority": "prompt_first_advisory",
+       "single_failure": "transient_allowed",
+       "same_failure_escalation_threshold": 3,
+       "threshold_outcome": "design_issue",
+       "same_task_retry": true,
+       "player_action_gate": false,
+       "narrative_gate": false,
+       "output_gate": false,
+       "automatic_retry": {
+        "retryable_failure_classes": [
+         "fulfill_rejected"
+        ],
+        "require_status": "failed",
+        "require_positive_claimed": true,
+        "require_zero_fulfilled": true,
+        "max_attempts": 2
+       }
+      }
+     },
+     "pi_task": {
+      "schema_version": 1,
+      "contract_id": "coc.pi-source-coordinator-task.v1",
+      "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-coordinator.md",
+      "model_policy": "inherit_parent",
+      "packet": {
+       "schema_version": 1,
+       "contract_id": "coc.source-coordinator.v1",
+       "packet_id": "source-coordinator-235f3263bf6dd02d66c1",
+       "adapter_mode": "manager_exact_forward",
+       "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.coc/playtests/final-pi-coc-draft-recovery-live-20260828-01/sandbox",
+       "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+       "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/scripts/coc_toolbox.py",
+       "campaign_id": "king-shreds-recovery-live-01",
+       "asset_root_id": "coc-king-colfix-verify-001",
+       "claim_operation": {
+        "operation": "progressive.claim_host_work",
+        "invoke_via": "canonical_typed_operation_gateway",
+        "prefilled_arguments": {
+         "executor_id": "source-coordinator:5a927c1fbf48fe52ec33",
+         "limit": 2,
+         "result_delivery": "task_return_to_parent",
+         "max_dispatch_attempts": 2
+        },
+        "missing_arguments": [],
+        "authority": "advisory",
+        "hard_gate": false,
+        "contract_ref": "progressive.claim_host_work@007dd620090e96f4",
+        "discovery_required": false
+       },
+       "fulfill_operation": {
+        "operation": "progressive.fulfill_host_work",
+        "invoke_via": "canonical_typed_operation_gateway",
+        "fixed_arguments": {},
+        "missing_arguments": [
+         "worker_result"
+        ],
+        "exact_forward_binding": "worker_result=one exact leaf results[] value",
+        "authority": "source_fulfillment",
+        "hard_gate": false,
+        "contract_ref": "progressive.fulfill_host_work@007dd620090e96f4",
+        "discovery_required": false
+       },
+       "max_leaves": 2,
+       "leaf_worker": {
+        "agent_type": "coc-source-pack-worker",
+        "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+        "model_policy": "inherit_parent",
+        "run_in_background": false,
+        "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+        "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work"
+       },
+       "failure_policy": {
+        "authority": "prompt_first_advisory",
+        "single_failure": "transient_allowed",
+        "same_failure_escalation_threshold": 3,
+        "threshold_outcome": "design_issue",
+        "same_task_retry": true,
+        "player_action_gate": false,
+        "narrative_gate": false,
+        "output_gate": false,
+        "automatic_retry": {
+         "retryable_failure_classes": [
+          "fulfill_rejected"
+         ],
+         "require_status": "failed",
+         "require_positive_claimed": true,
+         "require_zero_fulfilled": true,
+         "max_attempts": 2
+        }
+       }
+      }
+     }
+    },
+    "host_adapter": "pi",
+    "capability_status": "unavailable_pending_real_lifecycle_probe",
+    "next_host_action": {
+     "schema_version": 1,
+     "action": "invoke_coc_dispatch_source_work",
+     "task": {
+      "schema_version": 1,
+      "contract_id": "coc.pi-source-coordinator-task.v1",
+      "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-coordinator.md",
+      "model_policy": "inherit_parent",
+      "packet": {
+       "schema_version": 1,
+       "contract_id": "coc.source-coordinator.v1",
+       "packet_id": "source-coordinator-235f3263bf6dd02d66c1",
+       "adapter_mode": "manager_exact_forward",
+       "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.coc/playtests/final-pi-coc-draft-recovery-live-20260828-01/sandbox",
+       "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+       "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/scripts/coc_toolbox.py",
+       "campaign_id": "king-shreds-recovery-live-01",
+       "asset_root_id": "coc-king-colfix-verify-001",
+       "claim_operation": {
+        "operation": "progressive.claim_host_work",
+        "invoke_via": "canonical_typed_operation_gateway",
+        "prefilled_arguments": {
+         "executor_id": "source-coordinator:5a927c1fbf48fe52ec33",
+         "limit": 2,
+         "result_delivery": "task_return_to_parent",
+         "max_dispatch_attempts": 2
+        },
+        "missing_arguments": [],
+        "authority": "advisory",
+        "hard_gate": false,
+        "contract_ref": "progressive.claim_host_work@007dd620090e96f4",
+        "discovery_required": false
+       },
+       "fulfill_operation": {
+        "operation": "progressive.fulfill_host_work",
+        "invoke_via": "canonical_typed_operation_gateway",
+        "fixed_arguments": {},
+        "missing_arguments": [
+         "worker_result"
+        ],
+        "exact_forward_binding": "worker_result=one exact leaf results[] value",
+        "authority": "source_fulfillment",
+        "hard_gate": false,
+        "contract_ref": "progressive.fulfill_host_work@007dd620090e96f4",
+        "discovery_required": false
+       },
+       "max_leaves": 2,
+       "leaf_worker": {
+        "agent_type": "coc-source-pack-worker",
+        "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+        "model_policy": "inherit_parent",
+        "run_in_background": false,
+        "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+        "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work"
+       },
+       "failure_policy": {
+        "authority": "prompt_first_advisory",
+        "single_failure": "transient_allowed",
+        "same_failure_escalation_threshold": 3,
+        "threshold_outcome": "design_issue",
+        "same_task_retry": true,
+        "player_action_gate": false,
+        "narrative_gate": false,
+        "output_gate": false,
+        "automatic_retry": {
+         "retryable_failure_classes": [
+          "fulfill_rejected"
+         ],
+         "require_status": "failed",
+         "require_positive_claimed": true,
+         "require_zero_fulfilled": true,
+         "max_attempts": 2
+        }
+       }
+      }
+     },
+     "parent_waits": false,
+     "parent_result_polls": 0,
+     "parent_output_retrieval": false
+    },
+    "authority": "advisory",
+    "hard_gate": false,
+    "host_dispatch": {
+     "worker_profile": "coc-source-pack-worker",
+     "background": true,
+     "packet_binding": "one exact returned dispatch_tasks[] value per child when result_delivery=named_submit",
+     "direct_submit_parent_waits": false,
+     "direct_submit_parent_result_polls": 0,
+     "direct_submit_parent_output_retrieval": false,
+     "direct_submit_parent_calls_fulfill_host_work": false,
+     "fallback_without_direct_submit": "forward exact completed results[i] once through progressive.fulfill_host_work"
+    },
+    "play_boundary": {
+     "player_action_gate": false,
+     "narrative_gate": false,
+     "output_gate": false,
+     "nondependent_play_may_continue": true,
+     "blocking_micro_applies_only_to_current_dependent_settlement": true
+    }
+   }
+  },
+  "warnings": [
+   "host: deep-extract location 'stone-street-coft-lodging' and put_entity (parse_state=deep), then re-enter or call process-enter"
+  ],
+  "hints": [
+   "re-read scene.context after terminal source work; section bodies are Keeper-only and are never returned by this materialization operation"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "rules_roll": {
+  "ok": true,
+  "tool": "rules.roll",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "rules.roll",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 3309,
+   "full_result_sha256": "sha256:5791cfa3ad13a3e5ae913a16256ed3ea19adec904f9cc657f2bd6967f7a17fc7",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 3793
+  },
+  "data": {
+   "base_target": 61,
+   "target": 61,
+   "required_level": "regular",
+   "difficulty": "regular",
+   "required_target": 61,
+   "effective_target": 61,
+   "achieved_level": "failure",
+   "passed": false,
+   "success": false,
+   "surplus_levels": 0,
+   "outcome": "failure",
+   "bonus": 0,
+   "penalty": 0,
+   "roll": 62,
+   "unmodified_roll": 62,
+   "tens_values": [],
+   "units": null,
+   "investigator_id": "inv-x6a217e22-e0532209",
+   "skill": "Spot Hidden",
+   "target_source": "sheet",
+   "pushed": false,
+   "goal": "在夜色中借手头的光查看石街住处的门、窗与墙根，辨认有无脚印、撬痕或其他可察觉的异常痕迹",
+   "stakes": {
+    "on_success": "能辨认出灯影所及范围内门窗墙根上可被察觉的痕迹或异常",
+    "on_failure": "夜色与有限的灯光让你无法确认任何确定的异常痕迹"
+   },
+   "difficulty_basis": "environment",
+   "resolution_context": {
+    "schema_version": 1,
+    "hard_gate": false,
+    "attempt_id": "inspect-exterior-stone-street-t1",
+    "scene_id": "stone-street-coft-lodging",
+    "roll_density_group": "exterior-search",
+    "attempt_started_elapsed_minutes": 0
+   },
+   "fumble_consequence": {
+    "summary": "提灯或蜡烛晃动，脚下踩滑或碰到门框，发出一声在石街夜里显得过响的动静"
+   },
+   "attempt_pressure": {
+    "schema_version": 1,
+    "same_goal_no_progress_count": 1,
+    "level": "first_ordinary_failure",
+    "authority": "advisory",
+    "hard_gate": false
+   },
+   "operation_opportunities": [
+    {
+     "schema_version": 1,
+     "kind": "open_push_or_context_change",
+     "authority": "advisory",
+     "hard_gate": false,
+     "reason_code": "ordinary_failure_has_unresolved_attempt",
+     "source": {
+      "decision_id": "roll-spot-hidden-stone-street-t1",
+      "roll_id": "toolbox-king-shreds-recovery-live-01-000003",
+      "attempt_id": "inspect-exterior-stone-street-t1",
+      "scene_id": "stone-street-coft-lodging",
+      "route_id": null,
+      "roll_density_group": "exterior-search"
+     },
+     "suggested_operation": {
+      "operation": "rules.push",
+      "invoke_via": "coc_invoke",
+      "prefilled_arguments": {
+       "original_check_decision_id": "roll-spot-hidden-stone-street-t1"
+      },
+      "missing_arguments": [
+       "method_changed",
+       "failure_consequence",
+       "decision_id"
+      ],
+      "contract_ref": "rules.push@007dd620090e96f4",
+      "discovery_required": false
+     },
+     "attempt_pressure": {
+      "schema_version": 1,
+      "same_goal_no_progress_count": 1,
+      "level": "first_ordinary_failure",
+      "authority": "advisory",
+      "hard_gate": false
+     },
+     "retry_status": {
+      "schema_version": 1,
+      "authority": "advisory",
+      "hard_gate": false,
+      "eligible": false,
+      "policy": null,
+      "status": "no_authored_reset_policy",
+      "reason": "Use the open Push, change method or goal, or let the failed consequence stand."
+     },
+     "alternatives": [
+      "accept the failed result and let its consequence change play",
+      "change the fictional method or goal",
+      "record structured reset_evidence after time, access, position, or circumstances materially change"
+     ]
+    }
+   ],
+   "roll_id": "toolbox-king-shreds-recovery-live-01-000003"
+  },
+  "warnings": [],
+  "hints": [
+   "failed: the player may push this roll with a changed method and an announced consequence (rules.push)",
+   "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-d7b3a35b4156166604 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "state_advance_time_failure": {
+  "ok": false,
+  "tool": "state.advance_time",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "state.advance_time",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 473,
+   "full_result_sha256": "sha256:cff37bd6c796cef6a70367cd12808349ef16605fcbf079c6585995583d6cbeea",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 903
+  },
+  "error": {
+   "code": "missing_param",
+   "message": "required parameter: decision_id",
+   "details": {
+    "missing_parameters": [
+     "decision_id"
+    ],
+    "required_parameters": [
+     "minutes",
+     "reason",
+     "decision_id"
+    ],
+    "provided_parameters": [
+     "minutes",
+     "reason"
+    ]
+   },
+   "retryable": false,
+   "class": "schema_validation",
+   "recoverable_by": "model_next_action",
+   "allowed_next_actions": [
+    {
+     "operation": "state.advance_time",
+     "action": "correct_model_arguments",
+     "reason": "correct the model-owned arguments using violations and expected_schema",
+     "host_bound": false
+    }
+   ],
+   "expected_schema": {
+    "additionalProperties": false,
+    "properties": {
+     "day_phase_after": {
+      "description": "optional broad phase established after this interval for an imprecise civil clock; requires display_after",
+      "enum": [
+       "morning",
+       "afternoon",
+       "evening",
+       "night"
+      ],
+      "type": "string"
+     },
+     "display_after": {
+      "description": "localized imprecise civil-time display paired with day_phase_after",
+      "type": "string"
+     },
+     "minutes": {
+      "description": "minutes to advance (>= 0)",
+      "type": "integer"
+     },
+     "reason": {
+      "description": "what consumed the time",
+      "type": "string"
+     }
+    },
+    "required": [
+     "minutes",
+     "reason"
+    ],
+    "type": "object"
+   }
+  },
+  "warnings": [],
+  "hints": [
+   "the keeper may continue with a different in-fiction approach or corrected tool arguments"
+  ],
+  "attempts": 1,
+  "max_attempts": 1,
+  "retryable": false,
+  "recovered_after_retry": false,
+  "isError": true
+ },
+ "state_advance_time_success": {
+  "ok": true,
+  "tool": "state.advance_time",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "state.advance_time",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 1397,
+   "full_result_sha256": "sha256:64223b94a34d4b2fd568239cac3d353b001d8a2175b7b71b3f607b6a0ef91893",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 1813
+  },
+  "data": {
+   "from_elapsed": 0,
+   "to_elapsed": 8,
+   "delta_minutes": 8,
+   "fired_triggers": [],
+   "current_time": {
+    "elapsed_minutes": 8,
+    "display": "",
+    "local_datetime": null,
+    "local_date": null,
+    "calendar_mode": "relative",
+    "time_precision": "unknown",
+    "timezone": null,
+    "location_id": "stone-street-coft-lodging",
+    "day_phase": "night",
+    "civil_segment_id": "civil-start",
+    "minutes_since_civil_anchor": 8,
+    "player_time": {
+     "phase": "night",
+     "appearance_mode": "normal",
+     "display_label": null,
+     "source_ref": null
+    }
+   },
+   "previous_time": {
+    "elapsed_minutes": 0,
+    "display": "",
+    "local_datetime": null,
+    "local_date": null,
+    "calendar_mode": "relative",
+    "time_precision": "unknown",
+    "timezone": null,
+    "location_id": "stone-street-coft-lodging",
+    "day_phase": "night",
+    "civil_segment_id": "civil-start",
+    "minutes_since_civil_anchor": 0,
+    "player_time": {
+     "phase": "night",
+     "appearance_mode": "normal",
+     "display_label": null,
+     "source_ref": null
+    }
+   },
+   "active_time_markers": []
+  },
+  "warnings": [],
+  "hints": [
+   "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-26dd6abe1912b06828 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "state_journal": {
+  "ok": true,
+  "tool": "state.journal",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "state.journal",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 1123,
+   "full_result_sha256": "sha256:b83acc889f95f2b54fd427cf5bf890f44a1018dfb8e0de81dcc2474bda6e99f1",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 1534
+  },
+  "data": {
+   "turn_number": 1,
+   "tension_level": "medium",
+   "turn_id": "turn-v1-8e3599cdcb794cd5b993b59c077d126f",
+   "continuation_delta": {
+    "unresolved_intent": "夜色中考夫特住处门窗黑暗、无人应门；外观查看与贴门倾听都未能确认异常痕迹或屋内动静。",
+    "open_threads": [
+     {
+      "thread_id": "croft-stone-street-unanswered",
+      "summary": "考夫特石街住处夜里无人应门、窗子黑着，程远尚未进屋。",
+      "reason": "调查员按邀请到达，门未开、人未见。",
+      "source_turn": 1,
+      "status": "active"
+     }
+    ],
+    "confirmed_decisions": [],
+    "do_not_repeat": [],
+    "style_commitments": [
+     "不发明未经检定赞成的门窗痕迹或屋内声响"
+    ]
+   }
+  },
+  "warnings": [],
+  "hints": [
+   "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-26dd6abe1912b06828 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "turn_output_context": {
+  "ok": true,
+  "tool": "turn.output_context",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "turn.output_context",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 17812,
+   "full_result_sha256": "sha256:759f41b2615b6289c4695cb032ee40a78a0765efc98c153408b8357bf7a4fcf0",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": true,
+   "measured_inline_bytes": 12301
+  },
+  "data": {
+   "schema_version": 1,
+   "turn_id": "turn-v1-8e3599cdcb794cd5b993b59c077d126f",
+   "manifest_revision": 2,
+   "journal_decision_id": "journal-stone-street-exterior-t1",
+   "turn_number": 1,
+   "source_digest": "sha256:a0770a91e647696e5aecee0ef0b095eb3b06846cbe16a317ede49069a08a5299",
+   "source_roll_ids": [
+    "toolbox-king-shreds-recovery-live-01-000003",
+    "toolbox-king-shreds-recovery-live-01-000004"
+   ],
+   "obligations": [
+    {
+     "obligation_id": "roll:toolbox-king-shreds-recovery-live-01-000003",
+     "source_kind": "check",
+     "source_id": "toolbox-king-shreds-recovery-live-01-000003",
+     "visibility": "public",
+     "skill": "Spot Hidden",
+     "goal": "在夜色中借手头的光查看石街住处的门、窗与墙根，辨认有无脚印、撬痕或其他可察觉的异常痕迹",
+     "outcome": "failure",
+     "required_level": "regular",
+     "achieved_level": "failure",
+     "passed": false,
+     "surplus_levels": 0,
+     "exceptional_required": false,
+     "substantive_effect_required": false,
+     "substantive_effect_direction": null,
+     "substantive_effect_ids": [],
+     "substantive_effect_status": "not_required"
+    },
+    {
+     "obligation_id": "roll:toolbox-king-shreds-recovery-live-01-000004",
+     "source_kind": "check",
+     "source_id": "toolbox-king-shreds-recovery-live-01-000004",
+     "visibility": "public",
+     "skill": "Listen",
+     "goal": "侧耳贴在门板上，辨认屋内此刻是否有人活动或其他可辨认的动静",
+     "outcome": "failure",
+     "required_level": "regular",
+     "achieved_level": "failure",
+     "passed": false,
+     "surplus_levels": 0,
+     "exceptional_required": false,
+     "substantive_effect_required": false,
+     "substantive_effect_direction": null,
+     "substantive_effect_ids": [],
+     "substantive_effect_status": "not_required"
+    }
+   ],
+   "required_obligation_ids": [
+    "roll:toolbox-king-shreds-recovery-live-01-000003",
+    "roll:toolbox-king-shreds-recovery-live-01-000004"
+   ],
+   "mechanics_bundle_sha256": "sha256:f9388217787c22dd132e4712e1734143c9c0897384b667f5f79a3e1c25c3d7df",
+   "settlement_snapshot_id": "turn-effect-v1:d39f5f34cd37e3ad25281dbfb681b131daafb43b",
+   "contract_projection_sha256": "sha256:1d23d7d9eafa5c95db8ef138e1966a639f303209a8a95d4844818ffdf32b85b1",
+   "contract_projection": {
+    "schema_version": 1,
+    "run_segment_id": "run-1",
+    "session_id": "01a048ac-6473-7f90-888f-a8acf166f2d3",
+    "run_segment_identity": {
+     "source": "table_opening",
+     "trust": "authoritative"
+    },
+    "session_identity": {
+     "source": "host_context",
+     "trust": "observed"
+    },
+    "turn_id": "turn-v1-8e3599cdcb794cd5b993b59c077d126f",
+    "source_digest": "sha256:a0770a91e647696e5aecee0ef0b095eb3b06846cbe16a317ede49069a08a5299",
+    "settlement_snapshot_id": "turn-effect-v1:d39f5f34cd37e3ad25281dbfb681b131daafb43b",
+    "player_input": {
+     "source_ref": "player_input:journal-stone-street-exterior-t1",
+     "text_sha256": "sha256:8106da0ef832f6946b57793474ca569ee302ccbe7bd3af7a654eaa7d07da9f37",
+     "text": "没人应门，窗子也黑着——这不寻常。我退后几步，举起提灯仔细查看这栋房子的门窗和墙根，看看有没有脚印、撬痕或者别的什么不对劲的地方；然后侧耳贴在门板上，听听里面到底有没有动静。"
+    },
+    "scene_contract": null,
+    "narration_budget": {
+     "mode": "routine_resolution",
+     "max_chars": 525,
+     "max_paragraphs": 3
+    },
+    "control_overrides": [],
+    "agency_authority": {
+     "pc_subject_refs": [
+      "pc:inv-x6a217e22-e0532209"
+     ],
+     "involuntary_physiology_sources": [
+      {
+       "source_ref": "narration_contract:involuntary_physiology",
+       "source_type": "ownership_contract"
+      }
+     ]
+    },
+    "agency_review_required": true,
+    "settlement_source": {
+     "journal_decision_id": "journal-stone-street-exterior-t1",
+     "mechanics_bundle_sha256": "sha256:f9388217787c22dd132e4712e1734143c9c0897384b667f5f79a3e1c25c3d7df",
+     "obligation_ids": [
+      "roll:toolbox-king-shreds-recovery-live-01-000003",
+      "roll:toolbox-king-shreds-recovery-live-01-000004"
+     ]
+    }
+   },
+   "pending_narration_draft_status": {
+    "schema_version": 1,
+    "actionable": true,
+    "secrecy": "keeper_only",
+    "status": "not_submitted"
+   },
+   "npc_performance_constraints": [],
+   "candidate_factors": [
+    {
+     "tool": "rules.roll",
+     "roll_id": "toolbox-king-shreds-recovery-live-01-000003",
+     "difficulty_basis": "environment",
+     "goal": "在夜色中借手头的光查看石街住处的门、窗与墙根，辨认有无脚印、撬痕或其他可察觉的异常痕迹"
+    },
+    {
+     "tool": "rules.roll",
+     "roll_id": "toolbox-king-shreds-recovery-live-01-000004",
+     "difficulty_basis": "environment",
+     "goal": "侧耳贴在门板上，辨认屋内此刻是否有人活动或其他可辨认的动静"
+    }
+   ],
+   "missing_substantive_effects": [],
+   "pending_modifier_consumptions": [],
+   "composition_mode": "causal_paragraph_placements",
+   "placement_segment_types": [
+    "asset_delta",
+    "exceptional_effect",
+    "public_check",
+    "state_delta"
+   ],
+   "mechanics_summary": {
+    "journal_decision_id": "journal-stone-street-exterior-t1",
+    "public_check": [
+     {
+      "roll_id": "toolbox-king-shreds-recovery-live-01-000003",
+      "kind": "skill_check",
+      "skill": "Spot Hidden",
+      "display_skill": "侦查",
+      "goal": "在夜色中借手头的光查看石街住处的门、窗与墙根，辨认有无脚印、撬痕或其他可察觉的异常痕迹",
+      "roll": 62,
+      "base_target": 61,
+      "required_level": "regular",
+      "required_target": 61,
+      "achieved_level": "failure",
+      "passed": false,
+      "success": false,
+      "surplus_levels": 0,
+      "outcome": "failure",
+      "pushed": false,
+      "visibility": "public"
+     },
+     {
+      "roll_id": "toolbox-king-shreds-recovery-live-01-000004",
+      "kind": "skill_check",
+      "skill": "Listen",
+      "display_skill": "聆听",
+      "goal": "侧耳贴在门板上，辨认屋内此刻是否有人活动或其他可辨认的动静",
+      "roll": 58,
+      "base_target": 56,
+      "required_level": "regular",
+      "required_target": 56,
+      "achieved_level": "failure",
+      "passed": false,
+      "success": false,
+      "surplus_levels": 0,
+      "outcome": "failure",
+      "pushed": false,
+      "visibility": "public"
+     }
+    ],
+    "state_delta": [],
+    "exceptional_effect": [],
+    "concealed_consequence": []
+   },
+   "narrative_opportunity": {
+    "schema_version": 1,
+    "authority": "advisory",
+    "hard_gate": false,
+    "advice_id": "storylets:0:df3fb04785ed9164779e",
+    "candidate_ref": "storylet-candidate-v1:23176fa5590f08753f5a868f042a2890",
+    "candidate": {
+     "storylet_id": "medium-clock-visible",
+     "family_id": "front_clock",
+     "trope_id": "clock_symptom_visible",
+     "title": "倒计时可见",
+     "cue": null,
+     "beat": null,
+     "conflict_level": "medium",
+     "target_conflict_level": "medium",
+     "bound_entities": {
+      "npc_id": null,
+      "clue_id": null,
+      "front_id": "threat-worship-chamber",
+      "clock_id": null,
+      "route_id": null,
+      "scene_id": "stone-street-coft-lodging",
+      "location_id": "stone-street-coft-lodging"
+     },
+     "rolled_variants": {},
+     "presentation_mode": "suppressed_unverified_fact",
+     "grounding_contract": {
+      "schema_version": 1,
+      "authorized_entity_refs": [
+       "threat-worship-chamber",
+       "stone-street-coft-lodging"
+      ],
+      "authorized_route_ids": [],
+      "scene_capabilities": [],
+      "allow_new_actionable_fact": false,
+      "fact_authorization": {
+       "schema_version": 1,
+       "status": "not_authorized",
+       "reason": "missing_source_backed_fact_authorization"
+      },
+      "fallback_mode": "existing_route_only_or_suppress",
+      "source": "structured_storylet_grounding"
+     },
+     "serves": [
+      "mainline",
+      "can_tick_front",
+      "can_surface_choice"
+     ],
+     "ledger_update": {
+      "schema_version": 1,
+      "session_number": 1,
+      "used_storylets": [
+       {
+        "storylet_id": "medium-clock-visible",
+        "session_number": 1
+       }
+      ],
+      "used_families": [
+       "front_clock"
+      ],
+      "used_tropes": [
+       "clock_symptom_visible"
+      ],
+      "recent_families": [
+       "front_clock"
+      ],
+      "recent_tropes": [
+       "clock_symptom_visible"
+      ],
+      "used_targets": [
+       "stone-street-coft-lodging"
+      ],
+      "last_storylet_id": "medium-clock-visible"
+     },
+     "source": "storylet-library.json"
+    },
+    "reason": "A stable existing Storylet candidate is available for this action. Adopt, modify, or ignore it according to current pacing; never insert it merely to satisfy a quota.",
+    "adoption_operation": {
+     "operation": "turn.finalize",
+     "invoke_via": "coc_invoke",
+     "prefilled_arguments": {
+      "advisory_uptake": {
+       "advice_id": "storylets:0:df3fb04785ed9164779e",
+       "candidate_ref": "storylet-candidate-v1:23176fa5590f08753f5a868f042a2890"
+      }
+     },
+     "missing_arguments": [
+      "draft",
+      "coverage",
+      "decision_id",
+      "advisory_uptake.disposition",
+      "advisory_uptake.reason",
+      "advisory_uptake.adopted_fields",
+      "advisory_uptake.exact_excerpt"
+     ],
+     "authority": "advisory",
+     "hard_gate": false,
+     "contract_ref": "turn.finalize@007dd620090e96f4",
+     "discovery_required": false
+    }
+   },
+   "full_projection_operation": {
+    "operation": "turn.output_context",
+    "invoke_via": "coc_invoke",
+    "prefilled_arguments": {},
+    "missing_arguments": [],
+    "authority": "advisory",
+    "hard_gate": false,
+    "contract_ref": "turn.output_context@007dd620090e96f4",
+    "discovery_required": false
+   },
+   "agency_review_operation": {
+    "operation": "narration.review",
+    "invoke_via": "coc_narration_review",
+    "prefilled_arguments": {
+     "turn_id": "turn-v1-8e3599cdcb794cd5b993b59c077d126f",
+     "source_digest": "sha256:a0770a91e647696e5aecee0ef0b095eb3b06846cbe16a317ede49069a08a5299",
+     "revision": 1
+    },
+    "missing_arguments": [
+     "decision_id",
+     "draft_text",
+     "findings",
+     "state_authority_review"
+    ],
+    "discovery_required": false,
+    "authority": "semantic_agency_and_player_state_review",
+    "hard_gate_scope": "agency_and_player_state_authority_only",
+    "host_state_claim_compiler_required": true
+   },
+   "finalize_operation": {
+    "operation": "turn.finalize",
+    "invoke_via": "coc_turn_finalize",
+    "prefilled_arguments": {
+     "decision_id": "journal-stone-street-exterior-t1:finalize",
+     "revision": 1
+    },
+    "missing_arguments": [
+     "draft",
+     "coverage",
+     "narration_review_id",
+     "agency_claims"
+    ],
+    "authority": "advisory",
+    "hard_gate": false,
+    "argument_contract": {
+     "required_arguments": [
+      "draft",
+      "coverage",
+      "decision_id",
+      "revision",
+      "narration_review_id",
+      "agency_claims"
+     ],
+     "allowed_arguments": [
+      "draft",
+      "coverage",
+      "decision_id",
+      "revision",
+      "mechanics_placements",
+      "narration_review_id",
+      "agency_claims",
+      "repair_finalization_id",
+      "validate_only",
+      "advisory_uptake"
+     ],
+     "forbidden_aliases": [
+      "draft_text",
+      "journal_decision_id"
+     ],
+     "instruction": "Merge prefilled_arguments unchanged, add only missing_arguments, and invoke directly without coc_discover. When authority review is required, call agency_review_operation on the exact draft first, including its closed state_authority_review; agency ownership and player-state receipt binding are the only hard review scopes."
+    },
+    "coverage_contract": {
+     "obligation_ids": [
+      "roll:toolbox-king-shreds-recovery-live-01-000003",
+      "roll:toolbox-king-shreds-recovery-live-01-000004"
+     ],
+     "required_fields": [
+      "obligation_id",
+      "realization",
+      "action_realization",
+      "response",
+      "causal_explanation",
+      "persona_fit",
+      "player_input_handling",
+      "exact_excerpt",
+      "exceptional_beat"
+     ],
+     "realization_values": [
+      "fictional_beat",
+      "concealed_no_player_visible_beat"
+     ],
+     "player_input_handling_values": [
+      "abstract_completed",
+      "specific_preserved",
+      "not_applicable"
+     ],
+     "instruction": "Keeper supplies one semantic row per obligation; no value is prefilled or inferred by the transport."
+    }
+   }
+  },
+  "warnings": [],
+  "hints": [
+   "draft fiction from obligations; related sources may share an exact_excerpt, but every obligation_id needs exactly one coverage row",
+   "npc_performance_constraints are Keeper-only: portray observable_manner naturally, but never print causal_explanation, opportunity_or_friction, or boundary_preserved as a player-facing analysis block",
+   "missing_substantive_effects and pending_modifier_consumptions are hard blockers proving settlement was incomplete; never disguise them in prose",
+   "split the draft into causal paragraphs and normally omit mechanics_placements: the finalizer inserts each public roll before its coverage result paragraph and groups later changes exactly once; provide explicit placements only when deliberate interleaving improves the scene",
+   "mechanics_bundle text and arithmetic are deterministic; do not copy, recompute, or paraphrase their numbers in fictional paragraphs",
+   "draft from drafting_injection_brief: those effect_id rows are finalize-inserted; do not assert a second current completion unless bound in state_authority_review"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "narration_review": {
+  "ok": true,
+  "tool": "narration.review",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "narration.review",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 3703,
+   "full_result_sha256": "sha256:00a7211c4d382f7f17f1a575782ea54786aac7966fdf637d5b0bac5cf55cbb38",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": false,
+   "measured_inline_bytes": 4117
+  },
+  "data": {
+   "schema_version": 1,
+   "visibility": "keeper_internal",
+   "authority": "advisory",
+   "hard_gate": false,
+   "agency_hard_gate": true,
+   "state_authority_hard_gate": true,
+   "decision_id": "pi-narration-review:db56e0dd:player-epoch-2:revision-1",
+   "review_id": "narration-review-v1:ba015abf306ad27c57885a4ae45d9085e01da4a9",
+   "turn_id": "turn-v1-8e3599cdcb794cd5b993b59c077d126f",
+   "source_digest": "sha256:a0770a91e647696e5aecee0ef0b095eb3b06846cbe16a317ede49069a08a5299",
+   "revision": 1,
+   "draft_sha256": "sha256:f1c7314d9d14bdbeb953d2a5021c98e1a38b417e4ace7d668c6e270d914ebdc2",
+   "request_digest": "sha256:6900f5fb2252c303ebec977b1dd9b696cbbb60dc2437585f18f94aa7d23c94a6",
+   "findings": [],
+   "agency_gate": "clear",
+   "state_authority_review": {
+    "disposition": "no_player_state_change_claimed",
+    "reason": "草稿未声称现金、物品、资源、状态或明确的时间推进数值。",
+    "claims": []
+   },
+   "state_claim_review_disagreement": false,
+   "state_authority_gate": "clear",
+   "recommendation": "no_revision_suggested",
+   "review_digest": "sha256:d0dc0453954854b86cd323488cc81af1f1a72bcc97825564ccb35ce575b23a2f"
+  },
+  "warnings": [],
+  "hints": [
+   "non-agency findings remain advisory; the KP decides whether and how to revise them",
+   "bind this review_id and every authorized PC proposition as an agency_claim in turn.finalize",
+   "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-26dd6abe1912b06828 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false
+ },
+ "turn_finalize": {
+  "ok": true,
+  "tool": "turn.finalize",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "turn.finalize",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 16686,
+   "full_result_sha256": "sha256:46a4b7a12b368cce75ec1e66f7b1d766af05640ec8eb5b95f828e732ae3b7464",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": true,
+   "measured_inline_bytes": 3051
+  },
+  "data": {
+   "schema_version": 2,
+   "finalization_id": "turn-effect-v1:fcb7661cb6b168f0685eed34ce72a35132525a2f",
+   "decision_id": "pi-turn-finalize:db56e0dd:player-epoch-2:revision-1",
+   "journal_decision_id": "journal-stone-street-exterior-t1",
+   "run_segment_id": "run-1",
+   "session_id": "01a048ac-6473-7f90-888f-a8acf166f2d3",
+   "turn_id": "turn-v1-8e3599cdcb794cd5b993b59c077d126f",
+   "source_digest": "sha256:a0770a91e647696e5aecee0ef0b095eb3b06846cbe16a317ede49069a08a5299",
+   "settlement_snapshot_id": "turn-effect-v1:d39f5f34cd37e3ad25281dbfb681b131daafb43b",
+   "accepted_revision": 1,
+   "accepted_draft_sha256": "sha256:f1c7314d9d14bdbeb953d2a5021c98e1a38b417e4ace7d668c6e270d914ebdc2",
+   "rendered_text_sha256": "sha256:8d8768b48699bbf60d0390afc47113c793dc55ff0202f3ddeb47d241a6d05dcb",
+   "contract_projection_sha256": "sha256:1d23d7d9eafa5c95db8ef138e1966a639f303209a8a95d4844818ffdf32b85b1",
+   "rendered_text": "石街的夜很静。考夫特的住处门前无人应门，窗子里也没有灯。你退后几步，举起手里的光，沿着门缝、窗沿和墙根慢慢扫过，想找出脚印、撬痕，或任何不对劲的地方；随后把耳朵贴上门板。\n\n【明骰】侦查｜掷骰：62；基础值：61；门槛：普通（≤61）；达到：失败；未通过\n\n夜色把墙根吞进阴影里，那点光只照得见一小块木头和砖缝。你看不清有没有脚印，也没法确定门窗上有没有撬过的痕迹。\n\n【明骰】聆听｜掷骰：58；基础值：56；门槛：普通（≤56）；达到：失败；未通过\n\n门板冰凉。贴得再近，里面也没有脚步、说话或家具移动的声响能让你辨认——只余石街夜里风过屋檐的声音。屋子仍黑着。",
+   "integrity_digest": "sha256:3c141462b92f73b1bfef2e9bbd8e7d81ebe3f81da9b3b12796902c7fdcddad02"
+  },
+  "warnings": [],
+  "hints": [
+   "echo rendered_text exactly; direct-host output is contract-invalid if any text or number is changed",
+   "a narration-only repair uses the same settled journal and never reruns rules or state",
+   "scene state was updated; to check it, call scene.context with since_revision=ws-v1-ws-v1-26dd6abe1912b06828 (returns not_modified if unchanged, avoiding a full re-fetch) — or simply reuse the last scene.context result since writes preserve prior context unless a scene transition occurred"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false,
+  "continuation": {
+   "checkpoint_id": "continuation-v1-2efcf6b3fa1b-c7a6c09bb19473f5",
+   "turn_number": 1,
+   "content_sha256": "sha256:07cebed2df83492abb06a7c99079d5a0004457cf216ac1ad17998d8a73f11742"
+  }
+ },
+ "source_assets_catalog": {
+  "status": "cataloged",
+  "catalog_path": ".coc/module-assets/coc-king-colfix-verify-001/index/source-asset-catalog.json",
+  "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+  "asset_ids": [
+   "srcasset-6f994e8f942abc674b118fabef64ae5a",
+   "srcasset-a1ed548459bc025403e79667efc2c5d0",
+   "srcasset-e57c12676b24c6126b25636fd008c3d3",
+   "srcasset-a5de74f5442e34af44a295a3d5b27d71",
+   "srcasset-f06ccf15dfee8352a01c9dd44e83154b",
+   "srcasset-749d5017a76cafa89307c192f7bca4b1",
+   "srcasset-cccd02e25e77fbdc035fa614d14735c0",
+   "srcasset-a476e885aa19b4367a3a2f2f624141f4"
+  ],
+  "catalog": {
+   "schema_version": 1,
+   "kind": "coc-source-asset-catalog",
+   "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+   "asset_root_id": "coc-king-colfix-verify-001",
+   "source_bundle_path": ".tmp/coc-opening-source-review/king-shreds-recovery-live-01/reviewed-5kx421ww",
+   "assets": [
+    {
+     "asset_id": "srcasset-6f994e8f942abc674b118fabef64ae5a",
+     "kind": "unclassified",
+     "path": "assets/pdf-index-0001-image-000.png",
+     "sha256": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722",
+     "image_ref": "assets/pdf-index-0001-image-000.png",
+     "source": {
+      "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+      "pdf_index": 1,
+      "page_ref": "pdf_index-1",
+      "region": null,
+      "asset_ref": null,
+      "original_hash": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722"
+     },
+     "declared_player_visible": null
+    },
+    {
+     "asset_id": "srcasset-a1ed548459bc025403e79667efc2c5d0",
+     "kind": "unclassified",
+     "path": "assets/pdf-index-0002-image-000.png",
+     "sha256": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722",
+     "image_ref": "assets/pdf-index-0002-image-000.png",
+     "source": {
+      "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+      "pdf_index": 2,
+      "page_ref": "pdf_index-2",
+      "region": null,
+      "asset_ref": null,
+      "original_hash": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722"
+     },
+     "declared_player_visible": null
+    },
+    {
+     "asset_id": "srcasset-e57c12676b24c6126b25636fd008c3d3",
+     "kind": "unclassified",
+     "path": "assets/pdf-index-0002-image-001.png",
+     "sha256": "sha256:c75a9b686d9ef5f04f1d5a2e09a5be758c3ec9292d66bdafed1310a8aebc5ecb",
+     "image_ref": "assets/pdf-index-0002-image-001.png",
+     "source": {
+      "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+      "pdf_index": 2,
+      "page_ref": "pdf_index-2",
+      "region": null,
+      "asset_ref": null,
+      "original_hash": "sha256:c75a9b686d9ef5f04f1d5a2e09a5be758c3ec9292d66bdafed1310a8aebc5ecb"
+     },
+     "declared_player_visible": null
+    },
+    {
+     "asset_id": "srcasset-a5de74f5442e34af44a295a3d5b27d71",
+     "kind": "unclassified",
+     "path": "assets/pdf-index-0004-image-000.png",
+     "sha256": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722",
+     "image_ref": "assets/pdf-index-0004-image-000.png",
+     "source": {
+      "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+      "pdf_index": 4,
+      "page_ref": "pdf_index-4",
+      "region": null,
+      "asset_ref": null,
+      "original_hash": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722"
+     },
+     "declared_player_visible": null
+    },
+    {
+     "asset_id": "srcasset-f06ccf15dfee8352a01c9dd44e83154b",
+     "kind": "unclassified",
+     "path": "assets/pdf-index-0004-image-001.jpg",
+     "sha256": "sha256:190d6cb47df88984d39115319520b80d081b1f77b612677394fdc08fa322ba6c",
+     "image_ref": "assets/pdf-index-0004-image-001.jpg",
+     "source": {
+      "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+      "pdf_index": 4,
+      "page_ref": "pdf_index-4",
+      "region": null,
+      "asset_ref": null,
+      "original_hash": "sha256:190d6cb47df88984d39115319520b80d081b1f77b612677394fdc08fa322ba6c"
+     },
+     "declared_player_visible": null
+    },
+    {
+     "asset_id": "srcasset-749d5017a76cafa89307c192f7bca4b1",
+     "kind": "unclassified",
+     "path": "assets/pdf-index-0005-image-000.png",
+     "sha256": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722",
+     "image_ref": "assets/pdf-index-0005-image-000.png",
+     "source": {
+      "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+      "pdf_index": 5,
+      "page_ref": "pdf_index-5",
+      "region": null,
+      "asset_ref": null,
+      "original_hash": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722"
+     },
+     "declared_player_visible": null
+    },
+    {
+     "asset_id": "srcasset-cccd02e25e77fbdc035fa614d14735c0",
+     "kind": "unclassified",
+     "path": "assets/pdf-index-0006-image-000.png",
+     "sha256": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722",
+     "image_ref": "assets/pdf-index-0006-image-000.png",
+     "source": {
+      "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+      "pdf_index": 6,
+      "page_ref": "pdf_index-6",
+      "region": null,
+      "asset_ref": null,
+      "original_hash": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722"
+     },
+     "declared_player_visible": null
+    },
+    {
+     "asset_id": "srcasset-a476e885aa19b4367a3a2f2f624141f4",
+     "kind": "unclassified",
+     "path": "assets/pdf-index-0006-image-001.jpg",
+     "sha256": "sha256:96d02b3b3788a6cde9365ef4737782109a7394e6e6901b4c4745f0e5c94e0166",
+     "image_ref": "assets/pdf-index-0006-image-001.jpg",
+     "source": {
+      "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+      "pdf_index": 6,
+      "page_ref": "pdf_index-6",
+      "region": null,
+      "asset_ref": null,
+      "original_hash": "sha256:96d02b3b3788a6cde9365ef4737782109a7394e6e6901b4c4745f0e5c94e0166"
+     },
+     "declared_player_visible": null
+    }
+   ],
+   "associations": []
+  }
+ },
+ "source_assets_query": {
+  "status": "ok",
+  "audience": "keeper",
+  "assets": [
+   {
+    "asset_id": "srcasset-6f994e8f942abc674b118fabef64ae5a",
+    "kind": "unclassified",
+    "path": "assets/pdf-index-0001-image-000.png",
+    "sha256": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722",
+    "image_ref": "assets/pdf-index-0001-image-000.png",
+    "source": {
+     "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+     "pdf_index": 1,
+     "page_ref": "pdf_index-1",
+     "region": null,
+     "asset_ref": null,
+     "original_hash": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722"
+    },
+    "declared_player_visible": null,
+    "visibility": "undiscovered",
+    "associations": []
+   },
+   {
+    "asset_id": "srcasset-a1ed548459bc025403e79667efc2c5d0",
+    "kind": "unclassified",
+    "path": "assets/pdf-index-0002-image-000.png",
+    "sha256": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722",
+    "image_ref": "assets/pdf-index-0002-image-000.png",
+    "source": {
+     "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+     "pdf_index": 2,
+     "page_ref": "pdf_index-2",
+     "region": null,
+     "asset_ref": null,
+     "original_hash": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722"
+    },
+    "declared_player_visible": null,
+    "visibility": "undiscovered",
+    "associations": []
+   },
+   {
+    "asset_id": "srcasset-e57c12676b24c6126b25636fd008c3d3",
+    "kind": "unclassified",
+    "path": "assets/pdf-index-0002-image-001.png",
+    "sha256": "sha256:c75a9b686d9ef5f04f1d5a2e09a5be758c3ec9292d66bdafed1310a8aebc5ecb",
+    "image_ref": "assets/pdf-index-0002-image-001.png",
+    "source": {
+     "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+     "pdf_index": 2,
+     "page_ref": "pdf_index-2",
+     "region": null,
+     "asset_ref": null,
+     "original_hash": "sha256:c75a9b686d9ef5f04f1d5a2e09a5be758c3ec9292d66bdafed1310a8aebc5ecb"
+    },
+    "declared_player_visible": null,
+    "visibility": "undiscovered",
+    "associations": []
+   },
+   {
+    "asset_id": "srcasset-a5de74f5442e34af44a295a3d5b27d71",
+    "kind": "unclassified",
+    "path": "assets/pdf-index-0004-image-000.png",
+    "sha256": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722",
+    "image_ref": "assets/pdf-index-0004-image-000.png",
+    "source": {
+     "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+     "pdf_index": 4,
+     "page_ref": "pdf_index-4",
+     "region": null,
+     "asset_ref": null,
+     "original_hash": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722"
+    },
+    "declared_player_visible": null,
+    "visibility": "undiscovered",
+    "associations": []
+   },
+   {
+    "asset_id": "srcasset-f06ccf15dfee8352a01c9dd44e83154b",
+    "kind": "unclassified",
+    "path": "assets/pdf-index-0004-image-001.jpg",
+    "sha256": "sha256:190d6cb47df88984d39115319520b80d081b1f77b612677394fdc08fa322ba6c",
+    "image_ref": "assets/pdf-index-0004-image-001.jpg",
+    "source": {
+     "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+     "pdf_index": 4,
+     "page_ref": "pdf_index-4",
+     "region": null,
+     "asset_ref": null,
+     "original_hash": "sha256:190d6cb47df88984d39115319520b80d081b1f77b612677394fdc08fa322ba6c"
+    },
+    "declared_player_visible": null,
+    "visibility": "undiscovered",
+    "associations": []
+   },
+   {
+    "asset_id": "srcasset-749d5017a76cafa89307c192f7bca4b1",
+    "kind": "unclassified",
+    "path": "assets/pdf-index-0005-image-000.png",
+    "sha256": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722",
+    "image_ref": "assets/pdf-index-0005-image-000.png",
+    "source": {
+     "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+     "pdf_index": 5,
+     "page_ref": "pdf_index-5",
+     "region": null,
+     "asset_ref": null,
+     "original_hash": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722"
+    },
+    "declared_player_visible": null,
+    "visibility": "undiscovered",
+    "associations": []
+   },
+   {
+    "asset_id": "srcasset-cccd02e25e77fbdc035fa614d14735c0",
+    "kind": "unclassified",
+    "path": "assets/pdf-index-0006-image-000.png",
+    "sha256": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722",
+    "image_ref": "assets/pdf-index-0006-image-000.png",
+    "source": {
+     "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+     "pdf_index": 6,
+     "page_ref": "pdf_index-6",
+     "region": null,
+     "asset_ref": null,
+     "original_hash": "sha256:b767ee93fe45fbf0ea529e28f97bc8b67d84f6960b8edd8d17c130c5162fb722"
+    },
+    "declared_player_visible": null,
+    "visibility": "undiscovered",
+    "associations": []
+   },
+   {
+    "asset_id": "srcasset-a476e885aa19b4367a3a2f2f624141f4",
+    "kind": "unclassified",
+    "path": "assets/pdf-index-0006-image-001.jpg",
+    "sha256": "sha256:96d02b3b3788a6cde9365ef4737782109a7394e6e6901b4c4745f0e5c94e0166",
+    "image_ref": "assets/pdf-index-0006-image-001.jpg",
+    "source": {
+     "bundle_sha256": "sha256:2900dd32c91e2f756924d77954bfb16778083fa610c03eae9297900bac4fef7f",
+     "pdf_index": 6,
+     "page_ref": "pdf_index-6",
+     "region": null,
+     "asset_ref": null,
+     "original_hash": "sha256:96d02b3b3788a6cde9365ef4737782109a7394e6e6901b4c4745f0e5c94e0166"
+    },
+    "declared_player_visible": null,
+    "visibility": "undiscovered",
+    "associations": []
+   }
+  ]
+ },
+ "session_resume_wire_only": {
+  "ok": true,
+  "tool": "session.resume",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "session.resume",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 20938,
+   "full_result_sha256": "sha256:922bf5c6acc92d4784de36a7379e9d1a29e8520a30ef845440ae4ca7c2f6b9c2",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": true,
+   "control": {
+    "mode": "table_opening",
+    "context_epoch": 1,
+    "resume_acknowledged": true,
+    "working_set_revision": "ws-v1-11f7d8bb7aa068ff44ccf09e",
+    "next_operations": [
+     "evidence.table_opening"
+    ]
+   },
+   "tight_projection": true,
+   "recovery_index_projection": true,
+   "measured_inline_bytes": 15353
+  }
+ },
+ "scene_context_compact": {
+  "ok": true,
+  "tool": "scene.context",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "scene.context",
+   "max_inline_bytes": 16384,
+   "full_result_bytes": 18662,
+   "full_result_sha256": "sha256:ba629889b86afce50cfc343b29196c5c337a079ae28954b8ec8ba48d4d3e6c4c",
+   "contract_archive_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+   "payload_projected": true,
+   "scene_recovery_index_projection": true,
+   "measured_inline_bytes": 14351
+  },
+  "data": {
+   "schema_version": 1,
+   "kind": "typed_scene_recovery_index",
+   "campaign_id": "king-shreds-recovery-live-01",
+   "active_scene_id": "stone-street-coft-lodging",
+   "party": [
+    "inv-x6a217e22-e0532209"
+   ],
+   "time": {
+    "elapsed_minutes": 0,
+    "display": "",
+    "local_datetime": null,
+    "local_date": null,
+    "calendar_mode": "relative",
+    "time_precision": "unknown",
+    "timezone": null,
+    "location_id": "stone-street-coft-lodging",
+    "day_phase": "night",
+    "civil_segment_id": "civil-start",
+    "minutes_since_civil_anchor": 0,
+    "player_time": {
+     "phase": "night",
+     "appearance_mode": "normal",
+     "display_label": null,
+     "source_ref": null
+    }
+   },
+   "tension_level": "low",
+   "turn_number": 0,
+   "exit_ready": false,
+   "progressive": {
+    "asset_root_id": "coc-king-colfix-verify-001",
+    "campaign_id": "king-shreds-recovery-live-01",
+    "open_host_work_count": 4,
+    "ready_for_background_count": 3,
+    "runnable_count": 3,
+    "leased_count": 1,
+    "awaiting_scope_count": 0,
+    "awaiting_cache_count": 0,
+    "stale_count": 0,
+    "stranded_ready_count": 0,
+    "blocking_micro_ready_count": 0,
+    "background_takeover": {
+     "schema_version": 1,
+     "kind": "ready_background_source_work",
+     "dispatch_mode": "coordinator_fanout",
+     "coordinator_dispatch": {
+      "agent_type": "coc-source-coordinator",
+      "run_in_background": true,
+      "task_prompt": "one exact host dispatch object without campaign transcript",
+      "packet": {
+       "schema_version": 1,
+       "contract_id": "coc.source-coordinator.v1",
+       "packet_id": "source-coordinator-5957f6ea4ef3081a8a3d",
+       "adapter_mode": "manager_exact_forward",
+       "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.coc/playtests/final-pi-coc-draft-recovery-live-20260828-01/sandbox",
+       "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+       "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/scripts/coc_toolbox.py",
+       "campaign_id": "king-shreds-recovery-live-01",
+       "asset_root_id": "coc-king-colfix-verify-001",
+       "claim_operation": {
+        "operation": "progressive.claim_host_work",
+        "invoke_via": "canonical_typed_operation_gateway",
+        "prefilled_arguments": {
+         "executor_id": "source-coordinator:5a927c1fbf48fe52ec33",
+         "limit": 3,
+         "result_delivery": "task_return_to_parent",
+         "max_dispatch_attempts": 2
+        },
+        "missing_arguments": [],
+        "authority": "advisory",
+        "hard_gate": false,
+        "contract_ref": "progressive.claim_host_work@007dd620090e96f4",
+        "discovery_required": false
+       },
+       "fulfill_operation": {
+        "operation": "progressive.fulfill_host_work",
+        "invoke_via": "canonical_typed_operation_gateway",
+        "fixed_arguments": {},
+        "missing_arguments": [
+         "worker_result"
+        ],
+        "exact_forward_binding": "worker_result=one exact leaf results[] value",
+        "authority": "source_fulfillment",
+        "hard_gate": false,
+        "contract_ref": "progressive.fulfill_host_work@007dd620090e96f4",
+        "discovery_required": false
+       },
+       "max_leaves": 3,
+       "leaf_worker": {
+        "agent_type": "coc-source-pack-worker",
+        "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+        "model_policy": "inherit_parent",
+        "run_in_background": false,
+        "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+        "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work"
+       },
+       "failure_policy": {
+        "authority": "prompt_first_advisory",
+        "single_failure": "transient_allowed",
+        "same_failure_escalation_threshold": 3,
+        "threshold_outcome": "design_issue",
+        "same_task_retry": true,
+        "player_action_gate": false,
+        "narrative_gate": false,
+        "output_gate": false,
+        "automatic_retry": {
+         "retryable_failure_classes": [
+          "fulfill_rejected"
+         ],
+         "require_status": "failed",
+         "require_positive_claimed": true,
+         "require_zero_fulfilled": true,
+         "max_attempts": 2
+        }
+       }
+      },
+      "pi_task": {
+       "schema_version": 1,
+       "contract_id": "coc.pi-source-coordinator-task.v1",
+       "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-coordinator.md",
+       "model_policy": "inherit_parent",
+       "packet": {
+        "schema_version": 1,
+        "contract_id": "coc.source-coordinator.v1",
+        "packet_id": "source-coordinator-5957f6ea4ef3081a8a3d",
+        "adapter_mode": "manager_exact_forward",
+        "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.coc/playtests/final-pi-coc-draft-recovery-live-20260828-01/sandbox",
+        "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+        "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/scripts/coc_toolbox.py",
+        "campaign_id": "king-shreds-recovery-live-01",
+        "asset_root_id": "coc-king-colfix-verify-001",
+        "claim_operation": {
+         "operation": "progressive.claim_host_work",
+         "invoke_via": "canonical_typed_operation_gateway",
+         "prefilled_arguments": {
+          "executor_id": "source-coordinator:5a927c1fbf48fe52ec33",
+          "limit": 3,
+          "result_delivery": "task_return_to_parent",
+          "max_dispatch_attempts": 2
+         },
+         "missing_arguments": [],
+         "authority": "advisory",
+         "hard_gate": false,
+         "contract_ref": "progressive.claim_host_work@007dd620090e96f4",
+         "discovery_required": false
+        },
+        "fulfill_operation": {
+         "operation": "progressive.fulfill_host_work",
+         "invoke_via": "canonical_typed_operation_gateway",
+         "fixed_arguments": {},
+         "missing_arguments": [
+          "worker_result"
+         ],
+         "exact_forward_binding": "worker_result=one exact leaf results[] value",
+         "authority": "source_fulfillment",
+         "hard_gate": false,
+         "contract_ref": "progressive.fulfill_host_work@007dd620090e96f4",
+         "discovery_required": false
+        },
+        "max_leaves": 3,
+        "leaf_worker": {
+         "agent_type": "coc-source-pack-worker",
+         "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+         "model_policy": "inherit_parent",
+         "run_in_background": false,
+         "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+         "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work"
+        },
+        "failure_policy": {
+         "authority": "prompt_first_advisory",
+         "single_failure": "transient_allowed",
+         "same_failure_escalation_threshold": 3,
+         "threshold_outcome": "design_issue",
+         "same_task_retry": true,
+         "player_action_gate": false,
+         "narrative_gate": false,
+         "output_gate": false,
+         "automatic_retry": {
+          "retryable_failure_classes": [
+           "fulfill_rejected"
+          ],
+          "require_status": "failed",
+          "require_positive_claimed": true,
+          "require_zero_fulfilled": true,
+          "max_attempts": 2
+         }
+        }
+       }
+      }
+     },
+     "host_adapter": "pi",
+     "capability_status": "unavailable_pending_real_lifecycle_probe",
+     "next_host_action": {
+      "schema_version": 1,
+      "action": "invoke_coc_dispatch_source_work",
+      "task": {
+       "schema_version": 1,
+       "contract_id": "coc.pi-source-coordinator-task.v1",
+       "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-coordinator.md",
+       "model_policy": "inherit_parent",
+       "packet": {
+        "schema_version": 1,
+        "contract_id": "coc.source-coordinator.v1",
+        "packet_id": "source-coordinator-5957f6ea4ef3081a8a3d",
+        "adapter_mode": "manager_exact_forward",
+        "workspace_root": "/Users/haoli/leehow/code/chatrpgv4/.coc/playtests/final-pi-coc-draft-recovery-live-20260828-01/sandbox",
+        "python_executable": "/Users/haoli/leehow/code/chatrpgv4/.venv/bin/python3",
+        "toolbox_script": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/scripts/coc_toolbox.py",
+        "campaign_id": "king-shreds-recovery-live-01",
+        "asset_root_id": "coc-king-colfix-verify-001",
+        "claim_operation": {
+         "operation": "progressive.claim_host_work",
+         "invoke_via": "canonical_typed_operation_gateway",
+         "prefilled_arguments": {
+          "executor_id": "source-coordinator:5a927c1fbf48fe52ec33",
+          "limit": 3,
+          "result_delivery": "task_return_to_parent",
+          "max_dispatch_attempts": 2
+         },
+         "missing_arguments": [],
+         "authority": "advisory",
+         "hard_gate": false,
+         "contract_ref": "progressive.claim_host_work@007dd620090e96f4",
+         "discovery_required": false
+        },
+        "fulfill_operation": {
+         "operation": "progressive.fulfill_host_work",
+         "invoke_via": "canonical_typed_operation_gateway",
+         "fixed_arguments": {},
+         "missing_arguments": [
+          "worker_result"
+         ],
+         "exact_forward_binding": "worker_result=one exact leaf results[] value",
+         "authority": "source_fulfillment",
+         "hard_gate": false,
+         "contract_ref": "progressive.fulfill_host_work@007dd620090e96f4",
+         "discovery_required": false
+        },
+        "max_leaves": 3,
+        "leaf_worker": {
+         "agent_type": "coc-source-pack-worker",
+         "instruction_ref": "/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/agents/coc-source-pack-worker.md",
+         "model_policy": "inherit_parent",
+         "run_in_background": false,
+         "prompt_binding": "one exact repository-produced dispatch_tasks[] coc.pi-source-pack-task.v1 value",
+         "result_binding": "forward every exact usable results[] value once through progressive.fulfill_host_work"
+        },
+        "failure_policy": {
+         "authority": "prompt_first_advisory",
+         "single_failure": "transient_allowed",
+         "same_failure_escalation_threshold": 3,
+         "threshold_outcome": "design_issue",
+         "same_task_retry": true,
+         "player_action_gate": false,
+         "narrative_gate": false,
+         "output_gate": false,
+         "automatic_retry": {
+          "retryable_failure_classes": [
+           "fulfill_rejected"
+          ],
+          "require_status": "failed",
+          "require_positive_claimed": true,
+          "require_zero_fulfilled": true,
+          "max_attempts": 2
+         }
+        }
+       }
+      },
+      "parent_waits": false,
+      "parent_result_polls": 0,
+      "parent_output_retrieval": false
+     },
+     "authority": "advisory",
+     "hard_gate": false,
+     "host_dispatch": {
+      "worker_profile": "coc-source-pack-worker",
+      "background": true,
+      "packet_binding": "one exact returned dispatch_tasks[] value per child when result_delivery=named_submit",
+      "direct_submit_parent_waits": false,
+      "direct_submit_parent_result_polls": 0,
+      "direct_submit_parent_output_retrieval": false,
+      "direct_submit_parent_calls_fulfill_host_work": false,
+      "fallback_without_direct_submit": "forward exact completed results[i] once through progressive.fulfill_host_work"
+     },
+     "play_boundary": {
+      "player_action_gate": false,
+      "narrative_gate": false,
+      "output_gate": false,
+      "nondependent_play_may_continue": true,
+      "blocking_micro_applies_only_to_current_dependent_settlement": true
+     }
+    },
+    "ready_background_requests": [
+     {
+      "job_id": "job-45db308081f7",
+      "kind": "deepen_location",
+      "target_id": "stone-street-coft-lodging",
+      "requested_pdf_indices": [
+       5
+      ],
+      "source_aspect": "body",
+      "deadline_class": "next_turn_hot",
+      "work_level": "near_term",
+      "work_group_id": "source-work-1230988d37e4bfc4",
+      "dispatch_state": "ready",
+      "dispatch_attempts": 0,
+      "cached_scope_complete": true
+     },
+     {
+      "job_id": "job-8f06a71569ab",
+      "kind": "classify_sections",
+      "target_id": "section-index",
+      "requested_pdf_indices": [
+       0,
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9,
+       10,
+       11,
+       "...30 more"
+      ],
+      "source_aspect": "structure",
+      "deadline_class": "next_turn_hot",
+      "work_level": "near_term",
+      "work_group_id": "source-work-1becdf816b58ed20",
+      "dispatch_state": "ready",
+      "dispatch_attempts": 0,
+      "cached_scope_complete": false
+     },
+     {
+      "job_id": "job-1bc65c9daa20",
+      "kind": "annotate_images",
+      "target_id": "image-annotations",
+      "requested_pdf_indices": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9,
+       10,
+       11,
+       12,
+       "...29 more"
+      ],
+      "source_aspect": "body",
+      "deadline_class": "next_turn_hot",
+      "work_level": "near_term",
+      "work_group_id": "source-work-ae4d23624bdfeb74",
+      "dispatch_state": "ready",
+      "dispatch_attempts": 0,
+      "cached_scope_complete": true
+     }
+    ],
+    "current_dependency_snapshot_complete": true,
+    "current_dependency_waits": [],
+    "current_dependency_dispatches": [],
+    "current_dependency_projection_status": "complete_empty"
+   },
+   "scene_identity": {
+    "scene_type": "investigation",
+    "scene_id": "stone-street-coft-lodging"
+   },
+   "npc_index": [],
+   "route_index": [],
+   "clue_index": [],
+   "exit_index": [],
+   "counts": {
+    "npcs_present": 0,
+    "action_routes": 0,
+    "clues_here": 0,
+    "exits": 0
+   },
+   "full_projection_operation": {
+    "operation": "scene.context",
+    "invoke_via": "coc_invoke",
+    "prefilled_arguments": {},
+    "missing_arguments": [],
+    "authority": "advisory",
+    "hard_gate": false,
+    "contract_ref": "scene.context@007dd620090e96f4",
+    "discovery_required": false
+   },
+   "source_material": {
+    "keeper_only": true,
+    "player_safe_summary": "1603年1月，伦敦严冬，瘟疫谣言四起。演员西蒙·佩奇收到剑桥旧友约翰·考夫特1月4日来信，邀其携友人至萨瑟克区石街把盏叙旧、恭贺新年。",
+    "contextual_mentions": [],
+    "source_refs": [
+     {
+      "source_id": "pdf:colfix-verify",
+      "pdf_index": 5,
+      "text_sha256": "2efb26fb6dd9f5b2de9b9f0b5e4c779fddee5e8103bb7b70aea2236cd5b9963f"
+     }
+    ],
+    "disclosure": {
+     "authority": "advisory",
+     "hard_gate": false,
+     "opening_teaser_is_not_delivery": true,
+     "semantic_policy": "Opening narration may establish only the scene teaser. When the player naturally asks to hear a source-authored briefing, commission, or explanation through a fitting present speaker, use every materially relevant current-scene fact here that speaker can reveal. Decide relevance, secrecy, and phrasing semantically; do not count fields, treat mentions as presence, or dump this object."
+    },
+    "schema_version": 1,
+    "authority": "source_authored_context"
+   }
+  },
+  "warnings": [],
+  "hints": [
+   "the tight scene exceeded the transport budget; use the returned bounded scene indices and exact typed cards instead of reading files or broadly rediscovering operations",
+   "progressive.background_takeover exposes exact cached source work for the existing progressive.claim_host_work operation; claim and dispatch it in the background. This is advisory and never gates player input, narration, or unrelated play; only a current settlement that depends on listed blocking_micro source may wait for that source result",
+   "npcs_present.impression is the bounded textual memory for investigator 'inv-x6a217e22-e0532209'; use it as semantic context, never as a hard gate"
+  ],
+  "attempts": 1,
+  "max_attempts": 3,
+  "retryable": false,
+  "recovered_after_retry": false,
+  "cache": {
+   "status": "miss",
+   "revision": "ws-v1-04ee8cde8dda4cab55eddce4",
+   "key": "04ee8cde8dda4cab55eddce4e7a88531b3099db397301e84b0596d1fc03c1fa5",
+   "ref": "save/working-set-cache/scene.context/04ee8cde8dda4cab55eddce4e7a88531b3099db397301e84b0596d1fc03c1fa5.json"
+  }
+ }
+}

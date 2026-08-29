@@ -42,14 +42,27 @@ const sha256 = (value) => (
 const canonicalDigest = sha256(JSON.stringify(renderedText));
 const rawDigest = sha256(renderedText);
 const finalizationArguments = {
-  revision: 1,
-  narration_review_id: "narration-review-v1:probe",
+  // Model-owned finalize surface: the semantic draft + one closed coverage
+  // row per obligation. Settle identity (revision, receipt ids) is
+  // host-bound after the registered-schema gate, never model-authored.
+  draft: "你接过那份蜡封卷轴；火漆在指尖碎裂，屋里仍黑着。",
+  coverage: [{
+    obligation_id: "roll:filled-from-observed-roll",
+    player_input_handling: "abstract_completed",
+    realization: "fictional_beat",
+    exact_excerpt: "你接过那份蜡封卷轴",
+    action_realization: "卷轴入手，蜡封碎裂",
+    causal_explanation: "侦查成功后你注意并取走了卷轴",
+    exceptional_beat: null,
+    persona_fit: null,
+    response: null,
+  }],
   agency_claims: [{
     claim_id: "claim-probe",
-    subject_ref: "pc:probe",
+    subject_ref: "pc:current-investigator",
     claim_type: "voluntary_action",
     exact_excerpt: "你接过那份蜡封卷轴",
-    source_ref: "player_input:probe",
+    source_ref: "narration_contract:probe",
     override_id: null,
   }],
 };
@@ -146,6 +159,7 @@ clientEnvelope = {
     schema_version: 1,
     campaign_id: "hoyk-pi-grok-fix7-20260727",
     mode: "awaiting_player",
+    scene_context: { party: ["inv-finalization-probe-1"] },
     next_operations: [],
   },
 };
@@ -171,6 +185,42 @@ for (const handler of handlers.get("message_start") || []) {
     },
   }, ctx);
 }
+// Observe one real roll first: finalize coverage rows reference obligation
+// roll identity through the registry, so the handle must be live.
+clientEnvelope = {
+  ok: true,
+  tool: "rules.roll",
+  data: {
+    roll_id: "toolbox-finalization-gw-000001",
+    skill: "侦查",
+    passed: true,
+    resolution_context: { attempt_id: "attempt-finalization-gw-probe" },
+  },
+};
+const rollFixtureResult = await tools.get("coc_invoke").execute(
+  "roll-live-fixture",
+  {
+    operation: "rules.roll",
+    campaign: "hoyk-pi-grok-fix7-20260727",
+    arguments: {
+      difficulty: "regular",
+      goal: "找到火漆封印并读出内容",
+      stakes: { on_success: "封印读出", on_failure: "封印拒绝开口" },
+      difficulty_basis: "keeper_judgment",
+      decision_id: "roll-finalization-gw-probe",
+    },
+  },
+  undefined,
+  undefined,
+  ctx,
+);
+const observedRollHandle = JSON.parse(rollFixtureResult.content[0].text)
+  .data?.roll_id;
+assert.ok(
+  typeof observedRollHandle === "string" && observedRollHandle.startsWith("roll:"),
+  "the observed roll projects a semantic handle",
+);
+finalizationArguments.coverage[0].obligation_id = observedRollHandle;
 clientEnvelope = {
   ok: true,
   tool: "state.journal",
@@ -323,6 +373,39 @@ clientEnvelope = {
     rendered_text_sha256: rawDigest,
   },
 };
+// The first settle advanced the player turn: the prior turn's roll handle
+// is dead by design. Observe the new turn's roll so the tampered-receipt
+// probe below tests the RECEIPT gate — not a stale obligation handle.
+clientEnvelope = {
+  ok: true,
+  tool: "rules.roll",
+  data: {
+    roll_id: "toolbox-finalization-gw-000002",
+    skill: "侦查",
+    passed: false,
+    resolution_context: { attempt_id: "attempt-finalization-gw-probe-2" },
+  },
+};
+const rollFixtureResult2 = await tools.get("coc_invoke").execute(
+  "roll-live-fixture-new-turn",
+  {
+    operation: "rules.roll",
+    campaign: "hoyk-pi-grok-fix7-20260727",
+    arguments: {
+      difficulty: "regular",
+      goal: "新回合再次核对封印",
+      stakes: { on_success: "封印读出", on_failure: "封印拒绝开口" },
+      difficulty_basis: "keeper_judgment",
+      decision_id: "roll-finalization-gw-probe-new-turn",
+    },
+  },
+  undefined,
+  undefined,
+  ctx,
+);
+finalizationArguments.coverage[0].obligation_id = JSON.parse(
+  rollFixtureResult2.content[0].text,
+).data?.roll_id;
 const rawGatewayResult = await tools.get("coc_invoke").execute(
   "finalize-raw-digest-fixture",
   {
@@ -363,9 +446,14 @@ const returnedEnvelope = JSON.parse(gatewayResult.content[0].text);
 const rawReturnedEnvelope = JSON.parse(rawGatewayResult.content[0].text);
 assert.equal(returnedEnvelope.ok, true);
 assert.equal(returnedEnvelope.tool, "turn.finalize");
-assert.equal(returnedEnvelope.wire?.canonical_operation, "turn.finalize");
+// Model content is the semantic finalize view; wire transport metadata and
+// receipt digests stay host-only in details.
+assert.equal(returnedEnvelope.wire, undefined);
+assert.equal(returnedEnvelope.data?.status, "finalized");
 assert.equal(returnedEnvelope.data?.rendered_text, renderedText);
-assert.equal(returnedEnvelope.data?.rendered_text_sha256, renderedSha256);
+assert.equal(returnedEnvelope.data?.rendered_text_sha256, undefined);
+assert.equal(gatewayResult.details.wire?.canonical_operation, "turn.finalize");
+assert.equal(gatewayResult.details.data?.rendered_text_sha256, renderedSha256);
 assert.equal(canonicalDigest, renderedSha256);
 assert.notEqual(rawDigest, renderedSha256);
 assert.equal(finals.length, 2);
@@ -629,20 +717,19 @@ await replayProbe.probeTools.get("coc_invoke").execute(
   replayProbe.probeCtx,
 );
 
-// Ordinary context mode is untouched: explicit identity passes through the
-// generic canonical path in exactly one call, no chunk loop, no stripping.
+// The delivery lane is SEMANTIC-ONLY on the generic surface too: legacy
+// context-mode identity (finalization_id/rendered_sha256) is never
+// model-authored, never model-visible, and never reaches transport. The
+// host owns delivery identity end-to-end; the model has the exact-replay
+// lane (campaign + mode=replay).
 const contextCalls = [];
 replayProbe.setServe((params) => {
-  if (params?.operation === "session.delivery_text" && params.arguments?.mode === "context") {
+  if (params?.operation === "session.delivery_text") {
     contextCalls.push(params);
     return {
       ok: true,
       tool: "session.delivery_text",
-      data: {
-        finalization_id: "ctx-fid",
-        rendered_sha256: "ctx-sha",
-        exact_text: "context text stays byte-identical",
-      },
+      data: { finalization_id: "ctx-fid", exact_text: "unreachable" },
     };
   }
   return { ok: false, error: { code: "probe_no_route" } };
@@ -663,17 +750,102 @@ const contextGatewayResult = await replayProbe.probeTools.get("coc_invoke").exec
   replayProbe.probeCtx,
 );
 const contextEnvelope = JSON.parse(contextGatewayResult.content[0].text);
-assert.equal(contextEnvelope.ok, true);
-assert.equal(contextEnvelope.data?.exact_text, "context text stays byte-identical");
-assert.equal(contextCalls.length, 1);
-assert.deepEqual(contextCalls[0].arguments, {
-  mode: "context",
-  finalization_id: "ctx-fid",
-  rendered_sha256: "ctx-sha",
-});
+assert.equal(contextEnvelope.ok, false);
+// The delivery semantic-only lane gate runs first: the context-mode legacy
+// relay (mode + finalization_id) rejects with the lane code before anything
+// else, naming nothing.
+assert.equal(contextEnvelope.error.code, "delivery_lane_semantic_only");
+// Zero transport: the legacy relay never reaches the canonical layer.
+assert.equal(contextCalls.length, 0);
+assert.equal(
+  JSON.stringify(contextEnvelope).includes("ctx-fid"),
+  false,
+  "the supplied legacy id is never echoed",
+);
+// Layer one-b: a semantic-looking root inside generic delivery arguments is
+// likewise rejected — the model arguments are mode-only, full stop.
+const rootInArgs = await replayProbe.probeTools.get("coc_invoke").execute(
+  "replay-root-in-args",
+  {
+    operation: "session.delivery_text",
+    campaign: ATTEMPT05_CAMPAIGN,
+    arguments: { mode: "replay", root: "/tmp/semantic-looking-root" },
+  },
+  undefined,
+  undefined,
+  replayProbe.probeCtx,
+);
+const rootInArgsEnvelope = JSON.parse(rootInArgs.content[0].text);
+assert.equal(rootInArgsEnvelope.ok, false);
+assert.equal(rootInArgsEnvelope.error.code, "delivery_lane_semantic_only");
+assert.equal(contextCalls.length, 0);
+
+// Layer two: a context-mode request WITHOUT legacy identity fields still
+// fails closed — the generic delivery lane is semantic replay only.
+const contextModeOnly = await replayProbe.probeTools.get("coc_invoke").execute(
+  "replay-context-mode-only",
+  {
+    operation: "session.delivery_text",
+    campaign: ATTEMPT05_CAMPAIGN,
+    arguments: { mode: "context" },
+  },
+  undefined,
+  undefined,
+  replayProbe.probeCtx,
+);
+const contextModeEnvelope = JSON.parse(contextModeOnly.content[0].text);
+assert.equal(contextModeEnvelope.ok, false);
+assert.equal(contextModeEnvelope.error.code, "delivery_lane_semantic_only");
+assert.equal(contextCalls.length, 0);
+
+// Multi-chunk exact replay through the GENERIC coc_invoke surface: the
+// valid semantic replay request routes through the SAME host-owned lane
+// (runExactDeliveryReplayLane) — same multi-chunk state machine, same
+// host identity binding, same custom events, byte-exact output.
+const genericServer128 = attempt05ReplayServer(128);
+const genericSentMark = replayProbe.probeSent.length;
+replayProbe.setServe(genericServer128.serve);
+const genericReplayResult = await replayProbe.probeTools.get("coc_invoke").execute(
+  "replay-generic-lane-probe",
+  {
+    operation: "session.delivery_text",
+    campaign: ATTEMPT05_CAMPAIGN,
+    arguments: { mode: "replay" },
+  },
+  undefined,
+  undefined,
+  replayProbe.probeCtx,
+);
+const genericReplayEnvelope = JSON.parse(genericReplayResult.content[0].text);
+assert.equal(genericReplayEnvelope.ok, true, JSON.stringify(genericReplayEnvelope).slice(0, 300));
+const genericChunks = replayProbe.probeSent.slice(genericSentMark).filter((row) => (
+  row.message?.customType === "coc_delivery_replay"
+    && row.message.details?.text !== undefined
+));
+const genericJoined = genericChunks
+  .map((row) => row.message.details.text)
+  .join("");
+assert.equal(genericChunks.length, genericServer128.chunkCount,
+  "generic replay streams the same multi-chunk plan");
+assert.equal(genericJoined, ATTEMPT05_CANONICAL_TEXT,
+  "generic replay is byte-exact through the host-owned lane");
+// Host-bound identity: the lane's canonical calls bind the machine identity
+// after the first chunk; the MODEL never sees or supplies any of it.
+assert.equal(
+  JSON.stringify(genericReplayEnvelope).includes("finalization_id"),
+  false,
+  "model-visible generic replay content never carries delivery identity",
+);
+assert.equal(
+  genericServer128.acks.length > 0
+    || genericServer128.chunkCount > 1,
+  true,
+);
 
 // Multi-chunk exact replay through the typed semantic-only surface.
 const server128 = attempt05ReplayServer(128);
+const typedSentMark = replayProbe.probeSent.length;
+const typedCallMark = replayProbe.probeCalls.length;
 replayProbe.setServe(server128.serve);
 const replayGatewayResult = await replayProbe.probeTools.get(
   "coc_session_delivery_text",
@@ -685,13 +857,16 @@ const replayGatewayResult = await replayProbe.probeTools.get(
   replayProbe.probeCtx,
 );
 const replayEnvelope = JSON.parse(replayGatewayResult.content[0].text);
-const replayChunks = replayProbe.probeSent.filter((row) => (
+// Only the typed run's events: the generic-lane probe above already emitted
+// its own chunk events into the shared sent log.
+const replayChunks = replayProbe.probeSent.slice(typedSentMark).filter((row) => (
   row.message?.customType === "coc_delivery_replay"
 ));
 const replayJoined = replayChunks.map((row) => row.message.details.text).join("");
-const replayDeliveryCalls = replayProbe.probeCalls.filter((row) => (
+// Typed-run delivery calls only: the generic-lane probe above made its own
+// host-lane calls into the shared probe log.
+const replayDeliveryCalls = replayProbe.probeCalls.slice(typedCallMark).filter((row) => (
   row.params?.operation === "session.delivery_text"
-  && row.params.arguments?.mode === "replay"
 ));
 const replayReport = {
   plannedChunks: server128.chunkCount,
@@ -854,6 +1029,7 @@ assert.equal(JSON.parse(postQuarantineProbe.content[0].text).ok, true);
 // Canonical default chunking (511-byte text fits one bounded chunk) replays
 // in a single final chunk with the same exact reassembly and ack contract.
 const serverDefault = attempt05ReplayServer(4096);
+const singleSentMark = replayProbe.probeSent.length;
 replayProbe.setServe(serverDefault.serve);
 await replayProbe.probeTools.get("coc_session_delivery_text").execute(
   "replay-single-chunk-probe",
@@ -862,9 +1038,9 @@ await replayProbe.probeTools.get("coc_session_delivery_text").execute(
   undefined,
   replayProbe.probeCtx,
 );
-const singleChunks = replayProbe.probeSent.filter((row) => (
+const singleChunks = replayProbe.probeSent.slice(singleSentMark).filter((row) => (
   row.message?.customType === "coc_delivery_replay"
-)).slice(replayReport.emittedChunks);
+));
 const singleJoined = singleChunks.map((row) => row.message.details.text).join("");
 assert.equal(singleChunks.length, 1);
 assert.equal(singleChunks[0].message.details.final, true);

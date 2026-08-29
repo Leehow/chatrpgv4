@@ -53,6 +53,111 @@ from coc_operation_kernel_runtime import (
 from contextlib import ExitStack
 
 
+_PENDING_DRAFT_RELATIVE = Path("logs") / "pending-narration-drafts.jsonl"
+_PENDING_DRAFT_MAX_UTF8_BYTES = 8192
+_PENDING_DRAFT_KIND = "pending_narration_draft"
+_PENDING_DRAFT_SOURCE_OPERATION = "narration.review"
+_PENDING_DRAFT_PRODUCER_KINDS = frozenset({
+    "narration_review_submission",
+    "toolbox_audit_recovery",
+})
+# Closed receipt schema: exactly these keys (``ts`` is the append timestamp
+# carried only in the stored row). No extra or missing field is canonical.
+_PENDING_DRAFT_FIELDS = frozenset({
+    "schema_version", "kind", "secrecy", "campaign_id", "receipt_id",
+    "review_decision_id", "review_id", "turn_id", "source_digest",
+    "revision", "draft_sha256", "draft_text", "draft_utf8_bytes",
+    "review_digest", "request_digest", "producer_kind", "source_operation",
+    "materialization_decision_id", "provenance", "receipt_digest",
+})
+_PENDING_DRAFT_SUBMISSION_PROVENANCE_FIELDS = frozenset({"kind"})
+_PENDING_DRAFT_RECOVERY_PROVENANCE_FIELDS = frozenset({
+    "kind", "source_path", "source_row_count", "primary_row_digest",
+    "corroboration_digest",
+})
+# Deterministic maximum count of corroborating audit rows a materialized
+# receipt may bind; more physical rows is an evidence anomaly, not inflation.
+_PENDING_DRAFT_MAX_PROVENANCE_ROWS = 8
+# Closed, bounded span-repair contract (coc.span-repairs.v1). The producer
+# emits exactly this shape; anything else is not repair evidence. The same
+# bounds are enforced by the Pi hydration validator (recovery-guidance.ts).
+_SPAN_REPAIRS_CONTRACT_ID = "coc.span-repairs.v1"
+_SPAN_REPAIRS_MODE = "excerpt_only"
+_SPAN_REPAIRS_REPAIR_ACTION = "rephrase_or_remove"
+_SPAN_REPAIRS_FIELDS = frozenset({
+    "schema_version", "contract_id", "mode", "spans", "instruction",
+})
+_SPAN_REPAIRS_ENTRY_FIELDS = frozenset({
+    "exact_excerpt", "claim_kind", "reason", "repair",
+})
+_SPAN_REPAIRS_MAX_SPANS = 16
+_SPAN_REPAIRS_MAX_EXCERPT_UTF8_BYTES = 2048
+_SPAN_REPAIRS_MAX_CLAIM_KIND_UTF8_BYTES = 128
+_SPAN_REPAIRS_MAX_REASON_UTF8_BYTES = 1024
+_SPAN_REPAIRS_MAX_INSTRUCTION_UTF8_BYTES = 512
+_SPAN_REPAIRS_MAX_AGGREGATE_EXCERPT_UTF8_BYTES = 4096
+
+
+def _utf8_len(value: str) -> int:
+    return len(value.encode("utf-8"))
+
+
+def _bounded_span_string(value: Any, max_bytes: int) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(value.strip())
+        and _utf8_len(value) <= max_bytes
+    )
+
+
+def _valid_span_repair_entries(spans: Any, *, baseline_text: str | None) -> bool:
+    """Closed bounded repair-entry list: at least one and at most the
+    deterministic span cap, exact field set per entry, non-empty bounded
+    strings, canonical repair action, no duplicate (excerpt, kind) pair,
+    each excerpt occurring in the frozen baseline when one is given, and a
+    deterministic aggregate excerpt-byte bound."""
+    if not isinstance(spans, list) or not 1 <= len(spans) <= _SPAN_REPAIRS_MAX_SPANS:
+        return False
+    seen: set[tuple[str, str]] = set()
+    aggregate_excerpt_bytes = 0
+    for entry in spans:
+        if not isinstance(entry, dict) or set(entry) != _SPAN_REPAIRS_ENTRY_FIELDS:
+            return False
+        excerpt = entry.get("exact_excerpt")
+        claim_kind = entry.get("claim_kind")
+        if (
+            not _bounded_span_string(excerpt, _SPAN_REPAIRS_MAX_EXCERPT_UTF8_BYTES)
+            or not _bounded_span_string(
+                claim_kind, _SPAN_REPAIRS_MAX_CLAIM_KIND_UTF8_BYTES
+            )
+            or not _bounded_span_string(entry.get("reason"), _SPAN_REPAIRS_MAX_REASON_UTF8_BYTES)
+            or entry.get("repair") != _SPAN_REPAIRS_REPAIR_ACTION
+        ):
+            return False
+        key = (excerpt, claim_kind)
+        if key in seen:
+            return False
+        seen.add(key)
+        if baseline_text is not None and excerpt not in baseline_text:
+            return False
+        aggregate_excerpt_bytes += _utf8_len(excerpt)
+        if aggregate_excerpt_bytes > _SPAN_REPAIRS_MAX_AGGREGATE_EXCERPT_UTF8_BYTES:
+            return False
+    return True
+
+
+def _valid_span_repairs(value: Any, *, baseline_text: str | None = None) -> bool:
+    if not isinstance(value, dict) or set(value) != _SPAN_REPAIRS_FIELDS:
+        return False
+    return (
+        value.get("schema_version") == 1
+        and value.get("contract_id") == _SPAN_REPAIRS_CONTRACT_ID
+        and value.get("mode") == _SPAN_REPAIRS_MODE
+        and _bounded_span_string(value.get("instruction"), _SPAN_REPAIRS_MAX_INSTRUCTION_UTF8_BYTES)
+        and _valid_span_repair_entries(value.get("spans"), baseline_text=baseline_text)
+    )
+
+
 def _journal_declared_kind(args: dict[str, Any]) -> str:
     """Authoritative declared-kind token: the KP-supplied intent class when
     it already satisfies the canonical token grammar, otherwise the plain
@@ -631,17 +736,24 @@ def _span_repairs_for_review(
         )
     if not spans:
         return None
-    return {
+    candidate = {
         "schema_version": 1,
-        "contract_id": "coc.span-repairs.v1",
-        "mode": "excerpt_only",
+        "contract_id": _SPAN_REPAIRS_CONTRACT_ID,
+        "mode": _SPAN_REPAIRS_MODE,
         "spans": spans,
         "instruction": _SPAN_REPAIR_INSTRUCTION,
     }
+    if not _valid_span_repairs(candidate):
+        return None
+    return candidate
 
 
 def _latest_span_repairs(
-    ctx: Ctx, *, turn_id: str, source_digest: str
+    ctx: Ctx,
+    *,
+    turn_id: str,
+    source_digest: str,
+    baseline_text: str | None = None,
 ) -> dict[str, Any] | None:
     latest: dict[str, Any] | None = None
     for row in _jsonl_rows(ctx.campaign_dir / "logs" / "narration-reviews.jsonl"):
@@ -653,6 +765,12 @@ def _latest_span_repairs(
         repairs = row.get("span_repairs")
         if isinstance(repairs, dict) and repairs.get("spans"):
             latest = deepcopy(repairs)
+    if latest is None:
+        return None
+    # Never project malformed or unbounded repair evidence onto a card; the
+    # excerpt-occurrence baseline is enforced by the Pi hydration validator.
+    if not _valid_span_repairs(latest):
+        return None
     return latest
 
 
@@ -819,6 +937,225 @@ def _lookup_clear_review_replay(
     return matches[0] if matches else None
 
 
+def _narration_review_request_digest(args: dict[str, Any]) -> str:
+    return _canonical_digest({
+        key: deepcopy(args.get(key))
+        for key in (
+            "turn_id", "source_digest", "revision", "draft_text", "findings",
+            "state_authority_review", "state_claim_compilation", "investigator",
+        )
+    })
+
+
+def _validated_pending_draft_text(value: Any) -> tuple[str, int]:
+    if not isinstance(value, str) or not value.strip():
+        raise ToolError("invalid_param", "draft_text is required")
+    if "\x00" in value:
+        raise ToolError("invalid_param", "draft_text must not contain NUL")
+    try:
+        encoded = value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise ToolError("invalid_param", "draft_text must be valid Unicode") from exc
+    if len(encoded) > _PENDING_DRAFT_MAX_UTF8_BYTES:
+        raise ToolError(
+            "draft_too_large",
+            f"draft_text exceeds {_PENDING_DRAFT_MAX_UTF8_BYTES} UTF-8 bytes",
+        )
+    return value, len(encoded)
+
+
+def _pending_draft_digest_payload(receipt: dict[str, Any]) -> dict[str, Any]:
+    payload = deepcopy(receipt)
+    payload.pop("receipt_digest", None)
+    payload.pop("ts", None)
+    return payload
+
+
+def _sha256_digest_string(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and value.startswith("sha256:")
+        and len(value) == 71
+        and all(char in "0123456789abcdef" for char in value[7:])
+    )
+
+
+def _valid_pending_draft_provenance(receipt: dict[str, Any]) -> bool:
+    provenance = receipt.get("provenance")
+    if not isinstance(provenance, dict):
+        return False
+    producer_kind = receipt.get("producer_kind")
+    if producer_kind == "narration_review_submission":
+        return (
+            set(provenance) == _PENDING_DRAFT_SUBMISSION_PROVENANCE_FIELDS
+            and provenance.get("kind") == "direct_review_submission"
+        )
+    if producer_kind == "toolbox_audit_recovery":
+        if set(provenance) != _PENDING_DRAFT_RECOVERY_PROVENANCE_FIELDS:
+            return False
+        row_count = provenance.get("source_row_count")
+        return (
+            provenance.get("kind") == "verified_toolbox_audit_recovery"
+            and provenance.get("source_path")
+            == "logs/toolbox-calls.jsonl"
+            and isinstance(row_count, int)
+            and not isinstance(row_count, bool)
+            and 1 <= row_count <= _PENDING_DRAFT_MAX_PROVENANCE_ROWS
+            and _sha256_digest_string(provenance.get("primary_row_digest"))
+            and _sha256_digest_string(provenance.get("corroboration_digest"))
+        )
+    return False
+
+
+def _valid_pending_draft_receipt(receipt: dict[str, Any]) -> bool:
+    if not isinstance(receipt, dict):
+        return False
+    if set(receipt) - {"ts"} != _PENDING_DRAFT_FIELDS:
+        return False
+    revision = receipt.get("revision")
+    if (
+        receipt.get("schema_version") != 1
+        or receipt.get("kind") != _PENDING_DRAFT_KIND
+        or receipt.get("secrecy") != "keeper_only"
+        or not isinstance(receipt.get("campaign_id"), str)
+        or not receipt["campaign_id"].strip()
+        or not isinstance(receipt.get("review_decision_id"), str)
+        or not receipt["review_decision_id"].strip()
+        or not isinstance(receipt.get("review_id"), str)
+        or not receipt["review_id"].strip()
+        or not isinstance(receipt.get("turn_id"), str)
+        or not receipt["turn_id"].strip()
+        or not isinstance(receipt.get("source_digest"), str)
+        or not receipt["source_digest"].strip()
+        or isinstance(revision, bool)
+        or not isinstance(revision, int)
+        or not 1 <= revision <= coc_turn_finalization.MAX_ACCEPTED_REVISION
+        or receipt.get("source_operation") != _PENDING_DRAFT_SOURCE_OPERATION
+        or not isinstance(receipt.get("materialization_decision_id"), str)
+        or not receipt["materialization_decision_id"].strip()
+        or receipt.get("producer_kind") not in _PENDING_DRAFT_PRODUCER_KINDS
+    ):
+        return False
+    # Producer-specific materialization identity: a direct review submission
+    # materializes under the review's own decision; an audit recovery
+    # materializes under its own distinct recovery decision. Truthy
+    # acceptance of either relationship is not valid.
+    if receipt["producer_kind"] == "narration_review_submission":
+        if receipt["materialization_decision_id"] != receipt["review_decision_id"]:
+            return False
+    elif receipt["materialization_decision_id"] == receipt["review_decision_id"]:
+        return False
+    if receipt.get("receipt_id") != (
+        f"pending-narration-draft:{receipt['review_decision_id']}:"
+        f"revision-{revision}"
+    ):
+        return False
+    if not (
+        isinstance(receipt.get("draft_text"), str)
+        and isinstance(receipt.get("draft_utf8_bytes"), int)
+        and not isinstance(receipt.get("draft_utf8_bytes"), bool)
+        and _sha256_digest_string(receipt.get("draft_sha256"))
+        and _sha256_digest_string(receipt.get("review_digest"))
+        and _sha256_digest_string(receipt.get("request_digest"))
+        and _sha256_digest_string(receipt.get("receipt_digest"))
+        and _valid_pending_draft_provenance(receipt)
+    ):
+        return False
+    try:
+        encoded = receipt["draft_text"].encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        return False
+    return (
+        b"\x00" not in encoded
+        and 0 < len(encoded) <= _PENDING_DRAFT_MAX_UTF8_BYTES
+        and receipt["draft_utf8_bytes"] == len(encoded)
+        and receipt["draft_sha256"] == _canonical_digest(receipt["draft_text"])
+        and receipt["receipt_digest"]
+        == _canonical_digest(_pending_draft_digest_payload(receipt))
+    )
+
+
+def _build_pending_draft_receipt(
+    ctx: Ctx,
+    *,
+    review: dict[str, Any],
+    draft: str,
+    draft_utf8_bytes: int,
+    producer_kind: str,
+    materialization_decision_id: str,
+    provenance: dict[str, Any],
+) -> dict[str, Any]:
+    receipt = {
+        "schema_version": 1,
+        "kind": _PENDING_DRAFT_KIND,
+        "secrecy": "keeper_only",
+        "campaign_id": str(ctx.campaign_id),
+        "receipt_id": (
+            f"pending-narration-draft:{review['decision_id']}:"
+            f"revision-{review['revision']}"
+        ),
+        "review_decision_id": str(review["decision_id"]),
+        "review_id": str(review["review_id"]),
+        "turn_id": str(review["turn_id"]),
+        "source_digest": str(review["source_digest"]),
+        "revision": int(review["revision"]),
+        "draft_sha256": str(review["draft_sha256"]),
+        "draft_text": draft,
+        "draft_utf8_bytes": draft_utf8_bytes,
+        "review_digest": str(review["review_digest"]),
+        "request_digest": str(review["request_digest"]),
+        "producer_kind": producer_kind,
+        "source_operation": "narration.review",
+        "materialization_decision_id": materialization_decision_id,
+        "provenance": deepcopy(provenance),
+    }
+    receipt["receipt_digest"] = _canonical_digest(receipt)
+    return receipt
+
+
+def _append_or_reuse_pending_draft(
+    ctx: Ctx, receipt: dict[str, Any]
+) -> dict[str, Any]:
+    rows = [
+        row for row in _jsonl_rows(ctx.campaign_dir / _PENDING_DRAFT_RELATIVE)
+        if row.get("review_id") == receipt.get("review_id")
+        or row.get("receipt_id") == receipt.get("receipt_id")
+    ]
+    if rows:
+        if len(rows) != 1 or not _valid_pending_draft_receipt(rows[0]):
+            raise ToolError("pending_draft_corrupt", "pending narration draft identity is duplicated or invalid")
+        prior = deepcopy(rows[0])
+        prior.pop("ts", None)
+        if prior != receipt:
+            raise ToolError("idempotency_conflict", "pending narration draft identity owns different bytes or binding")
+        return prior
+    coc_state.append_jsonl(
+        ctx.campaign_dir / _PENDING_DRAFT_RELATIVE,
+        {**receipt, "ts": _now_iso()},
+    )
+    return deepcopy(receipt)
+
+
+def _append_or_reuse_narration_review(ctx: Ctx, review: dict[str, Any]) -> None:
+    rows = [
+        row for row in _jsonl_rows(ctx.campaign_dir / "logs" / "narration-reviews.jsonl")
+        if row.get("review_id") == review.get("review_id")
+        or row.get("decision_id") == review.get("decision_id")
+    ]
+    if rows:
+        if len(rows) != 1:
+            raise ToolError("state_corrupt", "narration review identity is duplicated")
+        prior = deepcopy(rows[0])
+        prior.pop("ts", None)
+        if prior != review:
+            raise ToolError("idempotency_conflict", "narration review identity owns different evidence")
+        return
+    coc_state.append_jsonl(
+        ctx.campaign_dir / "logs" / "narration-reviews.jsonl",
+        {**review, "ts": _now_iso()},
+    )
+
+
 def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
     bound_fields = ("turn_id", "source_digest", "revision")
     if not _pi_play_agency_review_required() and not any(
@@ -832,14 +1169,7 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         or revision < 1 or revision > coc_turn_finalization.MAX_ACCEPTED_REVISION
     ):
         raise ToolError("invalid_param", "narration.review requires decision_id and revision 1 or 2")
-    request_digest = _canonical_digest({
-        key: deepcopy(args.get(key))
-        for key in (
-            "turn_id", "source_digest", "revision", "draft_text", "findings",
-            "state_authority_review", "state_claim_compilation",
-            "investigator",
-        )
-    })
+    request_digest = _narration_review_request_digest(args)
     prior = ctx.ledger_lookup("narration.review", args.get("decision_id"))
     if prior is not None:
         if (prior.get("data") or {}).get("request_digest") != request_digest:
@@ -848,9 +1178,7 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
                 "narration.review decision_id already owns another turn/revision/draft/findings request",
             )
         return prior.get("data"), ["duplicate decision_id: returning the previous review"], []
-    draft = str(args.get("draft_text") or "")
-    if not draft.strip():
-        raise ToolError("invalid_param", "draft_text is required")
+    draft, draft_utf8_bytes = _validated_pending_draft_text(args.get("draft_text"))
     raw_findings = args.get("findings") or []
     if not isinstance(raw_findings, list):
         raise ToolError("invalid_param", "findings must be an array")
@@ -1048,11 +1376,20 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
     if span_repairs is not None:
         data["span_repairs"] = span_repairs
     data["review_digest"] = _canonical_digest(data)
-    ctx.ledger_record(args["decision_id"], "narration.review", data)
-    coc_state.append_jsonl(
-        ctx.campaign_dir / "logs" / "narration-reviews.jsonl",
-        {**data, "ts": _now_iso()},
+    _append_or_reuse_pending_draft(
+        ctx,
+        _build_pending_draft_receipt(
+            ctx,
+            review=data,
+            draft=draft,
+            draft_utf8_bytes=draft_utf8_bytes,
+            producer_kind="narration_review_submission",
+            materialization_decision_id=decision_id,
+            provenance={"kind": "direct_review_submission"},
+        ),
     )
+    _append_or_reuse_narration_review(ctx, data)
+    ctx.ledger_record(args["decision_id"], "narration.review", data)
     hints = [
         "non-agency findings remain advisory; the KP decides whether and how to revise them"
     ]
@@ -1076,6 +1413,212 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
             "bind this review_id and every authorized PC proposition as an agency_claim in turn.finalize"
         )
     return data, [], hints
+
+
+def _pending_draft_for_review(
+    ctx: Ctx, review: dict[str, Any]
+) -> tuple[dict[str, Any] | None, str]:
+    related = [
+        row for row in _jsonl_rows(ctx.campaign_dir / _PENDING_DRAFT_RELATIVE)
+        if row.get("review_id") == review.get("review_id")
+        or row.get("review_decision_id") == review.get("decision_id")
+    ]
+    if not related:
+        return None, "missing"
+    if len(related) != 1:
+        return None, "ambiguous"
+    receipt = related[0]
+    if not _valid_pending_draft_receipt(receipt):
+        return None, "invalid"
+    expected = {
+        "campaign_id": str(ctx.campaign_id),
+        "review_decision_id": review.get("decision_id"),
+        "review_id": review.get("review_id"),
+        "turn_id": review.get("turn_id"),
+        "source_digest": review.get("source_digest"),
+        "revision": review.get("revision"),
+        "draft_sha256": review.get("draft_sha256"),
+        "review_digest": review.get("review_digest"),
+        "request_digest": review.get("request_digest"),
+    }
+    if any(receipt.get(key) != value for key, value in expected.items()):
+        return None, "binding_mismatch"
+    clean = deepcopy(receipt)
+    clean.pop("ts", None)
+    return clean, "available"
+
+
+def _active_pending_review(
+    ctx: Ctx, *, turn_id: str, source_digest: str, required_revision: int
+) -> tuple[dict[str, Any] | None, str]:
+    rows = [
+        row for row in _jsonl_rows(ctx.campaign_dir / "logs" / "narration-reviews.jsonl")
+        if row.get("turn_id") == turn_id
+        and row.get("source_digest") == source_digest
+        and isinstance(row.get("revision"), int)
+        and not isinstance(row.get("revision"), bool)
+        and row.get("revision") <= required_revision
+        and _valid_narration_review_digest(row)
+    ]
+    if not rows:
+        return None, "not_submitted"
+    highest = max(int(row["revision"]) for row in rows)
+    active = [row for row in rows if row.get("revision") == highest]
+    if len(active) != 1:
+        return None, "ambiguous_review"
+    return active[0], "submitted"
+
+
+def _tool_state_recover_pending_narration_draft(
+    ctx: Ctx, args: dict[str, Any]
+):
+    decision_id = str(args.get("decision_id") or "").strip()
+    review_decision_id = str(args.get("review_decision_id") or "").strip()
+    if not decision_id or not review_decision_id:
+        raise ToolError(
+            "invalid_param",
+            "state.recover_pending_narration_draft requires decision_id and review_decision_id",
+        )
+    recovery_request_digest = _canonical_digest({
+        "review_decision_id": review_decision_id,
+    })
+    prior = ctx.ledger_lookup(
+        "state.recover_pending_narration_draft", decision_id
+    )
+    if prior is not None:
+        prior_data = prior.get("data") or {}
+        if prior_data.get("recovery_request_digest") != recovery_request_digest:
+            raise ToolError(
+                "idempotency_conflict",
+                "recovery decision_id already owns another review identity",
+            )
+        return deepcopy(prior_data), [
+            "duplicate decision_id: returning the canonical pending draft receipt"
+        ], []
+    reviews = [
+        row for row in _jsonl_rows(ctx.campaign_dir / "logs" / "narration-reviews.jsonl")
+        if row.get("decision_id") == review_decision_id
+    ]
+    if len(reviews) != 1 or not _valid_narration_review_digest(reviews[0]):
+        raise ToolError(
+            "pending_draft_recovery_review_invalid",
+            "review identity is missing, duplicated, or digest-invalid",
+        )
+    review = reviews[0]
+    pending = coc_turn_manifest.pending_manifest(ctx.campaign_dir)
+    if pending is None:
+        raise ToolError("no_unfinalized_journal", "pending narration draft recovery requires an unfinalized turn")
+    settled = coc_turn_finalization.build_output_context(ctx.campaign_dir)
+    if (
+        review.get("turn_id") != settled.get("turn_id")
+        or review.get("source_digest") != settled.get("source_digest")
+    ):
+        raise ToolError(
+            "pending_draft_recovery_identity_mismatch",
+            "review does not bind the current pending turn/source",
+        )
+    existing, existing_status = _pending_draft_for_review(ctx, review)
+    if existing is not None:
+        data = {
+            **existing,
+            "recovery_request_digest": recovery_request_digest,
+        }
+        ctx.ledger_record(
+            decision_id, "state.recover_pending_narration_draft", data
+        )
+        return data, ["canonical pending draft receipt already existed"], []
+    if existing_status != "missing":
+        raise ToolError(
+            "pending_draft_corrupt",
+            f"canonical pending draft receipt is {existing_status}",
+        )
+    matching_audit_rows: list[dict[str, Any]] = []
+    invalid_matching_rows = 0
+    for row in _jsonl_rows(ctx.campaign_dir / "logs" / "toolbox-calls.jsonl"):
+        args_row = row.get("args") if isinstance(row.get("args"), dict) else {}
+        if row.get("tool") != "narration.review" or args_row.get("decision_id") != review_decision_id:
+            continue
+        data_row = row.get("data") if isinstance(row.get("data"), dict) else {}
+        draft_value = args_row.get("draft_text")
+        try:
+            draft_text, draft_utf8_bytes = _validated_pending_draft_text(draft_value)
+        except ToolError:
+            invalid_matching_rows += 1
+            continue
+        if (
+            row.get("ok") is not True
+            or args_row.get("turn_id") != review.get("turn_id")
+            or args_row.get("source_digest") != review.get("source_digest")
+            or args_row.get("revision") != review.get("revision")
+            or _narration_review_request_digest(args_row) != review.get("request_digest")
+            or _canonical_digest(draft_text) != review.get("draft_sha256")
+            or data_row.get("review_id") != review.get("review_id")
+            or data_row.get("review_digest") != review.get("review_digest")
+            or data_row.get("request_digest") != review.get("request_digest")
+        ):
+            invalid_matching_rows += 1
+            continue
+        matching_audit_rows.append({
+            "draft_text": draft_text,
+            "draft_utf8_bytes": draft_utf8_bytes,
+            "row_digest": _canonical_digest(row),
+            "request_digest": review.get("request_digest"),
+            "review_id": review.get("review_id"),
+        })
+    if invalid_matching_rows:
+        raise ToolError(
+            "pending_draft_recovery_evidence_mismatch",
+            "matching narration.review audit evidence is malformed or identity-mismatched",
+        )
+    unique = {
+        _canonical_digest({
+            "draft_text": row["draft_text"],
+            "request_digest": row["request_digest"],
+            "review_id": row["review_id"],
+        })
+        for row in matching_audit_rows
+    }
+    if not matching_audit_rows:
+        raise ToolError(
+            "pending_draft_recovery_evidence_missing",
+            "no matching successful narration.review audit candidate exists",
+        )
+    if len(unique) != 1:
+        raise ToolError(
+            "pending_draft_recovery_evidence_ambiguous",
+            "matching narration.review audit evidence contains distinct drafts or identities",
+        )
+    if len(matching_audit_rows) > _PENDING_DRAFT_MAX_PROVENANCE_ROWS:
+        raise ToolError(
+            "pending_draft_recovery_evidence_ambiguous",
+            "matching narration.review audit evidence exceeds the bounded corroboration count",
+        )
+    candidate = matching_audit_rows[0]
+    row_digests = sorted({
+        row["row_digest"] for row in matching_audit_rows
+    })
+    receipt = _build_pending_draft_receipt(
+        ctx,
+        review=review,
+        draft=candidate["draft_text"],
+        draft_utf8_bytes=candidate["draft_utf8_bytes"],
+        producer_kind="toolbox_audit_recovery",
+        materialization_decision_id=decision_id,
+        provenance={
+            "kind": "verified_toolbox_audit_recovery",
+            "source_path": "logs/toolbox-calls.jsonl",
+            "source_row_count": len(matching_audit_rows),
+            "primary_row_digest": row_digests[0],
+            "corroboration_digest": _canonical_digest(row_digests),
+        },
+    )
+    receipt = _append_or_reuse_pending_draft(ctx, receipt)
+    data = {**receipt, "recovery_request_digest": recovery_request_digest}
+    ctx.ledger_record(decision_id, "state.recover_pending_narration_draft", data)
+    return data, [], [
+        "materialized one exact keeper-only pending draft from verified structured narration.review audit evidence"
+    ]
+
 
 _UNDELIVERED_OUTPUT_REPAIR_RELATIVE = (
     Path("logs") / "undelivered-output-repairs.jsonl"
@@ -1756,7 +2299,43 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
         _pending_authority_review_revision(ctx, data)
         if agency_review_required else 1
     )
+    draft_contract_usable = True
+    draft_status = "not_applicable"
     if agency_review_required:
+        active_review, draft_status = _active_pending_review(
+            ctx,
+            turn_id=str(data["turn_id"]),
+            source_digest=str(data["source_digest"]),
+            required_revision=agency_review_revision,
+        )
+        if active_review is not None:
+            frozen_draft, draft_status = _pending_draft_for_review(
+                ctx, active_review
+            )
+            if frozen_draft is not None:
+                data["frozen_narration_draft"] = frozen_draft
+            else:
+                draft_contract_usable = False
+        elif draft_status != "not_submitted":
+            draft_contract_usable = False
+    data["pending_narration_draft_status"] = {
+        "schema_version": 1,
+        "secrecy": "keeper_only",
+        "status": draft_status,
+        "actionable": draft_contract_usable,
+        **(
+            {}
+            if draft_contract_usable
+            else {
+                "diagnostic": (
+                    "canonical pending narration draft evidence is unavailable, "
+                    "ambiguous, invalid, or identity-mismatched; run the explicit "
+                    "operator recovery operation and refresh output context"
+                )
+            }
+        ),
+    }
+    if agency_review_required and draft_contract_usable:
         data["agency_review_operation"] = {
             "operation": "narration.review",
             "invoke_via": "coc_narration_review",
@@ -1800,17 +2379,18 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
         prefilled_arguments["coverage"] = []
     if agency_review_required:
         missing_arguments.extend(["narration_review_id", "agency_claims"])
-    data["finalize_operation"] = {
-        "operation": "turn.finalize",
-        "invoke_via": (
-            "coc_turn_finalize" if agency_review_required else "coc_invoke"
-        ),
-        "prefilled_arguments": prefilled_arguments,
-        "missing_arguments": missing_arguments,
-        "discovery_required": False,
-        "authority": "settled_output_completeness",
-        "hard_gate": True,
-    }
+    if draft_contract_usable:
+        data["finalize_operation"] = {
+            "operation": "turn.finalize",
+            "invoke_via": (
+                "coc_turn_finalize" if agency_review_required else "coc_invoke"
+            ),
+            "prefilled_arguments": prefilled_arguments,
+            "missing_arguments": missing_arguments,
+            "discovery_required": False,
+            "authority": "settled_output_completeness",
+            "hard_gate": True,
+        }
     return data, [], [
         "draft fiction from obligations; related sources may share an exact_excerpt, but every obligation_id needs exactly one coverage row",
         "npc_performance_constraints are Keeper-only: portray observable_manner naturally, but never print causal_explanation, opportunity_or_friction, or boundary_preserved as a player-facing analysis block",
@@ -2482,6 +3062,25 @@ def register_operations(registry) -> None:
     execution_class="serial_campaign",
 )(_tool_narration_review)
     registry.tool(
+    "state.recover_pending_narration_draft",
+    "Operator/host recovery mutation that materializes one exact keeper-only pending narration draft from identity- and hash-matched structured narration.review audit evidence. It never reads transcripts and is not an ordinary KP play method.",
+    {
+        "decision_id": {
+            "type": "string",
+            "required": True,
+            "desc": "semantic idempotency key for this explicit materialization",
+        },
+        "review_decision_id": {
+            "type": "string",
+            "required": True,
+            "desc": "existing semantic narration.review decision identity; all other binding is derived from canonical review evidence",
+        },
+    },
+    access="mutation",
+    write_domains=("narration_advisory",),
+    execution_class="serial_campaign",
+)(_tool_state_recover_pending_narration_draft)
+    registry.tool(
     "state.journal",
     "Close out a narrated turn: bump the turn counter, optionally set tension, and write player-safe receipts.",
     {
@@ -2732,6 +3331,7 @@ OPERATION_EXPORTS = (
     '_tool_narration_review',
     '_tool_state_end_session',
     '_tool_state_journal',
+    '_tool_state_recover_pending_narration_draft',
     '_tool_state_supersede_settlement',
     '_tool_turn_finalize',
     '_tool_turn_output_context',

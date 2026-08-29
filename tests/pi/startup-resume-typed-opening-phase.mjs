@@ -584,7 +584,7 @@ if (!fresh.activeToolSnapshots.at(-1)?.includes("coc_setup_quick_start")) {
 }
 let wrongFreshAccepted = false;
 try {
-  await invokeTyped(fresh, "coc_setup_quick_start", "fresh-wrong-id", {
+  const wrongResult = await invokeTyped(fresh, "coc_setup_quick_start", "fresh-wrong-id", {
     root,
     scenario_id: "the-haunting",
     pregen_id: "starter",

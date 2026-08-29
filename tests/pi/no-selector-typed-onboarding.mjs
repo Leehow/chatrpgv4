@@ -142,7 +142,11 @@ const canonicalCall = async (name, params) => {
   if (params.operation === "session.resume") {
     assert.equal(params.root, path.resolve(workspace));
     assert.equal(params.campaign, campaign);
-    assert.deepEqual(params.arguments, {});
+    // The host attaches its own session id post-validation; it is never
+    // model-authored and the model-facing schema stays semantic-only.
+    assert.deepEqual(params.arguments, {
+      host_session_id: "no-selector-typed-onboarding",
+    });
     return {
       ok: true,
       tool: "session.resume",
@@ -765,12 +769,17 @@ async function assertRoleNullResumeGateCase({
     caseCtx,
   )).content[0].text);
   assert.equal(retried.ok, true, `${label}: ${JSON.stringify(retried)}`);
-  assert.equal(caseCalls.length, callsBeforeRetry + 1, label);
-  assert.deepEqual(caseCalls.at(-1), {
+  // Each resume execution also emits a canonical memory.extraction_status
+  // probe after the resume call itself.
+  assert.equal(caseCalls.length, callsBeforeRetry + 2, label);
+  assert.deepEqual(caseCalls.at(-2), {
     operation: "session.resume",
     root: path.resolve(caseWorkspace),
     campaign: caseCampaign,
-    arguments: terminalRetryArguments,
+    arguments: {
+      ...terminalRetryArguments,
+      host_session_id: `malformed-resume-${label}`,
+    },
   }, label);
   const postRetryTools = caseActive.at(-1);
   assertNoGenericWrappers(postRetryTools);
@@ -799,6 +808,22 @@ try {
     },
   });
 
+  // Cold start: the host registers the bounded tool manifest up front and
+  // the model's first coc_discover projects the active working set.
+  const registeredNames = [...tools.keys()];
+  assert.ok(registeredNames.includes("coc_discover"), JSON.stringify(registeredNames));
+  assert.ok(
+    registeredNames.includes("coc_setup_quick_start"),
+    JSON.stringify(registeredNames),
+  );
+  const coldDiscover = JSON.parse((await tools.get("coc_discover").execute(
+    "cold-discover",
+    { domain: "setup" },
+    undefined,
+    undefined,
+    ctx,
+  )).content[0].text);
+  assert.equal(coldDiscover.ok, true, JSON.stringify(coldDiscover).slice(0, 300));
   const coldStartTools = activeSnapshots.at(-1);
   assertNoGenericWrappers(coldStartTools);
   assert.ok(coldStartTools.includes("coc_discover"), JSON.stringify(coldStartTools));
@@ -930,8 +955,10 @@ try {
       /decision_id|const|handoff-1/,
     );
   }
-  await assert.rejects(
-    complete.execute(
+  // The drifted UUID decision_id rejects at the raw identity gate before
+  // transport; the field name is surfaced without echoing the value.
+  {
+    const drifted = JSON.parse((await complete.execute(
       "drifted-complete-direct",
       {
         campaign_id: campaign,
@@ -940,9 +967,14 @@ try {
       undefined,
       undefined,
       ctx,
-    ),
-    /invalid_model_argument/,
-  );
+    )).content[0].text);
+    assert.equal(drifted.ok, false);
+    assert.equal(drifted.error.code, "opaque_identity_grammar");
+    assert.ok(
+      !JSON.stringify(drifted).includes("550e8400"),
+      "the drifted id is never echoed",
+    );
+  }
   assert.equal(
     clientCalls.filter((call) => call.operation === "setup.complete").length,
     callsAfterLostResponse,
@@ -1030,14 +1062,14 @@ try {
     reason: "advance",
     localized_reason: "委托预付款",
     decision_id: "cash-1",
-    investigator,
+    investigator: "current-investigator",
   });
   await invokeValidated("coc_state_item_grant", "item", {
     campaign,
     kind: "gear",
     label: "房门钥匙",
     decision_id: "item-1",
-    investigator,
+    investigator: "current-investigator",
   });
 
   await emit("message_start", {
@@ -1164,9 +1196,10 @@ try {
         campaign_id: caseCampaign,
         mode: "table_opening",
       }),
+      // Semantic model input only: the retry carries the context epoch;
+      // session identity is host-bound, and no party binding exists before
+      // resume, so no investigator handle is supplied here.
       terminalRetryArguments: {
-        investigator: "investigator-missing-next-operations",
-        host_session_id: "pi-session-missing-next-operations",
         context_epoch: 41,
       },
       verifyTerminalRetryRejections: true,

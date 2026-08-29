@@ -7,6 +7,16 @@
  */
 import { createHash } from "node:crypto";
 import type { JsonObject } from "./runtime.ts";
+import { canonicalDigest } from "./state-claim-compiler.ts";
+import {
+  getOperationContract,
+  loadOperationContracts,
+  type JsonSchema,
+} from "./operation-contracts.ts";
+import {
+  projectModelCallArguments,
+  type ModelCallArgumentProjection,
+} from "./tool-contract-projection.ts";
 
 export const OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT =
   "coc.pi-open-turn-recovery-guidance.v1";
@@ -119,6 +129,359 @@ function deepCopyValue(value: unknown): unknown {
   return value;
 }
 
+/** Canonical keeper-only frozen narration draft receipt produced by the
+ * `turn.output_context` producer (`data.frozen_narration_draft`). The exact
+ * binding fields are machine-checked against the validated live chain; the
+ * draft text is the exact bytes the review must re-submit. The receipt
+ * revision is the reviewed draft's own revision and is never relabeled. */
+const SHA256_DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
+
+function nonEmptyStringField(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function sha256DigestField(value: unknown): value is string {
+  return typeof value === "string" && SHA256_DIGEST_RE.test(value);
+}
+
+/**
+ * True only when `digest` is the exact canonical digest of the draft text
+ * (SHA-256 over its stable JSON serialization, matching the kernel's
+ * `_canonical_digest` convention) — never a format-only acceptance.
+ */
+function digestMatchesTextBytes(digest: string, text: string): boolean {
+  return canonicalDigest(text) === digest;
+}
+
+/** Exact UTF-8 byte length of the draft text (kernel `draft_utf8_bytes`). */
+function draftUtf8Bytes(text: string): number {
+  return Buffer.byteLength(text, "utf8");
+}
+
+/** Non-empty bounded UTF-8 string (never a bare truthy acceptance). */
+function boundedString(value: unknown, maxBytes: number): value is string {
+  return typeof value === "string" && value.trim().length > 0
+    && Buffer.byteLength(value, "utf8") <= maxBytes;
+}
+
+/** Closed receipt field set — exactly the canonical producer schema. */
+const FROZEN_RECEIPT_FIELDS = new Set([
+  "schema_version", "kind", "secrecy", "campaign_id", "receipt_id",
+  "review_decision_id", "review_id", "turn_id", "source_digest",
+  "revision", "draft_sha256", "draft_text", "draft_utf8_bytes",
+  "review_digest", "request_digest", "producer_kind", "source_operation",
+  "materialization_decision_id", "provenance", "receipt_digest",
+]);
+const FROZEN_DRAFT_MAX_UTF8_BYTES = 8192;
+const FROZEN_DRAFT_MAX_PROVENANCE_ROWS = 8;
+
+/**
+ * Bounded, closed provenance validation per producer kind. A normal
+ * submission carries only its kind marker; an audit materialization
+ * carries the bounded corroboration binding (fixed field set, deterministic
+ * row count cap, primary row digest, and canonical aggregate digest).
+ */
+function validFrozenDraftProvenance(value: JsonObject): boolean {
+  const provenance = value.provenance;
+  if (!isPlainObject(provenance)) return false;
+  const keys = Object.keys(provenance).sort();
+  const sameKeys = (expected: readonly string[]) =>
+    keys.length === expected.length && expected.every((key) => key in provenance);
+  if (value.producer_kind === "narration_review_submission") {
+    return sameKeys(["kind"]) && provenance.kind === "direct_review_submission";
+  }
+  if (value.producer_kind === "toolbox_audit_recovery") {
+    if (!sameKeys([
+      "kind", "source_path", "source_row_count", "primary_row_digest",
+      "corroboration_digest",
+    ])) return false;
+    const rowCount = provenance.source_row_count;
+    return provenance.kind === "verified_toolbox_audit_recovery"
+      && provenance.source_path === "logs/toolbox-calls.jsonl"
+      && Number.isInteger(rowCount)
+      && rowCount >= 1 && rowCount <= FROZEN_DRAFT_MAX_PROVENANCE_ROWS
+      && sha256DigestField(provenance.primary_row_digest)
+      && sha256DigestField(provenance.corroboration_digest);
+  }
+  return false;
+}
+
+/**
+ * Recompute the receipt integrity digest over the canonical payload with
+ * only the digest field excluded — the exact Python `_canonical_digest`
+ * convention over the stored receipt (which never carries `ts` here).
+ */
+function receiptDigestMatches(value: JsonObject): boolean {
+  const payload: JsonObject = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (key !== "receipt_digest") payload[key] = entry;
+  }
+  return canonicalDigest(payload) === value.receipt_digest;
+}
+
+/**
+ * Canonical excerpt-only revision repair evidence: the producer attaches
+ * `span_repairs` to the review card exactly when a prior revision's span
+ * repair is actionable, which is the only canonical basis for a frozen
+ * receipt one revision behind the actionable cards.
+ *
+ * Closed bounded contract (coc.span-repairs.v1), byte-for-byte the same
+ * rules as the kernel producer validator (`_valid_span_repairs` in
+ * coc_operation_turn_output.py): exact field sets, non-empty bounded
+ * strings, canonical repair action, no duplicate (excerpt, kind) pair, each
+ * excerpt occurring in the frozen baseline when one is given, and
+ * deterministic count and aggregate excerpt-byte caps.
+ */
+const SPAN_REPAIRS_CONTRACT_ID = "coc.span-repairs.v1";
+const SPAN_REPAIRS_MODE = "excerpt_only";
+const SPAN_REPAIRS_REPAIR_ACTION = "rephrase_or_remove";
+const SPAN_REPAIRS_FIELDS = new Set([
+  "schema_version", "contract_id", "mode", "spans", "instruction",
+]);
+const SPAN_REPAIRS_ENTRY_FIELDS = new Set([
+  "exact_excerpt", "claim_kind", "reason", "repair",
+]);
+const SPAN_REPAIRS_MAX_SPANS = 16;
+const SPAN_REPAIRS_MAX_EXCERPT_UTF8_BYTES = 2048;
+const SPAN_REPAIRS_MAX_CLAIM_KIND_UTF8_BYTES = 128;
+const SPAN_REPAIRS_MAX_REASON_UTF8_BYTES = 1024;
+const SPAN_REPAIRS_MAX_INSTRUCTION_UTF8_BYTES = 512;
+const SPAN_REPAIRS_MAX_AGGREGATE_EXCERPT_UTF8_BYTES = 4096;
+
+function validateSpanRepairs(value: unknown, baselineText: string | null): boolean {
+  if (!isPlainObject(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length !== SPAN_REPAIRS_FIELDS.size) return false;
+  for (const key of keys) {
+    if (!SPAN_REPAIRS_FIELDS.has(key)) return false;
+  }
+  if (value.schema_version !== 1) return false;
+  if (value.contract_id !== SPAN_REPAIRS_CONTRACT_ID) return false;
+  if (value.mode !== SPAN_REPAIRS_MODE) return false;
+  if (!boundedString(value.instruction, SPAN_REPAIRS_MAX_INSTRUCTION_UTF8_BYTES)) {
+    return false;
+  }
+  const spans = value.spans;
+  if (
+    !Array.isArray(spans)
+    || spans.length < 1
+    || spans.length > SPAN_REPAIRS_MAX_SPANS
+  ) return false;
+  const seen = new Set<string>();
+  let aggregateExcerptBytes = 0;
+  for (const raw of spans) {
+    if (!isPlainObject(raw)) return false;
+    const entryKeys = Object.keys(raw);
+    if (entryKeys.length !== SPAN_REPAIRS_ENTRY_FIELDS.size) return false;
+    for (const key of entryKeys) {
+      if (!SPAN_REPAIRS_ENTRY_FIELDS.has(key)) return false;
+    }
+    const excerpt = raw.exact_excerpt;
+    const claimKind = raw.claim_kind;
+    if (!boundedString(excerpt, SPAN_REPAIRS_MAX_EXCERPT_UTF8_BYTES)) return false;
+    if (!boundedString(claimKind, SPAN_REPAIRS_MAX_CLAIM_KIND_UTF8_BYTES)) return false;
+    if (!boundedString(raw.reason, SPAN_REPAIRS_MAX_REASON_UTF8_BYTES)) return false;
+    if (raw.repair !== SPAN_REPAIRS_REPAIR_ACTION) return false;
+    const dedupeKey = `${excerpt}\u0000${claimKind}`;
+    if (seen.has(dedupeKey)) return false;
+    seen.add(dedupeKey);
+    if (baselineText !== null && !baselineText.includes(excerpt)) return false;
+    aggregateExcerptBytes += draftUtf8Bytes(excerpt);
+    if (aggregateExcerptBytes > SPAN_REPAIRS_MAX_AGGREGATE_EXCERPT_UTF8_BYTES) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function cardCarriesSpanRepairEvidence(card: JsonObject): boolean {
+  return Object.hasOwn(card, "span_repairs")
+    && validateSpanRepairs(card.span_repairs, null);
+}
+
+/** How the frozen baseline relates to the actionable review card. */
+export type FrozenDraftMode = "exact_replay" | "excerpt_only_repair";
+
+/**
+ * The frozen receipt binds its own exact review revision and is accepted
+ * only when it is either the actionable card revision (clear/active same
+ * revision) or exactly card revision-1 with canonical span-repair evidence.
+ * The receipt is never relabeled to match the cards.
+ */
+function frozenDraftRevisionAccepted(
+  frozenDraft: JsonObject,
+  cardRevision: number,
+  evidenceCard: JsonObject,
+): boolean {
+  const revision = frozenDraft.revision;
+  if (!Number.isInteger(revision) || revision < 1) return false;
+  if (revision === cardRevision) return true;
+  if (revision === cardRevision - 1) {
+    return cardCarriesSpanRepairEvidence(evidenceCard);
+  }
+  return false;
+}
+
+function frozenDraftModeOf(
+  frozenDraft: JsonObject,
+  cardRevision: number,
+): FrozenDraftMode | null {
+  if (frozenDraft.revision === cardRevision) return "exact_replay";
+  if (frozenDraft.revision === cardRevision - 1) return "excerpt_only_repair";
+  return null;
+}
+
+/**
+ * Validate the canonical `frozen_narration_draft` receipt against the exact
+ * live turn/source chain and return it as an exact deep copy, or `null`
+ * when anything is missing, extra, stale, divergent, or malformed.
+ * Requires the complete closed producer schema: kind, semantic receipt_id,
+ * all identity fields, both review/request digests, exact canonical
+ * draft_sha256 over the text, exact `draft_utf8_bytes` within the 8192-byte
+ * bound, allowed producer/source kinds, bounded closed provenance per
+ * producer kind, and a recomputed `receipt_digest`. The receipt's own
+ * revision (1 or 2 only) is carried verbatim (never relabeled). Pure.
+ */
+export function validateFrozenNarrationDraft(
+  value: unknown,
+  binding: { turnId: string; sourceDigest: string; campaignId?: string },
+): JsonObject | null {
+  if (!isPlainObject(value)) return null;
+  const keys = Object.keys(value);
+  if (keys.length !== FROZEN_RECEIPT_FIELDS.size) return null;
+  for (const key of keys) {
+    if (!FROZEN_RECEIPT_FIELDS.has(key)) return null;
+  }
+  if (value.schema_version !== 1) return null;
+  if (value.kind !== "pending_narration_draft") return null;
+  if (value.secrecy !== "keeper_only") return null;
+  if (!nonEmptyStringField(value.campaign_id)) return null;
+  // Campaign identity binding: when the validator knows the current
+  // resume/output-context campaign, the receipt's campaign_id must equal
+  // it exactly — never merely be present.
+  if (binding.campaignId !== undefined && value.campaign_id !== binding.campaignId) {
+    return null;
+  }
+  if (!nonEmptyStringField(value.review_decision_id)) return null;
+  if (!nonEmptyStringField(value.review_id)) return null;
+  if (value.turn_id !== binding.turnId) return null;
+  if (value.source_digest !== binding.sourceDigest) return null;
+  if (
+    !Number.isInteger(value.revision)
+    || value.revision < 1
+    || value.revision > 2
+  ) return null;
+  if (
+    value.receipt_id
+      !== `pending-narration-draft:${value.review_decision_id}:revision-${value.revision}`
+  ) return null;
+  if (value.source_operation !== "narration.review") return null;
+  if (
+    value.producer_kind !== "narration_review_submission"
+    && value.producer_kind !== "toolbox_audit_recovery"
+  ) return null;
+  if (!nonEmptyStringField(value.materialization_decision_id)) return null;
+  // Producer-specific materialization identity: a direct review submission
+  // materializes under the review's own decision id; an audit recovery
+  // materializes under its own distinct recovery decision id. Truthy
+  // acceptance of either relationship is not valid.
+  if (value.producer_kind === "narration_review_submission") {
+    if (value.materialization_decision_id !== value.review_decision_id) return null;
+  } else if (value.materialization_decision_id === value.review_decision_id) {
+    return null;
+  }
+  if (!sha256DigestField(value.draft_sha256)) return null;
+  if (!nonEmptyStringField(value.draft_text)) return null;
+  // NUL parity with the canonical Python validator: a draft containing
+  // U+0000 is invalid even when its draft and receipt digests recompute.
+  if (value.draft_text.includes("\u0000")) return null;
+  if (!digestMatchesTextBytes(value.draft_sha256, value.draft_text)) return null;
+  if (
+    !Number.isInteger(value.draft_utf8_bytes)
+    || value.draft_utf8_bytes !== draftUtf8Bytes(value.draft_text)
+    || value.draft_utf8_bytes > FROZEN_DRAFT_MAX_UTF8_BYTES
+    || value.draft_utf8_bytes < 1
+  ) return null;
+  if (!sha256DigestField(value.review_digest)) return null;
+  if (!sha256DigestField(value.request_digest)) return null;
+  if (!validFrozenDraftProvenance(value)) return null;
+  if (!sha256DigestField(value.receipt_digest)) return null;
+  if (!receiptDigestMatches(value)) return null;
+  return deepCopyValue(value) as JsonObject;
+}
+
+/**
+ * Actual typed input schemas for the two recovery model-call surfaces,
+ * loaded once from the canonical MCP operation contract archive. The
+ * model-call projection is derived from these schemas — never from a
+ * duplicated hand list. `null` (archive unusable) fails closed.
+ */
+let recoveryTypedSchemasCache: {
+  review: JsonSchema;
+  finalize: JsonSchema;
+} | null | undefined;
+
+function recoveryTypedSchemas(): {
+  review: JsonSchema;
+  finalize: JsonSchema;
+} | null {
+  if (recoveryTypedSchemasCache !== undefined) return recoveryTypedSchemasCache;
+  try {
+    const catalog = loadOperationContracts();
+    recoveryTypedSchemasCache = {
+      review: getOperationContract(catalog, "narration.review").inputSchema,
+      finalize: getOperationContract(catalog, "turn.finalize").inputSchema,
+    };
+  } catch {
+    recoveryTypedSchemasCache = null;
+  }
+  return recoveryTypedSchemasCache;
+}
+
+/**
+ * Separate model-call projection for the live recovery path, derived from
+ * the actual typed tool schemas with the exact card invoke_via surfaces.
+ * Review is present only when the review card is; the finalize projection
+ * supports both canonical card invoke_via surfaces (coc_turn_finalize when
+ * agency review is required, coc_invoke when not). Returns `null` when the
+ * typed contracts cannot be loaded — the caller fails closed to pointer
+ * guidance rather than projecting a guessed argument list.
+ */
+function buildRecoveryModelCalls(
+  reviewCard: JsonObject | null,
+  finalizeCard: JsonObject,
+): {
+  review?: ModelCallArgumentProjection;
+  finalize: ModelCallArgumentProjection;
+} | null {
+  const schemas = recoveryTypedSchemas();
+  if (schemas === null) return null;
+  try {
+    const finalizeInvokeVia = typeof finalizeCard.invoke_via === "string"
+      ? finalizeCard.invoke_via
+      : "";
+    const finalize = projectModelCallArguments(
+      "turn.finalize",
+      finalizeInvokeVia,
+      schemas.finalize,
+    );
+    if (reviewCard === null) return { finalize };
+    const reviewInvokeVia = typeof reviewCard.invoke_via === "string"
+      ? reviewCard.invoke_via
+      : "";
+    return {
+      review: projectModelCallArguments(
+        "narration.review",
+        reviewInvokeVia,
+        schemas.review,
+      ),
+      finalize,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Positive integer card revision bound to its slot operation. */
 function operationCardRevisionOf(card: JsonObject): number | null {
   const prefilled = isPlainObject(card.prefilled_arguments)
@@ -127,6 +490,17 @@ function operationCardRevisionOf(card: JsonObject): number | null {
   const revision = prefilled?.revision;
   if (typeof revision !== "number") return null;
   return Number.isInteger(revision) && revision > 0 ? revision : null;
+}
+
+/** The pending resume's own campaign id, when it carries one. Accepts the
+ * full resume envelope or its `data` object (both appear as callers). */
+function resumeCampaignIdOf(resumeData: unknown): string {
+  if (!isPlainObject(resumeData)) return "";
+  const direct = resumeData.campaign_id;
+  if (typeof direct === "string" && direct) return direct;
+  const data = isPlainObject(resumeData.data) ? resumeData.data : null;
+  const campaignId = data === null ? undefined : data.campaign_id;
+  return typeof campaignId === "string" && campaignId ? campaignId : "";
 }
 
 export type LiveOutputContextCards = {
@@ -138,6 +512,20 @@ export type LiveOutputContextCards = {
   sourceDigest: string;
   /** Host-injected journal decision id from the validated receipt, if any. */
   journalDecisionId: string | null;
+  /**
+   * Exact deep copy of the canonical `data.frozen_narration_draft` receipt
+   * when the live context carries one. Present exactly when a frozen draft
+   * was validated; review-required live recovery additionally requires it.
+   */
+  frozenDraft: JsonObject | null;
+  /**
+   * How the frozen baseline relates to the actionable review card:
+   * `exact_replay` — the receipt is the current card revision (submit it
+   * unchanged, or semantically complete it per the review contract);
+   * `excerpt_only_repair` — the receipt is the rejected card revision-1
+   * baseline and the model MUST edit only the listed span-repair excerpts.
+   */
+  frozenDraftMode: FrozenDraftMode | null;
 };
 
 export type PendingFinalizationHydration =
@@ -164,6 +552,23 @@ export type PendingFinalizationHydration =
 export function validateLiveOutputContext(
   value: unknown,
   resumeData: unknown,
+  options?: {
+    /**
+     * Recovery hydration mode: a live chain for a review-required pending
+     * turn is usable only with the exact canonical frozen draft. A missing
+     * or divergent receipt fails the whole chain closed (pointer guidance,
+     * no review card). Explicit canonical `turn.output_context` calls keep
+     * the ordinary live-turn behavior and only validate a draft when the
+     * producer supplies one.
+     */
+    requireFrozenDraft?: boolean;
+    /**
+     * The current campaign id, when the caller knows it. When omitted it
+     * is derived from the pending resume's own campaign_id; a frozen-draft
+     * receipt's campaign_id must equal the resolved campaign exactly.
+     */
+    campaignId?: string;
+  },
 ): LiveOutputContextCards | null {
   if (!isPlainObject(value) || value.ok !== true) return null;
   if (value.tool !== "turn.output_context") return null;
@@ -241,6 +646,57 @@ export function validateLiveOutputContext(
       || reviewPrefilled.source_digest !== sourceDigest
     ) return null;
   }
+  // A present frozen-draft receipt must validate exactly: any stale,
+  // divergent, or malformed value fails the whole chain closed in every
+  // mode. Its own revision is never relabeled: it must be either the
+  // actionable card revision or exactly card revision-1 with canonical
+  // span-repair evidence on the applicable card. Campaign identity binds
+  // exactly when known: from the explicit option, otherwise from the
+  // pending resume's own campaign_id (verified against the invocation by
+  // the caller). An absent receipt fails closed only when recovery
+  // hydration requires it for a review-required pending chain.
+  const expectedCampaignId = options?.campaignId
+    ?? resumeCampaignIdOf(resumeData);
+  const hasFrozenDraftField = Object.hasOwn(data, "frozen_narration_draft");
+  const frozenDraft = hasFrozenDraftField
+    ? validateFrozenNarrationDraft(data.frozen_narration_draft, {
+        turnId,
+        sourceDigest,
+        ...(expectedCampaignId ? { campaignId: expectedCampaignId } : {}),
+      })
+    : null;
+  if (hasFrozenDraftField && frozenDraft === null) return null;
+  const frozenDraftMode = frozenDraft !== null
+    ? frozenDraftModeOf(frozenDraft, finalizeRevision)
+    : null;
+  if (frozenDraft !== null && frozenDraftMode === null) return null;
+  if (
+    frozenDraft !== null
+    && !frozenDraftRevisionAccepted(
+      frozenDraft,
+      finalizeRevision,
+      reviewCard ?? finalizeCard,
+    )
+  ) return null;
+  // Repair evidence on the applicable card is fully validated against the
+  // frozen baseline: structural closedness/bounds always, and in the
+  // excerpt_only_repair mode every listed excerpt must occur exactly in
+  // the frozen revision-1 baseline text. Anything else fails closed.
+  if (frozenDraft !== null) {
+    const evidenceCard: JsonObject = reviewCard ?? finalizeCard;
+    if (Object.hasOwn(evidenceCard, "span_repairs")) {
+      const baseline = frozenDraftMode === "excerpt_only_repair"
+        && typeof frozenDraft.draft_text === "string"
+        ? frozenDraft.draft_text
+        : null;
+      if (!validateSpanRepairs(evidenceCard.span_repairs, baseline)) return null;
+    }
+  }
+  if (
+    options?.requireFrozenDraft === true
+    && agencyReviewRequired
+    && frozenDraft === null
+  ) return null;
   const pendingContext = isPlainObject(resumeData)
     && isPlainObject((resumeData as JsonObject).pending_output_context)
     ? (resumeData as JsonObject).pending_output_context
@@ -272,6 +728,8 @@ export function validateLiveOutputContext(
       && data.journal_decision_id
       ? data.journal_decision_id
       : null,
+    frozenDraft,
+    frozenDraftMode,
   };
 }
 
@@ -382,6 +840,9 @@ export function applyPendingFinalizationRecoveryGuidance(
   const liveHydration = options?.liveHydration ?? { status: "not_attempted" };
   let liveRevision: number | null = null;
   let liveProjected = false;
+  let liveFrozenDraft: JsonObject | null = null;
+  let liveFrozenDraftMode: FrozenDraftMode | null = null;
+  let liveProjectionDropped = false;
   if (
     liveHydration.status === "unavailable"
     || liveHydration.status === "superseded"
@@ -397,7 +858,54 @@ export function applyPendingFinalizationRecoveryGuidance(
       : deepCopyValue(liveHydration.cards.reviewCard) as JsonObject;
     finalizeCard = deepCopyValue(liveHydration.cards.finalizeCard) as JsonObject;
     liveRevision = liveHydration.cards.revision;
-    liveProjected = true;
+    liveFrozenDraft = liveHydration.cards.frozenDraft === null
+      ? null
+      : deepCopyValue(liveHydration.cards.frozenDraft) as JsonObject;
+    liveFrozenDraftMode = liveHydration.cards.frozenDraftMode;
+    // A live review chain without the exact canonical frozen draft is
+    // unusable: fail closed to card-free pointer guidance with no review
+    // card. The host never reconstructs a draft from transcript history.
+    if (reviewCard !== null && liveFrozenDraft === null) {
+      reviewCard = null;
+      finalizeCard = null;
+      liveRevision = null;
+      liveProjectionDropped = true;
+    } else {
+      // excerpt_only_repair additionally requires bounded canonical repair
+      // evidence on the live review card; without span_repairs the repair
+      // scope would be invented, so the chain fails closed instead.
+      if (
+        reviewCard !== null
+        && liveFrozenDraftMode === "excerpt_only_repair"
+        && !cardCarriesSpanRepairEvidence(reviewCard)
+      ) {
+        reviewCard = null;
+        finalizeCard = null;
+        liveFrozenDraft = null;
+        liveFrozenDraftMode = null;
+        liveRevision = null;
+        liveProjectionDropped = true;
+      } else {
+        liveProjected = true;
+      }
+    }
+  }
+  // Separate model-call projection, derived from the actual typed tool
+  // schemas (canonical MCP operation contract archive) with the exact card
+  // invoke_via surfaces. If the typed contracts are unavailable the live
+  // path degrades to card-free pointer guidance rather than regressing to
+  // a guessed argument allowlist.
+  const modelCalls = liveProjected && finalizeCard !== null
+    ? buildRecoveryModelCalls(reviewCard, finalizeCard)
+    : null;
+  if (liveProjected && modelCalls === null) {
+    reviewCard = null;
+    finalizeCard = null;
+    liveRevision = null;
+    liveFrozenDraft = null;
+    liveFrozenDraftMode = null;
+    liveProjected = false;
+    liveProjectionDropped = true;
   }
   const nextFirstCard = liveProjected && reviewCard !== null
     ? reviewCard
@@ -436,9 +944,13 @@ export function applyPendingFinalizationRecoveryGuidance(
                 "The host already ingested the validated live context through "
                 + "the canonical compiler and binding path. The exact cards "
                 + "inlined in review_recovery.card and then.card are the only "
-                + "action authority. Merge each card's prefilled_arguments "
-                + "unchanged and supply only its missing_arguments, in the "
-                + "order review_recovery before then."
+                + "action authority for operation identity and prefilled "
+                + "arguments. For each call supply exactly the "
+                + "model_owned_arguments listed in model_calls, following "
+                + "review_recovery.review_input.mode for the review draft — "
+                + "and never echo, invent, or construct "
+                + "host_bound_auto_attached_arguments; the host attaches "
+                + "them. Call review_recovery before then."
               )
               : (
                 "The card fields inlined below are exact session.resume "
@@ -451,6 +963,57 @@ export function applyPendingFinalizationRecoveryGuidance(
           },
         }
       : {}),
+    ...(modelCalls !== null
+      ? {
+          model_calls: {
+            contract_source: "mcp_operation_contracts.inputSchema",
+            audience: "keeper_only",
+            ...(modelCalls.review !== undefined
+              ? {
+                  review: {
+                    ...modelCalls.review,
+                    instruction: (
+                      "Supply exactly the model_owned_required_arguments (plus "
+                      + "any model_owned_optional_arguments you semantically "
+                      + "judge) to the typed tool. draft_text follows "
+                      + "review_recovery.review_input: for exact_replay submit "
+                      + "the supplied baseline_draft_text unchanged, or "
+                      + "semantically complete it as the review contract "
+                      + "allows; for excerpt_only_repair submit your EDITED "
+                      + "revision-2 text produced from baseline_draft_text by "
+                      + "changing only the excerpts listed in span_repairs — "
+                      + "never resubmit the unchanged baseline. Where the "
+                      + "review card already prefills a model-owned argument, "
+                      + "keep its exact value. Never echo, invent, or modify "
+                      + "any host_bound_auto_attached_arguments (decision, "
+                      + "review, turn, source, revision identities and the "
+                      + "state_claim_compilation compiler receipt); the host "
+                      + "attaches them to the call."
+                    ),
+                  },
+                }
+              : {}),
+            finalize: {
+              ...modelCalls.finalize,
+              instruction: (
+                "After an accepted review, supply exactly the "
+                + "model_owned_required_arguments (plus any "
+                + "model_owned_optional_arguments you semantically judge), keeping "
+                + "any model-owned argument the then.card already prefills at "
+                + "its exact card value. Invoke through the projection's real "
+                + "surface: for invocation_shape generic_envelope call "
+                + modelCalls.finalize.invoke_via
+                + " with {operation: \"turn.finalize\", arguments: {"
+                + "...model-owned arguments...}}; for typed_flat pass the "
+                + "model-owned arguments directly to the typed tool. Never "
+                + "echo, invent, or construct any "
+                + "host_bound_auto_attached_arguments (decision, revision, and "
+                + "review identities); the host attaches them to the call."
+              ),
+            },
+          },
+        }
+      : {}),
     review_recovery: {
       tool: reviewCard !== null && typeof reviewCard.invoke_via === "string"
         ? reviewCard.invoke_via
@@ -459,6 +1022,42 @@ export function applyPendingFinalizationRecoveryGuidance(
         ? { exact_card_path: "coc_turn_output_context.data.agency_review_operation" }
         : {}),
       ...(reviewCard !== null ? { card: reviewCard } : {}),
+      ...(liveProjected && reviewCard !== null && liveFrozenDraft !== null
+        ? {
+            // The exact frozen draft appears exactly once in this clearly
+            // keeper-only review input as the immutable baseline for hash
+            // authority and comparison; the submitted draft_text remains a
+            // model-owned semantic input per review_input.mode. It is never
+            // player-visible before finalize.
+            review_input: {
+              visibility: "keeper_only",
+              source: "turn.output_context.data.frozen_narration_draft",
+              mode: liveFrozenDraftMode,
+              baseline_draft_text: liveFrozenDraft.draft_text,
+              baseline_draft_sha256: liveFrozenDraft.draft_sha256,
+              ...(liveFrozenDraftMode === "excerpt_only_repair"
+                ? {
+                    span_repairs: deepCopyValue(
+                      reviewCard.span_repairs,
+                    ),
+                  }
+                : {}),
+              instruction: liveFrozenDraftMode === "excerpt_only_repair"
+                ? (
+                  "The baseline_draft_text is the rejected revision the "
+                  + "span_repairs belong to. Produce the revision-2 draft by "
+                  + "editing ONLY the excerpts listed in span_repairs; keep "
+                  + "every other sentence byte-stable and never regenerate "
+                  + "the scene. Never resubmit the unchanged baseline."
+                )
+                : (
+                  "The baseline_draft_text is the reviewed frozen revision. "
+                  + "Submit it unchanged as draft_text, or semantically "
+                  + "complete it as the narration.review contract allows."
+                ),
+            },
+          }
+        : {}),
       armed: options?.reviewRecoveryArmed === true,
       revision: Number.isInteger(options?.revision)
         ? options.revision
@@ -522,13 +1121,24 @@ export function applyPendingFinalizationRecoveryGuidance(
       mode: "pending_finalization",
       card_source: liveHydration.status === "unavailable"
         ? "host_refresh_unavailable_card_free"
-        : liveProjected
-          ? "host_refreshed_turn_output_context"
-          : "session.resume.pending_output_context",
+        : liveProjectionDropped
+          ? "host_refreshed_live_unusable_card_free"
+          : liveProjected
+            ? "host_refreshed_turn_output_context"
+            : "session.resume.pending_output_context",
       operation_cards: {
         agency_review_operation: reviewCard !== null,
         finalize_operation: finalizeCard !== null,
       },
+      ...(liveProjected
+        ? {
+            frozen_draft_review_input: reviewCard !== null,
+            model_call_projection: {
+              review: modelCalls?.review !== undefined,
+              finalize: true,
+            },
+          }
+        : {}),
     },
   };
 }
@@ -628,6 +1238,9 @@ export function applyOpenTurnRecoveryGuidance(value: unknown): {
 
 export const DRAFT_SHAPE_RECOVERY_CARD_CONTRACT =
   "coc.pi-draft-shape-recovery-card.v1";
+/** Model-visible semantic projection contract (never carries opaque ids). */
+export const DRAFT_SHAPE_RECOVERY_GUIDANCE_CONTRACT =
+  "coc.pi-draft-shape-recovery-guidance.v1";
 export const DRAFT_SHAPE_RECOVERY_CARD_AUDIT = "coc-draft-shape-recovery-card";
 /** Durable machine-internal payload seal written beside each card append. */
 export const DRAFT_SHAPE_RECOVERY_SEAL_AUDIT = "coc-draft-shape-recovery-seal";
@@ -887,9 +1500,14 @@ export function buildDraftShapeRecoveryCard(
   const coverageRows: JsonObject[] = [];
   let paragraphZero = false;
   for (const rollId of rollIds) {
+    // The coverage obligation id arrives as the model-presented handle
+    // (`roll:<handle>`) or, after registry restoration, as the exact
+    // canonical id; both name the same frozen obligation.
     const obligationId = `roll:${rollId}`;
     const row = coverage.find((candidate) => (
-      isPlainObject(candidate) && candidate.obligation_id === obligationId
+      isPlainObject(candidate)
+      && (candidate.obligation_id === obligationId
+        || candidate.obligation_id === rollId)
     ));
     const excerpt = isPlainObject(row) && typeof row.exact_excerpt === "string"
       ? row.exact_excerpt
@@ -916,7 +1534,6 @@ export function buildDraftShapeRecoveryCard(
     if (!Object.hasOwn(args, field)) continue;
     frozenPayload[field] = deepCopyValue(args[field]);
   }
-  if (!isFrozenFinalizePayload(frozenPayload)) return null;
   const payloadDigest = draftShapePayloadDigest(frozenPayload);
   const card: JsonObject = {
     schema_version: 1,
@@ -984,14 +1601,27 @@ const DRAFT_SHAPE_INSTRUCTION = (
   + "consequence paragraph of every listed public roll: the consequence "
   + "excerpt must not sit in paragraph zero, and each exact_excerpt must "
   + "appear verbatim in exactly one non-zero paragraph of the revised "
-  + "draft. Replay every model-owned argument from frozen_finalize_payload "
-  + "unchanged — same coverage rows, same agency_claims — and change only "
-  + "the draft's paragraph shape. The host re-injects root, campaign, "
-  + "decision_id, revision, and narration_review_id; never relay or invent "
-  + "identities. Then call turn.finalize again. Never substitute placeholder "
-  + "prose, never rerun rules/state/journal/review, and never accept a new "
-  + "player action before this turn finalizes. Recovery ends only at the "
-  + "real finalize result, which retires this card."
+  + "draft. The host keeps the exact frozen coverage, agency claims, and "
+  + "all identities and reattaches them at transport — your recovery call "
+  + "carries only the corrected draft. Never substitute placeholder prose, "
+  + "never rerun rules/state/journal/review, and never accept a new player "
+  + "action before this turn finalizes. Recovery ends only at the real "
+  + "finalize result."
+);
+
+/** Model-visible semantic instruction (no opaque identifiers inside). */
+const DRAFT_SHAPE_RECOVERY_MODEL_INSTRUCTION = (
+  "Repair the draft's paragraph shape only: insert one separate action/"
+  + "setup paragraph immediately before the consequence paragraph of every "
+  + "listed public roll so no consequence excerpt sits in paragraph zero, "
+  + "and keep each listed consequence excerpt verbatim in exactly one "
+  + "non-zero paragraph. Then resubmit through next_call with the corrected "
+  + "draft alone — the host automatically reattaches the frozen coverage, "
+  + "agency claims, and every identity; do not add, copy, or echo any other "
+  + "argument, identifier, or digest. Never substitute placeholder prose, "
+  + "never rerun rules/state/journal/review, and never accept a new player "
+  + "action before this turn finalizes. Recovery ends only at the real "
+  + "finalize result."
 );
 
 /**
@@ -1244,6 +1874,57 @@ export function selectRecoverableDraftShapeCard(
  * fields (schema_version, campaign_id, mode, next_operations) are preserved
  * untouched; only `data.host_recovery_guidance` is added. Pure.
  */
+/**
+ * Model-visible projection of an armed recovery card. The durable card is a
+ * host-only record: every opaque identity (turn/source digests, review and
+ * decision ids, payload seals) and the entire frozen non-draft payload stay
+ * internal. The model receives only the semantic repair instruction, the
+ * frozen draft text, and the human-readable consequence excerpts it must
+ * repair around. Pure; returns null for a structurally invalid card.
+ */
+export function projectDraftShapeRecoveryForModel(
+  card: JsonObject,
+): JsonObject | null {
+  if (!isDraftShapeRecoveryCard(card)) return null;
+  const payload = card.frozen_finalize_payload;
+  const rows = Array.isArray(card.diagnosis.coverage_rows)
+    ? card.diagnosis.coverage_rows
+    : [];
+  const consequenceExcerpts = rows
+    .filter((row) => typeof row.exact_excerpt === "string" && row.exact_excerpt)
+    .map((row) => row.exact_excerpt as string);
+  return {
+    schema_version: 1,
+    contract_id: DRAFT_SHAPE_RECOVERY_GUIDANCE_CONTRACT,
+    kind: "draft_shape_recovery",
+    audience: "keeper_only",
+    recovery_kind: card.diagnosis.verdict === "consequence_paragraph_zero"
+      ? "consequence_paragraph_zero"
+      : "consequence_excerpt_missing",
+    next_action: DRAFT_SHAPE_RECOVERY_NEXT_ACTION,
+    draft: payload.draft,
+    consequence_excerpts: consequenceExcerpts,
+    instruction: DRAFT_SHAPE_RECOVERY_MODEL_INSTRUCTION,
+    next_call: {
+      tool: "coc_invoke",
+      operation: "turn.finalize",
+      arguments_shape: {
+        draft: "仅重发修正段落形状后的完整草稿；其余参数由宿主自动附加",
+      },
+    },
+    forbidden: [
+      "reroll",
+      "repeat_state_writes",
+      "rerun_state_journal",
+      "rerun_narration_review",
+      "supplying_coverage_or_claims_or_identities",
+      "echoing_hash_or_opaque_ids",
+      "placeholder_prose",
+      "accept_new_player_action_before_finalization",
+    ],
+  };
+}
+
 export function applyAcknowledgedResumeRecoveryGuidance(
   value: unknown,
   card: JsonObject,
@@ -1271,24 +1952,29 @@ export function applyAcknowledgedResumeRecoveryGuidance(
   if (!isDraftShapeRecoveryCard(card)) {
     return { attached: false, envelope: value, audit: null };
   }
+  const projection = projectDraftShapeRecoveryForModel(card);
+  if (projection === null) {
+    return { attached: false, envelope: value, audit: null };
+  }
   const guidance = {
     schema_version: 1,
     contract_id: DRAFT_SHAPE_RECOVERY_CARD_CONTRACT,
     audience: "keeper_only",
     mode: "pending_finalization_recovery",
     status: "journaled_settled_pending_finalization",
-    next_call: {
-      tool: "coc_turn_finalize",
-    },
-    recovery_card: deepCopyValue(card),
+    // Semantic model-visible projection only: the durable card, its frozen
+    // payload, and every opaque identity stay host-internal. The model
+    // repairs draft shape and resubmits the draft; the host reconstructs
+    // and injects everything else at transport.
+    recovery: projection,
     instruction: (
       "A settled player turn from an earlier session is still preserved and "
-      + "unfinalized. The executable recovery card in recovery_card carries "
-      + "the complete frozen finalize payload: replay every model-owned "
-      + "argument from frozen_finalize_payload, change only the draft's "
-      + "paragraph shape as its diagnosis directs, and call turn.finalize "
-      + "via next_call; the host injects all identity fields. Recovery ends "
-      + "only at the real finalize result; never claim completion in prose."
+      + "unfinalized. Follow recovery: repair only the draft's paragraph "
+      + "shape as its instruction and consequence excerpts direct, then call "
+      + "turn.finalize via next_call with the corrected draft alone. Every "
+      + "other argument and every identity is reconstructed and injected by "
+      + "the host — never relay, echo, or invent one. Recovery ends only at "
+      + "the real finalize result; never claim completion in prose."
     ),
   };
   return {

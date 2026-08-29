@@ -489,6 +489,9 @@ _SOURCE_LIFECYCLE_DURING_PENDING_FINALIZATION = frozenset({
     "progressive.release_host_work_leases",
 })
 _ADVISORY_WRITES_DURING_PENDING_FINALIZATION = frozenset({"narration.review"})
+_PENDING_DRAFT_RECOVERY_WRITES = frozenset({
+    "state.recover_pending_narration_draft",
+})
 
 
 # The lifecycle phase query is a pure read of the same derivation the gate
@@ -759,6 +762,7 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                     }
                     and name not in _SOURCE_LIFECYCLE_DURING_PENDING_FINALIZATION
                     and name not in _ADVISORY_WRITES_DURING_PENDING_FINALIZATION
+                    and name not in _PENDING_DRAFT_RECOVERY_WRITES
                 ):
                     # The journal boundary forbids settlement mutations. The
                     # explicit advisory-write set is campaign-serial and

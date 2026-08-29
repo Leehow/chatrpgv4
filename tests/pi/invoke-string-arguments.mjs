@@ -133,9 +133,22 @@ for (const [name, argumentsValue] of Object.entries({
   }
 }
 
-const argumentSchema = invoke.parameters.properties.arguments;
+const argumentSchema = invoke.parameters;
 process.stdout.write(JSON.stringify({
-  schemaTypes: argumentSchema.anyOf.map((entry) => entry.type),
+  // The REGISTERED generic envelope is one closed operation-discriminated
+  // schema: top-level oneOf branches, each pinning its operation const at
+  // the envelope level (the shape real calls have) and carrying only
+  // operation + model-owned arguments — campaign/root are host-bound and
+  // absent.
+  discriminated: argumentSchema.oneOf !== undefined
+    && argumentSchema.oneOf.every((branch) =>
+      branch.additionalProperties === false
+      && branch.properties.operation.const !== undefined
+      && Object.hasOwn(branch.properties, "arguments")
+      && !Object.hasOwn(branch.properties, "campaign")
+      && !Object.hasOwn(branch.properties, "root")
+    ),
+  branchCount: (argumentSchema.oneOf ?? []).length,
   stringifiedDeliveredExact:
     JSON.stringify(clientCalls[0].params.arguments)
       === JSON.stringify(exactFactsArguments),

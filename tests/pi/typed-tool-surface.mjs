@@ -54,7 +54,17 @@ test("spotlight tool schemas match the archive except explicit Pi presentation o
       assert.deepEqual(evidenced.properties.intensity.enum, [1, 2]);
       assert.equal(evidenced.properties.evidence_refs.minItems, 1);
     } else {
-      assert.deepEqual(tool.parameters, archive.operations[operation].inputSchema);
+      // Catalog parameters must equal the REGISTERED model-owned view:
+      // canonical Pi presentation overlays (semantic entity handles) plus
+      // host-owned and never-model-authored field projection — never a
+      // hand-shaped variant.
+      assert.deepEqual(
+        tool.parameters,
+        typed.projectModelOwnedSchema(
+          operation,
+          typed.presentedTypedToolParameters(operation, archive.operations[operation].inputSchema),
+        ),
+      );
       assert.ok(!JSON.stringify(tool.parameters).includes('"oneOf"'));
     }
     const required = tool.parameters.required || [];
@@ -298,10 +308,21 @@ test("missing/extra fields fail the model schema before wrap/gateway", () => {
     const schema = tool.parameters;
     assert.equal(schema.additionalProperties, false, operation);
     const required = schema.required || [];
-    assert.ok(required.includes("campaign"), operation);
-    const missing = { root: "/tmp/ws" };
-    assert.equal(topLevelSchemaError(schema, missing), "missing:campaign", operation);
-    const extra = { campaign: "c1", not_a_contract_field: true };
+    // campaign is host-owned for the settle-path operations and is projected
+    // out of their model-owned schemas; other ops keep it required.
+    const campaignProjected = (schema.properties ?? {}).campaign !== undefined;
+    if (campaignProjected) {
+      assert.ok(required.includes("campaign"), operation);
+      const missingCampaign = { root: "/tmp/ws" };
+      assert.equal(
+        topLevelSchemaError(schema, missingCampaign),
+        "missing:campaign",
+        operation,
+      );
+    }
+    // campaign only rides the envelope for ops where it stays model-owned.
+    const extra = { not_a_contract_field: true };
+    if (campaignProjected) extra.campaign = "c1";
     for (const key of required) {
       if (key === "campaign") continue;
       extra[key] = key === "stakes"
@@ -427,25 +448,26 @@ test("session.delivery_text replay surface is semantic-only (attempt-05 schema)"
   // Replay is the only exposed mode; the archive keeps context mode
   // backward-compatible for non-typed canonical consumers.
   assert.deepEqual(tool.parameters.properties.mode.enum, ["replay"]);
-  // Exact surface pin: exactly campaign + semantic mode, nothing inherited.
+  // Exact surface pin: semantic mode ONLY. Campaign (and every delivery
+  // identity/chunk field) is host-bound — the model authors nothing else.
   assert.deepEqual(
     Object.keys(tool.parameters.properties).sort(),
-    ["campaign", "mode"],
+    ["mode"],
   );
-  assert.deepEqual(tool.parameters.required, ["campaign"]);
+  assert.deepEqual(tool.parameters.required, ["mode"]);
   assert.equal(tool.parameters.additionalProperties, false);
   assert.equal(tool.parameters.properties.root, undefined);
+  assert.equal(tool.parameters.properties.campaign, undefined);
   assert.equal(tool.parameters.type, "object");
   assert.notDeepEqual(tool.parameters, archive.operations[operation].inputSchema);
 
-  // Host wrapper lifts the campaign into the gateway envelope and forwards
-  // only the semantic mode argument.
+  // Host wrapper forwards the semantic mode argument; the host binds the
+  // campaign envelope from current session state when the model cannot.
   const wrapped = typed.wrapTypedToolInvokeParams("coc_session_delivery_text", {
-    campaign: "attempt05-campaign",
     mode: "replay",
   });
   assert.equal(wrapped.operation, operation);
-  assert.equal(wrapped.campaign, "attempt05-campaign");
+  assert.equal(wrapped.campaign, undefined);
   assert.deepEqual(wrapped.arguments, { mode: "replay" });
 
   // Play-role live_turn surface exposes the replay tool by its typed name.

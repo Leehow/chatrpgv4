@@ -114,15 +114,14 @@ const finalizeEnvelope = () => structuredClone({
   },
 });
 
+// Model-owned finalize surface: revision is gateway-bound.
 const finalizeArguments = {
-  revision: 1,
-  narration_review_id: "narration-review-v1:probe",
   agency_claims: [{
     claim_id: "claim-probe",
-    subject_ref: "pc:probe",
+    subject_ref: "pc:current-investigator",
     claim_type: "voluntary_action",
     exact_excerpt: "你接过那份蜡封卷轴",
-    source_ref: "player_input:probe",
+    source_ref: "narration_contract:probe",
     override_id: null,
   }],
 };
@@ -134,6 +133,7 @@ const sessionResumeEnvelope = {
     schema_version: 1,
     campaign_id: campaignId,
     mode: "awaiting_player",
+    scene_context: { party: ["inv-async-memory-1"] },
     next_operations: [],
   },
 };
@@ -551,13 +551,17 @@ const finalizeCall = (id) => ({
   const heldPrepare = h.takePrepareGate();
 
   // The player envelope returns while extraction is still held open.
-  const finalizeResult = unwrapEnvelope(await finalizePromise);
-  const envelopeText = JSON.stringify(finalizeResult);
+  const finalizeToolResult = await finalizePromise;
+  const finalizeResult = unwrapEnvelope(finalizeToolResult);
+    const envelopeText = JSON.stringify(finalizeResult);
   assert.ok(envelopeText.includes("你接过那份蜡封卷轴"), "rendered_text delivered");
+  // Memory-extraction evidence (incl. the opaque job id) is host-only; the
+  // model-visible finalize view carries rendered text and semantic status.
+  assert.equal(finalizeResult.data.memory_extraction, undefined);
   assert.equal(
-    finalizeResult.data.memory_extraction.job_id,
+    finalizeToolResult.details.data.memory_extraction.job_id,
     jobId,
-    "finalize evidence intact",
+    "finalize evidence intact in host-only details",
   );
   assert.equal(h.extractorTasks.length, 0, "extractor not launched yet");
   assert.equal(

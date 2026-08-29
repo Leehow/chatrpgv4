@@ -1289,6 +1289,17 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "live_turn"
     ]
   },
+  "state.recover_pending_narration_draft": {
+    "advisory": false,
+    "audience": "host",
+    "contract": "state",
+    "execution_class": "serial_campaign",
+    "kp_surface": "none",
+    "phases": [
+      "pending_finalization",
+      "recovery"
+    ]
+  },
   "state.replay_handout": {
     "advisory": false,
     "audience": "keeper",

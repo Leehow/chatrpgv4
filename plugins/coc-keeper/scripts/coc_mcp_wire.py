@@ -1414,6 +1414,211 @@ def _compact_public_check(value: Any) -> dict[str, Any]:
     )
 
 
+# Closed canonical pending-draft receipt schema mirrored for the wire's
+# fail-closed secrecy gate: exactly the producer field set and types, with
+# digest recomputation over the payload minus the digest field (the same
+# canonical stable-JSON convention as the kernel and Pi hydration).
+_PENDING_DRAFT_RECEIPT_FIELDS = frozenset({
+    "schema_version", "kind", "secrecy", "campaign_id", "receipt_id",
+    "review_decision_id", "review_id", "turn_id", "source_digest",
+    "revision", "draft_sha256", "draft_text", "draft_utf8_bytes",
+    "review_digest", "request_digest", "producer_kind", "source_operation",
+    "materialization_decision_id", "provenance", "receipt_digest",
+})
+_PENDING_DRAFT_RECEIPT_MAX_UTF8_BYTES = 8192
+_PENDING_DRAFT_RECEIPT_SUBMISSION_PROVENANCE = frozenset({"kind"})
+_PENDING_DRAFT_RECEIPT_RECOVERY_PROVENANCE = frozenset({
+    "kind", "source_path", "source_row_count", "primary_row_digest",
+    "corroboration_digest",
+})
+_PENDING_DRAFT_RECEIPT_MAX_PROVENANCE_ROWS = 8
+# The exact subset of canonical statuses that may keep the card chain.
+_PENDING_DRAFT_CARD_STATUSES = frozenset({
+    "not_applicable", "not_submitted", "available",
+})
+# Closed actionable status object: exactly these fields, canonical schema
+# and secrecy, explicit actionable true, and an allowed actionable status.
+# The canonical producer emits a "diagnostic" only on non-actionable
+# statuses, so an actionable status carrying one is not canonical.
+_PENDING_DRAFT_STATUS_ACTIONABLE_FIELDS = frozenset({
+    "schema_version", "secrecy", "status", "actionable",
+})
+_PENDING_DRAFT_STATUS_MAX_TEXT_UTF8_BYTES = 128
+_PENDING_DRAFT_STATUS_MAX_DIAGNOSTIC_UTF8_BYTES = 512
+
+
+def _valid_actionable_draft_status(status: Any) -> bool:
+    """Exact closed canonical actionable pending-draft status validity.
+    Deciding retention from only ``actionable`` + a status string is not
+    sufficient: schema, secrecy, closed keys, and the status value must all
+    match the canonical producer shape, and schema_version must be exactly
+    the integer 1 — Python equality accepts ``True`` and ``1.0``, so the
+    strict ``int`` type is required before the value comparison."""
+    schema_version = (
+        status.get("schema_version") if isinstance(status, dict) else None
+    )
+    return (
+        isinstance(status, dict)
+        and set(status) == _PENDING_DRAFT_STATUS_ACTIONABLE_FIELDS
+        and type(schema_version) is int
+        and schema_version == 1
+        and status.get("secrecy") == "keeper_only"
+        and status.get("actionable") is True
+        and status.get("status") in _PENDING_DRAFT_CARD_STATUSES
+    )
+
+
+def _bounded_draft_status(status: Any) -> dict[str, Any] | None:
+    """Bounded canonical status projection: known fields only, bounded
+    strings; arbitrary extra or oversize status payload never rides the
+    wire. A non-dict status projects as nothing."""
+    if not isinstance(status, dict):
+        return None
+    bounded: dict[str, Any] = {}
+    schema_version = status.get("schema_version")
+    if isinstance(schema_version, int) and not isinstance(schema_version, bool):
+        bounded["schema_version"] = schema_version
+    actionable = status.get("actionable")
+    if isinstance(actionable, bool):
+        bounded["actionable"] = actionable
+    for key in ("secrecy", "status"):
+        entry = status.get(key)
+        if (
+            isinstance(entry, str)
+            and 0
+            < len(entry.encode("utf-8"))
+            <= _PENDING_DRAFT_STATUS_MAX_TEXT_UTF8_BYTES
+        ):
+            bounded[key] = entry
+    diagnostic = status.get("diagnostic")
+    if (
+        isinstance(diagnostic, str)
+        and 0
+        < len(diagnostic.encode("utf-8"))
+        <= _PENDING_DRAFT_STATUS_MAX_DIAGNOSTIC_UTF8_BYTES
+    ):
+        bounded["diagnostic"] = diagnostic
+    return bounded
+
+
+def _wire_sha256_digest(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and value.startswith("sha256:")
+        and len(value) == 71
+        and all(char in "0123456789abcdef" for char in value[7:])
+    )
+
+
+def _wire_canonical_digest(payload: Any) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _valid_wire_frozen_draft_receipt(receipt: Any) -> bool:
+    """Full closed receipt validity for the wire secrecy gate, mirroring the
+    canonical kernel/Pi schema: exact field set, strict non-empty string
+    identities, strict scalar integer types (schema_version, revision,
+    draft_utf8_bytes, provenance source_row_count must be exactly ``int``;
+    ``bool`` and numerically equal ``float`` never pass), digest formats,
+    revision bounds, receipt_id derivation, producer-specific
+    materialization identity, bounded closed provenance, exact draft bytes
+    bound, and a recomputed receipt_digest."""
+    if not isinstance(receipt, dict) or set(receipt) != _PENDING_DRAFT_RECEIPT_FIELDS:
+        return False
+    identity_fields = (
+        "campaign_id", "receipt_id", "review_decision_id", "review_id",
+        "turn_id", "source_digest", "materialization_decision_id",
+    )
+    if any(
+        not isinstance(receipt.get(field), str) or not receipt[field].strip()
+        for field in identity_fields
+    ):
+        return False
+    revision = receipt.get("revision")
+    schema_version = receipt.get("schema_version")
+    if (
+        type(schema_version) is not int
+        or schema_version != 1
+        or receipt.get("kind") != "pending_narration_draft"
+        or receipt.get("secrecy") != "keeper_only"
+        or type(revision) is not int
+        or not 1 <= revision <= 2
+        or receipt.get("source_operation") != "narration.review"
+        or receipt.get("producer_kind") not in (
+            "narration_review_submission", "toolbox_audit_recovery",
+        )
+        or receipt["receipt_id"] != (
+            f"pending-narration-draft:{receipt['review_decision_id']}"
+            f":revision-{revision}"
+        )
+    ):
+        return False
+    if receipt["producer_kind"] == "narration_review_submission":
+        if receipt["materialization_decision_id"] != receipt["review_decision_id"]:
+            return False
+    elif receipt["materialization_decision_id"] == receipt["review_decision_id"]:
+        return False
+    provenance = receipt.get("provenance")
+    if not isinstance(provenance, dict):
+        return False
+    if receipt["producer_kind"] == "narration_review_submission":
+        if set(provenance) != _PENDING_DRAFT_RECEIPT_SUBMISSION_PROVENANCE:
+            return False
+        if provenance.get("kind") != "direct_review_submission":
+            return False
+    else:
+        if set(provenance) != _PENDING_DRAFT_RECEIPT_RECOVERY_PROVENANCE:
+            return False
+        row_count = provenance.get("source_row_count")
+        if (
+            provenance.get("kind") != "verified_toolbox_audit_recovery"
+            or provenance.get("source_path") != "logs/toolbox-calls.jsonl"
+            or type(row_count) is not int
+            or not 1 <= row_count <= _PENDING_DRAFT_RECEIPT_MAX_PROVENANCE_ROWS
+            or not _wire_sha256_digest(provenance.get("primary_row_digest"))
+            or not _wire_sha256_digest(provenance.get("corroboration_digest"))
+        ):
+            return False
+    draft_text = receipt.get("draft_text")
+    if (
+        not isinstance(draft_text, str)
+        or not draft_text
+        # NUL parity with the canonical Python validator: a NUL-bearing
+        # draft is invalid even when its digests recompute.
+        or "\x00" in draft_text
+        or not _wire_sha256_digest(receipt.get("draft_sha256"))
+        or not _wire_sha256_digest(receipt.get("review_digest"))
+        or not _wire_sha256_digest(receipt.get("request_digest"))
+        or not _wire_sha256_digest(receipt.get("receipt_digest"))
+    ):
+        return False
+    try:
+        encoded = draft_text.encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        return False
+    draft_utf8_bytes = receipt.get("draft_utf8_bytes")
+    if (
+        not 0 < len(encoded) <= _PENDING_DRAFT_RECEIPT_MAX_UTF8_BYTES
+        # An equal float (or ``True``) must not satisfy the byte count:
+        # require the exact ``int`` type before the value comparison.
+        or type(draft_utf8_bytes) is not int
+        or draft_utf8_bytes != len(encoded)
+        or receipt["draft_sha256"] != _wire_canonical_digest(draft_text)
+    ):
+        return False
+    digest_payload = {
+        key: entry for key, entry in receipt.items() if key != "receipt_digest"
+    }
+    return receipt["receipt_digest"] == _wire_canonical_digest(digest_payload)
+
+
 def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
     if not isinstance(value, dict):
         return deepcopy(value)
@@ -1451,6 +1656,8 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
             "settlement_snapshot_id",
             "contract_projection_sha256",
             "contract_projection",
+            "frozen_narration_draft",
+            "pending_narration_draft_status",
             "npc_performance_constraints",
             "candidate_factors",
             "missing_substantive_effects",
@@ -1549,6 +1756,59 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
             ),
         }
     projected["finalize_operation"] = finalize_operation
+    # Keeper-only frozen draft secrecy gate, fail closed: the exact draft
+    # AND the actionable card chain survive ONLY when the canonical status
+    # object is the exact closed actionable shape (schema 1, keeper-only,
+    # explicit actionable true, closed four-field set, allowed actionable
+    # status) and — for a draft-bearing context — the receipt is fully
+    # valid within the deterministic UTF-8 bound. A missing "actionable", a
+    # false value, a missing/wrong status, a wrong schema/secrecy, extra
+    # status fields, a missing "available" receipt, or a malformed/
+    # NUL-bearing/oversize draft or receipt keeps at most the bounded
+    # diagnostic status — never the draft text, and no actionable cards.
+    # The existing transport budget gate above remains the envelope-level
+    # fail closed path for an oversize combined projection.
+    draft_status_value = value.get("pending_narration_draft_status")
+    actionable_status = _valid_actionable_draft_status(draft_status_value)
+    status_name = (
+        draft_status_value.get("status")
+        if isinstance(draft_status_value, dict)
+        and isinstance(draft_status_value.get("status"), str)
+        else None
+    )
+    has_source_draft = "frozen_narration_draft" in value
+    draft_kept = False
+    if "frozen_narration_draft" in projected:
+        frozen = projected.get("frozen_narration_draft")
+        if (
+            actionable_status
+            and status_name == "available"
+            and isinstance(frozen, dict)
+            and _valid_wire_frozen_draft_receipt(frozen)
+        ):
+            draft_kept = True
+        else:
+            projected.pop("frozen_narration_draft", None)
+    cards_survive = (
+        actionable_status
+        # A context that carries a frozen draft keeps its cards only when
+        # the exact valid actionable receipt survived with it.
+        and (not has_source_draft or draft_kept)
+        # The "available" status promises an exact draft; without one the
+        # status itself is wrong, not merely draftless.
+        and not (status_name == "available" and not has_source_draft)
+    )
+    if not cards_survive:
+        projected.pop("agency_review_operation", None)
+        projected.pop("finalize_operation", None)
+    # The status object itself is projected bounded: canonical fields only,
+    # bounded strings, never an arbitrary extra or oversize payload.
+    if "pending_narration_draft_status" in projected:
+        bounded_status = _bounded_draft_status(draft_status_value)
+        if bounded_status is None:
+            projected.pop("pending_narration_draft_status", None)
+        else:
+            projected["pending_narration_draft_status"] = bounded_status
     if tight:
         projected.pop("candidate_factors", None)
     return projected

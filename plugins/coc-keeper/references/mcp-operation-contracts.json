@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:56e8b951ac62fb5d4814aa0ebb8f1b6b97bea278a61fa6279c1fda9922a1e26f",
+  "content_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 141,
+  "operation_count": 142,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -7803,6 +7803,51 @@
         ]
       },
       "summary": "Record a campaign-local authored route as completed when the KP has structured evidence that play achieved it through a causally valid alternate method. This never infers meaning from prose and never edits module truth."
+    },
+    "state.recover_pending_narration_draft": {
+      "access": "mutation",
+      "canonical_operation": "state.recover_pending_narration_draft",
+      "description": "Operator/host recovery mutation that materializes one exact keeper-only pending narration draft from identity- and hash-matched structured narration.review audit evidence. It never reads transcripts and is not an ordinary KP play method. Canonical operation `state.recover_pending_narration_draft`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "semantic idempotency key for this explicit materialization",
+            "type": "string"
+          },
+          "review_decision_id": {
+            "description": "existing semantic narration.review decision identity; all other binding is derived from canonical review evidence",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "decision_id",
+          "review_decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "host",
+        "contract": "state",
+        "kp_surface": "none",
+        "phases": [
+          "pending_finalization",
+          "recovery"
+        ]
+      },
+      "summary": "Operator/host recovery mutation that materializes one exact keeper-only pending narration draft from identity- and hash-matched structured narration.review audit evidence. It never reads transcripts and is not an ordinary KP play method."
     },
     "state.replay_handout": {
       "access": "mutation",

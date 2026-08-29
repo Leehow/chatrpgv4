@@ -914,25 +914,39 @@ const cardsHost = harness((name, params) => {
   return envelope;
 }, cardsCampaign);
 await cardsHost.start();
-const cardsResumed = await invoke(
-  cardsHost,
+const cardsResumedTool = await cardsHost.registered.get("coc_setup").execute(
   "cards-resume",
   resumeParams(cardsCampaign),
-  "coc_setup",
+  undefined,
+  undefined,
+  cardsHost.ctx,
 );
+const cardsResumed = JSON.parse(cardsResumedTool.content[0].text);
 assert.equal(cardsResumed.ok, true);
 assert.equal(
   cardsResumed.data.host_recovery_guidance.audience,
   "keeper_only",
   "exact recovery cards stay keeper-only guidance",
 );
+// Model-visible cards are identity-sanitized at the gateway boundary; the
+// exact canonical cards remain authoritative in host-only details.
 assert.deepEqual(
   cardsResumed.data.host_recovery_guidance.review_recovery.card,
-  reviewCardFixture(),
+  {
+    ...reviewCardFixture(),
+    prefilled_arguments: { revision: 1 },
+  },
 );
 assert.deepEqual(
   cardsResumed.data.host_recovery_guidance.then.card,
   finalizeCardFixture(),
+);
+assert.equal(
+  JSON.stringify(
+    cardsResumedTool.details.data.host_recovery_guidance.review_recovery.card,
+  ),
+  JSON.stringify(reviewCardFixture()),
+  "host-only details must retain the exact canonical review card",
 );
 assert.equal(
   cardsResumed.data.host_recovery_guidance.card_projection.authoritative_copy,
@@ -980,26 +994,31 @@ await cardsHost.shutdown();
 // including the mode-specific finalize invoke_via surface.
 const liveTurnId = "turn-live-hydrate-1";
 const liveSourceDigest = "sha256:live-source-hydrate-1";
-const liveReviewCard = () => ({
-  operation: "narration.review",
-  invoke_via: "coc_narration_review",
-  prefilled_arguments: {
-    turn_id: liveTurnId,
-    source_digest: liveSourceDigest,
-    revision: 3,
-  },
-  missing_arguments: [
-    "decision_id", "draft_text", "findings", "state_authority_review",
-  ],
-  discovery_required: false,
-  authority: "semantic_agency_and_player_state_review",
-});
-const liveFinalizeCard = (invokeVia = "coc_turn_finalize") => ({
+const liveDraftText = "诺特仍坐在桌后等你的答复，烛火映着未寄出的信。";
+const liveReviewCard = (revision = 2, extra = null) => {
+  const card = {
+    operation: "narration.review",
+    invoke_via: "coc_narration_review",
+    prefilled_arguments: {
+      turn_id: liveTurnId,
+      source_digest: liveSourceDigest,
+      revision,
+    },
+    missing_arguments: [
+      "decision_id", "draft_text", "findings", "state_authority_review",
+    ],
+    discovery_required: false,
+    authority: "semantic_agency_and_player_state_review",
+  };
+  if (extra) Object.assign(card, extra);
+  return card;
+};
+const liveFinalizeCard = (invokeVia = "coc_turn_finalize", revision = 2) => ({
   operation: "turn.finalize",
   invoke_via: invokeVia,
   prefilled_arguments: {
-    decision_id: `${liveTurnId}:player-epoch-7:revision-3:finalize`,
-    revision: 3,
+    decision_id: `${liveTurnId}:player-epoch-7:revision-${revision}:finalize`,
+    revision,
     coverage: [],
   },
   missing_arguments: ["draft", "narration_review_id", "agency_claims"],
@@ -1007,7 +1026,102 @@ const liveFinalizeCard = (invokeVia = "coc_turn_finalize") => ({
   authority: "settled_output_completeness",
   hard_gate: true,
 });
-const liveEnvelope = (mutateData = () => {}) => {
+// Canonical keeper-only frozen narration draft receipt, exactly the closed
+// producer schema for `turn.output_context.data.frozen_narration_draft`:
+// every digest is computed (never fabricated), revisions are 1 or 2 only.
+const liveFrozenDraft = (options = {}) => {
+  const revision = options.revision ?? 2;
+  const draftText = options.draft_text ?? liveDraftText;
+  const producerKind = options.producer_kind ?? "narration_review_submission";
+  const campaignId = options.campaign_id ?? "recovery-guide-campaign";
+  const turnId = options.turn_id ?? liveTurnId;
+  const sourceDigest = options.source_digest ?? liveSourceDigest;
+  const provenance = producerKind === "toolbox_audit_recovery"
+    ? {
+        kind: "verified_toolbox_audit_recovery",
+        source_path: "logs/toolbox-calls.jsonl",
+        source_row_count: 2,
+        primary_row_digest: `sha256:${"1f".repeat(32)}`,
+        corroboration_digest: `sha256:${"2e".repeat(32)}`,
+      }
+    : { kind: "direct_review_submission" };
+  const reviewDecisionId = (
+    `pi-narration-review:live-hydrate:player-epoch-7:revision-${revision}`
+  );
+  // Producer-specific materialization identity: a direct submission
+  // materializes under the review's own decision id; an audit recovery
+  // materializes under its own distinct recovery decision id.
+  const materializationDecisionId = producerKind === "toolbox_audit_recovery"
+    ? `pi-pending-draft-materialize:live-hydrate:revision-${revision}`
+    : reviewDecisionId;
+  const receipt = {
+    schema_version: 1,
+    kind: "pending_narration_draft",
+    secrecy: "keeper_only",
+    campaign_id: campaignId,
+    receipt_id: `pending-narration-draft:${reviewDecisionId}:revision-${revision}`,
+    review_decision_id: reviewDecisionId,
+    review_id: `narration-review-v1:${revision}3f1f618b6c3d8fc5ad75f41040c313e`,
+    turn_id: turnId,
+    source_digest: sourceDigest,
+    revision,
+    draft_sha256: canonicalDigest(draftText),
+    draft_text: draftText,
+    draft_utf8_bytes: Buffer.byteLength(draftText, "utf8"),
+    review_digest: `sha256:${("a" + revision).repeat(32)}`,
+    request_digest: `sha256:${("b" + revision).repeat(32)}`,
+    producer_kind: producerKind,
+    source_operation: "narration.review",
+    materialization_decision_id: materializationDecisionId,
+    provenance,
+  };
+  receipt.receipt_digest = canonicalDigest(receipt);
+  return receipt;
+};
+// One-defect receipt mutation: start from the valid fixture, apply the
+// mutation, then recompute the integrity digest so the only remaining
+// defect is the mutated field itself (never a stale digest).
+const receiptWith = (mutate) => {
+  const receipt = liveFrozenDraft();
+  mutate(receipt);
+  delete receipt.receipt_digest;
+  receipt.receipt_digest = canonicalDigest(receipt);
+  return receipt;
+};
+// Canonical bounded span-repair evidence exactly as the producer emits it:
+// closed field set, canonical constants, non-empty bounded strings, and
+// excerpts that occur exactly in the frozen baseline draft.
+const canonicalSpanRepairs = () => ({
+  schema_version: 1,
+  contract_id: "coc.span-repairs.v1",
+  mode: "excerpt_only",
+  spans: [
+    {
+      exact_excerpt: "烛火映着未寄出的信",
+      claim_kind: "item",
+      reason: "未落账的信件取得。",
+      repair: "rephrase_or_remove",
+    },
+  ],
+  instruction: (
+    "Only change the listed excerpts. Leave every other sentence "
+    + "byte-stable. Do not regenerate the scene."
+  ),
+});
+// Revision-2 repair chain whose review card carries span-repair evidence:
+// a function mutates a canonical copy; any other value replaces it whole.
+const spanRepairsEnvelope = (mutate) => liveEnvelope((d) => {
+  const spanRepairs = typeof mutate === "function"
+    ? (() => {
+        const repairs = canonicalSpanRepairs();
+        mutate(repairs);
+        return repairs;
+      })()
+    : mutate;
+  d.agency_review_operation = liveReviewCard(2, { span_repairs: spanRepairs });
+  d.finalize_operation = liveFinalizeCard("coc_turn_finalize", 2);
+}, liveFrozenDraft({ revision: 1 }));
+const liveEnvelope = (mutateData = () => {}, frozenDraft) => {
   const envelope = {
     ok: true,
     tool: "turn.output_context",
@@ -1021,11 +1135,34 @@ const liveEnvelope = (mutateData = () => {}) => {
         agency_review_required: true,
         agency_authority: { pc_subject_refs: ["pc:live-hydrate-investigator"] },
       },
+      frozen_narration_draft: liveFrozenDraft(),
       agency_review_operation: liveReviewCard(),
       finalize_operation: liveFinalizeCard(),
     },
   };
   mutateData(envelope.data);
+  if (frozenDraft === null) {
+    delete envelope.data.frozen_narration_draft;
+  } else if (frozenDraft !== undefined) {
+    envelope.data.frozen_narration_draft = frozenDraft;
+  } else {
+    // Keep the frozen receipt identity in exact lockstep with the (possibly
+    // mutated) receipt/review chain; only deliberate frozenDraft corruption
+    // bypasses this.
+    const reviewCard = envelope.data.agency_review_operation;
+    const reviewRevision = reviewCard
+      && Number.isInteger(reviewCard.prefilled_arguments?.revision)
+      ? reviewCard.prefilled_arguments.revision
+      : null;
+    const current = envelope.data.frozen_narration_draft;
+    envelope.data.frozen_narration_draft = liveFrozenDraft({
+      revision: reviewRevision ?? current.revision,
+      draft_text: current.draft_text,
+      producer_kind: current.producer_kind,
+      turn_id: envelope.data.turn_id,
+      source_digest: envelope.data.source_digest,
+    });
+  }
   return envelope;
 };
 const pointerOnlyPendingEnvelope = (campaignId) => {
@@ -1070,7 +1207,9 @@ const assertNoPlayerLeak = (h, label) => {
       return !serialized.includes("host_recovery_guidance")
         && !serialized.includes("agency_review_operation")
         && !serialized.includes("finalize_operation")
-        && !serialized.includes(liveTurnId);
+        && !serialized.includes("frozen_narration_draft")
+        && !serialized.includes(liveTurnId)
+        && !serialized.includes(liveDraftText);
     }),
     `${label}: no card content in player-visible sends`,
   );
@@ -1101,14 +1240,14 @@ const assertCardFreePointerGuidance = (h, campaignId, resumed, label) => {
 
 // Strict pure validation: producer-shaped receipts, table-driven fail-close.
 for (const [label, envelope, resumeData, expectNull] of [
-  ["complete review-required receipt", liveEnvelope(), pendingIndexEnvelope("c").data, false],
+  ["complete review-required receipt", liveEnvelope(), pendingIndexEnvelope("recovery-guide-campaign").data, false],
   ["direct-finalize receipt via coc_invoke", liveEnvelope((data) => {
     data.contract_projection = { agency_review_required: false };
     delete data.agency_review_operation;
     data.finalize_operation = liveFinalizeCard("coc_invoke");
   }), null, false],
   ["correlated pending identity and revision", liveEnvelope(), {
-    pending_output_context: { turn_id: liveTurnId, source_digest: liveSourceDigest, revision: 3 },
+    pending_output_context: { turn_id: liveTurnId, source_digest: liveSourceDigest, revision: 2 },
   }, false],
   ["not ok", { ok: false, tool: "turn.output_context" }, null, true],
   ["wrong tool", { ok: true, tool: "state.journal" }, null, true],
@@ -1141,7 +1280,7 @@ for (const [label, envelope, resumeData, expectNull] of [
     delete d.finalize_operation.prefilled_arguments.revision;
   }), null, true],
   ["revision mismatch across chain", liveEnvelope((d) => {
-    d.agency_review_operation.prefilled_arguments.revision = 4;
+    d.agency_review_operation.prefilled_arguments.revision = 1;
   }), null, true],
   ["swapped cards", liveEnvelope((d) => {
     const review = d.agency_review_operation;
@@ -1166,6 +1305,256 @@ for (const [label, envelope, resumeData, expectNull] of [
   ["resume pending revision mismatch", liveEnvelope(), {
     pending_output_context: { turn_id: liveTurnId, revision: 9 },
   }, true],
+  // Frozen narration draft: any present-but-stale, divergent, or malformed
+  // receipt fails the whole live chain closed. (Absence is rejected only in
+  // recovery hydration mode — asserted separately below.) Every semantic
+  // field negative is digest-isolated: the fixture recomputes
+  // receipt_digest around the mutation so the only defect is the field.
+  ["frozen draft absent stays valid without require flag", liveEnvelope(() => {}, null), null, false],
+  ["frozen draft not an object", liveEnvelope(() => {}, "sha256:a3"), null, true],
+  ["frozen draft wrong schema_version", liveEnvelope(() => {}, receiptWith((r) => {
+    r.schema_version = 2;
+  })), null, true],
+  ["frozen draft wrong secrecy", liveEnvelope(() => {}, receiptWith((r) => {
+    r.secrecy = "player_visible";
+  })), null, true],
+  ["frozen draft missing campaign", liveEnvelope(() => {}, receiptWith((r) => {
+    r.campaign_id = "";
+  })), null, true],
+  ["frozen draft non-string campaign", liveEnvelope(() => {}, receiptWith((r) => {
+    r.campaign_id = 12345;
+  })), null, true],
+  ["frozen draft campaign mismatch vs resume campaign", liveEnvelope(() => {}, liveFrozenDraft({ campaign_id: "other-campaign" })), pendingIndexEnvelope("recovery-guide-campaign").data, true],
+  ["frozen draft missing review decision", liveEnvelope(() => {}, receiptWith((r) => {
+    r.review_decision_id = "";
+  })), null, true],
+  ["frozen draft non-string review decision", liveEnvelope(() => {}, receiptWith((r) => {
+    r.review_decision_id = ["pi-narration-review"];
+  })), null, true],
+  ["frozen draft missing review id", liveEnvelope(() => {}, receiptWith((r) => {
+    r.review_id = undefined;
+  })), null, true],
+  ["frozen draft non-string review id", liveEnvelope(() => {}, receiptWith((r) => {
+    r.review_id = { id: "narration-review-v1" };
+  })), null, true],
+  ["frozen draft wrong turn binding", liveEnvelope(() => {}, receiptWith((r) => {
+    r.turn_id = "turn-forged-live-9";
+  })), null, true],
+  ["frozen draft non-string turn binding", liveEnvelope(() => {}, receiptWith((r) => {
+    r.turn_id = 41;
+  })), null, true],
+  ["frozen draft wrong source binding", liveEnvelope(() => {}, receiptWith((r) => {
+    r.source_digest = "sha256:forged-other-9";
+  })), null, true],
+  ["frozen draft wrong revision binding", liveEnvelope(() => {}, liveFrozenDraft({ revision: 1 })), null, true],
+  ["frozen draft revision above card revision rejected", liveEnvelope((d) => {
+    d.agency_review_operation = liveReviewCard(1);
+    d.finalize_operation = liveFinalizeCard("coc_turn_finalize", 1);
+  }, liveFrozenDraft({ revision: 2 })), null, true],
+  ["frozen draft malformed digest", liveEnvelope(() => {}, receiptWith((r) => {
+    r.draft_sha256 = "a3f997c0cce0efce18ee8d94e2c2bc0d";
+  })), null, true],
+  ["frozen draft wrong-format digest", liveEnvelope(() => {}, receiptWith((r) => {
+    r.draft_sha256 = `sha256:${"ff".repeat(32)}`;
+  })), null, true],
+  ["frozen draft empty text", liveEnvelope(() => {}, receiptWith((r) => {
+    r.draft_text = "   ";
+  })), null, true],
+  ["frozen draft NUL rejected with recomputed digests", liveEnvelope(() => {}, receiptWith((r) => {
+    r.draft_text = "前半\u0000后半。";
+    r.draft_sha256 = canonicalDigest(r.draft_text);
+    r.draft_utf8_bytes = Buffer.byteLength(r.draft_text, "utf8");
+  })), null, true],
+  ["frozen draft missing producer kind", liveEnvelope(() => {}, receiptWith((r) => {
+    r.producer_kind = "";
+  })), null, true],
+  ["frozen draft missing materialization decision", liveEnvelope(() => {}, receiptWith((r) => {
+    r.materialization_decision_id = undefined;
+  })), null, true],
+  ["frozen draft non-string materialization decision", liveEnvelope(() => {}, receiptWith((r) => {
+    r.materialization_decision_id = true;
+  })), null, true],
+  ["frozen draft submission with divergent materialization decision", liveEnvelope(() => {}, receiptWith((r) => {
+    r.materialization_decision_id = "pi-pending-draft-materialize:forged";
+  })), null, true],
+  ["frozen draft recovery with review-owned materialization decision", liveEnvelope(() => {}, receiptWith((r) => {
+    r.producer_kind = "toolbox_audit_recovery";
+    r.provenance = {
+      kind: "verified_toolbox_audit_recovery",
+      source_path: "logs/toolbox-calls.jsonl",
+      source_row_count: 2,
+      primary_row_digest: `sha256:${"1f".repeat(32)}`,
+      corroboration_digest: `sha256:${"2e".repeat(32)}`,
+    };
+  })), null, true],
+  // Digest negatives isolate the digest: every other field stays valid.
+  ["frozen draft missing receipt digest", liveEnvelope(() => {}, {
+    ...liveFrozenDraft(),
+    receipt_digest: "",
+  }), null, true],
+  // Strict closed-schema negatives: each mandatory producer field is
+  // required, extra fields reject, and the integrity digest is recomputed.
+  ["frozen draft missing kind", liveEnvelope(() => {}, receiptWith((r) => {
+    r.kind = undefined;
+  })), null, true],
+  ["frozen draft missing receipt_id", liveEnvelope(() => {}, receiptWith((r) => {
+    r.receipt_id = undefined;
+  })), null, true],
+  ["frozen draft receipt_id not derived from identity", liveEnvelope(() => {}, receiptWith((r) => {
+    r.receipt_id = "pending-narration-draft:other:revision-2";
+  })), null, true],
+  ["frozen draft missing source_operation", liveEnvelope(() => {}, receiptWith((r) => {
+    r.source_operation = undefined;
+  })), null, true],
+  ["frozen draft wrong source_operation", liveEnvelope(() => {}, receiptWith((r) => {
+    r.source_operation = "turn.finalize";
+  })), null, true],
+  ["frozen draft missing draft_utf8_bytes", liveEnvelope(() => {}, receiptWith((r) => {
+    r.draft_utf8_bytes = undefined;
+  })), null, true],
+  ["frozen draft wrong draft_utf8_bytes", liveEnvelope(() => {}, receiptWith((r) => {
+    r.draft_utf8_bytes = 3;
+  })), null, true],
+  ["frozen draft missing review_digest", liveEnvelope(() => {}, receiptWith((r) => {
+    r.review_digest = undefined;
+  })), null, true],
+  ["frozen draft wrong-format review digest", liveEnvelope(() => {}, receiptWith((r) => {
+    r.review_digest = "sha256:short";
+  })), null, true],
+  ["frozen draft missing request_digest", liveEnvelope(() => {}, receiptWith((r) => {
+    r.request_digest = undefined;
+  })), null, true],
+  ["frozen draft missing provenance", liveEnvelope(() => {}, receiptWith((r) => {
+    r.provenance = undefined;
+  })), null, true],
+  ["frozen draft provenance extra field", liveEnvelope(() => {}, receiptWith((r) => {
+    r.provenance = { kind: "direct_review_submission", extra: 1 };
+  })), null, true],
+  ["frozen draft provenance kind mismatch", liveEnvelope(() => {}, receiptWith((r) => {
+    r.provenance = { kind: "verified_toolbox_audit_recovery" };
+  })), null, true],
+  ["frozen draft unknown producer kind", liveEnvelope(() => {}, receiptWith((r) => {
+    r.producer_kind = "transcript_reconstruction";
+  })), null, true],
+  ["frozen draft recovery provenance on submission kind", liveEnvelope(() => {}, receiptWith((r) => {
+    r.provenance = {
+      kind: "verified_toolbox_audit_recovery",
+      source_path: "logs/toolbox-calls.jsonl",
+      source_row_count: 2,
+      primary_row_digest: `sha256:${"1f".repeat(32)}`,
+      corroboration_digest: `sha256:${"2e".repeat(32)}`,
+    };
+  })), null, true],
+  ["frozen draft recovery provenance over row cap", liveEnvelope(() => {}, receiptWith((r) => {
+    r.producer_kind = "toolbox_audit_recovery";
+    r.provenance = {
+      kind: "verified_toolbox_audit_recovery",
+      source_path: "logs/toolbox-calls.jsonl",
+      source_row_count: 9,
+      primary_row_digest: `sha256:${"1f".repeat(32)}`,
+      corroboration_digest: `sha256:${"2e".repeat(32)}`,
+    };
+  })), null, true],
+  ["frozen draft extra unknown field", liveEnvelope(() => {}, receiptWith((r) => {
+    r.surprise_field = "not in the closed schema";
+  })), null, true],
+  // Digest negatives isolate the digest: every other field stays valid.
+  ["frozen draft receipt_digest not recomputed", liveEnvelope(() => {}, {
+    ...liveFrozenDraft(),
+    receipt_digest: `sha256:${"c0".repeat(32)}`,
+  }), null, true],
+  ["frozen draft digest not over exact text", liveEnvelope(() => {}, receiptWith((r) => {
+    r.draft_text = `${r.draft_text}多了一句。`;
+  })), null, true],
+  ["frozen draft oversize 8193 bytes", liveEnvelope(() => {}, (() => {
+    const oversize = "霜".repeat(8193);
+    const receipt = liveFrozenDraft({ draft_text: oversize });
+    return receipt;
+  })()), null, true],
+  // Positive strict cases: the materializer-produced recovery provenance
+  // validates, and a rejected revision-1 baseline behind a revision-2 card
+  // validates ONLY with canonical bounded span-repair evidence on the
+  // review card.
+  ["frozen draft recovered provenance valid", liveEnvelope(() => {}, {
+    ...liveFrozenDraft({ producer_kind: "toolbox_audit_recovery" }),
+  }), null, false],
+  ["frozen draft one revision behind without span repairs", liveEnvelope((d) => {
+    d.agency_review_operation = liveReviewCard(2);
+    d.finalize_operation = liveFinalizeCard("coc_turn_finalize", 2);
+  }, liveFrozenDraft({ revision: 1 })), null, true],
+  ["frozen draft one revision behind with span repairs", liveEnvelope((d) => {
+    d.agency_review_operation = liveReviewCard(2, {
+      span_repairs: canonicalSpanRepairs(),
+    });
+    d.finalize_operation = liveFinalizeCard("coc_turn_finalize", 2);
+  }, liveFrozenDraft({ revision: 1 })), null, false],
+  // Span-repair evidence itself is closed and bounded: non-object, wrong
+  // constants, missing/unknown fields, wrong types, empty/oversize
+  // strings, duplicates, over-cap counts, and baseline-divergent excerpts
+  // all fail the whole chain closed.
+  ["span repairs not an object", spanRepairsEnvelope("nope"), null, true],
+  ["span repairs missing container field", spanRepairsEnvelope((s) => {
+    delete s.instruction;
+  }), null, true],
+  ["span repairs unknown container field", spanRepairsEnvelope((s) => {
+    s.extra = true;
+  }), null, true],
+  ["span repairs wrong contract id", spanRepairsEnvelope((s) => {
+    s.contract_id = "coc.span-repairs.v2";
+  }), null, true],
+  ["span repairs wrong mode", spanRepairsEnvelope((s) => {
+    s.mode = "full_rewrite";
+  }), null, true],
+  ["span repairs empty span list", spanRepairsEnvelope((s) => {
+    s.spans = [];
+  }), null, true],
+  ["span repairs over span count cap", spanRepairsEnvelope((s) => {
+    s.spans = Array.from({ length: 17 }, (_, index) => ({
+      exact_excerpt: `烛火${index}`, claim_kind: "item",
+      reason: "理由", repair: "rephrase_or_remove",
+    }));
+  }), null, true],
+  ["span entry missing reason", spanRepairsEnvelope((s) => {
+    delete s.spans[0].reason;
+  }), null, true],
+  ["span entry unknown field", spanRepairsEnvelope((s) => {
+    s.spans[0].replacement = "新句子";
+  }), null, true],
+  ["span entry wrong repair action", spanRepairsEnvelope((s) => {
+    s.spans[0].repair = "rewrite_all";
+  }), null, true],
+  ["span entry non-string excerpt", spanRepairsEnvelope((s) => {
+    s.spans[0].exact_excerpt = 123;
+  }), null, true],
+  ["span entry empty excerpt", spanRepairsEnvelope((s) => {
+    s.spans[0].exact_excerpt = "   ";
+  }), null, true],
+  ["span entry oversize excerpt", spanRepairsEnvelope((s) => {
+    s.spans[0].exact_excerpt = "钥".repeat(2049);
+  }), null, true],
+  ["span entry oversize reason", spanRepairsEnvelope((s) => {
+    s.spans[0].reason = "理".repeat(1025);
+  }), null, true],
+  ["span entries duplicated on excerpt and kind", spanRepairsEnvelope((s) => {
+    s.spans = [canonicalSpanRepairs().spans[0], canonicalSpanRepairs().spans[0]];
+  }), null, true],
+  ["span excerpt diverges from frozen baseline", spanRepairsEnvelope((s) => {
+    s.spans[0].exact_excerpt = "不在此草稿中的句子";
+  }), null, true],
+  // Exact replay is not occurrence-bound: a revision-2 receipt behind a
+  // revision-2 card keeps structurally valid repairs whose excerpts were
+  // already repaired away in the newer baseline text.
+  ["exact replay keeps valid repairs without occurrence", liveEnvelope((d) => {
+    const repairs = canonicalSpanRepairs();
+    repairs.spans[0].exact_excerpt = "不再出现于新草稿的旧句";
+    d.agency_review_operation = liveReviewCard(2, { span_repairs: repairs });
+    d.finalize_operation = liveFinalizeCard("coc_turn_finalize", 2);
+  }, liveFrozenDraft({ revision: 2 })), null, false],
+  ["direct finalize without frozen draft stays valid", liveEnvelope((data) => {
+    data.contract_projection = { agency_review_required: false };
+    delete data.agency_review_operation;
+    data.finalize_operation = liveFinalizeCard("coc_invoke");
+  }, null), null, false],
 ]) {
   const validated = validateLiveOutputContext(envelope, resumeData);
   assert.equal(validated === null, expectNull, label);
@@ -1176,6 +1565,11 @@ for (const [label, envelope, resumeData, expectNull] of [
       label,
     );
     assert.deepEqual(validated.finalizeCard, envelope.data.finalize_operation, label);
+    assert.deepEqual(
+      validated.frozenDraft,
+      envelope.data.frozen_narration_draft ?? null,
+      label,
+    );
   }
 }
 // Validated cards are exact deep copies: later mutation of the source
@@ -1185,10 +1579,72 @@ for (const [label, envelope, resumeData, expectNull] of [
   const mutationValidated = validateLiveOutputContext(mutationSource, null);
   mutationSource.data.agency_review_operation.prefilled_arguments.revision = 99;
   mutationSource.data.finalize_operation.prefilled_arguments.decision_id = "mutated:finalize";
-  assert.equal(mutationValidated.reviewCard.prefilled_arguments.revision, 3);
+  mutationSource.data.frozen_narration_draft.draft_text = "被改写的草稿。";
+  assert.equal(mutationValidated.reviewCard.prefilled_arguments.revision, 2);
   assert.equal(
     mutationValidated.finalizeCard.prefilled_arguments.decision_id,
-    `${liveTurnId}:player-epoch-7:revision-3:finalize`,
+    `${liveTurnId}:player-epoch-7:revision-2:finalize`,
+  );
+  assert.equal(mutationValidated.frozenDraft.draft_text, liveDraftText);
+}
+
+// Recovery hydration mode: a review-required live chain is usable only with
+// the exact frozen draft; without it the whole chain fails closed. A direct
+// finalize chain never requires one. Validating an explicit canonical call
+// (no option) keeps ordinary live-turn behavior unchanged.
+{
+  const requireOptions = { requireFrozenDraft: true };
+  assert.equal(
+    validateLiveOutputContext(liveEnvelope(), null, requireOptions) !== null,
+    true,
+    "review-required live chain with the frozen draft validates",
+  );
+  assert.equal(
+    validateLiveOutputContext(
+      liveEnvelope(),
+      pendingIndexEnvelope("recovery-guide-campaign").data,
+      requireOptions,
+    ) !== null,
+    true,
+    "receipt campaign equal to the resume campaign validates",
+  );
+  assert.equal(
+    validateLiveOutputContext(
+      liveEnvelope(),
+      pendingIndexEnvelope("other-campaign").data,
+      requireOptions,
+    ),
+    null,
+    "receipt campaign mismatching the resume campaign fails closed",
+  );
+  assert.equal(
+    validateLiveOutputContext(
+      liveEnvelope(() => {}, liveFrozenDraft({ campaign_id: "forged-campaign" })),
+      pendingIndexEnvelope("recovery-guide-campaign").data,
+      requireOptions,
+    ),
+    null,
+    "forged receipt campaign against the current resume campaign fails closed",
+  );
+  assert.equal(
+    validateLiveOutputContext(liveEnvelope(() => {}, null), null, requireOptions),
+    null,
+    "review-required live chain without the frozen draft fails closed",
+  );
+  const directEnvelope = liveEnvelope((data) => {
+    data.contract_projection = { agency_review_required: false };
+    delete data.agency_review_operation;
+    data.finalize_operation = liveFinalizeCard("coc_invoke");
+  }, null);
+  assert.equal(
+    validateLiveOutputContext(directEnvelope, null, requireOptions) !== null,
+    true,
+    "direct finalize never requires a frozen draft",
+  );
+  assert.equal(
+    validateLiveOutputContext(liveEnvelope(() => {}, null), null) !== null,
+    true,
+    "explicit canonical call keeps ordinary live-turn validation",
   );
 }
 
@@ -1266,7 +1722,86 @@ for (const [label, envelope, resumeData, expectNull] of [
     { status: "host_refreshed_live" },
   );
   assert.equal(liveGuided.audit.card_source, "host_refreshed_turn_output_context");
+  // Canonical cards unchanged as authority: exact structural copies of the
+  // producer cards, never merged with draft or projection fields.
   const liveGuidance = liveGuided.envelope.data.host_recovery_guidance;
+  assert.equal(
+    JSON.stringify(liveGuidance.review_recovery.card),
+    JSON.stringify(liveReviewCard()),
+  );
+  assert.equal(
+    JSON.stringify(liveGuidance.then.card),
+    JSON.stringify(liveFinalizeCard()),
+  );
+  // Keeper-only review input carries the exact frozen draft exactly once
+  // as the immutable baseline, with its relation to the actionable cards.
+  const liveFrozen = liveFrozenDraft();
+  assert.deepEqual(liveGuidance.review_recovery.review_input, {
+    visibility: "keeper_only",
+    source: "turn.output_context.data.frozen_narration_draft",
+    mode: "exact_replay",
+    baseline_draft_text: liveDraftText,
+    baseline_draft_sha256: liveFrozen.draft_sha256,
+    instruction: liveGuidance.review_recovery.review_input.instruction,
+  });
+  assert.equal(
+    JSON.stringify(liveGuidance).split(liveDraftText).length - 1,
+    1,
+    "the frozen draft must appear exactly once in the guidance",
+  );
+  // Separate model-call projection derived from the actual typed schemas:
+  // model-owned only, host-bound listed, exact card invoke_via surfaces.
+  assert.deepEqual(liveGuidance.model_calls.review, {
+    operation: "narration.review",
+    invoke_via: "coc_narration_review",
+    contract_source: "mcp_operation_contracts.inputSchema",
+    invocation_shape: "typed_flat",
+    model_owned_required_arguments: ["draft_text", "state_authority_review"],
+    model_owned_optional_arguments: ["findings", "investigator"],
+    host_bound_auto_attached_arguments: [
+      "campaign", "decision_id", "revision", "root", "source_digest",
+      "state_claim_compilation", "turn_id",
+    ],
+    instruction: liveGuidance.model_calls.review.instruction,
+  });
+  assert.deepEqual(liveGuidance.model_calls.finalize, {
+    operation: "turn.finalize",
+    invoke_via: "coc_turn_finalize",
+    contract_source: "mcp_operation_contracts.inputSchema",
+    invocation_shape: "typed_flat",
+    model_owned_required_arguments: ["coverage", "draft"],
+    model_owned_optional_arguments: [
+      "advisory_uptake", "agency_claims", "mechanics_placements", "validate_only",
+    ],
+    host_bound_auto_attached_arguments: [
+      "campaign", "decision_id", "narration_review_id", "repair_finalization_id",
+      "revision", "root",
+    ],
+    instruction: liveGuidance.model_calls.finalize.instruction,
+  });
+  // The model is never asked to echo host-bound identity or compiler fields.
+  for (const hostBound of [
+    "decision_id", "narration_review_id", "turn_id", "source_digest",
+    "revision", "state_claim_compilation",
+  ]) {
+    assert.equal(
+      liveGuidance.model_calls.review.model_owned_required_arguments
+        .includes(hostBound),
+      false,
+      hostBound,
+    );
+    assert.equal(
+      liveGuidance.model_calls.finalize.model_owned_required_arguments
+        .includes(hostBound),
+      false,
+      hostBound,
+    );
+  }
+  assert.deepEqual(liveGuided.audit.model_call_projection, {
+    review: true,
+    finalize: true,
+  });
+  assert.equal(liveGuided.audit.frozen_draft_review_input, true);
   assert.equal(liveGuidance.card_projection.source, "host_refreshed_live_context");
   assert.equal(liveGuidance.card_projection.authoritative_copy, undefined);
   assert.equal(liveGuidance.review_recovery.exact_card_path, undefined);
@@ -1301,6 +1836,53 @@ for (const [label, envelope, resumeData, expectNull] of [
       .includes("coc_turn_output_context"),
     false,
     "direct-finalize live guidance has no stale output-context pointer",
+  );
+  // Direct finalize supports the coc_invoke card invoke_via surface, and no
+  // review projection or draft review input exists on this path.
+  const directGuidance = directGuided.envelope.data.host_recovery_guidance;
+  assert.equal(directGuidance.model_calls.finalize.invoke_via, "coc_invoke");
+  assert.equal(directGuidance.model_calls.review, undefined);
+  assert.equal(directGuidance.review_recovery.review_input, undefined);
+  assert.equal(
+    JSON.stringify(directGuidance).includes(liveDraftText),
+    false,
+    "direct-finalize guidance carries no frozen draft",
+  );
+  assert.deepEqual(directGuided.audit.model_call_projection, {
+    review: false,
+    finalize: true,
+  });
+  assert.equal(directGuided.audit.frozen_draft_review_input, false);
+  // A live review chain whose producer receipt is missing the exact frozen
+  // draft is unusable: fail closed to card-free pointer guidance, no review
+  // card, and an honest unusable audit source.
+  const draftlessCards = validateLiveOutputContext(
+    liveEnvelope(() => {}, null),
+    null,
+  );
+  assert.ok(draftlessCards !== null);
+  assert.equal(draftlessCards.frozenDraft, null);
+  const draftlessGuided = applyPendingFinalizationRecoveryGuidance(
+    conflictEnvelope,
+    { root, campaign: "recovery-guide-campaign" },
+    { liveHydration: { status: "success", cards: draftlessCards } },
+  );
+  assert.equal(
+    draftlessGuided.envelope.data.host_recovery_guidance.output_context_status,
+    undefined,
+    "live chain without the frozen draft must not claim host_refreshed_live",
+  );
+  assert.equal(
+    draftlessGuided.envelope.data.host_recovery_guidance.review_recovery.card,
+    undefined,
+  );
+  assert.equal(
+    draftlessGuided.envelope.data.host_recovery_guidance.model_calls,
+    undefined,
+  );
+  assert.equal(
+    draftlessGuided.audit.card_source,
+    "host_refreshed_live_unusable_card_free",
   );
   const unavailableGuided = applyPendingFinalizationRecoveryGuidance(
     conflictEnvelope,
@@ -1353,7 +1935,7 @@ const stubCompilerInfer = async (input) => ({
   },
   responseModel: { provider: "offline", id: "offline", api: "openai-responses" },
 });
-const liveCampaign = "startup-pending-live-hydrate";
+const liveCampaign = "recovery-guide-campaign";
 process.env.COC_PI_SESSION_ROLE = "play";
 const liveHost = harness((name, params) => {
   if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
@@ -1366,7 +1948,7 @@ const liveHost = harness((name, params) => {
       data: {
         accepted: true,
         review_id: "review-live-1",
-        revision: 3,
+        revision: 2,
         state_claim_compilation: params.arguments.state_claim_compilation,
       },
     };
@@ -1414,10 +1996,37 @@ const liveGuidance = liveResumed.data.host_recovery_guidance;
 assert.equal(liveGuidance.output_context_status, "host_refreshed_live");
 assert.deepEqual(liveGuidance.next_call, { tool: "coc_narration_review" });
 assert.equal(liveGuidance.next_call.card, undefined, "first card is not duplicated");
-assert.deepEqual(liveGuidance.review_recovery.card, liveReviewCard());
+assert.deepEqual(liveGuidance.review_recovery.card, {
+  ...liveReviewCard(),
+  // Gateway boundary sanitizes opaque identity from model content; the host
+  // injects the exact turn/source binding at invoke time.
+  prefilled_arguments: { revision: 2 },
+});
 assert.deepEqual(liveGuidance.then.card, liveFinalizeCard());
-assert.equal(liveGuidance.review_recovery.revision, 3);
+assert.equal(liveGuidance.review_recovery.revision, 2);
 assert.equal(liveGuidance.card_projection.source, "host_refreshed_live_context");
+// The exact frozen draft rides once, keeper-only, inside the review input.
+assert.deepEqual(liveGuidance.review_recovery.review_input, {
+  visibility: "keeper_only",
+  source: "turn.output_context.data.frozen_narration_draft",
+  mode: "exact_replay",
+  baseline_draft_text: liveDraftText,
+  instruction: liveGuidance.review_recovery.review_input.instruction,
+});
+assert.equal(
+  JSON.stringify(liveGuidance).split(liveDraftText).length - 1,
+  1,
+  "full-path guidance must carry the frozen draft exactly once",
+);
+assert.equal(liveGuidance.model_calls.review.invoke_via, "coc_narration_review");
+assert.equal(liveGuidance.model_calls.finalize.invoke_via, "coc_turn_finalize");
+assert.equal(
+  liveGuidance.model_calls.review.model_owned_required_arguments.includes(
+    "draft_text",
+  ),
+  true,
+  "the review model call must use the actual typed parameter name draft_text",
+);
 assert.equal(liveGuidance.card_projection.authoritative_copy, undefined);
 assert.equal(liveGuidance.review_recovery.exact_card_path, undefined);
 assert.equal(liveGuidance.then.exact_card_path, undefined);
@@ -1463,6 +2072,13 @@ assert.equal(liveGuidanceJson.includes("manifest_revision"), false);
     )),
     "output-context observation must never be regressive",
   );
+  // Hydration is context observation only: every progress entry stays inside
+  // the same player turn epoch — hydration never opens a new player epoch.
+  assert.ok(progressEntries.length > 0);
+  assert.ok(
+    progressEntries.every((entry) => entry.value?.player_turn_epoch === 0),
+    "hydration must never create a new player epoch",
+  );
 }
 assert.ok(
   liveHost.audits.some((entry) => (
@@ -1506,7 +2122,7 @@ const liveReviewCalls = liveHost.clientCalls.filter((call) => (
 assert.equal(liveReviewCalls.length, 1);
 assert.equal(liveReviewCalls[0].params.arguments.turn_id, liveTurnId);
 assert.equal(liveReviewCalls[0].params.arguments.source_digest, liveSourceDigest);
-assert.equal(liveReviewCalls[0].params.arguments.revision, 3);
+assert.equal(liveReviewCalls[0].params.arguments.revision, 2);
 assert.equal(
   liveReviewCalls[0].params.arguments.state_claim_compilation?.contract_id,
   "coc.pi-state-claim-compilation-receipt.v1",
@@ -1527,13 +2143,18 @@ assert.equal(
 );
 assert.deepEqual(
   liveResumedAgain.data.host_recovery_guidance.review_recovery.card,
-  liveReviewCard(),
+  {
+    ...liveReviewCard(),
+    prefilled_arguments: { revision: 2 },
+  },
 );
 await liveHost.shutdown();
 
 // Concurrent resume handling of the same pending identity shares one fetch.
 {
-  const concurrentCampaign = "startup-pending-live-concurrent";
+  // The harness campaign must equal the receipt campaign so the live
+  // hydration campaign binding holds.
+  const concurrentCampaign = "recovery-guide-campaign";
   const concurrentHost = harness((name, params) => {
     if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
     if (params.operation === "session.resume") {
@@ -1567,7 +2188,7 @@ await liveHost.shutdown();
 
 // Session reset clears the latch: a new generation refetches once.
 {
-  const resetCampaign = "startup-pending-live-reset";
+  const resetCampaign = "recovery-guide-campaign";
   const resetHost = harness((name, params) => {
     if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
     if (params.operation === "session.resume") return pointerOnlyPendingEnvelope(resetCampaign);
@@ -1588,7 +2209,7 @@ await liveHost.shutdown();
 // An identity-less pending resume never wildcard-reuses an identified
 // attempt; a genuinely changed identity gets one new fetch.
 {
-  const identityCampaign = "startup-pending-live-identity";
+  const identityCampaign = "recovery-guide-campaign";
   let resumeCount = 0;
   const identityHost = harness((name, params) => {
     if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
@@ -1625,20 +2246,20 @@ await liveHost.shutdown();
     data.settlement_snapshot_id = "turn-settlement-v1:live-hydrate-2";
     data.mechanics_bundle_sha256 = "sha256:live-mechanics-hydrate-2";
     data.agency_review_operation = {
-      ...liveReviewCard(),
-      prefilled_arguments: { turn_id: turnTwoId, source_digest: turnTwoSource, revision: 5 },
+      ...liveReviewCard(2),
+      prefilled_arguments: { turn_id: turnTwoId, source_digest: turnTwoSource, revision: 2 },
     };
     data.finalize_operation = {
-      ...liveFinalizeCard(),
+      ...liveFinalizeCard("coc_turn_finalize", 2),
       prefilled_arguments: {
-        decision_id: `${turnTwoId}:player-epoch-8:revision-5:finalize`,
-        revision: 5,
+        decision_id: `${turnTwoId}:player-epoch-8:revision-2:finalize`,
+        revision: 2,
         coverage: [],
       },
     };
   });
   let resumeCount = 0;
-  const changedCampaign = "startup-pending-live-changed";
+  const changedCampaign = "recovery-guide-campaign";
   const changedHost = harness((name, params) => {
     if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
     if (params.operation === "session.resume") {
@@ -1654,31 +2275,34 @@ await liveHost.shutdown();
   }, changedCampaign);
   await changedHost.start();
   const firstChanged = await invoke(changedHost, "changed-resume-1", resumeParams(changedCampaign), "coc_setup");
+  // Identity values are host-only at the gateway boundary; the model-visible
+  // card carries the semantic revision ordinal, and the changed-identity
+  // refetch below proves the host retained the exact turn binding.
   assert.equal(
-    firstChanged.data.host_recovery_guidance.review_recovery.card.prefilled_arguments.turn_id,
-    liveTurnId,
+    firstChanged.data.host_recovery_guidance.review_recovery.card.prefilled_arguments.revision,
+    2,
   );
   const secondChanged = await invoke(changedHost, "changed-resume-2", resumeParams(changedCampaign), "coc_setup");
   assert.equal(outputContextFetchCount(changedHost), 2, "changed identity refetches once");
   assert.equal(
-    secondChanged.data.host_recovery_guidance.review_recovery.card.prefilled_arguments.turn_id,
-    turnTwoId,
+    secondChanged.data.host_recovery_guidance.review_recovery.card.prefilled_arguments.revision,
+    2,
   );
-  assert.equal(secondChanged.data.host_recovery_guidance.review_recovery.revision, 5);
+  assert.equal(secondChanged.data.host_recovery_guidance.review_recovery.revision, 2);
   await changedHost.shutdown();
 }
 
 // A deferred old attempt that is superseded by a revision-qualified pending
 // identity is discarded whole. Only the new identity may commit/fetch once.
 {
-  const raceCampaign = "startup-pending-live-identity-race";
-  const revisionFourEnvelope = () => liveEnvelope((data) => {
-    data.agency_review_operation.prefilled_arguments.revision = 4;
-    data.finalize_operation.prefilled_arguments = {
-      ...data.finalize_operation.prefilled_arguments,
-      decision_id: `${liveTurnId}:player-epoch-7:revision-4:finalize`,
-      revision: 4,
-    };
+  const raceCampaign = "recovery-guide-campaign";
+  const revisionOneEnvelope = () => liveEnvelope((data) => {
+    data.agency_review_operation = liveReviewCard(1);
+    data.finalize_operation = liveFinalizeCard("coc_turn_finalize", 1);
+  });
+  const revisionTwoEnvelope = () => liveEnvelope((data) => {
+    data.agency_review_operation = liveReviewCard(2);
+    data.finalize_operation = liveFinalizeCard("coc_turn_finalize", 2);
   });
   let resumeCount = 0;
   let contextCount = 0;
@@ -1689,7 +2313,7 @@ await liveHost.shutdown();
     if (params.operation === "session.resume") {
       resumeCount += 1;
       const pending = pendingIndexEnvelope(raceCampaign);
-      pending.data.pending_output_context.revision = resumeCount === 1 ? 3 : 4;
+      pending.data.pending_output_context.revision = resumeCount === 1 ? 1 : 2;
       return pending;
     }
     if (params.operation === "turn.output_context") {
@@ -1697,10 +2321,10 @@ await liveHost.shutdown();
       if (contextCount === 1) {
         return (async () => {
           await oldGate;
-          return liveEnvelope();
+          return revisionOneEnvelope();
         })();
       }
-      return revisionFourEnvelope();
+      return revisionTwoEnvelope();
     }
     throw new Error(`unexpected ${params.operation}`);
   }, raceCampaign);
@@ -1723,7 +2347,7 @@ await liveHost.shutdown();
   assert.equal(outputContextFetchCount(raceHost), 2);
   assert.equal(
     newResume.data.host_recovery_guidance.review_recovery.revision,
-    4,
+    2,
     "new revision-qualified identity commits its one live fetch",
   );
   assert.equal(
@@ -1745,7 +2369,7 @@ await liveHost.shutdown();
 // the semantic pending pointer is unchanged. The old result cannot commit;
 // the current epoch gets exactly one fresh attempt.
 {
-  const epochRaceCampaign = "startup-pending-live-player-epoch-race";
+  const epochRaceCampaign = "recovery-guide-campaign";
   let contextCount = 0;
   let releaseOld = () => {};
   const oldGate = new Promise((resolve) => { releaseOld = resolve; });
@@ -1805,7 +2429,7 @@ await liveHost.shutdown();
 
 // Cancellation before transport: no fetch at all, card-free guidance.
 {
-  const abortCampaign = "startup-pending-live-abort";
+  const abortCampaign = "recovery-guide-campaign";
   const abortHost = harness((name, params) => {
     if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
     if (params.operation === "session.resume") return pointerOnlyPendingEnvelope(abortCampaign);
@@ -1838,7 +2462,7 @@ await liveHost.shutdown();
 // Cancellation after transport: the fetched receipt is discarded whole — no
 // compiler/binding/progress observation ran — and the failure is not cached.
 {
-  const lateAbortCampaign = "startup-pending-live-late-abort";
+  const lateAbortCampaign = "recovery-guide-campaign";
   let releaseFetch = () => {};
   const fetchGate = new Promise((resolve) => { releaseFetch = resolve; });
   const lateAbortHost = harness((name, params) => {
@@ -1940,7 +2564,7 @@ for (const [label, liveResponse, resumeBuilder] of [
       prefilled_arguments: {
         turn_id: "turn-forged-live-9",
         source_digest: liveSourceDigest,
-        revision: 3,
+        revision: 2,
       },
     };
   }), pendingIndexEnvelope],
@@ -3888,14 +4512,56 @@ const attachedGuidance = guidedResume.envelope.data.host_recovery_guidance;
 assert.equal(attachedGuidance.contract_id, DRAFT_SHAPE_RECOVERY_CARD_CONTRACT);
 assert.equal(attachedGuidance.audience, "keeper_only");
 assert.equal(attachedGuidance.mode, "pending_finalization_recovery");
-assert.equal(attachedGuidance.next_call.tool, "coc_turn_finalize");
-assert.equal(attachedGuidance.recovery_card.turn_id, run02Card.turn_id);
+// The model-visible guidance carries the semantic projection only.
+assert.equal(attachedGuidance.recovery.next_call.tool, "coc_invoke");
+assert.equal(attachedGuidance.recovery.draft, run02Card.frozen_finalize_payload.draft);
 assert.deepEqual(
-  attachedGuidance.recovery_card.frozen_finalize_payload.advisory_uptake,
-  run02AdvisoryUptake,
+  attachedGuidance.recovery.consequence_excerpts,
+  ["你贴着墙根屏息"],
 );
+assert.deepEqual(attachedGuidance.recovery.forbidden, [
+  "reroll",
+  "repeat_state_writes",
+  "rerun_state_journal",
+  "rerun_narration_review",
+  "supplying_coverage_or_claims_or_identities",
+  "echoing_hash_or_opaque_ids",
+  "placeholder_prose",
+  "accept_new_player_action_before_finalization",
+]);
 assert.match(attachedGuidance.instruction, /never\s/);
 assert.match(attachedGuidance.instruction, /real finalize result/);
+// Recursive no-opaque-surface scan over the entire model-visible envelope.
+const modelVisibleEnvelope = JSON.stringify(guidedResume.envelope);
+for (const forbidden of [
+  "sha256:",
+  "source_digest",
+  "payload_sha256",
+  "narration_review_id",
+  "turn_id",
+  "recovery_card",
+  "frozen_finalize_payload",
+  "narration-review-v2:dfd1d66b",
+  "turn-run02-act02",
+  "sha256:source-run02-act02",
+]) {
+  assert.equal(
+    modelVisibleEnvelope.includes(forbidden),
+    false,
+    `acknowledged guidance leaks "${forbidden}"`,
+  );
+}
+assert.equal(
+  /[0-9a-f]{16,}/i.test(
+    modelVisibleEnvelope.replace(/coc\.pi-[a-z-]+/g, ""),
+  ),
+  false,
+  "acknowledged guidance leaks long random hex",
+);
+// The durable internal card retains and verifies everything host-side.
+assert.equal(run02Card.payload_sha256, draftShapePayloadDigest(run02Card.frozen_finalize_payload));
+assert.equal(run02Card.turn_id, "turn-run02-act02");
+assert.equal(run02Card.narration_review_id, run02Facts.narrationReviewId);
 assert.equal(guidedResume.audit.card_source, "session_entry");
 assert.equal(guidedResume.audit.card_turn_id, run02Card.turn_id);
 assert.equal(guidedResume.audit.mode, "already_acknowledged");
@@ -3995,10 +4661,9 @@ const realFinalizeProperties = Object.keys(
   listTypedOperationTools().find((tool) => tool.operation === "turn.finalize")
     ?.parameters.properties ?? {},
 );
-// The real schema exposes the optional host-owned repair identity and the
-// optional model-owned validation flag; the derived whitelist must keep the
-// latter and drop the former.
-assert.equal(realFinalizeProperties.includes("repair_finalization_id"), true);
+// The registered model-owned schema EXCLUDES host-owned repair identity and
+// keeps the optional model-owned validation flag.
+assert.equal(realFinalizeProperties.includes("repair_finalization_id"), false);
 assert.equal(realFinalizeProperties.includes("validate_only"), true);
 const realModelOwnedFields = realFinalizeProperties.filter(
   (field) => !HOST_BOUND_FINALIZE_ARGUMENTS.includes(field),

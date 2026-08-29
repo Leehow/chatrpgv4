@@ -28,6 +28,14 @@ def _load(name: str, rel: str | Path):
 coc_toolbox = _load("coc_toolbox_narration_budget", SCRIPTS / "coc_toolbox.py")
 coc_starter = _load("coc_starter_narration_budget", SCRIPTS / "coc_starter.py")
 coc_mcp_wire = _load("coc_mcp_wire_narration_budget", SCRIPTS / "coc_mcp_wire.py")
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+# coc_toolbox's import registered the shared kernel runtime under the exact
+# module name the operation cells import; only then is the cell loadable.
+assert "coc_operation_kernel_runtime" in sys.modules
+coc_turn_output = _load(
+    "coc_turn_output_narration_budget", SCRIPTS / "coc_operation_turn_output.py"
+)
 
 
 def _write_json(path: Path, payload) -> None:
@@ -2140,3 +2148,801 @@ def test_rewrite_required_returns_excerpt_only_span_repairs(
     operation = resume["data"]["agency_review_operation"]
     assert operation["prefilled_arguments"]["revision"] == 2
     assert operation["span_repairs"]["spans"] == repairs["spans"]
+
+
+def test_pending_draft_receipt_is_exact_idempotent_and_keeper_only(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我继续观察门缝。",
+        decision_id="journal-pending-draft-exact",
+    )
+    draft = "门缝后的灯影停住了，雨声仍贴着玻璃滑落。"
+    kwargs = {
+        "draft": draft,
+        "revision": 1,
+        "decision_id": "review-pending-draft-exact",
+        "state_authority_review": {
+            "disposition": "no_player_state_change_claimed",
+            "reason": "草稿没有宣告玩家状态变化。",
+            "claims": [],
+        },
+        "compiled_claims": [],
+    }
+    first = _agency_review(campaign_ws, context, **kwargs)
+    assert first["ok"] is True, first
+    second = _agency_review(campaign_ws, context, **kwargs)
+    assert second["ok"] is True, second
+    receipts = _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "pending-narration-drafts.jsonl"
+    )
+    assert len(receipts) == 1
+    receipt = receipts[0]
+    assert receipt["schema_version"] == 1
+    assert receipt["kind"] == "pending_narration_draft"
+    assert receipt["secrecy"] == "keeper_only"
+    assert receipt["draft_text"] == draft
+    assert receipt["draft_sha256"] == _digest(draft)
+    assert receipt["review_id"] == first["data"]["review_id"]
+    refreshed = _run(campaign_ws, "turn.output_context")
+    assert refreshed["ok"] is True, refreshed
+    assert refreshed["data"]["frozen_narration_draft"]["draft_text"] == draft
+    assert refreshed["data"]["pending_narration_draft_status"] == {
+        "schema_version": 1,
+        "secrecy": "keeper_only",
+        "status": "available",
+        "actionable": True,
+    }
+    transcript = json.dumps(
+        _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "table-transcript.jsonl"),
+        ensure_ascii=False,
+    )
+    assert draft not in transcript
+
+
+def test_explicit_pending_draft_recovery_uses_only_structured_review_audit(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我留在门边。",
+        decision_id="journal-pending-draft-recovery",
+    )
+    draft = "灯影从门缝后退开半步，旧木板发出一声轻响。"
+    review = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-pending-draft-recovery",
+        state_authority_review={
+            "disposition": "no_player_state_change_claimed",
+            "reason": "草稿没有宣告玩家状态变化。",
+            "claims": [],
+        },
+        compiled_claims=[],
+    )
+    assert review["ok"] is True, review
+    receipt_path = (
+        campaign_ws["campaign_dir"] / "logs" / "pending-narration-drafts.jsonl"
+    )
+    receipt_path.unlink()
+    audit_path = campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+    audit_rows = _read_jsonl(audit_path)
+    review_rows = [
+        row for row in audit_rows
+        if row.get("tool") == "narration.review"
+        and (row.get("args") or {}).get("decision_id")
+        == "review-pending-draft-recovery"
+    ]
+    assert len(review_rows) == 1
+    with audit_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(review_rows[0], ensure_ascii=False) + "\n")
+    blocked = _run(campaign_ws, "turn.output_context")
+    assert blocked["ok"] is True, blocked
+    assert "frozen_narration_draft" not in blocked["data"]
+    assert "agency_review_operation" not in blocked["data"]
+    assert "finalize_operation" not in blocked["data"]
+    assert blocked["data"]["pending_narration_draft_status"]["status"] == "missing"
+    recovered = _run(
+        campaign_ws,
+        "state.recover_pending_narration_draft",
+        {
+            "decision_id": "recover-pending-draft:review-recovery:1",
+            "review_decision_id": "review-pending-draft-recovery",
+        },
+    )
+    assert recovered["ok"] is True, recovered
+    assert recovered["data"]["draft_text"] == draft
+    assert recovered["data"]["producer_kind"] == "toolbox_audit_recovery"
+    provenance = recovered["data"]["provenance"]
+    assert set(provenance) == {
+        "kind", "source_path", "source_row_count",
+        "primary_row_digest", "corroboration_digest",
+    }
+    assert provenance["kind"] == "verified_toolbox_audit_recovery"
+    assert provenance["source_path"] == "logs/toolbox-calls.jsonl"
+    assert provenance["source_row_count"] == 2  # the retry row coalesces
+    assert provenance["primary_row_digest"].startswith("sha256:")
+    assert provenance["corroboration_digest"].startswith("sha256:")
+    replay = _run(
+        campaign_ws,
+        "state.recover_pending_narration_draft",
+        {
+            "decision_id": "recover-pending-draft:review-recovery:1",
+            "review_decision_id": "review-pending-draft-recovery",
+        },
+    )
+    assert replay["ok"] is True, replay
+    assert replay["data"] == recovered["data"]
+    assert len(_read_jsonl(receipt_path)) == 1
+    refreshed = _run(campaign_ws, "turn.output_context")
+    assert refreshed["data"]["frozen_narration_draft"]["draft_text"] == draft
+
+
+def test_pending_draft_recovery_rejects_missing_finalize_only_and_oversize(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我再等一会。",
+        decision_id="journal-pending-draft-reject",
+    )
+    review = _agency_review(
+        campaign_ws,
+        context,
+        draft="门后无人应声。",
+        revision=1,
+        decision_id="review-pending-draft-reject",
+        state_authority_review={
+            "disposition": "no_player_state_change_claimed",
+            "reason": "草稿没有宣告玩家状态变化。",
+            "claims": [],
+        },
+        compiled_claims=[],
+    )
+    assert review["ok"] is True, review
+    (campaign_ws["campaign_dir"] / "logs" / "pending-narration-drafts.jsonl").unlink()
+    audit_path = campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+    original = _read_jsonl(audit_path)
+    base_rows = [
+        row for row in original
+        if not (
+            row.get("tool") == "narration.review"
+            and (row.get("args") or {}).get("decision_id")
+            == "review-pending-draft-reject"
+        )
+    ]
+    audit_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in base_rows),
+        encoding="utf-8",
+    )
+    missing = _run(campaign_ws, "state.recover_pending_narration_draft", {
+        "decision_id": "recover-reject:missing",
+        "review_decision_id": "review-pending-draft-reject",
+    })
+    assert missing["error"]["code"] == "pending_draft_recovery_evidence_missing"
+    finalize_only = {
+        "schema_version": 2,
+        "tool": "turn.finalize",
+        "ok": False,
+        "args": {"decision_id": "review-pending-draft-reject", "draft": "门后无人应声。"},
+        "data": None,
+    }
+    audit_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in [*base_rows, finalize_only]),
+        encoding="utf-8",
+    )
+    finalize_rejected = _run(campaign_ws, "state.recover_pending_narration_draft", {
+        "decision_id": "recover-reject:finalize-only",
+        "review_decision_id": "review-pending-draft-reject",
+    })
+    assert finalize_rejected["error"]["code"] == "pending_draft_recovery_evidence_missing"
+    review_row = next(row for row in original if row.get("tool") == "narration.review")
+    review_row["args"]["draft_text"] = "界" * 8193
+    audit_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in [*base_rows, review_row]),
+        encoding="utf-8",
+    )
+    oversize = _run(campaign_ws, "state.recover_pending_narration_draft", {
+        "decision_id": "recover-reject:oversize",
+        "review_decision_id": "review-pending-draft-reject",
+    })
+    assert oversize["error"]["code"] == "pending_draft_recovery_evidence_mismatch"
+
+
+def _pending_draft_negative_setup(campaign_ws, monkeypatch, *, review_decision_id):
+    """Open a play turn, submit one clear revision-1 review, return helpers."""
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我在门边听着。",
+        decision_id=f"journal-{review_decision_id}",
+    )
+    review = _agency_review(
+        campaign_ws,
+        context,
+        draft="门外的脚步声停了。",
+        revision=1,
+        decision_id=review_decision_id,
+        state_authority_review={
+            "disposition": "no_player_state_change_claimed",
+            "reason": "草稿没有宣告玩家状态变化。",
+            "claims": [],
+        },
+        compiled_claims=[],
+    )
+    assert review["ok"] is True, review
+    return context, review
+
+
+def _receipt_path(campaign_ws) -> Path:
+    return campaign_ws["campaign_dir"] / "logs" / "pending-narration-drafts.jsonl"
+
+
+def _rewrite_receipt(campaign_ws, mutate) -> dict:
+    """Rewrite the single stored receipt through a mutation; return it."""
+    path = _receipt_path(campaign_ws)
+    rows = _read_jsonl(path)
+    assert len(rows) == 1
+    mutate(rows[0])
+    path.write_text(
+        json.dumps(rows[0], ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    return rows[0]
+
+
+def test_pending_draft_materializer_rejects_divergent_and_identity_mismatch(
+    campaign_ws, monkeypatch
+):
+    _context, _review = _pending_draft_negative_setup(
+        campaign_ws, monkeypatch, review_decision_id="review-neg-divergent"
+    )
+    _receipt_path(campaign_ws).unlink()
+    audit_path = campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+    rows = _read_jsonl(audit_path)
+    base = [
+        row for row in rows
+        if not (
+            row.get("tool") == "narration.review"
+            and (row.get("args") or {}).get("decision_id")
+            == "review-neg-divergent"
+        )
+    ]
+    review_rows = [
+        row for row in rows
+        if row.get("tool") == "narration.review"
+        and (row.get("args") or {}).get("decision_id") == "review-neg-divergent"
+    ]
+    assert len(review_rows) == 1
+
+    def write(rows_override):
+        audit_path.write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows_override),
+            encoding="utf-8",
+        )
+
+    # Distinct draft values under the same review identity reject: the
+    # forged draft breaks the request/draft identity binding, so the
+    # evidence row is rejected fail-closed (identity-bound divergence).
+    divergent = json.loads(json.dumps(review_rows[0], ensure_ascii=False))
+    divergent["args"]["draft_text"] = "另一份完全不同的草稿。"
+    write([*base, review_rows[0], divergent])
+    distinct = _run(campaign_ws, "state.recover_pending_narration_draft", {
+        "decision_id": "recover-neg:divergent",
+        "review_decision_id": "review-neg-divergent",
+    })
+    assert distinct["ok"] is False
+    assert distinct["error"]["code"] in {
+        "pending_draft_recovery_evidence_mismatch",
+        "pending_draft_recovery_evidence_ambiguous",
+    }
+
+    # Nine byte-identical retry rows (distinct ts, identical content
+    # identity) exceed the bounded corroboration count and reject.
+    inflated = []
+    for index in range(9):
+        row = json.loads(json.dumps(review_rows[0], ensure_ascii=False))
+        row["ts"] = f"2026-08-28T00:00:{index:02d}Z"
+        inflated.append(row)
+    write([*base, *inflated])
+    bounded = _run(campaign_ws, "state.recover_pending_narration_draft", {
+        "decision_id": "recover-neg:inflated",
+        "review_decision_id": "review-neg-divergent",
+    })
+    assert bounded["error"]["code"] == "pending_draft_recovery_evidence_ambiguous"
+
+    # Full-identity mismatch (wrong turn binding in the audit row) rejects.
+    wrong_identity = json.loads(json.dumps(review_rows[0], ensure_ascii=False))
+    wrong_identity["args"]["turn_id"] = "turn-v1-forged"
+    write([*base, wrong_identity])
+    mismatch = _run(campaign_ws, "state.recover_pending_narration_draft", {
+        "decision_id": "recover-neg:mismatch",
+        "review_decision_id": "review-neg-divergent",
+    })
+    assert mismatch["error"]["code"] == "pending_draft_recovery_evidence_mismatch"
+    assert not _receipt_path(campaign_ws).is_file()
+
+
+def test_pending_draft_corrupt_receipt_fails_closed_everywhere(
+    campaign_ws, monkeypatch
+):
+    _context, _review = _pending_draft_negative_setup(
+        campaign_ws, monkeypatch, review_decision_id="review-neg-corrupt"
+    )
+    # Tampered receipt_digest: canonical validation fails, output_context
+    # degrades to an explicit non-actionable card-free status, and the
+    # materializer refuses to adopt the corrupt row.
+    _rewrite_receipt(
+        campaign_ws,
+        lambda row: row.__setitem__("receipt_digest", "sha256:" + "0" * 64),
+    )
+    blocked = _run(campaign_ws, "turn.output_context")
+    assert blocked["ok"] is True, blocked
+    assert "frozen_narration_draft" not in blocked["data"]
+    assert "agency_review_operation" not in blocked["data"]
+    assert "finalize_operation" not in blocked["data"]
+    status = blocked["data"]["pending_narration_draft_status"]
+    assert status["status"] == "invalid"
+    assert status["actionable"] is False
+    corrupt_adopt = _run(campaign_ws, "state.recover_pending_narration_draft", {
+        "decision_id": "recover-neg:corrupt",
+        "review_decision_id": "review-neg-corrupt",
+    })
+    assert corrupt_adopt["error"]["code"] == "pending_draft_corrupt"
+
+
+def test_pending_draft_corrupt_provenance_fails_closed(campaign_ws, monkeypatch):
+    # Corrupt provenance (unexpected extra field) invalidates the receipt
+    # the same way — closed provenance is part of the canonical schema.
+    _pending_draft_negative_setup(
+        campaign_ws, monkeypatch, review_decision_id="review-neg-provenance"
+    )
+    _rewrite_receipt(
+        campaign_ws,
+        lambda row: row["provenance"].__setitem__("extra_field", "unbounded"),
+    )
+    blocked_provenance = _run(campaign_ws, "turn.output_context")
+    assert blocked_provenance["ok"] is True, blocked_provenance
+    assert "frozen_narration_draft" not in blocked_provenance["data"]
+    assert (
+        blocked_provenance["data"]["pending_narration_draft_status"]["actionable"]
+        is False
+    )
+    assert (
+        blocked_provenance["data"]["pending_narration_draft_status"]["status"]
+        == "invalid"
+    )
+
+
+def test_pending_draft_non_string_identity_fails_closed(campaign_ws, monkeypatch):
+    """A truthy non-string semantic identity is rejected even with the
+    integrity digest recomputed around it: the field type itself is the
+    single isolated defect."""
+    _pending_draft_negative_setup(
+        campaign_ws, monkeypatch, review_decision_id="review-neg-nonstring"
+    )
+
+    def corrupt(row):
+        row["campaign_id"] = ["narration-budget-test"]
+        row.pop("receipt_digest")
+        row["receipt_digest"] = _digest({
+            key: value for key, value in row.items()
+            if key != "ts"
+        })
+
+    _rewrite_receipt(campaign_ws, corrupt)
+    blocked = _run(campaign_ws, "turn.output_context")
+    assert blocked["ok"] is True, blocked
+    assert "frozen_narration_draft" not in blocked["data"]
+    status = blocked["data"]["pending_narration_draft_status"]
+    assert status["status"] == "invalid"
+    assert status["actionable"] is False
+
+
+def test_pending_draft_materialization_identity_fails_closed(campaign_ws, monkeypatch):
+    """A submission receipt whose materialization decision diverges from the
+    review decision is not accepted even with a recomputed digest."""
+    _pending_draft_negative_setup(
+        campaign_ws, monkeypatch, review_decision_id="review-neg-materialization"
+    )
+
+    def corrupt(row):
+        assert row["producer_kind"] == "narration_review_submission"
+        row["materialization_decision_id"] = "recover-other:divergent:1"
+        row.pop("receipt_digest")
+        row["receipt_digest"] = _digest({
+            key: value for key, value in row.items()
+            if key != "ts"
+        })
+
+    _rewrite_receipt(campaign_ws, corrupt)
+    blocked = _run(campaign_ws, "turn.output_context")
+    assert blocked["ok"] is True, blocked
+    assert "frozen_narration_draft" not in blocked["data"]
+    status = blocked["data"]["pending_narration_draft_status"]
+    assert status["status"] == "invalid"
+    assert status["actionable"] is False
+
+
+def _valid_unit_receipt(
+    *,
+    draft_text: str = "门外的脚步声停了。",
+    producer_kind: str = "narration_review_submission",
+    materialization_decision_id: str = "review-unit-receipt",
+) -> dict:
+    """A fully valid receipt per the canonical closed schema, with every
+    digest computed — the base for one-defect negative mutations."""
+    receipt = {
+        "schema_version": 1,
+        "kind": coc_turn_output._PENDING_DRAFT_KIND,
+        "secrecy": "keeper_only",
+        "campaign_id": "narration-budget-test",
+        "receipt_id": (
+            "pending-narration-draft:review-unit-receipt:revision-1"
+        ),
+        "review_decision_id": "review-unit-receipt",
+        "review_id": "narration-review-v1:unit",
+        "turn_id": "turn-v1-unit",
+        "source_digest": _digest("unit-source"),
+        "revision": 1,
+        "draft_sha256": _digest(draft_text),
+        "draft_text": draft_text,
+        "draft_utf8_bytes": len(draft_text.encode("utf-8")),
+        "review_digest": _digest("unit-review"),
+        "request_digest": _digest("unit-request"),
+        "producer_kind": producer_kind,
+        "source_operation": coc_turn_output._PENDING_DRAFT_SOURCE_OPERATION,
+        "materialization_decision_id": materialization_decision_id,
+        "provenance": {"kind": "direct_review_submission"},
+    }
+    if producer_kind == "toolbox_audit_recovery":
+        receipt["provenance"] = {
+            "kind": "verified_toolbox_audit_recovery",
+            "source_path": "logs/toolbox-calls.jsonl",
+            "source_row_count": 1,
+            "primary_row_digest": _digest("row-1"),
+            "corroboration_digest": _digest([_digest("row-1")]),
+        }
+    receipt["receipt_digest"] = _digest(receipt)
+    return receipt
+
+
+def _mutated_receipt(mutate) -> dict:
+    """One-defect receipt: start valid, apply the mutation, recompute the
+    integrity digest so the only failure is the mutated field itself."""
+    receipt = _valid_unit_receipt()
+    mutate(receipt)
+    receipt.pop("receipt_digest", None)
+    receipt["receipt_digest"] = _digest(receipt)
+    return receipt
+
+
+@pytest.mark.parametrize(
+    "field, bad_value",
+    [
+        ("campaign_id", 12345),
+        ("campaign_id", ["narration-budget-test"]),
+        ("campaign_id", True),
+        ("campaign_id", {"id": "narration-budget-test"}),
+        ("review_decision_id", 7),
+        ("review_decision_id", ["review-unit-receipt"]),
+        ("review_decision_id", True),
+        ("review_decision_id", {"id": "review-unit-receipt"}),
+        ("review_id", 99),
+        ("review_id", ["narration-review-v1:unit"]),
+        ("review_id", True),
+        ("review_id", {"id": "narration-review-v1:unit"}),
+        ("turn_id", 41),
+        ("turn_id", ["turn-v1-unit"]),
+        ("turn_id", True),
+        ("turn_id", {"id": "turn-v1-unit"}),
+        ("source_digest", 12),
+        ("source_digest", ["sha256"]),
+        ("source_digest", True),
+        ("source_digest", {"digest": "sha256"}),
+        ("materialization_decision_id", 5),
+        ("materialization_decision_id", ["review-unit-receipt"]),
+        ("materialization_decision_id", True),
+        ("materialization_decision_id", {"id": "review-unit-receipt"}),
+    ],
+)
+def test_pending_draft_receipt_rejects_non_string_semantic_identities(
+    field, bad_value
+):
+    """Every semantic identity field must be a non-empty string. The digest
+    is recomputed around the mutation, so the type defect is isolated."""
+    receipt = _mutated_receipt(
+        lambda row: row.__setitem__(field, bad_value)
+    )
+    assert coc_turn_output._valid_pending_draft_receipt(receipt) is False
+
+
+def test_pending_draft_receipt_rejects_materialization_identity_mismatch():
+    # A direct submission materializes under the review's own decision id.
+    submission = _mutated_receipt(
+        lambda row: row.__setitem__(
+            "materialization_decision_id", "recover-unit:other:1"
+        )
+    )
+    assert submission["producer_kind"] == "narration_review_submission"
+    assert coc_turn_output._valid_pending_draft_receipt(submission) is False
+
+    # An audit recovery materializes under its own distinct decision id.
+    recovered = _valid_unit_receipt(
+        producer_kind="toolbox_audit_recovery",
+        materialization_decision_id="recover-unit:review-unit-receipt:1",
+    )
+    assert coc_turn_output._valid_pending_draft_receipt(recovered) is True
+    recovered_same = _mutated_receipt(
+        lambda row: (
+            row.__setitem__("producer_kind", "toolbox_audit_recovery"),
+            row.__setitem__(
+                "provenance",
+                {
+                    "kind": "verified_toolbox_audit_recovery",
+                    "source_path": "logs/toolbox-calls.jsonl",
+                    "source_row_count": 1,
+                    "primary_row_digest": _digest("row-1"),
+                    "corroboration_digest": _digest([_digest("row-1")]),
+                },
+            ),
+        )[-1]
+    )
+    assert (
+        recovered_same["materialization_decision_id"]
+        == recovered_same["review_decision_id"]
+    )
+    assert coc_turn_output._valid_pending_draft_receipt(recovered_same) is False
+
+
+def _span_repairs(spans, instruction="只改列出的片段。") -> dict:
+    return {
+        "schema_version": 1,
+        "contract_id": coc_turn_output._SPAN_REPAIRS_CONTRACT_ID,
+        "mode": coc_turn_output._SPAN_REPAIRS_MODE,
+        "spans": spans,
+        "instruction": instruction,
+    }
+
+
+def _span(excerpt, *, claim_kind="item", reason="理由。") -> dict:
+    return {
+        "exact_excerpt": excerpt,
+        "claim_kind": claim_kind,
+        "reason": reason,
+        "repair": "rephrase_or_remove",
+    }
+
+
+SPAN_BASELINE = "诺特把黄铜钥匙推过桌面，烛火映着未寄出的信。"
+
+
+@pytest.mark.parametrize(
+    "repairs",
+    [
+        # Non-object and non-array shapes.
+        "span repairs",
+        ["span repairs"],
+        None,
+        # Missing/unknown container fields and wrong constants.
+        {
+            "schema_version": 1,
+            "contract_id": "coc.span-repairs.v1",
+            "mode": "excerpt_only",
+            "spans": [_span("黄铜钥匙")],
+        },
+        _span_repairs([_span("黄铜钥匙")], instruction=""),
+        {
+            **_span_repairs([_span("黄铜钥匙")]),
+            "extra": True,
+        },
+        {**_span_repairs([_span("黄铜钥匙")]), "mode": "full_rewrite"},
+        {**_span_repairs([_span("黄铜钥匙")]), "schema_version": 2},
+        # Empty span list and wrong entry shapes.
+        _span_repairs([]),
+        _span_repairs(["黄铜钥匙"]),
+        _span_repairs([{**_span("黄铜钥匙"), "extra_field": 1}]),
+        _span_repairs([{k: v for k, v in _span("黄铜钥匙").items() if k != "reason"}]),
+        _span_repairs([{**_span("黄铜钥匙"), "repair": "rewrite_all"}]),
+        # Wrong types, empty and oversize strings.
+        _span_repairs([_span(123)]),
+        _span_repairs([{**_span("黄铜钥匙"), "claim_kind": ["item"]}]),
+        _span_repairs([{**_span("黄铜钥匙"), "reason": True}]),
+        _span_repairs([_span("   ")]),
+        _span_repairs([_span("钥" * 2049)]),
+        _span_repairs([_span("黄铜钥匙", claim_kind="k" * 129)]),
+        _span_repairs([_span("黄铜钥匙", reason="理" * 1025)]),
+        _span_repairs([_span("黄铜钥匙")], instruction="训" * 513),
+        # Duplicates and over-cap counts.
+        _span_repairs([_span("黄铜钥匙"), _span("黄铜钥匙")]),
+        _span_repairs(
+            [
+                _span(f"片段{index:02d}", claim_kind="item")
+                for index in range(17)
+            ]
+        ),
+    ],
+)
+def test_span_repairs_validator_rejects_non_canonical_shapes(repairs):
+    """Structural layer (no baseline): exact field sets, canonical constants,
+    strict non-empty bounded strings, duplicate and count caps."""
+    assert coc_turn_output._valid_span_repairs(repairs, baseline_text=None) is False
+
+
+def test_span_repairs_validator_requires_baseline_occurrence():
+    missing = _span_repairs([_span("不在此草稿中的句子")])
+    assert (
+        coc_turn_output._valid_span_repairs(
+            missing, baseline_text=SPAN_BASELINE
+        )
+        is False
+    )
+    present = _span_repairs([_span("黄铜钥匙")])
+    assert (
+        coc_turn_output._valid_span_repairs(
+            present, baseline_text=SPAN_BASELINE
+        )
+        is True
+    )
+
+
+def test_span_repairs_validator_enforces_aggregate_excerpt_byte_bound():
+    near_cap = "黄铜钥匙推过桌面" * 85  # 2040 UTF-8 bytes, under the 2048 cap
+    two = _span_repairs([_span(near_cap), _span(near_cap, claim_kind="cash")])
+    assert coc_turn_output._valid_span_repairs(two, baseline_text=None) is True
+    three = _span_repairs([
+        _span(near_cap),
+        _span(near_cap, claim_kind="cash"),
+        _span(near_cap, claim_kind="condition"),
+    ])
+    assert coc_turn_output._valid_span_repairs(three, baseline_text=None) is False
+
+
+def test_span_repairs_validator_accepts_canonical_shape_and_bounds():
+    valid = _span_repairs([
+        _span("黄铜钥匙"),
+        _span("烛火映着未寄出的信", claim_kind="item"),
+    ])
+    assert (
+        coc_turn_output._valid_span_repairs(valid, baseline_text=SPAN_BASELINE)
+        is True
+    )
+    # Without a baseline (structural-only layer) occurrence is not checked.
+    assert coc_turn_output._valid_span_repairs(valid, baseline_text=None) is True
+    # Same excerpt twice under distinct claim kinds stays canonical (the
+    # producer dedupes on the (excerpt, kind) pair).
+    distinct_kinds = _span_repairs([
+        _span("黄铜钥匙", claim_kind="item"),
+        _span("黄铜钥匙", claim_kind="cash"),
+    ])
+    assert (
+        coc_turn_output._valid_span_repairs(
+            distinct_kinds, baseline_text=SPAN_BASELINE
+        )
+        is True
+    )
+
+
+def test_span_repairs_producer_drops_overbound_evidence_fail_closed(
+    campaign_ws, monkeypatch
+):
+    """Evidence beyond the deterministic span cap is not truncated or
+    invented: the producer emits no span_repairs at all and the review is
+    recorded without repair evidence."""
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我接过清单，逐项查看。",
+        decision_id="journal-span-overbound",
+    )
+    draft = "桌上摆着" + "、".join(
+        f"物品{index:02d}的清单行" for index in range(17)
+    ) + "。"
+    review = _agency_review(
+        campaign_ws,
+        context,
+        draft=draft,
+        revision=1,
+        decision_id="review-span-overbound",
+        state_authority_review={
+            "disposition": "no_player_state_change_claimed",
+            "reason": "草稿只罗列了桌面物件，没有宣告状态变化。",
+            "claims": [],
+        },
+        compiled_claims=[
+            {
+                "claim_id": f"compiled-overbound-{index:02d}",
+                "subject_ref": f"pc:{campaign_ws['investigator_id']}",
+                "claim_kind": "item",
+                "exact_excerpt": f"物品{index:02d}的清单行",
+                "source_effect_id": None,
+                "reason": f"未落账的物品{index:02d}。",
+            }
+            for index in range(17)
+        ],
+    )
+    assert review["ok"] is True, review
+    assert review["data"]["state_authority_gate"] == "rewrite_required"
+    assert "span_repairs" not in review["data"]
+
+
+def test_pending_draft_crash_order_is_recoverable_and_orphans_harmless(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
+    context = _open_agency_turn(
+        campaign_ws,
+        player_text="我把耳朵贴在门上。",
+        decision_id="journal-neg-crash",
+    )
+    draft = "门把手上凝着一层薄薄的霜。"
+    kwargs = {
+        "draft": draft,
+        "revision": 1,
+        "decision_id": "review-neg-crash",
+        "state_authority_review": {
+            "disposition": "no_player_state_change_claimed",
+            "reason": "草稿没有宣告玩家状态变化。",
+            "claims": [],
+        },
+        "compiled_claims": [],
+    }
+    review = _agency_review(campaign_ws, context, **kwargs)
+    assert review["ok"] is True, review
+
+    # Crash AFTER the receipt append but BEFORE the review evidence append
+    # and its ledger entry (the producer writes receipt → review → ledger, so
+    # the ledger cannot survive a crash that lost the review row): the
+    # orphan receipt is harmless, output_context degrades to revision-1
+    # drafting cards, and the retry completes the same decision idempotently.
+    reviews_path = (
+        campaign_ws["campaign_dir"] / "logs" / "narration-reviews.jsonl"
+    )
+    review_rows = _read_jsonl(reviews_path)
+    reviews_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in review_rows[:-1]),
+        encoding="utf-8",
+    )
+    ledger_path = (
+        campaign_ws["campaign_dir"] / "save" / "toolbox-ledger.json"
+    )
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    ledger["entries"] = {
+        key: value for key, value in ledger["entries"].items()
+        if "review-neg-crash" not in key
+    }
+    ledger_path.write_text(
+        json.dumps(ledger, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    orphan = _run(campaign_ws, "turn.output_context")
+    assert orphan["ok"] is True, orphan
+    assert "frozen_narration_draft" not in orphan["data"]
+    assert orphan["data"]["pending_narration_draft_status"]["status"] == "not_submitted"
+    assert orphan["data"]["pending_narration_draft_status"]["actionable"] is True
+    assert orphan["data"]["agency_review_operation"]["prefilled_arguments"]["revision"] == 1
+    retry = _agency_review(campaign_ws, context, **kwargs)
+    assert retry["ok"] is True, retry
+    assert retry["data"]["review_id"] == review["data"]["review_id"]
+    assert len(_read_jsonl(_receipt_path(campaign_ws))) == 1
+    assert len(_read_jsonl(reviews_path)) == len(review_rows)
+
+    # Crash AFTER both appends but BEFORE the ledger write: the durable JSONL
+    # identities make the retry an exact replay and re-record the ledger.
+    ledger2 = json.loads(ledger_path.read_text(encoding="utf-8"))
+    ledger2["entries"] = {
+        key: value for key, value in ledger2["entries"].items()
+        if "review-neg-crash" not in key
+    }
+    ledger_path.write_text(
+        json.dumps(ledger2, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    replay = _agency_review(campaign_ws, context, **kwargs)
+    assert replay["ok"] is True, replay
+    assert replay["data"]["review_id"] == review["data"]["review_id"]
+    assert len(_read_jsonl(_receipt_path(campaign_ws))) == 1
+    assert len(_read_jsonl(reviews_path)) == len(review_rows)

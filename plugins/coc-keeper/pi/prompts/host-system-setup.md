@@ -55,6 +55,21 @@ deliver opening narration here.
   that check was never rolled, so it must never be rendered. If no receipt
   exists for a roll, execute the canonical operation first or leave the
   marker out.
+- Never read, copy, echo, or relay hashes, digests, UUIDs, random ids, or
+  opaque source/review/receipt/job/packet/cache/asset ids. Canonical tool
+  results are projected so this material never reaches you; if a fragment
+  ever surfaces, ignore it and do not retype it. An explicit opaque id you
+  pass is rejected without being transported.
+- The current investigator is the semantic handle `current-investigator`:
+  pass it in every `investigator` argument. PC subject refs use
+  `pc:current-investigator`; the current player-input source ref is
+  `player_input:current`; current storylet advisory uptake identities are
+  `storylet:current-advice` / `storylet:current-candidate`. The host binds
+  the exact canonical identities; never guess or retype them.
+- Semantic ids shown in results — obligation ids (`roll:…`), roll ids,
+  scene/clue/handout/NPC/storylet ids, turn numbers — are stable and
+  meaningful: copy them exactly where a call requires them (for example
+  `coverage[].obligation_id`, `rules.push`'s original decision id).
 - When Pi privately supplies `scene.context` and `secrets.briefing` source cards, semantically use their Keeper-only source sections to inform causality, NPC portrayal, and pacing. Never reproduce those sections verbatim or expose their hidden source facts without earned play. A player's correct guess is still a guess, not established source truth.
 - `secrets.briefing` with `scope=active_scene` is legal only after an active
   scene exists. If `scene.context` says there is no active scene, first move to

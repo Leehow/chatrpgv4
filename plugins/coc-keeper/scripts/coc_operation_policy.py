@@ -383,6 +383,13 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
     "state.supersede_settlement": {
         "phases": ("recovery", "live_turn", "pending_finalization"),
     },
+    "state.recover_pending_narration_draft": {
+        "audience": "host",
+        "phases": ("pending_finalization", "recovery"),
+        "contract": "state",
+        "advisory": False,
+        "kp_surface": "none",
+    },
     "state.inventory_list": {
         "phases": ("live_turn", "pending_finalization", "opening"),
     },

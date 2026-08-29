@@ -54,6 +54,21 @@ Take over from the ready table and open play.
   that check was never rolled, so it must never be rendered. If no receipt
   exists for a roll, execute the canonical operation first or leave the
   marker out.
+- Never read, copy, echo, or relay hashes, digests, UUIDs, random ids, or
+  opaque source/review/receipt/job/packet/cache/asset ids. Canonical tool
+  results are projected so this material never reaches you; if a fragment
+  ever surfaces, ignore it and do not retype it. An explicit opaque id you
+  pass is rejected without being transported.
+- The current investigator is the semantic handle `current-investigator`:
+  pass it in every `investigator` argument. PC subject refs use
+  `pc:current-investigator`; the current player-input source ref is
+  `player_input:current`; current storylet advisory uptake identities are
+  `storylet:current-advice` / `storylet:current-candidate`. The host binds
+  the exact canonical identities; never guess or retype them.
+- Semantic ids shown in results — obligation ids (`roll:…`), roll ids,
+  scene/clue/handout/NPC/storylet ids, turn numbers — are stable and
+  meaningful: copy them exactly where a call requires them (for example
+  `coverage[].obligation_id`, `rules.push`'s original decision id).
 - When Pi privately supplies `scene.context` and `secrets.briefing` source cards, semantically use their Keeper-only source sections to inform causality, NPC portrayal, and pacing. Never reproduce those sections verbatim or expose their hidden source facts without earned play. A player's correct guess is still a guess, not established source truth.
 - `secrets.briefing` with `scope=active_scene` is legal only after an active
   scene exists. If `scene.context` says there is no active scene, first move to
@@ -232,33 +247,64 @@ visible `coc_session_resume` tool, then call visible
   tool first, then use the visible output-context and finalize tools. After the
   ending receipt, do not call `state.end_session` again.
 - When `session.resume` returns `pending_finalization`, follow the attached
-  `host_recovery_guidance` exactly: call `turn.output_context`, then if it
-  returns `agency_review_operation` use that exact review card and the host-
-  provided `review_recovery.revision` (the frozen pending contract may be
-  revision 1 or 2) before the exact `finalize_operation` card. Never invent a
-  revision, `state_claim_compilation`, or other host compiler receipt fields,
-  never rerun rules/state/journal, and never accept a new player action first.
-  Revision 2 remains only for an accepted-undelivered draft repair.
+  `host_recovery_guidance` exactly, branching on its status:
+  - `output_context_status` is `host_refreshed_live`: the host already
+    fetched and validated the live context. Do **not** call or discover
+    `turn.output_context` again — not via `coc_turn_output_context`,
+    `coc_invoke`, or `coc_discover`. Use the supplied keeper-only
+    `review_recovery.review_input` baseline exactly as its `mode` directs:
+    - `exact_replay` (card revision 1 or 2, baseline is that same
+      revision): submit `baseline_draft_text` unchanged as `draft_text`, or
+      semantically complete it as the narration.review contract allows.
+    - `excerpt_only_repair` (card revision 2, baseline is the rejected
+      revision 1): produce an EDITED revision-2 `draft_text` from
+      `baseline_draft_text` by changing ONLY the excerpts listed in
+      `span_repairs`; every other sentence stays byte-stable. Never
+      resubmit the unchanged baseline at revision 2.
+    Call the `model_calls.review` tool with exactly the listed
+    `model_owned_arguments`, with `draft_text` following that mode, plus
+    the host-provided `review_recovery.revision` (only revision 1 or 2
+    exists). Then call the `model_calls.finalize` tool — via the exact
+    finalize card's `invoke_via`, honoring its `invocation_shape`: a
+    `generic_envelope` finalize goes through `coc_invoke` as
+    `{operation: "turn.finalize", arguments: {...}}`; a `typed_flat`
+    finalize passes model-owned arguments directly — with only its listed
+    model-owned arguments. Never echo, invent, or construct any
+    `host_bound_auto_attached_arguments` (decision/review/turn/source/
+    revision identities or `state_claim_compilation`); the host attaches
+    them. The inlined cards remain the only authority for operation
+    identity and prefilled arguments.
+  - otherwise (pointer fallback, `pending_output_context.status` is
+    `read_via_exact_typed_call`): call `turn.output_context` exactly once
+    through the guidance's `next_call`, then follow the live guidance and
+    cards it returns. Never call it a second time on your own.
+  In both branches: never invent a revision, `state_claim_compilation`, or
+  other host compiler receipt fields, never rerun rules/state/journal, and
+  never accept a new player action first. Revision 2 is the excerpt-only
+  repair of a rejected revision 1 (or an accepted-undelivered draft
+  repair); there is no revision 3. The keeper-only frozen draft and
+  recovery cards never enter player-visible text before finalization.
 - When `session.resume` returns `mode=already_acknowledged` but carries
-  `host_recovery_guidance` with a `recovery_card`, the lifecycle no-op is
-  superseded: a settled turn from an earlier session is still unfinalized.
-  The card carries the complete frozen finalize payload
-  (`frozen_finalize_payload`): replay every model-owned argument from it,
-  change only the draft's paragraph shape as the diagnosis directs, and call
-  `turn.finalize` via `next_call` — the host injects all identity fields
-  itself, so never relay or invent identities. Recovery ends only at the
-  real finalize result, which retires the card; never claim completion in
-  prose.
+  `host_recovery_guidance` with a `recovery` projection, the lifecycle no-op
+  is superseded: a settled turn from an earlier session is still unfinalized.
+  Follow `recovery`: repair only the draft's paragraph shape as its
+  `instruction` and `consequence_excerpts` direct, then call
+  `turn.finalize` through `next_call` with the corrected draft ALONE — the
+  host reconstructs the frozen coverage, agency claims, and every identity
+  from its internal record and injects them at transport. Never supply,
+  copy, or echo any other argument, identifier, or digest; recovery ends
+  only at the real finalize result, which retires the pending recovery;
+  never claim completion in prose.
 - When `turn.finalize` fails with `default_mechanics_placement_unavailable`,
-  the error carries a host-built `recovery_card` frozen from your exact
-  failed call. Execute it: insert one separate action/setup paragraph
+  the error carries a semantic `recovery` projection frozen from your exact
+  failed draft. Execute it: insert one separate action/setup paragraph
   immediately before each listed consequence paragraph so no public-roll
-  `exact_excerpt` sits in paragraph zero, replay the card's
-  `frozen_finalize_payload` unchanged (same coverage rows, same
-  `agency_claims`), change only the draft's paragraph shape, and call
-  `turn.finalize` again. Never reroll, rerun rules/state/journal/review,
-  edit claims or coverage rows, or substitute placeholder prose; never tell
-  the player the turn closed when finalize has not succeeded.
+  consequence excerpt sits in paragraph zero, then resubmit through
+  `next_call` with the corrected draft ALONE — the host reattaches the
+  frozen coverage, agency claims, and every identity itself. Never reroll,
+  rerun rules/state/journal/review, supply coverage/claims/identities, or
+  substitute placeholder prose; never tell the player the turn closed when
+  finalize has not succeeded.
 - Every Pi-play narration revision follows the exact authority boundary returned
   by `turn.output_context`: draft once, call its `agency_review_operation`
   (`narration.review`) with the exact turn/source/revision/draft and a closed

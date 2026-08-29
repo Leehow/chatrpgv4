@@ -151,9 +151,8 @@ import {
   applyOpenTurnRecoveryGuidance,
   buildDraftShapeRecoveryCard,
   draftShapePayloadDigest,
-  draftShapeRecoveryPayloadMismatch,
   hasReviewEvidenceEntry,
-  canonicalJsonOf,
+  projectDraftShapeRecoveryForModel,
   selectRecoverableDraftShapeCard,
   isDraftShapePlacementFailure,
   isPendingFinalizationResume,
@@ -178,16 +177,34 @@ import {
   applyRetainedAdoptSourceFacts,
   attachExpectedSchema,
   bindRetainedTypedToolArguments,
+  CURRENT_INVESTIGATOR_HANDLE,
+  deriveSemanticEntityFacts,
   listTypedOperationTools,
   projectBoundTypedToolParameters,
+  projectModelVisibleCanonicalResult,
   projectPiToolFailure,
+  restoreSemanticEntityHandles,
+  stripOpaqueModelIdentity,
   ToolContractProjectionError,
   typedToolNameForOperation,
+  buildGenericInvokeInputSchema,
+  validateGenericInvokeAgainstRegisteredSchema,
+  validateRawModelIdentityPayload,
+  HOST_OWNED_FIELDS,
   wrapTypedToolInvokeParams,
   type CurrentTypedToolHostContext,
+  type SemanticEntityFacts,
+  type SemanticIdMap,
   type TypedOperationTool,
   type TypedToolBindingCard,
+  type UnmappedIdentityRef,
 } from "../lib/typed-tools.ts";
+import {
+  createSemanticIdentityRegistry,
+  type SemanticIdentityRegistry,
+  type SemanticIdentityScope,
+} from "../lib/semantic-identity-registry.ts";
+import type { SemanticIdentityHandleResolver } from "../lib/tool-contract-projection.ts";
 import {
   loadToolNamespace,
   projectToolWorkingSet,
@@ -244,21 +261,19 @@ const discoverSchema = {
   maxProperties: 1,
   additionalProperties: false,
 } as const;
-const invokeSchema = {
-  type: "object",
-  properties: {
-    operation: { type: "string", minLength: 1 },
-    root: { type: "string" },
-    campaign: { type: "string" },
-    arguments: {
-      anyOf: [
-        { type: "object", additionalProperties: true },
-        { type: "string" },
-      ],
-    },
-  },
-  required: ["operation"], additionalProperties: false,
-} as const;
+/**
+ * The REGISTERED generic coc_invoke input schema: the closed, operation-
+ * discriminated envelope (each branch = operation const + that operation's
+ * projected model-owned arguments). Host routing identity (root, campaign,
+ * session/finalization/receipt/chunk identities) is absent — the host binds
+ * it. This exact object is the tool-registration schema, the runtime
+ * validation source, and the schema inventory source; there is no synthetic
+ * substitute.
+ */
+const invokeSchema = buildGenericInvokeInputSchema() as unknown as JsonObject;
+const genericInvokeInputSchema = invokeSchema as unknown as Parameters<
+  typeof validateGenericInvokeAgainstRegisteredSchema
+>[1];
 const dispatchSchema = { type: "object", properties: { task: { type: "object", additionalProperties: true } }, required: ["task"], additionalProperties: false } as const;
 const PRIVATE_LEASE_OPERATIONS = new Set([
   "progressive.claim_host_work",
@@ -488,15 +503,144 @@ const ocrSchema = {
 
 function result(value: JsonObject) { return { content: [{ type: "text" as const, text: JSON.stringify(value) }], details: value }; }
 
+/**
+ * Single post-observer model-content boundary: every canonical envelope is
+ * projected through the structured Pi-owned projection (operation-aware
+ * semantic views plus the recursive opaque-identity sanitizer) before it
+ * becomes model-facing `content`. The exact canonical envelope stays
+ * host-internal in `details`, so host observers, audit entries, and exact
+ * delivery replay are unchanged.
+ */
 function modelVisibleCanonicalEnvelope(
   operation: unknown,
   value: JsonObject,
+  semanticIds: SemanticIdMap | null = null,
+  diagnostics: ProjectionIdentityDiagnostics | null = null,
 ): JsonObject {
-  if (operation !== "narration.review" || value.ok !== true) return value;
-  const data = objectOrNull(value.data);
-  if (data === null || !(STATE_CLAIM_HOST_FIELD in data)) return value;
-  const { [STATE_CLAIM_HOST_FIELD]: _hostReceipt, ...visibleData } = data;
-  return { ...value, data: visibleData };
+  return projectModelVisibleCanonicalResult(
+    typeof operation === "string" ? operation : null,
+    value,
+    semanticIds,
+    diagnostics,
+  );
+}
+
+/**
+ * Host-tool model-content projection (Identifier Law): Pi-owned source
+ * workstream tools carry internal asset ids/hashes/paths in their results;
+ * model content passes through the same structured sanitizer, and this
+ * tool's internal srcasset identity fields are dropped. Handout/card asset
+ * ids inside canonical operations stay semantic and are untouched. Host
+ * consumers keep reading the exact canonical value from `details`.
+ */
+function projectHostToolModelContent(
+  value: JsonObject,
+  options: { dropAssetIdFields?: boolean } = {},
+): JsonObject {
+  const dropAssetIdFields = (input: unknown): unknown => {
+    if (Array.isArray(input)) return input.map(dropAssetIdFields);
+    if (typeof input !== "object" || input === null) return input;
+    const projected: JsonObject = {};
+    for (const [field, child] of Object.entries(input)) {
+      if (options.dropAssetIdFields && field === "asset_id") continue;
+      projected[field] = dropAssetIdFields(child);
+    }
+    return projected;
+  };
+  const prepared = options.dropAssetIdFields
+    ? dropAssetIdFields(value)
+    : value;
+  return stripOpaqueModelIdentity(prepared) as JsonObject;
+}
+
+/** Fixed semantic messages for recovery finalize results — no value echo. */
+const RECOVERY_FINALIZE_SEMANTIC_MESSAGES: Record<string, string> = {
+  default_mechanics_placement_unavailable:
+    "最终化未完成：某个 public check 的 consequence 段落位于第零段或其摘录没有落在任何段落中。"
+      + "请按 recovery 指引在 consequence 段落前插入独立的 action/setup 段落，"
+      + "然后仅以修正后的 draft 重新调用 turn.finalize。",
+  recovery_payload_not_draft_only:
+    "恢复重放被拒绝：恢复调用只需携带修正段落形状后的 draft；"
+      + "其余冻结参数由宿主自动重建并附加。",
+  recovery_identity_mismatch:
+    "恢复重放被拒绝：恢复调用不得携带宿主机绑定身份；身份由宿主自动注入。",
+  recovery_draft_missing:
+    "恢复重放被拒绝：恢复调用必须携带修正段落形状后的完整 draft。",
+  recovery_payload_unavailable:
+    "恢复重放被拒绝：内部冻结负载不可用，无法机器重建恢复调用。",
+  recovery_binding_unarmed:
+    "恢复重放被拒绝：本会话没有已验证的冻结绑定，无法机器绑定恢复身份。",
+  recovery_failed:
+    "最终化未完成：恢复重放遇到下游失败，未产生任何玩家可见结果。"
+      + "请按 recovery 指引仅以修正后的 draft 重试；"
+      + "其余参数与身份由宿主自动重建并附加。",
+};
+
+/** Closed whitelist of semantic recovery finalize codes. */
+const RECOVERY_FINALIZE_SEMANTIC_CODES: ReadonlySet<string> = new Set(
+  Object.keys(RECOVERY_FINALIZE_SEMANTIC_MESSAGES),
+);
+
+const RECOVERY_FINALIZE_FALLBACK_MESSAGE =
+  "最终化未完成：请按 recovery 指引仅以修正后的 draft 重试；"
+    + "其余参数与身份由宿主自动重建并附加。";
+
+/**
+ * Model-visible projection of a recovery finalize result. Success exposes
+ * semantic status and the player-visible rendered text only; failures expose
+ * a bounded semantic code and fixed guidance without echoing internal or
+ * caller-supplied opaque values. The exact canonical envelope stays
+ * host-internal (gateway `details`).
+ */
+function projectRecoveryFinalizeResult(
+  value: JsonObject,
+  trustedRecovery: JsonObject | null,
+): JsonObject {
+  if (value.ok === true) {
+    const data = objectOrNull(value.data);
+    return {
+      ok: true,
+      tool: "turn.finalize",
+      data: {
+        schema_version: 1,
+        status: "finalized",
+        ...(data !== null && typeof data.rendered_text === "string"
+          ? { rendered_text: data.rendered_text }
+          : {}),
+      },
+      warnings: [],
+      hints: [],
+    };
+  }
+  const error = objectOrNull(value.error) ?? {};
+  // Closed semantic whitelist: downstream canonical codes are never copied.
+  // Unknown failures collapse to the generic semantic `recovery_failed`
+  // with a fixed message — no raw code, message, or value echo.
+  const rawCode = typeof error.code === "string" && error.code
+    ? error.code
+    : "";
+  const code = RECOVERY_FINALIZE_SEMANTIC_CODES.has(rawCode)
+    ? rawCode
+    : "recovery_failed";
+  // The canonical error's `recovery` payload is never trusted, passed
+  // through, or inspected — contract ids and shapes are attacker-controlled
+  // downstream data. A semantic recovery instruction rides along ONLY when
+  // the host reconstructed it from the exact validated armed internal card
+  // (supplied as `trustedRecovery` by the gateway); otherwise it is omitted.
+  return {
+    ok: false,
+    tool: "turn.finalize",
+    error: {
+      code,
+      message: RECOVERY_FINALIZE_SEMANTIC_MESSAGES[code],
+      retryable: false,
+      ...(trustedRecovery !== null && trustedRecovery !== undefined
+        ? { recovery: structuredClone(trustedRecovery) }
+        : {}),
+    },
+    warnings: [],
+    hints: [],
+  };
 }
 
 function isPlainJsonObject(value: unknown): value is JsonObject {
@@ -3513,6 +3657,12 @@ interface MainExtensionOverrides {
     request: MemoryHostBridgeRequest,
   ) => Promise<JsonObject>;
   createStateClaimCompiler?: () => PiStateClaimCompiler;
+  /**
+   * Test seam: supply (a wrapper around) the semantic identity registry
+   * factory so regressions can spy on every registry access. Production
+   * never passes it — the canonical factory is used.
+   */
+  createSemanticIdentityRegistry?: () => SemanticIdentityRegistry;
   hostHydrationObserverCheckpoint?: (
     stage: "compiler" | "binding" | "progress",
   ) => void;
@@ -3792,6 +3942,147 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     finalizeDecisionId: string | null;
     narrationReviewId: string | null;
   } | null = null;
+  // Exact canonical entity identities retained from observed envelopes so the
+  // model can use semantic handles (current-investigator / pc:current-
+  // investigator / player_input:current / advisory handles) and the host
+  // restores exact identity before transport. Never model-visible.
+  // Investigator authority state is owned by the semantic identity registry
+  // (`applyPartyAuthority` / `currentParty`): session/campaign-scoped with an
+  // EXPLICIT authority state — `single` binds one current PC; `empty`/
+  // `ambiguous` are authoritative invalidations of any prior identity for the
+  // same epoch+campaign. The state survives ordinary player messages and is
+  // replaced only by a newer authoritative observation, a session-epoch
+  // reset, or a campaign change.
+  // Turn-scoped facts (current player-input source ref, current advisory
+  // uptake identities): re-armed each settle phase and cleared with the turn.
+  let retainedTurnEntityFacts: {
+    playerInputSourceRef: string | null;
+    advisoryAdviceId: string | null;
+    advisoryCandidateRef: string | null;
+  } = {
+    playerInputSourceRef: null,
+    advisoryAdviceId: null,
+    advisoryCandidateRef: null,
+  };
+  // THE semantic identity registry: one typed owner of the canonical↔handle
+  // mappings for rolls, effects, items/weapons, and routes. Handles derive
+  // ONLY from structured observation facts; registration is one-to-one and
+  // collision-safe (stable ordinals, never overwrite, never `roll-N`);
+  // lifetimes are authoritative (player-turn, party, persistent-effect, and
+  // snapshot domains) and every projection/resolution is judged against the
+  // exact invocation session epoch + campaign (+ player turn for turn-scoped
+  // records).
+  const semanticRegistry = overrides.createSemanticIdentityRegistry?.()
+    ?? createSemanticIdentityRegistry();
+  const registryScope = (invocationCampaign: string): SemanticIdentityScope => ({
+    sessionEpoch,
+    campaign: invocationCampaign,
+    playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+  });
+  // Authoritative owner/container scope derived from one structured object
+  // (a canonical result's data, or the invocation's own model arguments):
+  // an NPC field keys the npc holder, an investigator field the investigator
+  // holder, an active scene the route container. Same canonical ids or
+  // handles under two owners are never judged through a global view.
+  const inventoryOwnerKeyOf = (
+    source: Record<string, unknown> | null,
+  ): string | null => {
+    if (source === null) return null;
+    const npcId = typeof source.npc_id === "string" && source.npc_id.trim()
+      ? source.npc_id.trim()
+      : "";
+    if (npcId) return `inventory:npc:${npcId}`;
+    const investigatorId = typeof source.investigator_id === "string"
+      && source.investigator_id.trim()
+      ? source.investigator_id.trim()
+      : "";
+    if (investigatorId) return `inventory:investigator:${investigatorId}`;
+    return null;
+  };
+  const sceneOwnerKeyOf = (
+    source: Record<string, unknown> | null,
+  ): string | null => {
+    if (source === null) return null;
+    const activeSceneId = typeof source.active_scene_id === "string"
+      && source.active_scene_id.trim()
+      ? source.active_scene_id.trim()
+      : "";
+    return activeSceneId ? `scene:${activeSceneId}` : null;
+  };
+  const scopedRegistryScope = (
+    invocationCampaign: string,
+    source: Record<string, unknown> | null,
+  ): SemanticIdentityScope => {
+    const base = registryScope(invocationCampaign);
+    const ownerKey = inventoryOwnerKeyOf(source);
+    const sceneOwnerKey = sceneOwnerKeyOf(source);
+    return {
+      ...base,
+      ...(ownerKey !== null ? { ownerKey } : {}),
+      ...(sceneOwnerKey !== null ? { sceneOwnerKey } : {}),
+    };
+  };
+  // Live registry projection for one invocation; empty campaign → boundary
+  // projection (nothing is live, so canonical ids drop instead of leaking).
+  // Snapshot domains project within the authoritative owner/container scope
+  // of the observed result; ambiguous (owner-less, multi-owner) identities
+  // fail closed instead of collapsing to an arbitrary owner.
+  const liveSemanticIdMap = (
+    invocationCampaign: string,
+    resultData: Record<string, unknown> | null = null,
+  ): SemanticIdMap =>
+    semanticRegistry.projectAll(scopedRegistryScope(invocationCampaign, resultData));
+  const liveSemanticResolver = (
+    invocationCampaign: string,
+    invocationArguments: Record<string, unknown> | null = null,
+  ): SemanticIdentityHandleResolver | null => {
+    if (!invocationCampaign) return null;
+    const scope = scopedRegistryScope(invocationCampaign, invocationArguments);
+    const resolve = (
+      domain: "roll" | "effect" | "item" | "weapon" | "route",
+      handle: string,
+    ): string | null => {
+      const result = semanticRegistry.resolveHandle(domain, handle, scope);
+      return result.ok ? result.canonicalId : null;
+    };
+    return {
+      resolveRoll: (handle) => resolve("roll", handle),
+      resolveEffect: (handle) => resolve("effect", handle),
+      resolveItem: (handle) => resolve("item", handle),
+      resolveWeapon: (handle) => resolve("weapon", handle),
+      resolveRoute: (handle) => resolve("route", handle),
+    };
+  };
+  const clearTurnEntityFacts = (): void => {
+    retainedTurnEntityFacts = {
+      playerInputSourceRef: null,
+      advisoryAdviceId: null,
+      advisoryCandidateRef: null,
+    };
+  };
+  // Effective facts for one restore: identity must be in the `single` state
+  // and belong to the live session epoch and the EXACT campaign of the
+  // current invocation — never a previous global campaign. An absent,
+  // ambiguous, or differing campaign leaves no authorized identity, so
+  // restoration fails closed instead of leaking.
+  const effectiveSemanticEntityFacts = (
+    invocationCampaign: string,
+  ): SemanticEntityFacts => {
+    // Identity must be in the `single` state and belong to the live session
+    // epoch and the EXACT campaign of the current invocation — never a
+    // previous global campaign. An absent, ambiguous, empty, or differing
+    // campaign leaves no authorized identity, so restoration fails closed
+    // instead of leaking.
+    const party = semanticRegistry.currentParty(registryScope(invocationCampaign));
+    const identityLive = party.live && party.state === "single";
+    return {
+      investigatorId: identityLive ? party.investigatorId : null,
+      pcSubjectRefs: identityLive ? party.pcSubjectRefs : [],
+      playerInputSourceRef: retainedTurnEntityFacts.playerInputSourceRef,
+      advisoryAdviceId: retainedTurnEntityFacts.advisoryAdviceId,
+      advisoryCandidateRef: retainedTurnEntityFacts.advisoryCandidateRef,
+    };
+  };
   type StructuredBindingScope = {
     sessionEpoch: number;
     playerTurnEpoch: number;
@@ -3880,6 +4171,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   const clearTurnTypedBindings = (): void => {
     retainedOutputContextFacts = null;
+    // Player messages close the turn: turn-scoped entity facts re-arm with the
+    // next settle phase. The session/campaign-scoped current-PC identity
+    // deliberately survives so the next turn uses the semantic handle without
+    // a redundant scene.context call.
+    clearTurnEntityFacts();
     currentSceneBindingFacts = null;
     currentCombatBindingFacts = null;
     revokedSceneBindingOperations.clear();
@@ -4304,6 +4600,397 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ? params.campaign.trim()
       : canonicalProgressCampaignId;
     if (campaignId) canonicalProgressCampaignId = campaignId;
+    // Retain exact canonical entity identities for semantic-handle
+    // restoration. Host-side only; structured per-operation extraction from
+    // the observed envelope — never from projected model content. An
+    // authoritative party observation REPLACES the registry investigator
+    // state: empty or ambiguous party authority invalidates any prior
+    // current-PC identity for this epoch+campaign instead of silently
+    // retaining it.
+    {
+      const derived = deriveSemanticEntityFacts(operation, data);
+      const authority = derived.partyAuthority ?? null;
+      if (authority !== null && authority.kind !== "absent") {
+        const campaign = campaignId || canonicalProgressCampaignId;
+        semanticRegistry.applyPartyAuthority(
+          registryScope(campaign),
+          authority.kind === "single"
+            ? {
+              kind: "single",
+              investigatorId: authority.investigatorId,
+              pcSubjectRefs: authority.pcSubjectRefs,
+            }
+            : authority.kind === "empty"
+            ? { kind: "empty" }
+            : { kind: "ambiguous", investigatorIds: authority.investigatorIds },
+        );
+      }
+      if (
+        derived.playerInputSourceRef !== undefined
+        || derived.advisoryAdviceId !== undefined
+        || derived.advisoryCandidateRef !== undefined
+      ) {
+        retainedTurnEntityFacts = {
+          playerInputSourceRef: derived.playerInputSourceRef
+            ?? retainedTurnEntityFacts.playerInputSourceRef,
+          advisoryAdviceId: derived.advisoryAdviceId
+            ?? retainedTurnEntityFacts.advisoryAdviceId,
+          advisoryCandidateRef: derived.advisoryCandidateRef
+            ?? retainedTurnEntityFacts.advisoryCandidateRef,
+        };
+      }
+    }
+    // Register observed semantic roll/effect/item/route handles in THE
+    // registry from structured facts (attempt ids, skills, kinds, labels,
+    // ordinals). Host-side only; the model sees and echoes handles, the host
+    // restores canonical ids. Roll records are player-turn-scoped; applied
+    // exceptional effects persist until an authoritative consume/resolve;
+    // inventory and routes are authoritative snapshots (replacement, never
+    // append); every record is keyed by exact session epoch + campaign.
+    {
+      const currentCampaign = campaignId || canonicalProgressCampaignId;
+      const scope = registryScope(currentCampaign);
+      const registerRoll = (canonical: unknown, facts: readonly unknown[]): void => {
+        if (typeof canonical !== "string" || !canonical.trim()) return;
+        semanticRegistry.register({
+          domain: "roll",
+          canonicalId: canonical,
+          facts,
+          scope,
+          lifetime: "player_turn",
+        });
+      };
+      if (operation === "rules.roll") {
+        const resolutionContext = objectOrNull(data.resolution_context);
+        const rollArguments = objectOrNull(params.arguments);
+        registerRoll(data.roll_id, [
+          resolutionContext?.attempt_id,
+          data.skill,
+          resolutionContext?.roll_density_group,
+          rollArguments?.decision_id,
+        ]);
+      }
+      if (operation === "turn.output_context") {
+        const obligations = Array.isArray(data.obligations) ? data.obligations : [];
+        obligations.forEach((obligation, index) => {
+          const row = objectOrNull(obligation);
+          if (row === null) return;
+          const canonical = typeof row.obligation_id === "string"
+            && row.obligation_id.startsWith("roll:")
+            ? row.obligation_id.slice("roll:".length)
+            : row.obligation_id;
+          registerRoll(canonical, [row.skill, index + 1]);
+          for (
+            const effectId
+            of Array.isArray(row.substantive_effect_ids) ? row.substantive_effect_ids : []
+          ) {
+            if (typeof effectId !== "string" || !effectId.trim()) continue;
+            semanticRegistry.register({
+              domain: "effect",
+              canonicalId: effectId,
+              facts: [row.skill, "substantive-effect"],
+              scope,
+              lifetime: "player_turn",
+            });
+          }
+        });
+        for (const rollId of Array.isArray(data.source_roll_ids) ? data.source_roll_ids : []) {
+          registerRoll(rollId, [data.turn_number, "source-roll"]);
+        }
+      }
+      // Exceptional effects: apply registers a persistent handle;
+      // consume/resolve are the authoritative retirement of the named id.
+      if (operation === "state.exceptional_effect") {
+        const action = typeof data.action === "string" ? data.action : "apply";
+        const effectArguments = objectOrNull(params.arguments);
+        const effectInput = typeof effectArguments?.effect_id === "string"
+          ? effectArguments.effect_id.trim()
+          : "";
+        if (
+          (action === "consume" || action === "resolve")
+          && effectInput
+        ) {
+          semanticRegistry.retire("effect", effectInput, scope);
+          const canonicalEffect = typeof data.effect_id === "string"
+            ? data.effect_id
+            : "";
+          if (canonicalEffect && canonicalEffect !== effectInput) {
+            semanticRegistry.retire("effect", canonicalEffect, scope);
+          }
+        } else if (typeof data.effect_id === "string") {
+          semanticRegistry.register({
+            domain: "effect",
+            canonicalId: data.effect_id,
+            facts: [data.kind, operation],
+            scope,
+            lifetime: "authoritative",
+          });
+        }
+      } else if (typeof data.effect_id === "string") {
+        // Any other envelope naming an effect registers it turn-scoped.
+        semanticRegistry.register({
+          domain: "effect",
+          canonicalId: data.effect_id,
+          facts: [data.kind, operation],
+          scope,
+          lifetime: "player_turn",
+        });
+      }
+      // Inventory/weapons: authoritative mutation results carry the REAL
+      // canonical shapes (items/weapons arrays, nested granted weapon specs,
+      // name-only rows). Every snapshot keys by the authoritative OWNER
+      // (investigator/npc) so one holder's listing never retires another
+      // holder's mappings. Removal/consume results carry the post-mutation
+      // `items` snapshot: replacement retires removed entities.
+      const collectInventoryEntries = (
+        source: unknown,
+        idField: string,
+      ): Array<{ canonicalId: string; facts: readonly unknown[] }> => {
+        const entries: Array<{ canonicalId: string; facts: readonly unknown[] }> = [];
+        for (const entry of Array.isArray(source) ? source : []) {
+          // Bare-string rows are name-only entries: the name IS the
+          // canonical value the mutation operations expect.
+          if (typeof entry === "string") {
+            if (entry.trim()) entries.push({ canonicalId: entry.trim(), facts: [entry] });
+            continue;
+          }
+          const row = objectOrNull(entry);
+          if (row === null) continue;
+          const explicitId = typeof row[idField] === "string" && row[idField].trim()
+            ? row[idField].trim()
+            : "";
+          // Name-only weapons have no opaque invented id: the canonical
+          // value is the exact name.
+          const name = typeof row.name === "string" && row.name.trim()
+            ? row.name.trim()
+            : "";
+          const label = typeof row.label === "string" && row.label.trim()
+            ? row.label.trim()
+            : "";
+          const canonicalId = explicitId || name || label;
+          if (canonicalId) {
+            entries.push({ canonicalId, facts: [label, name, explicitId] });
+          }
+        }
+        return entries;
+      };
+      // Owner-scoped registry mutation for one canonical inventory result.
+      // Every register/retire/snapshot below is judged within the EXACT
+      // owner/container scope derived from the authoritative result.
+      const mutateInventoryRegistry = (ownerScope: SemanticIdentityScope): void => {
+        // Full authoritative snapshots (list results and every mutation that
+        // returns the post-mutation arrays) register/retire by replacement
+        // WITHIN the reporting owner. The item snapshot is the UNION of the
+        // item/gear arrays and the weapon entries: the remove/use contract
+        // names every held entity (runtime weapons, name-only included) by
+        // scalar item_id, so weapon entries share the item identity — while
+        // the single merged snapshot never invalidates the holder's other
+        // items.
+        const itemEntries = [
+          ...collectInventoryEntries(data.items, "item_id"),
+          ...collectInventoryEntries(data.gear, "item_id"),
+        ];
+        const weaponEntries = [
+          ...collectInventoryEntries(data.weapons, "weapon_id"),
+          ...collectInventoryEntries(data.authored_weapons, "weapon_id"),
+        ];
+        if (Array.isArray(data.items) || Array.isArray(data.gear)) {
+          semanticRegistry.applySnapshot("item", ownerScope, itemEntries);
+        }
+        if (
+          Array.isArray(data.weapons) || Array.isArray(data.authored_weapons)
+        ) {
+          semanticRegistry.applySnapshot("weapon", ownerScope, weaponEntries);
+          if (itemEntries.length === 0 && weaponEntries.length > 0) {
+            // No authoritative item array in this envelope: the weapon
+            // entries are the only held entities the result names.
+            semanticRegistry.applySnapshot("item", ownerScope, weaponEntries);
+          } else if (weaponEntries.length > 0) {
+            semanticRegistry.applySnapshot(
+              "item",
+              ownerScope,
+              [...itemEntries, ...weaponEntries],
+            );
+          }
+        }
+        // Authoritative losses retire the exact entities WITHIN the reporting
+        // owner's scope — another holder of the same canonical id keeps
+        // their mapping.
+        for (const lost of Array.isArray(data.lost_weapon_ids)
+          ? data.lost_weapon_ids
+          : []) {
+          if (typeof lost === "string" && lost.trim()) {
+            semanticRegistry.retire("weapon", lost, ownerScope);
+          }
+        }
+        for (const lost of Array.isArray(data.lost_equipment_ids)
+          ? data.lost_equipment_ids
+          : []) {
+          if (typeof lost === "string" && lost.trim()) {
+            semanticRegistry.retire("item", lost, ownerScope);
+          }
+        }
+        // Grant (investigator and NPC): the canonical result names the
+        // granted entity as scalar item_id in EVERY shape — register the
+        // item mapping so projection of that scalar resolves; a weapon
+        // grant additionally embeds the weapon spec (weapon_id or
+        // name-only) and registers the weapon mapping for the same owner.
+        if (operation === "state.item_grant"
+          && typeof data.item_id === "string" && data.item_id.trim()
+        ) {
+          semanticRegistry.register({
+            domain: "item",
+            canonicalId: data.item_id.trim(),
+            facts: [data.label, data.kind, operation],
+            scope: ownerScope,
+            lifetime: "snapshot",
+          });
+          const grantedWeaponSpec = objectOrNull(data.weapon);
+          if (grantedWeaponSpec !== null) {
+            const weaponId = typeof grantedWeaponSpec.weapon_id === "string"
+              && grantedWeaponSpec.weapon_id.trim()
+              ? grantedWeaponSpec.weapon_id.trim()
+              : typeof grantedWeaponSpec.name === "string"
+              && grantedWeaponSpec.name.trim()
+                ? grantedWeaponSpec.name.trim()
+                : "";
+            if (weaponId) {
+              semanticRegistry.register({
+                domain: "weapon",
+                canonicalId: weaponId,
+                facts: [data.label, grantedWeaponSpec.name, grantedWeaponSpec.weapon_id],
+                scope: ownerScope,
+                lifetime: "snapshot",
+              });
+            }
+          }
+        }
+        // Remove (investigator and NPC): the canonical scalar item_id leaves
+        // BOTH projected domains under the reporting owner — a removed
+        // runtime weapon carries the item_id as its weapon alias.
+        if (operation === "state.item_remove"
+          && typeof data.item_id === "string" && data.item_id.trim()
+        ) {
+          semanticRegistry.retire("item", data.item_id.trim(), ownerScope);
+          semanticRegistry.retire("weapon", data.item_id.trim(), ownerScope);
+        }
+        // Use/consume: the post-use items snapshot above already invalidates
+        // a consumed entity for the exact owner; decrements keep it live.
+        // No separate scalar retirement exists in the canonical shape.
+        // Purchase (investigator-only): the canonical result names the bought
+        // entity without snapshot arrays. Register the scalar item identity
+        // under the purchasing owner; a weapon purchase resolves in BOTH
+        // projected domains.
+        if (operation === "state.purchase"
+          && typeof data.item_id === "string" && data.item_id.trim()
+        ) {
+          semanticRegistry.register({
+            domain: "item",
+            canonicalId: data.item_id.trim(),
+            facts: [data.label, data.kind, operation],
+            scope: ownerScope,
+            lifetime: "snapshot",
+          });
+          if (data.kind === "weapon") {
+            semanticRegistry.register({
+              domain: "weapon",
+              canonicalId: data.item_id.trim(),
+              facts: [data.label, data.kind, operation],
+              scope: ownerScope,
+              lifetime: "snapshot",
+            });
+          }
+        }
+      };
+      const INVENTORY_OPS = new Set([
+        "state.inventory_list", "state.item_grant", "state.item_remove",
+        "state.item_use", "state.purchase",
+      ]);
+      if (INVENTORY_OPS.has(operation)) {
+        // Authoritative owner/container scope from the exact canonical
+        // result: an NPC mutation keys by npc_id, an investigator mutation
+        // by investigator_id (state.purchase is investigator-only by
+        // contract). An envelope without an authoritative owner registers
+        // and retires NOTHING — there is no global fallback scope, and a
+        // same canonical id under another owner is never touched.
+        const npcOwnerId = typeof data.npc_id === "string" && data.npc_id.trim()
+          ? data.npc_id.trim()
+          : "";
+        const investigatorOwnerId = npcOwnerId === ""
+          && typeof data.investigator_id === "string" && data.investigator_id.trim()
+            ? data.investigator_id.trim()
+            : "";
+        const ownerKey = npcOwnerId
+          ? `inventory:npc:${npcOwnerId}`
+          : investigatorOwnerId
+            ? `inventory:investigator:${investigatorOwnerId}`
+            : "";
+        if (ownerKey !== "") {
+          mutateInventoryRegistry({ ...scope, ownerKey });
+        }
+      } else if (typeof data.weapon_id === "string" && data.weapon_id.trim()) {
+        // Any other envelope naming an equipped/used weapon registers it in
+        // the weapon domain (combat results, equip results) under the
+        // party-level container.
+        semanticRegistry.register({
+          domain: "weapon",
+          canonicalId: data.weapon_id,
+          facts: [data.label, data.name, operation],
+          scope: { ...scope, ownerKey: "inventory:party" },
+          lifetime: "snapshot",
+        });
+      }
+      // Routes: the authoritative scene snapshot comes from the SAME
+      // structured `exits`/`action_routes` arrays the scene bindings consume.
+      // Applying even an EMPTY snapshot retires routes the new scene state no
+      // longer holds — replacement, never append.
+      if (operation === "scene.context") {
+        const routeEntries: Array<{ canonicalId: string; facts: readonly unknown[] }> = [];
+        const routeOwnerScope = {
+          ...scope,
+          ownerKey: `scene:${typeof data.active_scene_id === "string" ? data.active_scene_id.trim() : "unknown"}`,
+        };
+        const activeScene = typeof data.active_scene_id === "string"
+          ? data.active_scene_id.trim()
+          : "";
+        for (const exit of Array.isArray(data.exits) ? data.exits : []) {
+          const row = objectOrNull(exit);
+          if (row === null) continue;
+          const explicitId = [row.route_id, row.edge_id, row.id].find((candidate) => (
+            typeof candidate === "string" && candidate.trim()
+          ));
+          const destination = typeof row.to === "string" ? row.to.trim() : "";
+          const kind = typeof row.kind === "string" && row.kind.trim()
+            ? row.kind.trim()
+            : "route";
+          const canonicalId = typeof explicitId === "string"
+            ? explicitId.trim()
+            : destination
+              ? `route:${activeScene || destination}:${kind}:${destination}`
+              : "";
+          if (canonicalId) {
+            routeEntries.push({
+              canonicalId,
+              facts: [activeScene, destination, kind, explicitId],
+            });
+          }
+        }
+        for (const route of Array.isArray(data.action_routes) ? data.action_routes : []) {
+          const row = objectOrNull(route);
+          if (row === null) continue;
+          const id = typeof row.route_id === "string" && row.route_id.trim()
+            ? row.route_id
+            : "";
+          if (id) {
+            routeEntries.push({
+              canonicalId: id,
+              facts: [activeScene, row.resolution_kind, row.label, row.name],
+            });
+          }
+        }
+        semanticRegistry.applySnapshot("route", routeOwnerScope, routeEntries);
+      }
+    }
 
     if (operation === "state.journal" && typeof data.turn_id === "string") {
       advanceCanonicalProgress(campaignId, {
@@ -5052,7 +5739,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     } catch { /* working-set audit is best effort */ }
   };
   applyKpActiveTools = () => {
-    if (process.env.PI_SUBAGENT_CHILD === "1") return;
+
     const role = effectiveTypedRole;
     const gate = startupResumeGate;
     // Schema-time union only. Execute ACL still uses resolveAclPhase (recovery
@@ -5907,6 +6594,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   });
   const initializeSession = (ctx: ExtensionContext): string | null => {
     sessionEpoch += 1;
+    // A new session epoch invalidates every registry record of the previous
+    // epoch: handles are authoritative within one invocation lineage only.
+    semanticRegistry.clearSession(sessionEpoch - 1);
     sessionClosing = false;
     currentWorkspaceRoot = resolve(ctx.cwd);
     canonicalProgressCampaignId = "";
@@ -7313,6 +8003,24 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
     }
     if (typedDefinition !== undefined) {
+      // Raw model-identity validation runs BEFORE any host injection or
+      // restoration: host-attached identity reaches arguments only after
+      // this gate, by provenance. Model-authored `pi-*` values are always
+      // rejected here.
+      const rawValidation = validateRawModelIdentityPayload(params);
+      if (!rawValidation.ok) {
+        return hostFailureResult({
+          ok: false,
+          tool: typedDefinition.operation,
+          error: {
+            code: "opaque_identity_grammar",
+            message: rawValidation.message,
+            retryable: false,
+          },
+          warnings: [],
+          hints: [],
+        });
+      }
       if (
         launcherRole === null
         && typedDefinition.operation === "setup.quick_start"
@@ -7364,16 +8072,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         };
       }
       if (typedDefinition.operation === "session.delivery_text") {
-        // Semantic replay request only: the model passes campaign (and at
-        // most mode:"replay"); machine-owned identity and chunk transport
-        // stay host-side. Any model-supplied identity/offset fields are
-        // ignored by construction — the lane binds them itself.
+        // Semantic replay request only: the model passes at most
+        // mode:"replay"; the host owns the campaign routing, machine-owned
+        // identity and chunk transport. Any model-supplied identity/offset
+        // fields are ignored by construction — the lane binds them itself.
         const replayCampaign = (
           typeof params.campaign === "string" && params.campaign.trim()
             ? params.campaign.trim()
             : typeof params.campaign_id === "string" && params.campaign_id.trim()
             ? params.campaign_id.trim()
-            : ""
+            : canonicalProgressCampaignId
         );
         if (!replayCampaign) {
           return hostFailureResult({
@@ -7399,7 +8107,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           : hostFailureResult(replayOutcome);
       }
       const binding = retainedTypedBindings.get(typedDefinition.operation);
-      if (binding !== undefined) {
+      // Run-02 armed-recovery detection: a typed `turn.finalize` whose
+      // campaign carries an armed draft-shape recovery card is a DRAFT-ONLY
+      // sealed replay. Ordinary host-binding injection is skipped for this
+      // path — injecting revision/review/decision identities pre-wrap would
+      // make raw model input indistinguishable from host material and the
+      // recovery gate would misclassify it. The recovery block immediately
+      // before transport validates the raw model input as draft-only and
+      // performs the single validated injection from the armed card/binding.
+      const armedRecoveryCampaign = (
+        typedDefinition.operation === "turn.finalize"
+        && effectiveTypedRole === "play"
+        && binding !== undefined
+        && draftShapeRecoveryCards.has(binding.campaign)
+      ) ? binding.campaign : null;
+      if (armedRecoveryCampaign === null && binding !== undefined) {
         try {
           params = bindRetainedTypedToolArguments(
             typedDefinition.operation,
@@ -7412,141 +8134,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           return hostFailureResult(hostBindingFailure(typedDefinition.operation, error));
         }
       }
-    }
-    // Run-02 recovery pre-transport payload authentication: with an
-    // authenticated recovery card armed for this campaign, a recovered
-    // `turn.finalize` is a sealed replay on EVERY canonical surface — typed
-    // tool and generic coc_invoke alike. The armed binding is the only
-    // machine-injection authority for host-owned identity fields: omitted
-    // revision/narration_review_id/decision_id are bound from it into the
-    // transported arguments, while any explicit value that differs from the
-    // armed binding fails closed before transport. A missing armed binding
-    // rejects outright — nothing reaches the transport unverifiable. Then
-    // every model-owned argument except `draft` must be deep-canonical-equal
-    // to the frozen payload in the FINAL effective arguments — a mutated
-    // coverage row, agency claim, mechanics placement, advisory uptake, an
-    // added field, or a dropped field is rejected host-side: recovery stays
-    // pending, and no rules/state/journal/review call or player-visible
-    // output is produced. Only the draft's paragraph shape is editable; the
-    // canonical finalizer still owns its consequence/excerpt/mechanics
-    // checks.
-    if (
-      (typedDefinition?.operation === "turn.finalize"
-        || (isCanonicalInvokeSurface(name)
-          && params.operation === "turn.finalize"))
-      && effectiveTypedRole === "play"
-      && typeof params.campaign === "string"
-      && params.campaign.trim()
-    ) {
-      const recoveryCard = draftShapeRecoveryCards.get(params.campaign.trim());
-      if (recoveryCard !== undefined) {
-        const recoveryReplayRejection = (
-          code: string,
-          message: string,
-          recoverableBy: string,
-        ) => hostFailureResult({
-          ok: false,
-          tool: "turn.finalize",
-          error: {
-            code,
-            message,
-            retryable: false,
-            details: {
-              class: "invariant_terminal",
-              recoverable_by: recoverableBy,
-            },
-          },
-          warnings: [],
-          hints: [],
-        });
-        const binding = retainedTypedBindings.get("turn.finalize");
-        const current = currentTypedBindingFactories.get("turn.finalize")?.()
-          ?? null;
-        if (binding === undefined || current === null) {
-          return recoveryReplayRejection(
-            "recovery_binding_unarmed",
-            "恢复重放被拒绝：本会话没有已验证的冻结绑定，无法机器绑定恢复身份；"
-              + "请先完成恢复性 session.resume 重新武装，再调用 turn.finalize。",
-            "recovery_session_rearm",
-          );
-        }
-        let hostInjected: Record<string, unknown>;
-        try {
-          hostInjected = bindRetainedTypedToolArguments(
-            "turn.finalize",
-            {},
-            binding,
-            current,
-          );
-        } catch {
-          return recoveryReplayRejection(
-            "recovery_binding_unarmed",
-            "恢复重放被拒绝：已武装绑定与当前规范事实不一致，无法机器绑定恢复身份。",
-            "replay_exact_frozen_payload",
-          );
-        }
-        const typedSurface = typedDefinition?.operation === "turn.finalize";
-        let effectiveArguments: JsonObject = typedSurface
-          ? params
-          : (objectOrNull(params.arguments) ?? {});
-        let identityInjected = false;
-        for (const [field, value] of Object.entries(hostInjected)) {
-          if (Object.hasOwn(effectiveArguments, field)) {
-            if (
-              canonicalJsonOf(effectiveArguments[field])
-              !== canonicalJsonOf(value)
-            ) {
-              return recoveryReplayRejection(
-                "recovery_identity_mismatch",
-                `恢复重放被拒绝：模型提供的 ${field} 与已武装冻结绑定不一致；"
-                  + "恢复身份只能由宿主绑定注入，不得改写。",
-                "replay_exact_frozen_payload",
-              );
-            }
-          } else {
-            effectiveArguments = {
-              ...effectiveArguments,
-              [field]: value,
-            };
-            identityInjected = true;
-          }
-        }
-        if (!typedSurface && identityInjected) {
-          // The transported generic envelope carries the machine-bound
-          // identity exactly as injected from the armed binding.
-          params = { ...params, arguments: effectiveArguments };
-        }
-        const modelOwnedReplayArguments = Object.fromEntries(
-          Object.entries(effectiveArguments).filter(
-            ([field]) => !RECOVERY_HOST_INJECTED_FINALIZE_ARGUMENTS.has(field),
-          ),
-        );
-        const mutatedField = draftShapeRecoveryPayloadMismatch(
-          recoveryCard,
-          modelOwnedReplayArguments,
-          Object.keys(modelOwnedReplayArguments),
-        );
-        if (mutatedField !== null) {
-          return hostFailureResult({
-            ok: false,
-            tool: "turn.finalize",
-            error: {
-              code: "recovery_payload_mutated",
-              message: (
-                "恢复重放被拒绝：除 draft 段落形状外，coverage、agency_claims 与"
-                + "其余模型侧参数必须与冻结负载逐字一致，不得增删改任何字段。"
-                + "请按 frozen_finalize_payload 原样重放后重新调用 turn.finalize。"
-              ),
-              retryable: false,
-              details: {
-                class: "invariant_terminal",
-                recoverable_by: "replay_exact_frozen_payload",
-              },
-            },
-            warnings: [],
-            hints: [],
-          });
-        }
+      if (armedRecoveryCampaign !== null && !Object.hasOwn(params, "campaign")) {
+        // Host-derived routing identity only, so the wrapped envelope names
+        // the campaign; every other argument stays raw model input for the
+        // recovery gate to validate.
+        params = { ...params, campaign: armedRecoveryCampaign };
       }
     }
     params = wrapTypedToolInvokeParams(name, params) as JsonObject;
@@ -7556,8 +8148,103 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     params = openingContinuationGate.bindRetainedAdoptSourceFacts(params);
     if (isCanonicalInvokeSurface(name)) {
       params = normalizePiCocInvokeArguments(params);
+      // Host routing identity: root is host-bound on the generic surface.
+      // Model-supplied root is dropped (never transports); the host binds
+      // its own workspace root before transport.
+      if (typedDefinition === undefined) {
+        const { root: _modelRoot, ...withoutModelRoot } = params;
+        params = {
+          ...withoutModelRoot,
+          root: currentWorkspaceRoot,
+        } as JsonObject;
+      }
+      // Host-bound campaign routing: the registered generic envelope has no
+      // campaign field. The host binds the transport campaign from the
+      // operation's own model-owned campaign argument when it carries one,
+      // else from the host-tracked current campaign for this epoch — never
+      // from model envelope input, which the registered schema does not
+      // carry. Campaign-less calls to campaign-bound operations still fail
+      // closed at the canonical layer.
+      if (typedDefinition === undefined && !Object.hasOwn(params, "campaign")) {
+        const boundArguments = objectOrNull(params.arguments);
+        const argumentCampaign = typeof boundArguments?.campaign_id === "string"
+          && boundArguments.campaign_id.trim()
+          ? boundArguments.campaign_id.trim()
+          : "";
+        const boundCampaign = argumentCampaign || canonicalProgressCampaignId;
+        if (boundCampaign) {
+          params = { ...params, campaign: boundCampaign } as JsonObject;
+        }
+      }
     }
-    params = openingContinuationGate.bindHandoutReplayRequest(params);
+    // Semantic delivery lane: model-facing `session.delivery_text` is the
+    // exact-replay lane only — campaign plus the semantic replay mode, on the
+    // typed AND generic surfaces. Both route through the ONE host-owned
+    // multi-chunk replay state machine (identity binding, chunk ordering,
+    // completion/retirement). Legacy context-mode relay fields are not
+    // model-authored and never reach transport.
+    const deliveryOperation = typedDefinition?.operation ?? (
+      isCanonicalInvokeSurface(name) ? String(params.operation || "") : ""
+    );
+    if (deliveryOperation === "session.delivery_text") {
+      const deliveryArgs = objectOrNull(params.arguments) ?? {};
+      const mode = deliveryArgs.mode === "context" ? "context" : "replay";
+      // Envelope root is host-bound: never accepted inside the model
+      // arguments either.
+      const allowedKeys = new Set(["campaign", "mode"]);
+      const extraKeys = Object.keys(deliveryArgs).filter((key) => !allowedKeys.has(key));
+      if (mode === "context" || extraKeys.length > 0) {
+        return hostFailureResult({
+          ok: false,
+          tool: "session.delivery_text",
+          error: {
+            code: "delivery_lane_semantic_only",
+            message: "session.delivery_text 只接受语义重放：campaign 加 mode=replay。"
+              + "交付身份（finalization_id、哈希与分块传输）由宿主持有并自动绑定，"
+              + "模型不提供也不转发。",
+            retryable: false,
+            details: {
+              class: "invariant_terminal",
+              recoverable_by: "none",
+              ...(mode === "context" ? { rejected_mode: "context" } : {}),
+            },
+          },
+          warnings: [],
+          hints: [],
+        });
+      }
+      // GENERIC surface: route the semantic replay request through the same
+      // host-owned lane the typed surface uses — never direct canonical
+      // transport. (The typed branch above already returned via the lane.)
+      if (typedDefinition === undefined) {
+        const replayCampaign = typeof params.campaign === "string"
+          && params.campaign.trim()
+          ? params.campaign.trim()
+          : "";
+        if (!replayCampaign) {
+          return hostFailureResult({
+            ok: false,
+            tool: "session.delivery_text",
+            error: {
+              code: "invalid_param",
+              message: "session.delivery_text replay 需要 campaign。",
+              retryable: false,
+            },
+            warnings: [],
+            hints: [],
+          });
+        }
+        const replayOutcome = await runExactDeliveryReplayLane(
+          replayCampaign,
+          ctx,
+          signal,
+          epoch,
+        );
+        return replayOutcome.ok === true
+          ? result(replayOutcome)
+          : hostFailureResult(replayOutcome);
+      }
+    }
     params = bindStartupResumeInvocation(name, params);
     if (
       launcherRole === null
@@ -7591,6 +8278,173 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         });
       } catch { /* startup resume audit is best effort */ }
       throw new Error(startupResumeError);
+    }
+    // Role/phase ACL: evaluated IMMEDIATELY after canonical operation
+    // normalization and BEFORE any registry code — no currentParty, no
+    // observation, projection, registration, snapshot, restoration, or any
+    // other semantic-identity side effect may run for an operation the
+    // session role/phase forbids. The rejection is the established ACL
+    // error, with zero registry calls or side effects.
+    if (isCanonicalInvokeSurface(name)) {
+      const aclPhase = resolveAclPhase(
+        typeof params.campaign === "string" ? params.campaign : "",
+      );
+      const acl = evaluateExecuteAcl({
+        toolName: name,
+        operation: String(params.operation || ""),
+        phase: aclPhase,
+        role: effectiveTypedRole,
+      });
+      if (!acl.ok) {
+        try {
+          pi.appendEntry("coc-execute-acl", {
+            schema_version: 1,
+            status: "rejected",
+            code: acl.code,
+            tool: name,
+            operation: params.operation,
+            phase: aclPhase,
+          });
+        } catch { /* acl audit is best effort */ }
+        throw new Error(acl.message);
+      }
+      try {
+        pi.appendEntry("coc-tool-telemetry", {
+          schema_version: 1,
+          wrapper_tool: acl.wrapper,
+          transport_tool: acl.transport_tool,
+          canonical_operation: acl.canonical_operation,
+          host_tool: name,
+          translated_from_invoke: name === "coc_invoke",
+          phase: aclPhase,
+        });
+      } catch { /* telemetry is best effort */ }
+    }
+    // Semantic-handle restoration (Identifier Law boundary): model arguments
+    // carry only stable semantic entity handles; the host restores the exact
+    // canonical investigator/subject/source identities from retained observed
+    // facts before transport. Explicit opaque ids fail closed without echo.
+    {
+      const restoredOperation = typedDefinition?.operation
+        ?? (typeof params.operation === "string" ? params.operation : "");
+      const restoredArgs = objectOrNull(params.arguments);
+      const invocationCampaign = typeof params.campaign === "string"
+        ? params.campaign.trim()
+        : typeof params.campaign_id === "string"
+          ? params.campaign_id.trim()
+          : "";
+      if (restoredOperation && restoredArgs !== null) {
+        // Generic-surface raw validation mirrors the typed branch: the raw
+        // model payload is grammar-checked before host restoration attaches
+        // provenance-tagged identity. Typed tools were already validated
+        // pre-injection, so their (now host-augmented) arguments skip this
+        // gate by provenance.
+        const rawValidation = typedDefinition === undefined
+          ? validateRawModelIdentityPayload(restoredArgs)
+          : { ok: true as const };
+        if (!rawValidation.ok) {
+          return hostFailureResult({
+            ok: false,
+            tool: restoredOperation,
+            error: {
+              code: "opaque_identity_grammar",
+              message: rawValidation.message,
+              retryable: false,
+            },
+            warnings: [],
+            hints: [],
+          });
+        }
+        // Generic arguments are validated against the REGISTERED
+        // operation-discriminated schema — the exact closed object used for
+        // tool registration and inventory. Undeclared operations, extra
+        // envelope fields, missing required fields, extra model-owned
+        // fields, nested type/enum/oneOf violations: all fail closed before
+        // transport; host injections come later, by provenance.
+        if (
+          typedDefinition === undefined && restoredArgs !== null
+          // An armed recovery card owns this finalize lane: its own sealed
+          // replay gate enforces draft-only supply with lane-specific codes.
+          && !(
+            restoredOperation === "turn.finalize"
+            && draftShapeRecoveryCards.has(
+              typeof params.campaign === "string" ? params.campaign.trim() : "",
+            )
+          )
+        ) {
+          const shape = validateGenericInvokeAgainstRegisteredSchema(
+            {
+              operation: restoredOperation,
+              arguments: restoredArgs,
+            },
+            genericInvokeInputSchema,
+          );
+          if (!shape.ok) {
+            return hostFailureResult({
+              ok: false,
+              tool: restoredOperation,
+              error: {
+                code: "unknown_model_argument",
+                message: "these arguments do not match the model-owned "
+                  + `surface for ${restoredOperation}: `
+                  + `${shape.errors.join("; ")}. Host-owned identity is `
+                  + "attached by the gateway; pass only model-owned fields.",
+                retryable: false,
+                details: {
+                  class: "schema_validation",
+                  schema_errors: shape.errors,
+                },
+              },
+              warnings: [],
+              hints: [],
+            });
+          }
+        }
+        const restored = restoreSemanticEntityHandles(
+          restoredOperation,
+          restoredArgs,
+          effectiveSemanticEntityFacts(invocationCampaign),
+          invocationCampaign !== ""
+            ? liveSemanticResolver(invocationCampaign, restoredArgs)
+            : null,
+        );
+        if (!restored.ok) {
+          return hostFailureResult({
+            ok: false,
+            tool: restoredOperation,
+            error: {
+              code: restored.code,
+              message: restored.message,
+              retryable: false,
+            },
+            warnings: [],
+            hints: [],
+          });
+        }
+        params = { ...params, arguments: restored.value as JsonObject };
+      }
+    }
+    params = openingContinuationGate.bindHandoutReplayRequest(params);
+
+    // Host-bound session identity: session.resume may carry the host's own
+    // session id; the host attaches it after raw validation, by provenance —
+    // it is never model-authored.
+    {
+      const resumeOperation = typedDefinition?.operation
+        ?? (isCanonicalInvokeSurface(name) ? String(params.operation || "") : "");
+      if (resumeOperation === "session.resume") {
+        const resumeArgs = objectOrNull(params.arguments);
+        const hostSessionId = typeof ctx.sessionManager?.getSessionId === "function"
+          ? String(ctx.sessionManager.getSessionId() || "")
+          : "";
+        if (resumeArgs !== null && hostSessionId
+          && !Object.hasOwn(resumeArgs, "host_session_id")) {
+          params = {
+            ...params,
+            arguments: { ...resumeArgs, host_session_id: hostSessionId } as JsonObject,
+          };
+        }
+      }
     }
     const startupResumeAttempt = exactStartupResumeInvocation(name, params);
     const noSelectorQuickStartRecoveryAttempt = (
@@ -7664,41 +8518,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       throw new Error(openingSetupError);
     }
     if (isCanonicalInvokeSurface(name)) {
-      const aclPhase = resolveAclPhase(
-        typeof params.campaign === "string" ? params.campaign : "",
-      );
-      const acl = evaluateExecuteAcl({
-        toolName: name,
-        operation: String(params.operation || ""),
-        phase: aclPhase,
-        role: effectiveTypedRole,
-      });
-      if (!acl.ok) {
-        try {
-          pi.appendEntry("coc-execute-acl", {
-            schema_version: 1,
-            status: "rejected",
-            code: acl.code,
-            tool: name,
-            operation: params.operation,
-            phase: aclPhase,
-          });
-        } catch { /* acl audit is best effort */ }
-        throw new Error(acl.message);
-      }
-      try {
-        pi.appendEntry("coc-tool-telemetry", {
-          schema_version: 1,
-          wrapper_tool: acl.wrapper,
-          transport_tool: acl.transport_tool,
-          canonical_operation: acl.canonical_operation,
-          host_tool: name,
-          translated_from_invoke: name === "coc_invoke",
-          phase: aclPhase,
-        });
-      } catch { /* telemetry is best effort */ }
-    }
-    if (isCanonicalInvokeSurface(name)) {
       const dependencyError = (
         openingContinuationGate.currentDependencyToolError(params)
       );
@@ -7750,19 +8569,66 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           },
         });
       }
+      if (!campaignId || reviewArgs === null) {
+        return result({
+          ok: false,
+          tool: "narration.review",
+          error: {
+            code: "state_claim_compiler_context_missing",
+            message: "call turn.output_context for this pending turn before narration.review",
+          },
+        });
+      }
+      // The field is host-owned on typed, domain, and compatibility paths.
+      // Never preserve a caller-supplied value, even when it happens to be valid.
+      const {
+        [STATE_CLAIM_HOST_FIELD]: _forgedCompilation,
+        ...modelReviewArgs
+      } = reviewArgs;
+      // Generic-surface review: host-owned settle identity (turn_id/
+      // source_digest/revision/decision_id) is machine-bound from the armed
+      // output-context card exactly like the typed surface — the model never
+      // relays it. Model-authored host fields fail closed as forged.
+      let keeperReviewArgs: Record<string, unknown> = modelReviewArgs;
+      if (typedDefinition === undefined) {
+        const reviewBinding = retainedTypedBindings.get("narration.review") ?? null;
+        const reviewBindingCurrent = reviewBinding === null
+          ? null
+          : currentTypedBindingFactories.get("narration.review")?.() ?? null;
+        if (reviewBinding !== null && reviewBindingCurrent !== null) {
+          try {
+            keeperReviewArgs = bindRetainedTypedToolArguments(
+              "narration.review",
+              modelReviewArgs,
+              reviewBinding,
+              reviewBindingCurrent,
+            );
+          } catch (error) {
+            if (!(error instanceof ToolContractProjectionError)) throw error;
+            return hostFailureResult(hostBindingFailure("narration.review", error));
+          }
+          // The machine-attached compiler receipt is re-attached after
+          // compilation; the bound card's empty placeholder must not leak.
+          const {
+            [STATE_CLAIM_HOST_FIELD]: _boundCompilation,
+            ...boundReviewArgs
+          } = keeperReviewArgs;
+          keeperReviewArgs = boundReviewArgs;
+        }
+      }
       if (retainedFault !== null) {
         const sessionId = typeof ctx.sessionManager?.getSessionId === "function"
           ? String(ctx.sessionManager.getSessionId() || "")
           : "";
-        const revision = Number(reviewArgs?.revision);
+        const revision = Number(keeperReviewArgs.revision);
         const matched = openingContinuationGate.matchFrozenReviewRecovery({
           campaign_id: campaignId,
           run_id: sessionId,
           session_id: sessionId,
-          turn_id: typeof reviewArgs?.turn_id === "string" ? reviewArgs.turn_id : "",
+          turn_id: typeof keeperReviewArgs.turn_id === "string" ? keeperReviewArgs.turn_id : "",
           revision: Number.isInteger(revision) ? revision : 0,
-          source_digest: typeof reviewArgs?.source_digest === "string"
-            ? reviewArgs.source_digest
+          source_digest: typeof keeperReviewArgs.source_digest === "string"
+            ? keeperReviewArgs.source_digest
             : "",
         });
         if (matched !== "allow") {
@@ -7778,22 +8644,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           });
         }
       }
-      if (!campaignId || reviewArgs === null) {
-        return result({
-          ok: false,
-          tool: "narration.review",
-          error: {
-            code: "state_claim_compiler_context_missing",
-            message: "call turn.output_context for this pending turn before narration.review",
-          },
-        });
-      }
-      // The field is host-owned on typed, domain, and compatibility paths.
-      // Never preserve a caller-supplied value, even when it happens to be valid.
-      const {
-        [STATE_CLAIM_HOST_FIELD]: _forgedCompilation,
-        ...keeperReviewArgs
-      } = reviewArgs;
       const recoveryAttempt = retainedFault !== null;
       if (recoveryAttempt) {
         if (!openingContinuationGate.consumeFrozenReviewRecovery()) {
@@ -7846,6 +8696,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           });
         }
         const failure = error instanceof Error ? error.message : "";
+
         const contextMissing = failure === "state_claim_compiler_context_missing"
           || failure === "state_claim_compiler_context_invalid";
         if (recoveryAttempt && contextMissing) {
@@ -7961,17 +8812,217 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     let value: unknown;
     let transportMeta: McpTransportMeta | null = null;
+    // Run-02 armed-recovery result projection: while an armed recovery
+    // finalize is being handled, model-visible content is projected to
+    // semantic status and player-visible text only — integrity hashes,
+    // source digests, receipt/review/decision ids, and internal payload/
+    // binding data stay host-internal in `details` (the exact canonical
+    // envelope is preserved there for event delivery/audit).
+    let recoveryFinalizeActive = false;
+    let recoveryCanonicalDetails: JsonObject | null = null;
+    // Host-reconstructed semantic recovery instruction: derived ONLY from
+    // the exact validated armed internal card, never from any downstream
+    // canonical error payload.
+    let recoveryVisibleRecovery: JsonObject | null = null;
     const gatewayResult = (canonical: JsonObject) => {
-      const visible = modelVisibleCanonicalEnvelope(params.operation, canonical);
-      const rendered = { ...result(visible), details: canonical };
+      // The registry projection is judged against THIS invocation's exact
+      // campaign. EVERY model-facing canonical operation fails closed with a
+      // bounded semantic-identity error when a PRESENT identity field cannot
+      // be mapped — required mechanics are never silently dropped from model
+      // content. Optional absence remains absence. The exact canonical
+      // envelope and the bounded diagnostics stay host-only in `details`.
+      const gatewayCampaign = typeof params.campaign === "string"
+        ? params.campaign.trim()
+        : "";
+      const diagnostics = { unmapped: [] as UnmappedIdentityRef[] };
+      const baseVisible = modelVisibleCanonicalEnvelope(
+        params.operation,
+        canonical,
+        liveSemanticIdMap(
+          gatewayCampaign,
+          objectOrNull(objectOrNull(canonical)?.data),
+        ),
+        diagnostics,
+      );
+      // While an armed recovery owns this result, its closed semantic
+      // whitelist is the projection — the hostile canonical payload never
+      // reaches the identity discovery path.
+      if (diagnostics.unmapped.length > 0 && !recoveryFinalizeActive) {
+        const operation = String(params.operation || "");
+        const domains = [...new Set(diagnostics.unmapped.map((entry) => entry.domain))];
+        return {
+          ...hostFailureResult({
+            ok: false,
+            tool: operation,
+            error: {
+              code: "semantic_identity_unavailable",
+              message: "this canonical result names identity-bearing fields "
+                + `whose semantic identity is unavailable (${domains.join(", ")}); `
+                + "the host keeps the exact canonical result in internal "
+                + "details instead of projecting partial mechanics. Refresh "
+                + "the turn context before continuing.",
+              retryable: false,
+              details: {
+                class: "business_precondition",
+                recoverable_by: "refresh_turn_context",
+                semantic_domains: domains,
+              },
+            },
+            warnings: [],
+            hints: [],
+          }),
+          // Host-only evidence: the exact canonical envelope plus the bounded
+          // field/domain diagnostics (never the unmapped values).
+          details: {
+            canonical,
+            semantic_identity_diagnostics: diagnostics.unmapped.map((entry) => ({
+              field: entry.field,
+              parent_field: entry.parentField,
+              domain: entry.domain,
+              ...(entry.path !== undefined ? { path: entry.path } : {}),
+            })),
+          },
+        };
+      }
+      const visible = recoveryFinalizeActive
+        ? projectRecoveryFinalizeResult(baseVisible, recoveryVisibleRecovery)
+        : baseVisible;
+      const internalDetails = recoveryCanonicalDetails ?? canonical;
+      const rendered = { ...result(visible), details: internalDetails };
       // `details` retains the canonical host receipt for the internal event;
       // model-facing `content` receives the host-only-field projection.
       return transportMeta === null
         ? rendered
-        : { ...rendered, details: { ...canonical, coc_transport: transportMeta } };
+        : { ...rendered, details: { ...internalDetails, coc_transport: transportMeta } };
     };
     let scenePriorityHandled = false;
     try {
+    // Run-02 recovery pre-transport enforcement on the FINAL effective
+    // arguments that will be transported. With an authenticated recovery
+    // card armed for this campaign, a recovered `turn.finalize` — typed or
+    // generic coc_invoke — is a draft-only call: the model supplies ONLY
+    // the corrected draft. Any explicitly supplied host-owned identity
+    // field fails closed (`recovery_identity_mismatch`); any frozen
+    // non-draft payload family fails closed
+    // (`recovery_payload_not_draft_only`); a missing armed binding fails
+    // closed (`recovery_binding_unarmed`). The host then reconstructs the
+    // exact frozen payload from the validated internal card and injects
+    // every binding identity, so the transported call is the complete
+    // canonical finalize with zero model-relayed opaque material.
+    if (
+      (typedDefinition?.operation === "turn.finalize"
+        || (isCanonicalInvokeSurface(name)
+          && params.operation === "turn.finalize"))
+      && effectiveTypedRole === "play"
+      && typeof params.campaign === "string"
+      && params.campaign.trim()
+    ) {
+      const recoveryCard = draftShapeRecoveryCards.get(params.campaign.trim());
+      if (recoveryCard !== undefined) {
+        recoveryFinalizeActive = true;
+        recoveryVisibleRecovery = projectDraftShapeRecoveryForModel(recoveryCard);
+        const recoveryReplayRejection = (
+          code: string,
+          message: string,
+          recoverableBy: string,
+        ) => hostFailureResult({
+          ok: false,
+          tool: "turn.finalize",
+          error: {
+            code,
+            message,
+            retryable: false,
+            details: {
+              class: "invariant_terminal",
+              recoverable_by: recoverableBy,
+            },
+          },
+          warnings: [],
+          hints: [],
+        });
+        const binding = retainedTypedBindings.get("turn.finalize");
+        const current = currentTypedBindingFactories.get("turn.finalize")?.()
+          ?? null;
+        if (binding === undefined || current === null) {
+          return recoveryReplayRejection(
+            "recovery_binding_unarmed",
+            "恢复重放被拒绝：本会话没有已验证的冻结绑定，无法机器绑定恢复身份；"
+              + "请先完成恢复性 session.resume 重新武装，再调用 turn.finalize。",
+            "recovery_session_rearm",
+          );
+        }
+        let hostInjected: Record<string, unknown>;
+        try {
+          hostInjected = bindRetainedTypedToolArguments(
+            "turn.finalize",
+            {},
+            binding,
+            current,
+          );
+        } catch {
+          return recoveryReplayRejection(
+            "recovery_binding_unarmed",
+            "恢复重放被拒绝：已武装绑定与当前规范事实不一致，无法机器绑定恢复身份。",
+            "replay_exact_frozen_payload",
+          );
+        }
+        const effectiveArguments = objectOrNull(params.arguments) ?? {};
+        // Identity violations take precedence: scan every key before
+        // rejecting so an explicit identity tamper is always classified as
+        // such, never masked by an earlier payload violation.
+        const offendingPayloadField = Object.keys(effectiveArguments).find(
+          (field) =>
+            field !== "draft"
+            && !RECOVERY_HOST_INJECTED_FINALIZE_ARGUMENTS.has(field),
+        );
+        if (offendingPayloadField !== undefined) {
+          return recoveryReplayRejection(
+            "recovery_payload_not_draft_only",
+            "恢复重放被拒绝：恢复调用只需携带修正段落形状后的 draft；"
+              + "coverage、agency_claims 及其余冻结参数由宿主从已验证的内部卡"
+              + "片自动重建并附加，模型不得提供或修改。",
+            "replay_draft_only",
+          );
+        }
+        const offendingIdentityField = Object.keys(
+          effectiveArguments,
+        ).find((field) =>
+          RECOVERY_HOST_INJECTED_FINALIZE_ARGUMENTS.has(field));
+        if (offendingIdentityField !== undefined) {
+          return recoveryReplayRejection(
+            "recovery_identity_mismatch",
+            "恢复重放被拒绝：模型提供的 " + offendingIdentityField
+              + " 属于宿主机绑定身份；恢复调用只需携带修正后的 draft，"
+              + "身份由宿主自动注入，不得携带或改写。",
+            "replay_exact_frozen_payload",
+          );
+        }
+        const modelDraft = effectiveArguments.draft;
+        if (typeof modelDraft !== "string" || !modelDraft.trim()) {
+          return recoveryReplayRejection(
+            "recovery_draft_missing",
+            "恢复重放被拒绝：恢复调用必须携带修正段落形状后的完整 draft。",
+            "replay_draft_only",
+          );
+        }
+        const frozenPayload = objectOrNull(recoveryCard.frozen_finalize_payload);
+        if (frozenPayload === null) {
+          return recoveryReplayRejection(
+            "recovery_payload_unavailable",
+            "恢复重放被拒绝：内部冻结负载不可用，无法机器重建恢复调用。",
+            "recovery_session_rearm",
+          );
+        }
+        params = {
+          ...params,
+          arguments: {
+            ...frozenPayload,
+            ...hostInjected,
+            draft: modelDraft,
+          },
+        };
+      }
+    }
       const call = await client(ctx).callToolWithTransportMeta(
         isCanonicalInvokeSurface(name) ? "coc_invoke" : name,
         params,
@@ -8323,17 +9374,45 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         }
         if (persisted && card !== null) {
           draftShapeRecoveryCards.set(campaignId, card);
-          const error = objectOrNull(value.error) ?? {};
-          value = {
-            ...value,
-            error: { ...error, recovery_card: card },
-          };
+          // Model-visible surface carries the semantic projection and a
+          // FIXED semantic message — the canonical error can interpolate
+          // caller-supplied source ids, so it is never echoed. The exact
+          // canonical envelope stays host-internal in gateway `details`.
+          const recovery = projectDraftShapeRecoveryForModel(card);
+          if (recovery !== null) {
+            recoveryFinalizeActive = true;
+            recoveryVisibleRecovery = recovery;
+            recoveryCanonicalDetails = asObject(
+              value,
+              "run-02 recovery canonical error envelope",
+            );
+            value = {
+              ok: false,
+              tool: "turn.finalize",
+              error: {
+                code: "default_mechanics_placement_unavailable",
+                message: RECOVERY_FINALIZE_SEMANTIC_MESSAGES[
+                  "default_mechanics_placement_unavailable"
+                ],
+                retryable: false,
+                recovery,
+              },
+              warnings: [],
+              hints: [],
+            };
+          }
         }
       }
       const validatedOutputContextCards = (
         accepted.accepted
         && params.operation === "turn.output_context"
-      ) ? validateLiveOutputContext(value, null) : null;
+      ) ? validateLiveOutputContext(value, null, {
+          // Explicit coc_invoke lane binds the invocation campaign exactly:
+          // a digest-valid receipt for another campaign never validates.
+          campaignId: typeof params.campaign === "string"
+            ? params.campaign.trim()
+            : "",
+        }) : null;
       if (
         accepted.accepted
         && params.operation === "turn.output_context"
@@ -9567,7 +10646,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const epoch = sessionEpoch;
       if (!isCurrent(epoch)) return result(sessionClosed());
       exactKeys(params, ["task"], "dispatch request");
-      return result(await supplyCoordinator.submitManual(params.task, signal));
+      const submitted = await supplyCoordinator.submitManual(params.task, signal);
+      // Identifier Law: model content is projected; exact result in details.
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify(projectHostToolModelContent(submitted)),
+        }],
+        details: submitted,
+      };
     },
   });
   pi.registerTool({
@@ -9584,7 +10671,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         : [];
       if (operation === "detect") {
         if (typeof params.pages_dir !== "string" || !params.pages_dir.trim()) throw new Error("detect requires pages_dir");
-        return result(await detectMapSupplyPageDirectory(params.pages_dir, candidatePdfIndices, needsOcr));
+        const exact = await detectMapSupplyPageDirectory(params.pages_dir, candidatePdfIndices, needsOcr);
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify(projectHostToolModelContent(exact)),
+          }],
+          details: exact,
+        };
       }
       if (operation === "render") {
         if (
@@ -9593,17 +10687,34 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           || typeof params.source_pdf_path !== "string" || !params.source_pdf_path.trim()
         ) throw new Error("render requires pages_dir, asset_root_id, and source_pdf_path");
         const selection = await detectMapSupplyPageDirectory(params.pages_dir, candidatePdfIndices, needsOcr);
-        if (!selection.needs_image.length) return result({ ...selection, assets: [], status: "nothing_to_render" });
-        return result({
+        if (!selection.needs_image.length) {
+          const exact = { ...selection, assets: [], status: "nothing_to_render" } as JsonObject;
+          return {
+            content: [{
+              type: "text" as const,
+              text: JSON.stringify(projectHostToolModelContent(exact)),
+            }],
+            details: exact,
+          };
+        }
+        const exact = await renderMapSupplyPages({
+          workspace_root: ctx.cwd,
+          asset_root_id: params.asset_root_id,
+          source_pdf_path: params.source_pdf_path,
+          pdf_indices: selection.needs_image,
+        });
+        const envelopeExact = {
           ...selection,
           status: "rendered",
-          ...(await renderMapSupplyPages({
-            workspace_root: ctx.cwd,
-            asset_root_id: params.asset_root_id,
-            source_pdf_path: params.source_pdf_path,
-            pdf_indices: selection.needs_image,
-          })),
-        });
+          ...exact,
+        } as JsonObject;
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify(projectHostToolModelContent(envelopeExact)),
+          }],
+          details: envelopeExact,
+        };
       }
       if (operation === "present") {
         if (typeof params.image_ref !== "string" || !params.image_ref.trim()) throw new Error("present requires image_ref");
@@ -9626,7 +10737,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     async execute(_id: string, params: JsonObject, _signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) {
       const startupResumeError = startupResumeToolError(SOURCE_ASSET_TOOL_NAME, params);
       if (startupResumeError !== null) throw new Error(startupResumeError);
-      return result(await executeSourceAssetTool({
+      const exact = await executeSourceAssetTool({
         cwd: ctx.cwd,
         // The launcher-selected campaign is the source of truth for a fresh
         // PDF binding. After fresh setup clears its resume gate, retain the
@@ -9635,7 +10746,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ?? explicitPiStartupCampaignId()
           ?? undefined,
         params,
-      }));
+      });
+      // Identifier Law: internal srcasset ids/hashes/paths are host-only;
+      // the model sees semantic kind/page/visibility/association rows.
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify(projectHostToolModelContent(exact, {
+            dropAssetIdFields: true,
+          })),
+        }],
+        details: exact,
+      };
     },
   });
   if (
@@ -9688,6 +10810,25 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         if (!campaignId) {
           throw new Error("coc_chargen_delegate requires PI_COC_CAMPAIGN_ID");
         }
+        // Semantic-handle restore (revision mode): the model may only pass
+        // the stable current-investigator handle; the host binds the exact
+        // allocated identity it retained for THIS campaign and session
+        // epoch. A stale, cross-campaign, or non-single identity never
+        // satisfies the handle, and refs are never copied from it.
+        if (params.investigator_id === CURRENT_INVESTIGATOR_HANDLE) {
+          const party = semanticRegistry.currentParty(registryScope(campaignId));
+          const exactId = party.live && party.state === "single"
+            ? party.investigatorId
+            : null;
+          if (!exactId) {
+            throw new Error(
+              "investigator_id uses the semantic current-investigator handle "
+                + "but the host has no retained allocated identity for this "
+                + "campaign and session; retry without it.",
+            );
+          }
+          params = { ...params, investigator_id: exactId };
+        }
         const charged = await runChargenInProcess({
           campaignId,
           brief,
@@ -9699,7 +10840,27 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           charged,
           brief,
         )) applyKpActiveTools();
-        return result(charged);
+        const chargedData = objectOrNull(charged);
+        const allocatedId = typeof chargedData?.investigator_id === "string"
+          ? chargedData.investigator_id
+          : "";
+        if (allocatedId) {
+          // A fresh allocation is the new authoritative single-PC identity
+          // for this campaign and session epoch; prior refs never carry over.
+          semanticRegistry.applyPartyAuthority(registryScope(campaignId), {
+            kind: "single",
+            investigatorId: allocatedId,
+            pcSubjectRefs: [`pc:${allocatedId}`],
+          });
+        }
+        // Identifier Law: model content carries the semantic handle only.
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify(stripOpaqueModelIdentity(charged)),
+          }],
+          details: charged,
+        };
       },
     });
   }
@@ -10188,6 +11349,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   pi.on("session_shutdown", async () => {
     sessionClosing = true;
     sessionEpoch += 1;
+    semanticRegistry.clearAll();
     startupResumeGate = null;
     startupSilentResumeQuarantine = null;
     effectiveTypedRole = launcherRole ?? "setup";
@@ -10198,6 +11360,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     lastWorkingSet = null;
     faultRecoveryOperation = null;
     retainedOutputContextFacts = null;
+    semanticRegistry.clearAll();
+    clearTurnEntityFacts();
     draftShapeRecoveryCards.clear();
     currentSceneBindingFacts = null;
     currentCombatBindingFacts = null;
@@ -10253,6 +11417,7 @@ export const __test = {
   runPiSourceScopeProducer,
   validatePiSourceScopeLocatorTask,
   MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN,
+  projectHostToolModelContent,
 };
 
 // The public gate remains the stable facade.  Machine implementations are

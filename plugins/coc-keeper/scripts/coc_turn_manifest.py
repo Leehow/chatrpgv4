@@ -73,7 +73,10 @@ POST_JOURNAL_READ_TOOLS = frozenset({
     "turn.output_context",
     "narration.brief",
 })
-POST_JOURNAL_ADVISORY_WRITE_TOOLS = frozenset({"narration.review"})
+POST_JOURNAL_ADVISORY_WRITE_TOOLS = frozenset({
+    "narration.review",
+    "state.recover_pending_narration_draft",
+})
 # Private lease ownership can outlive the player turn. Renew/release touches
 # only that source-work lease and is excluded from turn settlement evidence;
 # fulfillment remains blocked until finalization.
