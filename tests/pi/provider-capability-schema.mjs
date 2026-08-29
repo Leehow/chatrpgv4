@@ -3,6 +3,11 @@
  * Cross-provider capability projection must not change product schema semantics.
  * supportsStrictTools / supportsStrictMode only change provider sampling flags.
  * supportsDeveloperRole only changes message roles.
+ *
+ * Product schema is the registered model-owned view: archive inputSchema plus
+ * the canonical Pi presentation overlays (decision_id grammar, semantic
+ * investigator handle, host-owned field projection). Raw archive bytes are
+ * not the model-visible surface; typed-tool-surface.mjs pins the same view.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -35,6 +40,16 @@ const SPOTLIGHT = [
   "turn.finalize",
 ];
 const catalog = typed.defaultTypedToolCatalog();
+
+function presentedProduct(operation) {
+  return typed.projectModelOwnedSchema(
+    operation,
+    typed.presentedTypedToolParameters(
+      operation,
+      archive.operations[operation].inputSchema,
+    ),
+  );
+}
 
 function asProviderTool(operation) {
   const tool = catalog.byOperation.get(operation);
@@ -69,10 +84,10 @@ function semanticKeys(schema) {
   };
 }
 
-test("product schemas stay archive inputSchema across strict capabilities", () => {
+test("product schemas stay presented archive inputSchema across strict capabilities", () => {
   for (const operation of SPOTLIGHT) {
     const product = catalog.byOperation.get(operation).parameters;
-    assert.deepEqual(product, archive.operations[operation].inputSchema, operation);
+    assert.deepEqual(product, presentedProduct(operation), operation);
     const tool = asProviderTool(operation);
     assert.equal(resolveJsonSchemaStrictSampling(tool, true), undefined, operation);
     assert.equal(resolveJsonSchemaStrictSampling(tool, false), undefined, operation);
@@ -180,7 +195,7 @@ test("developer-role capability does not mutate tool schema semantics", () => {
   for (const operation of SPOTLIGHT) {
     assert.deepEqual(
       catalog.byOperation.get(operation).parameters,
-      archive.operations[operation].inputSchema,
+      presentedProduct(operation),
       operation,
     );
   }
