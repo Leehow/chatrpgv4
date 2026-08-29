@@ -2,6 +2,23 @@
 
 > Normative when routed from `skills/coc-keeper-play/SKILL.md` (Progressive Context Routing). Load this file before adjudicating the matching case. This is not optional flavor.
 
+### Closed `decision_id` grammar
+
+KP-authored `decision_id` is the transaction's idempotency key. The validator
+accepts only this closed form — never a bare prose slug, never an obligation
+handle. Replay the same id only for the exact same arguments; a new transition
+needs a new id. The host does not rewrite or derive KP-owned decision identities.
+
+Closed `decision_id` prefixes (validator `DECISION_ID_PREFIXES`):
+`journal-` `roll-` `move-` `advance-time-` `on-enter-` `opening-` `table-opening-` `push-` `luck-` `development-` `combat-` `npc-` `recall-` `recovery-` `review-` `deliver-` `exceptional-` `finalize-` `fin-` `associate-` `accept-` `ask-` `confirm-` `grant-` `record-` `item-` `cash-`
+
+Any listed prefix is valid on any decision_id.
+`tN-` turn scope applies only to prefixed `{prefix}{slug}` ids, never to `quick-start:` / `setup-complete:` colon forms.
+`:finalize` is accepted on prefixed `{prefix}{slug}` ids and on `quick-start:` / `setup-complete:` colon forms.
+Colon forms: `quick-start:<1–6 slugs>`, `setup-complete:<1–6 slugs>`.
+Coverage handles such as `roll:first-impression` are obligation ids for `coverage[].obligation_id`, not tool `decision_id` values.
+WRONG: `first-impression-arty-wilmot`, `persuade-arty-morgue-access`. RIGHT: `roll-persuade-arty-access-v1`.
+
 ### A Typical Turn
 
 The tool calls below are not a mandatory pipeline; the always-active response
@@ -135,7 +152,10 @@ contract above still applies. This is the natural rhythm:
    `social_adjudication_ref` to `rules.roll` together with the exact returned
    skill, difficulty, bonus/penalty dice, and `npc_id`. That reference is
    consumed by the one canonical roll; a fresh `decision_id` cannot reroll the
-   same commitment. A legal Push still uses `rules.push`. The bound roll also
+   same commitment. Any listed prefix is valid on any `decision_id`; `rules.roll`
+   commonly uses `roll-` (RIGHT: `roll-persuade-arty-access-v1`; WRONG:
+   `persuade-arty-morgue-access` — a readable slug with no accepted prefix is
+   rejected). A legal Push still uses `rules.push`. The bound roll also
    carries the structured `outcome_ceiling`; narration may realize only the
    recorded goal scope, target-NPC fact refs, scene truth tier, and forbidden
    fact boundary.
@@ -253,7 +273,10 @@ contract above still applies. This is the natural rhythm:
    speaker per turn. For every stable NPC this investigator meets
    substantively for the first time, call `npc.reaction` separately with a
    localized player-safe `npc_display_name`, a structured semantic `context`,
-   and a unique `decision_id`. Pass each exact `first_impression_ref` plus its
+   and a unique closed-grammar `decision_id` with an accepted prefix such as
+   `npc-` (RIGHT: `npc-first-impression-arty-wilmot`; WRONG:
+   `first-impression-arty-wilmot` — a readable slug without an accepted prefix
+   is rejected). Pass each exact `first_impression_ref` plus its
    KP-authored `first_impression_realization` into that pair's own
    `state.record_npc_engagement`. The public D100 uses max(APP, Credit Rating),
    is frozen once per investigator/NPC pair, and reports the chosen basis,
@@ -369,7 +392,7 @@ Never sequential `state.cash_spend` then `state.item_grant` for a buy. Never
 classify items by name or category in code or a keyword list.
 
 If a tool reports a transient transaction or lock failure, retry the same
-call with the same `decision_id` within the toolbox's bounded retry policy.
+call with the same closed-grammar `decision_id` within the toolbox's bounded retry policy.
 `state.set_flag` and `state.time_marker` keep an atomic source receipt: a
 same-payload replay repairs a missing event/ledger stage without recomputing
 the original flag provenance, deadline, or revision from later campaign

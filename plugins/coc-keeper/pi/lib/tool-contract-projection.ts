@@ -496,13 +496,13 @@ const BUSINESS_PRECONDITION_ACTIONS: Record<string, readonly PiAllowedNextAction
   unknown_obligation: [{
     operation: "turn.output_context",
     action: "refresh_retained_obligations",
-    reason: "refresh the exact current obligation ids before revising coverage",
+    reason: "use the semantic obligation handles from turn.output_context; never copy hash or receipt ids",
     host_bound: true,
   }],
   missing_obligation: [{
     operation: "turn.finalize",
     action: "complete_causal_coverage",
-    reason: "add one coverage row for every retained obligation",
+    reason: "add one coverage row for every semantic obligation handle in the retained output context",
     host_bound: true,
   }],
   exceptional_beat_required: [{
@@ -2077,6 +2077,7 @@ const APPROVED_SEMANTIC_NAMESPACES: ReadonlySet<string> = new Set([
   "narration_contract:", "clue:", "npc:", "scene:", "handout:", "thread:",
   "location:", "clock:", "pdf:", "module:", "source:", "weapon:", "advice:",
   "storylet:", "storylet-candidate:", "secret:", "affordance:", "delivery:",
+  "first-impression:", "sanity_bout:",
 ]);
 
 /** Domain map lookup for one presented prefix — never a flattened map. */
@@ -2988,6 +2989,67 @@ function projectHandoutDeliveryData(
   ) as Record<string, unknown>;
 }
 
+const OPAQUE_HEX_RUN = /:?[0-9a-f]{16,}/gi;
+
+function rewriteCanonicalIdsInText(
+  text: string,
+  semanticIds: SemanticIdMap | null,
+  stripResidualHex: boolean,
+): string {
+  if (!text) return text;
+  let out = text;
+  if (semanticIds !== null) {
+    const replacements: Array<{ from: string; to: string }> = [];
+    const add = (canonical: string, handle: string) => {
+      if (!canonical || !handle || canonical === handle) return;
+      replacements.push({ from: canonical, to: handle });
+      if (!canonical.startsWith("roll:")) {
+        replacements.push({ from: `roll:${canonical}`, to: handle });
+      }
+      if (!canonical.startsWith("first-impression:")) {
+        replacements.push({ from: `first-impression:${canonical}`, to: handle });
+      }
+    };
+    for (const [canonical, handle] of semanticIds.rolls) add(canonical, handle);
+    replacements.sort((a, b) => b.from.length - a.from.length);
+    for (const { from, to } of replacements) {
+      if (from.length < 12) continue;
+      if (out.includes(from)) out = out.split(from).join(to);
+    }
+  }
+  if (stripResidualHex) out = out.replace(OPAQUE_HEX_RUN, "");
+  return out.replace(/ {2,}/g, " ").replace(/ ,/g, ",").trim();
+}
+
+function rewriteCanonicalIdsInError(
+  error: unknown,
+  semanticIds: SemanticIdMap | null,
+): unknown {
+  if (!isPlainObject(error)) return error;
+  const code = typeof error.code === "string" ? error.code : "";
+  const stripResidualHex = (
+    code === "missing_obligation" || code === "unknown_obligation"
+  );
+  const rewritten: Record<string, unknown> = { ...error };
+  if (typeof rewritten.message === "string") {
+    rewritten.message = rewriteCanonicalIdsInText(
+      rewritten.message, semanticIds, stripResidualHex,
+    );
+  }
+  if (Array.isArray(rewritten.violations)) {
+    rewritten.violations = rewritten.violations.map((row) => {
+      if (!isPlainObject(row) || typeof row.message !== "string") return row;
+      return {
+        ...row,
+        message: rewriteCanonicalIdsInText(
+          row.message, semanticIds, stripResidualHex,
+        ),
+      };
+    });
+  }
+  return rewritten;
+}
+
 /**
  * The single post-observer model-content projection for canonical envelopes.
  * Operation-aware for module.context / scene.context / session.resume /
@@ -3077,11 +3139,14 @@ export function projectModelVisibleCanonicalResult(
     }
   }
   if (projected.error !== undefined) {
-    projected.error = sanitizeEnvelopeBranch(
-      projected.error,
+    projected.error = rewriteCanonicalIdsInError(
+      sanitizeEnvelopeBranch(
+        projected.error,
+        semanticIds,
+        diagnostics,
+        operationName,
+      ),
       semanticIds,
-      diagnostics,
-      operationName,
     );
   }
   // Hints are Pi-authored from structured fields; canonical hint prose is
@@ -3375,7 +3440,7 @@ function isEchoedSemanticRef(
 }
 
 /** Model-authored decision ids name their settling operation. */
-const DECISION_ID_PREFIXES: readonly string[] = [
+export const DECISION_ID_PREFIXES: readonly string[] = [
   "journal-",
   "roll-",
   "move-",
@@ -3404,6 +3469,54 @@ const DECISION_ID_PREFIXES: readonly string[] = [
   "item-",
   "cash-",
 ];
+
+/**
+ * Model-visible `decision_id` field description. Generated from
+ * `DECISION_ID_PREFIXES` so the presented schema cannot silently drift
+ * from the validator. Coverage handles (`roll:…`) are not this field.
+ */
+export const DECISION_ID_ANY_PREFIX_SENTENCE = (
+  "Any listed prefix is valid on any decision_id."
+);
+
+export const DECISION_ID_TN_SCOPE_SENTENCE = (
+  "`tN-` turn scope applies only to prefixed `{prefix}{slug}` ids, never to "
+  + "`quick-start:` / `setup-complete:` colon forms."
+);
+
+export const DECISION_ID_FINALIZE_SCOPE_SENTENCE = (
+  "`:finalize` is accepted on prefixed `{prefix}{slug}` ids and on "
+  + "`quick-start:` / `setup-complete:` colon forms."
+);
+
+export const DECISION_ID_FIELD_DESCRIPTION = (
+  "Closed decision_id grammar (validator-bound): `{prefix}{slug}` where prefix "
+  + `is one of ${DECISION_ID_PREFIXES.join(" | ")}`
+  + "; slug is meaning-bearing lowercase/CJK segments joined by -._ . "
+  + `${DECISION_ID_ANY_PREFIX_SENTENCE} `
+  + `${DECISION_ID_TN_SCOPE_SENTENCE} `
+  + `${DECISION_ID_FINALIZE_SCOPE_SENTENCE} `
+  + "Colon forms: `quick-start:<slugs>` and `setup-complete:<slugs>` (1–6 segments). "
+  + "Coverage handles like `roll:...` are not this field. "
+  + "WRONG: first-impression-arty-wilmot, persuade-arty-morgue-access. "
+  + "RIGHT: roll-persuade-arty-access-v1."
+);
+
+function overlayDecisionIdFieldDescriptions(schema: JsonSchema): void {
+  if (!isPlainObject(schema.properties)) return;
+  for (const [field, prop] of Object.entries(schema.properties)) {
+    if (!isPlainObject(prop)) continue;
+    if (field !== "decision_id" && !field.endsWith("_decision_id")) continue;
+    const current = typeof prop.description === "string" ? prop.description.trim() : "";
+    if (current.includes("Closed decision_id grammar")) continue;
+    schema.properties[field] = {
+      ...prop,
+      description: current
+        ? `${current.replace(/\.+$/, ".")} ${DECISION_ID_FIELD_DESCRIPTION}`
+        : DECISION_ID_FIELD_DESCRIPTION,
+    };
+  }
+}
 
 /**
  * Canonical colon-form decision vocabulary ("quick-start:<campaign>:attempt-N")
@@ -3500,8 +3613,8 @@ const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["presented_roll_ids", stringSet(["roll:"])],
   ["source_roll_id", stringSet(["roll:"])],
   ["source_ids", stringSet(["roll:"])],
-  ["obligation_id", stringSet(["roll:"])],
-  ["obligation_ids", stringSet(["roll:"])],
+  ["obligation_id", stringSet(["roll:", "first-impression:", "sanity_bout:"])],
+  ["obligation_ids", stringSet(["roll:", "first-impression:", "sanity_bout:"])],
   ["consuming_roll_id", stringSet(["roll:"])],
   ["resolution_roll_id", stringSet(["roll:"])],
   ["source_effect_id", stringSet(["roll:", "state:", "rule:", "check:", "narration_contract:", "effect:"])],
@@ -3527,6 +3640,10 @@ const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["actor_id", stringSet(["actor:", "npc:"])],
   ["caregiver_id", stringSet(["npc:", "person:"])],
   ["rescuer_id", stringSet(["npc:", "person:"])],
+  // R3 rules.settle keeper-semantic ids: decision cards and actor refs.
+  ["decision_ref", stringSet(["decision:"])],
+  ["rescuer_ref", stringSet(["npc:", "person:", "actor:"])],
+  ["assistant_rescuer_ref", stringSet(["npc:", "person:", "actor:"])],
   ["base_weapon_id", stringSet(["weapon:", "item:"])],
   ["target_id", stringSet([])],
   ["target_npc_id", stringSet(["npc:"])],
@@ -3868,6 +3985,20 @@ const RESTORE_ROLL_ARRAYS: ReadonlySet<string> = new Set([
   "roll_ids", "presented_roll_ids", "source_roll_ids", "source_ids",
   "obligation_ids", "required_obligation_ids",
 ]);
+const OBLIGATION_ID_FIELDS: ReadonlySet<string> = new Set([
+  "obligation_id", "obligation_ids", "required_obligation_ids",
+]);
+const PYTHON_OBLIGATION_PREFIXES = [
+  "roll:", "first-impression:", "sanity_bout:",
+] as const;
+
+/** Coverage join keys must match Python's kind-prefixed obligation_id. */
+function toPythonObligationId(canonical: string): string {
+  if (PYTHON_OBLIGATION_PREFIXES.some((prefix) => canonical.startsWith(prefix))) {
+    return canonical;
+  }
+  return `roll:${canonical}`;
+}
 const RESTORE_EFFECT_ARRAYS: ReadonlySet<string> = new Set([
   "effect_ids", "weapon_effect_ids", "substantive_effect_ids",
 ]);
@@ -4125,7 +4256,11 @@ export function restoreSemanticEntityHandles(
           domain as "roll" | "effect" | "item" | "weapon" | "route",
           value,
         );
-        return restored.ok ? restored.value : value;
+        if (!restored.ok) return value;
+        if (field !== null && OBLIGATION_ID_FIELDS.has(field) && domain === "roll") {
+          return toPythonObligationId(restored.value);
+        }
+        return restored.value;
       }
       const out: Record<string, unknown> = {};
       for (const [key, child] of Object.entries(value)) {
@@ -4147,6 +4282,7 @@ export function restoreSemanticEntityHandles(
 function projectSemanticHandleSchemaOverlay(schema: JsonSchema): JsonSchema {
   const cloned = structuredClone(schema);
   if (!isPlainObject(cloned.properties)) return cloned;
+  overlayDecisionIdFieldDescriptions(cloned);
   if (isPlainObject(cloned.properties.investigator)) {
     cloned.properties.investigator = {
       type: "string",

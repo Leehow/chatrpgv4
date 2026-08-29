@@ -13,6 +13,7 @@ from copy import deepcopy
 import difflib
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -1574,10 +1575,15 @@ def _build_obligations(
             and effect.get("direction") == effect_direction
         ]
         obligation_id = f"roll:{roll_id}"
+        npc_name = raw.get("npc_display_name")
         obligations.append({
             "obligation_id": obligation_id,
             "source_kind": "concealed_roll" if hidden else _roll_kind(raw),
             "source_id": roll_id,
+            "npc_display_name": (
+                str(npc_name).strip() or None
+                if isinstance(npc_name, str) else None
+            ),
             "visibility": "keeper_only" if hidden else visibility,
             "skill": raw.get("skill") or raw.get("characteristic") or raw.get("kind"),
             "goal": raw.get("goal") or raw.get("source") or raw.get("reason"),
@@ -1606,10 +1612,15 @@ def _build_obligations(
             })
     for effect in context_effects:
         source_id = str(effect["source_receipt_id"])
+        npc_name = effect.get("npc_display_name")
         obligations.append({
             "obligation_id": f"first-impression:{source_id}",
             "source_kind": "first_impression",
             "source_id": source_id,
+            "npc_display_name": (
+                str(npc_name).strip() or None
+                if isinstance(npc_name, str) else None
+            ),
             "visibility": "context_effect",
             "skill": None,
             "goal": "realize the NPC's first observable response",
@@ -2812,6 +2823,112 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
     }
 
 
+_OPAQUE_HEX_RUN = re.compile(r"[0-9a-fA-F]{16,}")
+
+
+def _contains_opaque_identity(value: str) -> bool:
+    return bool(_OPAQUE_HEX_RUN.search(value or ""))
+
+
+def _semantic_slug(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    chars: list[str] = []
+    prev_dash = False
+    for ch in value.strip().lower():
+        if ch.isalnum() or "\u3400" <= ch <= "\u9fff":
+            chars.append(ch)
+            prev_dash = False
+        elif chars and not prev_dash:
+            chars.append("-")
+            prev_dash = True
+    slug = "".join(chars).strip("-")
+    if not slug or slug.isdigit() or _contains_opaque_identity(slug):
+        return ""
+    return slug
+
+
+def _obligation_public_label(row: dict[str, Any]) -> str:
+    kind = str(row.get("source_kind") or "")
+    name = _semantic_slug(row.get("npc_display_name") or "")
+    skill = _semantic_slug(row.get("skill") or "")
+    if kind == "first_impression":
+        return f"first-impression:{name}" if name else "first-impression"
+    if kind == "sanity_bout":
+        return "sanity_bout"
+    if skill:
+        return f"roll:{skill}"
+    kind_slug = _semantic_slug(kind.replace("_", "-"))
+    return f"roll:{kind_slug}" if kind_slug else "roll"
+
+
+def _disambiguate_labels(labels: list[str]) -> list[str]:
+    counts: dict[str, int] = {}
+    seen: dict[str, int] = {}
+    for label in labels:
+        counts[label] = counts.get(label, 0) + 1
+    out: list[str] = []
+    for label in labels:
+        if counts[label] == 1:
+            out.append(label)
+            continue
+        seen[label] = seen.get(label, 0) + 1
+        out.append(label if seen[label] == 1 else f"{label}-{seen[label]}")
+    return out
+
+
+def _missing_obligation_message(
+    obligations: list[dict[str, Any]], missing: list[str]
+) -> str:
+    by_id = {str(row["obligation_id"]): row for row in obligations}
+    labels = _disambiguate_labels([
+        _obligation_public_label(by_id[oid]) for oid in missing if oid in by_id
+    ])
+    if not labels:
+        labels = ["required settled check"]
+    return "missing causal coverage: " + ", ".join(labels)
+
+
+def _unknown_obligation_message(obligation_id: str) -> str:
+    if _contains_opaque_identity(obligation_id):
+        return (
+            "unknown coverage obligation; use the semantic obligation handles "
+            "from turn.output_context (never hash or receipt ids)"
+        )
+    return (
+        f"unknown coverage: {obligation_id}; "
+        "call turn.output_context and use the presented semantic obligation handles"
+    )
+
+
+def _resolve_coverage_obligation_id(
+    obligation_id: str,
+    required: dict[str, dict[str, Any]],
+) -> str | None:
+    """Map a coverage join key onto the exact required obligation_id.
+
+    The host restores semantic handles to canonical ids. A live restore bug
+    also produced bare source_id / roll_id values; those uniquely alias the
+    same required row so Rule 4 stays satisfiable without echoing hashes.
+    Ambiguous aliases fail closed.
+    """
+    if obligation_id in required:
+        return obligation_id
+    matches: list[str] = []
+    for key, row in required.items():
+        source_id = str(row.get("source_id") or "")
+        if not source_id:
+            continue
+        if obligation_id == source_id or obligation_id == f"roll:{source_id}":
+            matches.append(key)
+        elif key == f"roll:{obligation_id}":
+            matches.append(key)
+    unique = list(dict.fromkeys(matches))
+    if len(unique) == 1:
+        return unique[0]
+    return None
+
+
 def validate_coverage(
     obligations: list[dict[str, Any]], coverage: Any, draft: str
 ) -> list[dict[str, Any]]:
@@ -2825,23 +2942,30 @@ def validate_coverage(
                 "invalid_coverage", f"coverage[{index}] must use the exact closed schema"
             )
         obligation_id = str(row.get("obligation_id") or "").strip()
-        if not obligation_id or obligation_id in seen:
-            raise TurnContractError("duplicate_obligation", f"duplicate coverage: {obligation_id}")
-        if obligation_id not in required:
+        canonical = _resolve_coverage_obligation_id(obligation_id, required)
+        if not obligation_id or canonical is None:
+            if obligation_id and canonical is None:
+                raise TurnContractError(
+                    "unknown_obligation",
+                    _unknown_obligation_message(obligation_id),
+                )
             raise TurnContractError(
-                "unknown_obligation",
-                f"unknown coverage: {obligation_id}; "
-                "call turn.output_context to list this turn's valid obligation_ids "
-                "and construct coverage from those exact ids",
+                "duplicate_obligation", f"duplicate coverage: {obligation_id}"
             )
-        realization = row.get("realization")
+        if canonical in seen:
+            raise TurnContractError(
+                "duplicate_obligation", f"duplicate coverage: {obligation_id}"
+            )
+        bound = deepcopy(row)
+        bound["obligation_id"] = canonical
+        realization = bound.get("realization")
         if realization not in REALIZATION_VALUES:
-            raise TurnContractError("invalid_coverage", f"invalid realization for {obligation_id}")
-        handling = row.get("player_input_handling")
+            raise TurnContractError("invalid_coverage", f"invalid realization for {canonical}")
+        handling = bound.get("player_input_handling")
         if handling not in PLAYER_INPUT_HANDLING_VALUES:
-            raise TurnContractError("invalid_coverage", f"invalid player_input_handling for {obligation_id}")
+            raise TurnContractError("invalid_coverage", f"invalid player_input_handling for {canonical}")
         if realization == "concealed_no_player_visible_beat":
-            if required[obligation_id]["source_kind"] != "concealed_roll":
+            if required[canonical]["source_kind"] != "concealed_roll":
                 raise TurnContractError(
                     "invalid_coverage", "only a concealed roll may close without a visible beat"
                 )
@@ -2849,38 +2973,39 @@ def validate_coverage(
                 "action_realization", "response", "causal_explanation",
                 "persona_fit", "exact_excerpt", "exceptional_beat",
             ):
-                if row.get(key) not in (None, ""):
+                if bound.get(key) not in (None, ""):
                     raise TurnContractError(
-                        "invalid_coverage", f"{obligation_id} hidden no-effect row must not cite player prose"
+                        "invalid_coverage", f"{canonical} hidden no-effect row must not cite player prose"
                     )
         else:
             for key in (
                 "action_realization", "response", "causal_explanation",
                 "persona_fit", "exact_excerpt",
             ):
-                value = row.get(key)
+                value = bound.get(key)
                 if not isinstance(value, str) or not value.strip():
                     raise TurnContractError(
-                        "invalid_coverage", f"{obligation_id} lacks non-empty {key}"
+                        "invalid_coverage", f"{canonical} lacks non-empty {key}"
                     )
-            if row["exact_excerpt"] not in draft:
-                repaired = _repair_excerpt(row["exact_excerpt"], draft)
+            if bound["exact_excerpt"] not in draft:
+                repaired = _repair_excerpt(bound["exact_excerpt"], draft)
                 if repaired is None:
                     raise TurnContractError(
-                        "excerpt_mismatch", f"{obligation_id} exact_excerpt is not verbatim in draft"
+                        "excerpt_mismatch", f"{canonical} exact_excerpt is not verbatim in draft"
                     )
-                row["exact_excerpt"] = repaired
-        if required[obligation_id].get("exceptional_required"):
-            beat = row.get("exceptional_beat")
+                bound["exact_excerpt"] = repaired
+        if required[canonical].get("exceptional_required"):
+            beat = bound.get("exceptional_beat")
             if not isinstance(beat, str) or not beat.strip():
                 raise TurnContractError(
-                    "exceptional_beat_required", f"{obligation_id} is critical/fumble"
+                    "exceptional_beat_required", f"{canonical} is critical/fumble"
                 )
-        seen[obligation_id] = deepcopy(row)
+        seen[canonical] = bound
     missing = sorted(set(required) - set(seen))
     if missing:
         raise TurnContractError(
-            "missing_obligation", "missing causal coverage: " + ", ".join(missing)
+            "missing_obligation",
+            _missing_obligation_message(obligations, missing),
         )
     return [seen[key] for key in sorted(seen)]
 
@@ -3212,25 +3337,26 @@ def _collect_coverage_violations(
             add("invalid_coverage", f"coverage[{index}] must use the exact closed schema")
             continue
         obligation_id = str(row.get("obligation_id") or "").strip()
-        if not obligation_id or obligation_id in seen:
+        canonical = _resolve_coverage_obligation_id(obligation_id, required)
+        if not obligation_id or canonical is None:
+            if obligation_id and canonical is None:
+                add("unknown_obligation", _unknown_obligation_message(obligation_id))
+            else:
+                add("duplicate_obligation", f"duplicate coverage: {obligation_id}")
+            continue
+        if canonical in seen:
             add("duplicate_obligation", f"duplicate coverage: {obligation_id}")
             continue
-        if obligation_id not in required:
-            add(
-                "unknown_obligation",
-                f"unknown coverage: {obligation_id}; "
-                "call turn.output_context to list this turn's valid obligation_ids "
-                "and construct coverage from those exact ids",
-            )
-            continue
-        realization = row.get("realization")
+        bound = deepcopy(row)
+        bound["obligation_id"] = canonical
+        realization = bound.get("realization")
         if realization not in REALIZATION_VALUES:
-            add("invalid_coverage", f"invalid realization for {obligation_id}")
-        handling = row.get("player_input_handling")
+            add("invalid_coverage", f"invalid realization for {canonical}")
+        handling = bound.get("player_input_handling")
         if handling not in PLAYER_INPUT_HANDLING_VALUES:
-            add("invalid_coverage", f"invalid player_input_handling for {obligation_id}")
+            add("invalid_coverage", f"invalid player_input_handling for {canonical}")
         if realization == "concealed_no_player_visible_beat":
-            if required[obligation_id]["source_kind"] != "concealed_roll":
+            if required[canonical]["source_kind"] != "concealed_roll":
                 add(
                     "invalid_coverage",
                     "only a concealed roll may close without a visible beat",
@@ -3239,10 +3365,10 @@ def _collect_coverage_violations(
                 "action_realization", "response", "causal_explanation",
                 "persona_fit", "exact_excerpt", "exceptional_beat",
             ):
-                if row.get(key) not in (None, ""):
+                if bound.get(key) not in (None, ""):
                     add(
                         "invalid_coverage",
-                        f"{obligation_id} hidden no-effect row must not cite player prose",
+                        f"{canonical} hidden no-effect row must not cite player prose",
                     )
                     break
         else:
@@ -3250,10 +3376,10 @@ def _collect_coverage_violations(
                 "action_realization", "response", "causal_explanation",
                 "persona_fit", "exact_excerpt",
             ):
-                value = row.get(key)
+                value = bound.get(key)
                 if not isinstance(value, str) or not value.strip():
-                    add("invalid_coverage", f"{obligation_id} lacks non-empty {key}")
-            excerpt = row.get("exact_excerpt")
+                    add("invalid_coverage", f"{canonical} lacks non-empty {key}")
+            excerpt = bound.get("exact_excerpt")
             if (
                 isinstance(excerpt, str) and excerpt.strip()
                 and excerpt not in draft
@@ -3261,17 +3387,20 @@ def _collect_coverage_violations(
             ):
                 add(
                     "excerpt_mismatch",
-                    f"{obligation_id} exact_excerpt is not verbatim in draft",
+                    f"{canonical} exact_excerpt is not verbatim in draft",
                 )
-        if required[obligation_id].get("exceptional_required"):
-            beat = row.get("exceptional_beat")
+        if required[canonical].get("exceptional_required"):
+            beat = bound.get("exceptional_beat")
             if not isinstance(beat, str) or not beat.strip():
-                add("exceptional_beat_required", f"{obligation_id} is critical/fumble")
-        seen[obligation_id] = deepcopy(row)
-        best_rows.append(deepcopy(row))
+                add("exceptional_beat_required", f"{canonical} is critical/fumble")
+        seen[canonical] = bound
+        best_rows.append(deepcopy(bound))
     missing = sorted(set(required) - set(seen))
     if missing:
-        add("missing_obligation", "missing causal coverage: " + ", ".join(missing))
+        add(
+            "missing_obligation",
+            _missing_obligation_message(obligations, missing),
+        )
     return violations, best_rows
 
 

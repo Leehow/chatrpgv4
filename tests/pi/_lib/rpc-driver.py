@@ -39,8 +39,11 @@ This driver keeps the same CLI (``start``/``serve``/``set-model``/``turn``/
    executions; exit 5), and ``empty_settle`` (zero visible text and zero
    tool activity, the provider-successful thinking-only swallow; exit 4).
    A hidden ``coc-empty-terminal-recovery`` follow-up marker keeps the
-   submit open until the recovered turn settles, so an in-flight
-   same-epoch recovery is not misread as an empty settle. The marker is
+   submit open until the recovered turn delivers visible text and
+   settles, so an in-flight same-epoch recovery is not misread as an
+   empty settle. If the pre-recovery terminal aborted without
+   ``agent_settled``, one recovered settle after visible text is enough;
+   do not wait for a second settle that will never arrive. The marker is
    appended only after the recovery follow-up was actually sent, so a
    scheduling failure never fabricates an in-flight recovery.
 
@@ -106,26 +109,82 @@ def text_from(content: object) -> str:
     return ""
 
 
-# Hidden same-epoch recovery marker appended by the pi-coc player transcript
-# gate when a provider-successful thinking-only terminal swallowed an
-# external player turn (plugins/coc-keeper/pi/extensions/index.ts,
-# deliverEmptyTerminalRecovery). One marker arms exactly one hidden
-# follow-up agent turn that settles after the swallowed one.
+# Hidden same-epoch recovery markers appended by the pi-coc player
+# transcript / settled-output gates. Empty-terminal recovery
+# (deliverEmptyTerminalRecovery) arms one follow-up after a thinking-only
+# swallow. Settled-output recovery (coc-settled-output-recovery) arms a
+# follow-up when status is ``claimed``; ``exhausted`` does not schedule
+# another turn. Accounting reports both; in-flight wait counts empty-terminal
+# plus claimed settled-output only.
 EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE = "coc-empty-terminal-recovery"
+SETTLED_OUTPUT_RECOVERY_CUSTOM_TYPE = "coc-settled-output-recovery"
 
 
-def _empty_terminal_recovery_markers(rows: list[dict]) -> int:
-    count = 0
+def _entry_custom_type(entry: object) -> str | None:
+    if not isinstance(entry, dict):
+        return None
+    custom = entry.get("customType")
+    return custom if isinstance(custom, str) else None
+
+
+def _recovery_marker_counts(rows: list[dict]) -> dict[str, int]:
+    empty = 0
+    settled_total = 0
+    settled_claimed = 0
     for row in rows:
         if row.get("type") != "entry_appended":
             continue
         entry = row.get("entry")
+        custom = _entry_custom_type(entry)
+        if custom == EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE:
+            empty += 1
+            continue
+        if custom != SETTLED_OUTPUT_RECOVERY_CUSTOM_TYPE:
+            continue
+        settled_total += 1
+        data = entry.get("data") if isinstance(entry, dict) else None
+        status = data.get("status") if isinstance(data, dict) else None
+        if status == "claimed":
+            settled_claimed += 1
+    return {
+        "empty_terminal": empty,
+        "settled_output": settled_total,
+        "settled_output_claimed": settled_claimed,
+        "recovery_markers": empty + settled_total,
+        "in_flight": empty + settled_claimed,
+    }
+
+
+def _empty_terminal_recovery_markers(rows: list[dict]) -> int:
+    return _recovery_marker_counts(rows)["empty_terminal"]
+
+
+def _settled_output_recovery_markers(rows: list[dict]) -> int:
+    return _recovery_marker_counts(rows)["settled_output"]
+
+
+def _in_flight_recovery_markers(rows: list[dict]) -> int:
+    return _recovery_marker_counts(rows)["in_flight"]
+
+
+def _assistant_message_end_visible(row: dict) -> bool:
+    """True when this event is an assistant message_end with visible text."""
+    if row.get("type") != "message_end":
+        return False
+    message = row.get("message")
+    if not isinstance(message, dict) or message.get("role") != "assistant":
+        return False
+    content = message.get("content")
+    if not isinstance(content, list):
+        return False
+    for part in content:
         if (
-            isinstance(entry, dict)
-            and entry.get("customType") == EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE
+            isinstance(part, dict)
+            and part.get("type") == "text"
+            and str(part.get("text", "")).strip()
         ):
-            count += 1
-    return count
+            return True
+    return False
 
 
 def _turn_window_visible_output(rows: list[dict]) -> bool:
@@ -137,23 +196,7 @@ def _turn_window_visible_output(rows: list[dict]) -> bool:
     deliberately NOT delivery: a settle with tools but no visible text did
     not answer the player.
     """
-    for row in rows:
-        if row.get("type") != "message_end":
-            continue
-        message = row.get("message")
-        if not isinstance(message, dict) or message.get("role") != "assistant":
-            continue
-        content = message.get("content")
-        if not isinstance(content, list):
-            continue
-        for part in content:
-            if (
-                isinstance(part, dict)
-                and part.get("type") == "text"
-                and str(part.get("text", "")).strip()
-            ):
-                return True
-    return False
+    return any(_assistant_message_end_visible(row) for row in rows)
 
 
 def _turn_window_has_tool_activity(rows: list[dict]) -> bool:
@@ -173,6 +216,53 @@ def _turn_window_has_tool_activity(rows: list[dict]) -> bool:
             if isinstance(part, dict) and part.get("type") == "toolCall":
                 return True
     return False
+
+
+def _prompt_turn_complete(rows: list[dict]) -> bool:
+    """True when the submitted player turn has settled enough to classify.
+
+    ``agent_settled`` is required. In-flight recovery markers (empty-terminal
+    plus claimed settled-output; exhausted settled-output does not count)
+    mean a hidden follow-up is in flight until either:
+
+    - more ``agent_settled`` events than in-flight markers (the swallowed
+      terminal settled, then the recovered turn settled), or
+    - player-visible assistant text has arrived and an ``agent_settled``
+      follows it (the pre-recovery terminal aborted without settling, as
+      in a leading-whitespace abort; the recovered turn is the only settle).
+
+    Visible text alone does not complete the wait: the recovered follow-up
+    must still settle. Lack of visible text keeps the wait open so an
+    in-flight recovery is not misread as empty_settle.
+    """
+    settle_indices = [
+        index for index, row in enumerate(rows)
+        if row.get("type") == "agent_settled"
+    ]
+    if not settle_indices:
+        return False
+    markers = _in_flight_recovery_markers(rows)
+    if markers == 0:
+        return True
+    if len(settle_indices) > markers:
+        return True
+    last_visible = None
+    for index, row in enumerate(rows):
+        if _assistant_message_end_visible(row):
+            last_visible = index
+    if last_visible is None:
+        return False
+    return any(index > last_visible for index in settle_indices)
+
+
+def _classify_prompt_settle(rows: list[dict], *, completed: bool) -> str:
+    if not completed:
+        return "not_settled"
+    if _turn_window_visible_output(rows):
+        return "settled"
+    if _turn_window_has_tool_activity(rows):
+        return "undelivered_settle_with_tools"
+    return "empty_settle"
 
 
 def command_payload(kind: str, value: str | None = None) -> dict:
@@ -287,13 +377,11 @@ def submit(payload: dict, timeout: int) -> int:
         if payload["type"] == "set_model":
             completed = any(row.get("type") == "response" and row.get("id") == payload["id"] for row in rows)
         else:
-            settles = [row for row in rows if row.get("type") == "agent_settled"]
-            completed = bool(settles)
-            if completed and len(settles) <= _empty_terminal_recovery_markers(rows):
-                # A hidden empty-terminal recovery follow-up is in flight:
-                # its triggered agent turn settles after this one, so the
-                # submitted player turn is not finished yet.
-                completed = False
+            # Recovery markers keep the submit open only while the follow-up
+            # has not delivered visible text and settled. A pre-recovery
+            # abort that never emitted agent_settled must not require a
+            # second settle after the recovered turn already delivered.
+            completed = _prompt_turn_complete(rows)
         if completed:
             break
         time.sleep(0.25)
@@ -322,21 +410,18 @@ def submit(payload: dict, timeout: int) -> int:
                 raise SystemExit(3)
     rows = collect_after(before) if not completed else rows
     settle_class = "not_applicable"
+    marker_counts = _recovery_marker_counts(rows)
     if payload["type"] != "set_model":
-        if not completed:
-            settle_class = "not_settled"
-        elif _turn_window_visible_output(rows):
-            settle_class = "settled"
-        elif _turn_window_has_tool_activity(rows):
-            settle_class = "undelivered_settle_with_tools"
-        else:
-            settle_class = "empty_settle"
+        settle_class = _classify_prompt_settle(rows, completed=completed)
     record = {
         "submitted_at": time.time(),
         "request": payload,
         "timeout_seconds": timeout,
         "settled": completed,
         "settle_class": settle_class,
+        "recovery_markers": marker_counts["recovery_markers"],
+        "empty_terminal_recovery_markers": marker_counts["empty_terminal"],
+        "settled_output_recovery_markers": marker_counts["settled_output"],
         "events": rows,
     }
     out = EVIDENCE / f"turn-{payload['id']}.json"
@@ -348,6 +433,12 @@ def submit(payload: dict, timeout: int) -> int:
         if row.get("type") == "response":
             print("RPC response:", json.dumps(row, ensure_ascii=False))
     print(f"evidence={out}")
+    if payload["type"] != "set_model":
+        print(
+            f"recovery_markers {marker_counts['recovery_markers']} "
+            f"empty_terminal_recovery_markers {marker_counts['empty_terminal']} "
+            f"settled_output_recovery_markers {marker_counts['settled_output']}"
+        )
     if not record["settled"]:
         return 2
     if record["settle_class"] == "empty_settle":

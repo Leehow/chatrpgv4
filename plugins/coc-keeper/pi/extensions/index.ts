@@ -4814,11 +4814,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         obligations.forEach((obligation, index) => {
           const row = objectOrNull(obligation);
           if (row === null) return;
-          const canonical = typeof row.obligation_id === "string"
-            && row.obligation_id.startsWith("roll:")
-            ? row.obligation_id.slice("roll:".length)
-            : row.obligation_id;
-          registerRoll(canonical, [row.skill, index + 1]);
+          const obligationId = typeof row.obligation_id === "string"
+            ? row.obligation_id
+            : "";
+          // Non-roll obligations (first-impression, sanity_bout) keep the
+          // full kind-prefixed id as the canonical so restoration returns
+          // the exact Python join key. Roll obligations strip the prefix
+          // so they share the live roll-domain handle.
+          const canonical = obligationId.startsWith("roll:")
+            ? obligationId.slice("roll:".length)
+            : obligationId;
+          registerRoll(canonical, [
+            row.npc_display_name,
+            row.skill,
+            row.source_kind,
+            row.goal,
+            index + 1,
+          ]);
           for (
             const effectId
             of Array.isArray(row.substantive_effect_ids) ? row.substantive_effect_ids : []
@@ -8632,6 +8644,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         // recovery gate to validate.
         params = { ...params, campaign: armedRecoveryCampaign };
       }
+    }
+    if (
+      (
+        typedDefinition?.operation === "turn.finalize"
+        || params.operation === "turn.finalize"
+      )
+      && (typeof params.campaign !== "string" || !params.campaign.trim())
+      && canonicalProgressCampaignId
+    ) {
+      params = { ...params, campaign: canonicalProgressCampaignId };
     }
     params = wrapTypedToolInvokeParams(name, params) as JsonObject;
     // Bind the host-retained source-facts card before generic JSON-string

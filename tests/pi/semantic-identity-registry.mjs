@@ -354,7 +354,7 @@ const scopeAt = (overrides = {}) => ({
     route_id: "route:old-mill-path",
   }, null, resolver);
   assert.ok(restored.ok, JSON.stringify(restored));
-  assert.equal(restored.value.coverage[0].obligation_id, "toolbox-rolls-000003");
+  assert.equal(restored.value.coverage[0].obligation_id, "roll:toolbox-rolls-000003");
   assert.deepEqual(restored.value.mechanics_placements[0].source_ids,
     ["toolbox-rolls-000003", "toolbox-rolls-000004"]);
   assert.deepEqual(restored.value.mechanics_placements[0].presented_roll_ids,
@@ -384,6 +384,50 @@ const scopeAt = (overrides = {}) => ({
   assert.equal(
     hybrid.value.state_authority_review.claims[0].source_effect_id,
     "narration_contract:involuntary_physiology",
+  );
+}
+
+// ── 11b) First-impression + roll coverage restore to kind-prefixed Python ids ──
+{
+  const registry = createSemanticIdentityRegistry();
+  const scope = scopeAt();
+  registry.register({
+    domain: "roll",
+    canonicalId: "npc-first-impression-roll-v2:deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+    facts: ["档案员", "first-impression"],
+    scope, lifetime: "player_turn",
+  });
+  registry.register({
+    domain: "roll",
+    canonicalId: "first-impression:npc-first-impression-v2:cafecafecafecafecafecafecafecafecafecafe",
+    facts: ["first_impression", "档案员"],
+    scope, lifetime: "player_turn",
+  });
+  const resolve = (domain, handle) => {
+    const result = registry.resolveHandle(domain, handle, scope);
+    return result.ok ? result.canonicalId : null;
+  };
+  const resolver = {
+    resolveRoll: (handle) => resolve("roll", handle),
+    resolveEffect: (handle) => resolve("effect", handle),
+    resolveItem: (handle) => resolve("item", handle),
+    resolveWeapon: (handle) => resolve("weapon", handle),
+    resolveRoute: (handle) => resolve("route", handle),
+  };
+  const restored = restoreSemanticEntityHandles("turn.finalize", {
+    coverage: [
+      { obligation_id: "roll:档案员", realization: "fictional_beat" },
+      { obligation_id: "roll:first-impression", realization: "fictional_beat" },
+    ],
+  }, null, resolver);
+  assert.ok(restored.ok, JSON.stringify(restored));
+  assert.equal(
+    restored.value.coverage[0].obligation_id,
+    "roll:npc-first-impression-roll-v2:deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+  );
+  assert.equal(
+    restored.value.coverage[1].obligation_id,
+    "first-impression:npc-first-impression-v2:cafecafecafecafecafecafecafecafecafecafe",
   );
 }
 

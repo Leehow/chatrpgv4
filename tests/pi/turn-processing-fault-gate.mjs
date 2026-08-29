@@ -1774,8 +1774,8 @@ test("run-02 chain: placement failure freezes an executable card and an acknowle
     // The frozen payload carries the RESTORED canonical obligation ids — the
     // registry handles the model echoed were resolved before transport.
     const transportedCoverage = [
-      { ...finalizeCoverage[0], obligation_id: "roll-spot-hidden" },
-      { ...finalizeCoverage[1], obligation_id: "roll-listen" },
+      { ...finalizeCoverage[0], obligation_id: "roll:roll-spot-hidden" },
+      { ...finalizeCoverage[1], obligation_id: "roll:roll-listen" },
     ];
     assert.deepEqual(internalCard.frozen_finalize_payload, {
       draft: mergedDraft,
@@ -2952,9 +2952,9 @@ test("adversarial: recovered replay mutating any frozen field is rejected pre-tr
       harness.finalizeCoverage.map((row) => ({
         ...row,
         obligation_id: row.obligation_id === "roll:spot-hidden"
-          ? "roll-spot-hidden"
+          ? "roll:roll-spot-hidden"
           : row.obligation_id === "roll:listen"
-            ? "roll-listen"
+            ? "roll:roll-listen"
             : row.obligation_id,
       })),
     );
@@ -3070,8 +3070,10 @@ test("adversarial: missing live journal decision id fails recovery closed with n
     // No binding, no guidance, no quarantine suppression: the acknowledged
     // resume stays a bare no-op even though the card itself authenticates.
     assert.equal(harness.resumed.data.host_recovery_guidance, undefined);
-    // The preserved finalize binding was never re-armed: the typed recovery
-    // call reaches the transport with no host-injected identity fields.
+    // Campaign fallback names the campaign on typed turn.finalize, so the
+    // recovery gate sees the live card. Missing journal identity refused to
+    // re-arm, so the typed call fails closed (`recovery_binding_unarmed`)
+    // with zero transport — the same fail-closed as generic unarmed.
     const finalized = await JSON.parse(
       (await harness.session2Tools.get("coc_turn_finalize").execute(
         "finalize-unarmed",
@@ -3088,9 +3090,9 @@ test("adversarial: missing live journal decision id fails recovery closed with n
     const transport = harness.clientCalls.slice(
       harness.callsBeforeSession2,
     ).filter((call) => call.operation === "turn.finalize");
-    assert.equal(transport.length, 1);
-    assert.equal(transport[0].arguments.revision, undefined);
-    assert.equal(transport[0].arguments.narration_review_id, undefined);
+    assert.equal(finalized.ok, false, JSON.stringify(finalized));
+    assert.equal(finalized.error?.code, "recovery_binding_unarmed");
+    assert.equal(transport.length, 0);
     // The unarmed failure freezes no new recovery claim either.
     assert.equal(finalized.error?.recovery_card, undefined);
     assert.equal(

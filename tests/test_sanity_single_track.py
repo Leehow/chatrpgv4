@@ -533,7 +533,7 @@ def test_finalize_requires_sanity_bout_realization(campaign_ws):
     )
     assert refused["ok"] is False
     assert refused["error"]["code"] == "missing_obligation"
-    assert bout_obligation_id in refused["error"]["message"]
+    assert "sanity_bout" in refused["error"]["message"]
 
     draft, coverage, placements = _finalize_coverage(context)
     finalized = _run(

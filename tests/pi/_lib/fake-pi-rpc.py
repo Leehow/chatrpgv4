@@ -68,6 +68,97 @@ def main() -> int:
                     "tool": "coc_invoke",
                 }), flush=True)
                 print(json.dumps({"type": "agent_settled"}), flush=True)
+            elif message_text.startswith("__ABORT_RECOVER_DELIVER__"):
+                # Evidence-shaped: whitespace abort arms recovery without a
+                # pre-recovery agent_settled; the recovered turn delivers
+                # visible text and settles once. Sleep after settle so a
+                # stale count heuristic would burn the turn timeout.
+                print(json.dumps({
+                    "type": "entry_appended",
+                    "entry": {
+                        "type": "custom",
+                        "customType": "coc-leading-whitespace-stream-abort",
+                        "data": {"status": "aborted"},
+                    },
+                }), flush=True)
+                print(json.dumps({
+                    "type": "entry_appended",
+                    "entry": {
+                        "type": "custom",
+                        "customType": "coc-empty-terminal-recovery",
+                        "data": {"kind": "empty_terminal_recovery"},
+                    },
+                }), flush=True)
+                print(json.dumps({
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "stopReason": "abort",
+                        "content": [{"type": "thinking", "thinking": "only reasoning"}],
+                    },
+                }), flush=True)
+                print(json.dumps({"type": "agent_end", "willRetry": False}), flush=True)
+                print(json.dumps({
+                    "type": "tool_execution_start",
+                    "tool": "coc_invoke",
+                }), flush=True)
+                print(json.dumps({
+                    "type": "tool_execution_end",
+                    "tool": "coc_invoke",
+                }), flush=True)
+                print(json.dumps({
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "stopReason": "stop",
+                        "content": [{"type": "text", "text": "abort-recovered KP text"}],
+                    },
+                }), flush=True)
+                print(json.dumps({"type": "agent_settled"}), flush=True)
+                time.sleep(30)
+            elif message_text.startswith("__SETTLED_RECOVER__"):
+                # Tools ran with no visible text, then a claimed
+                # settled-output recovery follow-up delivers visible output.
+                # Exhausted markers must not keep the wait open by themselves.
+                print(json.dumps({
+                    "type": "tool_execution_start",
+                    "tool": "coc_invoke",
+                }), flush=True)
+                print(json.dumps({
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "stopReason": "stop",
+                        "content": [{
+                            "type": "toolCall",
+                            "id": "call-settled-recover-probe",
+                            "name": "coc_invoke",
+                            "arguments": {},
+                        }],
+                    },
+                }), flush=True)
+                print(json.dumps({
+                    "type": "tool_execution_end",
+                    "tool": "coc_invoke",
+                }), flush=True)
+                print(json.dumps({
+                    "type": "entry_appended",
+                    "entry": {
+                        "type": "custom",
+                        "customType": "coc-settled-output-recovery",
+                        "data": {"schema_version": 1, "status": "claimed"},
+                    },
+                }), flush=True)
+                print(json.dumps({"type": "agent_settled"}), flush=True)
+                print(json.dumps({
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "stopReason": "stop",
+                        "content": [{"type": "text", "text": "settled-output recovered KP text"}],
+                    },
+                }), flush=True)
+                print(json.dumps({"type": "agent_settled"}), flush=True)
             elif message_text.startswith("__EMPTY_RECOVER__"):
                 # Empty settle followed by the hidden recovery marker, then
                 # the recovered follow-up turn delivers visible output and

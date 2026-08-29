@@ -1,0 +1,85 @@
+{
+  "comment": "Sanitized excerpt of .coc/playtests/rulegraph-r3-haunting-03/rpc-evidence/turn-p-3a108c39f86b.json. Leading-whitespace abort scheduled coc-empty-terminal-recovery without a pre-recovery agent_settled; the recovered turn delivered player-visible KP prose, then settled once. The old count heuristic (settles <= markers) waited out the 900s timeout and classified not_settled.",
+  "source_turn": "turn-p-3a108c39f86b",
+  "events": [
+    {
+      "id": "p-3a108c39f86b",
+      "type": "response",
+      "command": "prompt",
+      "success": true
+    },
+    {"type": "agent_start"},
+    {"type": "turn_start"},
+    {
+      "type": "entry_appended",
+      "entry": {
+        "type": "custom",
+        "customType": "coc-leading-whitespace-stream-abort",
+        "data": {
+          "schema_version": 1,
+          "status": "aborted",
+          "failure_class": "leading_whitespace_stream_limit"
+        }
+      }
+    },
+    {
+      "type": "entry_appended",
+      "entry": {
+        "type": "custom",
+        "customType": "coc-empty-terminal-recovery",
+        "data": {
+          "schema_version": 1,
+          "kind": "empty_terminal_recovery",
+          "status": "scheduled"
+        }
+      }
+    },
+    {
+      "type": "message_end",
+      "message": {
+        "role": "assistant",
+        "stopReason": "abort",
+        "content": [{"type": "thinking", "thinking": "only reasoning"}]
+      }
+    },
+    {
+      "type": "turn_end",
+      "message": {
+        "role": "assistant",
+        "content": [{"type": "thinking", "thinking": "only reasoning"}]
+      }
+    },
+    {"type": "agent_end", "willRetry": false},
+    {"type": "agent_start"},
+    {"type": "turn_start"},
+    {"type": "tool_execution_start", "tool": "coc_invoke"},
+    {"type": "tool_execution_end", "tool": "coc_invoke"},
+    {
+      "type": "message_end",
+      "message": {
+        "role": "assistant",
+        "stopReason": "stop",
+        "content": [
+          {
+            "type": "text",
+            "text": "你在他对面坐下，抽出笔记簿。「克劳，《纪事报》。」诺特不废话：「二十块一天。接不接？」"
+          }
+        ]
+      }
+    },
+    {
+      "type": "turn_end",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "你在他对面坐下，抽出笔记簿。「克劳，《纪事报》。」诺特不废话：「二十块一天。接不接？」"
+          }
+        ]
+      }
+    },
+    {"type": "agent_end", "willRetry": false},
+    {"type": "agent_settled"}
+  ]
+}

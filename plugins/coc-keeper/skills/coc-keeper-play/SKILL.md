@@ -183,7 +183,20 @@ output evidence boundary, not a replacement prose engine:
    changes, time, items, cash, handout deliveries, and turn receipts are recorded
    with `state.*` / `rules.*` tools (atomic, idempotent via `decision_id`) — never by
    hand-editing save files mid-play or by narrating a possession or purse
-   change that was not first written.
+   change that was not first written. Replay the same `decision_id` only for the
+   exact same arguments; a new transition needs a new id. The host does not
+   rewrite KP-authored decision identities. KP-authored ids must use the closed
+   grammar — a readable slug without an accepted prefix is rejected (`opaque_identity_grammar`).
+
+   Closed `decision_id` prefixes (validator `DECISION_ID_PREFIXES`):
+   `journal-` `roll-` `move-` `advance-time-` `on-enter-` `opening-` `table-opening-` `push-` `luck-` `development-` `combat-` `npc-` `recall-` `recovery-` `review-` `deliver-` `exceptional-` `finalize-` `fin-` `associate-` `accept-` `ask-` `confirm-` `grant-` `record-` `item-` `cash-`
+
+   Any listed prefix is valid on any decision_id.
+   `tN-` turn scope applies only to prefixed `{prefix}{slug}` ids, never to `quick-start:` / `setup-complete:` colon forms.
+   `:finalize` is accepted on prefixed `{prefix}{slug}` ids and on `quick-start:` / `setup-complete:` colon forms.
+   Colon forms: `quick-start:<1–6 slugs>`, `setup-complete:<1–6 slugs>`.
+   Coverage handles such as `roll:first-impression` are obligation ids, not tool `decision_id` values.
+   WRONG: `first-impression-arty-wilmot`, `persuade-arty-morgue-access`. RIGHT: `roll-persuade-arty-access-v1`.
 3. **Module truth is read-only.** Tools mark keeper-only material
    (`secret: true`, undiscovered clues, NPC secrets). You may foreshadow and
    pace freely. Never edit module source or dump secrets without an earned

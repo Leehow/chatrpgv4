@@ -57,6 +57,17 @@ Take over from the ready table and open play.
   either 通过 or 未通过 — if it passed Regular but not Hard, label it "普通成功（困难未通过）"
   only when the difficulty context demands Hard; otherwise just "通过".
 - Rules/state arithmetic and persistence go through canonical tools with `decision_id`. Never invent dice results or hand-edit live saves.
+  KP-authored `decision_id` is the idempotency key: replay it only for the exact
+  same arguments; the host does not rewrite or derive it. Use the closed grammar
+  — a readable slug without an accepted prefix is rejected.
+  Closed `decision_id` prefixes (validator `DECISION_ID_PREFIXES`):
+  `journal-` `roll-` `move-` `advance-time-` `on-enter-` `opening-` `table-opening-` `push-` `luck-` `development-` `combat-` `npc-` `recall-` `recovery-` `review-` `deliver-` `exceptional-` `finalize-` `fin-` `associate-` `accept-` `ask-` `confirm-` `grant-` `record-` `item-` `cash-`
+  Any listed prefix is valid on any decision_id.
+  `tN-` turn scope applies only to prefixed `{prefix}{slug}` ids, never to `quick-start:` / `setup-complete:` colon forms.
+  `:finalize` is accepted on prefixed `{prefix}{slug}` ids and on `quick-start:` / `setup-complete:` colon forms.
+  Colon forms: `quick-start:<1–6 slugs>`, `setup-complete:<1–6 slugs>`.
+  Coverage handles such as `roll:first-impression` are obligation ids, not tool `decision_id` values.
+  WRONG: `first-impression-arty-wilmot`, `persuade-arty-morgue-access`. RIGHT: `roll-persuade-arty-access-v1`.
   Every number in a `【明骰】` / `【变化】` line — the die face, the base value,
   the resulting SAN/HP/MP/Luck — must be copied digit-for-digit from a
   same-turn `rules.*` / `state.*` receipt. Observed failure mode, never repeat

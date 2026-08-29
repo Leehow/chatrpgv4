@@ -1126,6 +1126,20 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
   assert.equal(raw({
     decision_id: "move-stone-street-coft-lodging-turn-two-listen-at-the-back-door",
   }).ok, true);
+  // R3 rules.settle semantic ids: decision cards and actor refs pass;
+  // machine namespaces/entropy on the same fields still reject.
+  assert.equal(raw({
+    decision_ref: "decision:coc7:healing:first-aid-stabilization",
+  }).ok, true);
+  assert.equal(raw({ rescuer_ref: "npc:doctor-one" }).ok, true);
+  assert.equal(raw({ assistant_rescuer_ref: "npc:second-hands" }).ok, true);
+  assert.equal(raw({ assistant_rescuer_ref: "npc-second-hands" }).ok, true);
+  rejects({ decision_ref: "pi-x" }, "decision_ref");
+  rejects({
+    decision_ref: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  }, "decision_ref");
+  rejects({ rescuer_ref: "toolbox-abc123def456789" }, "rescuer_ref");
+  rejects({ assistant_rescuer_ref: "job-45db308081f7" }, "assistant_rescuer_ref");
 
   // Host-bound identity is NEVER model-authored: any raw supply rejects
   // before host restoration, naming only the field — even semantic values.
@@ -2344,7 +2358,9 @@ assert.ok(
     {
       obligation_id: "roll:toolbox-king-shreds-recovery-live-01-999999",
       source_id: "toolbox-king-shreds-recovery-live-01-999999",
-      source_kind: "check",
+      // No meaning-bearing facts: output_context registration cannot mint a
+      // handle, so required mechanics stay unmapped and fail closed.
+      source_kind: "",
       skill: "",
       visibility: "public",
       outcome: "failure",
@@ -2514,10 +2530,10 @@ assert.ok(finalizeTransport.arguments.decision_id.startsWith("pi-turn-finalize:"
 assert.deepEqual(
   finalizeTransport.arguments.coverage.map((row) => row.obligation_id),
   [
-    "toolbox-king-shreds-recovery-live-01-000003",
-    "toolbox-king-shreds-recovery-live-01-000004",
+    "roll:toolbox-king-shreds-recovery-live-01-000003",
+    "roll:toolbox-king-shreds-recovery-live-01-000004",
   ],
-  "semantic roll handles restore the exact canonical obligation ids",
+  "semantic roll handles restore the exact kind-prefixed Python obligation ids",
 );
 
 // 8b) Unknown semantic roll handles fail closed with zero transport.

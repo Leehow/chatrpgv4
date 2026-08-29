@@ -76,7 +76,16 @@ test("spotlight tool schemas match the archive except explicit Pi presentation o
 test("setup.quick_start typed schema makes pregen_id optional", () => {
   const tool = catalog.byOperation.get("setup.quick_start");
   assert.ok(tool);
-  assert.deepEqual(tool.parameters, archive.operations["setup.quick_start"].inputSchema);
+  assert.deepEqual(
+    tool.parameters,
+    typed.projectModelOwnedSchema(
+      "setup.quick_start",
+      typed.presentedTypedToolParameters(
+        "setup.quick_start",
+        archive.operations["setup.quick_start"].inputSchema,
+      ),
+    ),
+  );
   assert.deepEqual(tool.parameters.required, ["scenario_id"]);
   assert.ok(tool.parameters.properties.pregen_id);
   assert.ok(!tool.parameters.required.includes("pregen_id"));

@@ -169,6 +169,9 @@ def test_driver_classifies_empty_settle_fail_closed(daemon: DaemonFixture):
     assert record["settled"] is True
     assert record["settle_class"] == "empty_settle"
     assert record["request"]["message"].startswith("__EMPTY_SETTLE__")
+    assert record["recovery_markers"] == 0
+    assert record["empty_terminal_recovery_markers"] == 0
+    assert record["settled_output_recovery_markers"] == 0
 
 
 def test_driver_classifies_undelivered_settle_with_tools(daemon: DaemonFixture):
@@ -185,6 +188,9 @@ def test_driver_classifies_undelivered_settle_with_tools(daemon: DaemonFixture):
     record = _latest_turn_record(daemon)
     assert record["settled"] is True
     assert record["settle_class"] == "undelivered_settle_with_tools"
+    assert record["recovery_markers"] == 0
+    assert record["empty_terminal_recovery_markers"] == 0
+    assert record["settled_output_recovery_markers"] == 0
 
 
 def test_driver_waits_through_empty_terminal_recovery(daemon: DaemonFixture):
@@ -201,10 +207,167 @@ def test_driver_waits_through_empty_terminal_recovery(daemon: DaemonFixture):
     record = _latest_turn_record(daemon)
     assert record["settled"] is True
     assert record["settle_class"] == "settled"
+    assert record["recovery_markers"] == 1
+    assert record["empty_terminal_recovery_markers"] == 1
+    assert record["settled_output_recovery_markers"] == 0
     assert len([
         event for event in record["events"]
         if event.get("type") == "agent_settled"
     ]) == 2
+
+
+def test_recovery_marker_accounting_counts_settled_output(tmp_path: Path):
+    """Settled-output recovery markers count in recovery_markers.
+
+    Empty-terminal and settled-output are reported separately. In-flight
+    wait includes claimed settled-output but not exhausted markers.
+    """
+    module = _install_driver(tmp_path)
+    rows = [
+        {
+            "type": "entry_appended",
+            "entry": {
+                "type": "custom",
+                "customType": "coc-empty-terminal-recovery",
+                "data": {"kind": "empty_terminal_recovery"},
+            },
+        },
+        {
+            "type": "entry_appended",
+            "entry": {
+                "type": "custom",
+                "customType": "coc-settled-output-recovery",
+                "data": {"schema_version": 1, "status": "claimed"},
+            },
+        },
+        {
+            "type": "entry_appended",
+            "entry": {
+                "type": "custom",
+                "customType": "coc-settled-output-recovery",
+                "data": {"schema_version": 1, "status": "exhausted"},
+            },
+        },
+        {"type": "agent_settled"},
+    ]
+    counts = module._recovery_marker_counts(rows)
+    assert counts["empty_terminal"] == 1
+    assert counts["settled_output"] == 2
+    assert counts["settled_output_claimed"] == 1
+    assert counts["recovery_markers"] == 3
+    assert counts["in_flight"] == 2
+    assert module._empty_terminal_recovery_markers(rows) == 1
+    assert module._settled_output_recovery_markers(rows) == 2
+    assert module._in_flight_recovery_markers(rows) == 2
+
+
+def test_driver_waits_through_settled_output_recovery(daemon: DaemonFixture):
+    """A claimed settled-output recovery keeps the submit open.
+
+    The first agent_settled is tools-without-text; the claimed
+    ``coc-settled-output-recovery`` marker means a hidden follow-up is in
+    flight. The driver must wait for its settle and then report success
+    from the recovered visible output, counting that marker.
+    """
+    completed = daemon.turn("__SETTLED_RECOVER__ 我继续搜查", timeout=60)
+    assert completed.returncode == 0, completed.stderr
+    assert "settled-output recovered KP text" in completed.stdout
+    assert "recovery_markers 1" in completed.stdout
+    assert "settled_output_recovery_markers 1" in completed.stdout
+    record = _latest_turn_record(daemon)
+    assert record["settled"] is True
+    assert record["settle_class"] == "settled"
+    assert record["recovery_markers"] == 1
+    assert record["empty_terminal_recovery_markers"] == 0
+    assert record["settled_output_recovery_markers"] == 1
+    assert len([
+        event for event in record["events"]
+        if event.get("type") == "agent_settled"
+    ]) == 2
+
+
+def _abort_recovery_delivered_fixture() -> dict:
+    path = TESTS_PI / "_lib" / "fixtures" / "abort-recovery-delivered-settle.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_driver_classifies_abort_recovery_delivered_sequence_settled(tmp_path: Path):
+    """Evidence-shaped abort+recovery with visible text is settled, not not_settled.
+
+    Live turn-p-3a108c39f86b delivered full KP prose and one agent_settled
+    after a leading-whitespace abort armed empty-terminal recovery without
+    a pre-recovery settle. Counting ``settles <= markers`` kept the wait
+    open until the 900s timeout and classified ``not_settled``.
+    """
+    module = _install_driver(tmp_path)
+    events = _abort_recovery_delivered_fixture()["events"]
+    assert module._prompt_turn_complete(events) is True
+    assert module._classify_prompt_settle(events, completed=True) == "settled"
+    # Old heuristic: 1 settle <= 1 marker would refuse completion.
+    settles = [row for row in events if row.get("type") == "agent_settled"]
+    markers = module._empty_terminal_recovery_markers(events)
+    assert len(settles) == 1
+    assert markers == 1
+    assert len(settles) <= markers
+    assert module._turn_window_visible_output(events) is True
+    # In-flight: recovery armed, no visible text yet, no recovered settle.
+    pre_delivery = events[:8]
+    assert module._prompt_turn_complete(pre_delivery) is False
+    assert module._classify_prompt_settle(
+        pre_delivery, completed=False
+    ) == "not_settled"
+    # Visible text without the trailing settle still waits.
+    without_settle = [row for row in events if row.get("type") != "agent_settled"]
+    assert module._prompt_turn_complete(without_settle) is False
+
+
+def test_prompt_turn_complete_classic_recovery_waits_for_second_settle(tmp_path: Path):
+    """Empty terminal that DID settle still waits for the recovered settle."""
+    module = _install_driver(tmp_path)
+    thinking = {
+        "type": "message_end",
+        "message": {
+            "role": "assistant",
+            "content": [{"type": "thinking", "thinking": "only reasoning"}],
+        },
+    }
+    marker = {
+        "type": "entry_appended",
+        "entry": {
+            "type": "custom",
+            "customType": "coc-empty-terminal-recovery",
+            "data": {"kind": "empty_terminal_recovery"},
+        },
+    }
+    settle = {"type": "agent_settled"}
+    visible = {
+        "type": "message_end",
+        "message": {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "recovered KP text"}],
+        },
+    }
+    after_first = [thinking, marker, settle]
+    assert module._prompt_turn_complete(after_first) is False
+    assert module._classify_prompt_settle(after_first, completed=True) == "empty_settle"
+    after_text = [thinking, marker, settle, visible]
+    assert module._prompt_turn_complete(after_text) is False
+    after_second = [thinking, marker, settle, visible, settle]
+    assert module._prompt_turn_complete(after_second) is True
+    assert module._classify_prompt_settle(after_second, completed=True) == "settled"
+
+
+def test_driver_abort_recovery_delivered_does_not_burn_timeout(daemon: DaemonFixture):
+    """Abort-without-pre-settle recovery must classify settled promptly."""
+    started = time.monotonic()
+    completed = daemon.turn("__ABORT_RECOVER_DELIVER__ 诺特面试", timeout=8)
+    elapsed = time.monotonic() - started
+    assert completed.returncode == 0, completed.stderr
+    assert "abort-recovered KP text" in completed.stdout
+    record = _latest_turn_record(daemon)
+    assert record["settled"] is True
+    assert record["settle_class"] == "settled"
+    assert elapsed < 6, f"must not wait out the timeout; elapsed={elapsed:.1f}s"
 
 
 def test_driver_set_model_and_turn_with_heartbeat_and_log(daemon: DaemonFixture):
