@@ -315,3 +315,149 @@ def test_broken_package_fails_conformance(tmp_path: Path):
     assert "duplicate rule id" in joined
     assert "missing-table.json" in joined  # dangling source_table
     assert "'description'" in joined  # SKILL.md frontmatter gap
+
+
+# --------------------------------------------------------------------------- #
+# Rule family runtime ownership (contract §2.2)
+# --------------------------------------------------------------------------- #
+_OWNERSHIP_GRAPH = {
+    "ruleset_id": "testrs",
+    "schema_version": 1,
+    "nodes": [],
+    "relations": [],
+}
+_OWNERSHIP_GRAPH_MANIFEST = {
+    "contract_id": "coc.rule-graph-build-manifest.v1",
+    "schema_version": 1,
+    "ruleset_id": "testrs",
+    "ruleset_version": "0.1.0",
+    "source_bundles": [],
+    "graph_content_digest": "a" * 64,
+    "shards": [],
+    "family_coverage": {},
+    "family_promotion_eligibility": {},
+    "data_table_dependencies": [],
+    "resolver_capability_dependencies": [],
+    "compiler_identity": "coc.rule-graph-compiler.v1",
+    "reviewer_identity": "deterministic",
+    "review_status": "deterministic-accepted",
+    "findings": [],
+}
+
+
+def _package_with_rule_families(tmp_path: Path, families: list[dict]) -> Path:
+    package_dir = tmp_path / "ownrs"
+    _build_minimal_package(package_dir)
+    manifest_path = package_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["rule_families"] = families
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return package_dir
+
+
+def test_rule_families_absent_defaults_to_legacy_visible(tmp_path: Path):
+    """A package without rule_families keeps every family legacy/visible."""
+    package_dir = tmp_path / "defrs"
+    _build_minimal_package(package_dir)
+    assert ruleset_conformance.validate_package(package_dir) == []
+    manifest = json.loads(
+        (package_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert "rule_families" not in manifest
+
+
+def test_rule_families_legacy_visible_entry_is_conformant(tmp_path: Path):
+    package_dir = _package_with_rule_families(tmp_path, [{
+        "family_id": "healing",
+        "runtime_owner": "legacy",
+        "legacy_surface": "visible",
+    }])
+    assert ruleset_conformance.validate_package(package_dir) == []
+
+
+def test_rule_families_enum_rejection_is_schema_violation(tmp_path: Path):
+    for bad in (
+        {"service": "module", "owner": "unknown"},  # wrong keys
+        {"runtime_owner": "shadow", "legacy_surface": "visible"},  # missing family_id
+    ):
+        package_dir = tmp_path / "enumrs"
+        _build_minimal_package(package_dir)
+        manifest_path = package_dir / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["rule_families"] = [bad]
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        problems = ruleset_conformance.validate_package(package_dir)
+        assert any("schema violation" in p for p in problems), problems
+
+
+def test_rule_families_bad_enum_value_is_rejected(tmp_path: Path):
+    package_dir = _package_with_rule_families(tmp_path, [{
+        "family_id": "healing",
+        "runtime_owner": "quantum",
+        "legacy_surface": "glowing",
+    }])
+    problems = ruleset_conformance.validate_package(package_dir)
+    joined = "\n".join(problems)
+    assert "runtime_owner must be one of" in joined
+    assert "legacy_surface must be one of" in joined
+
+
+def test_rule_families_shadow_requires_r1_entry_point_pair(tmp_path: Path):
+    """Shadow/graph owners require the paired graph artifacts (R1 rule)."""
+    package_dir = _package_with_rule_families(tmp_path, [{
+        "family_id": "healing",
+        "runtime_owner": "shadow",
+        "legacy_surface": "visible",
+    }])
+    problems = ruleset_conformance.validate_package(package_dir)
+    assert any(
+        "requires the paired " in p and "entry_points" in p for p in problems
+    ), problems
+
+
+def test_rule_families_graph_owner_cannot_keep_legacy_visible(tmp_path: Path):
+    package_dir = _package_with_rule_families(tmp_path, [{
+        "family_id": "healing",
+        "runtime_owner": "graph",
+        "legacy_surface": "visible",
+    }])
+    problems = ruleset_conformance.validate_package(package_dir)
+    assert any("graph-owned family cannot keep" in p for p in problems), problems
+
+
+def test_rule_families_graph_owner_with_hidden_surface_and_artifacts_passes(
+    tmp_path: Path,
+):
+    """graph + hidden/removed + both graph artifacts is conformant."""
+    package_dir = _package_with_rule_families(tmp_path, [{
+        "family_id": "healing",
+        "runtime_owner": "graph",
+        "legacy_surface": "hidden",
+    }])
+    manifest_path = package_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["entry_points"]["rule_graph"] = "rule-graph.json"
+    manifest["entry_points"]["rule_graph_manifest"] = "rule-graph-manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (package_dir / "rule-graph.json").write_text(
+        json.dumps(_OWNERSHIP_GRAPH), encoding="utf-8"
+    )
+    (package_dir / "rule-graph-manifest.json").write_text(
+        json.dumps(_OWNERSHIP_GRAPH_MANIFEST), encoding="utf-8"
+    )
+    assert ruleset_conformance.validate_package(package_dir) == []
+
+
+def test_rule_families_unknown_family_and_duplicate_ids_rejected(tmp_path: Path):
+    package_dir = _package_with_rule_families(tmp_path, [
+        {"family_id": "healing", "runtime_owner": "legacy",
+         "legacy_surface": "visible"},
+        {"family_id": "healing", "runtime_owner": "legacy",
+         "legacy_surface": "visible"},
+        {"family_id": "spellsmithing", "runtime_owner": "legacy",
+         "legacy_surface": "visible"},
+    ])
+    problems = ruleset_conformance.validate_package(package_dir)
+    joined = "\n".join(problems)
+    assert "duplicate family_id" in joined
+    assert "not a known rule-graph family" in joined

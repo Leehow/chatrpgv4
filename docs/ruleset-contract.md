@@ -70,6 +70,9 @@ Optional fields (absent means the documented default, never an error):
 - `boundary_terms` — ASCII machine-facing terms that table-language
   localization rewrites only on ASCII token boundaries (§6). Default when
   absent: the empty set (every term localizes by plain replacement).
+- `rule_families` — per-family rule-graph runtime ownership (§2.2). Default
+  when absent: every family keeps `legacy` runtime ownership with a
+  `visible` legacy Keeper surface.
 - Per-resource `projected` (inside `resources` entries) — when `true`, the
   kernel projects `current_<key>` into the runtime player-safe investigator
   surface. Defaults to `false` when absent.
@@ -126,6 +129,49 @@ exists) resolve the default package. Every schema-v2 campaign must contain a
 non-empty registered binding whose manifest declares campaign schema 2;
 missing/unknown/incompatible bindings fail closed and never select another
 package's tables.
+
+### 2.2 Rule family runtime ownership (optional)
+
+A package MAY declare per-family rule-graph runtime ownership:
+
+```json
+{
+  "rule_families": [
+    {
+      "family_id": "healing",
+      "runtime_owner": "shadow",
+      "legacy_surface": "visible"
+    }
+  ]
+}
+```
+
+- `family_id` — one of the rule-graph contract's `rule_families` ids
+  (`healing`, `combat`, `core-check`, ...).
+- `runtime_owner` — `legacy` | `shadow` | `graph`:
+  - `legacy` — the existing Keeper-visible path owns execution; the RuleGraph
+    is not consulted (default when absent).
+  - `shadow` — the legacy path stays the sole execution owner; the
+    RulesRuntime compiles a candidate plan before RNG/mutation and the
+    comparator records exact semantic differences to a host-internal shadow
+    log (never canonical receipts, never player-visible). Missing/invalid
+    graph skips the comparison and never blocks or alters the legacy op.
+  - `graph` — the RulesRuntime settlement path is the sole Keeper-visible
+    owner for the family (spec §14.3 cutover; requires all promotion gates).
+- `legacy_surface` — `visible` | `hidden` | `removed`:
+  - `visible` — the legacy operations remain Keeper-discoverable.
+  - `hidden` — the legacy adapter may remain host-internal but is absent
+    from Keeper discovery and working sets.
+  - `removed` — the obsolete descriptor/adapter has been deleted.
+
+Rules:
+
+- One family cannot have `runtime_owner: "graph"` while its
+  `legacy_surface` remains `visible` (spec §7.7).
+- `shadow`/`graph` owners require the paired `entry_points.rule_graph` and
+  `entry_points.rule_graph_manifest` (the R1 entry-point rule).
+- A package that ships no `rule_families` keeps every family at
+  `legacy`/`visible` — the runtime is a strict no-op for it.
 
 ## 3. L1 data — rules-json/
 

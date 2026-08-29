@@ -175,8 +175,10 @@ def _valid_candidate(packet: dict) -> dict:
     weekly_impl = coc_rule_graph.healing_command_shape("weekly-major-wound-recovery")
     dying_round = dict(dying_impl)
     dying_round["payload_constants"] = {"clock_kind": "round"}
+    dying_round["payload_slots"] = []
     dying_hour = dict(dying_impl)
     dying_hour["payload_constants"] = {"clock_kind": "hour"}
+    dying_hour["payload_slots"] = []
     return {
         "contract_id": CANIDATE_CONTRACT_ID,
         "schema_version": 1,
@@ -203,7 +205,7 @@ def _valid_candidate(packet: dict) -> dict:
             _node("input-slot:coc7:healing:first-aid-skill", "input-slot",
                   "skill_value", span=span, **host, props={
                       "family_id": "healing",
-                      "ownership": "keeper-semantic",
+                      "ownership": "host-locked",
                       "value_type": "int",
                       "path": "actor.sheet.first_aid",
                   }),
@@ -744,6 +746,10 @@ def test_healing_first_aid_command_shape_parity():
     assert shape["kind"] == "stabilize"
     assert shape["phase"] == "resolve"
     assert shape["payload_constants"]["method"] == "first_aid"
+    slots = {s["name"]: s["ownership"] for s in shape["payload_slots"]}
+    assert slots["skill_value"] == "host-locked"
+    assert slots["rescuer_id"] == "host-locked"
+    assert slots["pushed"] == "host-locked"
 
 
 def test_healing_medicine_command_shape_parity():
@@ -752,6 +758,9 @@ def test_healing_medicine_command_shape_parity():
     assert shape["kind"] == "stabilize"
     assert shape["phase"] == "resolve"
     assert shape["payload_constants"]["method"] == "medicine"
+    slots = {s["name"]: s["ownership"] for s in shape["payload_slots"]}
+    assert slots["skill_value"] == "host-locked"
+    assert slots["rescuer_id"] == "host-locked"
 
 
 def test_healing_weekly_recovery_command_shape_parity():
@@ -762,8 +771,8 @@ def test_healing_weekly_recovery_command_shape_parity():
     slots = {s["name"]: s["ownership"] for s in shape["payload_slots"]}
     assert slots["complete_rest"] == "keeper-semantic"
     assert slots["poor_environment"] == "keeper-semantic"
-    assert slots["medicine_skill_value"] == "optional-semantic"
-    assert slots["caregiver_id"] == "optional-semantic"
+    assert slots["medicine_skill_value"] == "host-locked"
+    assert slots["caregiver_id"] == "host-locked"
 
 
 def test_healing_dying_clock_command_shape_parity():
@@ -799,6 +808,8 @@ def test_healing_family_graph_maps_four_capabilities(tmp_path: Path):
     assert dying_round["phase"] == "resolve"
     assert dying_round["payload_constants"]["clock_kind"] == "round"
     assert dying_hour["payload_constants"]["clock_kind"] == "hour"
+    assert not any(s.get("name") == "clock_kind" for s in dying_round.get("payload_slots") or [])
+    assert not any(s.get("name") == "clock_kind" for s in dying_hour.get("payload_slots") or [])
     weekly = by_id["decision:coc7:healing:weekly-major-wound-recovery"]["properties"]["implementation"]
     assert weekly == coc_rule_graph.healing_command_shape("weekly-major-wound-recovery")
     invoked = {

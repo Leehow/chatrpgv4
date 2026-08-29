@@ -362,6 +362,8 @@ coc_rulesets = _load_sibling("coc_rulesets", "coc_rulesets.py")
 
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 
+coc_rules_runtime = _load_sibling("coc_rules_runtime", "coc_rules_runtime.py")
+
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
@@ -6325,6 +6327,27 @@ def _execute_subsystem_requests(
             "subsystem_operation_unavailable",
             "the requested operation could not produce a typed command",
         )
+    # R2b shadow comparator: strictly BEFORE RNG/mutation, strictly
+    # side-effect-free.  It never raises (its own boundary catches every
+    # error); the ragged edge here only protects the legacy path from
+    # argument-evaluation failures (e.g. a missing sheet for an op that
+    # would fail anyway on the same input).  Gate on the four healing tools
+    # first so every other subsystem operation pays zero cost.
+    if tool_name in (
+        "rules.first_aid", "rules.dying_check", "rules.medicine",
+        "rules.weekly_recovery",
+    ):
+        try:
+            coc_rules_runtime.maybe_shadow_compare_healing(
+                ruleset_id=_active_ruleset_id(ctx),
+                tool_name=tool_name,
+                decision_id=decision_id,
+                command=commands[0],
+                state_path=ctx.inv_state_path(investigator_id),
+                sheet_provider=lambda: ctx.sheet(investigator_id),
+            )
+        except Exception:
+            pass
     character_path = (
         ctx.coc_root / "investigators" / investigator_id / "character.json"
     )

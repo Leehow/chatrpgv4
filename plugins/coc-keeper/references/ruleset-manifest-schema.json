@@ -84,6 +84,30 @@
         }
       }
     },
+    "rule_families": {
+      "type": "array",
+      "description": "Per-family rule-graph runtime ownership (contract §2.2). Optional; absent means every family defaults to legacy runtime ownership with a visible legacy Keeper surface.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["family_id", "runtime_owner", "legacy_surface"],
+        "properties": {
+          "family_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "One of the rule-graph contract rule_families ids (e.g. healing, combat)."
+          },
+          "runtime_owner": {
+            "enum": ["legacy", "shadow", "graph"],
+            "description": "legacy: the existing Keeper-visible path owns execution; shadow: the legacy path executes and the RuleGraph only compares plans (spec §14.1); graph: the RulesRuntime settlement path is the sole Keeper-visible owner (spec §14.3)."
+          },
+          "legacy_surface": {
+            "enum": ["visible", "hidden", "removed"],
+            "description": "Lifecycle of the legacy Keeper-visible operations for this family (spec §7.7). hidden keeps the adapter host-internal; removed deletes it. One family cannot have runtime_owner graph while its legacy Keeper surface remains visible."
+          }
+        }
+      }
+    },
     "state_dirs": {
       "type": "array",
       "description": "Package-owned campaign state directories (contract §6), placed directly under the campaign save/ directory. Optional; defaults to no package dirs when absent.",

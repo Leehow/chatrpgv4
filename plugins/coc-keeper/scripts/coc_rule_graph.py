@@ -1157,6 +1157,83 @@ def _source_bundle_identities(shards: list[dict[str, Any]]) -> list[dict[str, An
     return [rows[key] for key in sorted(rows)]
 
 
+# Recorded source-bundle identity for the coc7 healing family (MinerU full.md
+# digest + original PDF digest). Machine-owned; never model-authored.
+RECORDED_HEALING_SOURCE_BUNDLE = {
+    "source_id": "pdf:coc7-keeper-rulebook-40th",
+    "bundle_sha256": "47615458fbd8a68cb093f10d54862b9870a16146c6b41bee17e4f720da0193fa",
+    "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+}
+
+# Exact shadow-comparison exclusions from the R2a APPROVE-SUBSET review.
+HEALING_SHADOW_EXCLUSIONS = [
+    {
+        "exclusion_id": "first-aid-one-hour-eligibility-enforcement",
+        "exception_ref": "exception:coc7:healing:first-aid-window-uncompiled",
+        "decision_ref": "decision:coc7:healing:first-aid-ordinary",
+    },
+    {
+        "exclusion_id": "dual-rescuer-either-success-composition",
+        "exception_ref": "exception:coc7:healing:first-aid-teamwork-uncompiled",
+        "decision_ref": "decision:coc7:healing:first-aid-ordinary",
+    },
+]
+
+
+def apply_healing_shadow_package(
+    graph: dict[str, Any],
+    manifest: dict[str, Any],
+    *,
+    reviewer_identity: str = "r2-candidate-review",
+    review_status: str = "accepted",
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Overlay R2a shadow ownership on a compiler build() result.
+
+    ``build()`` stays R1 (every family legacy, never promotion-eligible).
+    Packaging for the healing family sets runtime ownership to shadow with
+    the legacy surface still visible, records the exact shadow exclusions,
+    and attaches the recorded source-bundle identity. Graph digest is
+    recomputed after the ownership overlay.
+    """
+    graph = copy.deepcopy(graph)
+    manifest = copy.deepcopy(manifest)
+    family = "healing"
+    graph.setdefault("family_runtime_ownership", {})[family] = "shadow"
+    graph.setdefault("legacy_surface_lifecycle", {})[family] = "visible"
+    digest = _json_digest(graph)
+    manifest["graph_content_digest"] = digest
+    promo = manifest.setdefault("family_promotion_eligibility", {}).setdefault(
+        family, {"promotion_eligible": False, "runtime_ownership": "legacy"}
+    )
+    promo["promotion_eligible"] = False
+    promo["runtime_ownership"] = "shadow"
+    promo["shadow_exclusions"] = copy.deepcopy(HEALING_SHADOW_EXCLUSIONS)
+    manifest["source_bundles"] = [copy.deepcopy(RECORDED_HEALING_SOURCE_BUNDLE)]
+    manifest["reviewer_identity"] = reviewer_identity
+    manifest["review_status"] = review_status
+    findings = list(manifest.get("findings") or [])
+    existing = {
+        (row.get("code"), row.get("path"))
+        for row in findings
+        if isinstance(row, dict)
+    }
+    for exclusion in HEALING_SHADOW_EXCLUSIONS:
+        path = (
+            f"/family_promotion_eligibility/{family}/shadow_exclusions/"
+            f"{exclusion['exclusion_id']}"
+        )
+        row = _finding(
+            "executor_capability_gap",
+            path,
+            f"{exclusion['exclusion_id']} is source-complete via "
+            f"{exclusion['exception_ref']} and is excluded from shadow comparison",
+        )
+        if (row["code"], row["path"]) not in existing:
+            findings.append(row)
+    manifest["findings"] = findings
+    return graph, manifest
+
+
 def _source_vs_derivative_findings() -> list[dict[str, Any]]:
     """Record known source-vs-derivative mismatches as Findings.
 
@@ -1185,9 +1262,9 @@ HEALING_COMMAND_SHAPES: dict[str, dict[str, Any]] = {
         "phase": HEALING_COMMAND_PHASES["stabilize"],
         "payload_constants": {"method": "first_aid"},
         "payload_slots": [
-            {"name": "skill_value", "ownership": "keeper-semantic"},
+            {"name": "skill_value", "ownership": "host-locked"},
             {"name": "rescuer_id", "ownership": "host-locked"},
-            {"name": "pushed", "ownership": "keeper-semantic"},
+            {"name": "pushed", "ownership": "host-locked"},
         ],
     },
     "medicine-stabilization": {
@@ -1196,7 +1273,7 @@ HEALING_COMMAND_SHAPES: dict[str, dict[str, Any]] = {
         "phase": HEALING_COMMAND_PHASES["stabilize"],
         "payload_constants": {"method": "medicine"},
         "payload_slots": [
-            {"name": "skill_value", "ownership": "keeper-semantic"},
+            {"name": "skill_value", "ownership": "host-locked"},
             {"name": "rescuer_id", "ownership": "host-locked"},
         ],
     },
@@ -1217,8 +1294,8 @@ HEALING_COMMAND_SHAPES: dict[str, dict[str, Any]] = {
         "payload_slots": [
             {"name": "complete_rest", "ownership": "keeper-semantic"},
             {"name": "poor_environment", "ownership": "keeper-semantic"},
-            {"name": "medicine_skill_value", "ownership": "optional-semantic"},
-            {"name": "caregiver_id", "ownership": "optional-semantic"},
+            {"name": "medicine_skill_value", "ownership": "host-locked"},
+            {"name": "caregiver_id", "ownership": "host-locked"},
         ],
     },
 }

@@ -1,0 +1,1647 @@
+#!/usr/bin/env python3
+"""RulesRuntime — deep in-process rule runtime plus shadow comparator (R2b).
+
+This module is the host-internal implementation of the RuleGraph runtime seam
+(spec §8).  It exposes exactly one interface class with two methods:
+
+    runtime.context(RuleQuestion?) -> RuleContextResult
+    runtime.settle(SelectedRuleDecision, decision_id) -> SettlementResult
+
+It loads a ruleset package's compiled RuleGraph through the R1 artifact
+contract (``entry_points.rule_graph`` / ``entry_points.rule_graph_manifest``),
+overlays live state facts for condition evaluation, separates Keeper-semantic
+inputs from host-locked inputs, compiles one selected decision into ONE
+immutable ``RuleDecisionPlan`` targeting the existing resolver capability or
+subsystem command shape, and projects bounded next-decision cards.
+
+The runtime NEVER:
+  - rolls dice, consumes RNG, writes campaign state, or creates receipts;
+  - executes a resolver capability or subsystem command (R2b compiles only;
+    the legacy path stays the sole execution owner);
+  - renders narration or changes any Keeper-visible operation, working set,
+    or policy surface;
+  - requires a model to author or relay a hash, digest, or opaque id.
+
+Shadow comparator (spec §14.1): when a legacy healing operation runs
+(``rules.first_aid`` / ``rules.dying_check`` / ``rules.medicine`` /
+``rules.weekly_recovery``), the kernel calls
+``maybe_shadow_compare_healing(...)`` AFTER the legacy request/command is
+normalized and STRICTLY BEFORE RNG/mutation.  The comparator compiles the
+graph's candidate plan for the same decision and records exact semantic
+differences (capability, phase, semantic inputs, locked inputs, payload
+constants) plus every mandatory §14.1 axis (rule refs, resource effects,
+visibility, pending-choice semantics) to a HOST-INTERNAL shadow log.  Where
+the legacy normalized request genuinely cannot express an axis, the
+comparator records an explicit ``unresolved_legacy`` difference finding —
+it never grants a silent match (spec §14.1).  The legacy request always
+executes exactly once; shadow machinery NEVER blocks, alters, or fails the
+legacy path.  Runtime-owned identities (``command_id``, ``roll_id``,
+``request_index``, ``decision_id``) are ignored because the host
+deterministically reattaches them.
+
+Card grants (spec §8.5/§8.6): ``context()`` issues a machine-attached card
+grant — the projected card set bound to campaign + ruleset version + graph
+generation + canonical state revision — and ``settle()`` rejects any
+decision_ref not covered by a live grant, plus any grant whose binding no
+longer matches current state (``rule_decision_stale``).  The model never
+authors or echoes a grant: the host re-attaches the exact object its runtime
+issued (``settle(..., card_grant=...)``), and the runtime validates against
+its own issuance registry, so a fabricated or tampered grant fails closed.
+
+Shadow machinery engages only when the family's runtime owner is ``shadow``
+(default every family is ``legacy``/``visible``, in which case this module is
+a strict no-op with no file I/O).  Graph absent/invalid/unloadable for a
+shadow-owned family -> one host-internal ``skipped`` log row and the legacy
+path continues.
+
+The module is standalone (stdlib only) so it loads identically inside the
+toolbox kernel and under pytest; the R1 compiler is only used by tests to
+build fixture graphs.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from copy import deepcopy
+from pathlib import Path
+from types import MappingProxyType
+from typing import Any, Callable, Mapping
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parents[2]
+RULESETS_ROOT = SCRIPT_DIR.parent / "rulesets"
+CONTRACT_PATH = SCRIPT_DIR.parent / "references" / "rule-graph-contract-v1.json"
+
+SHADOW_LOG_CONTRACT_ID = "coc.rule-graph-shadow-log.v1"
+SHADOW_LOG_SCHEMA_VERSION = 1
+CARD_GRANT_CONTRACT_ID = "coc.rule-graph-card-grant.v1"
+CARD_GRANT_SCHEMA_VERSION = 1
+DEFAULT_SHADOW_LOG_PATH = REPO_ROOT / "artifacts" / "rule-graph-shadow-log.jsonl"
+SHADOW_LOG_ENV = "COC_RULE_GRAPH_SHADOW_LOG"
+
+# Runtime-owned identities the host reattaches deterministically per command.
+_RUNTIME_OWNED_PAYLOAD_KEYS = frozenset({
+    "command_id", "roll_id", "request_index", "decision_id",
+})
+_HARD_GATE_SLOT_OWNERSHIPS = frozenset({"keeper-semantic", "optional-semantic", "player-source"})
+_SEMANTIC_SLOT_OWNERSHIPS = frozenset({"keeper-semantic", "optional-semantic", "player-source"})
+_REQUIRED_SEMANTIC_OWNERSHIPS = frozenset({"keeper-semantic", "player-source"})
+_LOCKED_SLOT_OWNERSHIPS = frozenset({"host-locked", "resolver-owned"})
+
+_HEALING_TOOLS = frozenset({
+    "rules.first_aid", "rules.dying_check", "rules.medicine",
+    "rules.weekly_recovery",
+})
+
+_GRAPH_CONTRACT_CACHE: dict[str, Any] | None = None
+_GRAPH_CACHE: dict[str, dict[str, Any]] = {}
+_MANIFEST_CACHE: dict[str, dict[str, Any] | None] = {}
+_SHADOW_CONFIG: dict[str, Any] | None = None
+
+
+# --------------------------------------------------------------------------- #
+# Freeze helpers (immutable plans/cards; mirror of the kernel's pattern)
+# --------------------------------------------------------------------------- #
+def _freeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(_freeze(item) for item in value)
+    return deepcopy(value)
+
+
+def _thaw(value: Any) -> Any:
+    """Return a plain-JSON copy of a frozen value (for host log rows)."""
+    if isinstance(value, Mapping):
+        return {str(key): _thaw(item) for key, item in value.items()}
+    if isinstance(value, (tuple, frozenset)):
+        return [_thaw(item) for item in value]
+    return deepcopy(value)
+
+
+def _canonical(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _json_digest(value: Any) -> str:
+    return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
+
+
+# --------------------------------------------------------------------------- #
+# Contract access (closed enum surface, never a second enum list)
+# --------------------------------------------------------------------------- #
+def _load_contract() -> dict[str, Any] | None:
+    global _GRAPH_CONTRACT_CACHE
+    if _GRAPH_CONTRACT_CACHE is not None:
+        return _GRAPH_CONTRACT_CACHE
+    try:
+        _GRAPH_CONTRACT_CACHE = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        _GRAPH_CONTRACT_CACHE = None
+    return _GRAPH_CONTRACT_CACHE
+
+
+def registered_condition_paths() -> frozenset[str]:
+    contract = _load_contract() or {}
+    return frozenset(contract.get("registered_condition_paths") or [])
+
+
+# --------------------------------------------------------------------------- #
+# Package manifest / graph loading (R1 artifact contract)
+# --------------------------------------------------------------------------- #
+def rulesets_root() -> Path:
+    return RULESETS_ROOT
+
+
+def clear_runtime_cache() -> None:
+    """Drop in-process graph/manifest caches.  Tests isolate via this."""
+    global _GRAPH_CONTRACT_CACHE, _GRAPH_CACHE, _MANIFEST_CACHE
+    _GRAPH_CONTRACT_CACHE = None
+    _GRAPH_CACHE.clear()
+    _MANIFEST_CACHE.clear()
+
+
+def _load_manifest_cached(ruleset_id: str, rulesets_root_path: Path | None = None) -> dict[str, Any] | None:
+    if ruleset_id in _MANIFEST_CACHE:
+        return _MANIFEST_CACHE[ruleset_id]
+    root = Path(rulesets_root_path) if rulesets_root_path is not None else RULESETS_ROOT
+    path = root / ruleset_id / "manifest.json"
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        manifest = None
+    _MANIFEST_CACHE[ruleset_id] = manifest
+    return manifest
+
+
+def load_ruleset_graph(
+    ruleset_id: str,
+    *,
+    rulesets_root_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Load and validate one package's compiled RuleGraph (R1 contract).
+
+    Returns one of:
+
+    - ``{"ok": True, "graph": {...}, "graph_manifest": {...},
+      "content_digest": "<sha256>", "source": "package"|"config"}``
+    - ``{"ok": False, "reason": "graph_absent"|"graph_invalid"|"graph_unloadable",
+      "findings": [...], "source": ...}``
+
+    Validation is host-internal: contract id, schema version, ruleset
+    identity, key surface, and the machine-owned content digest vs the graph
+    manifest.  No model relay of any digest happens here.
+    """
+    root = Path(rulesets_root_path) if rulesets_root_path is not None else RULESETS_ROOT
+    manifest = _load_manifest_cached(ruleset_id, root)
+    entry_points = (manifest or {}).get("entry_points") or {}
+    graph_ref = entry_points.get("rule_graph")
+    manifest_ref = entry_points.get("rule_graph_manifest")
+    if not isinstance(graph_ref, str) or not isinstance(manifest_ref, str):
+        return {"ok": False, "reason": "graph_absent",
+                "findings": ["no paired rule_graph entry points in package manifest"]}
+
+    try:
+        graph_bytes = (root / ruleset_id / graph_ref).read_bytes()
+        manifest_bytes = (root / ruleset_id / manifest_ref).read_bytes()
+    except OSError as exc:
+        return {"ok": False, "reason": "graph_unloadable",
+                "findings": [f"artifact read failed: {exc}"]}
+    try:
+        graph = json.loads(graph_bytes.decode("utf-8"))
+        graph_manifest = json.loads(manifest_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return {"ok": False, "reason": "graph_invalid",
+                "findings": [f"artifact is not valid JSON: {exc}"]}
+
+    contract = _load_contract()
+    if not isinstance(graph, dict) or not isinstance(graph_manifest, dict):
+        return {"ok": False, "reason": "graph_invalid",
+                "findings": ["graph artifacts must be JSON objects"]}
+    problems: list[str] = []
+    if contract is not None:
+        want_graph_contract = contract.get("graph_contract_id")
+        want_manifest_contract = contract.get("build_manifest_contract_id")
+        want_schema = contract.get("schema_version")
+        want_keys = set(contract.get("graph_keys") or [])
+        if want_graph_contract and graph.get("contract_id") != want_graph_contract:
+            problems.append("graph.contract_id does not match the v1 contract")
+        if want_manifest_contract and graph_manifest.get("contract_id") != want_manifest_contract:
+            problems.append("graph manifest contract_id does not match the v1 contract")
+        if want_schema is not None and (
+            graph.get("schema_version") != want_schema
+            or graph_manifest.get("schema_version") != want_schema
+        ):
+            problems.append("graph schema_version does not match the v1 contract")
+        if not want_keys.issubset(set(graph)):
+            problems.append("graph is missing contract key fields")
+    if graph.get("ruleset_id") != ruleset_id or graph_manifest.get("ruleset_id") != ruleset_id:
+        problems.append("graph ruleset_id does not match the requested ruleset")
+    declared_digest = graph_manifest.get("graph_content_digest")
+    if not isinstance(declared_digest, str) or len(declared_digest) != 64:
+        problems.append("graph manifest is missing a declared content digest")
+    elif _json_digest(graph) != declared_digest:
+        problems.append("graph content digest does not match the graph manifest")
+    if problems:
+        return {"ok": False, "reason": "graph_invalid",
+                "findings": problems, "graph": graph, "graph_manifest": graph_manifest}
+    return {
+        "ok": True,
+        "graph": graph,
+        "graph_manifest": graph_manifest,
+        "content_digest": declared_digest,
+        "source": "package",
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Family runtime ownership (spec §7.7)
+# --------------------------------------------------------------------------- #
+def resolve_family_ownership(
+    ruleset_id: str,
+    family: str,
+    *,
+    manifest: dict[str, Any] | None = None,
+    graph: dict[str, Any] | None = None,
+    graph_manifest: dict[str, Any] | None = None,
+) -> tuple[str, str]:
+    """Return ``(runtime_owner, legacy_surface)`` for one family.
+
+    Precedence: package manifest ``rule_families`` entry, then the graph
+    manifest's promotion map, then the graph's own ownership map, then the
+    documented default ``legacy`` / ``visible``.
+    """
+    m = manifest if manifest is not None else _load_manifest_cached(ruleset_id)
+    for entry in (m or {}).get("rule_families") or []:
+        if isinstance(entry, dict) and entry.get("family_id") == family:
+            return (str(entry.get("runtime_owner") or "legacy"),
+                    str(entry.get("legacy_surface") or "visible"))
+    promo = ((graph_manifest or {}).get("family_promotion_eligibility") or {}).get(family)
+    if isinstance(promo, dict) and promo.get("runtime_ownership") in {"legacy", "shadow", "graph"}:
+        owner = promo["runtime_ownership"]
+        surface_map = (graph or {}).get("legacy_surface_lifecycle") or {}
+        return owner, surface_map.get(family, "visible")
+    owner_map = (graph or {}).get("family_runtime_ownership") or {}
+    if owner_map.get(family) in {"legacy", "shadow", "graph"}:
+        surface_map = (graph or {}).get("legacy_surface_lifecycle") or {}
+        return owner_map[family], surface_map.get(family, "visible")
+    return "legacy", "visible"
+
+
+# --------------------------------------------------------------------------- #
+# Live-state facts overlay (registered condition paths only)
+# --------------------------------------------------------------------------- #
+def facts_from_state(
+    state: dict[str, Any] | None,
+    sheet: dict[str, Any] | None,
+    *,
+    ruleset_id: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Project live investigator state into the registered facts dict.
+
+    Only paths in the R1 contract's ``registered_condition_paths`` are ever
+    produced here; condition evaluation additionally refuses unregistered
+    paths so the graph can never read arbitrary state or prose.
+    """
+    state = state or {}
+    sheet = sheet or {}
+    characteristics = sheet.get("characteristics") if isinstance(sheet.get("characteristics"), dict) else {}
+    derived = sheet.get("derived") if isinstance(sheet.get("derived"), dict) else {}
+    conditions = list(state.get("conditions") or [])
+    facts: dict[str, Any] = {
+        "actor.id": state.get("investigator_id"),
+        "actor.resources.hp": state.get("current_hp"),
+        "actor.resources.hp_max": derived.get("HP"),
+        "actor.resources.san": state.get("current_san"),
+        "actor.resources.mp": state.get("current_mp"),
+        "actor.resources.luck": state.get("current_luck"),
+        "actor.sheet.con": characteristics.get("CON"),
+        "actor.conditions": conditions,
+        "actor.conditions.dying": "dying" in conditions,
+        "actor.conditions.unconscious": "unconscious" in conditions,
+        "actor.conditions.major_wound": "major_wound" in conditions,
+        "actor.conditions.dead": "dead" in conditions,
+    }
+    if ruleset_id is not None:
+        facts["campaign.ruleset_id"] = ruleset_id
+    if isinstance(extra, dict):
+        facts.update({str(key): deepcopy(value) for key, value in extra.items()})
+    return facts
+
+
+def _evaluate_leaf(expression: dict[str, Any], facts: Mapping[str, Any]) -> bool | None:
+    """Evaluate one leaf; ``None`` = unregistered path or unknown fact."""
+    path = expression.get("path")
+    registered = registered_condition_paths()
+    if not isinstance(path, str) or path not in registered:
+        return None
+    value = facts.get(path) if isinstance(facts, Mapping) else None
+    op = expression.get("op")
+    if op == "exists":
+        return value is not None
+    if value is None:
+        return None
+    operand = expression.get("value")
+    if op == "eq":
+        return value == operand
+    if op == "neq":
+        return value != operand
+    if op == "lt":
+        try:
+            return value < operand
+        except TypeError:
+            return None
+    if op == "lte":
+        try:
+            return value <= operand
+        except TypeError:
+            return None
+    if op == "gt":
+        try:
+            return value > operand
+        except TypeError:
+            return None
+    if op == "gte":
+        try:
+            return value >= operand
+        except TypeError:
+            return None
+    if op == "contains":
+        if isinstance(value, (list, tuple, set, frozenset)):
+            return operand in value
+        if isinstance(value, str) and isinstance(operand, str):
+            return operand in value
+        return None
+    if op == "not-contains":
+        found = _evaluate_leaf({"op": "contains", "path": path, "value": operand}, facts)
+        return None if found is None else not found
+    return None
+
+
+def evaluate_condition(
+    expression: Any,
+    facts: Mapping[str, Any],
+) -> bool | None:
+    """Closed structural condition language; ``None`` = unresolved/unknown.
+
+    Returns False for unknown facts so a hard-gate condition fails closed
+    (the decision is reported not applicable rather than guessed).
+    """
+    if not isinstance(expression, dict):
+        return False
+    op = expression.get("op")
+    if op in {"all", "any"}:
+        children = expression.get("of")
+        if not isinstance(children, list):
+            return False
+        results = [evaluate_condition(child, facts) for child in children]
+        if op == "all":
+            if any(result is False for result in results):
+                return False
+            if any(result is None for result in results):
+                return None
+            return True
+        if any(result is True for result in results):
+            return True
+        if any(result is None for result in results):
+            return None
+        return False
+    if op == "not":
+        children = expression.get("of")
+        if not isinstance(children, list) or len(children) != 1:
+            return False
+        child = evaluate_condition(children[0], facts)
+        return None if child is None else not child
+    if op in {
+        "eq", "neq", "lt", "lte", "gt", "gte", "contains", "not-contains",
+        "exists",
+    }:
+        return _evaluate_leaf(expression, facts)
+    return False
+
+
+# --------------------------------------------------------------------------- #
+# RulesRuntime — the deep module (spec §8)
+# --------------------------------------------------------------------------- #
+class RulesRuntime:
+    """One graph's runtime view: ``context`` and ``settle`` only.
+
+    Constructor dependencies are injected (spec §8.1): a facts provider for
+    live-state overlay and a host-locked provider for locked inputs.  The
+    runtime itself never performs state I/O, RNG, receipts, or execution.
+    """
+
+    SCHEMA_VERSION = 1
+
+    def __init__(
+        self,
+        graph: dict[str, Any],
+        *,
+        ruleset_id: str | None = None,
+        ruleset_version: str | None = None,
+        graph_manifest: dict[str, Any] | None = None,
+        campaign_id: str | None = None,
+        facts_provider: Callable[[], Mapping[str, Any]] | None = None,
+        state_revision_provider: Callable[[], str | None] | None = None,
+        host_locked_provider: Callable[[str], Mapping[str, Any]] | None = None,
+        resolver_index: Mapping[str, Any] | None = None,
+    ) -> None:
+        if not isinstance(graph, dict) or not isinstance(graph.get("nodes"), list):
+            raise ValueError("RulesRuntime requires a compiled RuleGraph object")
+        self._graph = graph
+        self._ruleset_id = ruleset_id or str(graph.get("ruleset_id") or "")
+        self._ruleset_version = ruleset_version or (
+            (graph_manifest or {}).get("ruleset_version") if isinstance(graph_manifest, Mapping) else None
+        ) or "unversioned"
+        # Graph generation is machine-owned integrity evidence: the build
+        # manifest's content digest, or a deterministic digest of the graph
+        # object itself when no manifest is attached.  Never model-relayed.
+        manifest_digest = (graph_manifest or {}).get("graph_content_digest")
+        self._graph_generation = str(manifest_digest) if manifest_digest else f"sha256:{_json_digest(graph)}"
+        self._campaign_id = campaign_id
+        self._graph_manifest = graph_manifest
+        self._facts_provider = facts_provider
+        self._state_revision_provider = state_revision_provider
+        self._host_locked_provider = host_locked_provider
+        self._resolver_index = resolver_index
+        # Machine-issued card grants (spec §8.5/§8.6): grants issued by
+        # ``context()`` are recorded here; ``settle()`` validates the caller's
+        # grant against this registry, ignoring any caller-authored fields.
+        self._grants: dict[str, dict[str, Any]] = {}
+        self._grant_sequence = 0
+        self._nodes: dict[str, dict[str, Any]] = {}
+        self._relations: list[dict[str, Any]] = []
+        for node in graph.get("nodes") or []:
+            if isinstance(node, dict) and isinstance(node.get("node_id"), str):
+                self._nodes[node["node_id"]] = node
+        self._relations = [
+            rel for rel in (graph.get("relations") or []) if isinstance(rel, dict)
+        ]
+        self._out: dict[str, list[dict[str, Any]]] = {}
+        self._in: dict[str, list[dict[str, Any]]] = {}
+        for rel in self._relations:
+            self._out.setdefault(str(rel.get("from_node_id")), []).append(rel)
+            self._in.setdefault(str(rel.get("to_node_id")), []).append(rel)
+
+    # -- indexes ----------------------------------------------------------- #
+    def node_ids_by_kind(self, kind: str) -> list[str]:
+        return sorted(
+            node_id for node_id, node in self._nodes.items()
+            if node.get("node_kind") == kind
+        )
+
+    def decision_nodes(self, family: str | None = None) -> list[dict[str, Any]]:
+        rows = [
+            node for node in self._nodes.values()
+            if node.get("node_kind") == "decision"
+        ]
+        if family is not None:
+            rows = [
+                node for node in rows
+                if (node.get("properties") or {}).get("family_id") == family
+            ]
+        return sorted(rows, key=lambda node: str(node.get("node_id")))
+
+    def _outgoing(self, node_id: str, kind: str | None = None) -> list[dict[str, Any]]:
+        rows = self._out.get(node_id, [])
+        if kind is not None:
+            rows = [row for row in rows if row.get("relation_kind") == kind]
+        return sorted(rows, key=lambda row: str(row.get("relation_id")))
+
+    def _incoming(self, node_id: str, kind: str | None = None) -> list[dict[str, Any]]:
+        rows = self._in.get(node_id, [])
+        if kind is not None:
+            rows = [row for row in rows if row.get("relation_kind") == kind]
+        return sorted(rows, key=lambda row: str(row.get("relation_id")))
+
+    def _invokes(self, node_id: str) -> dict[str, Any] | None:
+        for rel in self._outgoing(node_id, "invokes"):
+            target = self._nodes.get(str(rel.get("to_node_id")))
+            if target is not None:
+                return target
+        return None
+
+    def _conditions_for(self, node_id: str) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for rel in self._outgoing(node_id, "available-when"):
+            target = self._nodes.get(str(rel.get("to_node_id")))
+            if target is not None and target.get("node_kind") == "condition":
+                out.append(target)
+        return out
+
+    def _rules_for(self, node_id: str) -> list[str]:
+        """Rules tied to a decision through the capability it invokes."""
+        cap = self._invokes(node_id)
+        if cap is None:
+            return []
+        cap_id = str(cap.get("node_id"))
+        return sorted(
+            str(node["node_id"])
+            for node in self._nodes.values()
+            if node.get("node_kind") == "rule"
+            and any(
+                rel.get("relation_kind") == "invokes"
+                and str(rel.get("to_node_id")) == cap_id
+                for rel in self._outgoing(str(node["node_id"]))
+            )
+        )
+
+    def _source_refs_for(self, rule_refs: list[str]) -> list[str]:
+        refs: set[str] = set()
+        for rule_id in rule_refs:
+            node = self._nodes.get(rule_id)
+            for span in node.get("evidence_span_ids") or []:
+                if isinstance(span, str):
+                    refs.add(span)
+        return sorted(refs)
+
+    def _effects_for(self, node_id: str) -> list[str]:
+        out = []
+        for rel in self._outgoing(node_id, "emits"):
+            target = self._nodes.get(str(rel.get("to_node_id")))
+            if target is not None and target.get("node_kind") == "effect":
+                out.append(str(target.get("node_id")))
+        return sorted(set(out))
+
+    def _pending_choices_for(self, node_id: str) -> list[str]:
+        out = []
+        for rel in self._outgoing(node_id, "offers-choice"):
+            target = self._nodes.get(str(rel.get("to_node_id")))
+            if target is not None and target.get("node_kind") == "pending-choice":
+                out.append(str(target.get("node_id")))
+        return sorted(set(out))
+
+    def _continuations_for(self, node_id: str) -> list[str]:
+        return sorted({
+            str(rel.get("to_node_id"))
+            for rel in self._outgoing(node_id, "continues-as")
+            if self._nodes.get(str(rel.get("to_node_id"))) is not None
+        })
+
+    # -- input slots -------------------------------------------------------- #
+    def _slots_for(self, node_id: str) -> list[dict[str, Any]]:
+        """Union of implementation payload slots and input-slot nodes."""
+        slots: dict[str, dict[str, Any]] = {}
+        node = self._nodes.get(node_id) or {}
+        implementation = (node.get("properties") or {}).get("implementation")
+        if isinstance(implementation, dict):
+            for slot in implementation.get("payload_slots") or []:
+                if not isinstance(slot, dict) or not isinstance(slot.get("name"), str):
+                    continue
+                slots[slot["name"]] = {
+                    "name": slot["name"],
+                    "ownership": slot.get("ownership") or "host-locked",
+                    "type": _scalar_type_from_guess(slot.get("name")),
+                }
+        for rel in list(self._outgoing(node_id, "requires-input")) + list(
+            self._outgoing(node_id, "locks-input")
+        ):
+            target = self._nodes.get(str(rel.get("to_node_id")))
+            if target is None or target.get("node_kind") != "input-slot":
+                continue
+            props = target.get("properties") or {}
+            name = props.get("path") or str(target.get("node_name") or target.get("node_id"))
+            slots[str(target.get("node_id"))] = {
+                "name": str(target.get("node_id")),
+                "ownership": props.get("ownership") or "keeper-semantic",
+                "type": props.get("value_type") or "scalar",
+            }
+        return sorted(slots.values(), key=lambda slot: slot["name"])
+
+    # -- applicability ------------------------------------------------------ #
+    def applicability(self, node_id: str, facts: Mapping[str, Any]) -> tuple[bool, bool]:
+        """Return ``(applicable, hard_gated)`` for one decision."""
+        conditions = self._conditions_for(node_id)
+        hard_gated = any(
+            (condition.get("properties") or {}).get("hard_gate") is True
+            for condition in conditions
+        )
+        passed = all(
+            evaluate_condition((condition.get("properties") or {}).get("expression"), facts)
+            for condition in conditions
+        )
+        return bool(passed), hard_gated
+
+    # -- cards -------------------------------------------------------------- #
+    def _card(self, node_id: str, facts: Mapping[str, Any]) -> dict[str, Any]:
+        node = self._nodes[node_id]
+        props = node.get("properties") or {}
+        slots = self._slots_for(node_id)
+        applicable, hard_gated = self.applicability(node_id, facts)
+        capability = self._invokes(node_id)
+        rule_refs = self._rules_for(node_id)
+        return {
+            "schema_version": self.SCHEMA_VERSION,
+            "decision_ref": node_id,
+            "family": props.get("family_id") or "",
+            "label": node.get("name") or node_id,
+            "applicability": "applicable" if applicable else "not_applicable",
+            "required_inputs": [
+                {
+                    "name": slot["name"],
+                    "owner": slot["ownership"],
+                    "type": slot["type"],
+                }
+                for slot in slots
+                if slot["ownership"] in _SEMANTIC_SLOT_OWNERSHIPS
+            ],
+            "locked_inputs": [
+                slot["name"] for slot in slots
+                if slot["ownership"] in _LOCKED_SLOT_OWNERSHIPS
+            ],
+            "rule_refs": rule_refs,
+            "source_refs": self._source_refs_for(rule_refs),
+            "capability_ref": (
+                str(capability.get("node_id")) if capability is not None else None
+            ),
+            "effect_refs": self._effects_for(node_id),
+            "possible_continuations": self._continuations_for(node_id),
+            "authority": {
+                "selection": "keeper-semantic",
+                "execution": "current-ruleset-adapter",
+                "hard_gate": hard_gated,
+            },
+        }
+
+    # -- card grants (spec §8.5/§8.6 static recheck) ---------------------- #
+    def _grant_binding(self) -> dict[str, Any]:
+        """Current machine-owned grant binding (campaign + ruleset version +
+        graph generation + canonical state revision)."""
+        facts = self._facts_provider() if self._facts_provider is not None else {}
+        if self._state_revision_provider is not None:
+            revision = self._state_revision_provider()
+        else:
+            revision = f"sha256:{_json_digest(facts)}"
+        return {
+            "campaign_id": self._campaign_id,
+            "ruleset_id": self._ruleset_id,
+            "ruleset_version": self._ruleset_version,
+            "graph_generation": self._graph_generation,
+            "state_revision": str(revision) if revision is not None else None,
+        }
+
+    def _issue_card_grant(self, cards: list[dict[str, Any]]) -> dict[str, Any]:
+        """Issue one machine-attached card grant for a projected card set.
+
+        The grant is recorded in this runtime's issuance registry; the copy
+        returned to the host is only a handle.  ``settle()`` validates against
+        the registry copy, so model-authored or tampered grant fields are
+        ignored (fail closed)."""
+        self._grant_sequence += 1
+        family = str(cards[0].get("family") or "") if cards else ""
+        grant_id = f"card-grant:{self._ruleset_id}:{family or 'unscoped'}:{self._grant_sequence}"
+        grant = {
+            "contract_id": CARD_GRANT_CONTRACT_ID,
+            "schema_version": CARD_GRANT_SCHEMA_VERSION,
+            "grant_id": grant_id,
+            "binding": self._grant_binding(),
+            "decision_refs": sorted({str(card["decision_ref"]) for card in cards}),
+        }
+        self._grants[grant_id] = deepcopy(grant)
+        return deepcopy(grant)
+
+    def _check_card_grant(
+        self,
+        grant: Mapping[str, Any] | None,
+        decision_ref: str,
+    ) -> dict[str, Any] | None:
+        """Return a stale-grant failure envelope, or None when the grant is live.
+
+        Fail-closed rules (spec §8.6/§15): a missing grant, a grant this
+        runtime did not issue (forged/unknown), a grant whose binding no
+        longer matches current state (``rule_decision_stale``), or a
+        decision_ref the live grant does not cover — none may reach resolver
+        invocation."""
+        if not isinstance(grant, Mapping) or not isinstance(grant.get("grant_id"), str) \
+                or not grant.get("grant_id"):
+            return self._stale_envelope(
+                decision_ref, "missing_card_grant",
+                "a machine-issued card grant is required (context() -> settle())",
+            )
+        stored = self._grants.get(str(grant["grant_id"]))
+        if stored is None:
+            return self._stale_envelope(
+                decision_ref, "unrecognized_card_grant",
+                "the grant was not issued by this runtime instance; "
+                "forged or expired grants are rejected",
+            )
+        current = self._grant_binding()
+        drifted = [
+            key for key in sorted(stored["binding"])
+            if stored["binding"].get(key) != current.get(key)
+        ]
+        if drifted:
+            return self._stale_envelope(
+                decision_ref, "grant_binding_mismatch",
+                f"card grant binding no longer matches current state: {', '.join(drifted)}",
+                drifted=drifted,
+            )
+        if decision_ref not in (stored.get("decision_refs") or []):
+            return self._stale_envelope(
+                decision_ref, "decision_not_in_grant",
+                f"decision {decision_ref!r} was not covered by the live card grant",
+            )
+        return None
+
+    def _stale_envelope(
+        self,
+        decision_ref: str,
+        reason: str,
+        message: str,
+        **extra: Any,
+    ) -> dict[str, Any]:
+        """Superseded card grant (spec §15): fail closed, refresh cards when safe."""
+        failure: dict[str, Any] = {
+            "code": "rule_decision_stale",
+            "reason": reason,
+            "message": message,
+        }
+        failure.update(extra)
+        refreshed: list[dict[str, Any]] = []
+        refreshed_grant: dict[str, Any] | None = None
+        family = ""
+        node = self._nodes.get(decision_ref)
+        if node is not None:
+            family = str((node.get("properties") or {}).get("family_id") or "")
+        try:
+            refreshed_result = self.context({"family": family} if family else None)
+            refreshed = refreshed_result.get("cards") or []
+            refreshed_grant = refreshed_result.get("card_grant")
+        except Exception:
+            refreshed = []
+        envelope: dict[str, Any] = {
+            "schema_version": self.SCHEMA_VERSION,
+            "decision_ref": decision_ref,
+            "family": family,
+            "status": "rule_decision_stale",
+            "failure": failure,
+            "refreshed_cards": refreshed[:8],
+        }
+        if refreshed_grant is not None:
+            envelope["refreshed_card_grant"] = refreshed_grant
+        return envelope
+
+    def _family_status(self, family: str | None) -> list[dict[str, Any]]:
+        graph_owner = (self._graph.get("family_runtime_ownership") or {})
+        graph_surface = (self._graph.get("legacy_surface_lifecycle") or {})
+        coverage = (self._graph.get("coverage") or {})
+        families = [family] if family is not None else sorted(coverage)
+        return [
+            {
+                "family": fam,
+                "coverage": coverage.get(fam, "unresolved"),
+                "runtime_owner": graph_owner.get(fam, "legacy"),
+                "legacy_surface": graph_surface.get(fam, "visible"),
+            }
+            for fam in families
+        ]
+
+    # -- context (spec §8.3/§8.4) -------------------------------------------
+    def context(self, question: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        facts = self._facts_provider() if self._facts_provider is not None else {}
+        if question is None:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "status": "family_status",
+                "family": None,
+                "cards": [],
+                "family_status": self._family_status(None),
+            }
+        question = dict(question)
+        family = question.get("family")
+        if not isinstance(family, str) or not family:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "status": "no_candidate_in_compiled_scope",
+                "family": None,
+                "cards": [],
+                "family_status": self._family_status(None),
+                "reason": "question must name a compiled rule family",
+            }
+        wanted = question.get("selected_affordance_ids")
+        requested: list[str] | None = None
+        if isinstance(wanted, list):
+            requested = [str(ref) for ref in wanted if isinstance(ref, str)]
+        candidates = [
+            node for node in self.decision_nodes(family)
+            if (
+                requested is None or str(node.get("node_id")) in requested
+            )
+        ]
+        cards: list[dict[str, Any]] = []
+        missing: list[str] = []
+        for node in candidates:
+            node_id = str(node["node_id"])
+            if node_id not in self._nodes:
+                continue
+            if requested is not None and node_id not in requested:
+                continue
+            card = self._card(node_id, facts)
+            if card["applicability"] != "applicable":
+                missing.append(node_id)
+                continue
+            cards.append(card)
+            if len(cards) >= 8:
+                break
+        cards = sorted(cards, key=lambda card: str(card["decision_ref"]))
+        if requested is not None:
+            unresolved = sorted(set(requested) - {card["decision_ref"] for card in cards})
+            if unresolved:
+                return {
+                    "schema_version": self.SCHEMA_VERSION,
+                    "status": "no_candidate_in_compiled_scope",
+                    "family": family,
+                    "cards": [],
+                    "family_status": self._family_status(family),
+                    "unresolved": unresolved,
+                    "reason": "selected decision refs are not current applicable candidates",
+                }
+        status = "ok" if cards else "no_candidate_in_compiled_scope"
+        result: dict[str, Any] = {
+            "schema_version": self.SCHEMA_VERSION,
+            "status": status,
+            "family": family,
+            "cards": cards,
+            "family_status": self._family_status(family),
+        }
+        if cards:
+            # Machine-attached card grant (spec §8.5/§8.6): the projected card
+            # set bound to campaign + ruleset version + graph generation +
+            # canonical state revision. settle() accepts ONLY this object.
+            result["card_grant"] = self._issue_card_grant(cards)
+        return result
+
+    # -- settle (spec §8.6/§8.7) --------------------------------------------
+    def _compile_plan(
+        self,
+        decision_ref: str,
+        semantic_inputs: Mapping[str, Any],
+        facts: Mapping[str, Any] | None = None,
+        host_locked: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Compile one decision into an immutable plan (never executes)."""
+        facts = facts if facts is not None else (
+            self._facts_provider() if self._facts_provider is not None else {}
+        )
+        node = self._nodes.get(decision_ref)
+        if node is None:
+            return {
+                "failure": {
+                    "code": "no_candidate_in_compiled_scope",
+                    "message": f"decision {decision_ref!r} is not in the compiled graph",
+                }
+            }
+        family = (node.get("properties") or {}).get("family_id") or ""
+        applicable, _ = self.applicability(decision_ref, facts)
+        if not applicable:
+            return {
+                "failure": {
+                    "code": "rule_decision_not_applicable",
+                    "message": "the decision's hard-gate conditions do not hold for current state",
+                    "decision_ref": decision_ref,
+                    "family": family,
+                }
+            }
+        capability = self._invokes(decision_ref)
+        if capability is None:
+            return {
+                "failure": {
+                    "code": "unsupported_ruleset_operation",
+                    "message": "the decision does not invoke a compiled capability",
+                    "decision_ref": decision_ref,
+                    "family": family,
+                }
+            }
+        capability_props = capability.get("properties") or {}
+        resolver_capability = capability_props.get("resolver_capability")
+        if self._resolver_index is not None and not isinstance(resolver_capability, str):
+            return {
+                "failure": {
+                    "code": "unsupported_ruleset_operation",
+                    "message": "capability node has no resolver_capability identity",
+                    "decision_ref": decision_ref,
+                    "family": family,
+                }
+            }
+        if (
+            self._resolver_index is not None
+            and isinstance(resolver_capability, str)
+            and resolver_capability not in self._resolver_index
+        ):
+            return {
+                "failure": {
+                    "code": "unsupported_ruleset_operation",
+                    "message": (
+                        f"capability {resolver_capability!r} is not in the "
+                        "active ruleset's public resolver index"
+                    ),
+                    "decision_ref": decision_ref,
+                    "family": family,
+                }
+            }
+        implementation = (node.get("properties") or {}).get("implementation")
+        slots = self._slots_for(decision_ref)
+        slot_names = {slot["name"] for slot in slots}
+        for key in semantic_inputs:
+            if key not in slot_names:
+                # No generic arguments bag: an undeclared semantic input is
+                # rejected rather than forwarded into the payload.
+                return {
+                    "failure": {
+                        "code": "unknown_semantic_input",
+                        "message": f"semantic input {key!r} is not a declared slot",
+                        "decision_ref": decision_ref,
+                        "family": family,
+                    }
+                }
+        missing = sorted(
+            slot["name"] for slot in slots
+            if slot["ownership"] in _REQUIRED_SEMANTIC_OWNERSHIPS
+            and slot["name"] not in semantic_inputs
+        )
+        if missing:
+            return {
+                "failure": {
+                    "code": "missing_semantic_input",
+                    "message": "required semantic inputs are missing",
+                    "missing": missing,
+                    "decision_ref": decision_ref,
+                    "family": family,
+                }
+            }
+        host_context: dict[str, Any] = {}
+        if isinstance(host_locked, Mapping):
+            host_context.update(
+                {str(key): deepcopy(value) for key, value in host_locked.items()}
+            )
+        if self._host_locked_provider is not None:
+            provided = self._host_locked_provider(decision_ref)
+            if isinstance(provided, Mapping):
+                for key, value in provided.items():
+                    host_context.setdefault(str(key), deepcopy(value))
+        for key in host_context:
+            if key not in slot_names:
+                return {
+                    "failure": {
+                        "code": "unknown_semantic_input",
+                        "message": f"host-locked input {key!r} is not a declared slot",
+                        "decision_ref": decision_ref,
+                        "family": family,
+                    }
+                }
+        payload: dict[str, Any] = {}
+        if isinstance(implementation, dict):
+            for name, value in (implementation.get("payload_constants") or {}).items():
+                payload[str(name)] = deepcopy(value)
+        for slot in slots:
+            name = slot["name"]
+            if slot["ownership"] in _SEMANTIC_SLOT_OWNERSHIPS:
+                if name in semantic_inputs:
+                    payload[name] = deepcopy(semantic_inputs[name])
+            elif slot["ownership"] in _LOCKED_SLOT_OWNERSHIPS:
+                if name in host_context:
+                    payload[name] = deepcopy(host_context[name])
+        command: dict[str, Any] = {
+            "kind": "resolver-invocation",
+            "phase": "resolve",
+            "payload": payload,
+        }
+        if isinstance(implementation, dict):
+            command["kind"] = str(implementation.get("kind") or command["kind"])
+            command["phase"] = str(implementation.get("phase") or command["phase"])
+        capability_ref = str(capability.get("node_id"))
+        rule_refs = self._rules_for(decision_ref)
+        effects = self._effects_for(decision_ref)
+        pending_choices = self._pending_choices_for(decision_ref)
+        continuations = self._continuations_for(decision_ref)
+        effect_visibility = "public"
+        for effect_id in effects:
+            effect = self._nodes.get(effect_id)
+            vis = (effect.get("properties") or {}).get("visibility") or (effect or {}).get("visibility")
+            if vis in {"keeper-only", "concealed-result"}:
+                effect_visibility = str(vis)
+                break
+        plan = _freeze({
+            "schema_version": self.SCHEMA_VERSION,
+            "decision_ref": decision_ref,
+            "family": family,
+            "capability": {
+                "ref": capability_ref,
+                "adapter": capability_props.get("adapter") or "resolver",
+                "resolver_capability": resolver_capability,
+            },
+            "command": command,
+            "rule_refs": rule_refs,
+            "source_refs": self._source_refs_for(rule_refs),
+            "resource_effects": effects,
+            "visibility": effect_visibility,
+            "pending_choices": pending_choices,
+            "next_decisions": continuations,
+        })
+        return {"plan": plan, "failure": None}
+
+    def settle(
+        self,
+        selected: Mapping[str, Any],
+        decision_id: str,
+        card_grant: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Compile one selected decision (spec §8.6 steps 1-5; no execution).
+
+        ``card_grant`` is machine-attached: the host passes the exact grant
+        object ``context()`` issued.  A missing, forged, stale, or
+        non-covering grant fails closed with ``rule_decision_stale`` before
+        any compile work (spec §8.5/§8.6/§15)."""
+        if not isinstance(selected, Mapping):
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "status": "invalid_decision_selection",
+                "failure": {"code": "invalid_decision_selection",
+                             "message": "selected decision must be an object"},
+            }
+        decision_ref = selected.get("decision_ref")
+        semantic_inputs = selected.get("semantic_inputs")
+        if not isinstance(decision_ref, str) or not decision_ref:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "status": "no_candidate_in_compiled_scope",
+                "failure": {"code": "no_candidate_in_compiled_scope",
+                            "message": "a semantic decision_ref is required"},
+            }
+        # Fail-closed card-grant gate: never-projected and forged/stale
+        # decision refs cannot reach compilation (spec §8.6 step 2).
+        stale = self._check_card_grant(card_grant, decision_ref)
+        if stale is not None:
+            stale["decision_id"] = decision_id
+            return stale
+        if not isinstance(semantic_inputs, Mapping):
+            semantic_inputs = {}
+        # Fail closed when the model supplies a host-locked field directly.
+        node = self._nodes.get(decision_ref)
+        if node is not None:
+            locked_names = {
+                slot["name"] for slot in self._slots_for(decision_ref)
+                if slot["ownership"] in _LOCKED_SLOT_OWNERSHIPS
+            }
+            overlap = sorted(set(semantic_inputs) & locked_names)
+            if overlap:
+                return {
+                    "schema_version": self.SCHEMA_VERSION,
+                    "decision_ref": decision_ref,
+                    "family": (node.get("properties") or {}).get("family_id") or "",
+                    "status": "locked_input_override",
+                    "failure": {
+                        "code": "locked_input_override",
+                        "message": "model-supplied host-locked inputs are rejected",
+                        "fields": overlap,
+                    },
+                }
+        result = self._compile_plan(decision_ref, semantic_inputs)
+        if result["failure"] is not None:
+            failure = result["failure"]
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": decision_ref,
+                "decision_id": decision_id,
+                "family": failure.get("family")
+                or (node.get("properties") or {}).get("family_id") or "",
+                "status": failure["code"],
+                "failure": failure,
+            }
+        plan = result["plan"]
+        family = plan["family"]
+        cards: list[dict[str, Any]] = []
+        facts = self._facts_provider() if self._facts_provider is not None else {}
+        for next_ref in list(plan["next_decisions"])[:8]:
+            next_node = self._nodes.get(str(next_ref))
+            if next_node is None or next_node.get("node_kind") != "decision":
+                continue
+            card = self._card(str(next_ref), facts)
+            cards.append(card)
+        cards = sorted(cards, key=lambda card: str(card["decision_ref"]))[:8]
+        return {
+            "schema_version": self.SCHEMA_VERSION,
+            "decision_ref": decision_ref,
+            "decision_id": decision_id,
+            "family": family,
+            "status": "compiled",
+            "rule_refs": list(plan["rule_refs"]),
+            "settlement": {
+                "existing_result_envelope": False,
+                "execution": "deferred-to-legacy",
+                "plan": plan,
+            },
+            "next_decisions": cards,
+            "authority": "canonical-resolver-state-receipts",
+        }
+
+
+def _scalar_type_from_guess(name: str) -> str:
+    known_bools = {"pushed", "complete_rest", "poor_environment"}
+    if name in known_bools:
+        return "bool"
+    if name in {"skill_value", "medicine_skill_value"}:
+        return "int"
+    return "scalar"
+
+
+# --------------------------------------------------------------------------- #
+# Shadow configuration (host-internal knobs; no Keeper-visible surface)
+# --------------------------------------------------------------------------- #
+def configure_shadow(
+    *,
+    ruleset_id: str,
+    family: str = "healing",
+    runtime_owner: str = "shadow",
+    graph: dict[str, Any] | None = None,
+    graph_manifest: dict[str, Any] | None = None,
+    log_path: Path | str | None = None,
+    rulesets_root_path: Path | str | None = None,
+) -> None:
+    """Arm the shadow comparator for tests/host integration.
+
+    Production defaults are a no-op (every family is legacy/visible), so this
+    is only called by tests and by an explicit R2-phase-2 host integration.
+
+    ``rulesets_root_path`` pins package discovery when the configured owner is
+    ``legacy`` (the production path re-resolves ownership from the package).
+    Omit it to use the installed rulesets root; pass an isolated root in tests
+    so they never implicitly pick up the ambient coc7 graph.
+    """
+    global _SHADOW_CONFIG
+    _SHADOW_CONFIG = {
+        "ruleset_id": ruleset_id,
+        "family": family,
+        "runtime_owner": runtime_owner,
+        "graph": graph,
+        "graph_manifest": graph_manifest,
+        "log_path": str(log_path) if log_path is not None else None,
+        "rulesets_root_path": (
+            str(rulesets_root_path) if rulesets_root_path is not None else None
+        ),
+    }
+
+
+def reset_shadow_config() -> None:
+    global _SHADOW_CONFIG
+    _SHADOW_CONFIG = None
+
+
+def get_shadow_config() -> dict[str, Any] | None:
+    if _SHADOW_CONFIG is None:
+        return None
+    return deepcopy(_SHADOW_CONFIG)
+
+
+def _current_shadow_log_path(explicit: Path | str | None = None) -> Path:
+    if explicit is not None:
+        return Path(explicit)
+    env = os.environ.get(SHADOW_LOG_ENV)
+    if env:
+        return Path(env)
+    return DEFAULT_SHADOW_LOG_PATH
+
+
+def _append_shadow_row(row: dict[str, Any], log_path: Path | None = None) -> None:
+    try:
+        path = _current_shadow_log_path(log_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+    except OSError:
+        # The shadow log is opportunistic evidence; never fail the caller.
+        pass
+
+
+# --------------------------------------------------------------------------- #
+# Shadow comparator (spec §14.1)
+# --------------------------------------------------------------------------- #
+def _decision_ref_for_healing(
+    runtime: RulesRuntime,
+    tool_name: str,
+    payload: Mapping[str, Any],
+) -> str | None:
+    """Resolve the graph counterpart decision for one healing legacy op."""
+    if tool_name not in _HEALING_TOOLS:
+        return None
+    for node in runtime.decision_nodes("healing"):
+        implementation = (node.get("properties") or {}).get("implementation")
+        if not isinstance(implementation, dict):
+            continue
+        kind = implementation.get("kind")
+        constants = implementation.get("payload_constants") or {}
+        method = constants.get("method")
+        clock = constants.get("clock_kind") or payload.get("clock_kind")
+        matches = False
+        if tool_name == "rules.first_aid":
+            matches = kind == "stabilize" and method == "first_aid"
+        elif tool_name == "rules.medicine":
+            matches = kind == "stabilize" and method == "medicine"
+        elif tool_name == "rules.dying_check":
+            matches = kind == "dying_tick" and clock == payload.get("clock_kind")
+        elif tool_name == "rules.weekly_recovery":
+            matches = kind == "weekly_recovery"
+        if matches:
+            return str(node["node_id"])
+    return None
+
+
+# Mandatory §14.1 comparison axes that the legacy normalized request may or
+# may not be able to express.  Never a silent pass: when a side genuinely
+# lacks data for an axis, the comparator records an explicit finding.
+_LEGACY_AXIS_PATHS = {
+    "rule_refs": ("payload", "rule_refs"),
+    "resource_effects": ("payload", "resource_effects"),
+    "visibility": ("payload", "visibility"),
+    "pending_choices": ("payload", "pending_choices"),
+}
+_UNEXPRESSED = object()  # sentinel: the legacy command carries no value
+
+
+def _legacy_axis_value(legacy_command: Mapping[str, Any], axis: str) -> Any:
+    """Read one §14.1 axis from the legacy normalized command if it can
+    express it; else return ``_UNEXPRESSED``."""
+    path = _LEGACY_AXIS_PATHS.get(axis)
+    if path is None:
+        return _UNEXPRESSED
+    root = legacy_command
+    for part in path:
+        if not isinstance(root, Mapping) or part not in root:
+            return _UNEXPRESSED
+        root = root[part]
+    return deepcopy(root)
+
+
+def _compare_plan_and_legacy(
+    runtime: RulesRuntime,
+    plan: Mapping[str, Any],
+    legacy_command: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    """Exact semantic differences (plan vs legacy) and both profiles.
+
+    Every mandatory §14.1 axis is compared: capability, phase, semantic
+    inputs, locked inputs, rule refs, resource effects, visibility, and
+    pending-choice semantics.  Only runtime-owned identities
+    (command_id/roll_id/request_index/decision_id) are ignored — the host
+    reattaches them deterministically.  Where the legacy normalized command
+    genuinely cannot express an axis, the comparator records an explicit
+    ``unresolved_legacy`` difference finding (never a silent match; never a
+    false diff when both sides carry equal values).
+    """
+    differences: list[dict[str, Any]] = []
+    legacy_kind = str(legacy_command.get("kind") or "")
+    legacy_phase = str(legacy_command.get("phase") or "")
+    legacy_payload = {
+        str(key): deepcopy(value)
+        for key, value in (legacy_command.get("payload") or {}).items()
+        if str(key) not in _RUNTIME_OWNED_PAYLOAD_KEYS
+    }
+    plan_command = plan["command"]
+    plan_kind = str(plan_command.get("kind") or "")
+    plan_phase = str(plan_command.get("phase") or "")
+    plan_payload = {
+        str(key): deepcopy(value)
+        for key, value in (plan_command.get("payload") or {}).items()
+    }
+    if plan_kind != legacy_kind:
+        differences.append({
+            "axis": "capability",
+            "field": "command.kind",
+            "kind": "value_mismatch",
+            "plan": plan_kind,
+            "legacy": legacy_kind,
+        })
+    if plan_phase != legacy_phase:
+        differences.append({
+            "axis": "phase",
+            "field": "command.phase",
+            "kind": "value_mismatch",
+            "plan": plan_phase,
+            "legacy": legacy_phase,
+        })
+    slot_ownership = {
+        slot["name"]: slot["ownership"] for slot in runtime._slots_for(plan["decision_ref"])
+    }
+    all_keys = sorted(set(plan_payload) | set(legacy_payload))
+    for key in all_keys:
+        axis = "payload"
+        ownership = slot_ownership.get(key)
+        if ownership in _SEMANTIC_SLOT_OWNERSHIPS:
+            axis = "semantic_inputs"
+        elif ownership in _LOCKED_SLOT_OWNERSHIPS:
+            axis = "locked_inputs"
+        if key not in plan_payload:
+            differences.append({
+                "axis": axis,
+                "field": f"payload.{key}",
+                "kind": "extra_in_legacy",
+                "plan": None,
+                "legacy": legacy_payload[key],
+            })
+        elif key not in legacy_payload:
+            differences.append({
+                "axis": axis,
+                "field": f"payload.{key}",
+                "kind": "missing_in_legacy",
+                "plan": plan_payload[key],
+                "legacy": None,
+            })
+        elif plan_payload[key] != legacy_payload[key]:
+            differences.append({
+                "axis": axis,
+                "field": f"payload.{key}",
+                "kind": "value_mismatch",
+                "plan": plan_payload[key],
+                "legacy": legacy_payload[key],
+            })
+    plan_profile = _thaw({
+        "capability": plan["capability"],
+        "command": {"kind": plan_kind, "phase": plan_phase, "payload": plan_payload},
+        "rule_refs": list(plan["rule_refs"]),
+        "resource_effects": list(plan["resource_effects"]),
+        "visibility": plan["visibility"],
+        "pending_choices": list(plan["pending_choices"]),
+        "next_decisions": list(plan["next_decisions"]),
+    })
+    legacy_profile: dict[str, Any] = {
+        "command": {"kind": legacy_kind, "phase": legacy_phase, "payload": legacy_payload},
+        "rule_refs": None,
+        "resource_effects": None,
+        "visibility": None,
+        "pending_choices": None,
+        "next_decisions": None,
+    }
+    # Mandatory semantic axes beyond the raw command (spec §14.1).
+    for axis in ("rule_refs", "resource_effects", "visibility", "pending_choices"):
+        plan_value = _thaw(plan.get(axis))
+        legacy_value = _legacy_axis_value(legacy_command, axis)
+        if legacy_value is _UNEXPRESSED:
+            differences.append({
+                "axis": axis,
+                "field": axis,
+                "kind": "unresolved_legacy",
+                "plan": plan_value,
+                "legacy": None,
+            })
+            legacy_profile[axis] = None
+        elif plan_value != legacy_value:
+            differences.append({
+                "axis": axis,
+                "field": axis,
+                "kind": "value_mismatch",
+                "plan": plan_value,
+                "legacy": legacy_value,
+            })
+            legacy_profile[axis] = legacy_value
+        else:
+            legacy_profile[axis] = legacy_value
+    return differences, plan_profile, legacy_profile
+
+
+def maybe_shadow_compare_healing(
+    *,
+    ruleset_id: str,
+    tool_name: str,
+    decision_id: str,
+    command: Mapping[str, Any] | None = None,
+    state_path: Path | str | None = None,
+    sheet_provider: Callable[[], dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Shadow-compare one legacy healing op; NEVER raises or blocks.
+
+    Returns the log row (or None when the family is legacy-owned or the
+    config is unset).  Engage conditions:
+
+    - ``tool_name`` must be one of the four healing legacy tools;
+    - the family's runtime owner must resolve to ``shadow`` (via the
+      configured override, then the package manifest / graph manifest /
+      graph map);
+    - for a shadow-owned family, a missing/invalid/unloadable graph produces
+      one host-internal ``skipped`` row and the caller continues.
+    """
+    if tool_name not in _HEALING_TOOLS:
+        return None
+    try:
+        return _maybe_shadow_compare_healing_impl(
+            ruleset_id=ruleset_id,
+            tool_name=tool_name,
+            decision_id=decision_id,
+            command=command,
+            state_path=state_path,
+            sheet_provider=sheet_provider,
+        )
+    except Exception as exc:  # pragma: no cover - defensive boundary
+        row = {
+            "contract_id": SHADOW_LOG_CONTRACT_ID,
+            "schema_version": SHADOW_LOG_SCHEMA_VERSION,
+            "ruleset_id": ruleset_id,
+            "family": "healing",
+            "tool": tool_name,
+            "decision_id": decision_id,
+            "status": "skipped",
+            "skip_reason": "comparator_error",
+            "error": str(exc)[:300],
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+
+
+def _current_log_path_from_config() -> Path | None:
+    config = _SHADOW_CONFIG
+    if config is None:
+        return None
+    return Path(config["log_path"]) if config.get("log_path") else None
+
+
+def _maybe_shadow_compare_healing_impl(
+    *,
+    ruleset_id: str,
+    tool_name: str,
+    decision_id: str,
+    command: Mapping[str, Any] | None,
+    state_path: Path | str | None,
+    sheet_provider: Callable[[], dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    config = _SHADOW_CONFIG
+    owner, _surface = "legacy", "visible"
+    graph: dict[str, Any] | None = None
+    graph_manifest: dict[str, Any] | None = None
+    source = "package"
+    rulesets_root_path: Path | str | None = None
+    if config is not None and config.get("ruleset_id") == ruleset_id:
+        owner = str(config.get("runtime_owner") or "legacy")
+        graph = config.get("graph")
+        graph_manifest = config.get("graph_manifest")
+        source = "config"
+        rulesets_root_path = config.get("rulesets_root_path")
+    if owner == "legacy":
+        manifest = _load_manifest_cached(ruleset_id, rulesets_root_path)
+        loaded = None
+        if manifest is not None:
+            loaded = load_ruleset_graph(
+                ruleset_id, rulesets_root_path=rulesets_root_path,
+            )
+            if loaded["ok"]:
+                graph, graph_manifest = loaded["graph"], loaded["graph_manifest"]
+            owner, _ = resolve_family_ownership(
+                ruleset_id, "healing", manifest=manifest,
+                graph=graph, graph_manifest=graph_manifest,
+            )
+        if owner != "shadow":
+            # Legacy-owned family: no pretend graph support, no machinery.
+            return None
+    if not isinstance(command, Mapping):
+        row = _shadow_skip_row(ruleset_id, tool_name, decision_id,
+                               "no_normalized_command")
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    if graph is None or graph_manifest is None:
+        row = _shadow_skip_row(ruleset_id, tool_name, decision_id, "graph_absent")
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    sheet = None
+    if sheet_provider is not None:
+        try:
+            sheet = sheet_provider()
+        except Exception:
+            sheet = None
+    runtime: RulesRuntime | None = None
+    try:
+        runtime = RulesRuntime(
+            graph,
+            ruleset_id=ruleset_id,
+            graph_manifest=graph_manifest,
+            facts_provider=facts_from_state_closure(
+                state_path, sheet, ruleset_id=ruleset_id
+            ),
+            host_locked_provider=None,
+        )
+    except ValueError:
+        row = _shadow_skip_row(ruleset_id, tool_name, decision_id, "graph_invalid")
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    decision_ref = _decision_ref_for_healing(runtime, tool_name, command.get("payload") or {})
+    if decision_ref is None:
+        row = _shadow_skip_row(ruleset_id, tool_name, decision_id,
+                               "no_matching_decision", differences=[{
+                                   "axis": "decision_ref",
+                                   "field": "decision_ref",
+                                   "kind": "missing_in_graph",
+                                   "plan": None,
+                                   "legacy": tool_name,
+                               }])
+        row["status"] = "mismatch"
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    facts = _facts_from_state_file(Path(state_path), sheet, ruleset_id=ruleset_id) if state_path is not None \
+        else facts_from_state(None, sheet, ruleset_id=ruleset_id)
+    slot_ownership = {
+        slot["name"]: slot["ownership"] for slot in runtime._slots_for(decision_ref)
+    }
+    payload = {
+        str(key): deepcopy(value)
+        for key, value in (command.get("payload") or {}).items()
+        if str(key) not in _RUNTIME_OWNED_PAYLOAD_KEYS
+    }
+    semantic_inputs: dict[str, Any] = {}
+    host_locked: dict[str, Any] = {}
+    for key, value in payload.items():
+        ownership = slot_ownership.get(key)
+        if ownership in _SEMANTIC_SLOT_OWNERSHIPS:
+            semantic_inputs[key] = value
+        elif ownership in _LOCKED_SLOT_OWNERSHIPS:
+            host_locked[key] = value
+    result = runtime._compile_plan(
+        decision_ref, semantic_inputs, facts=facts, host_locked=host_locked
+    )
+    if result["failure"] is not None:
+        failure = result["failure"]
+        row = _shadow_skip_row(ruleset_id, tool_name, decision_id,
+                               "not_applicable", differences=[{
+                                   "axis": "applicability",
+                                   "field": failure.get("code", "condition"),
+                                   "kind": "applicability_drift",
+                                   "plan": "not_applicable",
+                                   "legacy": "executing",
+                                   "message": failure.get("message"),
+                                   "missing": failure.get("missing"),
+                               }])
+        row["status"] = "mismatch"
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    plan = result["plan"]
+    differences, plan_profile, legacy_profile = _compare_plan_and_legacy(runtime, plan, command)
+    row = {
+        "contract_id": SHADOW_LOG_CONTRACT_ID,
+        "schema_version": SHADOW_LOG_SCHEMA_VERSION,
+        "ruleset_id": ruleset_id,
+        "family": "healing",
+        "tool": tool_name,
+        "decision_id": decision_id,
+        "decision_ref": decision_ref,
+        "status": "match" if not differences else "mismatch",
+        "skip_reason": None,
+        "differences": differences,
+        "plan_profile": plan_profile,
+        "legacy_profile": legacy_profile,
+        "graph_content_digest": _json_digest(graph),
+    }
+    _append_shadow_row(row, _current_log_path_from_config())
+    return row
+
+
+def _shadow_skip_row(
+    ruleset_id: str,
+    tool_name: str,
+    decision_id: str,
+    skip_reason: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "contract_id": SHADOW_LOG_CONTRACT_ID,
+        "schema_version": SHADOW_LOG_SCHEMA_VERSION,
+        "ruleset_id": ruleset_id,
+        "family": "healing",
+        "tool": tool_name,
+        "decision_id": decision_id,
+        "status": "skipped",
+        "skip_reason": skip_reason,
+    }
+    row.update(extra)
+    return row
+
+
+def facts_from_state_closure(
+    state_path: Path | str | None,
+    sheet: dict[str, Any] | None,
+    *,
+    ruleset_id: str,
+) -> Callable[[], Mapping[str, Any]]:
+    """Build a facts provider that lazily reads the investigator state file.
+
+    Read-only: unlike ``Ctx.inv_state`` this never seeds/mutates state.
+    """
+    def provider() -> Mapping[str, Any]:
+        return _facts_from_state_file(Path(state_path), sheet, ruleset_id=ruleset_id)
+    return provider
+
+
+def _facts_from_state_file(
+    path: Path,
+    sheet: dict[str, Any] | None,
+    *,
+    ruleset_id: str,
+) -> dict[str, Any]:
+    state = None
+    try:
+        if path is not None and path.is_file():
+            state = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(state, dict):
+                state = None
+    except (OSError, json.JSONDecodeError):
+        state = None
+    return facts_from_state(state, sheet, ruleset_id=ruleset_id)

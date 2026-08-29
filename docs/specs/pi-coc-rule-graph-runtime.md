@@ -1429,6 +1429,63 @@ These sources validate the separation of responsibilities, not a storage or
 dependency choice. Pi-Coc V1 remains local JSON plus current Python/TypeScript
 runtime code.
 
+### 21.1 Further notes and future candidates
+
+On 2026-08-29 an external technology-comparison review (RDF/OWL versus
+Datalog, Prolog, ASP, production rules, DMN, state machines, and property
+graphs) was discussed. Its main recommendation — a custom Rule Graph IR with
+backends deferred — matches this specification's existing architecture. V1
+stays validated JSON with no graph database, per §16.
+
+These notes record two future candidates and four rejected alternatives so
+they are not relitigated. They are **not authorized** by any current slice
+and do not change the V1 contract, compiler, runtime, or storage.
+
+#### Future candidate A — five-kind extraction scaffold
+
+When extraction scope widens beyond healing (R4+), the extractor (§6.2)
+SHOULD classify each extracted rule into exactly one of five templates and
+fill that template's structure:
+
+- **Classification** — is-a, catalog;
+- **Derivation** — if-and-then inference;
+- **Decision** — input→outcome table;
+- **Formula** — computation;
+- **Transition** — state change on event.
+
+This is an extraction-packet guidance and `accept()`-lint concern, **not** a
+parallel type system in the graph ontology (§7.1). The rationale is a lower
+model extraction error rate versus free-form node authoring. It is not
+authorized by any current slice; it requires its own authorization.
+
+#### Future candidate B — applicability trace projection and graph-generated oracle tests
+
+Cards already carry `rule_refs` / `source_refs`. Two further projections are
+recorded as future candidates:
+
+- a compact "why applicable" condition-evaluation trace for Keeper/audit
+  surfaces;
+- generating per-rule oracle tests from the graph as a §19 matrix extension.
+
+Neither is authorized by any current slice.
+
+#### Rejected alternatives
+
+Recorded so they are not relitigated:
+
+- **(a) Formula ASTs inside the graph.** Rejected by §4.2: arithmetic
+  authority stays in resolver code; the graph names the capability plus its
+  required inputs. A formula-bearing graph is a second execution engine and
+  is hollow delivery under §1.
+- **(b) ASP-style default negation for exceptions.** Rejected in favor of
+  explicit source-bound `overrides` / `supersedes` / `forbids` relations
+  (§7.2), for auditability and the semantic-matcher constitution.
+- **(c) Rete-style runtime activation.** Current prebuilt indexes plus
+  per-family bounded evaluation suffice at V1 scale (§16).
+- **(d) Graph database / TypeDB / RDF store backends.** Deferred per §16
+  until measured need. A future storage Adapter must not change the
+  RulesRuntime interface or authority semantics.
+
 ---
 
 ## 22. Acceptance verdict for this specification
@@ -1470,5 +1527,6 @@ Changes to the 2026-08-29 original, and why:
 18. **In-scope/out-of-scope and authority text** left materially unchanged where the original remained true. Reason: preserve all content that remains correct.
 19. **Follow-up patch (2026-08-29):** header Prototype evidence, §18 R0, and §20 opening recharacterized from “artifacts absent” to “artifacts recovered uncommitted in sibling worktree `chatrpgv4-wt-rule-graph-prototype-20260829` at `plugins/coc-keeper/pi/prototypes/rule-graph/`, based on `0.7.1a@43552e2c`; external evidence, not committed.” `VERDICT.md` claims (30/38/7; 6+42+2 green at prototype time; J1 floor-vs-ceiling drift) recorded as independently readable. Prototype is not imported (throwaway by its own README); R1 still rebuilds key claims as committed in-repo evidence; final worktree disposition is the user's call at closeout. §20 baseline-failure FIX note unchanged. Reason: Boss-verified recovery of uncommitted prototype artifacts after the first revision.
 20. **Follow-up patch — §13 receipt-store wording.** Clarified that the RuleGraph build-evidence root (§6.4) is compile-time acceptance evidence owned by the compiler, not a settlement receipt store; RuleGraph still introduces no new runtime receipt store, and canonical roll/source/state receipts remain the only settlement evidence. Reason: final review found a wording collision between §13 “no new receipt store” and the persisted compile-time acceptance store.
+21. **Follow-up patch — §21.1 further notes and future candidates.** Recorded the 2026-08-29 external technology-comparison review: verdict matches this spec’s custom Rule Graph IR with backends deferred (V1 validated JSON, no graph database, §16); future candidate A (five-kind extraction scaffold at R4+ as extraction-packet/`accept()`-lint guidance, not a parallel ontology); future candidate B (applicability-trace projection and graph-generated oracle tests as a §19 matrix extension); rejected alternatives (formula ASTs, ASP default negation, Rete activation, graph-database backends). A and B are not authorized by any current slice. Reason: user-approved addition after the technology-comparison review.
 
 Reconstruction judgment calls: (a) the exact original prose for the R1/R0 sub-headings and the §8.3 exact-discovery addendum was not preserved verbatim in the brief, so I re-wrote them as clean specification prose preserving the MUST/MUST NOT/SHOULD/MAY semantics; (b) the §8.5 deferred design paragraph was kept intact (verbatim from the original) and only its framing/status paragraph was changed, so the binding semantics the original described are preserved as the deferred design; (c) I anchored §8.3's exact-discovery requirement to the existing `coc_discover`/`setActiveTools`/`pi-coc-tool-affordance-and-bounded-recovery.md` pattern because that is the actual exact-operation enforcement machinery recon located.

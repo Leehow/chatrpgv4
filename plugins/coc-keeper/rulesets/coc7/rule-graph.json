@@ -1,0 +1,1391 @@
+{
+  "contract_id": "coc.rule-graph.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "source_language": "en",
+  "nodes": [
+    {
+      "node_id": "capability:coc7:dying-check",
+      "node_kind": "capability",
+      "name": "dying_check",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "resolver_capability": "dying_check",
+        "adapter": "subsystem-command"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-55",
+        "span-wounds-and-healing-page-131-block-56"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:first-aid",
+      "node_kind": "capability",
+      "name": "first_aid",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "resolver_capability": "first_aid",
+        "adapter": "subsystem-command"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:medicine",
+      "node_kind": "capability",
+      "name": "medicine",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "resolver_capability": "medicine",
+        "adapter": "subsystem-command"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-52"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:weekly-recovery",
+      "node_kind": "capability",
+      "name": "weekly_recovery",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "resolver_capability": "weekly_recovery",
+        "adapter": "subsystem-command"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-63"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:healing:dying-stabilized",
+      "node_kind": "condition",
+      "name": "Dying with the temporary First Aid hit point (hour clock due)",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": true,
+      "properties": {
+        "family_id": "healing",
+        "expression": {
+          "op": "all",
+          "of": [
+            {
+              "op": "exists",
+              "path": "actor.conditions.dying"
+            },
+            {
+              "op": "gt",
+              "path": "actor.resources.hp",
+              "value": 0
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-56",
+        "span-wounds-and-healing-page-132-block-57"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:healing:dying-unstabilized",
+      "node_kind": "condition",
+      "name": "Dying at zero hit points, not yet First-Aid stabilized",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": true,
+      "properties": {
+        "family_id": "healing",
+        "expression": {
+          "op": "all",
+          "of": [
+            {
+              "op": "exists",
+              "path": "actor.conditions.dying"
+            },
+            {
+              "op": "eq",
+              "path": "actor.resources.hp",
+              "value": 0
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-54",
+        "span-wounds-and-healing-page-131-block-55"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:healing:first-aid-ordinary-eligible",
+      "node_kind": "condition",
+      "name": "Not dying (ordinary First Aid branch; within-one-hour window is a Keeper judgment)",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "expression": {
+          "op": "not",
+          "of": {
+            "op": "exists",
+            "path": "actor.conditions.dying"
+          }
+        }
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:healing:major-wound-not-dying",
+      "node_kind": "condition",
+      "name": "Major wound marker ticked and the character is not dying",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "expression": {
+          "op": "all",
+          "of": [
+            {
+              "op": "exists",
+              "path": "actor.conditions.major_wound"
+            },
+            {
+              "op": "not",
+              "of": {
+                "op": "exists",
+                "path": "actor.conditions.dying"
+              }
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-63",
+        "span-wounds-and-healing-page-132-block-71"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:healing:medicine-ordinary-eligible",
+      "node_kind": "condition",
+      "name": "Not dying (ordinary Medicine branch; same-day timing is host-derived from authoritative wound time and campaign clock)",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "expression": {
+          "op": "not",
+          "of": {
+            "op": "exists",
+            "path": "actor.conditions.dying"
+          }
+        }
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-52"
+      ]
+    },
+    {
+      "node_id": "continuation:coc7:healing:first-aid-to-medicine",
+      "node_kind": "continuation",
+      "name": "A First-Aid-stabilized dying character must next be stabilized with Medicine",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-56"
+      ]
+    },
+    {
+      "node_id": "continuation:coc7:healing:hour-clock-revert",
+      "node_kind": "continuation",
+      "name": "Failure on the hourly CON roll drops the temporary hit point and reverts to the round clock",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-56"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:healing:dying-hour-clock",
+      "node_kind": "decision",
+      "name": "Resolve the First-Aid-stabilized dying hour clock",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "implementation": {
+          "adapter": "subsystem-command",
+          "kind": "dying_tick",
+          "phase": "resolve",
+          "payload_constants": {
+            "clock_kind": "hour"
+          },
+          "payload_slots": []
+        }
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-56"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:healing:dying-round-clock",
+      "node_kind": "decision",
+      "name": "Resolve the unstabilized dying round clock",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "implementation": {
+          "adapter": "subsystem-command",
+          "kind": "dying_tick",
+          "phase": "resolve",
+          "payload_constants": {
+            "clock_kind": "round"
+          },
+          "payload_slots": []
+        }
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-55"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:healing:first-aid-ordinary",
+      "node_kind": "decision",
+      "name": "Administer First Aid to a non-dying injured character",
+      "authority": "mixed",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "implementation": {
+          "adapter": "subsystem-command",
+          "kind": "stabilize",
+          "phase": "resolve",
+          "payload_constants": {
+            "method": "first_aid"
+          },
+          "payload_slots": [
+            {
+              "name": "skill_value",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "rescuer_id",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "pushed",
+              "ownership": "host-locked"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:healing:first-aid-stabilization",
+      "node_kind": "decision",
+      "name": "Temporarily stabilize a dying character with First Aid",
+      "authority": "mixed",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "implementation": {
+          "adapter": "subsystem-command",
+          "kind": "stabilize",
+          "phase": "resolve",
+          "payload_constants": {
+            "method": "first_aid"
+          },
+          "payload_slots": [
+            {
+              "name": "skill_value",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "rescuer_id",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "pushed",
+              "ownership": "host-locked"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49",
+        "span-wounds-and-healing-page-131-block-55"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:healing:medicine-ordinary",
+      "node_kind": "decision",
+      "name": "Administer Medicine to a non-dying injured character",
+      "authority": "mixed",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "implementation": {
+          "adapter": "subsystem-command",
+          "kind": "stabilize",
+          "phase": "resolve",
+          "payload_constants": {
+            "method": "medicine"
+          },
+          "payload_slots": [
+            {
+              "name": "skill_value",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "rescuer_id",
+              "ownership": "host-locked"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-52"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:healing:medicine-stabilization",
+      "node_kind": "decision",
+      "name": "Stabilize a First-Aid-stabilized dying character with Medicine",
+      "authority": "mixed",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "implementation": {
+          "adapter": "subsystem-command",
+          "kind": "stabilize",
+          "phase": "resolve",
+          "payload_constants": {
+            "method": "medicine"
+          },
+          "payload_slots": [
+            {
+              "name": "skill_value",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "rescuer_id",
+              "ownership": "host-locked"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-52",
+        "span-wounds-and-healing-page-132-block-57"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:healing:weekly-major-wound-recovery",
+      "node_kind": "decision",
+      "name": "Resolve the weekly major-wound recovery roll",
+      "authority": "mixed",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "implementation": {
+          "adapter": "subsystem-command",
+          "kind": "weekly_recovery",
+          "phase": "resolve",
+          "payload_constants": {},
+          "payload_slots": [
+            {
+              "name": "complete_rest",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "poor_environment",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "medicine_skill_value",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "caregiver_id",
+              "ownership": "host-locked"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-63",
+        "span-wounds-and-healing-page-132-block-66",
+        "span-wounds-and-healing-page-132-block-69",
+        "span-wounds-and-healing-page-132-block-70"
+      ]
+    },
+    {
+      "node_id": "exception:coc7:healing:first-aid-teamwork-uncompiled",
+      "node_kind": "exception",
+      "name": "Source allows two people to work together (either roll succeeding); the current first_aid command is a single skill_value and rescuer_id",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "node_id": "exception:coc7:healing:first-aid-window-uncompiled",
+      "node_kind": "exception",
+      "name": "Source requires First Aid within one hour; the current first_aid command has no timing payload and the executor does not compile that window",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "node_id": "exception:coc7:healing:weekly-fumble-injury",
+      "node_kind": "exception",
+      "name": "A fumble on the weekly recovery roll causes a lasting injury, complication, or worse, chosen by the Keeper from the nature of the injuries",
+      "authority": "keeper-semantic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-72"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:healing:caregiver-id",
+      "node_kind": "input-slot",
+      "name": "Resolved caregiver identity, when effective care is present",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "ownership": "host-locked",
+        "value_type": "string",
+        "path": "actor.id"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-69"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:healing:complete-rest",
+      "node_kind": "input-slot",
+      "name": "Whether the character has complete rest in a comfortable environment this week",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "ownership": "keeper-semantic",
+        "value_type": "bool",
+        "path": "intent.complete_rest"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-66"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:healing:first-aid-pushed",
+      "node_kind": "input-slot",
+      "name": "Pushed First Aid flag, derived from a prior attempt in the same wound/day scope",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "ownership": "host-locked",
+        "value_type": "bool",
+        "path": "intent.pushed"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:healing:first-aid-skill",
+      "node_kind": "input-slot",
+      "name": "First Aid skill value (investigator sheet)",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "ownership": "host-locked",
+        "value_type": "int",
+        "path": "actor.sheet.first_aid"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:healing:medicine-caregiver-skill",
+      "node_kind": "input-slot",
+      "name": "Effective-care caregiver Medicine skill value (sheet), when care is present",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "ownership": "host-locked",
+        "value_type": "int",
+        "path": "actor.sheet.medicine"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-69"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:healing:medicine-skill",
+      "node_kind": "input-slot",
+      "name": "Medicine skill value (investigator sheet)",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "ownership": "host-locked",
+        "value_type": "int",
+        "path": "actor.sheet.medicine"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-52"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:healing:poor-environment",
+      "node_kind": "input-slot",
+      "name": "Whether the environment is poor and rest is insufficient this week",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "ownership": "keeper-semantic",
+        "value_type": "bool",
+        "path": "intent.poor_environment"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-70"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:healing:rescuer-id",
+      "node_kind": "input-slot",
+      "name": "Resolved rescuer identity",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "ownership": "host-locked",
+        "value_type": "string",
+        "path": "actor.id"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49",
+        "span-wounds-and-healing-page-131-block-52"
+      ]
+    },
+    {
+      "node_id": "resource:coc7:hp",
+      "node_kind": "resource",
+      "name": "Hit points",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "resource_key": "hp"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-130-block-6"
+      ]
+    },
+    {
+      "node_id": "rule-family:coc7:healing",
+      "node_kind": "rule-family",
+      "name": "Wounds and Healing",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "runtime_ownership": "legacy",
+        "legacy_surface": "visible"
+      }
+    },
+    {
+      "node_id": "rule:coc7:healing:dying-clocks",
+      "node_kind": "rule",
+      "name": "Unstabilized dying: CON at the end of the next round and every round, failure is death; only First Aid can stabilize. Stabilized dying: CON each hour; failure loses the temporary HP and reverts to the round clock",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-55",
+        "span-wounds-and-healing-page-131-block-56"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:healing:dying-entry",
+      "node_kind": "rule",
+      "name": "0 HP plus Major Wound ticked is dying: record HP 0 and check the dying box",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-54",
+        "span-wounds-and-healing-page-131-block-46",
+        "span-wounds-and-healing-page-131-block-42",
+        "span-wounds-and-healing-page-131-block-38"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:healing:first-aid",
+      "node_kind": "rule",
+      "name": "First Aid within one hour grants 1 HP; may be attempted once, later attempts are Pushed; two people may work together (either success); on a dying patient it only temporarily stabilizes (+1 temporary HP, followed by Medicine)",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49",
+        "span-wounds-and-healing-page-131-block-48",
+        "span-wounds-and-healing-page-131-block-55",
+        "span-wounds-and-healing-page-131-block-56"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:healing:instant-death",
+      "node_kind": "rule",
+      "name": "A single attack dealing more than maximum HP kills outright",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-130-block-12",
+        "span-wounds-and-healing-page-131-block-47"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:healing:major-wound-clearing",
+      "node_kind": "rule",
+      "name": "The Major Wound marker is erased by an Extreme recovery roll, or any time current HP has recovered to half or more of maximum HP",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-71"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:healing:major-wound-effects",
+      "node_kind": "rule",
+      "name": "On a Major Wound: tick the box, fall prone, make a CON roll to stay conscious; 0 HP while ticked means dying",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-34",
+        "span-wounds-and-healing-page-131-block-35",
+        "span-wounds-and-healing-page-131-block-36",
+        "span-wounds-and-healing-page-131-block-37",
+        "span-wounds-and-healing-page-131-block-38",
+        "span-wounds-and-healing-page-131-block-46"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:healing:major-wound-threshold",
+      "node_kind": "rule",
+      "name": "A single attack dealing half or more of maximum HP is a Major Wound (rounded up)",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "computed_threshold": {
+          "id": "ceiling-half-major-wound-threshold",
+          "source_formula": "ceiling-half",
+          "source_example": "15 hit points, damage of 8 or more is a major wound",
+          "derivative_formula": "floor-half",
+          "derivative_example": "checklist J1 uses floor(maxHP/2)"
+        }
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-130-block-6",
+        "span-wounds-and-healing-page-130-block-10",
+        "span-wounds-and-healing-page-130-block-11",
+        "span-wounds-and-healing-page-131-block-33",
+        "span-wounds-and-healing-page-131-block-39"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:healing:medicine",
+      "node_kind": "rule",
+      "name": "Medicine takes at least one hour, works any time after damage, and raises difficulty to Hard when not performed the same day; success restores 1D3 in addition to First Aid; a dying character needs successful First Aid before Medicine can stabilize",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-52",
+        "span-wounds-and-healing-page-132-block-57"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:healing:regular-damage-recovery",
+      "node_kind": "rule",
+      "name": "Without a Major Wound ticked, recover 1 HP per day",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-59",
+        "span-wounds-and-healing-page-132-block-60"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:healing:weekly-recovery",
+      "node_kind": "rule",
+      "name": "While the Major Wound box is ticked, make a CON recovery roll at the end of each week: fail = no recovery, success = 1D3, Extreme = 2D3 and erase the marker; bonus die for complete rest in a comfortable environment; bonus die for effective medical care (caregiver Medicine roll first); penalty die for poor environment/insufficient rest or a caregiver Medicine fumble; a fumble creates a lasting injury/complication",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-63",
+        "span-wounds-and-healing-page-132-block-64",
+        "span-wounds-and-healing-page-132-block-65",
+        "span-wounds-and-healing-page-132-block-66",
+        "span-wounds-and-healing-page-132-block-69",
+        "span-wounds-and-healing-page-132-block-70",
+        "span-wounds-and-healing-page-132-block-72",
+        "span-wounds-and-healing-page-132-block-71"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:healing:zero-hit-points",
+      "node_kind": "rule",
+      "name": "No negative HP; 0 HP is unconscious; further damage ignored but a sincere kill attempt succeeds; regular damage cannot kill at 0 HP",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-42",
+        "span-wounds-and-healing-page-131-block-43",
+        "span-wounds-and-healing-page-131-block-44",
+        "span-wounds-and-healing-page-131-block-45",
+        "span-wounds-and-healing-page-130-block-14"
+      ]
+    },
+    {
+      "node_id": "subsystem:coc7:healing",
+      "node_kind": "subsystem",
+      "name": "Healing subsystem",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "subsystem_kind": "healing"
+      }
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "relation:coc7:healing:clearing-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:healing:major-wound-clearing",
+      "to_node_id": "rule-family:coc7:healing"
+    },
+    {
+      "relation_id": "relation:coc7:healing:clocks-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:healing:dying-clocks",
+      "to_node_id": "rule-family:coc7:healing"
+    },
+    {
+      "relation_id": "relation:coc7:healing:dying-entry-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:healing:dying-entry",
+      "to_node_id": "rule-family:coc7:healing"
+    },
+    {
+      "relation_id": "relation:coc7:healing:effects-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:healing:major-wound-effects",
+      "to_node_id": "rule-family:coc7:healing"
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-ordinary-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "to_node_id": "condition:coc7:healing:first-aid-ordinary-eligible",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-ordinary-implemented",
+      "relation_kind": "implemented-by",
+      "from_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "to_node_id": "subsystem:coc7:healing"
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-ordinary-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "to_node_id": "capability:coc7:first-aid",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-ordinary-mutates",
+      "relation_kind": "mutates-resource",
+      "from_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "to_node_id": "resource:coc7:hp",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-ordinary-requires-pushed",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "to_node_id": "input-slot:coc7:healing:first-aid-pushed",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-ordinary-requires-rescuer",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "to_node_id": "input-slot:coc7:healing:rescuer-id",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-ordinary-requires-skill",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "to_node_id": "input-slot:coc7:healing:first-aid-skill",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-stab-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "condition:coc7:healing:dying-unstabilized",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-stab-continues-hour",
+      "relation_kind": "continues-as",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "decision:coc7:healing:dying-hour-clock",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-56"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-stab-continues-medicine",
+      "relation_kind": "continues-as",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "continuation:coc7:healing:first-aid-to-medicine",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-56"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-stab-implemented",
+      "relation_kind": "implemented-by",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "subsystem:coc7:healing"
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-stab-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "capability:coc7:first-aid",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-stab-requires-pushed",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "input-slot:coc7:healing:first-aid-pushed",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-stab-requires-rescuer",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "input-slot:coc7:healing:rescuer-id",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-stab-requires-skill",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "input-slot:coc7:healing:first-aid-skill",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-teamwork-uncompiled-applies",
+      "relation_kind": "applies-to",
+      "from_node_id": "exception:coc7:healing:first-aid-teamwork-uncompiled",
+      "to_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-window-uncompiled-applies",
+      "relation_kind": "applies-to",
+      "from_node_id": "exception:coc7:healing:first-aid-window-uncompiled",
+      "to_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-49"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:first-aid-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:healing:first-aid",
+      "to_node_id": "rule-family:coc7:healing"
+    },
+    {
+      "relation_id": "relation:coc7:healing:hour-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:healing:dying-hour-clock",
+      "to_node_id": "condition:coc7:healing:dying-stabilized",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-56"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:hour-continues-revert",
+      "relation_kind": "continues-as",
+      "from_node_id": "decision:coc7:healing:dying-hour-clock",
+      "to_node_id": "continuation:coc7:healing:hour-clock-revert",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-56"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:hour-implemented",
+      "relation_kind": "implemented-by",
+      "from_node_id": "decision:coc7:healing:dying-hour-clock",
+      "to_node_id": "subsystem:coc7:healing"
+    },
+    {
+      "relation_id": "relation:coc7:healing:hour-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:healing:dying-hour-clock",
+      "to_node_id": "capability:coc7:dying-check",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-56"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:med-ordinary-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:healing:medicine-ordinary",
+      "to_node_id": "condition:coc7:healing:medicine-ordinary-eligible",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-52"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:med-ordinary-implemented",
+      "relation_kind": "implemented-by",
+      "from_node_id": "decision:coc7:healing:medicine-ordinary",
+      "to_node_id": "subsystem:coc7:healing"
+    },
+    {
+      "relation_id": "relation:coc7:healing:med-ordinary-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:healing:medicine-ordinary",
+      "to_node_id": "capability:coc7:medicine",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-52"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:med-ordinary-mutates",
+      "relation_kind": "mutates-resource",
+      "from_node_id": "decision:coc7:healing:medicine-ordinary",
+      "to_node_id": "resource:coc7:hp",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-52"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:med-ordinary-requires-rescuer",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:medicine-ordinary",
+      "to_node_id": "input-slot:coc7:healing:rescuer-id",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-52"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:med-ordinary-requires-skill",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:medicine-ordinary",
+      "to_node_id": "input-slot:coc7:healing:medicine-skill",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-52"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:med-stab-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:healing:medicine-stabilization",
+      "to_node_id": "condition:coc7:healing:dying-stabilized",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-57"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:med-stab-implemented",
+      "relation_kind": "implemented-by",
+      "from_node_id": "decision:coc7:healing:medicine-stabilization",
+      "to_node_id": "subsystem:coc7:healing"
+    },
+    {
+      "relation_id": "relation:coc7:healing:med-stab-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:healing:medicine-stabilization",
+      "to_node_id": "capability:coc7:medicine",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-52"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:med-stab-mutates",
+      "relation_kind": "mutates-resource",
+      "from_node_id": "decision:coc7:healing:medicine-stabilization",
+      "to_node_id": "resource:coc7:hp",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-57"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:med-stab-requires-rescuer",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:medicine-stabilization",
+      "to_node_id": "input-slot:coc7:healing:rescuer-id",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-52"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:med-stab-requires-skill",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:medicine-stabilization",
+      "to_node_id": "input-slot:coc7:healing:medicine-skill",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-52"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:medicine-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:healing:medicine",
+      "to_node_id": "rule-family:coc7:healing"
+    },
+    {
+      "relation_id": "relation:coc7:healing:regular-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:healing:regular-damage-recovery",
+      "to_node_id": "rule-family:coc7:healing"
+    },
+    {
+      "relation_id": "relation:coc7:healing:round-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:healing:dying-round-clock",
+      "to_node_id": "condition:coc7:healing:dying-unstabilized",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:round-implemented",
+      "relation_kind": "implemented-by",
+      "from_node_id": "decision:coc7:healing:dying-round-clock",
+      "to_node_id": "subsystem:coc7:healing"
+    },
+    {
+      "relation_id": "relation:coc7:healing:round-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:healing:dying-round-clock",
+      "to_node_id": "capability:coc7:dying-check",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:threshold-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:healing:major-wound-threshold",
+      "to_node_id": "rule-family:coc7:healing"
+    },
+    {
+      "relation_id": "relation:coc7:healing:weekly-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
+      "to_node_id": "condition:coc7:healing:major-wound-not-dying",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-63"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:weekly-fumble-applies",
+      "relation_kind": "applies-to",
+      "from_node_id": "exception:coc7:healing:weekly-fumble-injury",
+      "to_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-72"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:weekly-implemented",
+      "relation_kind": "implemented-by",
+      "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
+      "to_node_id": "subsystem:coc7:healing"
+    },
+    {
+      "relation_id": "relation:coc7:healing:weekly-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
+      "to_node_id": "capability:coc7:weekly-recovery",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-63"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:weekly-mutates",
+      "relation_kind": "mutates-resource",
+      "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
+      "to_node_id": "resource:coc7:hp",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-63"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:weekly-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:healing:weekly-recovery",
+      "to_node_id": "rule-family:coc7:healing"
+    },
+    {
+      "relation_id": "relation:coc7:healing:weekly-requires-caregiver-id",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
+      "to_node_id": "input-slot:coc7:healing:caregiver-id",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-69"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:weekly-requires-caregiver-skill",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
+      "to_node_id": "input-slot:coc7:healing:medicine-caregiver-skill",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-69"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:weekly-requires-env",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
+      "to_node_id": "input-slot:coc7:healing:poor-environment",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-70"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:weekly-requires-rest",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
+      "to_node_id": "input-slot:coc7:healing:complete-rest",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-132-block-66"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:zero-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:healing:zero-hit-points",
+      "to_node_id": "rule-family:coc7:healing"
+    }
+  ],
+  "coverage": {
+    "chase": "unresolved",
+    "combat": "unresolved",
+    "core-check": "unresolved",
+    "development": "unresolved",
+    "healing": "accepted",
+    "magic": "unresolved",
+    "psychology": "unresolved",
+    "push-luck": "unresolved",
+    "sanity": "unresolved",
+    "social": "unresolved"
+  },
+  "family_runtime_ownership": {
+    "chase": "legacy",
+    "combat": "legacy",
+    "core-check": "legacy",
+    "development": "legacy",
+    "healing": "shadow",
+    "magic": "legacy",
+    "psychology": "legacy",
+    "push-luck": "legacy",
+    "sanity": "legacy",
+    "social": "legacy"
+  },
+  "legacy_surface_lifecycle": {
+    "chase": "visible",
+    "combat": "visible",
+    "core-check": "visible",
+    "development": "visible",
+    "healing": "visible",
+    "magic": "visible",
+    "psychology": "visible",
+    "push-luck": "visible",
+    "sanity": "visible",
+    "social": "visible"
+  }
+}

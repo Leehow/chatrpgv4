@@ -30,6 +30,8 @@ RULE_GRAPH_CONTRACT_PATH = (
     / "references"
     / "rule-graph-contract-v1.json"
 )
+_FAMILY_RUNTIME_OWNERS = {"legacy", "shadow", "graph"}
+_FAMILY_LEGACY_SURFACES = {"visible", "hidden", "removed"}
 REQUIRED_RESOLVER_ATTRS = ("check", "resource_delta", "public_api_index")
 _FRONTMATTER_KEY = re.compile(r"^([A-Za-z_]+):", re.MULTILINE)
 
@@ -188,6 +190,79 @@ def _check_skills(package_dir: Path, problems: list[str]) -> None:
                 )
 
 
+def _check_rule_families(manifest: dict | None, problems: list[str]) -> None:
+    """Validate per-family runtime ownership (contract §2.2).
+
+    Absent ``rule_families`` is legal and defaults every family to
+    ``legacy`` runtime ownership with a ``visible`` legacy Keeper surface.
+    Present entries must: use the rule-graph contract's family ids; respect
+    the owner/surface enums (also schema-enforced); pair with the R1
+    entry-point rule (shadow/graph owners require the graph artifacts); and
+    obey the promotion pairing law (graph owner cannot keep a visible legacy
+    Keeper surface).
+    """
+    families = (manifest or {}).get("rule_families")
+    if families is None:
+        return  # default: every family legacy/visible
+    if not isinstance(families, list):
+        problems.append("manifest.json: rule_families must be an array")
+        return
+
+    contract = None
+    if RULE_GRAPH_CONTRACT_PATH.is_file():
+        try:
+            contract = json.loads(RULE_GRAPH_CONTRACT_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            contract = None
+    known_families = set(contract.get("rule_families") or []) if contract else set()
+
+    entry_points = (manifest or {}).get("entry_points") or {}
+    graph_declared = isinstance(entry_points.get("rule_graph"), str) and \
+        isinstance(entry_points.get("rule_graph_manifest"), str)
+
+    seen: set[str] = set()
+    for index, entry in enumerate(families):
+        prefix = f"manifest.json: rule_families[{index}]"
+        if not isinstance(entry, dict):
+            problems.append(f"{prefix}: must be an object")
+            continue
+        family_id = entry.get("family_id")
+        runtime_owner = entry.get("runtime_owner")
+        legacy_surface = entry.get("legacy_surface")
+        if not isinstance(family_id, str) or not family_id:
+            problems.append(f"{prefix}: family_id must be a non-empty string")
+            continue
+        if family_id in seen:
+            problems.append(f"{prefix}: duplicate family_id {family_id!r}")
+            continue
+        seen.add(family_id)
+        if known_families and family_id not in known_families:
+            problems.append(
+                f"{prefix}: family_id {family_id!r} is not a known rule-graph family"
+            )
+        if runtime_owner not in _FAMILY_RUNTIME_OWNERS:
+            problems.append(
+                f"{prefix}: runtime_owner must be one of "
+                f"{sorted(_FAMILY_RUNTIME_OWNERS)}"
+            )
+        if legacy_surface not in _FAMILY_LEGACY_SURFACES:
+            problems.append(
+                f"{prefix}: legacy_surface must be one of "
+                f"{sorted(_FAMILY_LEGACY_SURFACES)}"
+            )
+        if runtime_owner in {"shadow", "graph"} and not graph_declared:
+            problems.append(
+                f"{prefix}: runtime_owner {runtime_owner!r} requires the paired "
+                "entry_points.rule_graph and entry_points.rule_graph_manifest "
+                "(R1 entry-point rule)"
+            )
+        if runtime_owner == "graph" and legacy_surface == "visible":
+            problems.append(
+                f"{prefix}: a graph-owned family cannot keep its legacy Keeper "
+                "surface visible (spec §7.7)"
+            )
+
+
 def _check_rule_graph(package_dir: Path, manifest: dict | None, problems: list[str]) -> None:
     """Validate optional rule-graph artifacts when the package declares them.
 
@@ -276,4 +351,5 @@ def validate_package(package_dir: Path) -> list[str]:
     _check_rules_json(package_dir, manifest, problems)
     _check_skills(package_dir, problems)
     _check_rule_graph(package_dir, manifest, problems)
+    _check_rule_families(manifest, problems)
     return problems
