@@ -106,6 +106,13 @@ _DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
         "advisory": False,
         "kp_surface": "context",
     },
+    "module": {
+        "audience": "keeper",
+        "phases": ("opening", "live_turn", "pending_finalization"),
+        "contract": "module_secret",
+        "advisory": False,
+        "kp_surface": "context",
+    },
     "session": {
         "audience": "host",
         "phases": ("cold_start", "recovery", "live_turn"),

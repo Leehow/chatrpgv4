@@ -1,6 +1,6 @@
 # Module Knowledge Graph — pre-KP handoff
 
-> **Status:** COMPLETE for the source-compiler phase — deterministic compiler, extraction Skill, 8/8 real-source semantic cases, and a fresh `zh-Hans` canonical-storage forward-test pass. KP/product integration remains experimental and unintegrated.
+> **Status:** COMPLETE for the source-compiler phase. The subsequent Keeper query slice is now `query-integrated / natural-play acceptance partial`; see [ModuleGraph → KP Slice 1 status](module-graph-to-kp-slice1.md). Graph → Scenario IR projection and full natural-play product acceptance remain pending.
 > **Date:** 2026-08-28
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`; Codex-host and KP/live-play implementation were not changed.
 > **Spec:** [module-knowledge-graph-extraction.md](../specs/module-knowledge-graph-extraction.md)
@@ -131,23 +131,26 @@ Tests cover prepare, exact span selection, accept/reject semantic review, source
 
 ## 6. KP boundary
 
-This implementation does not:
+The source-compiler phase itself does not:
 
 - generate or replace the seven Scenario IR files;
-- query the graph during live Keeper turns;
+- automatically inject the graph into ordinary Keeper turns;
 - write Quest lifecycle, player knowledge, improvised canon, temporal memory, rules, state, or Git history;
 - choose next scenes, objectives, routes, outcomes, reveals, or narration;
 - claim Pi-Coc product acceptance.
 
-`module-graph.json` remains a compiled-source diagnostic index. A later integration spec must
-select one authority/promotion path and retire duplicate extraction before the KP consumes it.
+The later Slice 1 adds one bounded Keeper-only `module.context` query surface.
+It does not change this compiler's authority boundary or turn the graph into
+campaign state. The selected promotion path and remaining cutover are defined
+in [module-graph-to-kp-integration.md](../specs/module-graph-to-kp-integration.md).
 
 ## 7. Next phase boundary
 
-The source-compiler gates are closed. The next work is a separate Graph-to-KP
-integration specification deciding the one canonical projection/consumer path,
-on-demand localization from source language to `play_language`, progressive
-deepen behavior, and the boundary between authored graph truth and
-campaign-local canon. Until that spec is approved and normal Pi-Coc play
-consumes the graph, the honest status is: **source compiler complete, product
-unintegrated**.
+The source-compiler gates are closed. The first Graph-to-KP query slice now
+exists and has a real Pi exact-discovery/search/expand probe, including
+source-language retention and ephemeral `play_language` presentation. The
+next product work is to finish one valid natural earned investigation, then
+implement Graph → Scenario IR projection domain by domain before retiring
+duplicate direct-PDF semantic compilation. The honest status is: **source
+compiler complete; Keeper query-integrated; projection migration and full
+natural-play acceptance pending**.

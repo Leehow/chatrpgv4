@@ -1517,8 +1517,9 @@ def test_delivery_replay_contract_projects_typed_keeper_context():
     server = _load_server()
     archive = archive_mod.load_and_validate(ARCHIVE_PATH, server.toolbox)
 
-    # Extending the existing operation keeps the canonical count at 141.
-    assert archive["operation_count"] == 141
+    # module.context extends the canonical registry; replay itself adds no
+    # second operation beyond that current 143-operation surface.
+    assert archive["operation_count"] == 143
     assert "session.delivery_text" in archive["operations"]
     contract = archive["operations"]["session.delivery_text"]
 
@@ -1746,6 +1747,34 @@ def test_static_tool_hosts_retain_direct_hotset(monkeypatch):
 
     assert names[:3] == ["coc_capabilities", "coc_discover", "coc_invoke"]
     assert names[3:] == list(server.MCP_LISTED_HOTSET)
+
+
+def test_module_context_is_exact_discovery_only_keeper_context(monkeypatch):
+    server = _load_server()
+    monkeypatch.setenv("COC_HOST", "grok")
+
+    listed = server._handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    listed_names = [tool["name"] for tool in listed["result"]["tools"]]
+    assert "module.context" not in listed_names
+    assert "module.context" not in server.MCP_LISTED_HOTSET
+
+    discovered = server._call_tool(
+        "coc_discover", {"operation": "module.context"}
+    )["data"]
+    assert discovered["canonical_operation"] == "module.context"
+    schema = discovered["operation"]["inputSchema"]
+    assert set(schema["properties"]) == {
+        "root", "campaign", "query", "seed_ids", "depth", "limit",
+    }
+    assert "asset_root_id" not in schema["properties"]
+    policy = discovered["operation"]["policy"]
+    assert policy == {
+        "audience": "keeper",
+        "phases": ["opening", "live_turn", "pending_finalization"],
+        "contract": "module_secret",
+        "advisory": False,
+        "kp_surface": "context",
+    }
 
 
 def test_coc_discover_operation_and_domain(monkeypatch):

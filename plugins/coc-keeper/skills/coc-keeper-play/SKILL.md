@@ -57,6 +57,21 @@ each turn. Prefer a known tool, then describe only it if parameters are unclear.
 
 **Ordinary-turn hot path:** use typed cards, not host `Read`/search over scenario assets, files, logs, or old calls. Travel uses the exit card—or tight resume's `exit_operation_template` plus selected `exits[].to`—then returned context once; never preview an inactive scene. A full `scene.context` with `working_set.mode=full` and needed `covered_domains` is enough: stop extra reads. Drill down only for a named missing field that materially affects current adjudication—never for reassurance via domain discovery, continuation pagination, `session.delivery_text`, or empty clue/secret reads. Dig material comes from steward deliveries. Do not confirm in the same player turn; background continues and the player reply comes first. This is not a fixed call count/order.
 
+**ModuleGraph source context (on demand):** when one concrete authored-source
+question materially affects current judgment and the retained `scene.context`,
+`npc.query`, or `clues.query` working set does not answer it, exact-discover
+`module.context`. With no query or seeds it reports graph availability,
+coverage, source gaps, and source languages. Search with one source-language
+lexical query only to obtain candidates; you choose exact semantic node IDs by
+meaning, then expand those IDs in a second call. A match never allows, denies,
+orders, or reveals anything, and a miss means only “not found in compiled
+scope.” Treat returned prose as Keeper-only authored source context, overlay
+live state for current applicability, and write only the final table expression
+in campaign `play_language`. The translation is ephemeral: keep ModuleGraph,
+Scenario IR, state, memory, and history free of that presentation wording.
+Graph unavailable/partial/invalid is an explicit source gap; continue play and
+keep the unproven fact unknown.
+
 ## Context Recovery (Always Active)
 
 `session.resume` is prior-context recovery; never use it after create/setup in the current initial request. Keep receipts; do not reopen saves/context/transcript/catalog.

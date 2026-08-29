@@ -8,7 +8,7 @@
     "migration_source_commit": "affeedc3a78ac6da82e0c47ce5dafa95bf12d7fd",
     "verified_on": "2026-08-25",
     "canonical_operation_source": "plugins/coc-keeper/scripts/coc_toolbox.py",
-    "canonical_operation_count": 141
+    "canonical_operation_count": 143
   },
   "migration_states": {
     "planned": "Handlers or tests still occupy shared files; no parallel implementation edit is allowed.",
@@ -368,6 +368,27 @@
       ]
     },
     {
+      "module_id": "module-graph",
+      "migration_state": "migrated",
+      "owned_paths": [
+        "plugins/coc-keeper/scripts/coc_operation_module_graph.py",
+        "tests/test_toolbox_module_graph_context.py"
+      ],
+      "operation_ids": [
+        "module.context"
+      ],
+      "implementation_dependencies": [
+        "plugins/coc-keeper/scripts/coc_module_graph.py",
+        "plugins/coc-keeper/scripts/coc_module_project.py"
+      ],
+      "may_depend_on": [
+        "operation-kernel"
+      ],
+      "focused_validation": [
+        "tests/test_module_graph.py"
+      ]
+    },
+    {
       "module_id": "npc-world",
       "migration_state": "migrated",
       "owned_paths": [
@@ -591,6 +612,7 @@
         "narration.review",
         "state.end_session",
         "state.journal",
+        "state.recover_pending_narration_draft",
         "state.supersede_settlement",
         "turn.finalize",
         "turn.output_context"

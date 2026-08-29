@@ -2068,14 +2068,24 @@ def build_module_graph_asset(
     }
 
 
-def load_installed_module_graph(
+def load_installed_module_graph_installation(
     workspace: Path | str,
     *,
     asset_root_id: str,
 ) -> dict[str, Any]:
-    """Read the manifest-selected graph generation and verify its digest."""
+    """Read and verify one manifest-selected graph installation."""
     graph_root = _asset_graph_root(workspace, asset_root_id)
     manifest_path = graph_root / "manifest.json"
+    if not manifest_path.is_file():
+        raise ModuleGraphError(
+            [
+                _finding(
+                    "module_graph_not_installed",
+                    str(manifest_path),
+                    "asset root has no installed ModuleGraph manifest",
+                )
+            ]
+        )
     try:
         manifest = _read_json_exact(manifest_path)
     except (OSError, json.JSONDecodeError) as exc:
@@ -2121,7 +2131,22 @@ def load_installed_module_graph(
         raise ModuleGraphError(
             [_finding("installed_graph_scope_mismatch", str(graph_path), "manifest mismatch")]
         )
-    return graph
+    return {
+        "manifest": manifest,
+        "module_graph": graph,
+    }
+
+
+def load_installed_module_graph(
+    workspace: Path | str,
+    *,
+    asset_root_id: str,
+) -> dict[str, Any]:
+    """Read the verified graph selected by one asset-root manifest."""
+    return load_installed_module_graph_installation(
+        workspace,
+        asset_root_id=asset_root_id,
+    )["module_graph"]
 
 
 def _normalize_search_text(value: Any) -> str:

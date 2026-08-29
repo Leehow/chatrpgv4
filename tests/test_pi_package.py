@@ -2571,6 +2571,32 @@ def test_pi_gateway_accepts_only_object_or_plain_object_json_arguments():
     }
 
 
+def test_pi_gateway_projects_module_context_semantic_ids():
+    result = _node(
+        ROOT / "tests/pi/canonical-identity-projection.mjs",
+        str(ROOT),
+    )
+    assert result == {
+        "module": {
+            "ok": True,
+            "tool": "module.context",
+            "semantic": {
+                "module_id": "module-the-haunting",
+                "graph_contract_id": "coc.module-graph.v3",
+                "node_id": "npc-michael-thomas",
+                "source_id": "pdf:the-haunting",
+            },
+            "authoredProperties": {
+                "root_cause": "The authored cause remains visible.",
+                "escape_path": "The authored route remains visible.",
+                "family_generation": "third-generation custodians",
+            },
+            "opaqueFieldsAbsent": True,
+        },
+        "canonicalDetailsPreserved": True,
+    }
+
+
 def test_pi_auto_dispatch_uses_named_paths_bounded_queues_and_scene_priority():
     """The Node contract includes Pi-only source-bound scene priority."""
     run_env = dict(os.environ)

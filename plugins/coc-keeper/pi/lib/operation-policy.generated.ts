@@ -275,6 +275,18 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "pending_finalization"
     ]
   },
+  "module.context": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "module_secret",
+    "execution_class": "serial_campaign",
+    "kp_surface": "context",
+    "phases": [
+      "opening",
+      "live_turn",
+      "pending_finalization"
+    ]
+  },
   "narration.brief": {
     "advisory": true,
     "audience": "keeper",
@@ -1605,6 +1617,7 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "history.query",
     "memory.extraction_status",
     "memory.recall",
+    "module.context",
     "personal_horror.query",
     "scene.context",
     "scene.map",

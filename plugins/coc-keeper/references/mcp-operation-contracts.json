@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:007dd620090e96f498b3b7c1a36e42c161aafeece1b0c2763060a65670999c39",
+  "content_sha256": "sha256:d81495c0d4eee59a6f3c639afa7b9c2436d1e381b38ef367a4711d181376d772",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 142,
+  "operation_count": 143,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -1275,6 +1275,69 @@
         ]
       },
       "summary": "Deterministically narrow canonical temporal memory assertions (subject knowledge/beliefs) by subject, timeline, valid-time turn, entities, scene, and privacy. Advisory candidates for KP semantic judgment; never authoritative truth. Strict read-only."
+    },
+    "module.context": {
+      "access": "query",
+      "canonical_operation": "module.context",
+      "description": "Read campaign-bound ModuleGraph status, lexical candidates, or one bounded source neighborhood. Keeper-only source context; lexical matches never make semantic or disclosure decisions. Canonical operation `module.context`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "depth": {
+            "description": "expand depth (default 1; seed_ids mode only)",
+            "maximum": 2,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "limit": {
+            "description": "search candidate limit (default 8; query mode only)",
+            "maximum": 12,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "query": {
+            "description": "optional source-language lexical query; omit with seed_ids",
+            "maxLength": 240,
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed_ids": {
+            "description": "optional exact semantic node ids; omit with query",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "module_secret",
+        "kp_surface": "context",
+        "phases": [
+          "opening",
+          "live_turn",
+          "pending_finalization"
+        ]
+      },
+      "summary": "Read campaign-bound ModuleGraph status, lexical candidates, or one bounded source neighborhood. Keeper-only source context; lexical matches never make semantic or disclosure decisions."
     },
     "narration.brief": {
       "access": "mutation",

@@ -516,6 +516,43 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+const MODULE_CONTEXT_MACHINE_FIELDS = new Set([
+  "wire",
+  "grep_anchor",
+  "grep_anchors",
+  "current_generation",
+  "module_graph_path",
+  "shard_path",
+  "evidence_path",
+  "review_path",
+  "bundle_path",
+  "markdown_path",
+]);
+
+/**
+ * Project the read-only ModuleGraph context without hiding its semantic ids.
+ * Contract-declared machine fields stay in the gateway's canonical `details`;
+ * authored graph properties are otherwise preserved verbatim.
+ */
+export function projectModuleContextResultForModel(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  const project = (input: unknown): unknown => {
+    if (Array.isArray(input)) return input.map(project);
+    if (!isPlainObject(input)) return input;
+    const out: Record<string, unknown> = {};
+    for (const [field, child] of Object.entries(input)) {
+      if (
+        MODULE_CONTEXT_MACHINE_FIELDS.has(field)
+        || field.endsWith("_sha256")
+      ) continue;
+      out[field] = project(child);
+    }
+    return out;
+  };
+  return project(value) as Record<string, unknown>;
+}
+
 function nonEmptyString(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new ToolContractProjectionError(
@@ -2531,8 +2568,9 @@ function projectFinalizeData(
 
 /**
  * The single post-observer model-content projection for canonical envelopes.
- * Operation-aware for turn.output_context / narration.review / turn.finalize;
- * every other canonical family uses the structured recursive sanitizer.
+ * Operation-aware for module.context / turn.output_context /
+ * narration.review / turn.finalize; every other canonical family uses the
+ * structured recursive sanitizer.
  */
 export function projectModelVisibleCanonicalResult(
   operation: string | null | undefined,
@@ -2540,6 +2578,14 @@ export function projectModelVisibleCanonicalResult(
   semanticIds: SemanticIdMap | null = null,
   diagnostics: ProjectionIdentityDiagnostics | null = null,
 ): Record<string, unknown> {
+  if (operation === "module.context") {
+    const moduleProjection = projectModuleContextResultForModel(envelope);
+    return {
+      ...moduleProjection,
+      warnings: [],
+      hints: [],
+    };
+  }
   const projected: Record<string, unknown> = {};
   for (const [field, value] of Object.entries(envelope)) {
     if (ENVELOPE_HOST_ONLY_FIELDS.has(field)) continue;
@@ -3016,6 +3062,7 @@ const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["commitment_id", stringSet(["commitment:"])],
   ["promise_id", stringSet(["promise:"])],
   ["subject_id", stringSet([])],
+  ["seed_ids", stringSet([])],
   ["actor_id", stringSet(["actor:", "npc:"])],
   ["caregiver_id", stringSet(["npc:", "person:"])],
   ["rescuer_id", stringSet(["npc:", "person:"])],
