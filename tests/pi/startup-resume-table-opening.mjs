@@ -151,12 +151,15 @@ const resumed = await invoke(h, "resume", {
   campaign: `${campaignId}-model-copy-typo`,
   arguments: {},
 });
-const opening = await invoke(h, "opening", {
-  operation: "evidence.table_opening",
-  root,
-  campaign: campaignId,
-  arguments: { decision_id: "opening-1" },
-});
+const opening = JSON.parse((await h.registered.get(
+  "coc_evidence_table_opening",
+).execute(
+  "opening",
+  { text: "开场", presented_roll_ids: [] },
+  undefined,
+  undefined,
+  h.ctx,
+)).content[0].text);
 const blocked = h.sent.some((entry) => (
   entry.message?.customType === "coc-startup-resume-blocker"
 ));
@@ -283,7 +286,17 @@ try {
       operation: "rules.roll",
       root: playedRoot,
       campaign: playedCampaign,
-      arguments: { skill: "Spot Hidden" },
+      arguments: {
+        skill: "Spot Hidden",
+        difficulty: "regular",
+        goal: "notice the detail",
+        stakes: {
+          on_success: "the detail is noticed",
+          on_failure: "the detail remains unnoticed",
+        },
+        difficulty_basis: "keeper_judgment",
+        decision_id: "roll-startup-opening-spot-hidden-1",
+      },
     });
     pendingRulesEscaped = true;
   } catch {
@@ -309,19 +322,29 @@ try {
     operation: "rules.roll",
     root: playedRoot,
     campaign: playedCampaign,
-    arguments: { skill: "Spot Hidden" },
+    arguments: {
+      skill: "Spot Hidden",
+      difficulty: "regular",
+      goal: "notice the detail",
+      stakes: {
+        on_success: "the detail is noticed",
+        on_failure: "the detail remains unnoticed",
+      },
+      difficulty_basis: "keeper_judgment",
+      decision_id: "roll-startup-opening-spot-hidden-1",
+    },
   });
   const sameRequestJournal = await invoke(played, "same-request-journal", {
     operation: "state.journal",
     root: playedRoot,
     campaign: playedCampaign,
-    arguments: {},
+    arguments: { summary: "The investigator notices the detail." },
   });
   const sameRequestFinalize = await invoke(played, "same-request-finalize", {
     operation: "turn.finalize",
     root: playedRoot,
     campaign: playedCampaign,
-    arguments: { decision_id: "fin-1" },
+    arguments: { draft: "结算", coverage: [], agency_claims: [] },
   });
   if (sameRequestRoll.ok !== true || sameRequestRoll.tool !== "rules.roll") {
     throw new Error(`same-request rules.roll blocked: ${JSON.stringify(sameRequestRoll)}`);
@@ -442,7 +465,7 @@ const afterResumeJournal = await invoke(recovery, "recovery-journal", {
   operation: "state.journal",
   root,
   campaign: recoveryCampaign,
-  arguments: {},
+  arguments: { summary: "Continue the retained recovery turn." },
 });
 if (afterResumeOutput.ok !== true || afterResumeOutput.tool !== "turn.output_context") {
   throw new Error(`output_context blocked after recovery resume: ${JSON.stringify(afterResumeOutput)}`);
@@ -466,7 +489,7 @@ const afterResumeFinalize = await invoke(recovery, "recovery-finalize", {
   operation: "turn.finalize",
   root,
   campaign: recoveryCampaign,
-  arguments: { decision_id: "recovery-fin-1" },
+  arguments: { draft: "闭合", coverage: [], agency_claims: [] },
 });
 if (afterResumeFinalize.ok !== true || afterResumeFinalize.tool !== "turn.finalize") {
   throw new Error(`finalize blocked after recovery resume: ${JSON.stringify(afterResumeFinalize)}`);

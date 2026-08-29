@@ -172,13 +172,13 @@ try {
 
   const missingDecisionCall = {
     name: "coc_setup_complete",
-    arguments: { campaign_id: campaign, campaign, root },
+    arguments: { campaign_id: campaign },
   };
   // Identifier Law contract: once the chargen receipt arms the handoff
   // card, the presented schema drops the required decision_id (the model
   // must never author machine identity). Pure schema validation therefore
   // accepts the omitted field; Pi then calls prepareArguments to attach the
-  // retained pi-setup-handoff id before execution. Consent is still enforced
+  // retained campaign-scoped handoff id before execution. Consent is still enforced
   // by the execute-time external-player-message gate below.
   const missingDecisionValidated = validateToolCall(
     [typed],
@@ -192,7 +192,10 @@ try {
 
   const sameTurnPrepared = typed.prepareArguments(missingDecisionCall.arguments);
   const sameTurnDecision = sameTurnPrepared.decision_id;
-  assert.match(sameTurnDecision, /^pi-setup-handoff-[a-f0-9]{32}$/);
+  assert.equal(
+    sameTurnDecision,
+    `setup-complete:${campaign}:handoff-1`,
+  );
   const sameTurnValidated = validateToolCall([typed], {
     ...missingDecisionCall,
     arguments: sameTurnPrepared,

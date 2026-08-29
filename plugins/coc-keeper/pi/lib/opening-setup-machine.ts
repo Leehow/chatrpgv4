@@ -278,14 +278,12 @@ export function createOpeningSetupMachineMethods(
 
   setupHandoffDecisionId(this: any,
     campaignId: string,
-    investigatorId: string,
+    _investigatorId: string,
   ): string {
-    const digest = canonicalJsonValueSha256({
-      contract_id: "coc.pi-setup-handoff-decision.v1",
-      campaign_id: campaignId,
-      investigator_id: investigatorId,
-    }).slice("sha256:".length, "sha256:".length + 32);
-    return `pi-setup-handoff-${digest}`;
+    // One campaign crosses the setup/play boundary only once. Keep the
+    // host-attached identity stable across Pi process replacement and make
+    // its business meaning inspectable; no model has to copy it.
+    return `setup-complete:${campaignId}:handoff-1`;
   },
 
 
@@ -2891,6 +2889,42 @@ export function createOpeningSetupMachineMethods(
       && typeof returnedGate.character_setup_complete === "boolean"
       && returnedGate.next_operation === null
     );
+    const setupPhaseDetail = objectOrNull(data?.detail);
+    const setupPhaseModule = objectOrNull(
+      setupPhaseDetail?.module_preparation,
+    );
+    const setupPhaseCharacter = objectOrNull(
+      setupPhaseDetail?.character_setup,
+    );
+    const setupPhaseNext = objectOrNull(data?.next_operation);
+    const canonicalPersistedStarterHandoffProbe = (
+      attempt.attemptClass === "probe"
+      && operation === "setup.phase"
+      && this.unboundAttemptIsFresh(attempt)
+      && envelope?.ok === true
+      && envelope.tool === "setup.phase"
+      && data?.schema_version === 1
+      && data.campaign_id === attempt.campaignId
+      && data.phase === "character_creation"
+      && setupPhaseDetail !== null
+      && setupPhaseDetail.campaign_exists === true
+      && setupPhaseDetail.campaign_status === "setup"
+      && setupPhaseDetail.session_role === "setup"
+      && setupPhaseModule !== null
+      && setupPhaseModule.satisfied === true
+      && setupPhaseModule.source_gated === false
+      && setupPhaseModule.sub_phase === null
+      && setupPhaseModule.blocking_reason === null
+      && setupPhaseCharacter !== null
+      && setupPhaseCharacter.confirmed === true
+      && setupPhaseCharacter.party_linked === true
+      && setupPhaseCharacter.blocking_reason === null
+      && setupPhaseNext !== null
+      && setupPhaseNext.operation === "setup.complete"
+      && setupPhaseNext.invoke_via === "coc_invoke"
+      && setupPhaseNext.campaign === attempt.campaignId
+      && data.blocking_reason === null
+    );
     const recoveredFactsCard = objectOrNull(returnedGate?.next_operation);
     const recoveredFactsArguments = objectOrNull(
       recoveredFactsCard?.arguments,
@@ -2979,6 +3013,35 @@ export function createOpeningSetupMachineMethods(
         accepted: true,
         dispatchAllowed: false,
         reason: "prebound_opening_source_review_required",
+      };
+    }
+    if (state === undefined && canonicalPersistedStarterHandoffProbe) {
+      const initialized = this.initializeOpeningSetupState(
+        attempt.campaignId,
+        this.setupHandoffDecisionRoute(
+          attempt.campaignId,
+          "linked-investigator",
+        ),
+        "ready",
+        attempt,
+      );
+      initialized.characterSetupComplete = true;
+      this.armSetupHandoffDecisionRoute(
+        initialized,
+        "linked-investigator",
+      );
+      this.finalizeOpeningSetupAttempt(invocationId);
+      this.recordOpeningSetupAudit({
+        status: "transitioned",
+        transition: "canonical_persisted_starter_handoff_rehydrated",
+        campaign_id: attempt.campaignId,
+        generation: attempt.generation,
+        invocation_id: invocationId,
+      });
+      return {
+        accepted: true,
+        dispatchAllowed: false,
+        reason: "persisted_starter_handoff_decision",
       };
     }
     if (state === undefined && canonicalFreshQuickStartProbe) {

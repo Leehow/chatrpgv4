@@ -8,6 +8,7 @@ import "./_lib/preload-embedded-pi.mjs";
 import { embeddedPiFile } from "./_lib/embedded-pi-path.mjs";
 
 const root = path.resolve(process.argv[2] || process.cwd());
+const dependencyRoot = path.resolve(process.env.PI_TEST_REPO_ROOT || root);
 const guidanceMod = await import(
   pathToFileURL(path.join(root, "plugins/coc-keeper/pi/lib/recovery-guidance.ts")).href
 );
@@ -3749,13 +3750,13 @@ for (const [mode, nextOperations] of [
 }
 
 const { convertToLlm } = await import(
-  pathToFileURL(embeddedPiFile(root, "pi-coding-agent", "dist/core/messages.js")).href
+  pathToFileURL(embeddedPiFile(dependencyRoot, "pi-coding-agent", "dist/core/messages.js")).href
 );
 const { transformMessages } = await import(
-  pathToFileURL(embeddedPiFile(root, "pi-ai", "dist/api/transform-messages.js")).href
+  pathToFileURL(embeddedPiFile(dependencyRoot, "pi-ai", "dist/api/transform-messages.js")).href
 );
 const { convertMessages } = await import(
-  pathToFileURL(embeddedPiFile(root, "pi-ai", "dist/api/openai-completions.js")).href
+  pathToFileURL(embeddedPiFile(dependencyRoot, "pi-ai", "dist/api/openai-completions.js")).href
 );
 
 const model = {

@@ -153,9 +153,9 @@ assert.equal(
   starterDecision.next_operation.prefilled_arguments.campaign_id,
   campaignId,
 );
-assert.match(
+assert.equal(
   starterDecision.next_operation.prefilled_arguments.decision_id,
-  /^pi-setup-handoff-[a-f0-9]{32}$/,
+  `setup-complete:${campaignId}:handoff-1`,
 );
 assert.equal(
   gate.requiredOpeningSetupContinuation(),

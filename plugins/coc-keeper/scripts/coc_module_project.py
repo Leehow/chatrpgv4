@@ -1632,20 +1632,26 @@ def campaign_asset_root_id(campaign_dir: Path) -> str | None:
 
 
 def campaign_handout_asset_root_ids(campaign_dir: Path) -> list[str]:
-    """Resolve card roots without turning a complete starter progressive.
+    """Resolve card roots, preferring the module graph's asset authority.
 
-    A complete built-in scenario may opt into a local, source-bound handout
-    overlay through ``module-meta.json.handout_asset_root_id``.  The ordinary
-    progressive root remains first; the explicit handout overlay comes last
-    so its source-backed cards win same-id collisions in the merged card view.
-    Missing roots remain a harmless empty overlay at the storage layer.
+    New graph-backed modules bind cards, maps, and source assets through
+    ``module_graph_asset_root_id``. ``handout_asset_root_id`` remains a
+    read-only compatibility pointer only for historical campaigns that do not
+    carry the graph field. The ordinary progressive root remains first.
     """
     meta = _load_json(campaign_dir / "scenario" / "module-meta.json", {})
-    explicit = (
-        str(meta.get("handout_asset_root_id") or "").strip()
+    graph_root = (
+        str(meta.get("module_graph_asset_root_id") or "").strip()
         if isinstance(meta, dict) else ""
     )
-    candidates = [campaign_asset_root_id(campaign_dir), explicit]
+    legacy_overlay = (
+        str(meta.get("handout_asset_root_id") or "").strip()
+        if isinstance(meta, dict) and not graph_root else ""
+    )
+    candidates = [
+        campaign_asset_root_id(campaign_dir),
+        graph_root or legacy_overlay,
+    ]
     roots: list[str] = []
     for candidate in candidates:
         if not candidate:

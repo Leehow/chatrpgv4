@@ -1,7 +1,6 @@
 {
   "schema_version": 1,
   "scenario_id": "the-haunting",
-  "handout_asset_root_id": "the-haunting-keeper-rulebook-40th-full-v1",
   "module_graph_asset_root_id": "the-haunting-keeper-rulebook-40th-full-v1",
   "source_language": "en",
   "runtime_projection_contract": "coc.module-graph-runtime-projection.v1",

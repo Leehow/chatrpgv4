@@ -338,6 +338,7 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     "execution_class": "serial_campaign",
     "kp_surface": "npc",
     "phases": [
+      "opening",
       "live_turn"
     ]
   },
@@ -1288,7 +1289,9 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     "execution_class": "serial_campaign",
     "kp_surface": "state",
     "phases": [
-      "live_turn"
+      "opening",
+      "live_turn",
+      "pending_finalization"
     ]
   },
   "state.record_route_completion": {

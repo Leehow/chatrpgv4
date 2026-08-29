@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:d81495c0d4eee59a6f3c639afa7b9c2436d1e381b38ef367a4711d181376d772",
+  "content_sha256": "sha256:f01330a7aeb34284d6859175f6b2154d86f6cce4fe81306d03c8af4a22db7269",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1690,6 +1690,7 @@
         "contract": "rules",
         "kp_surface": "npc",
         "phases": [
+          "opening",
           "live_turn"
         ]
       },
@@ -7803,7 +7804,9 @@
         "contract": "state",
         "kp_surface": "state",
         "phases": [
-          "live_turn"
+          "opening",
+          "live_turn",
+          "pending_finalization"
         ]
       },
       "summary": "Record one NPC's material participation. Each first investigator/NPC contact binds that pair's canonical npc.reaction receipt plus a KP-authored causal realization; one journal may contain zero to many independent engagements."

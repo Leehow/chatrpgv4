@@ -560,10 +560,10 @@ async function readBoundedJsonObject(path: string): Promise<JsonObject | null> {
 }
 
 /**
- * Resolve the source-cache binding written by scenario.bind_pdf. Caller: the
- * Pi host's coc_source_assets wrapper. Consumer: fresh PDF catalog calls.
- * The campaign record is authoritative; the model never selects this root or
- * source-bundle path.
+ * Resolve either the source-cache binding written by scenario.bind_pdf or the
+ * module graph's versioned asset root. Caller: the Pi host's
+ * coc_source_assets wrapper. The campaign record is authoritative; the model
+ * never selects this root or source path.
  */
 export async function sourceAssetCampaignBinding(input: {
   workspace_root: string;
@@ -580,15 +580,26 @@ export async function sourceAssetCampaignBinding(input: {
     fail("source asset campaign path escapes campaigns");
   }
   const scenario = await readBoundedJsonObject(resolve(scenarioRoot, "scenario.json"));
+  const moduleMeta = await readBoundedJsonObject(
+    resolve(scenarioRoot, "module-meta.json"),
+  );
   const source = object(scenario?.source);
   const assetRootId = typeof scenario?.source_cache_asset_root_id === "string"
     ? scenario.source_cache_asset_root_id.trim()
     : typeof scenario?.progressive_asset_root_id === "string"
       ? scenario.progressive_asset_root_id.trim()
-      : "";
+      : typeof moduleMeta?.module_graph_asset_root_id === "string"
+        ? moduleMeta.module_graph_asset_root_id.trim()
+        : "";
+  const graphAssetRoot = (
+    typeof moduleMeta?.module_graph_asset_root_id === "string"
+    && moduleMeta.module_graph_asset_root_id.trim() === assetRootId
+  );
   const sourceBundlePath = typeof source?.source_bundle_path === "string"
     ? source.source_bundle_path.trim()
-    : "";
+    : graphAssetRoot && assetRootId
+      ? resolve(workspace, ".coc", "module-assets", assetRootId)
+      : "";
   if (!assetRootId || !sourceBundlePath) {
     fail("campaign source asset binding is unavailable");
   }
@@ -650,15 +661,61 @@ export async function catalogFromBundleManifest(input: {
   if (!isBelow(bundleRoot, workspace) && bundleRoot !== workspace) {
     fail("source_bundle_path must remain inside the workspace");
   }
-  const manifest = object(JSON.parse(await readFile(resolve(bundleRoot, "manifest.json"), "utf8")));
-  if (manifest === null) fail("source bundle manifest.json must be an object");
-  const declared = typeof manifest.bundle_sha256 === "string"
-    ? manifest.bundle_sha256
-    : typeof object(manifest.source)?.bundle_sha256 === "string"
-      ? String(object(manifest.source)?.bundle_sha256)
-      : input.bundle_sha256;
+  let declared: string | undefined;
+  let assets: unknown[];
+  try {
+    const manifest = object(JSON.parse(
+      await readFile(resolve(bundleRoot, "manifest.json"), "utf8"),
+    ));
+    if (manifest === null) fail("source bundle manifest.json must be an object");
+    declared = typeof manifest.bundle_sha256 === "string"
+      ? manifest.bundle_sha256
+      : typeof object(manifest.source)?.bundle_sha256 === "string"
+        ? String(object(manifest.source)?.bundle_sha256)
+        : input.bundle_sha256;
+    assets = Array.isArray(manifest.assets)
+      ? manifest.assets
+      : fail("manifest.assets must be a list");
+  } catch (error) {
+    const code = object(error)?.code;
+    if (code !== "ENOENT") throw error;
+    const graphAssets = object(JSON.parse(
+      await readFile(resolve(bundleRoot, "source-assets.json"), "utf8"),
+    ));
+    const rows = Array.isArray(graphAssets?.assets)
+      ? graphAssets.assets
+      : fail("module graph source-assets.json must contain assets");
+    const bundleHashes = new Set<string>();
+    assets = rows.map((raw) => {
+      const row = object(raw);
+      if (row === null) fail("module graph source asset row must be an object");
+      for (const hash of Array.isArray(row.bundle_sha256s)
+        ? row.bundle_sha256s
+        : []) {
+        if (typeof hash === "string" && hash.trim()) bundleHashes.add(hash.trim());
+      }
+      const path = typeof row.source_bundle_path === "string"
+        ? row.source_bundle_path.trim()
+        : "";
+      const segments = path.split("/");
+      const playerVisible = segments.length >= 3
+        && segments[0] === "assets"
+        && segments[1] === "player";
+      return {
+        path,
+        sha256: row.sha256,
+        pdf_index: row.pdf_index,
+        asset_ref: row.image_ref,
+        kind: playerVisible ? "player_visible" : "unclassified",
+        player_visible: playerVisible,
+      };
+    });
+    if (bundleHashes.size !== 1) {
+      fail("module graph source assets must bind exactly one bundle_sha256");
+    }
+    declared = [...bundleHashes][0];
+  }
   if (!declared) fail("bundle_sha256 is required when the manifest does not declare one");
-  const assets = Array.isArray(manifest.assets) ? manifest.assets : fail("manifest.assets must be a list");
   let prior: SemanticAssociation[] = [];
   try {
     prior = (await loadSourceAssetCatalog(workspace, input.asset_root_id)).associations;

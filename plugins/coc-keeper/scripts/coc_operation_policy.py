@@ -358,7 +358,7 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
         "contract": "rules",
         "advisory": False,
         "kp_surface": "npc",
-        "phases": ("live_turn",),
+        "phases": ("opening", "live_turn"),
     },
     "npc.advise": {
         "contract": "advisory",
@@ -399,6 +399,9 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
     },
     "state.inventory_list": {
         "phases": ("live_turn", "pending_finalization", "opening"),
+    },
+    "state.record_npc_engagement": {
+        "phases": ("opening", "live_turn", "pending_finalization"),
     },
     "setup.complete": {
         # live_turn: in-process chargen/link or session.resume can advance

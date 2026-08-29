@@ -681,8 +681,8 @@ async function assertRoleNullResumeGateCase({
       undefined,
       caseCtx,
     )).content[0].text);
-    assert.equal(npcDiscovery.ok, false, `${label}: ${JSON.stringify(npcDiscovery)}`);
-    assert.equal(npcDiscovery.error.code, "phase_forbidden", label);
+    assert.equal(npcDiscovery.ok, true, `${label}: ${JSON.stringify(npcDiscovery)}`);
+    assert.equal(npcDiscovery.data.operation_card.operation, "npc.reaction", label);
     assert.equal(
       caseCalls.filter((call) => call.operation === "session.resume").length,
       1,
@@ -696,22 +696,32 @@ async function assertRoleNullResumeGateCase({
   assert.ok(!caseActive.at(-1).includes("coc_state_journal"), label);
 
   const callsBeforeBlockedPlay = caseCalls.length;
-  await assert.rejects(
-    caseTools.get("coc_evidence_table_opening").execute(
-      `blocked-opening-${label}`,
-      {
-        campaign: caseCampaign,
-        text: "不应抵达 MCP 的开场。",
-        run_id: `run-${label}`,
-        presented_roll_ids: [],
-        decision_id: `opening-${label}`,
-      },
-      undefined,
-      undefined,
-      caseCtx,
-    ),
-    /session.resume|terminally blocked|hard-gated/,
-  );
+  let blockedOpening = null;
+  let blockedOpeningError = null;
+  try {
+    blockedOpening = await caseTools.get("coc_evidence_table_opening").execute(
+        `blocked-opening-${label}`,
+        {
+          text: "不应抵达 MCP 的开场。",
+          presented_roll_ids: [],
+        },
+        undefined,
+        undefined,
+        caseCtx,
+    );
+  } catch (error) {
+    blockedOpeningError = error;
+  }
+  if (blockedOpeningError !== null) {
+    assert.match(
+      String(blockedOpeningError),
+      /session.resume|terminally blocked|hard-gated/,
+      label,
+    );
+  } else {
+    const blockedOpeningEnvelope = JSON.parse(blockedOpening.content[0].text);
+    assert.equal(blockedOpeningEnvelope.ok, false, label);
+  }
   await assert.rejects(
     caseTools.get("coc_state_journal").execute(
       `blocked-journal-${label}`,
@@ -1011,26 +1021,23 @@ try {
   assert.ok(activeSnapshots.at(-1).includes("coc_evidence_table_opening"));
   assert.ok(opening.parameters.properties.text);
   assert.ok(!opening.parameters.properties.narrative);
+  for (const hostField of ["root", "campaign", "run_id", "decision_id"]) {
+    assert.ok(!opening.parameters.properties[hostField], hostField);
+  }
   assert.throws(
     () => validateToolCall([opening], {
       name: "coc_evidence_table_opening",
       arguments: {
-        campaign,
         narrative: "wrong field",
-        run_id: "run-1",
         presented_roll_ids: [],
-        decision_id: "opening-1",
       },
     }),
     /text|narrative/,
   );
 
   await invokeValidated("coc_evidence_table_opening", "opening", {
-    campaign,
     text: "雨夜里，波士顿的街灯在雾中泛着冷光。",
-    run_id: "run-1",
     presented_roll_ids: [],
-    decision_id: "opening-1",
   });
 
   const discover = tools.get("coc_discover");

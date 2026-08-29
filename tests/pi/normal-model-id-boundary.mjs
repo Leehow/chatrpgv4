@@ -1252,10 +1252,6 @@ assertModelSafeContent("scene.context content", JSON.parse(modelContents.at(-1).
 // 2b) Complete the table opening so the phase advances to the live turn.
 routeOperation("evidence.table_opening", FAMILIES.evidence_table_opening);
 await executeTool("coc_evidence_table_opening", {
-  root: testRoot,
-  campaign,
-  run_id: "run-1",
-  decision_id: `table-opening-${campaign}`,
   presented_roll_ids: [],
   speaker: "KP",
   text: "夜。一封信送到你，程远，手上。\n\n[/in_game]",

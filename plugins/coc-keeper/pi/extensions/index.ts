@@ -4186,6 +4186,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       "state.move_scene",
       "state.advance_time",
       "combat.resolve",
+      "evidence.table_opening",
+      "state.record_npc_engagement",
+      "npc.reaction",
     ]) clearTypedBinding(operation);
   };
   const armTypedBinding = (
@@ -4670,6 +4673,30 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           rollArguments?.decision_id,
         ]);
       }
+      if (operation === "npc.reaction") {
+        registerRoll(data.roll_id, [
+          data.npc_display_name,
+          data.npc_id,
+          "first-impression",
+        ]);
+      }
+      if (operation === "session.resume") {
+        const currentTurn = objectOrNull(data.current_turn);
+        const rows = Array.isArray(currentTurn?.rows)
+          ? currentTurn.rows
+          : [];
+        rows.forEach((entry, index) => {
+          const row = objectOrNull(entry);
+          const summary = objectOrNull(row?.receipt_summary);
+          if (summary === null) return;
+          registerRoll(summary.roll_id, [
+            row?.tool,
+            summary.outcome,
+            "recovered-first-impression",
+            index + 1,
+          ]);
+        });
+      }
       if (operation === "turn.output_context") {
         const obligations = Array.isArray(data.obligations) ? data.obligations : [];
         obligations.forEach((obligation, index) => {
@@ -4997,6 +5024,28 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             });
           }
         }
+        for (
+          const route of Array.isArray(sceneSnapshotData.route_index)
+            ? sceneSnapshotData.route_index
+            : []
+        ) {
+          const row = objectOrNull(route);
+          if (row === null) continue;
+          const id = typeof row.route_id === "string" && row.route_id.trim()
+            ? row.route_id.trim()
+            : "";
+          if (id) {
+            routeEntries.push({
+              canonicalId: id,
+              facts: [
+                activeScene,
+                row.route_type,
+                row.resolution_kind,
+                row.grants_clue_ids,
+              ],
+            });
+          }
+        }
         semanticRegistry.applySnapshot("route", routeOwnerScope, routeEntries);
       }
     }
@@ -5215,6 +5264,69 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       clearTurnTypedBindings();
       return;
     }
+    if (operation === "npc.reaction") {
+      const npcId = typeof data.npc_id === "string"
+        ? data.npc_id.trim()
+        : "";
+      const investigatorId = typeof data.investigator_id === "string"
+        ? data.investigator_id.trim()
+        : "";
+      const firstImpressionRef = typeof data.first_impression_ref === "string"
+        ? data.first_impression_ref.trim()
+        : "";
+      const runId = typeof data.run_id === "string"
+        ? data.run_id.trim()
+        : "";
+      const bindingRoot = typeof params.root === "string" && params.root
+        ? params.root
+        : currentWorkspaceRoot;
+      if (
+        campaignId && npcId && investigatorId && firstImpressionRef && runId
+        && bindingRoot
+      ) {
+        const playerTurnEpoch = canonicalProgress.playerTurnEpoch;
+        const decisionId = `npc-engagement-${campaignId}-${npcId}-1`;
+        const binding: TypedToolBindingCard = {
+          schema_version: 1,
+          operation: "state.record_npc_engagement",
+          binding_revision: (
+            `npc-engagement:${campaignId}:${npcId}:player-epoch-${playerTurnEpoch}`
+          ),
+          root: bindingRoot,
+          campaign: campaignId,
+          decision_id: decisionId,
+          npc_id: npcId,
+          investigator: investigatorId,
+          first_impression_ref: firstImpressionRef,
+          run_id: runId,
+        };
+        armTypedBinding(binding, () => {
+          if (
+            canonicalProgressCampaignId !== campaignId
+            || canonicalProgress.playerTurnEpoch !== playerTurnEpoch
+          ) return null;
+          return {
+            schema_version: 1,
+            operation: "state.record_npc_engagement",
+            binding_revision: (
+              `npc-engagement:${campaignId}:${npcId}:player-epoch-${playerTurnEpoch}`
+            ),
+            root: bindingRoot,
+            campaign: campaignId,
+            decision_id: decisionId,
+            npc_id: npcId,
+            investigator: investigatorId,
+            first_impression_ref: firstImpressionRef,
+            run_id: runId,
+          };
+        });
+      }
+      return;
+    }
+    if (operation === "state.record_npc_engagement") {
+      clearTypedBinding("state.record_npc_engagement");
+      return;
+    }
     if (operation === "scene.context") {
       armStructuredSceneBindings(campaignId, params, envelope);
       return;
@@ -5243,6 +5355,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       currentCombatBindingFacts = null;
       clearTypedBinding("combat.resolve");
       applyKpActiveTools();
+      return;
+    }
+    if (operation === "evidence.table_opening") {
+      clearTypedBinding("evidence.table_opening");
+      clearTypedBinding("npc.reaction");
       return;
     }
     if (operation === "session.resume") {
@@ -5281,6 +5398,66 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ? "acting"
           : "awaiting_player";
       advanceCanonicalProgress(campaignId, { stage: resumedStage });
+      if (
+        mode === "table_opening"
+        && nextOperations.includes("evidence.table_opening")
+        && campaignId
+      ) {
+        const openingRoot = typeof params.root === "string" && params.root
+          ? params.root
+          : currentWorkspaceRoot;
+        const binding: TypedToolBindingCard = {
+          schema_version: 1,
+          operation: "evidence.table_opening",
+          binding_revision: `table-opening:${campaignId}:opening-1`,
+          root: openingRoot,
+          campaign: campaignId,
+          decision_id: `table-opening:${campaignId}:opening-1`,
+          run_id: `run-${campaignId}`,
+        };
+        armTypedBinding(binding, () => {
+          if (
+            canonicalProgressCampaignId !== campaignId
+            || !currentWorkspaceRoot
+          ) return null;
+          return {
+            schema_version: 1,
+            operation: "evidence.table_opening",
+            binding_revision: `table-opening:${campaignId}:opening-1`,
+            root: openingRoot,
+            campaign: campaignId,
+            decision_id: `table-opening:${campaignId}:opening-1`,
+            run_id: `run-${campaignId}`,
+          };
+        });
+        const reactionBinding: TypedToolBindingCard = {
+          schema_version: 1,
+          operation: "npc.reaction",
+          binding_revision: `npc-reaction-run:${campaignId}:opening-1`,
+          root: openingRoot,
+          campaign: campaignId,
+          decision_id: `npc-reaction-run:${campaignId}:opening-1`,
+          run_id: `run-${campaignId}`,
+        };
+        armTypedBinding(reactionBinding, () => {
+          if (
+            canonicalProgressCampaignId !== campaignId
+            || !currentWorkspaceRoot
+          ) return null;
+          return {
+            schema_version: 1,
+            operation: "npc.reaction",
+            binding_revision: `npc-reaction-run:${campaignId}:opening-1`,
+            root: openingRoot,
+            campaign: campaignId,
+            decision_id: `npc-reaction-run:${campaignId}:opening-1`,
+            run_id: `run-${campaignId}`,
+          };
+        });
+      } else {
+        clearTypedBinding("evidence.table_opening");
+        clearTypedBinding("npc.reaction");
+      }
       const resumedSceneContext = objectOrNull(data.scene_context);
       if (resumedSceneContext !== null) {
         armStructuredSceneBindings(campaignId, params, {
@@ -8052,15 +8229,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ));
       }
       if (
-        launcherRole === null
-        && typedDefinition.operation === "setup.complete"
+        typedDefinition.operation === "setup.complete"
         && (params.root !== undefined || params.campaign !== undefined)
       ) {
         return hostFailureResult(hostBindingFailure(
           typedDefinition.operation,
           new ToolContractProjectionError(
             "forged_host_argument",
-            "setup.complete root/campaign are host-owned in a no-selector session",
+            "setup.complete root/campaign are host-owned",
             { operation: typedDefinition.operation },
           ),
         ));
@@ -8079,13 +8255,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         typedDefinition.operation === "setup.complete"
         && !Object.hasOwn(params, "decision_id")
       ) {
-        // Identifier Law: the model's payload carries only the semantic
-        // close request; identity is attached by code. One boot-salted id
-        // per arm epoch keeps a KP retry idempotent instead of forked.
-        params = {
-          ...params,
-          decision_id: semanticDecisionId("setup.complete", 1),
-        };
+        // Identifier Law: bind only the exact retained handoff identity.
+        // An unarmed setup stays incomplete instead of receiving a guessed
+        // boot-local token that cannot survive process replacement.
+        params = openingContinuationGate.prepareSetupCompleteArguments(
+          params,
+        ) as JsonObject;
       }
       if (typedDefinition.operation === "session.delivery_text") {
         // Semantic replay request only: the model passes at most
@@ -8282,6 +8457,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ) as JsonObject;
     }
     params = openingContinuationGate.bindRetainedOpeningRoute(params);
+    if (
+      typedDefinition?.operation === "setup.complete"
+      && launcherRole !== null
+    ) {
+      params = { ...params, root: resolve(ctx.cwd) } as JsonObject;
+    }
     const startupResumeError = startupResumeToolError(name, params);
     if (startupResumeError !== null) {
       try {
@@ -8416,9 +8597,24 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             });
           }
         }
+        // Typed binding fields have already passed byte-exact retained/current
+        // host validation. Semantic restoration applies only to the model's
+        // remaining fields; otherwise an exact host-bound investigator id
+        // would be mistaken for a forged model identity.
+        const hostBoundAfterRestore: JsonObject = {};
+        let semanticArgs = restoredArgs;
+        if (typedDefinition?.operation === "state.record_npc_engagement") {
+          semanticArgs = { ...restoredArgs };
+          for (const field of HOST_OWNED_FIELDS["state.record_npc_engagement"]) {
+            if (Object.hasOwn(semanticArgs, field)) {
+              hostBoundAfterRestore[field] = semanticArgs[field];
+              delete semanticArgs[field];
+            }
+          }
+        }
         const restored = restoreSemanticEntityHandles(
           restoredOperation,
-          restoredArgs,
+          semanticArgs,
           effectiveSemanticEntityFacts(invocationCampaign),
           invocationCampaign !== ""
             ? liveSemanticResolver(invocationCampaign, restoredArgs)
@@ -8437,7 +8633,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             hints: [],
           });
         }
-        params = { ...params, arguments: restored.value as JsonObject };
+        params = {
+          ...params,
+          arguments: {
+            ...(restored.value as JsonObject),
+            ...hostBoundAfterRestore,
+          },
+        };
       }
     }
     params = openingContinuationGate.bindHandoutReplayRequest(params);
@@ -10584,11 +10786,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       // completion attempts.
       const projected = structuredClone(parameters);
       projected.required = (projected.required ?? []).filter(
-        (key) => key !== "decision_id",
+        (key) => !["decision_id", "root", "campaign"].includes(key),
       );
       if (projected.properties === undefined || typeof projected.properties !== "object") {
         projected.properties = {};
       }
+      delete projected.properties.root;
+      delete projected.properties.campaign;
       const state = openingContinuationGate.openingSetupStateForTranscript();
       const card = objectOrNull(state?.route.next_operation);
       const prefilled = objectOrNull(card?.prefilled_arguments);

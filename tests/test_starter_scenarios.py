@@ -499,9 +499,10 @@ def test_install_starter_the_haunting_copies_scenario_files(tmp_path):
     assert campaign["era"] == "1920s"
 
     meta = json.loads((scenario_dir / "module-meta.json").read_text("utf-8"))
-    assert meta["handout_asset_root_id"] == (
+    assert meta["module_graph_asset_root_id"] == (
         "the-haunting-keeper-rulebook-40th-full-v1"
     )
+    assert "handout_asset_root_id" not in meta
     assert not meta.get("progressive")
 
     story = json.loads((scenario_dir / "story-graph.json").read_text("utf-8"))

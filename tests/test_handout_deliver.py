@@ -1093,12 +1093,13 @@ def test_deep_handout_wins_over_scenario_and_index_for_keeper_and_player(
     ]
 
 
-def test_nonprogressive_starter_handout_overlay_wins_same_id_collision(
+def test_historical_starter_handout_overlay_wins_same_id_collision(
     campaign_ws,
 ):
-    """A local source card enriches a complete starter without source gating."""
+    """A pre-graph campaign keeps its legacy local source-card overlay."""
     meta_path = campaign_ws["campaign_dir"] / "scenario" / "module-meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta.pop("module_graph_asset_root_id", None)
     meta["handout_asset_root_id"] = "the-haunting-keeper-rulebook-40th"
     _write_json(meta_path, meta)
     deep_card = (

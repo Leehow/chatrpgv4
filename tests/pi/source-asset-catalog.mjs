@@ -293,6 +293,44 @@ assert.deepEqual(freshPlan.delivery, {
   path: "state.deliver_handout",
   handout_id: freshCatalog.asset_ids[0],
 });
+
+const graphCampaignId = "graph-starter-assets";
+const graphAssetRootId = "the-haunting-graph-assets";
+const graphScenarioDir = path.join(
+  workspace, ".coc", "campaigns", graphCampaignId, "scenario",
+);
+const graphModuleRoot = path.join(
+  workspace, ".coc", "module-assets", graphAssetRootId,
+);
+await mkdir(path.join(graphModuleRoot, "assets", "player"), { recursive: true });
+await mkdir(graphScenarioDir, { recursive: true });
+await writeFile(path.join(graphModuleRoot, "assets", "player", "map.png"), PNG);
+await writeFile(path.join(graphScenarioDir, "module-meta.json"), `${JSON.stringify({
+  schema_version: 1,
+  scenario_id: "the-haunting",
+  module_graph_asset_root_id: graphAssetRootId,
+}, null, 2)}\n`);
+await writeFile(path.join(graphModuleRoot, "source-assets.json"), `${JSON.stringify({
+  schema_version: 1,
+  assets: [{
+    source_bundle_path: "assets/player/map.png",
+    image_ref: "assets/player/map.png",
+    pdf_index: 462,
+    media_type: "image/png",
+    sha256: pngSha,
+    size_bytes: PNG.length,
+    bundle_sha256s: [bundleSha],
+  }],
+}, null, 2)}\n`);
+const graphCatalog = await mod.executeSourceAssetTool({
+  cwd: workspace,
+  campaign_id: graphCampaignId,
+  params: { operation: "catalog" },
+});
+assert.equal(graphCatalog.status, "cataloged");
+assert.equal(graphCatalog.catalog.asset_root_id, graphAssetRootId);
+assert.equal(graphCatalog.catalog.assets.length, 1);
+assert.equal(graphCatalog.catalog.assets[0].declared_player_visible, true);
 assert.equal(built.status, "cataloged");
 assert.equal(built.catalog.assets.length, 4);
 assert.deepEqual(built.asset_ids, first.assets.map((row) => row.asset_id));

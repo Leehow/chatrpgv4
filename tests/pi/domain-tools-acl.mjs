@@ -384,6 +384,16 @@ assert.equal(mod.evaluateExecuteAcl({
   phase: "opening",
 }).ok, false);
 assert.equal(mod.evaluateExecuteAcl({
+  toolName: "coc_npc",
+  operation: "npc.reaction",
+  phase: "opening",
+}).ok, true);
+assert.equal(mod.evaluateExecuteAcl({
+  toolName: "coc_state",
+  operation: "state.record_npc_engagement",
+  phase: "opening",
+}).ok, true);
+assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_rules",
   operation: "rules.roll",
   phase: "opening",

@@ -119,6 +119,27 @@ def test_campaign_handout_asset_root_ids_adds_nonprogressive_overlay(
     ]
 
 
+def test_campaign_handout_asset_root_ids_prefers_module_graph_authority(
+    tmp_path: Path,
+):
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "haunting-graph"
+    scenario_dir = campaign_dir / "scenario"
+    scenario_dir.mkdir(parents=True)
+    (scenario_dir / "module-meta.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "scenario_id": "the-haunting",
+            "module_graph_asset_root_id": "the-haunting-graph-v1",
+            "handout_asset_root_id": "the-haunting-legacy-overlay",
+        }),
+        encoding="utf-8",
+    )
+
+    assert project.campaign_handout_asset_root_ids(campaign_dir) == [
+        "the-haunting-graph-v1"
+    ]
+
+
 def test_compact_queue_reports_current_open_host_work_not_history():
     queue = {
         "schema_version": 1,

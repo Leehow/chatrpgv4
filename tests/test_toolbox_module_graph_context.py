@@ -345,6 +345,7 @@ def test_module_context_unbound_campaign_preserves_requested_mode(campaign_ws):
     module_meta_path = campaign_ws["campaign_dir"] / "scenario" / "module-meta.json"
     module_meta = json.loads(module_meta_path.read_text(encoding="utf-8"))
     module_meta.pop("handout_asset_root_id", None)
+    module_meta.pop("module_graph_asset_root_id", None)
     _write_json(module_meta_path, module_meta)
 
     envelope = _run(campaign_ws, "module.context", {"query": "Mary"})
@@ -417,10 +418,10 @@ def test_module_context_localization_contract_does_not_persist_translation(campa
     assert scenario_after == scenario_before
 
 
-def test_module_context_uses_complete_scenario_handout_asset_binding(campaign_ws):
+def test_module_context_uses_complete_scenario_graph_asset_binding(campaign_ws):
     module_meta_path = campaign_ws["campaign_dir"] / "scenario" / "module-meta.json"
     module_meta = json.loads(module_meta_path.read_text(encoding="utf-8"))
-    asset_root_id = str(module_meta["handout_asset_root_id"])
+    asset_root_id = str(module_meta["module_graph_asset_root_id"])
     _install_source_graph(
         campaign_ws,
         asset_root_id=asset_root_id,

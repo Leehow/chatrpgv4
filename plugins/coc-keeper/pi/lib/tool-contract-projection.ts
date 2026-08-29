@@ -110,13 +110,50 @@ export type CombatResolveBindingCard = {
   candidates: readonly CombatTargetCandidate[];
 };
 
+export type TableOpeningBindingCard = {
+  schema_version: 1;
+  operation: "evidence.table_opening";
+  binding_revision: string;
+  root: string;
+  campaign: string;
+  decision_id: string;
+  run_id: string;
+};
+
+export type NpcEngagementBindingCard = {
+  schema_version: 1;
+  operation: "state.record_npc_engagement";
+  binding_revision: string;
+  root: string;
+  campaign: string;
+  decision_id: string;
+  npc_id: string;
+  investigator: string;
+  first_impression_ref: string;
+  run_id: string;
+};
+
+export type NpcReactionRunBindingCard = {
+  schema_version: 1;
+  operation: "npc.reaction";
+  binding_revision: string;
+  root: string;
+  campaign: string;
+  /** Binding-card identity only; the model still owns its per-NPC decision. */
+  decision_id: string;
+  run_id: string;
+};
+
 export type TypedToolBindingCard =
   | StateJournalBindingCard
   | NarrationReviewBindingCard
   | TurnFinalizeBindingCard
   | SceneMoveBindingCard
   | AdvanceTimeBindingCard
-  | CombatResolveBindingCard;
+  | CombatResolveBindingCard
+  | TableOpeningBindingCard
+  | NpcEngagementBindingCard
+  | NpcReactionRunBindingCard;
 
 /**
  * Same identity shape, but supplied independently from current canonical host
@@ -199,6 +236,26 @@ export const HOST_OWNED_FIELDS: Record<TypedToolBindingCard["operation"], readon
     "decision_id",
     "target_npc_id",
     "affordance_id",
+  ],
+  "evidence.table_opening": [
+    "root",
+    "campaign",
+    "decision_id",
+    "run_id",
+  ],
+  "state.record_npc_engagement": [
+    "root",
+    "campaign",
+    "decision_id",
+    "npc_id",
+    "investigator",
+    "first_impression_ref",
+    "run_id",
+  ],
+  "npc.reaction": [
+    "root",
+    "campaign",
+    "run_id",
   ],
 };
 
@@ -758,10 +815,20 @@ function validateBindingShape(binding: TypedToolBindingCard): void {
         { field: "clock_precision" },
       );
     }
-  } else {
+  } else if (binding.operation === "combat.resolve") {
     nonEmptyString(binding.combat_revision, "combat_revision");
     nonEmptyString(binding.combat_digest, "combat_digest");
     validateCombatCandidates(binding.candidates);
+  } else if (
+    binding.operation === "evidence.table_opening"
+    || binding.operation === "npc.reaction"
+  ) {
+    nonEmptyString(binding.run_id, "run_id");
+  } else {
+    nonEmptyString(binding.npc_id, "npc_id");
+    nonEmptyString(binding.investigator, "investigator");
+    nonEmptyString(binding.first_impression_ref, "first_impression_ref");
+    nonEmptyString(binding.run_id, "run_id");
   }
 }
 
@@ -859,6 +926,32 @@ function bindingValues(binding: TypedToolBindingCard): Record<string, unknown> {
       ...(binding.repair_finalization_id === undefined
         ? {}
         : { repair_finalization_id: binding.repair_finalization_id }),
+    };
+  }
+  if (binding.operation === "evidence.table_opening") {
+    return {
+      root: binding.root,
+      campaign: binding.campaign,
+      decision_id: binding.decision_id,
+      run_id: binding.run_id,
+    };
+  }
+  if (binding.operation === "state.record_npc_engagement") {
+    return {
+      root: binding.root,
+      campaign: binding.campaign,
+      decision_id: binding.decision_id,
+      npc_id: binding.npc_id,
+      investigator: binding.investigator,
+      first_impression_ref: binding.first_impression_ref,
+      run_id: binding.run_id,
+    };
+  }
+  if (binding.operation === "npc.reaction") {
+    return {
+      root: binding.root,
+      campaign: binding.campaign,
+      run_id: binding.run_id,
     };
   }
   return {
@@ -1429,6 +1522,7 @@ const DENIED_IDENTITY_FIELDS: ReadonlySet<string> = new Set([
   "narration_review_id",
   "review_id",
   "settlement_snapshot_id",
+  "first_impression_ref",
   "journal_decision_id",
   "repair_finalization_id",
   "identity_ref",
@@ -1453,6 +1547,9 @@ const DENIED_IDENTITY_FIELDS: ReadonlySet<string> = new Set([
   "consumer_refs",
   "host_work_request",
   "workspace_root",
+  "data_ref",
+  "row_ref",
+  "exact_text_ref",
   "python_executable",
   "toolbox_script",
   "catalog_path",
@@ -1490,7 +1587,7 @@ const CLASSIFIED_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
   "full_capsule_sha256", "projection_sha256", "scenario_binding_sha256",
   "original_hash", "bundle_sha256", "bundle_sha256s", "sha256",
   "payload_sha256", "receipt_digest", "rendered_sha256",
-  "baseline_draft_sha256",
+  "baseline_draft_sha256", "data_digest", "row_digest", "content_sha256",
 ]);
 
 /**
@@ -1546,11 +1643,13 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   ["session.resume", declaredIdentityTable(
     [
       "active_scene_id", "asset_root_id", "campaign_id", "civil_segment_id",
-      "decision_id", "location_id", "source_ref", "table_opening_id",
+      "clue_id", "decision_id", "location_id", "run_segment_id",
+      "source_ref", "table_opening_id",
     ],
     [
       "baseline_draft_sha256", "rendered_sha256", "rendered_text_sha256",
-      "source_digest", "full_capsule_sha256",
+      "source_digest", "full_capsule_sha256", "data_digest", "row_digest",
+      "content_sha256", "contract_projection_sha256",
     ],
   )],
   ["scene.map", declaredIdentityTable(
@@ -1573,9 +1672,15 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["known_fact_ids", "npc_id", "revealable_fact_ids"],
     [],
   )],
-  ["secrets.briefing", declaredIdentityTable(["npc_id", "scene_id"], [])],
+  ["secrets.briefing", declaredIdentityTable(
+    ["clue_id", "clue_ids", "npc_id", "npc_ids", "scene_id"],
+    [],
+  )],
   ["steward.scene_supply", declaredIdentityTable(["scene_id"], [])],
-  ["setup.inspect", declaredIdentityTable([], ["projection_sha256"])],
+  ["setup.inspect", declaredIdentityTable(
+    ["active_scenario_id", "campaign_id", "pregen_id", "scenario_id"],
+    ["projection_sha256"],
+  )],
   ["setup.phase", declaredIdentityTable(["asset_root_id", "campaign_id"], [])],
   ["setup.quick_start", declaredIdentityTable(
     ["campaign_id", "decision_id", "pregen_id", "scenario_id", "state_refs"],
@@ -1593,10 +1698,13 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [],
   )],
   ["evidence.table_opening", declaredIdentityTable(
-    ["run_id", "run_segment_id", "source_id", "source_ref"],
+    ["campaign_id", "run_id", "run_segment_id", "source_id", "source_ref"],
     ["rendered_text_sha256", "text_sha256"],
   )],
-  ["actions.list", declaredIdentityTable(["scene_id"], [])],
+  ["actions.list", declaredIdentityTable(
+    ["affordance_id", "id", "scene_id"],
+    [],
+  )],
   ["actions.advise", declaredIdentityTable(
     [
       "authorized_entity_refs", "authorized_route_ids", "clock_id", "clue_id",
@@ -1628,6 +1736,14 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   ["state.item_grant", declaredIdentityTable(["npc_id"], [])],
   ["state.item_remove", declaredIdentityTable(["npc_id"], [])],
   ["state.item_use", declaredIdentityTable(["npc_id"], [])],
+  ["state.record_clue", declaredIdentityTable(
+    ["clue_id", "route_id", "scene_id"],
+    [],
+  )],
+  ["state.deliver_handout", declaredIdentityTable(
+    ["asset_id", "image_ref"],
+    [],
+  )],
   ["state.journal", declaredIdentityTable(["thread_id"], [])],
   ["turn.output_context", declaredIdentityTable(
     [
@@ -2620,6 +2736,168 @@ function projectSceneContextData(
   ) as Record<string, unknown>;
 }
 
+const NPC_REACTION_KEPT_FIELDS = [
+  "schema_version",
+  "npc_display_name",
+  "app",
+  "credit_rating",
+  "governing_attribute",
+  "governing_value",
+  "roll_id",
+  "required_level",
+  "achieved_level",
+  "outcome",
+  "passed",
+  "surplus_levels",
+  "reaction_tier",
+  "disposition",
+  "context",
+] as const;
+
+const NPC_REACTION_ROLL_KEPT_FIELDS = [
+  "roll_id",
+  "kind",
+  "npc_display_name",
+  "display_skill",
+  "app",
+  "credit_rating",
+  "governing_attribute",
+  "governing_value",
+  "base_target",
+  "target",
+  "required_level",
+  "difficulty",
+  "required_target",
+  "effective_target",
+  "achieved_level",
+  "passed",
+  "success",
+  "surplus_levels",
+  "outcome",
+  "bonus",
+  "penalty",
+  "roll",
+  "unmodified_roll",
+  "tens_values",
+  "units",
+  "reaction_tier",
+  "visibility",
+] as const;
+
+/**
+ * Public first-impression mechanics plus one executable semantic engagement
+ * card. Receipt/run/hash/source identities stay host-side; roll ids are
+ * projected through the live semantic registry and restored on later calls.
+ */
+function projectNpcReactionData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const view: Record<string, unknown> = {};
+  for (const field of NPC_REACTION_KEPT_FIELDS) {
+    if (field in data) view[field] = data[field];
+  }
+  const rollRecord = isPlainObject(data.roll_record)
+    ? data.roll_record
+    : null;
+  if (rollRecord !== null) {
+    const rollView: Record<string, unknown> = {};
+    for (const field of NPC_REACTION_ROLL_KEPT_FIELDS) {
+      if (field in rollRecord) rollView[field] = rollRecord[field];
+    }
+    view.roll_record = rollView;
+  }
+  if (isPlainObject(data.record_engagement_operation)) {
+    view.record_engagement_operation = projectOperationDescriptor(
+      data.record_engagement_operation,
+      semanticIds,
+      diagnostics,
+    );
+  }
+  return sanitizeEnvelopeBranch(
+    view,
+    semanticIds,
+    diagnostics,
+    "npc.reaction",
+  ) as Record<string, unknown>;
+}
+
+/** Campaign write acknowledgement without machine event/receipt identity. */
+function projectNpcEngagementData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const view: Record<string, unknown> = {};
+  for (const field of [
+    "schema_version", "event_type", "producer", "interaction_kind",
+    "first_contact", "interaction_label", "route_completion",
+  ]) {
+    if (field in data) view[field] = data[field];
+  }
+  const effect = isPlainObject(data.context_effect)
+    ? data.context_effect
+    : null;
+  if (effect !== null) {
+    view.context_effect = Object.fromEntries(
+      [
+        "observable_manner", "causal_explanation", "boundary_preserved",
+        "opportunity_or_friction",
+      ].filter((field) => field in effect).map((field) => [field, effect[field]]),
+    );
+  }
+  const binding = isPlainObject(data.identity_binding)
+    ? data.identity_binding
+    : null;
+  if (binding !== null) {
+    view.identity_binding = Object.fromEntries(
+      [
+        "status", "authored_identity_attested", "coverage_eligible", "reasons",
+      ].filter((field) => field in binding).map((field) => [field, binding[field]]),
+    );
+  }
+  return sanitizeEnvelopeBranch(
+    view,
+    semanticIds,
+    diagnostics,
+    "state.record_npc_engagement",
+  ) as Record<string, unknown>;
+}
+
+/** Registered handout delivery without transport presentation identity. */
+function projectHandoutDeliveryData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const view: Record<string, unknown> = {};
+  for (const field of [
+    "asset_id", "delivered", "newly_delivered", "already_delivered",
+    "delivered_total",
+  ]) {
+    if (field in data) view[field] = data[field];
+  }
+  const card = isPlainObject(data.card) ? data.card : null;
+  if (card !== null) {
+    const cardView: Record<string, unknown> = {};
+    for (const field of [
+      "asset_id", "kind", "content_origin", "title", "summary",
+      "when_to_deliver", "text", "authored_text", "localized_text",
+      "image_ref", "source_refs", "player_visible", "delivered", "secret",
+    ]) {
+      if (field in card) cardView[field] = card[field];
+    }
+    view.card = cardView;
+  }
+  return sanitizeEnvelopeBranch(
+    view,
+    semanticIds,
+    diagnostics,
+    "state.deliver_handout",
+  ) as Record<string, unknown>;
+}
+
 /**
  * The single post-observer model-content projection for canonical envelopes.
  * Operation-aware for module.context / scene.context / session.resume /
@@ -2650,6 +2928,12 @@ export function projectModelVisibleCanonicalResult(
   if (data !== null) {
     if (operation === "scene.context") {
       projected.data = projectSceneContextData(data, semanticIds, diagnostics);
+    } else if (operation === "npc.reaction") {
+      projected.data = projectNpcReactionData(data, semanticIds, diagnostics);
+    } else if (operation === "state.record_npc_engagement") {
+      projected.data = projectNpcEngagementData(data, semanticIds, diagnostics);
+    } else if (operation === "state.deliver_handout") {
+      projected.data = projectHandoutDeliveryData(data, semanticIds, diagnostics);
     } else if (operation === "session.resume") {
       const sceneContext = isPlainObject(data.scene_context)
         ? data.scene_context
@@ -3022,6 +3306,13 @@ const DECISION_ID_PREFIXES: readonly string[] = [
   "finalize-",
   "fin-",
   "associate-",
+  "accept-",
+  "ask-",
+  "confirm-",
+  "grant-",
+  "record-",
+  "item-",
+  "cash-",
 ];
 
 /**
@@ -3039,7 +3330,11 @@ function isColonFormDecisionId(value: string): boolean {
 /** Canonical decision ids may carry the deterministic `:finalize` suffix. */
 function isDecisionIdValue(value: string): boolean {
   if (isColonFormDecisionId(value)) return true;
-  const base = value.endsWith(":finalize") ? value.slice(0, -":finalize".length) : value;
+  let base = value.endsWith(":finalize")
+    ? value.slice(0, -":finalize".length)
+    : value;
+  const turnScoped = /^t[1-9][0-9]*-(.+)$/.exec(base);
+  if (turnScoped !== null) base = turnScoped[1];
   return isPrefixedComposedId(base, DECISION_ID_PREFIXES);
 }
 
@@ -3199,6 +3494,7 @@ const RAW_NEVER_MODEL_AUTHORED_FIELDS: ReadonlySet<string> = new Set([
   "journal_decision_id", "repair_finalization_id", "review_decision_id",
   "request_decision_id", "linked_time_decision_id",
   "settlement_snapshot_id", "entry_id", "conversation_window_id",
+  "first_impression_ref",
   "identity_ref",
   // Workstream infrastructure identity: host-attached, never model-authored.
   "asset_root_id", "backlog_id", "chunk_id", "executor_id", "job_id",
@@ -3618,6 +3914,19 @@ export function restoreSemanticEntityHandles(
       }
     }
   }
+  // Closed semantic-identity grammar applies to the model-authored payload
+  // BEFORE registry restoration. Exact canonical ids attached by the host
+  // after this point may contain hashes by design and must not be mistaken
+  // for model-authored identity.
+  const grammarViolation = rejectOpaqueModelIdentity(restored);
+  if (grammarViolation !== null) {
+    return fail(
+      "opaque_identity_grammar",
+      `${grammarViolation.field} must be a meaning-bearing semantic id; `
+        + "UUIDs, hashes, and random tokens are host-bound or rejected.",
+    );
+  }
+
   // Registry-backed restoration: observed handles map back to the exact
   // canonical ids before transport, judged against the exact current
   // invocation scope. Unknown/stale/retired handles fail closed.
@@ -3737,18 +4046,6 @@ export function restoreSemanticEntityHandles(
     restored = rewrite(restored, null) as Record<string, unknown>;
   }
 
-  // Closed semantic-identity grammar: every model-authored identifier in the
-  // restored arguments must be meaning-bearing. UUIDs, digests, random hex /
-  // base62 tokens, and unknown namespaces fail closed before transport,
-  // naming only the field — never the supplied value.
-  const grammarViolation = rejectOpaqueModelIdentity(restored);
-  if (grammarViolation !== null) {
-    return fail(
-      "opaque_identity_grammar",
-      `${grammarViolation.field} must be a meaning-bearing semantic id; `
-        + "UUIDs, hashes, and random tokens are host-bound or rejected.",
-    );
-  }
   return { ok: true, value: restored };
 }
 
