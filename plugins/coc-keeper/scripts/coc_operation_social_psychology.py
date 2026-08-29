@@ -49,6 +49,20 @@ def _npc_authored_social_defense(
     key, value = max(candidates, key=lambda row: row[1])
     return value, key
 
+
+def _observer_psychology_skill(
+    ctx: Ctx, investigator_id: str, base_chance: int
+) -> tuple[int, str]:
+    """Host-lock observer Psychology, defaulting to the package 10% base."""
+    sheet = ctx.sheet(investigator_id)
+    skills = sheet.get("skills") if isinstance(sheet, dict) else {}
+    if not isinstance(skills, dict):
+        return base_chance, "rulebook_base"
+    value = skills.get("Psychology")
+    if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 100:
+        return value, "sheet"
+    return base_chance, "rulebook_base"
+
 def _resolve_contract_ref(
     ctx: Ctx,
     source_ref: str,
@@ -208,6 +222,72 @@ def _resolve_psychology_grounding_ref(
         ),
     }
 
+# Host-internal social contract (RulesRuntime payload after promotion).
+# Never listed on the KP-facing rules.social_adjudicate schema.
+_SOCIAL_HOST_INTERNAL_KEYS = (
+    "described_action",
+    "supporting_action",
+    "leverage_one_level",
+    "goal",
+    "motive_evidence",
+)
+
+
+def social_host_internal_overlay(
+    *,
+    described_action: str | None = None,
+    supporting_action: str | None = None,
+    leverage_one_level: bool | None = None,
+    goal: str | None = None,
+    motive_evidence: list[str] | None = None,
+) -> dict[str, Any]:
+    """Host-internal social inputs for resolver.social_difficulty.
+
+    Two seams:
+    - KP-facing ``rules.social_adjudicate`` never lists these keys and never
+      copies them from model-visible args into the result envelope.
+    - RulesRuntime / tests pass this overlay into ``build_social_difficulty_request``;
+      the resolver result MAY then carry described_action, supporting_action,
+      and leverage_one_level.
+    """
+    overlay: dict[str, Any] = {}
+    if described_action is not None:
+        overlay["described_action"] = described_action
+    if supporting_action is not None:
+        overlay["supporting_action"] = supporting_action
+    if leverage_one_level is not None:
+        overlay["leverage_one_level"] = bool(leverage_one_level)
+    if goal is not None:
+        overlay["goal"] = goal
+    if motive_evidence is not None:
+        overlay["motive_evidence"] = list(motive_evidence)
+    return overlay
+
+
+def build_social_difficulty_request(
+    *,
+    approach: str,
+    motive_direction: str,
+    motive_intensity: int,
+    bonus: int,
+    penalty: int,
+    host_internal: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resolver request for social_difficulty. host_internal is the runtime channel."""
+    request: dict[str, Any] = {
+        "approach": approach,
+        "motive_direction": motive_direction,
+        "motive_intensity": motive_intensity,
+        "bonus": bonus,
+        "penalty": penalty,
+    }
+    overlay = host_internal or {}
+    for key in _SOCIAL_HOST_INTERNAL_KEYS:
+        if key in overlay:
+            request[key] = overlay[key]
+    return request
+
+
 def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
     prior = _replay_bound_decision(ctx, "rules.social_adjudicate", args)
     if prior is not None:
@@ -238,6 +318,9 @@ def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
     goal_summary = str(args["goal_summary"] or "").strip()
     if not goal_summary:
         raise ToolError("invalid_param", "goal_summary must be non-empty")
+    # described_action / supporting_action / leverage_one_level are host-internal
+    # resolver inputs (RulesRuntime payload after promotion). The KP schema must
+    # not accept them; the adapter never reads them from model-visible args.
     goal_key = hashlib.sha256(
         "\x00".join((npc_id, conversation_window_id, commitment_id)).encode("utf-8")
     ).hexdigest()[:16]
@@ -351,20 +434,18 @@ def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
                 f"leverage independence_group {independence_group!r} was duplicated and counts only once"
             )
             continue
-        if len(leverage_items) >= 2:
-            warnings.append(
-                "more than two independent leverage items supplied; additional items do not count"
-            )
-            continue
         counted_sources.add(source_ref)
         counted_groups.add(independence_group)
         leverage_items.append(normalized)
     leverage_counted = leverage_items
-    if len(raw_leverage) > len(leverage_counted) and not any(
-        "more than two" in warning for warning in warnings
-    ):
+    if len(raw_leverage) > len(leverage_counted):
         warnings.append(
             "duplicate leverage sources or independence groups do not count twice"
+        )
+    if len(leverage_counted) > 1:
+        warnings.append(
+            "source authorizes only one difficulty level for a supporting case "
+            "(pdf 104/printed 93); additional independent items do not reduce further"
         )
 
     tactical = args.get("tactical") or {}
@@ -448,6 +529,9 @@ def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
     }
 
     current_leverage_ids = sorted(item["leverage_id"] for item in leverage_counted)
+    host_internal = social_host_internal_overlay(
+        leverage_one_level=True if leverage_counted else None,
+    )
     adjudication_source_digest = _canonical_digest({
         "npc_id": npc_id,
         "conversation_window_id": conversation_window_id,
@@ -483,17 +567,16 @@ def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
             "adjudication — switching the approach skill name does not reopen the goal"
         ], []
 
-    leverage_delta = len(leverage_counted)
     try:
         policy = resolver.social_difficulty(
-            {
-                "approach": approach,
-                "motive_direction": direction,
-                "motive_intensity": intensity,
-                "strategic_count": leverage_delta,
-                "bonus": bonus,
-                "penalty": penalty,
-            },
+            build_social_difficulty_request(
+                approach=approach,
+                motive_direction=direction,
+                motive_intensity=intensity,
+                bonus=bonus,
+                penalty=penalty,
+                host_internal=host_internal,
+            ),
             defense,
         )
     except ValueError as exc:
@@ -505,6 +588,7 @@ def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
             "unlock conditions so later play has something to pursue"
         )
     final_difficulty = str(policy["final_difficulty"])
+    leverage_delta = 1 if policy.get("leverage_one_level") else 0
     data = {
         "schema_version": 2,
         "investigator_id": investigator_id,
@@ -675,14 +759,37 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
             raise ToolError("revision_conflict", "realization does not match the settled observation window")
         existing_realization = realizations.get(insight_id)
         if isinstance(existing_realization, dict):
-            if existing_realization.get("visible_observation") != visible_observation:
+            existing_projection = existing_realization.get("player_projection")
+            existing_behavior = (
+                existing_projection.get("external_behavior")
+                if isinstance(existing_projection, dict)
+                else None
+            ) or existing_realization.get("visible_observation")
+            if existing_behavior != visible_observation:
                 raise ToolError("revision_conflict", "insight already has a different player-safe realization")
             data = deepcopy(existing_realization)
             data["request_digest"] = _request_digest(args)
             ctx.ledger_record(args.get("decision_id"), "rules.psychology_observe", data)
             return data, ["player-safe realization already bound; replaying it"], []
-        data = {
-            "resolution": "realized",
+        frozen_ceiling = str(matching.get("inference_depth") or "").strip()
+        resolver = _rules_resolver(ctx, "psychology_policy")
+        try:
+            realization_policy = resolver.psychology_policy(
+                {
+                    "inference_ceiling": frozen_ceiling,
+                    "external_behavior": visible_observation,
+                },
+                "realize",
+            )
+        except ValueError as exc:
+            raise ToolError("invalid_param", str(exc)) from exc
+        assembled = {
+            "external_behavior": realization_policy["player_projection"][
+                "external_behavior"
+            ],
+            "inference_ceiling": realization_policy["concealed_result"][
+                "inference_ceiling"
+            ],
             "insight_id": insight_id,
             "conversation_window_id": conversation_window_id,
             "observation_revision": revision,
@@ -693,11 +800,30 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
             "observable_fact_refs": deepcopy(matching["observable_fact_refs"]),
             "visible_observation": visible_observation,
         }
+        try:
+            public = resolver.psychology_realization_public_projection(assembled)
+        except ValueError as exc:
+            raise ToolError("invalid_param", str(exc)) from exc
+        concealed = {
+            key: assembled[key]
+            for key in assembled
+            if key not in resolver.PSYCHOLOGY_REALIZATION_PUBLIC_KEYS
+        }
+        data = {
+            "resolution": "realized",
+            "insight_id": insight_id,
+            "player_projection": public,
+            "concealed_result": concealed,
+            "visible_observation": visible_observation,
+        }
         realizations[insight_id] = deepcopy(data)
         _save_json_document(ctx, "psychology-observations.json", document)
         ledger_data = {**data, "request_digest": _request_digest(args)}
         ctx.ledger_record(args.get("decision_id"), "rules.psychology_observe", ledger_data)
-        return ledger_data, [], ["use only this player-safe realization in narration; concealed settlement fields remain Keeper-only"]
+        return ledger_data, [], [
+            "player_projection is the only player-visible realization field; "
+            "concealed_result stays Keeper-only"
+        ]
 
     if str(args.get("visible_observation") or "").strip():
         raise ToolError(
@@ -794,23 +920,33 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
             "revision 0 cannot reopen an already revised conversation window",
         )
     resolver = _rules_resolver(ctx, "psychology_check_contract")
-    provisional = resolver.psychology_check_contract(None)
-    defense_skills = provisional.get("defense_skills") or []
-    defense = max(
-        (
-            value
-            for skill_name in defense_skills
-            if (value := _npc_authored_skill_value(ctx, npc_id, str(skill_name))) is not None
-        ),
-        default=None,
-    )
     try:
-        check_contract = resolver.psychology_check_contract(defense)
+        provisional = resolver.psychology_check_contract({})
+    except ValueError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    base_chance = int(provisional["observer_skill_base_chance"])
+    observer_skill, observer_source = _observer_psychology_skill(
+        ctx, investigator_id, base_chance
+    )
+    defense_skills = [str(value) for value in provisional.get("defense_skills") or []]
+    defense, defense_key = _npc_authored_social_defense(ctx, npc_id, defense_skills)
+    try:
+        check_contract = resolver.psychology_check_contract(
+            {
+                "observer_skill": (
+                    observer_skill if observer_source == "sheet" else None
+                ),
+                "target_opposing_social": defense,
+                "question": question,
+                "observable_facts": observable_fact_refs,
+            }
+        )
     except ValueError as exc:
         raise ToolError("invalid_param", str(exc)) from exc
     roll_args: dict[str, Any] = {
         "investigator": investigator_id,
         "skill": check_contract["skill"],
+        "target": int(check_contract["observer_skill"]),
         "difficulty": check_contract["difficulty"],
         "difficulty_basis": check_contract["difficulty_basis"],
         "goal": question,
@@ -870,8 +1006,8 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
     }
     hints = [
         "the roll and outcome are keeper-concealed: the player sees only your "
-        "observation prose; on a fumble, give one confident but wrong read instead "
-        "of exposing the failure",
+        "observation prose; on failure you may give any unreliable information "
+        "including the opposite, but do not automatically invert and do not expose the roll",
         "this window is locked until an explicit allowed observation revision event; ordinary NPC state deltas do not reopen it",
     ]
     ctx.ledger_record(args.get("decision_id"), "rules.psychology_observe", data)
@@ -938,8 +1074,11 @@ OPERATION_EXPORTS = (
     '_PSYCHOLOGY_REVISION_EVENTS',
     '_npc_authored_skill_value',
     '_npc_authored_social_defense',
+    '_observer_psychology_skill',
     '_resolve_contract_ref',
     '_resolve_psychology_grounding_ref',
     '_tool_rules_psychology_observe',
     '_tool_rules_social_adjudicate',
+    'build_social_difficulty_request',
+    'social_host_internal_overlay',
 )

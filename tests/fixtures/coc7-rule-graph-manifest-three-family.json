@@ -1,0 +1,155 @@
+{
+  "contract_id": "coc.rule-graph-build-manifest.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "source_bundles": [
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "47615458fbd8a68cb093f10d54862b9870a16146c6b41bee17e4f720da0193fa",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    }
+  ],
+  "graph_content_digest": "965b219e5fbf9136b38fab81dbaa26b2b405007f26eec6b022ce65a49642058f",
+  "shards": [
+    {
+      "shard_id": "shard:coc7:healing:section-wounds-and-healing",
+      "shard_digest": "17a094feb9f4f1016464a0212f5ff0610c70359fe1ca1f83f39c8ee864c68425"
+    },
+    {
+      "shard_id": "shard:coc7:social:section-social-psychology",
+      "shard_digest": "ebf12c09432563a337483856f4c40f8bbdb5087940f1ba7ae2f3c942dbf75141"
+    }
+  ],
+  "family_coverage": {
+    "chase": "unresolved",
+    "combat": "unresolved",
+    "core-check": "unresolved",
+    "development": "unresolved",
+    "healing": "accepted",
+    "magic": "unresolved",
+    "psychology": "accepted",
+    "push-luck": "unresolved",
+    "sanity": "unresolved",
+    "social": "accepted"
+  },
+  "family_promotion_eligibility": {
+    "chase": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "combat": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "core-check": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "development": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "healing": {
+      "promotion_eligible": false,
+      "runtime_ownership": "shadow",
+      "shadow_exclusions": [
+        {
+          "exclusion_id": "first-aid-one-hour-eligibility-enforcement",
+          "exception_ref": "exception:coc7:healing:first-aid-window-uncompiled",
+          "decision_ref": "decision:coc7:healing:first-aid-ordinary"
+        },
+        {
+          "exclusion_id": "dual-rescuer-either-success-composition",
+          "exception_ref": "exception:coc7:healing:first-aid-teamwork-uncompiled",
+          "decision_ref": "decision:coc7:healing:first-aid-ordinary"
+        }
+      ]
+    },
+    "magic": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "psychology": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy",
+      "named_exclusions": [
+        {
+          "exclusion_id": "disguise",
+          "exception_ref": "exception:coc7:psychology:disguise-uncompiled",
+          "decision_ref": "decision:coc7:psychology:observe-concealed"
+        }
+      ]
+    },
+    "push-luck": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "sanity": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "social": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy",
+      "named_exclusions": [
+        {
+          "exclusion_id": "no-chance",
+          "exception_ref": "exception:coc7:social:no-chance",
+          "decision_ref": "decision:coc7:social:adjudicate-difficulty"
+        },
+        {
+          "exclusion_id": "pc-coercion-penalty",
+          "exception_ref": "exception:coc7:social:pc-coercion-penalty-uncompiled",
+          "decision_ref": "decision:coc7:social:adjudicate-difficulty"
+        }
+      ]
+    }
+  },
+  "data_table_dependencies": [],
+  "resolver_capability_dependencies": [
+    "dying_check",
+    "first_aid",
+    "medicine",
+    "psychology_check_contract",
+    "psychology_policy",
+    "social_difficulty",
+    "social_skill_names",
+    "weekly_recovery"
+  ],
+  "compiler_identity": "coc.rule-graph-compiler.v1",
+  "reviewer_identity": "r2-candidate-review",
+  "review_status": "accepted",
+  "findings": [
+    {
+      "code": "source_vs_derivative_mismatch",
+      "path": "/computed_thresholds/ceiling-half-major-wound-threshold",
+      "message": "source (hp_max + 1) // 2 vs derivative hp_max // 2"
+    },
+    {
+      "code": "executor_capability_gap",
+      "path": "/family_promotion_eligibility/healing/shadow_exclusions/first-aid-one-hour-eligibility-enforcement",
+      "message": "first-aid-one-hour-eligibility-enforcement is source-complete via exception:coc7:healing:first-aid-window-uncompiled and is excluded from shadow comparison"
+    },
+    {
+      "code": "executor_capability_gap",
+      "path": "/family_promotion_eligibility/healing/shadow_exclusions/dual-rescuer-either-success-composition",
+      "message": "dual-rescuer-either-success-composition is source-complete via exception:coc7:healing:first-aid-teamwork-uncompiled and is excluded from shadow comparison"
+    },
+    {
+      "code": "executor_capability_gap",
+      "path": "/family_promotion_eligibility/social/named_exclusions/no-chance",
+      "message": "no-chance is source-complete via exception:coc7:social:no-chance and remains excluded from graph promotion"
+    },
+    {
+      "code": "executor_capability_gap",
+      "path": "/family_promotion_eligibility/social/named_exclusions/pc-coercion-penalty",
+      "message": "pc-coercion-penalty is source-complete via exception:coc7:social:pc-coercion-penalty-uncompiled and remains excluded from graph promotion"
+    },
+    {
+      "code": "executor_capability_gap",
+      "path": "/family_promotion_eligibility/psychology/named_exclusions/disguise",
+      "message": "disguise is source-complete via exception:coc7:psychology:disguise-uncompiled and remains excluded from graph promotion"
+    }
+  ]
+}

@@ -117,6 +117,34 @@ HEALING_SETTLE_DECISION_REFS = (
     "decision:coc7:healing:weekly-major-wound-recovery",
 )
 
+# Social/psychology settle decision refs (spec §11.2/§11.3).  The R1
+# three-family graph is loaded by tests through an explicit fixture path;
+# the packaged coc7 graph stays healing-only until integration re-accepts
+# the three-family build.
+SOCIAL_SETTLE_DECISION_REFS = (
+    "decision:coc7:social:adjudicate-difficulty",
+)
+PSYCHOLOGY_SETTLE_DECISION_REFS = (
+    "decision:coc7:psychology:observe-concealed",
+    "decision:coc7:psychology:realize-player-safe",
+)
+
+_SOCIAL_ADJUDICATE_REF = SOCIAL_SETTLE_DECISION_REFS[0]
+_PSYCHOLOGY_OBSERVE_REF = PSYCHOLOGY_SETTLE_DECISION_REFS[0]
+_PSYCHOLOGY_REALIZE_REF = PSYCHOLOGY_SETTLE_DECISION_REFS[1]
+
+# Player-safe realization may release only the external-behavior conclusion
+# (mirror of the resolver's PSYCHOLOGY_REALIZATION_PUBLIC_KEYS; the runtime
+# enforces the projection boundary itself so a leaky adapter fails closed).
+PSYCHOLOGY_REALIZATION_PUBLIC_KEYS = frozenset({"external_behavior"})
+
+# Decision-id semantic pairing for the two psychology settlements (spec
+# §11.3): the realization decision_id shares the observation window and
+# swaps the suffix.  The host derives the frozen observe identity from the
+# realize decision_id; the model never echoes a hash or random identity.
+PSYCHOLOGY_OBSERVE_DECISION_SUFFIX = ":observe-concealed"
+PSYCHOLOGY_REALIZE_DECISION_SUFFIX = ":realize-player-safe"
+
 
 # --------------------------------------------------------------------------- #
 # Freeze helpers (immutable plans/cards; mirror of the kernel's pattern)
@@ -774,6 +802,13 @@ class RulesRuntime:
         # ``context()`` are recorded here; ``settle()`` validates the caller's
         # grant against this registry, ignoring any caller-authored fields.
         self._grants: dict[str, dict[str, Any]] = {}
+        # Frozen psychology observations keyed by the semantic observe
+        # decision_id (spec §11.3): the host re-attaches the frozen
+        # settlement identity to the realization; the model never echoes a
+        # hash or random identity.
+        self._psychology_frozen: dict[str, dict[str, Any]] = {}
+        # Realization replay records keyed by the realize decision_id.
+        self._psychology_realized: dict[str, dict[str, Any]] = {}
         self._grant_sequence = 0
         self._nodes: dict[str, dict[str, Any]] = {}
         self._relations: list[dict[str, Any]] = []
@@ -886,7 +921,17 @@ class RulesRuntime:
 
     # -- input slots -------------------------------------------------------- #
     def _slots_for(self, node_id: str) -> list[dict[str, Any]]:
-        """Union of implementation payload slots and input-slot nodes."""
+        """Union of implementation payload slots and input-slot nodes.
+
+        The compiler emits BOTH a decision's ``implementation.payload_slots``
+        AND ``requires-input`` input-slot NODES for the same logical inputs.
+        Input-slot node ids are ``input-slot:<ruleset>:<family>:<name>``; the
+        canonical slot name is the name segment with hyphens normalized to
+        underscores.  When the canonical name matches an implementation
+        payload slot, the node MERGES into it (type enrichment, node
+        ownership kept) instead of being surfaced as a second model-facing
+        slot under its node id.
+        """
         slots: dict[str, dict[str, Any]] = {}
         node = self._nodes.get(node_id) or {}
         implementation = (node.get("properties") or {}).get("implementation")
@@ -906,11 +951,22 @@ class RulesRuntime:
             if target is None or target.get("node_kind") != "input-slot":
                 continue
             props = target.get("properties") or {}
-            name = props.get("path") or str(target.get("node_name") or target.get("node_id"))
+            canonical = _canonical_slot_name(str(target.get("node_id")))
+            node_ownership = props.get("ownership") or "keeper-semantic"
+            node_type = props.get("value_type") or "scalar"
+            existing = slots.get(canonical)
+            if existing is not None:
+                # The same logical slot is already declared by the
+                # implementation payload slots: merge the node's richer type.
+                if existing["type"] in (None, "scalar") and node_type != "scalar":
+                    existing["type"] = node_type
+                existing.setdefault("path", props.get("path"))
+                continue
             slots[str(target.get("node_id"))] = {
                 "name": str(target.get("node_id")),
-                "ownership": props.get("ownership") or "keeper-semantic",
-                "type": props.get("value_type") or "scalar",
+                "ownership": node_ownership,
+                "type": node_type,
+                "path": props.get("path"),
             }
         return sorted(slots.values(), key=lambda slot: slot["name"])
 
@@ -1651,8 +1707,50 @@ class RulesRuntime:
                         "fields": overlap,
                     },
                 }
+        host_locked_extra: dict[str, Any] | None = None
+        if decision_ref == _PSYCHOLOGY_REALIZE_REF:
+            # Host re-attaches the frozen observation identity; the model
+            # never supplies it (locked_input_override already rejected any
+            # attempt).  A missing frozen observation fails closed BEFORE
+            # any compile/execution (spec §11.3).
+            observe_id = _paired_observe_decision_id(decision_id)
+            if observe_id is None:
+                return {
+                    "schema_version": self.SCHEMA_VERSION,
+                    "decision_ref": decision_ref,
+                    "decision_id": decision_id,
+                    "family": (node.get("properties") or {}).get("family_id") or "",
+                    "status": "invalid_decision_id",
+                    "failure": {
+                        "code": "invalid_decision_id",
+                        "message": (
+                            "realization decision_id must pair with the settle "
+                            "window (shared prefix, :realize-player-safe suffix)"
+                        ),
+                    },
+                }
+            frozen = self._psychology_frozen.get(observe_id)
+            if frozen is None:
+                return {
+                    "schema_version": self.SCHEMA_VERSION,
+                    "decision_ref": decision_ref,
+                    "decision_id": decision_id,
+                    "family": (node.get("properties") or {}).get("family_id") or "",
+                    "status": "rule_decision_not_applicable",
+                    "failure": {
+                        "code": "rule_decision_not_applicable",
+                        "message": (
+                            "the realization has no frozen observation for its "
+                            "window; settle observe-concealed first"
+                        ),
+                    },
+                }
+            host_locked_extra = {
+                "inference_ceiling": frozen["inference_ceiling"],
+            }
         result = self._compile_plan(
             decision_ref, semantic_inputs, facts=facts,
+            host_locked=host_locked_extra,
         )
         if result["failure"] is not None:
             failure = result["failure"]
@@ -1725,6 +1823,19 @@ class RulesRuntime:
                     ),
                 },
             }
+        # Family-specific settlement flows (spec §11.2/§11.3).  The R4b
+        # machinery exists for social/psychology even though their package
+        # ownership stays legacy/visible in this pass: tests promote the
+        # family to graph-owned so the composed settlement is exercised.
+        if family == "social" and decision_ref == _SOCIAL_ADJUDICATE_REF:
+            return self._settle_social(
+                executor, plan, decision_id, selected, facts, envelope)
+        if family == "psychology" and decision_ref == _PSYCHOLOGY_OBSERVE_REF:
+            return self._settle_psychology_observe(
+                executor, plan, decision_id, selected, facts, envelope)
+        if family == "psychology" and decision_ref == _PSYCHOLOGY_REALIZE_REF:
+            return self._settle_psychology_realize(
+                executor, plan, decision_id, selected, facts, envelope)
         executed = executor(_thaw(plan), decision_id, selected)
         data = executed
         warnings: list[str] = []
@@ -1747,6 +1858,511 @@ class RulesRuntime:
         if hints:
             envelope["hints"] = hints
         return envelope
+
+
+    # -- family settlements (spec §11.2 / §11.3) ---------------------------- #
+    @staticmethod
+    def _split_executor_result(executed: Any) -> tuple[Any, list[str], list[str]]:
+        data = executed
+        warnings: list[str] = []
+        hints: list[str] = []
+        if isinstance(executed, tuple):
+            data = executed[0] if executed else None
+            if len(executed) > 1 and isinstance(executed[1], list):
+                warnings = list(executed[1])
+            if len(executed) > 2 and isinstance(executed[2], list):
+                hints = list(executed[2])
+        return data, warnings, hints
+
+    @staticmethod
+    def _settled_envelope(
+        envelope: dict[str, Any],
+        plan: Mapping[str, Any],
+        result: Any,
+        warnings: list[str],
+        hints: list[str],
+        *,
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        base = {
+            "status": "settled",
+            "settlement": {
+                "existing_result_envelope": True,
+                "execution": "canonical-resolver-subsystem",
+                "plan": plan,
+                "result": result,
+            },
+        }
+        if extra:
+            base.update(extra)
+        envelope.update(base)
+        if warnings:
+            envelope["warnings"] = warnings
+        if hints:
+            envelope["hints"] = hints
+        return envelope
+
+    @staticmethod
+    def _validate_social_provenance(payload: Mapping[str, Any]) -> dict[str, Any] | None:
+        """Deterministic social provenance gate (mirrors the R4 contract).
+
+        Returns a failure dict (code/message/fields/missing), or None when
+        the semantics are coherent.  These are the R4 contract's own
+        requirements expressed as runtime gates so an incoherent selection
+        never reaches the executor.
+        """
+        direction = str(payload.get("motive_direction") or "")
+        intensity = payload.get("motive_intensity")
+        evidence = payload.get("motive_evidence")
+        if isinstance(evidence, (tuple, frozenset)):
+            evidence = list(evidence)
+        if direction not in {"support", "neutral", "oppose"}:
+            return {
+                "code": "invalid_semantic_input",
+                "message": "motive_direction must be support|neutral|oppose",
+                "fields": ["motive_direction"],
+            }
+        if isinstance(intensity, bool) or not isinstance(intensity, int) or intensity not in (0, 1, 2):
+            return {
+                "code": "invalid_semantic_input",
+                "message": "motive_intensity must be 0, 1, or 2",
+                "fields": ["motive_intensity"],
+            }
+        if intensity > 0 and not isinstance(evidence, list):
+            return {
+                "code": "invalid_semantic_input",
+                "message": (
+                    "motive.intensity > 0 requires motive.evidence_refs"
+                ),
+                "fields": ["motive_evidence"],
+                "missing": ["motive_evidence"],
+            }
+        if intensity > 0 and not evidence:
+            return {
+                "code": "invalid_semantic_input",
+                "message": (
+                    "motive.intensity > 0 requires at least one "
+                    "motive.evidence_ref"
+                ),
+                "fields": ["motive_evidence"],
+                "missing": ["motive_evidence"],
+            }
+        supporting_action = payload.get("supporting_action")
+        if supporting_action is not None:
+            if not isinstance(supporting_action, Mapping):
+                return {
+                    "code": "invalid_semantic_input",
+                    "message": "supporting_action must be an object",
+                    "fields": ["supporting_action"],
+                }
+            description = supporting_action.get("description", "")
+            if not isinstance(description, str):
+                return {
+                    "code": "invalid_semantic_input",
+                    "message": (
+                        "supporting_action.description must be a string"
+                    ),
+                    "fields": ["supporting_action"],
+                }
+            level = supporting_action.get("level", 0)
+            if isinstance(level, bool) or level not in {0, 1}:
+                return {
+                    "code": "invalid_semantic_input",
+                    "message": "supporting_action.level must be 0 or 1",
+                    "fields": ["supporting_action"],
+                }
+            provenance = supporting_action.get("provenance", "")
+            if not isinstance(provenance, str):
+                return {
+                    "code": "invalid_semantic_input",
+                    "message": (
+                        "supporting_action.provenance must be a string"
+                    ),
+                    "fields": ["supporting_action"],
+                }
+        return None
+
+    def _settle_social(
+        self,
+        executor: Callable[..., Any],
+        plan: Mapping[str, Any],
+        decision_id: str,
+        selected: Mapping[str, Any],
+        facts: Mapping[str, Any],
+        envelope: dict[str, Any],
+    ) -> dict[str, Any]:
+        """One social settlement: adjudicate + bound check (spec §11.2).
+
+        Single settlement combining adjudication and the bound percentile
+        check.  ``executor`` is invoked for the adjudication only; if (and
+        ONLY if) ``feasibility == 'roll'`` the runtime machine-derives the
+        bound-check plan from the adjudication result (skill = approach
+        skill, difficulty = final difficulty, bonus/penalty dice = the
+        adjudication's own arithmetic) — never from the model's inputs — and
+        invokes the SAME executor for that check.  Automatic/conditional
+        results return without rolling.  No second model-authored transfer of
+        skill, difficulty, bonus/penalty, NPC, or goal identity.
+        """
+        payload = (plan.get("command") or {}).get("payload") or {}
+        if not isinstance(payload, Mapping):
+            payload = {}
+        provenance = self._validate_social_provenance(payload)
+        if provenance is not None:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_semantic_input",
+                "failure": provenance,
+            }
+        adjudicated = executor(_thaw(plan), decision_id, selected)
+        data, warnings, hints = self._split_executor_result(adjudicated)
+        if not isinstance(data, Mapping) or "feasibility" not in data:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_settlement_result",
+                "failure": {
+                    "code": "invalid_settlement_result",
+                    "message": (
+                        "bound adjudication must return feasibility; no second "
+                        "model-authored transfer is accepted"
+                    ),
+                },
+            }
+        feasibility = str(data.get("feasibility") or "")
+        result: dict[str, Any] = {"adjudication": _thaw(data)}
+        if feasibility == "roll":
+            # Machine-derived bound check; the model NEVER re-expresses skill,
+            # difficulty, bonus/penalty, NPC, or goal identity (spec §11.2).
+            derived = self._social_bound_check_plan(plan, data)
+            check = executor(_thaw(derived), decision_id, selected)
+            check_data, check_warnings, check_hints = self._split_executor_result(check)
+            warnings = list(warnings) + list(check_warnings)
+            hints = list(hints) + list(check_hints)
+            result["bound_check"] = _thaw(check_data)
+            result["bound_check_plan"] = _freeze(derived)
+        else:
+            hints = list(hints) + [
+                f"feasibility is {feasibility}: no bound roll is settled"
+            ]
+            if feasibility == "automatic":
+                hints.append("automatic success — play the compliance in fiction")
+            elif feasibility == "conditional":
+                hints.append(
+                    "the goal cannot be settled by a roll now; pursue the "
+                    "recorded requirements or change approach/target"
+                )
+        return self._settled_envelope(
+            envelope, plan, _freeze(result), warnings, hints,
+            extra={"visibility": "keeper-only"},
+        )
+
+    def _social_bound_check_plan(
+        self,
+        plan: Mapping[str, Any],
+        adjudication: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Machine-derived percentile check for one rolled social attempt."""
+        payload = (plan.get("command") or {}).get("payload") or {}
+        if not isinstance(payload, Mapping):
+            payload = {}
+        rule_refs = list(plan.get("rule_refs") or [])
+        check_payload: dict[str, Any] = {
+            "skill": str(adjudication.get("approach_skill") or ""),
+            "difficulty": str(adjudication.get("final_difficulty") or "regular"),
+            "bonus": int(adjudication.get("bonus_dice") or 0),
+            "penalty": int(adjudication.get("penalty_dice") or 0),
+            "difficulty_basis": "opponent_skill",
+            "goal": payload.get("goal"),
+            "social_adjudication_ref": plan["decision_ref"],
+        }
+        return {
+            "schema_version": self.SCHEMA_VERSION,
+            "decision_ref": plan["decision_ref"],
+            "family": plan["family"],
+            "capability": {
+                "ref": "capability:coc7:check",
+                "adapter": "resolver",
+                "resolver_capability": "check",
+            },
+            "command": {
+                "kind": "check",
+                "phase": "resolve",
+                "payload": _freeze(check_payload),
+            },
+            "rule_refs": rule_refs,
+            "source_refs": list(plan.get("source_refs") or []),
+            "resource_effects": [],
+            "visibility": "keeper-only",
+            "pending_choices": [],
+            "next_decisions": [],
+            "machine_derived": True,
+        }
+
+    def _settle_psychology_observe(
+        self,
+        executor: Callable[..., Any],
+        plan: Mapping[str, Any],
+        decision_id: str,
+        selected: Mapping[str, Any],
+        facts: Mapping[str, Any],
+        envelope: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Concealed psychology observation settlement (spec §11.3).
+
+        Executes the observation once; the runtime FREEZES the settled
+        observation identity (inference ceiling + concealed outcome) keyed by
+        the semantic observe decision_id so the realization can bind it via
+        the paired decision_id.  Concealed dice/outcome never enter public
+        player-visible fields.
+        """
+        if decision_id in self._psychology_frozen:
+            record = self._psychology_frozen[decision_id]
+            return self._settled_envelope(
+                envelope, plan, _freeze(record), [],
+                ["frozen observation reused: realization may bind it"],
+                extra={"visibility": "concealed-result"},
+            )
+        executed = executor(_thaw(plan), decision_id, selected)
+        data, warnings, hints = self._split_executor_result(executed)
+        if not isinstance(data, Mapping):
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_settlement_result",
+                "failure": {
+                    "code": "invalid_settlement_result",
+                    "message": "concealed observation must return a record",
+                },
+            }
+        ceiling = _observation_inference_ceiling(data)
+        if ceiling is None:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_settlement_result",
+                "failure": {
+                    "code": "invalid_settlement_result",
+                    "message": (
+                        "concealed observation result lacks a frozen inference "
+                        "ceiling"
+                    ),
+                },
+            }
+        frozen = {
+            "decision_id": decision_id,
+            "realm": "psychology",
+            "inference_ceiling": ceiling,
+            "concealed": _thaw(data),
+        }
+        self._psychology_frozen[decision_id] = deepcopy(frozen)
+        hints = list(hints) + [
+            "the roll and outcome are keeper-concealed: the player sees only "
+            "the realization's external_behavior; do not expose the die",
+        ]
+        return self._settled_envelope(
+            envelope, plan, _freeze(frozen), warnings, hints,
+            extra={"visibility": "concealed-result"},
+        )
+
+    def _settle_psychology_realize(
+        self,
+        executor: Callable[..., Any],
+        plan: Mapping[str, Any],
+        decision_id: str,
+        selected: Mapping[str, Any],
+        facts: Mapping[str, Any],
+        envelope: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Player-safe realization bound to a frozen observation (spec §11.3).
+
+        The realization decision_id binds the frozen observe-settlement
+        identity: the host re-attaches the observe decision_id (derived by
+        suffix swap — no hash relay, no model echo) and the frozen inference
+        ceiling; the realization performs NO RNG and NO re-execution of the
+        check.  The public player-visible output is exactly the contract's
+        allowlist ({external_behavior}); concealed dice/outcome never enter
+        player-visible fields.
+        """
+        observe_decision_id = _paired_observe_decision_id(decision_id)
+        if observe_decision_id is None:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_decision_id",
+                "failure": {
+                    "code": "invalid_decision_id",
+                    "message": (
+                        "realization decision_id must pair with the settle "
+                        "window (shared prefix, :realize-player-safe suffix)"
+                    ),
+                },
+            }
+        frozen = self._psychology_frozen.get(observe_decision_id)
+        if frozen is None:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "rule_decision_not_applicable",
+                "failure": {
+                    "code": "rule_decision_not_applicable",
+                    "message": (
+                        "the realization has no frozen observation for its "
+                        "window; settle observe-concealed first"
+                    ),
+                },
+            }
+        # No reroll / no re-execution: the realization executor consumes the
+        # frozen ceiling; the runtime never invokes a check plan here.  A
+        # replayed decision_id returns the SAME projection without invoking
+        # the executor again (host re-attach idempotency, spec §13.1).
+        prior = self._psychology_realized.get(decision_id)
+        request_identity = _json_digest({
+            "decision_ref": plan["decision_ref"],
+            "semantic": selected.get("semantic_inputs"),
+        })
+        if prior is not None and prior.get("request_identity") == request_identity:
+            return self._settled_envelope(
+                envelope, plan, _freeze(prior["result"]), [],
+                ["frozen realization reused: identical decision_id"],
+                extra={
+                    "visibility": "public",
+                    "player_projection": deepcopy(prior["player_projection"]),
+                    "concealed_result": deepcopy(prior["concealed_result"]),
+                },
+            )
+        if prior is not None:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "decision_conflict",
+                "failure": {
+                    "code": "decision_conflict",
+                    "message": (
+                        "decision_id already bound to a different "
+                        "realization request; executor not invoked"
+                    ),
+                },
+            }
+        realized = executor(_thaw(plan), decision_id, selected)
+        data, warnings, hints = self._split_executor_result(realized)
+        if not isinstance(data, Mapping):
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_settlement_result",
+                "failure": {
+                    "code": "invalid_settlement_result",
+                    "message": "realization must return a projection",
+                },
+            }
+        public = data.get("player_projection")
+        if not isinstance(public, Mapping):
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "concealed_projection_violation",
+                "failure": {
+                    "code": "concealed_projection_violation",
+                    "message": (
+                        "realization has no player_projection; concealed "
+                        "dice/outcome must never surface publicly"
+                    ),
+                },
+            }
+        leaked = sorted(
+            set(public) - PSYCHOLOGY_REALIZATION_PUBLIC_KEYS
+        )
+        if leaked:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "concealed_projection_violation",
+                "failure": {
+                    "code": "concealed_projection_violation",
+                    "message": (
+                        "player-safe realization leaked concealed fields"
+                    ),
+                    "leaked": leaked,
+                },
+            }
+        projection = {"external_behavior": _thaw(public.get("external_behavior"))}
+        concealed_outcome = _observation_public_outcome(frozen)
+        result = {
+            "player_projection": _freeze(projection),
+            "bound_to_observe": observe_decision_id,
+        }
+        self._psychology_realized[decision_id] = {
+            "request_identity": request_identity,
+            "result": _thaw(result),
+            "player_projection": dict(projection),
+            "concealed_result": dict(concealed_outcome),
+        }
+        return self._settled_envelope(
+            envelope, plan, _freeze(result), warnings, hints,
+            extra={
+                "visibility": "public",
+                "player_projection": deepcopy(projection),
+                "concealed_result": concealed_outcome,
+            },
+        )
+
+
+def _observation_inference_ceiling(data: Mapping[str, Any]) -> str | None:
+    """Extract the frozen inference ceiling from one observation record."""
+    for key in ("inference_depth", "inference_ceiling"):
+        value = data.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _observation_public_outcome(frozen: Mapping[str, Any]) -> dict[str, Any]:
+    """Host-only concealed summary; never reaches player-visible fields."""
+    concealed = frozen.get("concealed")
+    if not isinstance(concealed, Mapping):
+        return {"inference_ceiling": frozen.get("inference_ceiling")}
+    outcome = concealed.get("outcome")
+    row: dict[str, Any] = {"realm": "psychology"}
+    if isinstance(outcome, str) and outcome:
+        row["outcome"] = outcome
+    return row
+
+
+def _paired_observe_decision_id(realize_decision_id: str) -> str | None:
+    """Derive the paired observe decision_id from a realize decision_id.
+
+    ``psychology:<inv>:<scene>:realize-player-safe`` ->
+    ``psychology:<inv>:<scene>:observe-concealed``.  Returns None when the id
+    does not follow the semantic pairing shape (fail closed).
+    """
+    id_text = str(realize_decision_id or "")
+    if not id_text.endswith(PSYCHOLOGY_REALIZE_DECISION_SUFFIX):
+        return None
+    prefix = id_text[: -len(PSYCHOLOGY_REALIZE_DECISION_SUFFIX)]
+    if not prefix.startswith("psychology:"):
+        return None
+    return prefix + PSYCHOLOGY_OBSERVE_DECISION_SUFFIX
 
 
 def public_card_projection(card: Mapping[str, Any]) -> dict[str, Any]:
@@ -1806,6 +2422,19 @@ def project_family_cards(
             "note": "advisory healing affordances; settle via rules.settle; absence never blocks play",
         },
     }
+
+
+def _canonical_slot_name(node_id: str) -> str:
+    """Canonical slot name for an input-slot node id.
+
+    ``input-slot:coc7:social:described-action`` -> ``described_action``.
+    Nodes that cannot be parsed keep their full id so they remain
+    distinguishable (never collapsed onto an unrelated slot).
+    """
+    parts = str(node_id).split(":")
+    if len(parts) >= 3 and parts[0] == "input-slot":
+        return parts[-1].replace("-", "_")
+    return str(node_id)
 
 
 def _scalar_type_from_guess(name: str) -> str:
@@ -2318,6 +2947,246 @@ def _shadow_skip_row(
         "skip_reason": skip_reason,
     }
     row.update(extra)
+    return row
+
+
+_SOCIAL_PSYCHOLOGY_TOOLS = frozenset({
+    "rules.social_adjudicate", "rules.psychology_observe",
+})
+
+
+def maybe_shadow_compare_social_psychology(
+    *,
+    ruleset_id: str,
+    tool_name: str,
+    decision_id: str,
+    command: Mapping[str, Any] | None = None,
+    args: Mapping[str, Any] | None = None,
+    state_path: Path | str | None = None,
+    sheet_provider: Callable[[], dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Shadow-compare one legacy social/psych op; NEVER raises or blocks.
+
+    Identical engage/fail-open discipline as the healing comparator: only a
+    shadow-owned family compares; a missing/invalid graph produces a
+    host-internal ``skipped`` row and the legacy path continues untouched.
+    The families stay ``legacy``/``visible`` in the package, so this engages
+    only under a test/host config override (``configure_shadow``).
+    """
+    if tool_name not in _SOCIAL_PSYCHOLOGY_TOOLS:
+        return None
+    try:
+        return _maybe_shadow_compare_social_psychology_impl(
+            ruleset_id=ruleset_id,
+            tool_name=tool_name,
+            decision_id=decision_id,
+            command=command,
+            args=args,
+            state_path=state_path,
+            sheet_provider=sheet_provider,
+        )
+    except Exception as exc:  # pragma: no cover - defensive boundary
+        row = {
+            "contract_id": SHADOW_LOG_CONTRACT_ID,
+            "schema_version": SHADOW_LOG_SCHEMA_VERSION,
+            "ruleset_id": ruleset_id,
+            "family": _family_for_social_psychology_tool(tool_name),
+            "tool": tool_name,
+            "decision_id": decision_id,
+            "status": "skipped",
+            "skip_reason": "comparator_error",
+            "error": str(exc)[:300],
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+
+
+def _family_for_social_psychology_tool(tool_name: str) -> str:
+    if tool_name == "rules.psychology_observe":
+        return "psychology"
+    return "social"
+
+
+def _decision_ref_for_social_psychology(
+    runtime: RulesRuntime,
+    tool_name: str,
+    command: Mapping[str, Any],
+) -> str | None:
+    """Resolve the graph decision ref for one legacy social/psych op."""
+    payload = command.get("payload") or {}
+    if not isinstance(payload, Mapping):
+        payload = {}
+    if tool_name == "rules.social_adjudicate":
+        expected = _SOCIAL_ADJUDICATE_REF
+        if expected in runtime._nodes:
+            return expected
+        return None
+    if tool_name == "rules.psychology_observe":
+        phase = str(command.get("phase") or "")
+        if phase == "realize" or (
+            isinstance(payload.get("external_behavior"), str)
+            and payload.get("external_behavior")
+        ):
+            expected = _PSYCHOLOGY_REALIZE_REF
+            if expected in runtime._nodes:
+                return expected
+        expected = _PSYCHOLOGY_OBSERVE_REF
+        if expected in runtime._nodes:
+            return expected
+        return None
+    return None
+
+
+def _maybe_shadow_compare_social_psychology_impl(
+    *,
+    ruleset_id: str,
+    tool_name: str,
+    decision_id: str,
+    command: Mapping[str, Any] | None,
+    args: Mapping[str, Any] | None,
+    state_path: Path | str | None,
+    sheet_provider: Callable[[], dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    config = _SHADOW_CONFIG
+    family = _family_for_social_psychology_tool(tool_name)
+    owner, _surface = "legacy", "visible"
+    graph: dict[str, Any] | None = None
+    graph_manifest: dict[str, Any] | None = None
+    rulesets_root_path: Path | str | None = None
+    if config is not None and config.get("ruleset_id") == ruleset_id:
+        owner = str(config.get("runtime_owner") or "legacy")
+        graph = config.get("graph")
+        graph_manifest = config.get("graph_manifest")
+        rulesets_root_path = config.get("rulesets_root_path")
+    if owner == "legacy":
+        manifest = _load_manifest_cached(ruleset_id, rulesets_root_path)
+        if manifest is not None:
+            loaded = load_ruleset_graph(
+                ruleset_id, rulesets_root_path=rulesets_root_path,
+            )
+            if loaded["ok"]:
+                graph, graph_manifest = loaded["graph"], loaded["graph_manifest"]
+            owner, _ = resolve_family_ownership(
+                ruleset_id, family, manifest=manifest,
+                graph=graph, graph_manifest=graph_manifest,
+            )
+        if owner != "shadow":
+            # Legacy-owned family: no pretend graph support, no machinery.
+            return None
+    if not isinstance(command, Mapping):
+        row = {"status": "skipped", "skip_reason": "no_normalized_command"}
+        row.update({
+            "family": family, "tool": tool_name, "decision_id": decision_id,
+        })
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    if graph is None or graph_manifest is None:
+        row = {
+            "family": family, "tool": tool_name, "decision_id": decision_id,
+            "status": "skipped", "skip_reason": "graph_absent",
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    sheet = None
+    if sheet_provider is not None:
+        try:
+            sheet = sheet_provider()
+        except Exception:
+            sheet = None
+    runtime = None
+    try:
+        runtime = RulesRuntime(
+            graph,
+            ruleset_id=ruleset_id,
+            graph_manifest=graph_manifest,
+            facts_provider=facts_from_state_closure(
+                state_path, sheet, ruleset_id=ruleset_id,
+            ),
+            host_locked_provider=None,
+        )
+    except ValueError:
+        row = {
+            "family": family, "tool": tool_name, "decision_id": decision_id,
+            "status": "skipped", "skip_reason": "graph_invalid",
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    decision_ref = _decision_ref_for_social_psychology(runtime, tool_name, command)
+    if decision_ref is None:
+        row = {
+            "family": family, "tool": tool_name, "decision_id": decision_id,
+            "decision_ref": None, "status": "mismatch", "skip_reason": None,
+            "differences": [{
+                "axis": "decision_ref", "field": "decision_ref",
+                "kind": "missing_in_graph",
+                "plan": None, "legacy": tool_name,
+            }],
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    facts = _facts_from_state_file(
+        Path(state_path), sheet, ruleset_id=ruleset_id,
+    ) if state_path is not None else facts_from_state(
+        None, sheet, ruleset_id=ruleset_id,
+    )
+    slot_ownership = {
+        slot["name"]: slot["ownership"] for slot in runtime._slots_for(decision_ref)
+    }
+    payload = {
+        str(key): deepcopy(value)
+        for key, value in (command.get("payload") or {}).items()
+        if str(key) not in _RUNTIME_OWNED_PAYLOAD_KEYS
+    }
+    semantic_inputs: dict[str, Any] = {}
+    host_locked: dict[str, Any] = {}
+    for key, value in payload.items():
+        ownership = slot_ownership.get(key)
+        if ownership in _SEMANTIC_SLOT_OWNERSHIPS:
+            semantic_inputs[key] = value
+        elif ownership in _LOCKED_SLOT_OWNERSHIPS:
+            host_locked[key] = value
+    result = runtime._compile_plan(
+        decision_ref, semantic_inputs, facts=facts, host_locked=host_locked,
+    )
+    if result["failure"] is not None:
+        failure = result["failure"]
+        row = {
+            "family": family, "tool": tool_name, "decision_id": decision_id,
+            "decision_ref": decision_ref, "status": "mismatch",
+            "skip_reason": None,
+            "differences": [{
+                "axis": "semantic_inputs",
+                "field": failure.get("code", "condition"),
+                "kind": "missing_semantic_input",
+                "plan": None, "legacy": "executing",
+                "message": failure.get("message"),
+                "missing": failure.get("missing"),
+            }],
+            "plan_profile": None, "legacy_profile": None,
+            "graph_content_digest": _json_digest(graph),
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    plan = result["plan"]
+    differences, plan_profile, legacy_profile = _compare_plan_and_legacy(
+        runtime, plan, command,
+    )
+    row = {
+        "contract_id": SHADOW_LOG_CONTRACT_ID,
+        "schema_version": SHADOW_LOG_SCHEMA_VERSION,
+        "ruleset_id": ruleset_id,
+        "family": family,
+        "tool": tool_name,
+        "decision_id": decision_id,
+        "decision_ref": decision_ref,
+        "status": "match" if not differences else "mismatch",
+        "skip_reason": None,
+        "differences": differences,
+        "plan_profile": plan_profile,
+        "legacy_profile": legacy_profile,
+        "graph_content_digest": _json_digest(graph),
+    }
+    _append_shadow_row(row, _current_log_path_from_config())
     return row
 
 
