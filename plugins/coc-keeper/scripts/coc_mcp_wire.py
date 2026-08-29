@@ -1807,6 +1807,7 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
             "turn_id",
             "manifest_revision",
             "journal_decision_id",
+            "journal_context",
             "turn_number",
             "source_digest",
             "source_roll_ids",

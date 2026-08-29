@@ -1774,7 +1774,10 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["asset_id", "image_ref"],
     [],
   )],
-  ["state.journal", declaredIdentityTable(["decision_id", "thread_id"], [])],
+  ["state.journal", declaredIdentityTable(
+    ["decision_id", "item_id", "thread_id"],
+    [],
+  )],
   ["turn.output_context", declaredIdentityTable(
     [
       "authorized_entity_refs", "authorized_route_ids", "clock_id", "clue_id",
@@ -2123,6 +2126,16 @@ function projectSemanticIdField(
   diagnostics: ProjectionIdentityDiagnostics | null,
   operation: string | null = null,
 ): { action: "keep"; value?: unknown } | { action: "drop" } | null {
+  // continuation_delta.do_not_repeat[].item_id names a semantic memory note,
+  // not an inventory entity. Keep that operation-owned journal identity in
+  // the closed grammar instead of consulting the live item registry.
+  if (
+    operation === "state.journal"
+    && parentField === "do_not_repeat"
+    && field === "item_id"
+  ) {
+    return null;
+  }
   if (
     operation === "npc.query"
     && field === "valid_optional_evidence_refs"
@@ -2500,6 +2513,7 @@ function sanitizeEnvelopeBranch(
 const OUTPUT_CONTEXT_KEPT_FIELDS = [
   "schema_version",
   "turn_number",
+  "journal_context",
   "obligations",
   "required_obligation_ids",
   "source_roll_ids",
@@ -2518,6 +2532,14 @@ function projectOutputContextContractProjection(data: Record<string, unknown>): 
     ? data.contract_projection
     : {};
   const narrowed: Record<string, unknown> = {};
+  const playerInput = isPlainObject(raw.player_input)
+    ? raw.player_input
+    : null;
+  if (playerInput !== null && typeof playerInput.text === "string") {
+    // Exact player semantics are needed when a fresh host resumes a settled
+    // but unfinished turn. Source identity and text digest remain host-only.
+    narrowed.player_input_text = playerInput.text;
+  }
   for (const field of [
     "narration_budget",
     "control_overrides",

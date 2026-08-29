@@ -204,7 +204,11 @@ const STAGE_CAPABILITIES: Readonly<Record<TurnProgressStage, StageCapability>> =
     "narration.review",
     "turn.finalize",
   ]),
-  review_ready: closedStage(["narration.review", "turn.finalize"]),
+  review_ready: closedStage([
+    "narration.review",
+    "turn.finalize",
+    "turn.output_context",
+  ]),
   finalized: closedStage([], { advertiseHostTools: false }),
   delivered: closedStage([], { advertiseHostTools: false }),
   faulted: closedStage(["session.resume"], {

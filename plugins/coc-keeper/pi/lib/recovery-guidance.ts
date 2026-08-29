@@ -762,6 +762,55 @@ function nextOperationsOf(data: JsonObject): unknown[] {
   return Array.isArray(data.next_operations) ? data.next_operations : [];
 }
 
+function settledSemanticRecoveryContext(data: JsonObject): JsonObject | null {
+  const capsule = isPlainObject(data.semantic_capsule)
+    ? data.semantic_capsule
+    : null;
+  if (capsule === null) return null;
+  const projectRows = (
+    value: unknown,
+    fields: readonly string[],
+  ): JsonObject[] => Array.isArray(value)
+    ? value.filter(isPlainObject).map((row) => {
+        const projected: JsonObject = {};
+        for (const field of fields) {
+          if (field in row) projected[field] = deepCopyValue(row[field]);
+        }
+        return projected;
+      })
+    : [];
+  const confirmedDecisions = projectRows(
+    capsule.confirmed_decisions,
+    ["summary", "reason"],
+  );
+  const openThreads = projectRows(
+    capsule.threads,
+    ["summary", "reason", "status"],
+  );
+  const doNotRepeat = projectRows(
+    capsule.do_not_repeat,
+    ["instruction", "reason"],
+  );
+  const styleCommitments = Array.isArray(capsule.style_commitments)
+    ? capsule.style_commitments.filter(
+        (entry): entry is string => typeof entry === "string",
+      )
+    : [];
+  if (
+    confirmedDecisions.length === 0
+    && openThreads.length === 0
+    && doNotRepeat.length === 0
+    && styleCommitments.length === 0
+  ) return null;
+  return {
+    source: "settled_semantic_capsule",
+    confirmed_decisions: confirmedDecisions,
+    open_threads: openThreads,
+    do_not_repeat: doNotRepeat,
+    style_commitments: styleCommitments,
+  };
+}
+
 export function isPendingFinalizationResume(value: unknown): boolean {
   if (!isPlainObject(value) || value.ok !== true) return false;
   if (value.tool !== "session.resume") return false;
@@ -816,6 +865,7 @@ export function applyPendingFinalizationRecoveryGuidance(
       campaign: invocation.campaign,
     },
   };
+  const recoveryContext = settledSemanticRecoveryContext(data);
   // Exact canonical operation cards, projected verbatim when the canonical
   // resume payload supplies a well-formed card and the host has not lost a
   // live refresh. Missing or malformed cards stay missing (fail closed);
@@ -1106,6 +1156,9 @@ export function applyPendingFinalizationRecoveryGuidance(
         mode: "pending_finalization",
         next_operations: nextOperationsOf(data),
         host_recovery_guidance: guidance,
+        ...(recoveryContext === null
+          ? {}
+          : { recovery_context: recoveryContext }),
         pending_output_context: liveProjected
           ? { status: "host_refreshed_live" }
           : {

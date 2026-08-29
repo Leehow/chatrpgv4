@@ -154,6 +154,23 @@ const pendingDirectEnvelope = resumeEnvelope("pending_finalization", {
 });
 pendingDirectEnvelope.data.semantic_capsule = {
   recent_summaries: ["large unrelated recovery projection".repeat(200)],
+  confirmed_decisions: [{
+    decision_id: "macario-answer",
+    summary: "诺特交代马卡里奥一家逃离，父亲仍在罗克斯伯里疗养院",
+    reason: "玩家当面问起前租客遭遇",
+  }],
+  threads: [{
+    thread_id: "macario-fate",
+    summary: "马卡里奥一家的遭遇已成为可追查线索",
+    reason: "诺特刚提供了调查方向",
+    status: "active",
+  }],
+  do_not_repeat: [{
+    item_id: "macario-summary-first-tell",
+    instruction: "不要原样重复刚交付的线索",
+    reason: "本回合已经首次交代",
+  }],
+  style_commitments: ["玩家可见文本使用简体中文"],
 };
 pendingDirectEnvelope.data.pending_output_context = {
   journal_decision_id: "journal:pending",
@@ -243,10 +260,33 @@ assert.deepEqual(
     "mode",
     "next_operations",
     "pending_output_context",
+    "recovery_context",
     "schema_version",
   ],
 );
 assert.equal(pendingDirect.envelope.data.semantic_capsule, undefined);
+assert.deepEqual(pendingDirect.envelope.data.recovery_context, {
+  source: "settled_semantic_capsule",
+  confirmed_decisions: [{
+    summary: "诺特交代马卡里奥一家逃离，父亲仍在罗克斯伯里疗养院",
+    reason: "玩家当面问起前租客遭遇",
+  }],
+  open_threads: [{
+    summary: "马卡里奥一家的遭遇已成为可追查线索",
+    reason: "诺特刚提供了调查方向",
+    status: "active",
+  }],
+  do_not_repeat: [{
+    instruction: "不要原样重复刚交付的线索",
+    reason: "本回合已经首次交代",
+  }],
+  style_commitments: ["玩家可见文本使用简体中文"],
+});
+assert.ok(
+  !JSON.stringify(pendingDirect.envelope.data.recovery_context)
+    .includes("large unrelated recovery projection"),
+  "pending recovery keeps only the bounded settled semantic delta",
+);
 assert.deepEqual(
   pendingDirect.envelope.data.pending_output_context,
   {

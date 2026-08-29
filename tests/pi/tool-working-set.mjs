@@ -193,7 +193,11 @@ test("P0 progress stages share one monotonic capability table", () => {
     ["awaiting_player", []],
     ["journaled", ["scene.context", "session.resume", "turn.output_context"]],
     ["output_context_ready", ["narration.review", "scene.context", "turn.finalize"]],
-    ["review_ready", ["narration.review", "turn.finalize"]],
+    ["review_ready", [
+      "narration.review",
+      "turn.finalize",
+      "turn.output_context",
+    ]],
     ["finalized", []],
     ["delivered", []],
   ];

@@ -247,6 +247,61 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
   assertModelSafeContent(`family ${family}`, projected, deniedKeys);
 }
 
+// state.journal continuation memory uses item_id as the semantic identity of
+// a do-not-repeat note. It is not an inventory item and must not be routed
+// through the item registry merely because the leaf field shares that name.
+{
+  const diagnostics = { unmapped: [] };
+  const journal = {
+    ok: true,
+    tool: "state.journal",
+    data: {
+      turn_number: 1,
+      tension_level: "low",
+      continuation_delta: {
+        do_not_repeat: [{
+          item_id: "macario-summary-first-tell",
+          instruction: "不要原样复述刚交付的线索",
+          reason: "本回合已经首次交代",
+          source_turn: 1,
+        }],
+      },
+    },
+    warnings: [],
+    hints: [],
+  };
+  const out = projectModelVisibleCanonicalResult(
+    "state.journal",
+    journal,
+    emptySemanticProjectionView(),
+    diagnostics,
+  );
+  assert.deepEqual(
+    diagnostics.unmapped,
+    [],
+    "do_not_repeat item_id is journal-memory identity, not inventory identity",
+  );
+  assert.equal(
+    out.data.continuation_delta.do_not_repeat[0].item_id,
+    "macario-summary-first-tell",
+  );
+}
+
+{
+  const envelope = structuredClone(FAMILIES.turn_output_context);
+  envelope.data.journal_context = {
+    summary: "诺特说马卡里奥一家逃离，父亲仍在罗克斯伯里疗养院。",
+    player_action: "向诺特询问马卡里奥一家的遭遇",
+    intent_class: "social",
+  };
+  const out = projectModelVisibleCanonicalResult(
+    "turn.output_context",
+    envelope,
+    emptySemanticProjectionView(),
+  );
+  assert.deepEqual(out.data.journal_context, envelope.data.journal_context);
+}
+
 // Opening substance survives: exact opening text and time anchor.
 {
   const out = projectModelVisibleCanonicalResult(
@@ -2245,6 +2300,15 @@ await executeTool("coc_turn_output_context", { root: testRoot, campaign });
 const outputVisible = JSON.parse(modelContents.at(-1).text);
 assertModelSafeContent("turn.output_context content", outputVisible);
 assert.equal(outputVisible.data.obligations.length, 2);
+assert.equal(
+  outputVisible.data.contract_projection.player_input_text,
+  FAMILIES.turn_output_context.data.contract_projection.player_input.text,
+  "output context must retain the exact player text without its opaque source identity",
+);
+assert.ok(
+  !Object.hasOwn(outputVisible.data.contract_projection, "player_input"),
+  "the canonical player-input source ref and digest stay host-only",
+);
 assert.equal(
   outputVisible.data.contract_projection.agency_authority.pc_subject_refs[0],
   CURRENT_PC_SUBJECT_HANDLE,

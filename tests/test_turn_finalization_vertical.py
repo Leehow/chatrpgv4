@@ -824,6 +824,11 @@ def test_real_toolbox_turn_finalizes_causal_fiction_and_exact_player_receipts(
     )
 
     output_context = call("turn.output_context")["data"]
+    assert output_context["journal_context"] == {
+        "summary": "托马斯开枪后又试图用借口拖住赶来的档案员。",
+        "player_action": "开枪，再用临场借口稳住对方",
+        "intent_class": "combat-social",
+    }
     bundle = output_context["mechanics_bundle"]
     scalar_resources = [
         row["resource"]

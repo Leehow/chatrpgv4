@@ -2730,6 +2730,17 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
     pending_modifiers = _pending_modifier_consumptions(campaign_dir, rolls)
     journal_args = journal.get("args") if isinstance(journal.get("args"), dict) else {}
     journal_decision_id = str(journal_args.get("decision_id") or "")
+    journal_context = {
+        key: deepcopy(journal_args[key])
+        for key in (
+            "summary",
+            "player_action",
+            "intent_class",
+            "player_speaker",
+            "tension",
+        )
+        if isinstance(journal_args.get(key), str) and journal_args[key].strip()
+    }
     candidate_factors = []
     for call in window:
         if call.get("ok") is not True:
@@ -2773,6 +2784,7 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
         "repair_call_count": manifest["repair_call_count"],
         "journal_decision_id": journal_decision_id,
         "turn_number": (journal.get("data") or {}).get("turn_number"),
+        "journal_context": journal_context,
         "journal_call_index": end,
         "source_start_index": start,
         "source_end_index": end,
