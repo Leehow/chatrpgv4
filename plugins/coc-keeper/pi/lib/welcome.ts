@@ -5,6 +5,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { McpJsonlClient } from "./runtime.ts";
+import { sendCocSystemInstruction } from "./system-instruction.ts";
 
 export const WELCOME_CUSTOM_TYPE = "coc-pi-welcome";
 export const TABLE_OPEN_CUSTOM_TYPE = "coc-pi-table-open";
@@ -361,27 +362,24 @@ export function registerCocWelcome(
     intent: TableOpenIntent,
     triggerTurn: boolean,
   ) => {
-    pi.sendMessage(
-      {
-        customType: TABLE_OPEN_CUSTOM_TYPE,
-        content: tableOpenInstruction(startupCampaignId, workspaceRoot, intent),
-        display: false,
-        details: {
-          host: "pi-coc",
-          mode: "active",
-          auto_open: true,
-          table_intent: intent,
-          table_open_satisfied: triggerTurn === false,
-          ...(startupCampaignId === null
-            ? {}
-            : {
-                startup_campaign_id: startupCampaignId,
-                first_campaign_operation: "session.resume",
-              }),
-        },
+    sendCocSystemInstruction(pi, {
+      sourceType: TABLE_OPEN_CUSTOM_TYPE,
+      customType: TABLE_OPEN_CUSTOM_TYPE,
+      instruction: tableOpenInstruction(startupCampaignId, workspaceRoot, intent),
+      context: {
+        host: "pi-coc",
+        mode: "active",
+        auto_open: true,
+        table_intent: intent,
+        table_open_satisfied: triggerTurn === false,
+        ...(startupCampaignId === null
+          ? {}
+          : {
+              startup_campaign_id: startupCampaignId,
+              first_campaign_operation: "session.resume",
+            }),
       },
-      { triggerTurn },
-    );
+    }, { triggerTurn });
   };
 
   pi.registerCommand("welcome", {

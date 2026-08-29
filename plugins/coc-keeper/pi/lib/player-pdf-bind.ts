@@ -17,6 +17,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { sendCocSystemInstruction } from "./system-instruction.ts";
 
 export const PLAYER_PDF_BIND_INSTRUCTION_CUSTOM_TYPE =
   "coc-player-pdf-bind-instruction";
@@ -177,12 +178,11 @@ export function registerPlayerPdfBindInstruction(
     }
     injectedPaths.add(detection.pdfPath);
     try {
-      pi.sendMessage({
+      sendCocSystemInstruction(pi, {
+        sourceType: PLAYER_PDF_BIND_INSTRUCTION_CUSTOM_TYPE,
         customType: PLAYER_PDF_BIND_INSTRUCTION_CUSTOM_TYPE,
-        content: playerPdfBindInstruction(detection.pdfPath),
-        display: false,
-        details: {
-          schema_version: 1,
+        instruction: playerPdfBindInstruction(detection.pdfPath),
+        context: {
           pdf_path: detection.pdfPath,
           instruction_ref: "pi.player-pdf-bind.first-instruction.v1",
         },

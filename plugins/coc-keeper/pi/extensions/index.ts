@@ -104,6 +104,11 @@ import {
 } from "../lib/keeper-briefing.ts";
 import { registerCocHud } from "../lib/hud.ts";
 import { registerTurnTelemetry, type TurnTelemetry } from "../lib/turn-telemetry.ts";
+import {
+  latestExternalUserText,
+  registerCocSystemInstructionCommand,
+  sendCocSystemInstruction,
+} from "../lib/system-instruction.ts";
 import { createContextFold, readFoldSettings } from "../lib/context-fold.ts";
 import {
   registerCocWelcome,
@@ -1978,11 +1983,14 @@ export async function publishCoordinatorTerminal(
             // blocking_micro dependency creates a model turn. Ordinary
             // background and unclassified terminals remain durable audit
             // entries for the next natural turn.
-            pi.sendMessage({
+            sendCocSystemInstruction(pi, {
+              sourceType: "coc-source-coordinator-terminal-continuation",
               customType: "coc-source-coordinator-terminal-continuation",
-              content: JSON.stringify(notice),
-              display: false,
-              details: notice,
+              instruction: (
+                "Consume this exact terminal dependency receipt through its "
+                + "documented continuation; it is host control, not player input."
+              ),
+              context: notice,
             }, { triggerTurn: true, deliverAs: "followUp" });
             onWakeDeliverySuccess?.(dispatchKey);
             continuedDispatches.add(dispatchKey);
@@ -2018,13 +2026,16 @@ export function deliverMechanicalOutputGateInstruction(
     pi.appendEntry("coc-mechanical-output-gate", envelope);
   } catch { /* mechanical gate audit is best effort */ }
   try {
-    pi.sendMessage({
-      customType: envelope.kind === "settled_output_gate"
-        ? SETTLED_OUTPUT_GATE_CUSTOM_TYPE
-        : MECHANICAL_OUTPUT_GATE_CUSTOM_TYPE,
-      content: JSON.stringify(envelope),
-      display: false,
-      details: envelope,
+    const customType = envelope.kind === "settled_output_gate"
+      ? SETTLED_OUTPUT_GATE_CUSTOM_TYPE
+      : MECHANICAL_OUTPUT_GATE_CUSTOM_TYPE;
+    sendCocSystemInstruction(pi, {
+      sourceType: customType,
+      customType,
+      instruction: typeof envelope.instruction === "string"
+        ? envelope.instruction
+        : "Complete only the missing settled-output work from existing receipts.",
+      context: envelope,
     }, { triggerTurn: true, deliverAs: "followUp" });
     return true;
   } catch {
@@ -2041,11 +2052,13 @@ export function deliverPreInferenceFinalizationSteer(
     pi.appendEntry("coc-settled-output-preflight", envelope);
   } catch { /* preflight audit is best effort */ }
   try {
-    pi.sendMessage({
+    sendCocSystemInstruction(pi, {
+      sourceType: SETTLED_OUTPUT_PREFLIGHT_CUSTOM_TYPE,
       customType: SETTLED_OUTPUT_PREFLIGHT_CUSTOM_TYPE,
-      content: JSON.stringify(envelope),
-      display: false,
-      details: envelope,
+      instruction: typeof envelope.instruction === "string"
+        ? envelope.instruction
+        : "Begin this player turn with the required canonical grounding.",
+      context: envelope,
     }, { deliverAs: "steer" });
     return true;
   } catch {
@@ -2080,11 +2093,11 @@ export function deliverEmptyTerminalRecovery(
   instruction: string,
 ): boolean {
   try {
-    pi.sendMessage({
+    sendCocSystemInstruction(pi, {
+      sourceType: EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE,
       customType: EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE,
-      content: instruction,
-      display: false,
-      details: envelope,
+      instruction,
+      context: envelope,
     }, { triggerTurn: true, deliverAs: "followUp" });
   } catch {
     // No scheduled marker may exist without a sent follow-up: the RPC
@@ -6871,13 +6884,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           instruction: "raw PDF 首包产出失败。请如实告诉玩家当前环境无法现场解析 PDF，不要自动或反复重试 scenario.bind_pdf。",
         };
       try {
-        pi.sendMessage({
-          customType: terminal.status === "waiting"
-            ? "coc-raw-pdf-bind-first-bundle-wait"
-            : "coc-raw-pdf-bind-first-bundle-terminal",
-          content: JSON.stringify(content),
-          display: false,
-          details: content,
+        const customType = terminal.status === "waiting"
+          ? "coc-raw-pdf-bind-first-bundle-wait"
+          : "coc-raw-pdf-bind-first-bundle-terminal";
+        sendCocSystemInstruction(pi, {
+          sourceType: customType,
+          customType,
+          instruction: String(content.instruction),
+          context: content,
         }, { triggerTurn: true, deliverAs: "followUp" });
       } catch { /* hidden retry guidance is best effort */ }
     },
@@ -6907,11 +6921,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       );
       flushOpeningSetupAudits();
       const content = openingSourceReviewTerminalFollowUp(receipt, route);
-      pi.sendMessage({
+      sendCocSystemInstruction(pi, {
+        sourceType: "coc-opening-source-review-terminal",
         customType: "coc-opening-source-review-terminal",
-        content: JSON.stringify(content),
-        display: false,
-        details: content,
+        instruction: typeof content.instruction === "string"
+          ? content.instruction
+          : "Consume only this exact opening-source terminal continuation.",
+        context: content,
       }, { triggerTurn: true, deliverAs: "followUp" });
     },
     audit: (entry) => {
@@ -6927,11 +6943,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     workspaceRoot: ctx.cwd,
     states: pendingStewardRefillStates,
     send: (task) => {
-      pi.sendMessage({
+      sendCocSystemInstruction(pi, {
+        sourceType: "coc-steward-pending-refill",
         customType: "coc-steward-pending-refill",
-        content: JSON.stringify(task),
-        display: false,
-        details: task,
+        instruction: (
+          "Consume this exact steward refill task through its documented "
+          + "host lifecycle; it is not player input."
+        ),
+        context: task,
       }, { triggerTurn: true, deliverAs: "followUp" });
     },
     recordFailure: async (campaignId, domain, content, dispatchKey) => {
@@ -11340,6 +11359,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     (ctx) => client(ctx),
     agentDir,
   );
+  registerCocSystemInstructionCommand(pi, {
+    beforeDispatch: (_instruction, context) => {
+      const branch = typeof context.sessionManager?.getBranch === "function"
+        ? context.sessionManager.getBranch()
+        : null;
+      const playerText = latestExternalUserText(branch);
+      if (playerText !== null) {
+        openingContinuationGate.currentExternalPlayerText = playerText;
+        const campaignId = explicitPiStartupCampaignId()
+          ?? canonicalProgressCampaignId;
+        if (campaignId) armJournalBinding(campaignId);
+      }
+    },
+  });
   const armAndDeliverEmptyTerminalFault = (code: string, message: string) => {
     const armed = openingContinuationGate.armTurnProcessingFault({
       schema_version: 1,
@@ -11416,15 +11449,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ) {
           gate.hiddenRepromptDelivery = "sending";
           try {
-            pi.sendMessage({
+            sendCocSystemInstruction(pi, {
+              sourceType: STARTUP_RESUME_CUSTOM_TYPE,
               customType: STARTUP_RESUME_CUSTOM_TYPE,
-              content: startupResumeInstruction(
+              instruction: startupResumeInstruction(
                 gate.campaignId,
                 gate.workspaceRoot,
               ),
-              display: false,
-              details: {
-                schema_version: 1,
+              context: {
                 campaign_id: gate.campaignId,
                 first_campaign_operation: "session.resume",
               },
@@ -11520,11 +11552,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         );
         if (route !== null) {
           try {
-            pi.sendMessage({
+            sendCocSystemInstruction(pi, {
+              sourceType: "coc-opening-setup-route",
               customType: "coc-opening-setup-route",
-              content: JSON.stringify(route),
-              display: false,
-              details: route,
+              instruction: (
+                "Continue only the exact opening setup route in this host "
+                + "context; it is not a player action."
+              ),
+              context: route,
             }, { triggerTurn: true, deliverAs: "followUp" });
           } catch {
             openingContinuationGate.releaseOpeningSetupContinuation(
@@ -11602,11 +11637,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (userMessageText(event.message) === null) return;
     const context = openingContinuationGate.openingTableDecisionContext();
     if (context === null) return;
-    pi.sendMessage({
+    sendCocSystemInstruction(pi, {
+      sourceType: "coc-opening-table-player-decision",
       customType: "coc-opening-table-player-decision",
-      content: JSON.stringify(context),
-      display: false,
-      details: context,
+      instruction: (
+        "Use this host-bound table-decision context while adjudicating the "
+        + "current real player input; the context itself is not player input."
+      ),
+      context,
     }, { deliverAs: "steer" });
   });
   pi.on("agent_start", () => {

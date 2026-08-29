@@ -83,15 +83,17 @@ assert.match(
   /coc-raw-pdf-bind-first-bundle-terminal/,
   "content names the terminal notice to wait for",
 );
-assert.deepEqual(
-  injected[0].message.details,
-  {
-    schema_version: 1,
-    pdf_path: pdfPath,
-    instruction_ref: "pi.player-pdf-bind.first-instruction.v1",
-  },
-  "structured details identify the exact PDF path",
+assert.equal(injected[0].message.details.pdf_path, pdfPath);
+assert.equal(
+  injected[0].message.details.instruction_ref,
+  "pi.player-pdf-bind.first-instruction.v1",
 );
+assert.equal(
+  injected[0].message.details.contract_id,
+  "coc.pi-system-instruction.v1",
+);
+assert.equal(injected[0].message.details.player_input, false);
+assert.equal(injected[0].message.details.journal_policy, "never");
 
 // Dedup: the same PDF path again must not re-inject.
 await emit(userWithPdf);
