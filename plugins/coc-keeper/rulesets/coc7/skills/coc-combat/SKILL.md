@@ -250,31 +250,42 @@ Derived from the damage chain and effects, stored in `participants[].conditions[
 
 ### Dying rescue chain (p.121)
 
-- Call `rules.first_aid` for the immediate rescue attempt. A success gives 1
-  temporary HP and `stabilized` but deliberately keeps the dying chain active.
+When an investigator is dying, read the healing cards on `scene.context`
+(`rule_decision_cards` / `recovery.healing`). Cards name what can be settled
+now; they never allow, deny, or force an action, and an empty card set never
+blocks play. Choose the card that matches the current attempt and settle it
+with `rules.settle` (`decision_ref` plus `semantic_inputs`). Each settlement
+needs its own `decision_id`.
+
+If no card appears — including First Aid more than an hour after the wound, or
+two people treating the same wound together — that case is ordinary uncompiled
+long-tail. Judge the fiction; do not hunt for another healing operation.
+
+- A First Aid stabilization success gives 1 temporary HP and `stabilized` but
+  deliberately keeps the dying chain active.
 - The first attempt is regular. Second and subsequent attempts on the same
-  wound are pushed rolls and must record a changed method plus the announced
-  failure consequence. Surviving an unstabilized dying CON roll, or losing
-  temporary stabilization, opens one new pushed-attempt window; it never
-  resets the wound to a regular first attempt.
-- Until Medicine succeeds, call `rules.dying_check(clock_kind="hour")` after
-  each elapsed hour. Before stabilization the end-of-round clock is
-  `rules.dying_check(clock_kind="round")`.
-- Call `rules.medicine` to clear `dying`/`stabilized` and apply the canonical
-  1D3 healing. Successful completion also clears the stale combat
-  `unconscious` marker so host playability consumers can resume.
+  wound are pushed rolls: put the changed method and announced failure
+  consequence in `semantic_inputs`. Surviving an unstabilized dying CON roll,
+  or losing temporary stabilization, opens one new pushed-attempt window; it
+  never resets the wound to a regular first attempt.
+- Until Medicine succeeds, the hour-clock card applies after each elapsed hour;
+  before stabilization the end-of-round clock card applies. Settle the matching
+  card; do not invent clock arithmetic.
+- Settling a Medicine stabilization card clears `dying`/`stabilized` and applies
+  the canonical 1D3 healing. Successful completion also clears the stale combat
+  `unconscious` marker so play can resume.
 - An investigator who is unconscious from a major wound but still above
   0 HP is not in the dying chain and is not dead. Successful ordinary First
   Aid clears that stale `unconscious` marker so the same campaign can resume.
-- Pass a stable `rescuer_id`; roll evidence uses that actor rather than always
-  attributing NPC care to the investigator. These calls are transactional and
-  require distinct `decision_id` values.
+- Name the acting caregiver with `semantic_inputs.rescuer_ref`; roll evidence
+  uses that actor rather than always attributing NPC care to the investigator.
 - Once immediate First Aid/Medicine is settled, Major Wound natural recovery
   is weekly, not a new Medicine healing roll every day. Advance game time to
-  the end of the recovery week and call `rules.weekly_recovery` with explicit
-  rest/environment facts and, when applicable, the caregiver's stable ID and
-  Medicine value. The tool enforces the due interval and records the care,
-  CON, and healing dice. On failure, wait another full week before retrying.
+  the end of the recovery week and settle the weekly-major-wound-recovery card
+  with explicit rest/environment facts (`complete_rest`, `poor_environment`)
+  and, when applicable, the caregiver ref. The settlement records the care,
+  CON, and healing dice for that due week. On failure, wait another full week
+  before retrying.
 - `prone`, `grappled`, `surprised`, `outnumbered`, and `fled` are
   combat-position markers, not long-term injuries. A concluded combat removes
   them from the investigator projection. For a legacy/out-of-combat marker,
@@ -282,8 +293,8 @@ Derived from the damage chain and effects, stored in `participants[].conditions[
   never use that tool to erase an injury, unconsciousness, dying, or death.
 
 Never substitute generic HP healing or a hand-edited condition list for this
-chain. If a host pauses on `pending_resolution`, settle the rescue tools first
-and then resume the same run/evidence chain.
+chain. If play pauses on `pending_resolution`, settle the applicable healing
+cards first and then resume the same run/evidence chain.
 
 ### Luck authorization in combat
 

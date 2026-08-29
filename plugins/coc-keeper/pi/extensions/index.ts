@@ -213,6 +213,7 @@ import {
 } from "../lib/semantic-identity-registry.ts";
 import type { SemanticIdentityHandleResolver } from "../lib/tool-contract-projection.ts";
 import {
+  affordancesFromHealingCardProjection,
   loadToolNamespace,
   projectToolWorkingSet,
   type LoadedExactOperation,
@@ -4149,6 +4150,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let currentSceneBindingFacts: SceneBindingFacts | null = null;
   let retainedSceneAffordanceOperations: string[] = [];
   let currentCombatBindingFacts: CombatBindingFacts | null = null;
+  let lastHealingCardProjection: {
+    playerTurnEpoch: number;
+    projection: JsonObject;
+  } | null = null;
   let faultRecoveryOperation: string | null = null;
   let noSelectorQuickStartRecovery: {
     params: JsonObject;
@@ -4167,6 +4172,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   const beginSceneDerivedBindingReplacement = (): void => {
     currentSceneBindingFacts = null;
+    lastHealingCardProjection = null;
     retainedSceneAffordanceOperations = [];
     for (const operation of ["state.move_scene", "state.advance_time"]) {
       revokedSceneBindingOperations.add(operation);
@@ -4176,6 +4182,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   const revokeSceneDerivedBindings = (): void => {
     currentSceneBindingFacts = null;
+    lastHealingCardProjection = null;
     retainedSceneAffordanceOperations = [];
     for (const operation of ["state.move_scene", "state.advance_time"]) {
       revokedSceneBindingOperations.add(operation);
@@ -4192,6 +4199,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     catch { /* best-effort projection must not replace the primary receipt error */ }
   };
   const clearTurnTypedBindings = (): void => {
+    lastHealingCardProjection = null;
     retainedOutputContextFacts = null;
     // Player messages close the turn: turn-scoped entity facts re-arm with the
     // next settle phase. The session/campaign-scoped current-PC identity
@@ -5446,6 +5454,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     if (operation === "state.move_scene") {
       currentSceneBindingFacts = null;
+      lastHealingCardProjection = null;
       retainedSceneAffordanceOperations = [];
       currentCombatBindingFacts = null;
       clearTypedBinding("state.move_scene");
@@ -5456,6 +5465,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     if (operation === "state.advance_time") {
       currentSceneBindingFacts = null;
+      lastHealingCardProjection = null;
       clearTypedBinding("state.move_scene");
       clearTypedBinding("state.advance_time");
       applyKpActiveTools();
@@ -5819,6 +5829,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     beginSceneDerivedBindingReplacement();
     try {
       currentSceneBindingFacts = facts;
+      lastHealingCardProjection = {
+        playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+        projection: data,
+      };
       retainedSceneAffordanceOperations = [
         ...new Set(explicitAffordanceOperations),
       ].sort();
@@ -6044,6 +6058,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       role === "setup"
       && startupResumeGate?.phase === "fresh_setup"
     );
+    const healingAffordances = (
+      lastHealingCardProjection !== null
+      && lastHealingCardProjection.playerTurnEpoch === canonicalProgress.playerTurnEpoch
+        ? affordancesFromHealingCardProjection(lastHealingCardProjection.projection)
+        : []
+    );
     return {
       role,
       phase,
@@ -6064,6 +6084,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ...(retainedSetupComplete
             ? [{ operation: "setup.complete", source: "host" as const }]
             : []),
+          ...healingAffordances,
         ],
       },
       loadedNamespaces,
@@ -11927,6 +11948,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     clearTurnEntityFacts();
     draftShapeRecoveryCards.clear();
     currentSceneBindingFacts = null;
+    lastHealingCardProjection = null;
     currentCombatBindingFacts = null;
     retainedTypedBindings.clear();
     currentTypedBindingFactories.clear();

@@ -330,7 +330,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from difflib import get_close_matches as _close_matches
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 _HERE = Path(__file__).resolve().parent
 
@@ -6308,6 +6308,445 @@ def _load_json_document(ctx: Ctx, relative: str, schema_version: int, root_key: 
 def _save_json_document(ctx: Ctx, relative: str, document: dict[str, Any]) -> None:
     coc_state.write_json_atomic(ctx.campaign_dir / "save" / relative, document)
 
+
+def _family_id_from_decision_ref(decision_ref: str) -> str:
+    parts = str(decision_ref or "").split(":")
+    if len(parts) >= 3 and parts[0] in {"decision", "exception"}:
+        return parts[2]
+    return "healing"
+
+
+def _sheet_skill_value(sheet: Mapping[str, Any] | None, skill_name: str) -> int | None:
+    if not isinstance(sheet, Mapping):
+        return None
+    skills = sheet.get("skills") if isinstance(sheet.get("skills"), dict) else {}
+    raw = skills.get(skill_name)
+    if isinstance(raw, dict):
+        raw = raw.get("value")
+    if isinstance(raw, bool) or raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_sheet(ctx: Ctx, investigator_id: str) -> dict[str, Any] | None:
+    try:
+        sheet = ctx.sheet(investigator_id)
+    except ToolError:
+        return None
+    return sheet if isinstance(sheet, dict) else None
+
+
+def _facts_provider_for(ctx: Ctx, investigator_id: str, ruleset_id: str):
+    """Live facts for card projection: investigator state + campaign clock.
+
+    Named gap dual-rescuer-context-intent: this provider has no scene/NPC
+    composition input. Dual-rescuer intent exists only on settle as
+    ``semantic_inputs.assistant_rescuer_ref``.
+    """
+    def provider() -> Mapping[str, Any]:
+        try:
+            state = ctx.inv_state(investigator_id)
+        except ToolError:
+            state = {}
+        sheet = _safe_sheet(ctx, investigator_id) or {}
+        elapsed = None
+        try:
+            stamp = coc_time.current_stamp(ctx.campaign_dir)
+            candidate = stamp.get("elapsed_minutes") if isinstance(stamp, dict) else None
+            if isinstance(candidate, int) and not isinstance(candidate, bool):
+                elapsed = candidate
+        except Exception:
+            elapsed = None
+        return coc_rules_runtime.facts_from_state(
+            state if isinstance(state, dict) else {},
+            sheet,
+            ruleset_id=ruleset_id,
+            elapsed_minutes=elapsed,
+        )
+    return provider
+
+
+def _healing_host_locked_provider(ctx: Ctx, args: dict[str, Any], selected: Mapping[str, Any]):
+    semantic = selected.get("semantic_inputs") if isinstance(selected.get("semantic_inputs"), Mapping) else {}
+
+    def provider(decision_ref: str) -> Mapping[str, Any]:
+        investigator_id = _resolve_investigator(ctx, args)
+        rescuer_id = str(semantic.get("rescuer_ref") or investigator_id)
+        locked: dict[str, Any] = {}
+        if "first-aid" in decision_ref:
+            sheet = _safe_sheet(ctx, rescuer_id) or _safe_sheet(ctx, investigator_id) or {}
+            value = _sheet_skill_value(sheet, "First Aid")
+            if value is not None:
+                locked["skill_value"] = value
+            locked["rescuer_id"] = rescuer_id
+            locked["pushed"] = bool(
+                semantic.get("changed_method") or semantic.get("failure_consequence")
+            )
+        elif "medicine" in decision_ref:
+            sheet = _safe_sheet(ctx, rescuer_id) or _safe_sheet(ctx, investigator_id) or {}
+            value = _sheet_skill_value(sheet, "Medicine")
+            if value is not None:
+                locked["skill_value"] = value
+            locked["rescuer_id"] = rescuer_id
+        elif "weekly" in decision_ref:
+            caregiver = str(semantic.get("rescuer_ref") or investigator_id)
+            sheet = _safe_sheet(ctx, caregiver) or {}
+            value = _sheet_skill_value(sheet, "Medicine")
+            if value is not None:
+                locked["medicine_skill_value"] = value
+                locked["caregiver_id"] = caregiver
+        return locked
+
+    return provider
+
+
+def _rules_runtime_for_ctx(
+    ctx: Ctx,
+    *,
+    investigator_id: str,
+    family: str = "healing",
+    refresh: bool = False,
+) -> tuple[Any, str, str, dict[str, Any]]:
+    """Load or reuse the campaign RulesRuntime. Never raises on missing graph."""
+    ruleset_id = _active_ruleset_id(ctx)
+    campaign_id = str(ctx.campaign_id or "")
+    package_manifest = coc_rules_runtime._load_manifest_cached(ruleset_id)
+    if not refresh:
+        existing = coc_rules_runtime.campaign_runtime(campaign_id)
+        if existing is not None:
+            try:
+                owner, surface = existing.family_ownership(family)
+            except coc_rules_runtime.FamilyOwnershipMismatch as exc:
+                return None, (
+                    "graph" if exc.graph_claimed else "unavailable"
+                ), "hidden", {
+                    "ok": False,
+                    "reason": "ownership_mismatch",
+                    "findings": list(exc.findings),
+                    "graph_claimed": exc.graph_claimed,
+                }
+            return existing, owner, surface, {"ok": True}
+    loaded = coc_rules_runtime.load_ruleset_graph(ruleset_id)
+    graph = loaded.get("graph") if isinstance(loaded.get("graph"), dict) else None
+    graph_manifest = loaded.get("graph_manifest") if isinstance(
+        loaded.get("graph_manifest"), dict,
+    ) else None
+    try:
+        owner, surface = coc_rules_runtime.resolve_family_ownership(
+            ruleset_id, family,
+            manifest=package_manifest, graph=graph, graph_manifest=graph_manifest,
+        )
+    except coc_rules_runtime.FamilyOwnershipMismatch as exc:
+        return None, (
+            "graph" if exc.graph_claimed else "unavailable"
+        ), "hidden", {
+            "ok": False,
+            "reason": "ownership_mismatch",
+            "findings": list(exc.findings),
+            "graph_claimed": exc.graph_claimed,
+        }
+    if not loaded.get("ok"):
+        return None, owner, surface, loaded
+    resolver = _rules_resolver(ctx, None)
+    try:
+        index = resolver.public_api_index()
+    except Exception:
+        index = None
+    runtime = coc_rules_runtime.RulesRuntime(
+        loaded["graph"],
+        ruleset_id=ruleset_id,
+        graph_manifest=loaded.get("graph_manifest"),
+        package_manifest=package_manifest,
+        campaign_id=campaign_id,
+        facts_provider=_facts_provider_for(ctx, investigator_id, ruleset_id),
+        resolver_index=index if isinstance(index, dict) else None,
+    )
+    if campaign_id:
+        coc_rules_runtime.bind_campaign_runtime(campaign_id, runtime)
+    return runtime, owner, surface, loaded
+
+
+def _adapter_args_from_healing_plan(
+    ctx: Ctx,
+    plan: Mapping[str, Any],
+    selected: Mapping[str, Any],
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    payload = (plan.get("command") or {}).get("payload") or {}
+    if not isinstance(payload, dict):
+        payload = {}
+    semantic = selected.get("semantic_inputs") if isinstance(selected.get("semantic_inputs"), Mapping) else {}
+    investigator_id = str(args.get("investigator") or "") or None
+    if not investigator_id:
+        investigator_id = _resolve_investigator(ctx, args)
+    out: dict[str, Any] = {
+        "investigator": investigator_id,
+        "decision_id": str(args["decision_id"]),
+    }
+    if args.get("seed") is not None:
+        out["seed"] = args["seed"]
+    capability = (plan.get("capability") or {}).get("resolver_capability")
+    if capability == "first_aid":
+        if "skill_value" not in payload:
+            raise ToolError(
+                "missing_param",
+                "host-locked First Aid skill_value could not be resolved from the rescuer sheet",
+            )
+        out["skill_value"] = payload["skill_value"]
+        out["rescuer_id"] = (
+            payload.get("rescuer_id") or semantic.get("rescuer_ref") or investigator_id
+        )
+        out["pushed"] = bool(payload.get("pushed", False))
+        if semantic.get("changed_method"):
+            out["changed_method"] = semantic["changed_method"]
+        if semantic.get("failure_consequence"):
+            out["failure_consequence"] = semantic["failure_consequence"]
+    elif capability == "medicine":
+        if "skill_value" not in payload:
+            raise ToolError(
+                "missing_param",
+                "host-locked Medicine skill_value could not be resolved from the rescuer sheet",
+            )
+        out["skill_value"] = payload["skill_value"]
+        out["rescuer_id"] = (
+            payload.get("rescuer_id") or semantic.get("rescuer_ref") or investigator_id
+        )
+    elif capability == "dying_check":
+        out["clock_kind"] = payload.get("clock_kind")
+    elif capability == "weekly_recovery":
+        out["complete_rest"] = semantic.get("complete_rest", payload.get("complete_rest"))
+        out["poor_environment"] = semantic.get(
+            "poor_environment", payload.get("poor_environment")
+        )
+        if payload.get("medicine_skill_value") is not None:
+            out["medicine_skill_value"] = payload["medicine_skill_value"]
+        if payload.get("caregiver_id") is not None:
+            out["caregiver_id"] = payload["caregiver_id"]
+    else:
+        raise ToolError(
+            "unsupported_ruleset_operation",
+            f"no healing adapter for capability {capability!r}",
+        )
+    return out
+
+
+def _project_healing_decision_cards(
+    ctx: Ctx, investigator_id: str | None,
+) -> dict[str, Any]:
+    empty = {
+        "schema_version": 1,
+        "family": "healing",
+        "investigator_id": investigator_id,
+        "status": "no_candidate_in_compiled_scope",
+        "cards": [],
+        "authority": {
+            "hard_gate": False,
+            "role": "affordance",
+            "note": "advisory healing affordances; absence never blocks play",
+        },
+    }
+    if not investigator_id:
+        return empty
+    try:
+        runtime, _owner, _surface, loaded = _rules_runtime_for_ctx(
+            ctx, investigator_id=investigator_id, family="healing", refresh=True,
+        )
+        if runtime is None or not loaded.get("ok"):
+            return empty
+        return coc_rules_runtime.project_family_cards(
+            runtime, family="healing", investigator_id=investigator_id,
+        )
+    except Exception:
+        return empty
+
+
+def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
+    """Exact-discovery ``rules.context``. Grants stay host-internal."""
+    family = str(args.get("family") or "healing").strip() or "healing"
+    investigator_id: str | None = None
+    try:
+        investigator_id = _resolve_investigator(ctx, args)
+    except ToolError:
+        party = ctx.party_ids()
+        investigator_id = party[0] if party else None
+    if not investigator_id:
+        raise ToolError("missing_param", "investigator is required for rules.context")
+    runtime, owner, _surface, loaded = _rules_runtime_for_ctx(
+        ctx, investigator_id=investigator_id, family=family, refresh=True,
+    )
+    if owner == "graph" and (runtime is None or not loaded.get("ok")):
+        raise ToolError(
+            "rules_graph_unavailable",
+            "graph-owned family has no loadable RuleGraph; no legacy fallback",
+            details={"family": family, "reason": loaded.get("reason")},
+        )
+    if runtime is None:
+        return {
+            "schema_version": 1,
+            "status": "no_candidate_in_compiled_scope",
+            "family": family,
+            "cards": [],
+        }, [], []
+    question: dict[str, Any] = {"family": family, "kind": "procedure"}
+    selected = args.get("selected_affordance_ids")
+    if isinstance(selected, list):
+        question["selected_affordance_ids"] = [
+            str(item) for item in selected if isinstance(item, str)
+        ]
+    result = runtime.context(question)
+    findings = result.get("findings") if isinstance(result.get("findings"), list) else []
+    if findings:
+        coc_rules_runtime.record_host_internal_findings(
+            findings,
+            campaign_id=str(ctx.campaign_id or ""),
+            family=family,
+            investigator_id=investigator_id,
+            ruleset_id=_active_ruleset_id(ctx),
+            tool="rules.context",
+        )
+    public = {
+        key: value for key, value in result.items()
+        if key not in {"card_grant", "findings"}
+    }
+    public["cards"] = [
+        coc_rules_runtime.public_card_projection(card)
+        for card in (public.get("cards") or [])
+        if isinstance(card, Mapping)
+    ]
+    return public, [], []
+
+
+def dispatch_rules_settle(
+    ctx: Ctx,
+    args: dict[str, Any],
+    *,
+    adapters: Mapping[str, Callable[..., Any]],
+):
+    """Ownership-keyed healing settlement (spec §14.3).
+
+    graph → RulesRuntime.settle → existing adapter; shadow/legacy families
+    are not executed here (no silent fallback).
+    """
+    prior = _replay_bound_decision(ctx, "rules.settle", args)
+    if prior is not None:
+        return prior, [
+            "duplicate decision_id: returning the previously settled result"
+        ], []
+    decision_ref = str(args.get("decision_ref") or "").strip()
+    if not decision_ref:
+        raise ToolError(
+            "no_candidate_in_compiled_scope",
+            "a semantic decision_ref is required",
+        )
+    semantic_inputs = args.get("semantic_inputs")
+    if semantic_inputs is None:
+        semantic_inputs = {}
+    if not isinstance(semantic_inputs, Mapping):
+        raise ToolError("invalid_param", "semantic_inputs must be an object")
+    # Host-locked fields are absent from the model schema; reject if smuggled.
+    locked_smuggle = sorted(
+        set(semantic_inputs) & {
+            "skill_value", "rescuer_id", "pushed", "medicine_skill_value",
+            "caregiver_id", "clock_kind",
+        }
+    )
+    if locked_smuggle:
+        raise ToolError(
+            "locked_input_override",
+            "model-supplied host-locked inputs are rejected",
+            details={"fields": locked_smuggle},
+        )
+    family = _family_id_from_decision_ref(decision_ref)
+    investigator_id = _resolve_investigator(ctx, args)
+    runtime, owner, _surface, loaded = _rules_runtime_for_ctx(
+        ctx, investigator_id=investigator_id, family=family, refresh=False,
+    )
+    if owner != "graph":
+        raise ToolError(
+            "no_candidate_in_compiled_scope",
+            f"family {family!r} is not graph-owned; rules.settle does not execute it",
+            details={"family": family, "runtime_owner": owner},
+        )
+    if runtime is None or not loaded.get("ok"):
+        raise ToolError(
+            "rules_graph_unavailable",
+            "graph-owned family has no loadable RuleGraph; no legacy fallback",
+            details={
+                "family": family,
+                "reason": (loaded or {}).get("reason"),
+                "findings": (loaded or {}).get("findings"),
+            },
+        )
+    selected = {
+        "decision_ref": decision_ref,
+        "semantic_inputs": dict(semantic_inputs),
+    }
+    runtime._host_locked_provider = _healing_host_locked_provider(ctx, args, selected)
+    grant = runtime.latest_grant_covering(decision_ref)
+    if grant is None:
+        runtime.context({"family": family, "kind": "procedure"})
+        grant = runtime.latest_grant_covering(decision_ref)
+
+    def executor(plan, decision_id, selected_decision):
+        capability = (plan.get("capability") or {}).get("resolver_capability")
+        handler = adapters.get(str(capability or ""))
+        if handler is None:
+            raise ToolError(
+                "unsupported_ruleset_operation",
+                f"no internal healing adapter for {capability!r}",
+            )
+        adapter_args = _adapter_args_from_healing_plan(
+            ctx, plan, selected_decision, args,
+        )
+        return handler(ctx, adapter_args)
+
+    result = runtime.settle(
+        selected,
+        str(args["decision_id"]),
+        card_grant=grant,
+        executor=executor,
+    )
+    status = result.get("status")
+    if status not in {"settled", "compiled"}:
+        failure = result.get("failure") if isinstance(result.get("failure"), dict) else {}
+        raise ToolError(
+            str(failure.get("code") or status or "rules_graph_unavailable"),
+            str(failure.get("message") or status),
+            details=result,
+        )
+    settlement = result.get("settlement") if isinstance(result.get("settlement"), dict) else {}
+    adapter_data = settlement.get("result") if status == "settled" else None
+    adapter_row = adapter_data if isinstance(adapter_data, dict) else {}
+    data = {
+        "decision_ref": result.get("decision_ref"),
+        "family": result.get("family") or family,
+        "status": status,
+        "rule_refs": list(result.get("rule_refs") or []),
+        "investigator_id": adapter_row.get("investigator_id") or investigator_id,
+        "event": adapter_row.get("event"),
+        "player_state_receipt": adapter_row.get("player_state_receipt"),
+        "current_hp": adapter_row.get("current_hp"),
+        "conditions": adapter_row.get("conditions"),
+        "settlement": {
+            "existing_result_envelope": bool(settlement.get("existing_result_envelope")),
+            "result": adapter_data,
+        },
+        "next_decisions": [
+            coc_rules_runtime.public_card_projection(card)
+            for card in (result.get("next_decisions") or [])
+            if isinstance(card, Mapping)
+        ],
+        "authority": result.get("authority") or "canonical-resolver-state-receipts",
+        "request_digest": _request_digest(args),
+    }
+    ctx.ledger_record(str(args["decision_id"]), "rules.settle", data)
+    warnings = list(result.get("warnings") or [])
+    hints = list(result.get("hints") or [])
+    return data, warnings, hints
+
 def _execute_subsystem_requests(
     ctx: Ctx,
     *,
@@ -6327,12 +6766,13 @@ def _execute_subsystem_requests(
             "subsystem_operation_unavailable",
             "the requested operation could not produce a typed command",
         )
-    # R2b shadow comparator: strictly BEFORE RNG/mutation, strictly
+    # Shadow comparator: strictly BEFORE RNG/mutation, strictly
     # side-effect-free.  It never raises (its own boundary catches every
-    # error); the ragged edge here only protects the legacy path from
-    # argument-evaluation failures (e.g. a missing sheet for an op that
-    # would fail anyway on the same input).  Gate on the four healing tools
-    # first so every other subsystem operation pays zero cost.
+    # error).  For a graph-owned family, RulesRuntime.settle is the sole
+    # Keeper-facing executor; the comparator may still record host-internally
+    # when tests arm configure_shadow, but maybe_shadow_compare_healing is a
+    # no-op unless the family owner resolves to shadow.  Gate on the four
+    # healing adapters first so every other subsystem operation pays zero cost.
     if tool_name in (
         "rules.first_aid", "rules.dying_check", "rules.medicine",
         "rules.weekly_recovery",
@@ -8279,6 +8719,22 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         ),
         "drilldown_refs": drilldown_refs,
     }
+    focused_investigator = impression_investigator or (
+        party_ids[0] if party_ids else None
+    )
+    healing_cards = _project_healing_decision_cards(ctx, focused_investigator)
+    data["rule_decision_cards"] = healing_cards
+    recovery = data.get("recovery") if isinstance(data.get("recovery"), dict) else {}
+    recovery["healing"] = {
+        "family": "healing",
+        "investigator_id": healing_cards.get("investigator_id"),
+        "cards": list(healing_cards.get("cards") or []),
+        "authority": healing_cards.get("authority") or {
+            "hard_gate": False,
+            "role": "affordance",
+        },
+    }
+    data["recovery"] = recovery
     # Lightweight next-beat recommendation so the KP always has a forward nudge
     # without a separate director.advise call.
     _undiscovered_here = [c for c in clues if not c.get("discovered")]
@@ -8428,6 +8884,12 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
     hints.append(
         "optional enrichment support: call storylets.suggest when a personal callback or atmospheric beat would help; absence of a fitting storylet never blocks play"
     )
+    if data.get("rule_decision_cards", {}).get("cards"):
+        hints.append(
+            "rule_decision_cards / recovery.healing are advisory healing affordances; "
+            "settle a card with rules.settle. They never gate actions, and an empty "
+            "card set never blocks play"
+        )
     return data, warnings, hints
 
 _TURN_RECOVERY_MEANINGFUL_QUERIES = frozenset({"actions.advise"})

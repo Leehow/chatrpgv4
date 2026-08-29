@@ -162,6 +162,7 @@ _RULE_TOOL_RESOURCE_REQUIREMENTS = {
     "rules.medicine": frozenset({"hp"}),
     "rules.weekly_recovery": frozenset({"hp"}),
     "rules.dying_check": frozenset({"hp"}),
+    "rules.settle": frozenset({"hp"}),
 }
 
 
@@ -3082,6 +3083,7 @@ _MUTATING_TOOLS = frozenset({
     "rules.medicine",
     "rules.weekly_recovery",
     "rules.dying_check",
+    "rules.settle",
     "combat.resolve",
     "combat.end",
     "chase.execute",

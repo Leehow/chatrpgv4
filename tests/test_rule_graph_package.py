@@ -96,8 +96,8 @@ def test_packaged_coc7_rule_graph_conforms_to_r1_contract():
     assert graph["ruleset_version"] == manifest["ruleset_version"] == "1.0.0"
     assert graph["coverage"]["healing"] == "accepted"
     assert manifest["family_coverage"]["healing"] == "accepted"
-    assert graph["family_runtime_ownership"]["healing"] == "shadow"
-    assert graph["legacy_surface_lifecycle"]["healing"] == "visible"
+    assert graph["family_runtime_ownership"]["healing"] == "graph"
+    assert graph["legacy_surface_lifecycle"]["healing"] == "hidden"
     assert manifest["compiler_identity"] == CONTRACT["compiler_identity"]
     assert manifest["reviewer_identity"] == "r2-candidate-review"
     assert manifest["review_status"] == "accepted"
@@ -115,8 +115,8 @@ def test_packaged_coc7_rule_graph_conforms_to_r1_contract():
     )
     assert healing == {
         "family_id": "healing",
-        "runtime_owner": "shadow",
-        "legacy_surface": "visible",
+        "runtime_owner": "graph",
+        "legacy_surface": "hidden",
     }
 
 
@@ -132,7 +132,7 @@ def test_packaged_healing_shadow_exclusions_are_machine_readable():
     manifest = _load_package_manifest()
     promo = manifest["family_promotion_eligibility"]["healing"]
     assert promo["promotion_eligible"] is False
-    assert promo["runtime_ownership"] == "shadow"
+    assert promo["runtime_ownership"] == "graph"
     exclusions = promo["shadow_exclusions"]
     by_id = {row["exclusion_id"]: row for row in exclusions}
     assert set(by_id) == {

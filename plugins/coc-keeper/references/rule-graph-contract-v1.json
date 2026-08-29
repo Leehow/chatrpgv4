@@ -123,8 +123,10 @@
     "intent.pushed",
     "intent.complete_rest",
     "intent.poor_environment",
+    "intent.rescuer_count",
     "receipt.last_outcome",
     "time.day",
+    "time.minutes_since_injury",
     "clock.dying"
   ],
   "extraction_packet_keys": [

@@ -519,6 +519,37 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
         "phases": ("opening", "live_turn", "pending_finalization"),
         "kp_surface": "context",
     },
+    "rules.context": {
+        # Exact-discovery only (spec §8.3): absent from ordinary acting
+        # baselines; loadable only by exact operation name. Keep it a
+        # keeper context read so execute-time ACL can allow an exact load.
+        "contract": "none",
+        "advisory": True,
+        "kp_surface": "context",
+        "phases": ("live_turn",),
+    },
+    # Graph-owned healing: Keeper surface is rules.settle + scene cards.
+    # These four stay registered as host-internal adapters (runtime path).
+    "rules.first_aid": {
+        "audience": "host",
+        "kp_surface": "none",
+        "phases": ("live_turn",),
+    },
+    "rules.dying_check": {
+        "audience": "host",
+        "kp_surface": "none",
+        "phases": ("live_turn",),
+    },
+    "rules.medicine": {
+        "audience": "host",
+        "kp_surface": "none",
+        "phases": ("live_turn",),
+    },
+    "rules.weekly_recovery": {
+        "audience": "host",
+        "kp_surface": "none",
+        "phases": ("live_turn",),
+    },
     "rules.roll_dice": {
         "phases": ("cold_start", "opening", "live_turn"),
     },

@@ -89,7 +89,7 @@ def test_execution_class_is_explicit_exported_and_fails_closed():
     assert {
         name for name, spec in coc_toolbox.TOOLS.items()
         if spec["execution_class"] == "parallel_read"
-    } == {"rules.skill_describe", "setup.phase"}
+    } == {"rules.context", "rules.skill_describe", "setup.phase"}
     for name in (
         "npc.reaction",
         "progressive.prepare_opening",
@@ -301,3 +301,40 @@ def test_query_helper_is_structured_not_keyword():
     )
     assert "progressive.prepare_opening" in opening_setup
     assert "progressive.fulfill_host_work" not in opening_setup
+
+
+HIDDEN_HEALING_LEGACY = (
+    "rules.first_aid",
+    "rules.dying_check",
+    "rules.medicine",
+    "rules.weekly_recovery",
+)
+
+
+def test_healing_legacy_ops_are_host_internal_not_keeper_visible():
+    live = set(coc_toolbox.query_operations(audience="keeper"))
+    live_rules = set(coc_toolbox.query_operations(audience="keeper", kp_surface="rules"))
+    for name in HIDDEN_HEALING_LEGACY:
+        assert name in coc_toolbox.TOOLS
+        assert name not in live
+        assert name not in live_rules
+        policy = coc_toolbox.operation_policy(name)
+        assert policy["audience"] == "host"
+        assert policy["kp_surface"] == "none"
+        assert name not in coc_operation_policy.HOST_INVOKE_COMPAT_OPERATIONS
+    assert "rules.settle" in live_rules
+    settle = coc_toolbox.operation_policy("rules.settle")
+    assert settle["audience"] == "keeper"
+    assert settle["kp_surface"] == "rules"
+    assert settle["phases"] == ["live_turn"]
+
+
+def test_rules_context_is_keeper_context_not_ordinary_rules_surface():
+    policy = coc_toolbox.operation_policy("rules.context")
+    assert policy["audience"] == "keeper"
+    assert policy["kp_surface"] == "context"
+    assert policy["phases"] == ["live_turn"]
+    assert "rules.context" in coc_toolbox.query_operations(
+        audience="keeper", kp_surface="context", phase="live_turn"
+    )
+    assert "rules.context" not in coc_toolbox.query_operations(kp_surface="rules")

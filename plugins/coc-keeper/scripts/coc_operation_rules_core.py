@@ -43,6 +43,8 @@ from coc_operation_kernel_runtime import (
     coc_state,
     coc_turn_finalization,
     deepcopy,
+    dispatch_rules_context,
+    dispatch_rules_settle,
     json,
     re,
     tool,
@@ -1040,6 +1042,23 @@ def _healing_tool_data(
         }
     return data
 
+def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
+    return dispatch_rules_settle(
+        ctx,
+        args,
+        adapters={
+            "first_aid": _tool_rules_first_aid,
+            "medicine": _tool_rules_medicine,
+            "dying_check": _tool_rules_dying_check,
+            "weekly_recovery": _tool_rules_weekly_recovery,
+        },
+    )
+
+
+def _tool_rules_context(ctx: Ctx, args: dict[str, Any]):
+    return dispatch_rules_context(ctx, args)
+
+
 def _tool_rules_first_aid(ctx: Ctx, args: dict[str, Any]):
     decision_id = str(args["decision_id"])
     prior = ctx.ledger_lookup("rules.first_aid", decision_id)
@@ -1582,6 +1601,79 @@ def register_operations(registry) -> None:
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )(_tool_rules_dying_check)
+    registry.tool(
+    "rules.settle",
+    "Settle one graph-owned rule decision card through the canonical resolver/subsystem path. Host-locked fields are absent; the runtime rechecks grant, state, and family ownership at execute time.",
+    {
+        "investigator": {
+            "type": "string",
+            "desc": "injured or recovering investigator id",
+        },
+        "decision_ref": {
+            "type": "string",
+            "required": True,
+            "enum": [
+                "decision:coc7:healing:dying-hour-clock",
+                "decision:coc7:healing:dying-round-clock",
+                "decision:coc7:healing:first-aid-ordinary",
+                "decision:coc7:healing:first-aid-stabilization",
+                "decision:coc7:healing:medicine-ordinary",
+                "decision:coc7:healing:medicine-stabilization",
+                "decision:coc7:healing:weekly-major-wound-recovery",
+            ],
+            "desc": "semantic decision card ref from scene.context / recovery.healing",
+        },
+        "semantic_inputs": {
+            "type": "object",
+            "required": True,
+            "additionalProperties": False,
+            "desc": "keeper-semantic inputs for the selected card; host-locked fields are forbidden",
+            "properties": {
+                "rescuer_ref": {"type": "string", "desc": "acting rescuer or caregiver actor ref"},
+                "assistant_rescuer_ref": {
+                    "type": "string",
+                    "desc": "second rescuer when two people attempt First Aid together (uncompiled composition)",
+                },
+                "changed_method": {"type": "string", "desc": "what materially changes on a pushed First Aid attempt"},
+                "failure_consequence": {"type": "string", "desc": "consequence announced before a pushed First Aid attempt"},
+                "complete_rest": {"type": "boolean", "desc": "weekly recovery: complete comfortable rest"},
+                "poor_environment": {"type": "boolean", "desc": "weekly recovery: inadequate rest or environment"},
+            },
+        },
+        "seed": {"type": "integer", "desc": "deterministic RNG seed (tests only)"},
+        "decision_id": {
+            "type": "string",
+            "required": True,
+            "desc": "idempotency key",
+        },
+    },
+)(_tool_rules_settle)
+    registry.tool(
+    "rules.context",
+    "Exact-discovery RuleGraph context for one compiled family. Absent from ordinary play working sets; load only by exact operation name. Cards are affordances, never action gates.",
+    {
+        "investigator": {
+            "type": "string",
+            "desc": "investigator whose live state binds the card grant",
+        },
+        "family": {
+            "type": "string",
+            "desc": "compiled rule family id (v1: healing)",
+        },
+        "selected_affordance_ids": {
+            "type": "array",
+            "items": {"type": "string"},
+            "desc": "optional semantic decision refs to narrow the card set",
+        },
+    },
+    access="query",
+    read_domains=("party", "mechanics"),
+    recovery_domains=(),
+    response_mode="full",
+    audit_mode="reference",
+    strict_read_only=True,
+    execution_class="parallel_read",
+)(_tool_rules_context)
 
 
 OPERATION_EXPORTS = (
@@ -1599,11 +1691,13 @@ OPERATION_EXPORTS = (
     '_tool_rules_build_scale',
     '_tool_rules_catalog_search',
     '_tool_rules_check',
+    '_tool_rules_context',
     '_tool_rules_damage',
     '_tool_rules_dying_check',
     '_tool_rules_first_aid',
     '_tool_rules_luck_spend',
     '_tool_rules_medicine',
+    '_tool_rules_settle',
     '_tool_rules_opposed',
     '_tool_rules_push',
     '_tool_rules_resource_delta',

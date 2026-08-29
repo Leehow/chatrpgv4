@@ -628,6 +628,16 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "live_turn"
     ]
   },
+  "rules.context": {
+    "advisory": true,
+    "audience": "keeper",
+    "contract": "none",
+    "execution_class": "parallel_read",
+    "kp_surface": "context",
+    "phases": [
+      "live_turn"
+    ]
+  },
   "rules.damage": {
     "advisory": false,
     "audience": "keeper",
@@ -640,20 +650,20 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "rules.dying_check": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
   },
   "rules.first_aid": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -670,10 +680,10 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "rules.medicine": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -750,6 +760,16 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "live_turn"
     ]
   },
+  "rules.settle": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "rules",
+    "execution_class": "serial_campaign",
+    "kp_surface": "rules",
+    "phases": [
+      "live_turn"
+    ]
+  },
   "rules.skill_describe": {
     "advisory": false,
     "audience": "keeper",
@@ -772,10 +792,10 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "rules.weekly_recovery": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -1622,6 +1642,7 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "memory.recall",
     "module.context",
     "personal_horror.query",
+    "rules.context",
     "scene.context",
     "scene.map",
     "secrets.briefing",
@@ -1644,10 +1665,7 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "rules.catalog_search",
     "rules.check",
     "rules.damage",
-    "rules.dying_check",
-    "rules.first_aid",
     "rules.luck_spend",
-    "rules.medicine",
     "rules.opposed",
     "rules.psychology_observe",
     "rules.push",
@@ -1655,9 +1673,9 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "rules.roll",
     "rules.roll_dice",
     "rules.sanity_check",
+    "rules.settle",
     "rules.skill_describe",
-    "rules.social_adjudicate",
-    "rules.weekly_recovery"
+    "rules.social_adjudicate"
   ],
   "setup": [
     "progressive.follow_mentions",

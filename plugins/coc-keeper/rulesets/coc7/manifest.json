@@ -19,8 +19,8 @@
   "rule_families": [
     {
       "family_id": "healing",
-      "runtime_owner": "shadow",
-      "legacy_surface": "visible"
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
     }
   ],
   "resources": [

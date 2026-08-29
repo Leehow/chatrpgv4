@@ -172,6 +172,13 @@ Rules:
   `entry_points.rule_graph_manifest` (the R1 entry-point rule).
 - A package that ships no `rule_families` keeps every family at
   `legacy`/`visible` — the runtime is a strict no-op for it.
+- When graph artifacts are present, the three sources — package
+  `rule_families`, graph `family_runtime_ownership` /
+  `legacy_surface_lifecycle`, and graph-manifest
+  `family_promotion_eligibility.*.runtime_ownership` — must agree per
+  family. A half-flip (one artifact graph/hidden, another shadow/visible)
+  fails closed (`ownership_mismatch` / `rules_graph_unavailable`); the
+  runtime never silently prefers the package entry.
 
 ## 3. L1 data — rules-json/
 

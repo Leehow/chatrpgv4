@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""RulesRuntime — deep in-process rule runtime plus shadow comparator (R2b).
+"""RulesRuntime — deep in-process rule runtime plus shadow comparator (R3).
 
 This module is the host-internal implementation of the RuleGraph runtime seam
 (spec §8).  It exposes exactly one interface class with two methods:
 
     runtime.context(RuleQuestion?) -> RuleContextResult
-    runtime.settle(SelectedRuleDecision, decision_id) -> SettlementResult
+    runtime.settle(SelectedRuleDecision, decision_id, executor=...) -> SettlementResult
 
 It loads a ruleset package's compiled RuleGraph through the R1 artifact
 contract (``entry_points.rule_graph`` / ``entry_points.rule_graph_manifest``),
@@ -14,13 +14,17 @@ inputs from host-locked inputs, compiles one selected decision into ONE
 immutable ``RuleDecisionPlan`` targeting the existing resolver capability or
 subsystem command shape, and projects bounded next-decision cards.
 
-The runtime NEVER:
+The runtime NEVER itself:
   - rolls dice, consumes RNG, writes campaign state, or creates receipts;
-  - executes a resolver capability or subsystem command (R2b compiles only;
-    the legacy path stays the sole execution owner);
-  - renders narration or changes any Keeper-visible operation, working set,
-    or policy surface;
-  - requires a model to author or relay a hash, digest, or opaque id.
+  - reimplements a resolver capability or subsystem command;
+  - renders narration.
+
+For a **graph-owned** family, ``settle()`` invokes the SAME existing resolver /
+subsystem adapter the legacy handlers use (injected ``executor``).  Grant gate,
+decision_id idempotency, and canonical state/receipt machinery stay with those
+adapters.  Shadow-owned and legacy-owned families still compile only
+(``execution: deferred-to-legacy``).  Shadow comparison may keep recording
+host-internally; it never executes a graph-owned family (spec §14.3).
 
 Shadow comparator (spec §14.1): when a legacy healing operation runs
 (``rules.first_aid`` / ``rules.dying_check`` / ``rules.medicine`` /
@@ -98,6 +102,20 @@ _GRAPH_CONTRACT_CACHE: dict[str, Any] | None = None
 _GRAPH_CACHE: dict[str, dict[str, Any]] = {}
 _MANIFEST_CACHE: dict[str, dict[str, Any] | None] = {}
 _SHADOW_CONFIG: dict[str, Any] | None = None
+# Campaign-scoped runtime instances so scene.context grants survive until settle.
+_CAMPAIGN_RUNTIMES: dict[str, "RulesRuntime"] = {}
+
+# Closed v1 settle enum: compiled healing decision refs only. Exclusion
+# exception nodes are intentionally absent (spec §15 no_candidate).
+HEALING_SETTLE_DECISION_REFS = (
+    "decision:coc7:healing:dying-hour-clock",
+    "decision:coc7:healing:dying-round-clock",
+    "decision:coc7:healing:first-aid-ordinary",
+    "decision:coc7:healing:first-aid-stabilization",
+    "decision:coc7:healing:medicine-ordinary",
+    "decision:coc7:healing:medicine-stabilization",
+    "decision:coc7:healing:weekly-major-wound-recovery",
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -157,11 +175,23 @@ def rulesets_root() -> Path:
 
 
 def clear_runtime_cache() -> None:
-    """Drop in-process graph/manifest caches.  Tests isolate via this."""
+    """Drop in-process graph/manifest/runtime caches.  Tests isolate via this."""
     global _GRAPH_CONTRACT_CACHE, _GRAPH_CACHE, _MANIFEST_CACHE
     _GRAPH_CONTRACT_CACHE = None
     _GRAPH_CACHE.clear()
     _MANIFEST_CACHE.clear()
+    _CAMPAIGN_RUNTIMES.clear()
+
+
+def bind_campaign_runtime(campaign_id: str, runtime: "RulesRuntime") -> None:
+    if campaign_id:
+        _CAMPAIGN_RUNTIMES[str(campaign_id)] = runtime
+
+
+def campaign_runtime(campaign_id: str | None) -> "RulesRuntime" | None:
+    if not campaign_id:
+        return None
+    return _CAMPAIGN_RUNTIMES.get(str(campaign_id))
 
 
 def _load_manifest_cached(ruleset_id: str, rulesets_root_path: Path | None = None) -> dict[str, Any] | None:
@@ -248,6 +278,18 @@ def load_ruleset_graph(
     if problems:
         return {"ok": False, "reason": "graph_invalid",
                 "findings": problems, "graph": graph, "graph_manifest": graph_manifest}
+    agreement = agree_all_family_ownerships(
+        manifest=manifest, graph=graph, graph_manifest=graph_manifest,
+    )
+    if not agreement["ok"]:
+        return {
+            "ok": False,
+            "reason": "ownership_mismatch",
+            "findings": list(agreement["findings"]),
+            "graph": graph,
+            "graph_manifest": graph_manifest,
+            "graph_claimed": agreement["graph_claimed"],
+        }
     return {
         "ok": True,
         "graph": graph,
@@ -260,6 +302,145 @@ def load_ruleset_graph(
 # --------------------------------------------------------------------------- #
 # Family runtime ownership (spec §7.7)
 # --------------------------------------------------------------------------- #
+_OWNER_ENUM = frozenset({"legacy", "shadow", "graph"})
+_SURFACE_ENUM = frozenset({"visible", "hidden", "removed"})
+
+
+class FamilyOwnershipMismatch(ValueError):
+    """Three artifacts disagree on a family's owner/surface; never pick a side."""
+
+    def __init__(self, findings: list[str], *, graph_claimed: bool = False):
+        super().__init__(
+            "; ".join(findings) or "family ownership artifacts disagree"
+        )
+        self.findings = list(findings)
+        self.graph_claimed = bool(graph_claimed)
+
+
+def _package_family_view(
+    manifest: Mapping[str, Any] | None, family: str,
+) -> tuple[str, str] | None:
+    if not isinstance(manifest, Mapping):
+        return None
+    for entry in manifest.get("rule_families") or []:
+        if isinstance(entry, dict) and entry.get("family_id") == family:
+            owner = entry.get("runtime_owner") or "legacy"
+            surface = entry.get("legacy_surface") or "visible"
+            return str(owner), str(surface)
+    return None
+
+
+def agree_family_ownership(
+    family: str,
+    *,
+    manifest: Mapping[str, Any] | None = None,
+    graph: Mapping[str, Any] | None = None,
+    graph_manifest: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Cross-validate one family's owner/surface across the three artifacts.
+
+    Implicit package default is ``legacy``/``visible`` when a package manifest
+    object is supplied but the family has no ``rule_families`` entry.  A single
+    explicit view is accepted; two or more views must be identical.  Never
+    picks a side on disagreement.
+    """
+    views: dict[str, tuple[str, str | None]] = {}
+    package_view = _package_family_view(manifest, family)
+    if package_view is not None:
+        views["package"] = package_view
+    elif manifest is not None:
+        views["package"] = ("legacy", "visible")
+    owner_map = (graph or {}).get("family_runtime_ownership") or {}
+    surface_map = (graph or {}).get("legacy_surface_lifecycle") or {}
+    if not isinstance(owner_map, Mapping):
+        owner_map = {}
+    if not isinstance(surface_map, Mapping):
+        surface_map = {}
+    if family in owner_map or family in surface_map:
+        owner = owner_map.get(family) or "legacy"
+        surface = surface_map.get(family) or "visible"
+        views["graph"] = (str(owner), str(surface))
+    promo = ((graph_manifest or {}).get("family_promotion_eligibility") or {}).get(
+        family
+    )
+    if isinstance(promo, Mapping) and promo.get("runtime_ownership") in _OWNER_ENUM:
+        surf = str(surface_map[family]) if family in surface_map else None
+        views["graph_manifest"] = (str(promo["runtime_ownership"]), surf)
+    if not views:
+        return {
+            "ok": True,
+            "owner": "legacy",
+            "surface": "visible",
+            "findings": [],
+            "graph_claimed": False,
+            "views": views,
+        }
+    owners = [pair[0] for pair in views.values()]
+    surfaces = [pair[1] for pair in views.values() if pair[1] is not None]
+    findings: list[str] = []
+    if any(owner != owners[0] for owner in owners):
+        findings.append(
+            f"family {family!r} runtime_owner disagrees across artifacts: {views}"
+        )
+    if surfaces and any(surface != surfaces[0] for surface in surfaces):
+        findings.append(
+            f"family {family!r} legacy_surface disagrees across artifacts: {views}"
+        )
+    graph_claimed = any(owner == "graph" for owner in owners)
+    if findings:
+        return {
+            "ok": False,
+            "owner": None,
+            "surface": None,
+            "findings": findings,
+            "graph_claimed": graph_claimed,
+            "views": views,
+        }
+    return {
+        "ok": True,
+        "owner": owners[0],
+        "surface": surfaces[0] if surfaces else "visible",
+        "findings": [],
+        "graph_claimed": owners[0] == "graph",
+        "views": views,
+    }
+
+
+def agree_all_family_ownerships(
+    *,
+    manifest: Mapping[str, Any] | None = None,
+    graph: Mapping[str, Any] | None = None,
+    graph_manifest: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Cross-validate every family named in any of the three artifacts."""
+    families: set[str] = set()
+    for entry in (manifest or {}).get("rule_families") or []:
+        if isinstance(entry, dict) and isinstance(entry.get("family_id"), str):
+            families.add(entry["family_id"])
+    owner_map = (graph or {}).get("family_runtime_ownership") or {}
+    surface_map = (graph or {}).get("legacy_surface_lifecycle") or {}
+    if isinstance(owner_map, Mapping):
+        families.update(str(key) for key in owner_map)
+    if isinstance(surface_map, Mapping):
+        families.update(str(key) for key in surface_map)
+    promo_map = (graph_manifest or {}).get("family_promotion_eligibility") or {}
+    if isinstance(promo_map, Mapping):
+        families.update(str(key) for key in promo_map)
+    findings: list[str] = []
+    graph_claimed = False
+    for family in sorted(families):
+        row = agree_family_ownership(
+            family, manifest=manifest, graph=graph, graph_manifest=graph_manifest,
+        )
+        findings.extend(row["findings"])
+        graph_claimed = graph_claimed or bool(row["graph_claimed"])
+    return {
+        "ok": not findings,
+        "findings": findings,
+        "graph_claimed": graph_claimed,
+    }
+
+
 def resolve_family_ownership(
     ruleset_id: str,
     family: str,
@@ -270,42 +451,70 @@ def resolve_family_ownership(
 ) -> tuple[str, str]:
     """Return ``(runtime_owner, legacy_surface)`` for one family.
 
-    Precedence: package manifest ``rule_families`` entry, then the graph
-    manifest's promotion map, then the graph's own ownership map, then the
-    documented default ``legacy`` / ``visible``.
+    The three artifacts (package manifest, rule-graph, graph-manifest) must
+    agree.  Disagreement raises ``FamilyOwnershipMismatch`` rather than
+    silently preferring the package entry.
     """
-    m = manifest if manifest is not None else _load_manifest_cached(ruleset_id)
-    for entry in (m or {}).get("rule_families") or []:
-        if isinstance(entry, dict) and entry.get("family_id") == family:
-            return (str(entry.get("runtime_owner") or "legacy"),
-                    str(entry.get("legacy_surface") or "visible"))
-    promo = ((graph_manifest or {}).get("family_promotion_eligibility") or {}).get(family)
-    if isinstance(promo, dict) and promo.get("runtime_ownership") in {"legacy", "shadow", "graph"}:
-        owner = promo["runtime_ownership"]
-        surface_map = (graph or {}).get("legacy_surface_lifecycle") or {}
-        return owner, surface_map.get(family, "visible")
-    owner_map = (graph or {}).get("family_runtime_ownership") or {}
-    if owner_map.get(family) in {"legacy", "shadow", "graph"}:
-        surface_map = (graph or {}).get("legacy_surface_lifecycle") or {}
-        return owner_map[family], surface_map.get(family, "visible")
-    return "legacy", "visible"
+    if manifest is None and graph is None and graph_manifest is None:
+        manifest = _load_manifest_cached(ruleset_id)
+    row = agree_family_ownership(
+        family, manifest=manifest, graph=graph, graph_manifest=graph_manifest,
+    )
+    if not row["ok"]:
+        raise FamilyOwnershipMismatch(
+            list(row["findings"]), graph_claimed=bool(row["graph_claimed"]),
+        )
+    return str(row["owner"]), str(row["surface"])
 
 
 # --------------------------------------------------------------------------- #
 # Live-state facts overlay (registered condition paths only)
 # --------------------------------------------------------------------------- #
+def _minutes_since_injury(
+    state: Mapping[str, Any],
+    elapsed_minutes: int | None,
+) -> int | None:
+    """Hours-window input: campaign clock minus the latest active wound receipt."""
+    if not isinstance(elapsed_minutes, int) or isinstance(elapsed_minutes, bool):
+        return None
+    if elapsed_minutes < 0:
+        return None
+    ledger = state.get("wound_ledger")
+    if not isinstance(ledger, list):
+        return None
+    occurred: list[int] = []
+    for row in ledger:
+        if not isinstance(row, Mapping):
+            continue
+        if row.get("status") != "active":
+            continue
+        stamp = row.get("occurred_elapsed_minutes")
+        if isinstance(stamp, bool) or not isinstance(stamp, int) or stamp < 0:
+            continue
+        occurred.append(stamp)
+    if not occurred:
+        return None
+    return max(0, elapsed_minutes - max(occurred))
+
+
 def facts_from_state(
     state: dict[str, Any] | None,
     sheet: dict[str, Any] | None,
     *,
     ruleset_id: str | None = None,
     extra: dict[str, Any] | None = None,
+    elapsed_minutes: int | None = None,
 ) -> dict[str, Any]:
     """Project live investigator state into the registered facts dict.
 
     Only paths in the R1 contract's ``registered_condition_paths`` are ever
     produced here; condition evaluation additionally refuses unregistered
     paths so the graph can never read arbitrary state or prose.
+
+    Boolean condition flags are emitted only when true so ``exists`` /
+    ``not exists`` match the graph's ordinary First Aid / Medicine gates.
+    ``time.minutes_since_injury`` is derived from ``wound_ledger`` plus the
+    campaign clock; unknown clocks stay absent (exceptions do not fire).
     """
     state = state or {}
     sheet = sheet or {}
@@ -321,15 +530,18 @@ def facts_from_state(
         "actor.resources.luck": state.get("current_luck"),
         "actor.sheet.con": characteristics.get("CON"),
         "actor.conditions": conditions,
-        "actor.conditions.dying": "dying" in conditions,
-        "actor.conditions.unconscious": "unconscious" in conditions,
-        "actor.conditions.major_wound": "major_wound" in conditions,
-        "actor.conditions.dead": "dead" in conditions,
     }
+    for flag in ("dying", "unconscious", "major_wound", "dead"):
+        if flag in conditions:
+            facts[f"actor.conditions.{flag}"] = True
+    minutes_since = _minutes_since_injury(state, elapsed_minutes)
+    if minutes_since is not None:
+        facts["time.minutes_since_injury"] = minutes_since
     if ruleset_id is not None:
         facts["campaign.ruleset_id"] = ruleset_id
     if isinstance(extra, dict):
         facts.update({str(key): deepcopy(value) for key, value in extra.items()})
+    facts.setdefault("intent.rescuer_count", 1)
     return facts
 
 
@@ -382,6 +594,16 @@ def _evaluate_leaf(expression: dict[str, Any], facts: Mapping[str, Any]) -> bool
     return None
 
 
+def _condition_children(expression: Mapping[str, Any]) -> list[Any] | None:
+    """``of`` is a list; a single dict child is accepted for ``not``."""
+    raw = expression.get("of")
+    if isinstance(raw, dict):
+        return [raw]
+    if isinstance(raw, list):
+        return raw
+    return None
+
+
 def evaluate_condition(
     expression: Any,
     facts: Mapping[str, Any],
@@ -395,8 +617,8 @@ def evaluate_condition(
         return False
     op = expression.get("op")
     if op in {"all", "any"}:
-        children = expression.get("of")
-        if not isinstance(children, list):
+        children = _condition_children(expression)
+        if children is None:
             return False
         results = [evaluate_condition(child, facts) for child in children]
         if op == "all":
@@ -411,8 +633,8 @@ def evaluate_condition(
             return None
         return False
     if op == "not":
-        children = expression.get("of")
-        if not isinstance(children, list) or len(children) != 1:
+        children = _condition_children(expression)
+        if children is None or len(children) != 1:
             return False
         child = evaluate_condition(children[0], facts)
         return None if child is None else not child
@@ -424,6 +646,80 @@ def evaluate_condition(
     return False
 
 
+_LEAF_CONDITION_OPS = frozenset({
+    "eq", "neq", "lt", "lte", "gt", "gte", "contains", "not-contains",
+    "exists",
+})
+_BOOL_CONDITION_OPS = frozenset({"all", "any", "not"})
+
+
+def classify_exception_condition(
+    expression: Any,
+    facts: Mapping[str, Any],
+) -> tuple[str, str | None]:
+    """Classify a recorded exception condition against live facts.
+
+    Returns ``(matched|inactive|unevaluated, reason)``.  A missing,
+    unknown, or unparseable **recorded** condition is ``unevaluated`` so
+    the exception is surfaced rather than silently dropped.  A well-formed
+    condition whose live fact is absent stays ``inactive``: incomplete
+    situation data does not invent an excluded circumstance.
+    """
+    if not isinstance(expression, dict):
+        return "unevaluated", "malformed_expression"
+    op = expression.get("op")
+    if op in _BOOL_CONDITION_OPS:
+        children = _condition_children(expression)
+        if children is None:
+            return "unevaluated", "malformed_expression"
+        if op == "not" and len(children) != 1:
+            return "unevaluated", "malformed_expression"
+        statuses = [
+            classify_exception_condition(child, facts) for child in children
+        ]
+        if op == "all":
+            if any(status == "inactive" for status, _reason in statuses):
+                return "inactive", None
+            unevaluated = next(
+                (
+                    (status, reason) for status, reason in statuses
+                    if status == "unevaluated"
+                ),
+                None,
+            )
+            if unevaluated is not None:
+                return unevaluated
+            return "matched", None
+        if op == "any":
+            if any(status == "matched" for status, _reason in statuses):
+                return "matched", None
+            unevaluated = next(
+                (
+                    (status, reason) for status, reason in statuses
+                    if status == "unevaluated"
+                ),
+                None,
+            )
+            if unevaluated is not None:
+                return unevaluated
+            return "inactive", None
+        child_status, child_reason = statuses[0]
+        if child_status == "unevaluated":
+            return "unevaluated", child_reason
+        if child_status == "matched":
+            return "inactive", None
+        return "matched", None
+    if op in _LEAF_CONDITION_OPS:
+        path = expression.get("path")
+        if not isinstance(path, str) or path not in registered_condition_paths():
+            return "unevaluated", "unregistered_path"
+        result = _evaluate_leaf(expression, facts)
+        if result is True:
+            return "matched", None
+        return "inactive", None
+    return "unevaluated", "unknown_operator"
+
+
 # --------------------------------------------------------------------------- #
 # RulesRuntime — the deep module (spec §8)
 # --------------------------------------------------------------------------- #
@@ -432,7 +728,9 @@ class RulesRuntime:
 
     Constructor dependencies are injected (spec §8.1): a facts provider for
     live-state overlay and a host-locked provider for locked inputs.  The
-    runtime itself never performs state I/O, RNG, receipts, or execution.
+    runtime itself never performs state I/O, RNG, or receipts.  Graph-owned
+    ``settle()`` invokes an injected executor that MUST be the existing
+    resolver/subsystem adapter; it never reimplements those capabilities.
     """
 
     SCHEMA_VERSION = 1
@@ -444,6 +742,7 @@ class RulesRuntime:
         ruleset_id: str | None = None,
         ruleset_version: str | None = None,
         graph_manifest: dict[str, Any] | None = None,
+        package_manifest: Mapping[str, Any] | None = None,
         campaign_id: str | None = None,
         facts_provider: Callable[[], Mapping[str, Any]] | None = None,
         state_revision_provider: Callable[[], str | None] | None = None,
@@ -464,6 +763,9 @@ class RulesRuntime:
         self._graph_generation = str(manifest_digest) if manifest_digest else f"sha256:{_json_digest(graph)}"
         self._campaign_id = campaign_id
         self._graph_manifest = graph_manifest
+        self._package_manifest = (
+            dict(package_manifest) if isinstance(package_manifest, Mapping) else None
+        )
         self._facts_provider = facts_provider
         self._state_revision_provider = state_revision_provider
         self._host_locked_provider = host_locked_provider
@@ -634,7 +936,8 @@ class RulesRuntime:
         applicable, hard_gated = self.applicability(node_id, facts)
         capability = self._invokes(node_id)
         rule_refs = self._rules_for(node_id)
-        return {
+        active, unevaluated, _findings = self._surface_exceptions(node_id, facts)
+        card = {
             "schema_version": self.SCHEMA_VERSION,
             "decision_ref": node_id,
             "family": props.get("family_id") or "",
@@ -666,6 +969,11 @@ class RulesRuntime:
                 "hard_gate": hard_gated,
             },
         }
+        if active:
+            card["active_exceptions"] = active
+        if unevaluated:
+            card["unevaluated_exceptions"] = unevaluated
+        return card
 
     # -- card grants (spec §8.5/§8.6 static recheck) ---------------------- #
     def _grant_binding(self) -> dict[str, Any]:
@@ -785,20 +1093,187 @@ class RulesRuntime:
             envelope["refreshed_card_grant"] = refreshed_grant
         return envelope
 
+    def family_ownership(self, family: str) -> tuple[str, str]:
+        return resolve_family_ownership(
+            self._ruleset_id,
+            family,
+            manifest=self._package_manifest,
+            graph=self._graph,
+            graph_manifest=self._graph_manifest,
+        )
+
+    def _recorded_exclusions(self) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        promo = (self._graph_manifest or {}).get("family_promotion_eligibility") or {}
+        if not isinstance(promo, Mapping):
+            return rows
+        for family_row in promo.values():
+            if not isinstance(family_row, Mapping):
+                continue
+            for exclusion in family_row.get("shadow_exclusions") or []:
+                if isinstance(exclusion, Mapping):
+                    rows.append(dict(exclusion))
+        return rows
+
+    def _exception_expression(
+        self,
+        exclusion: Mapping[str, Any],
+        exception_node: Mapping[str, Any] | None,
+    ) -> Any:
+        if exception_node is not None:
+            node_id = str(exception_node.get("node_id") or "")
+            gated = self._conditions_for(node_id) if node_id else []
+            expressions = [
+                (condition.get("properties") or {}).get("expression")
+                for condition in gated
+            ]
+            expressions = [expr for expr in expressions if isinstance(expr, dict)]
+            if len(expressions) == 1:
+                return expressions[0]
+            if len(expressions) > 1:
+                return {"op": "all", "of": expressions}
+            props = exception_node.get("properties") or {}
+            expr = props.get("expression") if isinstance(props, Mapping) else None
+            if isinstance(expr, dict):
+                return expr
+        when = exclusion.get("when")
+        return when if isinstance(when, dict) else None
+
+    def _exception_evaluations_for(
+        self, decision_ref: str, facts: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for exclusion in self._recorded_exclusions():
+            if exclusion.get("decision_ref") != decision_ref:
+                continue
+            exception_ref = exclusion.get("exception_ref")
+            row: dict[str, Any] = {"decision_ref": decision_ref}
+            if not isinstance(exception_ref, str) or not exception_ref:
+                row.update({
+                    "status": "unevaluated",
+                    "reason": "malformed_expression",
+                    "exception_ref": "",
+                })
+                rows.append(row)
+                continue
+            row["exception_ref"] = exception_ref
+            node = self._nodes.get(exception_ref)
+            expression = self._exception_expression(exclusion, node)
+            status, reason = classify_exception_condition(expression, facts)
+            row["status"] = status
+            if reason:
+                row["reason"] = reason
+            rows.append(row)
+        return rows
+
+    def _surface_exceptions(
+        self, decision_ref: str, facts: Mapping[str, Any],
+    ) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]]]:
+        """Return (active refs, unevaluated markers, host-internal findings).
+
+        Matched exceptions and unparseable recorded conditions both surface.
+        Incomplete live facts on a well-formed condition stay inactive.
+        """
+        active: list[str] = []
+        unevaluated: list[dict[str, Any]] = []
+        findings: list[dict[str, Any]] = []
+        for row in self._exception_evaluations_for(decision_ref, facts):
+            status = row.get("status")
+            ref = row.get("exception_ref")
+            if status == "matched" and isinstance(ref, str) and ref:
+                active.append(ref)
+            elif status == "unevaluated":
+                marker = {
+                    "exception_ref": ref if isinstance(ref, str) else "",
+                    "reason": str(row.get("reason") or "malformed_expression"),
+                    "evaluation": "unevaluated",
+                }
+                unevaluated.append(marker)
+                if isinstance(ref, str) and ref:
+                    active.append(ref)
+                findings.append({
+                    "code": "exception_condition_unevaluated",
+                    "exception_ref": ref if isinstance(ref, str) and ref else None,
+                    "decision_ref": decision_ref,
+                    "reason": marker["reason"],
+                })
+        return sorted(set(active)), unevaluated, findings
+
+    def _active_exceptions_for(
+        self, decision_ref: str, facts: Mapping[str, Any],
+    ) -> list[str]:
+        active, _unevaluated, _findings = self._surface_exceptions(
+            decision_ref, facts,
+        )
+        return active
+
+    def _facts_for_decision(
+        self, selected: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        facts = dict(self._facts_provider() or {}) if self._facts_provider is not None else {}
+        facts.setdefault("intent.rescuer_count", 1)
+        semantic = (
+            selected.get("semantic_inputs")
+            if isinstance(selected, Mapping)
+            and isinstance(selected.get("semantic_inputs"), Mapping)
+            else {}
+        )
+        assistant = semantic.get("assistant_rescuer_ref") if isinstance(semantic, Mapping) else None
+        if isinstance(assistant, str) and assistant.strip():
+            facts["intent.rescuer_count"] = 2
+        return facts
+
+    def _uncompiled_scope_refs(self) -> set[str]:
+        refs: set[str] = set()
+        promo = (self._graph_manifest or {}).get("family_promotion_eligibility") or {}
+        if isinstance(promo, Mapping):
+            for row in promo.values():
+                if not isinstance(row, Mapping):
+                    continue
+                for exclusion in row.get("shadow_exclusions") or []:
+                    if not isinstance(exclusion, Mapping):
+                        continue
+                    for key in ("exception_ref", "exclusion_id"):
+                        value = exclusion.get(key)
+                        if isinstance(value, str) and value:
+                            refs.add(value)
+        for node_id, node in self._nodes.items():
+            if node.get("node_kind") == "exception":
+                refs.add(node_id)
+        return refs
+
+    def _is_uncompiled_scope(self, decision_ref: str) -> bool:
+        if decision_ref in self._uncompiled_scope_refs():
+            return True
+        node = self._nodes.get(decision_ref)
+        if node is None:
+            return False
+        return node.get("node_kind") != "decision"
+
+    def latest_grant_covering(self, decision_ref: str) -> dict[str, Any] | None:
+        current = self._grant_binding()
+        for grant_id in reversed(list(self._grants)):
+            grant = self._grants[grant_id]
+            if decision_ref not in (grant.get("decision_refs") or []):
+                continue
+            if grant.get("binding") != current:
+                continue
+            return deepcopy(grant)
+        return None
+
     def _family_status(self, family: str | None) -> list[dict[str, Any]]:
-        graph_owner = (self._graph.get("family_runtime_ownership") or {})
-        graph_surface = (self._graph.get("legacy_surface_lifecycle") or {})
         coverage = (self._graph.get("coverage") or {})
         families = [family] if family is not None else sorted(coverage)
-        return [
-            {
+        rows: list[dict[str, Any]] = []
+        for fam in families:
+            owner, surface = self.family_ownership(fam)
+            rows.append({
                 "family": fam,
                 "coverage": coverage.get(fam, "unresolved"),
-                "runtime_owner": graph_owner.get(fam, "legacy"),
-                "legacy_surface": graph_surface.get(fam, "visible"),
-            }
-            for fam in families
-        ]
+                "runtime_owner": owner,
+                "legacy_surface": surface,
+            })
+        return rows
 
     # -- context (spec §8.3/§8.4) -------------------------------------------
     def context(self, question: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -861,6 +1336,17 @@ class RulesRuntime:
                     "reason": "selected decision refs are not current applicable candidates",
                 }
         status = "ok" if cards else "no_candidate_in_compiled_scope"
+        findings: list[dict[str, Any]] = []
+        for card in cards:
+            for marker in card.get("unevaluated_exceptions") or []:
+                if not isinstance(marker, Mapping):
+                    continue
+                findings.append({
+                    "code": "exception_condition_unevaluated",
+                    "exception_ref": marker.get("exception_ref") or None,
+                    "decision_ref": card.get("decision_ref"),
+                    "reason": marker.get("reason"),
+                })
         result: dict[str, Any] = {
             "schema_version": self.SCHEMA_VERSION,
             "status": status,
@@ -868,6 +1354,8 @@ class RulesRuntime:
             "cards": cards,
             "family_status": self._family_status(family),
         }
+        if findings:
+            result["findings"] = findings
         if cards:
             # Machine-attached card grant (spec §8.5/§8.6): the projected card
             # set bound to campaign + ruleset version + graph generation +
@@ -888,7 +1376,7 @@ class RulesRuntime:
             self._facts_provider() if self._facts_provider is not None else {}
         )
         node = self._nodes.get(decision_ref)
-        if node is None:
+        if node is None or node.get("node_kind") != "decision" or self._is_uncompiled_scope(decision_ref):
             return {
                 "failure": {
                     "code": "no_candidate_in_compiled_scope",
@@ -1049,13 +1537,20 @@ class RulesRuntime:
         selected: Mapping[str, Any],
         decision_id: str,
         card_grant: Mapping[str, Any] | None = None,
+        *,
+        executor: Callable[..., Any] | None = None,
     ) -> dict[str, Any]:
-        """Compile one selected decision (spec §8.6 steps 1-5; no execution).
+        """Compile one selected decision (spec §8.6); execute when graph-owned.
 
         ``card_grant`` is machine-attached: the host passes the exact grant
         object ``context()`` issued.  A missing, forged, stale, or
         non-covering grant fails closed with ``rule_decision_stale`` before
-        any compile work (spec §8.5/§8.6/§15)."""
+        any compile work (spec §8.5/§8.6/§15).
+
+        Graph-owned families invoke ``executor(plan, decision_id, selected)``
+        which MUST be the existing resolver/subsystem adapter.  Shadow and
+        legacy families still return ``execution: deferred-to-legacy``.
+        """
         if not isinstance(selected, Mapping):
             return {
                 "schema_version": self.SCHEMA_VERSION,
@@ -1072,6 +1567,62 @@ class RulesRuntime:
                 "failure": {"code": "no_candidate_in_compiled_scope",
                             "message": "a semantic decision_ref is required"},
             }
+        if self._is_uncompiled_scope(decision_ref):
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": decision_ref,
+                "decision_id": decision_id,
+                "status": "no_candidate_in_compiled_scope",
+                "failure": {
+                    "code": "no_candidate_in_compiled_scope",
+                    "message": (
+                        f"decision {decision_ref!r} is an uncompiled exclusion "
+                        "or exception scope; the KP treats it as ordinary long-tail"
+                    ),
+                },
+            }
+        facts = self._facts_for_decision(selected)
+        active_exceptions, unevaluated_exceptions, exception_findings = (
+            self._surface_exceptions(decision_ref, facts)
+        )
+        if active_exceptions:
+            family = ""
+            node = self._nodes.get(decision_ref)
+            if node is not None:
+                family = str((node.get("properties") or {}).get("family_id") or "")
+            if unevaluated_exceptions:
+                message = (
+                    "a recorded exception condition is unevaluated; compiled "
+                    "ordinary semantics are not applied"
+                )
+            else:
+                message = (
+                    "a recorded uncompiled exception matches the live "
+                    "situation; compiled ordinary semantics are not applied"
+                )
+            failure: dict[str, Any] = {
+                "code": "no_candidate_in_compiled_scope",
+                "message": message,
+                "active_exceptions": active_exceptions,
+            }
+            if unevaluated_exceptions:
+                failure["unevaluated_exceptions"] = unevaluated_exceptions
+            if exception_findings:
+                failure["findings"] = exception_findings
+            envelope: dict[str, Any] = {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": decision_ref,
+                "decision_id": decision_id,
+                "family": family,
+                "status": "no_candidate_in_compiled_scope",
+                "active_exceptions": active_exceptions,
+                "failure": failure,
+            }
+            if unevaluated_exceptions:
+                envelope["unevaluated_exceptions"] = unevaluated_exceptions
+            if exception_findings:
+                envelope["findings"] = exception_findings
+            return envelope
         # Fail-closed card-grant gate: never-projected and forged/stale
         # decision refs cannot reach compilation (spec §8.6 step 2).
         stale = self._check_card_grant(card_grant, decision_ref)
@@ -1100,7 +1651,9 @@ class RulesRuntime:
                         "fields": overlap,
                     },
                 }
-        result = self._compile_plan(decision_ref, semantic_inputs)
+        result = self._compile_plan(
+            decision_ref, semantic_inputs, facts=facts,
+        )
         if result["failure"] is not None:
             failure = result["failure"]
             return {
@@ -1115,7 +1668,6 @@ class RulesRuntime:
         plan = result["plan"]
         family = plan["family"]
         cards: list[dict[str, Any]] = []
-        facts = self._facts_provider() if self._facts_provider is not None else {}
         for next_ref in list(plan["next_decisions"])[:8]:
             next_node = self._nodes.get(str(next_ref))
             if next_node is None or next_node.get("node_kind") != "decision":
@@ -1123,7 +1675,25 @@ class RulesRuntime:
             card = self._card(str(next_ref), facts)
             cards.append(card)
         cards = sorted(cards, key=lambda card: str(card["decision_ref"]))[:8]
-        return {
+        try:
+            owner, _surface = self.family_ownership(str(family))
+        except FamilyOwnershipMismatch as exc:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": decision_ref,
+                "decision_id": decision_id,
+                "family": family,
+                "status": "rules_graph_unavailable",
+                "failure": {
+                    "code": "rules_graph_unavailable",
+                    "message": (
+                        "family ownership artifacts disagree; no side is chosen "
+                        "and there is no legacy fallback"
+                    ),
+                    "findings": list(exc.findings),
+                },
+            }
+        envelope: dict[str, Any] = {
             "schema_version": self.SCHEMA_VERSION,
             "decision_ref": decision_ref,
             "decision_id": decision_id,
@@ -1138,6 +1708,104 @@ class RulesRuntime:
             "next_decisions": cards,
             "authority": "canonical-resolver-state-receipts",
         }
+        if owner != "graph":
+            return envelope
+        if executor is None:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": decision_ref,
+                "decision_id": decision_id,
+                "family": family,
+                "status": "rules_graph_unavailable",
+                "failure": {
+                    "code": "rules_graph_unavailable",
+                    "message": (
+                        "graph-owned settlement requires the canonical "
+                        "resolver/subsystem executor; no legacy fallback"
+                    ),
+                },
+            }
+        executed = executor(_thaw(plan), decision_id, selected)
+        data = executed
+        warnings: list[str] = []
+        hints: list[str] = []
+        if isinstance(executed, tuple):
+            data = executed[0] if executed else None
+            if len(executed) > 1 and isinstance(executed[1], list):
+                warnings = list(executed[1])
+            if len(executed) > 2 and isinstance(executed[2], list):
+                hints = list(executed[2])
+        envelope["status"] = "settled"
+        envelope["settlement"] = {
+            "existing_result_envelope": True,
+            "execution": "canonical-resolver-subsystem",
+            "plan": plan,
+            "result": data,
+        }
+        if warnings:
+            envelope["warnings"] = warnings
+        if hints:
+            envelope["hints"] = hints
+        return envelope
+
+
+def public_card_projection(card: Mapping[str, Any]) -> dict[str, Any]:
+    """Strip host-only grant fields; keep semantic card identity."""
+    row = _thaw(card)
+    if not isinstance(row, dict):
+        return {}
+    authority = row.get("authority") if isinstance(row.get("authority"), dict) else {}
+    row["authority"] = {
+        "selection": authority.get("selection") or "keeper-semantic",
+        "execution": authority.get("execution") or "current-ruleset-adapter",
+        "hard_gate": False,
+    }
+    return row
+
+
+def project_family_cards(
+    runtime: RulesRuntime,
+    *,
+    family: str,
+    investigator_id: str | None = None,
+) -> dict[str, Any]:
+    """Bounded, non-gating card projection for scene.context / recovery.
+
+    Never raises.  Missing graph/cards produce an empty affordance block.
+    """
+    empty = {
+        "schema_version": RulesRuntime.SCHEMA_VERSION,
+        "family": family,
+        "investigator_id": investigator_id,
+        "status": "no_candidate_in_compiled_scope",
+        "cards": [],
+        "authority": {
+            "hard_gate": False,
+            "role": "affordance",
+            "note": "advisory healing affordances; absence never blocks play",
+        },
+    }
+    try:
+        result = runtime.context({"family": family, "kind": "procedure"})
+    except Exception:
+        return empty
+    cards = [
+        public_card_projection(card)
+        for card in (result.get("cards") or [])
+        if isinstance(card, Mapping)
+    ][:8]
+    return {
+        "schema_version": RulesRuntime.SCHEMA_VERSION,
+        "family": family,
+        "investigator_id": investigator_id,
+        "status": result.get("status") or ("ok" if cards else "no_candidate_in_compiled_scope"),
+        "cards": cards,
+        "authority": {
+            "hard_gate": False,
+            "role": "affordance",
+            "note": "advisory healing affordances; settle via rules.settle; absence never blocks play",
+        },
+    }
 
 
 def _scalar_type_from_guess(name: str) -> str:
@@ -1215,6 +1883,44 @@ def _append_shadow_row(row: dict[str, Any], log_path: Path | None = None) -> Non
     except OSError:
         # The shadow log is opportunistic evidence; never fail the caller.
         pass
+
+
+def record_host_internal_findings(
+    findings: list[Any],
+    *,
+    campaign_id: str | None = None,
+    family: str | None = None,
+    investigator_id: str | None = None,
+    ruleset_id: str | None = None,
+    tool: str = "rules.context",
+) -> None:
+    """Persist host-internal findings on the shadow-log audit channel.
+
+    Public Keeper envelopes must omit ``findings``; this is the retention
+    path.  Never raises.
+    """
+    rows = [item for item in findings if isinstance(item, Mapping)]
+    if not rows:
+        return
+    decision_refs = sorted({
+        str(item.get("decision_ref"))
+        for item in rows
+        if item.get("decision_ref")
+    })
+    row = {
+        "contract_id": SHADOW_LOG_CONTRACT_ID,
+        "schema_version": SHADOW_LOG_SCHEMA_VERSION,
+        "status": "exception_condition_unevaluated",
+        "skip_reason": None,
+        "tool": tool,
+        "family": family or "healing",
+        "ruleset_id": ruleset_id or "",
+        "campaign_id": campaign_id or "",
+        "investigator_id": investigator_id or "",
+        "decision_refs": decision_refs,
+        "findings": [dict(item) for item in rows],
+    }
+    _append_shadow_row(row, _current_log_path_from_config())
 
 
 # --------------------------------------------------------------------------- #
@@ -1630,6 +2336,23 @@ def facts_from_state_closure(
     return provider
 
 
+def _elapsed_minutes_from_campaign(path: Path | None) -> int | None:
+    if path is None:
+        return None
+    time_path = path.parent.parent / "time-state.json"
+    try:
+        payload = json.loads(time_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    clock = payload.get("clock") if isinstance(payload.get("clock"), dict) else {}
+    elapsed = clock.get("elapsed_minutes")
+    if isinstance(elapsed, bool) or not isinstance(elapsed, int) or elapsed < 0:
+        return None
+    return elapsed
+
+
 def _facts_from_state_file(
     path: Path,
     sheet: dict[str, Any] | None,
@@ -1644,4 +2367,7 @@ def _facts_from_state_file(
                 state = None
     except (OSError, json.JSONDecodeError):
         state = None
-    return facts_from_state(state, sheet, ruleset_id=ruleset_id)
+    return facts_from_state(
+        state, sheet, ruleset_id=ruleset_id,
+        elapsed_minutes=_elapsed_minutes_from_campaign(path),
+    )

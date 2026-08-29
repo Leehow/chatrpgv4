@@ -222,8 +222,17 @@ const PLAY_ACTING_BASELINE = [
   "actions.list",
   "rules.roll",
   "rules.check",
+  "rules.settle",
   "npc.query",
   "state.journal",
+] as const;
+
+/** Hidden after healing promotion; host-internal adapters only. */
+export const HIDDEN_HEALING_LEGACY_OPERATIONS = [
+  "rules.first_aid",
+  "rules.dying_check",
+  "rules.medicine",
+  "rules.weekly_recovery",
 ] as const;
 
 const SETUP_ACTING_BASELINE = [
@@ -831,4 +840,35 @@ export function loadToolNamespace(
     );
   }
   return { ok: true, grant, workingSet };
+}
+
+function healingCardBlock(projection: unknown): Record<string, unknown> | null {
+  if (!isPlainObject(projection)) return null;
+  const recovery = isPlainObject(projection.recovery) ? projection.recovery : null;
+  const candidates: unknown[] = [
+    projection.rule_decision_cards,
+    recovery?.healing,
+    projection.healing,
+    projection,
+  ];
+  for (const block of candidates) {
+    if (!isPlainObject(block) || !Array.isArray(block.cards)) continue;
+    return block;
+  }
+  return null;
+}
+
+/**
+ * Slice 1 scene.context / recovery.healing card projection → acting-set
+ * affordance. Cards are never extra tools and never action gates; an empty
+ * or missing block adds nothing. Budget accounting stays with the projector.
+ */
+export function affordancesFromHealingCardProjection(
+  projection: unknown,
+  source: CanonicalAffordanceSource = "scene",
+): CanonicalAffordanceHint[] {
+  const block = healingCardBlock(projection);
+  const cards = block === null ? null : block.cards;
+  if (!Array.isArray(cards) || cards.length === 0) return [];
+  return [{ operation: "rules.settle", source }];
 }

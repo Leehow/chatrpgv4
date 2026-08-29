@@ -409,32 +409,36 @@ for continuing an already-active combat; it is not a generic threat/pressure
 tool. If the player chooses an authored retreat/noncombat affordance, adjudicate
 that choice and record the ending/state instead of substituting a combat route.
 
-When combat leaves an investigator in the structured `dying` chain, resolve
-care synchronously through `rules.first_aid`, `rules.dying_check`, and
-`rules.medicine`. Pass the acting caregiver's stable `rescuer_id` and actual
-skill value so the canonical roll actor is preserved. Use `clock_kind=round`
-before stabilization and `clock_kind=hour` while the temporary stabilization
-lasts. The first First Aid attempt is regular; second and subsequent attempts
-on the same wound are `pushed=true` and require a changed method plus an
-announced consequence. A successful unstabilized CON clock or a failed hourly
-stabilization clock opens one new subsequent-attempt window; it does not turn
-the wound back into a fresh regular attempt. Do not wake or stabilize a dying investigator with generic
-`rules.damage(kind=heal)` or by editing the save; the play loop may pause on a
-`pending_resolution` until these authoritative rescue tools settle it.
+When combat leaves an investigator in the structured `dying` chain, read the
+healing cards on `scene.context` (`rule_decision_cards` / `recovery.healing`)
+and settle the matching card through `rules.settle`. Cards are suggestions of
+what can be settled now; they never gate play. Pass the acting caregiver as
+`semantic_inputs.rescuer_ref`. Settle the round-clock card before stabilization
+and the hour-clock card while temporary stabilization lasts. The first First Aid
+attempt is regular; second and subsequent attempts on the same wound need a
+changed method plus an announced consequence in `semantic_inputs`. A successful
+unstabilized CON clock or a failed hourly stabilization clock opens one new
+subsequent-attempt window; it does not turn the wound back into a fresh regular
+attempt. If no card appears — including First Aid more than an hour after the
+wound, or two people treating the same wound together — judge that as ordinary
+uncompiled long-tail; do not hunt for another healing operation. Do not wake or
+stabilize a dying investigator with generic `rules.damage(kind=heal)` or by
+editing the save; play may pause on `pending_resolution` until the applicable
+healing cards settle it.
 
-After the immediate rescue chain, do not repeat daily `rules.medicine` calls
-as a substitute for Major Wound recovery. Advance the in-fiction clock through
-the remaining recovery interval, then call `rules.weekly_recovery` once the
-authoritative wound clock reaches a full week. The tool derives the wound and
-due time from save state, optionally resolves one caregiver Medicine roll,
-then resolves the CON recovery and 1D3/2D3 healing with canonical roll
-evidence. A failed recovery consumes that weekly attempt; advance another full
-week before trying again. Never claim that daily care erased `major_wound`.
+After the immediate rescue chain, do not repeat daily Medicine settlements as a
+substitute for Major Wound recovery. Advance the in-fiction clock through the
+remaining recovery interval, then settle the weekly-major-wound-recovery card
+once the wound clock reaches a full week, with explicit `complete_rest` /
+`poor_environment` facts. That settlement may include one caregiver Medicine
+roll, then the CON recovery and 1D3/2D3 healing with canonical roll evidence. A
+failed recovery consumes that weekly attempt; advance another full week before
+trying again. Never claim that daily care erased `major_wound`.
 Combat-position markers are not injuries. Once no combat is active and the
 fiction actually ends one (for example, the investigator stands after being
 `prone`), call `state.clear_transient_condition` with that narrated reason.
-Never use it for `major_wound`, `dying`, `unconscious`, or `dead`; their rules
-tools own those transitions.
+Never use it for `major_wound`, `dying`, `unconscious`, or `dead`; their healing
+cards own those transitions.
 
 ### Quest surface (action-shaped quests)
 

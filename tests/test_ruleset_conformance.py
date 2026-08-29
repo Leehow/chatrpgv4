@@ -325,6 +325,8 @@ _OWNERSHIP_GRAPH = {
     "schema_version": 1,
     "nodes": [],
     "relations": [],
+    "family_runtime_ownership": {"healing": "graph"},
+    "legacy_surface_lifecycle": {"healing": "hidden"},
 }
 _OWNERSHIP_GRAPH_MANIFEST = {
     "contract_id": "coc.rule-graph-build-manifest.v1",
@@ -335,7 +337,9 @@ _OWNERSHIP_GRAPH_MANIFEST = {
     "graph_content_digest": "a" * 64,
     "shards": [],
     "family_coverage": {},
-    "family_promotion_eligibility": {},
+    "family_promotion_eligibility": {
+        "healing": {"promotion_eligible": False, "runtime_ownership": "graph"},
+    },
     "data_table_dependencies": [],
     "resolver_capability_dependencies": [],
     "compiler_identity": "coc.rule-graph-compiler.v1",
@@ -446,6 +450,40 @@ def test_rule_families_graph_owner_with_hidden_surface_and_artifacts_passes(
         json.dumps(_OWNERSHIP_GRAPH_MANIFEST), encoding="utf-8"
     )
     assert ruleset_conformance.validate_package(package_dir) == []
+
+
+def test_rule_families_artifact_disagreement_fails_closed(tmp_path: Path):
+    """Flipping only the package manifest is a half-flip and must fail."""
+    package_dir = _package_with_rule_families(tmp_path, [{
+        "family_id": "healing",
+        "runtime_owner": "graph",
+        "legacy_surface": "hidden",
+    }])
+    manifest_path = package_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["entry_points"]["rule_graph"] = "rule-graph.json"
+    manifest["entry_points"]["rule_graph_manifest"] = "rule-graph-manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    stale_graph = {
+        **_OWNERSHIP_GRAPH,
+        "family_runtime_ownership": {"healing": "shadow"},
+        "legacy_surface_lifecycle": {"healing": "visible"},
+    }
+    stale_manifest = {
+        **_OWNERSHIP_GRAPH_MANIFEST,
+        "family_promotion_eligibility": {
+            "healing": {"promotion_eligible": False, "runtime_ownership": "shadow"},
+        },
+    }
+    (package_dir / "rule-graph.json").write_text(
+        json.dumps(stale_graph), encoding="utf-8"
+    )
+    (package_dir / "rule-graph-manifest.json").write_text(
+        json.dumps(stale_manifest), encoding="utf-8"
+    )
+    problems = ruleset_conformance.validate_package(package_dir)
+    joined = "\n".join(problems)
+    assert "runtime_owner disagrees" in joined, problems
 
 
 def test_rule_families_unknown_family_and_duplicate_ids_rejected(tmp_path: Path):

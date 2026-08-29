@@ -440,3 +440,109 @@ test("revision is deterministic across affordance and host-definition ordering",
   assert.equal(left.revision, right.revision);
   assert.deepEqual(left.activeToolNames, right.activeToolNames);
 });
+
+const HIDDEN_HEALING = [
+  "rules.first_aid",
+  "rules.dying_check",
+  "rules.medicine",
+  "rules.weekly_recovery",
+];
+
+test("play acting set includes rules.settle and hides healing legacy ops", () => {
+  const source = snapshot();
+  const projected = workingSet.projectToolWorkingSet(source);
+  assert.equal(projected.ok, true, projected.error?.message);
+  assertPolicyVisible(projected, source);
+  assert.ok(projected.activeOperationNames.includes("rules.settle"));
+  assert.ok(!projected.activeOperationNames.includes("rules.context"));
+  for (const operation of HIDDEN_HEALING) {
+    assert.ok(!projected.activeOperationNames.includes(operation), operation);
+  }
+  assert.ok(projected.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET);
+  assert.equal(
+    projected.schemaBytes,
+    projected.hostSchemaBytes + projected.operationSchemaBytes,
+  );
+});
+
+test("rules.context is exact-loadable only and grants expire on epoch change", () => {
+  const source = snapshot();
+  const baseline = workingSet.projectToolWorkingSet(source);
+  assert.ok(!baseline.activeOperationNames.includes("rules.context"));
+
+  const loaded = workingSet.loadToolNamespace(source, {
+    kind: "exact_operation",
+    operation: "rules.context",
+  });
+  assert.equal(loaded.ok, true, loaded.message);
+  assert.ok(loaded.workingSet.activeOperationNames.includes("rules.context"));
+  assert.ok(loaded.workingSet.activeOperationNames.includes("rules.settle"));
+  assert.ok(loaded.workingSet.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET);
+
+  const namespaceLoad = workingSet.loadToolNamespace(source, {
+    kind: "namespace",
+    namespace: "context",
+  });
+  assert.equal(namespaceLoad.ok, false);
+  assert.equal(namespaceLoad.code, "namespace_too_large");
+
+  const expired = workingSet.projectToolWorkingSet({
+    ...source,
+    playerTurnEpoch: source.playerTurnEpoch + 1,
+    loadedOperations: [loaded.grant],
+  });
+  assert.equal(expired.ok, true, expired.error?.message);
+  assert.ok(!expired.activeOperationNames.includes("rules.context"));
+  assert.ok(expired.reasons.some((reason) => (
+    reason.code === "expired_load" && reason.operation === "rules.context"
+  )));
+});
+
+test("hidden healing ops are not exact-loadable", () => {
+  const source = snapshot();
+  for (const operation of HIDDEN_HEALING) {
+    const loaded = workingSet.loadToolNamespace(source, {
+      kind: "exact_operation",
+      operation,
+    });
+    assert.equal(loaded.ok, false, operation);
+    assert.equal(loaded.code, "policy_forbidden", operation);
+  }
+});
+
+test("healing cards project rules.settle as a scene affordance without changing budget", () => {
+  const empty = workingSet.affordancesFromHealingCardProjection({
+    rule_decision_cards: { cards: [], authority: { hard_gate: false } },
+  });
+  assert.deepEqual(empty, []);
+
+  const hints = workingSet.affordancesFromHealingCardProjection({
+    rule_decision_cards: {
+      family: "healing",
+      cards: [{ decision_ref: "decision:coc7:healing:first-aid-stabilization" }],
+      authority: { hard_gate: false, role: "affordance" },
+    },
+    recovery: {
+      healing: {
+        cards: [{ decision_ref: "decision:coc7:healing:first-aid-stabilization" }],
+        authority: { hard_gate: false },
+      },
+    },
+  });
+  assert.deepEqual(hints, [{ operation: "rules.settle", source: "scene" }]);
+
+  const source = snapshot({
+    affordances: { operations: hints },
+  });
+  const projected = workingSet.projectToolWorkingSet(source);
+  assert.equal(projected.ok, true, projected.error?.message);
+  assert.ok(projected.activeOperationNames.includes("rules.settle"));
+  assert.ok(projected.reasons.some((reason) => (
+    reason.code === "canonical_affordance"
+    && reason.operation === "rules.settle"
+    && reason.source === "scene"
+  )));
+  assert.ok(projected.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET);
+  const baseline = workingSet.projectToolWorkingSet(snapshot());
+  assert.equal(projected.activeToolNames.length, baseline.activeToolNames.length);
+});

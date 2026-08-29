@@ -248,6 +248,10 @@ def test_pi_typed_tool_surface():
     _node_test(ROOT / "tests/pi/typed-tool-surface.mjs")
 
 
+def test_pi_tool_working_set():
+    _node_test(ROOT / "tests/pi/tool-working-set.mjs")
+
+
 def test_pi_state_claim_compiler_contract():
     _node_test(ROOT / "tests/pi/state-claim-compiler.mjs")
 

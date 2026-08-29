@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:f01330a7aeb34284d6859175f6b2154d86f6cce4fe81306d03c8af4a22db7269",
+  "content_sha256": "sha256:ed3c226e9cf62bafeee5a3ef36e67969ef7dad778a8a57eb1770893b7bdd4b51",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 143,
+  "operation_count": 145,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -3144,6 +3144,55 @@
       },
       "summary": "Low-level ruleset-package integration primitive, not an investigator skill or characteristic check. Live Keepers use rules.roll for ordinary investigator checks and rules.psychology_observe for concealed Psychology observation; rules.skill_check does not exist. This primitive persists canonical public roll evidence from an exact package-native request signature."
     },
+    "rules.context": {
+      "access": "query",
+      "canonical_operation": "rules.context",
+      "description": "Exact-discovery RuleGraph context for one compiled family. Absent from ordinary play working sets; load only by exact operation name. Cards are affordances, never action gates. Canonical operation `rules.context`; the result envelope is authoritative.",
+      "execution_class": "parallel_read",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "family": {
+            "description": "compiled rule family id (v1: healing)",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator whose live state binds the card grant",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "selected_affordance_ids": {
+            "description": "optional semantic decision refs to narrow the card set",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": true,
+        "audience": "keeper",
+        "contract": "none",
+        "kp_surface": "context",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Exact-discovery RuleGraph context for one compiled family. Absent from ordinary play working sets; load only by exact operation name. Cards are affordances, never action gates."
+    },
     "rules.damage": {
       "access": "mutation",
       "canonical_operation": "rules.damage",
@@ -3247,9 +3296,9 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -3315,9 +3364,9 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -3424,9 +3473,9 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -3988,6 +4037,99 @@
       },
       "summary": "SAN check through the canonical SanitySession: success/failure loss expressions (e.g. '0' / '1D6'), with the chained 7e insanity pipeline (5+ loss INT check, bout of madness, daily 1/5 indefinite threshold, SAN 0 permanent) applied as authoritative state, not advisory."
     },
+    "rules.settle": {
+      "access": "mutation",
+      "canonical_operation": "rules.settle",
+      "description": "Settle one graph-owned rule decision card through the canonical resolver/subsystem path. Host-locked fields are absent; the runtime rechecks grant, state, and family ownership at execute time. Canonical operation `rules.settle`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "decision_ref": {
+            "description": "semantic decision card ref from scene.context / recovery.healing",
+            "enum": [
+              "decision:coc7:healing:dying-hour-clock",
+              "decision:coc7:healing:dying-round-clock",
+              "decision:coc7:healing:first-aid-ordinary",
+              "decision:coc7:healing:first-aid-stabilization",
+              "decision:coc7:healing:medicine-ordinary",
+              "decision:coc7:healing:medicine-stabilization",
+              "decision:coc7:healing:weekly-major-wound-recovery"
+            ],
+            "type": "string"
+          },
+          "investigator": {
+            "description": "injured or recovering investigator id",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed (tests only)",
+            "type": "integer"
+          },
+          "semantic_inputs": {
+            "additionalProperties": false,
+            "description": "keeper-semantic inputs for the selected card; host-locked fields are forbidden",
+            "properties": {
+              "assistant_rescuer_ref": {
+                "description": "second rescuer when two people attempt First Aid together (uncompiled composition)",
+                "type": "string"
+              },
+              "changed_method": {
+                "description": "what materially changes on a pushed First Aid attempt",
+                "type": "string"
+              },
+              "complete_rest": {
+                "description": "weekly recovery: complete comfortable rest",
+                "type": "boolean"
+              },
+              "failure_consequence": {
+                "description": "consequence announced before a pushed First Aid attempt",
+                "type": "string"
+              },
+              "poor_environment": {
+                "description": "weekly recovery: inadequate rest or environment",
+                "type": "boolean"
+              },
+              "rescuer_ref": {
+                "description": "acting rescuer or caregiver actor ref",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "campaign",
+          "decision_ref",
+          "semantic_inputs",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Settle one graph-owned rule decision card through the canonical resolver/subsystem path. Host-locked fields are absent; the runtime rechecks grant, state, and family ownership at execute time."
+    },
     "rules.skill_describe": {
       "access": "query",
       "canonical_operation": "rules.skill_describe",
@@ -4203,9 +4345,9 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
