@@ -293,6 +293,9 @@ if (resumed.ok !== false || resumed.error?.code === "startup_resume_result_inval
 if (resumed.error?.code !== "opening_setup_incomplete") {
   throw new Error(`expected opening_setup_incomplete, got ${JSON.stringify(resumed)}`);
 }
+if (resumed.error?.details?.scenario_id !== "typed-opening-scenario") {
+  throw new Error(`typed resume lost semantic scenario identity: ${JSON.stringify(resumed)}`);
+}
 if (terminalBlocker) {
   throw new Error("typed resume published startup_resume_result_invalid blocker");
 }

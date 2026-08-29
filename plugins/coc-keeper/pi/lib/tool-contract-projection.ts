@@ -1649,7 +1649,7 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [
       "active_scene_id", "asset_root_id", "campaign_id", "civil_segment_id",
       "clue_id", "decision_id", "location_id", "run_segment_id",
-      "source_ref", "table_opening_id",
+      "scenario_id", "source_ref", "table_opening_id",
     ],
     [
       "baseline_draft_sha256", "rendered_sha256", "rendered_text_sha256",
@@ -1687,6 +1687,8 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["projection_sha256"],
   )],
   ["setup.phase", declaredIdentityTable(["asset_root_id", "campaign_id"], [])],
+  ["setup.adopt_source_facts", declaredIdentityTable(["campaign_id"], [])],
+  ["setup.investigator_contract", declaredIdentityTable(["campaign_id"], [])],
   ["setup.quick_start", declaredIdentityTable(
     ["campaign_id", "decision_id", "pregen_id", "scenario_id", "state_refs"],
     [],
@@ -1749,7 +1751,7 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["asset_id", "image_ref"],
     [],
   )],
-  ["state.journal", declaredIdentityTable(["thread_id"], [])],
+  ["state.journal", declaredIdentityTable(["decision_id", "thread_id"], [])],
   ["turn.output_context", declaredIdentityTable(
     [
       "authorized_entity_refs", "authorized_route_ids", "clock_id", "clue_id",

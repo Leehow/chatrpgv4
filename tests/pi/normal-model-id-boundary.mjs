@@ -532,7 +532,32 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
   assert.equal(out.data.turn_number, 1);
   assert.equal(out.data.continuation_delta.open_threads[0].thread_id,
     "croft-stone-street-unanswered");
+  assert.equal(
+    out.data.continuation_delta.confirmed_decisions[0].decision_id,
+    "keep-lamp-low",
+    "semantic continuation decisions remain visible in a successful journal result",
+  );
   assert.ok(!("turn_id" in out.data));
+
+  const opaqueJournal = structuredClone(FAMILIES.state_journal);
+  opaqueJournal.data.continuation_delta.confirmed_decisions[0].decision_id =
+    "journal-7c9e6679-7425-40de-944b-e07fc1f90ae7";
+  const opaqueDiagnostics = { unmapped: [] };
+  const opaqueOut = projectModelVisibleCanonicalResult(
+    "state.journal",
+    opaqueJournal,
+    emptySemanticProjectionView(),
+    opaqueDiagnostics,
+  );
+  assert.equal(
+    opaqueOut.data.continuation_delta.confirmed_decisions[0].decision_id,
+    undefined,
+    "declaring the workflow field must not expose an opaque decision id",
+  );
+  assert.deepEqual(
+    opaqueDiagnostics.unmapped.map((entry) => entry.field),
+    ["decision_id"],
+  );
 }
 {
   const failure = projectModelVisibleCanonicalResult(
@@ -2109,6 +2134,12 @@ const journalResult = await executeTool("coc_invoke", {
 });
 assert.ok(!JSON.parse(modelContents.at(-1).text).data.turn_id);
 assert.equal(JSON.parse(modelContents.at(-1).text).data.turn_number, 1);
+assert.equal(
+  JSON.parse(modelContents.at(-1).text)
+    .data.continuation_delta.confirmed_decisions[0].decision_id,
+  "keep-lamp-low",
+  "successful state.journal must not become an identity projection failure",
+);
 assertModelSafeContent("state.journal content", JSON.parse(modelContents.at(-1).text));
 assert.equal(journalResult.details.data.turn_id,
   "turn-v1-8e3599cdcb794cd5b993b59c077d126f",

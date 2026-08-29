@@ -2683,7 +2683,14 @@
       "status": "active"
      }
     ],
-    "confirmed_decisions": [],
+    "confirmed_decisions": [
+     {
+      "decision_id": "keep-lamp-low",
+      "summary": "调查员选择压低灯光谨慎检查",
+      "reason": "这是玩家明确声明且已经发生的方法",
+      "source_turn": 1
+     }
+    ],
     "do_not_repeat": [],
     "style_commitments": [
      "不发明未经检定赞成的门窗痕迹或屋内声响"
