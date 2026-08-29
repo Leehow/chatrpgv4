@@ -412,3 +412,143 @@ All listed `plugins/coc-keeper/` kernel/registry/Skill files are cross-track sha
 7. fresh Pi-Coc RPC/Grok Keeper 路径真实调用该 operation；
 8. preserved evidence proves no secret leak、no translation persistence、no state/rules/history authority drift；
 9. Graph → Scenario IR projection仍诚实标记 pending，未冒充 source pipeline 已完成切换。
+
+---
+
+## 18. Slice 2 — graph-backed The Haunting starter cutover
+
+### 18.1 Job and scope
+
+The built-in `the-haunting` starter is the first complete projection slice.
+Its authored source is the visually reviewed Keeper Rulebook window at PDF
+indices 446–462. The committed starter graph becomes the semantic source of
+truth; the existing Scenario IR files remain generated materialized views for
+the current runtime. This slice includes scenes, clues, NPCs, threats, pacing,
+improvisation boundaries, quests, handout metadata, and image/media assets.
+
+The cutover is systemic rather than a one-off overwrite:
+
+1. a generic starter graph projection module validates and materializes the
+   current Scenario IR documents from graph-owned projection records;
+2. any starter carrying the projection contract installs those materialized
+   views instead of copying independently authored JSON;
+3. committed materialized views must byte-semantically equal a fresh graph
+   projection, so drift fails tests and installation;
+4. later starters may use the same contract without adding another installer.
+
+### 18.2 Three storage layers
+
+```text
+committed structured graph
+  -> English-only semantic facts + projection records + asset metadata
+  -> no source-verbatim handout bodies or copyrighted image bytes
+
+generated committed Scenario IR
+  -> current runtime materialized views
+  -> reproducible from the graph, never an independent source authority
+
+local ignored module-assets root
+  -> validated source pages, exact handout bodies, image bytes, hashes
+  -> `.coc/module-assets/the-haunting-keeper-rulebook-40th/`
+```
+
+The repository may commit structured facts, semantic summaries, IDs, source
+page refs, and asset roles. Chaosium source prose, boxed text, handout bodies,
+maps, and illustration bytes stay in the local ignored asset root. The open
+derivative fallback may remain playable when those local bytes are absent,
+but on this installation the validated graph/source root is preferred.
+
+### 18.3 Runtime projection contract
+
+The module node owns one
+`coc.module-graph-runtime-projection.v1` declaration. Each projected document
+has root metadata, its array collection name when applicable, and ordered
+semantic node IDs. Every referenced node carries one English-only
+`runtime_record`; the deterministic projector reconstructs the exact document.
+
+This projection payload is runtime shape, not a second truth store: it lives
+inside the graph node/property model, is hash-bound with the graph, and can be
+discarded and regenerated together with the graph. Cross-entity meaning still
+uses graph relations. The projector never reads PDF text or infers semantics.
+
+### 18.4 Asset and handout graph
+
+Asset bytes remain external resources whose exact identity is owned by the
+validated source-bundle manifest. The graph carries semantic usage only:
+
+- `asset` node: semantic asset ID, media type, source page, visibility,
+  presentation role, and optional player-delivery asset ref;
+- `handout` node: information-card identity, kind, player visibility,
+  source page refs, clue/scene applicability, and optional linked image asset;
+- `depicts`: image/illustration → portrayed scene, actor, object, or concept;
+- `contains`: source page/document → asset or handout;
+- `supports`: handout → clue/conclusion;
+- `discoverable-at` / `delivered-by`: authored access routes;
+- source bundle manifest, never the graph, owns paths, hashes, media bytes,
+  and existence.
+
+This follows the same separation used by the W3C Web Annotation body/target
+model and IIIF Presentation annotations: an external media body is associated
+with a semantic target, while the resource itself remains independently
+identified and authoritative. We reuse the principle, not JSON-LD or a IIIF
+server.
+
+All 17 source pages and their 18 MinerU image regions are represented. The two
+reviewed player assets (Chapel symbol and combined Investigator Map) are
+separate player-safe delivery assets. Decorative, Keeper-map, threat, and
+antagonist illustrations remain Keeper-only and are never treated as player
+handouts merely because they occur in the source.
+
+### 18.5 Language and handout boundary
+
+- Committed graph and generated Scenario IR retain English source/authoring
+  language. `localized_text` caches and Chinese aliases are not stored in the
+  graph-backed projection.
+- Pregen character display layers are not parsed module source and remain
+  outside this cutover.
+- Local source handout packs retain English exact text only. KP presentation
+  translates semantically to campaign `play_language` at delivery time; no
+  translation is written back to graph, IR, entity packs, memory, or history.
+- Exact source text remains Keeper-only until a canonical handout/clue delivery
+  earns it. Asset linkage never acts as a reveal receipt.
+
+### 18.6 Install and fallback behavior
+
+`coc_starter.install_starter` MUST:
+
+1. validate the committed graph and runtime projection;
+2. project the Scenario IR into the unpublished campaign generation;
+3. install the graph into the campaign workspace's canonical asset root if an
+   identical or newer exact-current graph is not already installed;
+4. preserve an existing validated local source/asset/entity store and never
+   delete or overwrite its bytes;
+5. use the open derivative JSON copy path only for starters without a graph
+   projection contract, or fail closed on a corrupt graph-backed starter.
+
+No active campaign is migrated or overwritten. New quick-start/install calls
+use the graph-backed projection; historical campaign evidence remains intact.
+
+### 18.7 Validation and acceptance
+
+Deterministic tests must prove:
+
+- projection output equals every committed materialized Scenario IR document;
+- installer uses graph projection and installs a validated graph generation;
+- graph and generated IR contain no CJK module translation cache;
+- all projected record IDs exist once and all projection node refs resolve;
+- every asset/handout node binds an allowed source page and semantic asset ref;
+- local source registration preserves 17 pages, 20 reviewed assets, and 10
+  English-only handout/map packs without committing their bytes;
+- missing local media leaves structured asset gaps but does not corrupt the
+  starter or invent delivery content;
+- an expanded `module.context` neighbourhood larger than the MCP hot budget
+  keeps bounded semantic nodes, claims, relations, source pages, visibility,
+  completeness, and language policy while dropping duplicated Scenario-IR
+  runtime records; it must never collapse to identity-only when the requested
+  relationship itself fits;
+- Keeper/player visibility and normal handout delivery tests remain green.
+
+Product acceptance uses a fresh `the-haunting` quick start on latest mainline,
+proves `module.context` reads the complete graph, verifies at least one earned
+source-backed information card plus one player image delivery, and confirms
+Chinese table presentation without persistent translation.

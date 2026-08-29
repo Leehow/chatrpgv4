@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
 import threading
@@ -105,18 +106,43 @@ def test_basement_dagger_discovery_preserves_player_knowledge_boundary():
     assert "float" not in physical.lower()
     assert "spell" not in physical.lower()
     assert "ash" not in physical.lower()
-    physical_zh = clues["clue-rusted-basement-dagger"]["localized_text"]["zh-Hans"]["player_safe_summary"]
-    assert all(term not in physical_zh for term in ("漂浮", "法术", "灰烬", "破解"))
+    assert "bypass" not in physical.lower()
+    assert "localized_text" not in clues["clue-rusted-basement-dagger"]
     finale = next(scene for scene in graph["scenes"] if scene["scene_id"] == "corbitt-confrontation")
     attack = next(row for row in finale["affordances"] if row["id"] == "strike-with-his-dagger")
-    assert "法术" not in attack["cue"]
+    assert "spell" not in attack["cue"].lower()
 
 
-def test_haunting_player_safe_clues_have_simplified_chinese_summaries():
-    graph = json.loads((
+def test_haunting_module_ir_uses_english_source_without_translation_caches():
+    scenario_dir = (
         PLUGIN_ROOT / "references" / "starter-scenarios" / "the-haunting"
-        / "clue-graph.json"
-    ).read_text("utf-8"))
+    )
+    documents = [
+        json.loads(path.read_text("utf-8"))
+        for path in sorted(scenario_dir.glob("*.json"))
+    ]
+
+    def assert_source_language(value, *, path):
+        if isinstance(value, dict):
+            assert all(
+                not str(key).startswith("localized") for key in value
+            ), f"persisted translation cache in {path}"
+            for key, child in value.items():
+                assert_source_language(child, path=f"{path}.{key}")
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                assert_source_language(child, path=f"{path}[{index}]")
+        elif isinstance(value, str):
+            assert re.search(r"[\u3040-\u30ff\u3400-\u9fff]", value) is None, (
+                f"non-English module prose persisted at {path}: {value!r}"
+            )
+
+    for document in documents:
+        assert_source_language(document, path="root")
+
+    graph = next(
+        document for document in documents if "conclusions" in document
+    )
     clues = [
         clue
         for conclusion in graph["conclusions"]
@@ -126,11 +152,7 @@ def test_haunting_player_safe_clues_have_simplified_chinese_summaries():
 
     assert clues
     assert all(
-        str(
-            clue.get("localized_text", {})
-            .get("zh-Hans", {})
-            .get("player_safe_summary", "")
-        ).strip()
+        str(clue.get("player_safe_summary", "")).strip()
         for clue in clues
     )
 
@@ -515,13 +537,10 @@ def test_install_starter_the_haunting_copies_optional_original_handout_store(
     assert card["provenance"]["authority"] == "starter_original_derivative"
     assert isinstance(card["authored_text"], str) and card["authored_text"].strip()
     assert "localized_language" not in card
-    for field in ("localized_title", "localized_summary", "localized_text"):
-        localized = card[field]
-        assert set(localized) == {"zh-Hans", "ja-JP"}
-        assert all(
-            isinstance(value, str) and value.strip()
-            for value in localized.values()
-        )
+    assert all(
+        field not in card
+        for field in ("localized_title", "localized_summary", "localized_text")
+    )
     assert sorted(card["clue_refs"]) == [
         "clue-globe-unpublished-story",
         "clue-macario-tragedy",
@@ -825,9 +844,12 @@ def test_quick_start_installs_campaign_and_pregen(tmp_path):
     archive = coc_starter.coc_compiled_archive.load_published(campaign_dir)
     assert archive["ok"] is True
     assert archive["archive_revision"]
-    assert coc_starter.player_safe_opening(campaign_dir) == (
-        "调查员会接受 Knott 的委托，并决定先从哪里着手调查吗？"
+    module_meta = json.loads(
+        (campaign_dir / "scenario" / "module-meta.json").read_text("utf-8")
     )
+    opening = coc_starter.player_safe_opening(campaign_dir)
+    assert opening == module_meta["player_safe_summary"]
+    assert opening.startswith("In autumn 1920")
 
 
 def test_quick_start_lands_campaign_git_baseline(tmp_path):
@@ -1045,17 +1067,14 @@ def test_quick_start_failure_is_atomic_and_same_id_retry_succeeds(
 
             patch.setattr(coc_starter.coc_state, "_create_campaign_at", fail_after_create)
         elif failure_point == "during_install_starter":
-            real = coc_starter.shutil.copy2
-            copies = 0
+            def fail_during_install(*_args, **_kwargs):
+                raise RuntimeError("injected during starter installation")
 
-            def fail_during_install(*args, **kwargs):
-                nonlocal copies
-                copies += 1
-                if copies == 3:
-                    raise RuntimeError("injected during starter installation")
-                return real(*args, **kwargs)
-
-            patch.setattr(coc_starter.shutil, "copy2", fail_during_install)
+            patch.setattr(
+                coc_starter,
+                "_materialize_starter_files",
+                fail_during_install,
+            )
         elif failure_point == "during_investigator_build":
             real = coc_starter.coc_state._create_investigator_at
 

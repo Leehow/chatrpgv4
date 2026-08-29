@@ -1,0 +1,471 @@
+{
+  "contract_id": "coc.starter-graph-assets.v1",
+  "schema_version": 1,
+  "module_id": "module-the-haunting",
+  "source_language": "en",
+  "source_binding": {
+    "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+    "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+    "bundle_sha256": "78e95b8c4f084c0f061ec4bea5cf349c9fefbc466cea7ef84fd3690998a8bcd7",
+    "reviewed_page_count": 17,
+    "reviewed_asset_count": 20
+  },
+  "source_pages": [
+    {"pdf_index": 446, "printed_page": 435},
+    {"pdf_index": 447, "printed_page": 436},
+    {"pdf_index": 448, "printed_page": 437},
+    {"pdf_index": 449, "printed_page": 438},
+    {"pdf_index": 450, "printed_page": 439},
+    {"pdf_index": 451, "printed_page": 440},
+    {"pdf_index": 452, "printed_page": 441},
+    {"pdf_index": 453, "printed_page": 442},
+    {"pdf_index": 454, "printed_page": 443},
+    {"pdf_index": 455, "printed_page": 444},
+    {"pdf_index": 456, "printed_page": 445},
+    {"pdf_index": 457, "printed_page": 446},
+    {"pdf_index": 458, "printed_page": 447},
+    {"pdf_index": 459, "printed_page": 448},
+    {"pdf_index": 460, "printed_page": 449},
+    {"pdf_index": 461, "printed_page": 450},
+    {"pdf_index": 462, "printed_page": 451}
+  ],
+  "source_entities": [
+    {
+      "node_id": "npc-michael-thomas",
+      "node_kind": "npc",
+      "name": "Michael Thomas",
+      "summary": "Pastor of the Chapel of Contemplation and executor of Walter Corbitt's will; sentenced for five murders, he escaped prison in 1917 and fled the state.",
+      "visibility": "revealable",
+      "pdf_indices": [449, 461],
+      "properties": {
+        "role": "pastor and will executor",
+        "prison_sentence": "40 years",
+        "conviction_counts": "five counts of second-degree murder",
+        "escape_year": 1917
+      }
+    },
+    {
+      "node_id": "organization-chapel-of-contemplation",
+      "node_kind": "organization",
+      "name": "Chapel of Contemplation",
+      "summary": "A church linked to Corbitt and Michael Thomas, closed in 1912 after allegations, a deadly raid, and arrests.",
+      "visibility": "revealable",
+      "pdf_indices": [449, 450, 451, 461],
+      "properties": {"closure_year": 1912}
+    },
+    {
+      "node_id": "event-chapel-raid",
+      "node_kind": "event",
+      "name": "Chapel of Contemplation raid",
+      "summary": "A secret 1912 police raid caused police and cult deaths, mass arrests, and an apparently suppressed public record.",
+      "visibility": "revealable",
+      "pdf_indices": [449, 461],
+      "properties": {"year": 1912}
+    },
+    {
+      "node_id": "location-corbitt-house",
+      "node_kind": "location",
+      "name": "Corbitt House",
+      "summary": "The Boston house investigated in the scenario, including its upper story, ground floor, and sealed basement spaces.",
+      "visibility": "player-safe",
+      "pdf_indices": [447, 452, 453, 454, 455, 456, 457, 458, 459, 462],
+      "properties": {"setting": "central Boston"}
+    },
+    {
+      "node_id": "artifact-corbitt-ritual-dagger",
+      "node_kind": "artifact",
+      "name": "Corbitt's ritual dagger",
+      "summary": "An ornate rusted dagger animated by Corbitt; if turned against him, it can bypass his protection and destroy him.",
+      "visibility": "revealable",
+      "pdf_indices": [455, 456, 458, 459],
+      "properties": {"runtime_rule_ref": "module.haunting.corbitt_own_dagger"}
+    },
+    {
+      "node_id": "tome-liber-ivonis",
+      "node_kind": "tome",
+      "name": "Liber Ivonis",
+      "summary": "A damaged Latin Mythos tome found with Chapel records; study grants Mythos knowledge at a Sanity cost.",
+      "visibility": "revealable",
+      "pdf_indices": [451],
+      "properties": {"language": "Latin"}
+    },
+    {
+      "node_id": "object-corbitt-diaries",
+      "node_kind": "object",
+      "name": "Corbitt Diaries",
+      "summary": "Three bound diaries describing Corbitt's occult experiments and a summoning spell.",
+      "visibility": "revealable",
+      "pdf_indices": [453],
+      "properties": {"volume_count": 3}
+    },
+    {
+      "node_id": "creature-rat-pack",
+      "node_kind": "creature",
+      "name": "Rat pack",
+      "summary": "A swarm of rats nesting in the basement crawl space that may overwhelm an investigator.",
+      "visibility": "keeper-only",
+      "pdf_indices": [456, 457],
+      "properties": {"runtime_rule_ref": "coc7 rat pack"}
+    },
+    {
+      "node_id": "spell-dominate-corbitt-variant",
+      "node_kind": "spell",
+      "name": "Dominate (Corbitt's variant)",
+      "summary": "Corbitt can cloud one investigator's mind while the target remains inside the house.",
+      "visibility": "keeper-only",
+      "pdf_indices": [457, 460],
+      "properties": {"target_scope": "inside the Corbitt House"}
+    },
+    {
+      "node_id": "spell-flesh-ward",
+      "node_kind": "spell",
+      "name": "Flesh Ward",
+      "summary": "Corbitt begins protected by variable magical armor that wears away as it absorbs damage.",
+      "visibility": "keeper-only",
+      "pdf_indices": [459, 460],
+      "properties": {"runtime_rule_ref": "coc7 Flesh Ward"}
+    }
+  ],
+  "source_relations": [
+    {"relation_id": "relation-michael-member-chapel", "relation_kind": "member-of", "from_node_id": "npc-michael-thomas", "to_node_id": "organization-chapel-of-contemplation"},
+    {"relation_id": "relation-raid-occurs-chapel", "relation_kind": "occurs-at", "from_node_id": "event-chapel-raid", "to_node_id": "organization-chapel-of-contemplation"},
+    {"relation_id": "relation-dagger-located-basement", "relation_kind": "located-in", "from_node_id": "artifact-corbitt-ritual-dagger", "to_node_id": "scene-basement-rites"},
+    {"relation_id": "relation-diaries-located-house", "relation_kind": "located-in", "from_node_id": "object-corbitt-diaries", "to_node_id": "scene-corbitt-house-ground"},
+    {"relation_id": "relation-liber-located-chapel", "relation_kind": "discoverable-at", "from_node_id": "tome-liber-ivonis", "to_node_id": "scene-chapel-of-contemplation-ruins"},
+    {"relation_id": "relation-rats-present-basement", "relation_kind": "present-in", "from_node_id": "creature-rat-pack", "to_node_id": "scene-basement-rites"},
+    {"relation_id": "relation-corbitt-knows-dominate", "relation_kind": "knows", "from_node_id": "npc-walter-corbitt", "to_node_id": "spell-dominate-corbitt-variant"},
+    {"relation_id": "relation-corbitt-knows-flesh-ward", "relation_kind": "knows", "from_node_id": "npc-walter-corbitt", "to_node_id": "spell-flesh-ward"},
+    {"relation_id": "relation-house-contains-ground", "relation_kind": "contains", "from_node_id": "location-corbitt-house", "to_node_id": "scene-corbitt-house-ground"},
+    {"relation_id": "relation-house-contains-upper", "relation_kind": "contains", "from_node_id": "location-corbitt-house", "to_node_id": "scene-upper-floor-bedroom"},
+    {"relation_id": "relation-house-contains-basement", "relation_kind": "contains", "from_node_id": "location-corbitt-house", "to_node_id": "scene-basement-rites"}
+  ],
+  "assets": [
+    {
+      "asset_id": "asset-haunting-title-skull",
+      "name": "The Haunting title skull",
+      "summary": "A decorative skull illustration on the scenario title page.",
+      "asset_ref": "assets/source/haunting-title-skull.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 446,
+      "visibility": "keeper-only",
+      "role": "decorative",
+      "depicts_node_ids": ["module-the-haunting"]
+    },
+    {
+      "asset_id": "asset-research-magnifying-glass",
+      "name": "Research magnifying glass",
+      "summary": "A decorative magnifying-glass illustration beside the research locations.",
+      "asset_ref": "assets/source/research-magnifying-glass.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 448,
+      "visibility": "keeper-only",
+      "role": "decorative",
+      "depicts_node_ids": ["scene-central-library"]
+    },
+    {
+      "asset_id": "asset-hall-records-occult-star",
+      "name": "Hall of Records occult star",
+      "summary": "A decorative occult star printed beside the Hall of Records material.",
+      "asset_ref": "assets/source/hall-records-occult-star.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 449,
+      "visibility": "keeper-only",
+      "role": "decorative",
+      "depicts_node_ids": ["scene-hall-of-records"]
+    },
+    {
+      "asset_id": "asset-chapel-eye-symbol-source",
+      "name": "Chapel eye symbol in the ruins section",
+      "summary": "The three-Y eye symbol printed with the Chapel of Contemplation ruins.",
+      "asset_ref": "assets/source/chapel-eye-symbol-source.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 451,
+      "visibility": "revealable",
+      "role": "source-illustration",
+      "depicts_node_ids": ["scene-chapel-of-contemplation-ruins", "clue-chapel-eye-symbol"]
+    },
+    {
+      "asset_id": "asset-corbitt-house-keeper-map-upper",
+      "name": "Corbitt House Keeper map - upper story",
+      "summary": "The numbered Keeper map for the upper story.",
+      "asset_ref": "assets/source/corbitt-house-keeper-map-upper.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 452,
+      "visibility": "keeper-only",
+      "role": "keeper-map",
+      "depicts_node_ids": ["scene-upper-floor-bedroom"]
+    },
+    {
+      "asset_id": "asset-corbitt-house-keeper-map-ground",
+      "name": "Corbitt House Keeper map - ground floor",
+      "summary": "The numbered Keeper map for the ground floor.",
+      "asset_ref": "assets/source/corbitt-house-keeper-map-ground.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 452,
+      "visibility": "keeper-only",
+      "role": "keeper-map",
+      "depicts_node_ids": ["scene-corbitt-house-ground"]
+    },
+    {
+      "asset_id": "asset-corbitt-house-keeper-map-basement",
+      "name": "Corbitt House Keeper map - basement",
+      "summary": "The numbered Keeper map for the basement and hiding place.",
+      "asset_ref": "assets/source/corbitt-house-keeper-map-basement.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 452,
+      "visibility": "keeper-only",
+      "role": "keeper-map",
+      "depicts_node_ids": ["scene-basement-rites", "scene-corbitt-confrontation"]
+    },
+    {
+      "asset_id": "asset-ground-floor-investigation",
+      "name": "Ground-floor investigation illustration",
+      "summary": "Investigators examine the exterior of the Corbitt House.",
+      "asset_ref": "assets/source/ground-floor-investigation.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 453,
+      "visibility": "keeper-only",
+      "role": "scene-illustration",
+      "depicts_node_ids": ["scene-corbitt-house-ground"]
+    },
+    {
+      "asset_id": "asset-bed-attack",
+      "name": "Bed attack illustration",
+      "summary": "A bed hurtles across the spare bedroom toward an investigator.",
+      "asset_ref": "assets/source/bed-attack.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 454,
+      "visibility": "keeper-only",
+      "role": "threat-illustration",
+      "depicts_node_ids": ["scene-upper-floor-bedroom", "clue-poltergeist-bed"]
+    },
+    {
+      "asset_id": "asset-floating-knife",
+      "name": "Floating knife illustration",
+      "summary": "Corbitt's ritual dagger attacks in the basement.",
+      "asset_ref": "assets/source/floating-knife.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 455,
+      "visibility": "keeper-only",
+      "role": "threat-illustration",
+      "depicts_node_ids": ["scene-basement-rites", "clue-floating-knife"]
+    },
+    {
+      "asset_id": "asset-rat-pack",
+      "name": "Rat pack illustration",
+      "summary": "A pack of rats swarms an investigator in the hidden crawl space.",
+      "asset_ref": "assets/source/rat-pack.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 456,
+      "visibility": "keeper-only",
+      "role": "threat-illustration",
+      "depicts_node_ids": ["scene-basement-rites"]
+    },
+    {
+      "asset_id": "asset-liber-ivonis",
+      "name": "Liber Ivonis illustration",
+      "summary": "An open occult tome associated with Corbitt's hidden lair.",
+      "asset_ref": "assets/source/liber-ivonis.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 457,
+      "visibility": "keeper-only",
+      "role": "artifact-illustration",
+      "depicts_node_ids": ["clue-liber-ivonis-tome", "scene-basement-rites"]
+    },
+    {
+      "asset_id": "asset-corbitt-coffin",
+      "name": "Walter Corbitt in his hiding place",
+      "summary": "Walter Corbitt lies apparently dead in his basement hiding place.",
+      "asset_ref": "assets/source/corbitt-coffin.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 459,
+      "visibility": "keeper-only",
+      "role": "antagonist-illustration",
+      "depicts_node_ids": ["scene-corbitt-confrontation", "clue-corbitt-body-found"]
+    },
+    {
+      "asset_id": "asset-spell-sigil",
+      "name": "Corbitt spell sigil",
+      "summary": "A small decorative sigil printed with Corbitt's spells.",
+      "asset_ref": "assets/source/spell-sigil.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 460,
+      "visibility": "keeper-only",
+      "role": "decorative",
+      "depicts_node_ids": ["scene-corbitt-confrontation"]
+    },
+    {
+      "asset_id": "asset-handout-9-symbol-source",
+      "name": "Handout 9 symbol source crop",
+      "summary": "The Chapel of Contemplation eye symbol on the player-handout page.",
+      "asset_ref": "assets/source/handout-9-symbol-source.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 461,
+      "visibility": "player-safe",
+      "role": "player-handout-source",
+      "depicts_node_ids": ["clue-chapel-eye-symbol"]
+    },
+    {
+      "asset_id": "asset-investigator-map-upper",
+      "name": "Investigator Map - upper story region",
+      "summary": "The unnumbered player map region for the upper story.",
+      "asset_ref": "assets/source/investigator-map-upper.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 462,
+      "visibility": "player-safe",
+      "role": "player-map-source",
+      "depicts_node_ids": ["scene-upper-floor-bedroom"]
+    },
+    {
+      "asset_id": "asset-investigator-map-ground",
+      "name": "Investigator Map - ground-floor region",
+      "summary": "The unnumbered player map region for the ground floor.",
+      "asset_ref": "assets/source/investigator-map-ground.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 462,
+      "visibility": "player-safe",
+      "role": "player-map-source",
+      "depicts_node_ids": ["scene-corbitt-house-ground"]
+    },
+    {
+      "asset_id": "asset-investigator-map-basement",
+      "name": "Investigator Map - basement region",
+      "summary": "The unnumbered player map region for the basement.",
+      "asset_ref": "assets/source/investigator-map-basement.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 462,
+      "visibility": "player-safe",
+      "role": "player-map-source",
+      "depicts_node_ids": ["scene-basement-rites"]
+    },
+    {
+      "asset_id": "asset-player-chapel-symbol",
+      "name": "Player Chapel symbol",
+      "summary": "The reviewed player-delivery crop of the Chapel symbol.",
+      "asset_ref": "assets/player/handout-9-chapel-symbol.jpg",
+      "media_type": "image/jpeg",
+      "pdf_index": 461,
+      "visibility": "player-safe",
+      "role": "player-delivery",
+      "depicts_node_ids": ["clue-chapel-eye-symbol"],
+      "variant_of": "asset-handout-9-symbol-source"
+    },
+    {
+      "asset_id": "asset-player-corbitt-house-map",
+      "name": "Corbitt House Investigator Map",
+      "summary": "The reviewed combined player-delivery map of all three floors.",
+      "asset_ref": "assets/player/corbitt-house-investigator-map.png",
+      "media_type": "image/png",
+      "pdf_index": 462,
+      "visibility": "player-safe",
+      "role": "player-delivery",
+      "depicts_node_ids": ["scene-corbitt-house-ground", "scene-upper-floor-bedroom", "scene-basement-rites"]
+    }
+  ],
+  "handouts": [
+    {
+      "asset_id": "the-haunting-handout-1-knott-commission",
+      "title": "Handout 1: Mr. Knott's Commission",
+      "summary": "The commission, payment, keys, address, and suggested research routes.",
+      "kind": "document",
+      "when_to_deliver": "When Mr. Knott explains the commission and hands over the keys and advance payment.",
+      "source_page_indices": [461],
+      "clue_refs": ["clue-knott-commission", "clue-knott-research-leads", "clue-knott-keys"],
+      "scene_refs": ["commission-briefing"]
+    },
+    {
+      "asset_id": "handout-globe-unpublished-1918",
+      "title": "Handout 2: Unpublished Boston Globe Story (1918)",
+      "summary": "An unpublished summary of the house's succession of afflicted tenants.",
+      "kind": "document",
+      "when_to_deliver": "When the investigators find the unpublished 1918 story in the Boston Globe clipping files.",
+      "source_page_indices": [461],
+      "clue_refs": ["clue-globe-unpublished-story", "clue-macario-tragedy"],
+      "scene_refs": ["newspaper-morgue"]
+    },
+    {
+      "asset_id": "the-haunting-handout-3-house-built-1835",
+      "title": "Handout 3: The House Is Built (1835)",
+      "summary": "The earliest recorded construction and transfer to Walter Corbitt.",
+      "kind": "document",
+      "when_to_deliver": "When the investigators find the house's earliest property record at the Central Library.",
+      "source_page_indices": [461],
+      "clue_refs": ["clue-house-built-1835"],
+      "scene_refs": ["central-library"]
+    },
+    {
+      "asset_id": "the-haunting-handout-4-neighbor-lawsuit-1852",
+      "title": "Handout 4: Neighbors Sue Corbitt (1852)",
+      "summary": "The neighbors' attempt to force Corbitt from the area.",
+      "kind": "document",
+      "when_to_deliver": "When the investigators find the neighbors' 1852 lawsuit at the Central Library.",
+      "source_page_indices": [461],
+      "clue_refs": ["clue-neighbor-lawsuit-1852"],
+      "scene_refs": ["central-library"]
+    },
+    {
+      "asset_id": "the-haunting-handout-5-obituary-and-burial-lawsuit",
+      "title": "Handout 5: Corbitt's Obituary and Burial Lawsuit",
+      "summary": "Corbitt's obituary and the dispute over burial in his basement.",
+      "kind": "document",
+      "when_to_deliver": "When the investigators find Corbitt's 1866 obituary and burial dispute at the Central Library.",
+      "source_page_indices": [461],
+      "clue_refs": ["clue-basement-burial-lawsuit"],
+      "scene_refs": ["central-library"]
+    },
+    {
+      "asset_id": "the-haunting-handout-6-second-lawsuit-unrecorded",
+      "title": "Handout 6: No Recorded Outcome",
+      "summary": "The second lawsuit has no recorded resolution.",
+      "kind": "document",
+      "when_to_deliver": "When the investigators continue tracing the second lawsuit and discover that no outcome was recorded.",
+      "source_page_indices": [461],
+      "clue_refs": ["clue-second-lawsuit-outcome-unrecorded"],
+      "scene_refs": ["central-library"]
+    },
+    {
+      "asset_id": "the-haunting-handout-7-will-executor-chapel",
+      "title": "Handout 7: Corbitt's Executor and the Chapel",
+      "summary": "The will executor links Corbitt to Reverend Michael Thomas and the closed Chapel.",
+      "kind": "document",
+      "when_to_deliver": "When the investigators find the will executor and church-register records at the Hall of Records.",
+      "source_page_indices": [461],
+      "clue_refs": ["clue-will-executor-chapel", "clue-chapel-closed-1912"],
+      "scene_refs": ["hall-of-records"]
+    },
+    {
+      "asset_id": "the-haunting-handout-8-chapel-police-raid",
+      "title": "Handout 8: The Secret Chapel Raid",
+      "summary": "The police raid, casualties, arrests, interference, and Michael Thomas's sentence and escape.",
+      "kind": "document",
+      "when_to_deliver": "When the investigators obtain the Chapel raid file from the higher courts or Central Police Station.",
+      "source_page_indices": [461],
+      "clue_refs": ["clue-police-raid-chapel"],
+      "scene_refs": ["higher-courts-central-police"]
+    },
+    {
+      "asset_id": "the-haunting-handout-9-chapel-symbol",
+      "title": "Handout 9: Symbol of the Chapel of Contemplation",
+      "summary": "The staring eye formed by three Y-shapes.",
+      "kind": "document",
+      "when_to_deliver": "When the investigators clearly see the freshly painted white symbol at the Chapel ruins.",
+      "source_page_indices": [461],
+      "clue_refs": ["clue-chapel-eye-symbol"],
+      "scene_refs": ["chapel-of-contemplation-ruins"],
+      "image_asset_id": "asset-player-chapel-symbol",
+      "image_ref": "assets/player/handout-9-chapel-symbol.jpg"
+    },
+    {
+      "asset_id": "the-haunting-corbitt-house-investigator-map",
+      "title": "Corbitt House Investigator Map",
+      "summary": "An unnumbered player map of the upper story, ground floor, and basement.",
+      "kind": "map",
+      "when_to_deliver": "When the investigators enter the Corbitt House and need a spatial reference while exploring its floors.",
+      "source_page_indices": [462],
+      "clue_refs": ["clue-nailed-windows"],
+      "scene_refs": ["corbitt-house-ground", "upper-floor-bedroom", "basement-rites"],
+      "image_asset_id": "asset-player-corbitt-house-map",
+      "image_ref": "assets/player/corbitt-house-investigator-map.png"
+    }
+  ]
+}

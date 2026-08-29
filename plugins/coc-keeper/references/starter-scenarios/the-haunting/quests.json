@@ -4,11 +4,7 @@
     {
       "quest_id": "quest-knott-commission",
       "title": "The Corbitt House Commission",
-      "localized_title": {"zh-Hans": "科比特宅邸调查委托"},
-      "player_safe_summary": "诺特先生按日付酬，委托调查员查清租客失踪与宅邸异响的底细，并出具一份调查报告。",
-      "localized_text": {
-        "zh-Hans": "房产经纪人史蒂文·诺特委托调查员查清他继承的科比特宅邸为何留不住租客：查清底细，给他一份报告，报酬按日结算。"
-      },
+      "player_safe_summary": "Mr. Knott offers a daily fee for investigating the tenants' disappearance and the strange disturbances in the house, then asks for a written report.",
       "quest_kinds": ["commission", "visit-explore"],
       "importance": "core",
       "giver": {"kind": "npc", "ref_id": "npc-steven-knott"},
@@ -50,11 +46,7 @@
     {
       "quest_id": "quest-retrieve-chapel-journal",
       "title": "Recover the Chapel Records",
-      "localized_title": {"zh-Hans": "取回教堂记录"},
-      "player_safe_summary": "查访教堂废墟，寻回沉思教堂遗留的记录——据说那里保存着与科比特有关的文字。",
-      "localized_text": {
-        "zh-Hans": "跟踪档案里反复出现的\"沉思教堂\"线索：走访废墟，寻回教堂方面留下的记录或日记，弄清他们与科比特的纠葛。"
-      },
+      "player_safe_summary": "Visit the ruined chapel and recover records left by the Chapel of Contemplation; they are said to contain writings connected to Corbitt.",
       "quest_kinds": ["retrieve-collect"],
       "importance": "optional",
       "giver": null,
@@ -87,11 +79,7 @@
     {
       "quest_id": "quest-end-corbitt-threat",
       "title": "End the Corbitt Threat",
-      "localized_title": {"zh-Hans": "终结科比特的威胁"},
-      "player_safe_summary": "查明并终结宅邸里盘踞的恶意存在——无论用它的圣匕首、净化仪式，还是别的什么办法，让这里真正安宁。",
-      "localized_text": {
-        "zh-Hans": "宅中的邪祟不会止步于吓唬租客。找到能真正终结它的办法，并且活着做到——让科比特宅邸的威胁就此了结。"
-      },
+      "player_safe_summary": "Identify and end the malicious presence in the house—whether with its own ritual dagger, a cleansing rite, or another effective means—and bring the place lasting peace.",
       "quest_kinds": ["prevent-disrupt"],
       "importance": "core",
       "giver": null,

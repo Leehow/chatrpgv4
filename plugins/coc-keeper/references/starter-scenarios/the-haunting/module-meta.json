@@ -2,19 +2,17 @@
   "schema_version": 1,
   "scenario_id": "the-haunting",
   "handout_asset_root_id": "the-haunting-keeper-rulebook-40th",
+  "module_graph_asset_root_id": "the-haunting-keeper-rulebook-40th",
+  "source_language": "en",
+  "runtime_projection_contract": "coc.module-graph-runtime-projection.v1",
   "title": "The Haunting",
-  "localized_text": {
-    "zh-Hans": {
-      "title": "《鬼屋》",
-      "opening_scene": "调查员会接受 Knott 的委托，并决定先从哪里着手调查吗？"
-    }
-  },
-  "one_liner": "1920 年波士顿，房东委托你调查恶名昭彰的 Corbitt 宅——前租客疯了，邻居说闹鬼，地下室里埋着不该被埋葬的人。开箱即玩，无需剧本 PDF。",
+  "opening_scene": "Will the investigators accept Knott's commission, and where will they begin their inquiry?",
+  "one_liner": "In 1920 Boston, a landlord hires you to investigate the infamous Corbitt House—the former tenants went mad, neighbors say it is haunted, and someone who should never have been buried lies beneath the basement. Ready to play without the scenario PDF.",
   "structure_type": "branching_investigation",
   "era": "1920s",
   "setting_tags": ["urban-civilian", "domestic", "1920s"],
   "content_flags": ["supernatural_horror", "haunting", "undead", "cult_residue"],
-  "win_condition": "调查员查明 Corbitt 宅异象的真相，在地下室对峙中摧毁 Walter Corbitt 的不死躯体（理想结局：用其仪式匕首将其化为灰烬），并让房东能重新处置房产。",
+  "win_condition": "The investigators uncover the truth behind the phenomena at the Corbitt House, destroy Walter Corbitt's undead body in the basement confrontation (ideally reducing him to ash with his own ritual dagger), and leave the property in a state the landlord can manage again.",
   "source_pdf": null,
   "source_pdf_pages": null,
   "start_clock": {
@@ -24,8 +22,8 @@
     "display": "1920-10-12 10:00"
   },
   "summary": "An original derivative introductory investigation set in 1920s Boston. A landlord hires the investigators to clear the reputation of a house whose tenants have suffered accidents, illness, and madness. Research routes (newspaper morgue, hall of records, neighbors, previous tenants) converge on the Corbitt house, where an undead sorcerer still animates his buried corpse in the sealed basement.",
-  "player_safe_summary": "1920 年秋，波士顿房东 Steven Knott 继承了一栋租不出去的老宅。前租客 Macario 一家出事进了疗养院，街坊称它为「Corbitt 宅」。Knott 按日薪雇你查清异象、洗清恶名——你可以先查报馆、档案厅、邻居与前租客，也可以直接拿钥匙上门。",
-  "keeper_secret_summary": "Walter Corbitt 的尸体埋在宅邸地下室夹墙后；其心智仍存，以神话魔法维持身份并驱动尸身。他会误导、恐吓、最终谋杀闯入者。仪式匕首可绕过其法术将其化为灰烬。",
+  "player_safe_summary": "In autumn 1920, Boston landlord Steven Knott inherits an old house no tenant will keep. A disaster drove the former tenants, the Macarios, from the house and left members of the family in an asylum; neighbors call the place the Corbitt House. Knott hires you by the day to uncover what is wrong and clear its reputation—you can begin at the newspaper, the Hall of Records, with neighbors and former tenants, or take the key and go straight to the house.",
+  "keeper_secret_summary": "Walter Corbitt's body is buried behind a partition in the house's basement. His mind survives, preserving his identity through Mythos magic and animating the corpse. He misleads and terrorizes intruders before trying to murder them. His ritual dagger can bypass his sorcery and reduce him to ash.",
   "license": "Apache-2.0",
   "author": "Original classic scenario structure: Sandy Petersen / Chaosium. Narrative pack adaptation: chatrpgv4 contributors (original derivative prose; does not reproduce Chaosium Product Identity text).",
   "attribution": "Scenario structure inspired by the classic Call of Cthulhu introductory investigation 'The Haunting'. Scene names, NPC dialogue, and narrative prose in this pack are an original derivative work by the chatrpgv4 contributors. Numeric creature data for Walter Corbitt is referenced from rules-json/monsters.json.",

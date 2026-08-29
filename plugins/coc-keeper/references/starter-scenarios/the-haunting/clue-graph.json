@@ -19,11 +19,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "In 1835, a prosperous merchant built the house, immediately fell ill, and sold it to Walter Corbitt, Esquire.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "1835 年，一名富商建起这栋宅子，却立刻病倒，随后将它卖给沃尔特·科比特律师。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -43,11 +38,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "In 1852, Corbitt's neighbors sued to force him out because of his strange habits and inauspicious demeanor.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "1852 年，邻居以科比特行为怪异、举止不祥为由起诉，要求将他逐出这一带。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -67,11 +57,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "No outcome of the second lawsuit over Corbitt's requested basement burial is recorded.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "档案中没有记载那场阻止科比特葬于自宅地下室的第二次诉讼结果。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -101,11 +86,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "An 1866 obituary notes a lawsuit to stop Corbitt being buried in his own basement as his will required.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "1866 年的讣告称科比特仍住在原宅；另一场诉讼正试图阻止依其遗嘱将他葬在自宅地下室。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -140,11 +120,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Corbitt's will executor was Pastor Michael Thomas of the Chapel of Contemplation — a church later closed in 1912.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "科比特遗嘱的执行人是沉思教堂的迈克尔·托马斯牧师；这座教堂后来于 1912 年关闭。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -176,11 +151,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "A moldering cult journal records that Walter Corbitt was buried in his basement 'in accordance with his wishes and with the wishes of that one who waits in the dark'.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "一册霉烂的教团日志写道，沃尔特·科比特依照本人以及“那位在黑暗中等待者”的意愿，被葬在自宅地下室。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -196,11 +166,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "The sealed chapel cellar contains two skeletons in tattered silk robes beside a cabinet; they may have hidden from the police and died in the fire.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "松软地板下封死的礼拜堂地窖里，柜子旁躺着两具身穿破烂丝袍的骸骨；他们可能躲过警方突袭，却死在火中。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -218,11 +183,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Beside the cult journal lies a huge, damaged, worm-eaten handwritten Latin manuscript; many passages are unreadable.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "教团日志旁还有一本巨大的拉丁文手抄本，残损虫蛀，许多段落无法辨读。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -238,11 +198,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Behind the boards lies a wizened, seemingly dead figure on a pallet — saucer eyes, knife-blade nose, a chain at the throat, and a sweet rotten-corn reek.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "木板后的小床上躺着一个干瘪、看似死去的人形：碟子般的眼睛、刀锋似的鼻子，颈上缠着链条，还散发着甜腻的腐玉米臭味。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -269,11 +224,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "An unpublished 1918 feature lists prior tenants ruined by accidents, illness, and suicide; the Macarios fled under mysterious circumstances.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "一篇未刊发的 1918 年专题写道，历任住户接连遭遇事故、疾病与自杀；马卡里奥一家也在神秘情形下仓促逃离。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -304,11 +254,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Dooley says the Macario father went violently mad after an accident, babbling about a haunting form with burning eyes; Mrs. Macario followed him into Roxbury Sanitarium.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "杜利说，马卡里奥家的父亲在一次事故后突然陷入暴烈疯狂，不停念叨一个燃烧着双眼的鬼影；马卡里奥太太随后也住进了罗克斯伯里疗养院。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -325,11 +270,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Gabriela describes waking to find 'it' leaning over her; when angry it hurled dishes, and it hated Vittorio most of all.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "加布里埃拉说，她曾醒来发现“它”俯在自己上方；它发怒时会掷出餐具，而它最憎恨维托里奥。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -345,11 +285,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "In Corbitt's old room a bed can fly of its own accord hard enough to hurl someone through a window — accompanied by a Mythos reek.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "在科比特从前的房间里，床会自行飞起，力道足以把人撞出窗外；与此同时还会出现一股甜腻的恶臭。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -365,11 +300,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Thumps and scrapes answer from the upper floor when investigators linger — something wants attention upstairs.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "调查员在楼下逗留时，楼上传来沉闷撞击和刮擦声；有什么东西正试图把注意力引向楼上。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -395,11 +325,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Three bound diaries of W. Corbitt describe occult experiments, an unearthly summoning, and a spell to call forth an Opener of Ways.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "三本装订成册的沃尔特·科比特日记记述了神秘学实验、非尘世的召唤，以及召来“开路者”的法术。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -434,11 +359,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Handout 8 records a secret 1912 raid prompted by affidavits about missing neighborhood children: three policemen and seventeen cult members died; 54 church members were arrested but only eight held; the autopsies lack real detail and a local official appears to have suppressed the story. Pastor Michael Thomas received forty years on five second-degree-murder counts, escaped in 1917, and fled the state.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "八号资料记载：1912 年，警方因邻里儿童失踪的宣誓证词秘密突袭沉思教堂，3 名警察与 17 名教团成员死于枪火；54 人被捕但仅 8 人被羁押，尸检报告异常空泛，且有地方要员干预、压下报道。迈克尔·托马斯牧师因五项二级谋杀罪被判 40 年，1917 年越狱逃离本州。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -474,11 +394,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "A freshly painted white emblem on the ruined wall forms a staring eye from three Y-shapes; standing near it makes the investigators' foreheads prickle until they move away.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "废墟残墙上新刷着白色图案：三个 Y 首尾相接成三角，中央像一只凝视之眼。靠近时，调查员额头会持续刺痒，离开后才停止。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -494,11 +409,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "The 'corpse' spends Magic Points, wards its flesh, and strikes — it is an undead sorcerer animating its own body.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "这具“尸体”突然活动起来，皮肉仿佛受到无形屏障保护，还主动发动攻击；它显然并非普通遗骸。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -514,11 +424,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "A horrible smell manifests whenever Corbitt forces a psychic deed — a sure sign this is no parlor haunting.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "每当屋内出现无法解释的异动，那股骇人的甜腻恶臭也随之浮现；这绝非寻常的房屋声响。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -544,11 +449,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "A blood-rusted old dagger with an ornate hilt lies among the basement tools.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "地下室的工具堆中躺着一把沾着暗红锈迹、刀柄华丽的旧匕首。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -565,11 +465,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Vittorio points to a bible passage that is not scripture: 'By his own weapon is the devil worsted!'",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "维托里奥指着《圣经》里一段并非经文的话：“魔鬼必败于他自己的武器！”"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -585,11 +480,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Marks and residue connect the ornate basement dagger to Corbitt's rites.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "纹记和残留物表明，地下室那把华丽匕首与科比特的仪式有关。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -605,11 +495,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Struck with his own dagger, Corbitt's wards fail and he turns to ashes and dust.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "被自己的匕首击中后，科比特的防护崩溃，躯体化作灰烬与尘土。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -638,11 +523,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Knott says the Macario family fled after a frightening breakdown and that the father now remains at Roxbury Sanitarium.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "诺特说，马卡里奥一家在一次骇人的精神崩溃后逃离了宅子，父亲如今仍住在罗克斯伯里疗养院。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -659,11 +539,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Landlord Steven Knott pays $20/day to examine the Corbitt House, understand the Macario tragedy, and restore the property's name.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "房东史蒂文·诺特以每天 20 美元的报酬委托调查科比特宅，弄清马卡里奥一家的惨剧，并恢复这处房产的名声。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -680,11 +555,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, and other paper trails before they rush the house.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "诺特建议先从《波士顿环球报》、中央图书馆或档案厅等纸面记录查起，不要急着直奔宅子。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -700,11 +570,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Knott hands over the house keys, the address, and $20 cash in advance.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "诺特交出了宅子的钥匙、地址和 20 美元现金预付款。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -721,11 +586,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "The Macario family rented in 1918 and left almost immediately under mysterious circumstances; they are now linked to Roxbury Sanitarium.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "马卡里奥一家于 1918 年租下宅子，却几乎立刻在神秘情形下搬走；如今线索指向罗克斯伯里疗养院。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -742,11 +602,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Globe files go back no further than a fire in 1878 — earlier Corbitt House mentions are not here.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "《环球报》的档案最早只追溯到 1878 年的一场火灾；更早关于科比特宅的记录并不在这里。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -762,11 +617,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "The register of churches notes the Chapel of Contemplation closed in 1912.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "教堂登记册记载，沉思教堂于 1912 年关闭。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -783,11 +633,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Witnesses speak of a strange man with burning eyes haunting dreams and mad rants alike.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "多名证人都提到一个双眼燃烧的怪人；无论噩梦还是疯癫呓语中，都有他的身影。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -804,11 +649,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Dooley can point out where the Chapel of Contemplation stood a few blocks away — now rubble and painted signs.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "杜利能指出几个街区外沉思教堂的旧址；那里如今只剩瓦砾和涂画的标记。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -825,11 +665,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "The Macario boys had nightmares of a strange man with burning eyes in their former home.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "马卡里奥家的男孩们在旧居时反复梦见一个双眼燃烧的怪人。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -845,11 +680,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Unusual quantities of crosses, Virgin images, rosaries and candles litter the Macario rooms — wards against something they feared.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "马卡里奥一家住过的房间里散落着数量异常的十字架、圣母像、念珠和蜡烛；这些东西像是用来抵御他们所惧怕的某种存在。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -865,11 +695,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Ground-floor windows are nailed shut from inside; the side door carries three bolts and two locks.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "一楼的窗户从内侧被钉死；侧门装着三道门闩和两把锁。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -885,11 +710,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Corbitt can form pools of blood on floor, ceiling, or walls to frighten intruders away from his secret.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "毫无来由的血泊会出现在地板、天花板或墙壁上，仿佛在恐吓闯入者继续深入。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -905,11 +725,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "The old knife lifts without a hand and drives its point at intruders under an unseen will.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "旧刀在无人触碰时自行升起，在某种看不见的意志驱使下将刀尖刺向闯入者。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -925,11 +740,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Closely fitted boards line the basement; a cursory check reveals hollow spaces behind them.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "地下室墙面钉着拼合严密的木板；稍加检查就能发现板后存在空腔。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -947,11 +757,6 @@
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Blows that should bite seem blunted — Corbitt has warded his flesh with spent Magic Points.",
-          "localized_text": {
-            "zh-Hans": {
-              "player_safe_summary": "本应造成重创的攻击像撞上了一层无形屏障，落到科比特身上时明显被削弱。"
-            }
-          },
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",

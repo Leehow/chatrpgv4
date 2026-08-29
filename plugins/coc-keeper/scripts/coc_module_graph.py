@@ -2310,6 +2310,9 @@ def graph_context(
         if claim is None or not _visible_claim(claim, audience, revealed_claims):
             continue
         eligible_relations.append(relation)
+        properties = relation.get("properties")
+        if isinstance(properties, dict) and properties.get("context_traversal") is False:
+            continue
         adjacency.setdefault(source, []).append((target, relation))
         adjacency.setdefault(target, []).append((source, relation))
 

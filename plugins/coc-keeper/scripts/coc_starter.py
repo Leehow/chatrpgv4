@@ -5,11 +5,12 @@ Starter scenarios are pre-packaged, play-ready scenarios shipped with the
 plugin under `references/starter-scenarios/<id>/`. They let new players
 start a game with zero PDF preparation.
 
-`install_starter` copies the seven story-graph JSON files into a campaign's
-`scenario/` directory, which is the only location the runtime Story Director
-reads (`coc_story_director.py:95`). It also writes a player-safe character
-creation briefing so the player can create their own investigator before play.
-The campaign.json is updated with active_scenario_id/era.
+`install_starter` materializes a graph-backed starter's Scenario IR (or copies
+legacy starter JSON) into a campaign's `scenario/` directory, which is the only
+location the runtime Story Director reads (`coc_story_director.py:95`). It also
+writes a player-safe character creation briefing so the player can create their
+own investigator before play. The campaign.json is updated with
+active_scenario_id/era.
 
 `quick_start` (N7) creates a campaign, installs a starter that ships pregens,
 copies a chosen pregen into workspace + campaign investigator slots, seeds
@@ -41,6 +42,7 @@ import coc_character_creation_briefing
 import coc_compiled_archive
 import coc_git_history
 import coc_investigator_guard
+import coc_starter_graph
 import coc_scenario_compile
 
 # The seven story-graph JSON files the Story Director reads (see
@@ -459,8 +461,71 @@ def _read_json_object(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _prepare_starter_install(src_dir: Path, scenario_id: str) -> dict[str, Any]:
+    """Validate and render graph-backed starter bytes before lock-sensitive work."""
+    validation = coc_scenario_compile.validate_scenario(src_dir)
+    if validation["errors"]:
+        raise ValueError(
+            f"starter scenario '{scenario_id}' is invalid: "
+            + "; ".join(validation["errors"])
+        )
+    starter_graph: dict[str, Any] | None = None
+    projected_documents: dict[str, dict[str, Any]] | None = None
+    projected_texts: dict[str, str] | None = None
+    if (src_dir / coc_starter_graph.GRAPH_FILENAME).is_file():
+        starter_graph, projected_documents = coc_starter_graph.load_starter_bundle(
+            src_dir
+        )
+        for filename, projected in projected_documents.items():
+            committed = _read_json_object(src_dir / filename)
+            if committed != projected:
+                raise ValueError(
+                    f"graph-backed starter '{scenario_id}' materialized view "
+                    f"drifted: {filename}"
+                )
+        projected_texts = {
+            filename: json.dumps(
+                document, ensure_ascii=False, indent=2
+            ) + "\n"
+            for filename, document in projected_documents.items()
+        }
+    source_files = (
+        tuple(projected_documents)
+        if projected_documents is not None
+        else STARTER_SCENARIO_FILES + tuple(
+            fname
+            for fname in STARTER_OPTIONAL_SCENARIO_FILES
+            if (src_dir / fname).is_file()
+        )
+    )
+    return {
+        "starter_graph": starter_graph,
+        "projected_documents": projected_documents,
+        "projected_texts": projected_texts,
+        "source_files": source_files,
+        "graph_installed": False,
+    }
+
+
+def _materialize_starter_files(
+    src_dir: Path,
+    scenario_dir: Path,
+    prepared: dict[str, Any],
+) -> None:
+    projected_documents = prepared["projected_documents"]
+    projected_texts = prepared["projected_texts"]
+    for filename in prepared["source_files"]:
+        if projected_documents is None:
+            shutil.copy2(src_dir / filename, scenario_dir / filename)
+        else:
+            coc_fileio.write_text_atomic(
+                scenario_dir / filename,
+                projected_texts[filename],
+            )
+
+
 def install_starter(root: Path, campaign_id: str, scenario_id: str) -> Path:
-    """Copy a starter scenario into a campaign's scenario/ directory.
+    """Install a starter scenario into a campaign's scenario/ directory.
 
     Idempotency: raises FileExistsError if the campaign already has any of
     the seven story-graph files (i.e. a scenario is already bound).
@@ -490,17 +555,13 @@ def _install_starter_at(
     *,
     repo_root: Path,
     published_campaign_dir: Path,
+    prepared_starter: dict[str, Any] | None = None,
 ) -> Path:
     """Install a starter into an explicit unpublished campaign generation."""
     src_dir = STARTER_DIR / scenario_id
     if not src_dir.is_dir():
         raise FileNotFoundError(f"unknown starter scenario: {scenario_id}")
-    validation = coc_scenario_compile.validate_scenario(src_dir)
-    if validation["errors"]:
-        raise ValueError(
-            f"starter scenario '{scenario_id}' is invalid: "
-            + "; ".join(validation["errors"])
-        )
+    prepared = prepared_starter or _prepare_starter_install(src_dir, scenario_id)
     campaign_dir = Path(campaign_dir)
     published_campaign_dir = Path(published_campaign_dir)
     campaign_id = str(
@@ -509,12 +570,10 @@ def _install_starter_at(
     )
 
     scenario_dir = campaign_dir / "scenario"
+    starter_graph = prepared["starter_graph"]
+    projected_documents = prepared["projected_documents"]
     # Idempotency: refuse to clobber an existing scenario.
-    source_files = STARTER_SCENARIO_FILES + tuple(
-        fname
-        for fname in STARTER_OPTIONAL_SCENARIO_FILES
-        if (src_dir / fname).is_file()
-    )
+    source_files = prepared["source_files"]
     for fname in source_files:
         if (scenario_dir / fname).exists():
             raise FileExistsError(
@@ -522,8 +581,13 @@ def _install_starter_at(
                 " refusing to overwrite. Remove it first to re-install."
             )
 
-    for fname in source_files:
-        shutil.copy2(src_dir / fname, scenario_dir / fname)
+    _materialize_starter_files(src_dir, scenario_dir, prepared)
+
+    if starter_graph is not None and not prepared["graph_installed"]:
+        coc_starter_graph.install_starter_graph(
+            published_campaign_dir.parent.parent,
+            starter_graph,
+        )
 
     _update_campaign_json(campaign_dir, scenario_id)
     _activate_scenario(campaign_dir, scenario_dir, scenario_id)
@@ -1254,9 +1318,16 @@ def quick_start(
         campaign_id=camp_id,
         title=title,
     )
+    prepared_starter = _prepare_starter_install(src_dir, scenario_id)
 
     coc_root = _coc_root(root)
     coc_state.ensure_workspace(coc_root)
+    if prepared_starter["starter_graph"] is not None:
+        coc_starter_graph.install_starter_graph(
+            coc_root,
+            prepared_starter["starter_graph"],
+        )
+        prepared_starter["graph_installed"] = True
     campaign_dir = coc_root / "campaigns" / camp_id
     campaigns_dir = coc_root / "campaigns"
     investigators_dir = coc_root / "investigators"
@@ -1365,6 +1436,7 @@ def quick_start(
                     scenario_id,
                     repo_root=_repo_root_for_output(root),
                     published_campaign_dir=campaign_dir,
+                    prepared_starter=prepared_starter,
                 )
 
                 if investigator_id is not None and not reuse_existing:

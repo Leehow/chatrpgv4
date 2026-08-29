@@ -734,8 +734,8 @@ def test_fresh_quick_start_shipped_clues_deliver_one_card_exactly_once(
     )
     card = player["data"]["handouts"]["cards"][0]
     assert card["content_origin"] == "authored_derivative"
-    assert card["title"].startswith("《波士顿环球报》")
-    assert card["summary"].startswith("由项目贡献者")
+    assert card["title"].startswith("Boston Globe")
+    assert card["summary"].startswith("An original in-world newspaper prop")
     assert card["source_refs"] == []
 
 
@@ -764,7 +764,7 @@ def test_authored_derivative_falls_back_to_its_english_body_for_english_play(
     assert "波士顿" not in json.dumps(player, ensure_ascii=False)
 
 
-def test_authored_derivative_uses_japanese_fields_for_japanese_play(campaign_ws):
+def test_authored_derivative_keeps_source_language_for_japanese_play(campaign_ws):
     campaign_path = campaign_ws["campaign_dir"] / "campaign.json"
     campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
     campaign["play_language"] = "ja-JP"
@@ -780,9 +780,11 @@ def test_authored_derivative_uses_japanese_fields_for_japanese_play(campaign_ws)
     player = _run(
         campaign_ws, "clues.query", {"handouts_projection": "player"}
     )["data"]["handouts"]["cards"][0]
-    assert player["title"].startswith("『ボストン・グローブ』")
-    assert player["text"].startswith("『ボストン・グローブ』")
-    assert "波士顿" not in json.dumps(player, ensure_ascii=False)
+    assert player["title"].startswith("Boston Globe")
+    assert player["text"].startswith("BOSTON GLOBE")
+    encoded = json.dumps(player, ensure_ascii=False)
+    assert "波士顿" not in encoded
+    assert "ボストン" not in encoded
 
 
 @pytest.mark.parametrize("write_order", ["clue-first", "card-first"])

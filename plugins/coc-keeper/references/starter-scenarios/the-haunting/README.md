@@ -17,6 +17,32 @@ When that root exists, its validated Rulebook cards and player map replace or
 extend the built-in derivative card by semantic `asset_id`; when it is absent,
 the open starter remains fully playable without source prose or images.
 
+## Graph-backed source authority
+
+`module-graph.json` is now the starter's structured semantic authority.
+`coc.module-graph-runtime-projection.v1` materializes the nine current Scenario
+IR documents during install; the committed JSON views are generated fixtures
+and must remain exactly reproducible from the graph. The graph is English-only
+and contains no persistent table-language translation cache.
+
+The graph also catalogs every reviewed scenario page, the 18 source image
+regions, two player-delivery image variants, and ten information cards. Only
+semantic metadata is committed. Exact Rulebook page text, handout bodies, map
+bytes, illustrations, hashes, and source manifests remain in the ignored local
+module-assets root. A source owner can install those local bytes with:
+
+```bash
+uv run --frozen python plugins/coc-keeper/scripts/coc_starter_graph.py \
+  install-local-assets --workspace . \
+  --starter-dir plugins/coc-keeper/references/starter-scenarios/the-haunting \
+  --source-bundle /absolute/path/to/validated/source-bundle \
+  --packs-dir /absolute/path/to/english-source-handout-packs
+```
+
+Without that private source bundle, the structured graph and open derivative
+materialized views remain playable; unavailable media never becomes invented
+content or a reveal receipt.
+
 Mechanical hooks (Flesh Ward, floating knife, own-dagger exception) align with
 `../../../rulesets/coc7/rules-json/the-haunting.json`. Walter Corbitt presentation/stats are
 referenced from `../../../rulesets/coc7/rules-json/monsters.json`.
@@ -31,10 +57,12 @@ uv run --frozen python plugins/coc-keeper/scripts/coc_starter.py quick-start \
 # or: --pregen eleanor-reed
 ```
 
-This creates a campaign, installs the starter, copies the pregen investigator
-into `.coc/investigators/<id>/` and the campaign `investigators/` folder, seeds
-`save/investigator-state/`, and leaves you on the opening briefing ready for
-`run_live_turn`.
+This creates a setup campaign, installs the starter, copies the pregen
+investigator into `.coc/investigators/<id>/` and the campaign `investigators/`
+folder, and seeds `save/investigator-state/`. The canonical setup host then
+calls the returned `setup.complete` handoff before launching/resuming the play
+role; a setup-role session must not call play-only `module.context` or begin
+the table directly.
 
 Pregens:
 

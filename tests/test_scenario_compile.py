@@ -32,10 +32,12 @@ def test_haunting_research_affordance_is_action_only_not_the_clue_answer():
         row for row in briefing["affordances"]
         if row.get("id") == "ask-research-options"
     )
-    assert route["cue"] == "追问这栋宅子的旧账可以从哪些公开记录或知情人查起。"
+    assert route["cue"] == (
+        "Ask which public records or informed witnesses might reveal the house's history."
+    )
 
 
-def test_haunting_globe_clue_has_canonical_zh_hans_player_summary():
+def test_haunting_globe_clue_has_canonical_english_player_summary():
     graph = json.loads(HAUNTING_CLUES.read_text(encoding="utf-8"))
     clue = next(
         clue
@@ -44,9 +46,10 @@ def test_haunting_globe_clue_has_canonical_zh_hans_player_summary():
         if clue.get("clue_id") == "clue-globe-unpublished-story"
     )
 
-    summary = clue["localized_text"]["zh-Hans"]["player_safe_summary"]
-    assert "1918 年专题" in summary
-    assert "马卡里奥一家" in summary
+    summary = clue["player_safe_summary"]
+    assert "unpublished 1918 feature" in summary
+    assert "Macarios" in summary
+    assert "localized_text" not in clue
 
 
 def _make_valid_scenario(tmp_path):
