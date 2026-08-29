@@ -437,10 +437,12 @@ async function directInference(
       // Grok 4.5/4.6 reasoning cannot be disabled. Without an explicit
       // effort pi-ai sends the generic off value (`none`), which xAI rejects
       // before inference. `low` is xAI's least expensive supported effort and
-      // is sufficient for this bounded semantic compilation.
+      // is sufficient for this bounded semantic compilation. Recognize these
+      // known model ids even when an older/custom registry incorrectly omits
+      // or clears the reasoning capability flag.
       ...(model.provider === "xai"
         && model.api === "openai-responses"
-        && model.reasoning
+        && (model.reasoning || /^grok-4\.(?:5|6)(?:$|-)/.test(model.id))
         ? { reasoningEffort: "low" as const }
         : {}),
     },

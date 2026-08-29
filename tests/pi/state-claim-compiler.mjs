@@ -531,7 +531,7 @@ test("direct inference uses provider-supported one-tool requirement shapes", asy
   assert.equal(calls, 0);
 });
 
-test("reasoning-only xAI compiler uses low effort for a real no-claim draft", async () => {
+test("known reasoning-only xAI compiler uses low despite stale model metadata", async () => {
   const compiler = new PiStateClaimCompiler();
   compiler.observeOutputContext(campaignId, contextEnvelope());
   let calls = 0;
@@ -541,7 +541,7 @@ test("reasoning-only xAI compiler uses low effort for a real no-claim draft", as
       provider: "xai",
       id: "grok-4.6",
       api: "openai-responses",
-      reasoning: true,
+      reasoning: false,
     },
     modelRegistry: {
       complete: async (_model, context, options) => {
