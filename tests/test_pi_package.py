@@ -352,6 +352,10 @@ def test_pi_open_turn_recovery_host_guidance_is_structured_and_pairing_safe():
         "restartPlayerInputStable": True,
         "crossTimelineAnchorFailsClosed": True,
         "recoveryAnchorHiddenFromModel": True,
+        "zeroToolAcceptedInputRecoversActing": True,
+        "zeroToolNeighborsFailClosed": [
+            "missing", "tampered", "cross-timeline", "journaled",
+        ],
         "skippedModes": [
             "table_opening",
             "awaiting_player",

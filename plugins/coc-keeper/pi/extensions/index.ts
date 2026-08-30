@@ -114,6 +114,7 @@ import {
   clearOpenTurnPlayerInput,
   createOpenTurnAnchor,
   loadOpenTurnPlayerInput,
+  loadZeroToolOpenTurnPlayerInput,
   recordOpenTurnPlayerInput,
   validOpenTurnAnchor,
   type OpenTurnAnchor,
@@ -6013,14 +6014,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       if (mode === "open_turn_recovery") {
         const currentTurn = objectOrNull(data.current_turn);
         const recoveryRoot = currentWorkspaceRoot;
+        const zeroToolAccepted = currentTurn?.zero_tool_accepted_input === true;
         const recoveredPlayer = resumedAnchor === null
           ? { ok: false as const, code: "invalid_anchor" as const }
-          : loadOpenTurnPlayerInput({
-              root: recoveryRoot,
-              campaignId,
-              currentTurn,
-              anchor: resumedAnchor,
-            });
+          : zeroToolAccepted
+            ? loadZeroToolOpenTurnPlayerInput({
+                root: recoveryRoot,
+                campaignId,
+                anchor: resumedAnchor,
+              })
+            : loadOpenTurnPlayerInput({
+                root: recoveryRoot,
+                campaignId,
+                currentTurn,
+                anchor: resumedAnchor,
+              });
         if (recoveredPlayer.ok) {
           openingContinuationGate.currentExternalPlayerText = recoveredPlayer.card.text;
           armJournalBinding(campaignId);
@@ -10607,7 +10615,51 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ) {
         memoryExtractionRearmEligible = true;
       }
-      const acceptedData = objectOrNull(objectOrNull(value)?.data);
+      let acceptedData = objectOrNull(objectOrNull(value)?.data);
+      if (
+        accepted.accepted
+        && params.operation === "session.resume"
+        && typeof params.campaign === "string"
+        && params.campaign.trim()
+        && acceptedData?.campaign_id === params.campaign.trim()
+        && acceptedData.mode === "awaiting_player"
+        && acceptedData.current_turn == null
+        && acceptedData.pending_turn == null
+        && acceptedData.pending_output_context == null
+        && acceptedData.ending_output == null
+        && validOpenTurnAnchor(acceptedData.open_turn_anchor)
+      ) {
+        const cached = loadZeroToolOpenTurnPlayerInput({
+          root: currentWorkspaceRoot,
+          campaignId: params.campaign.trim(),
+          anchor: acceptedData.open_turn_anchor,
+        });
+        if (cached.ok) {
+          value = {
+            ...(objectOrNull(value) ?? {}),
+            data: {
+              ...acceptedData,
+              mode: "open_turn_recovery",
+              next_operations: ["continue_current_turn_from_receipts"],
+              current_turn: {
+                schema_version: 1,
+                meaningful_row_count: 0,
+                operational_row_count: 0,
+                rows: [],
+                zero_tool_accepted_input: true,
+              },
+            },
+          };
+          acceptedData = objectOrNull(objectOrNull(value)?.data);
+          try {
+            pi.appendEntry("coc-zero-tool-open-turn-recovery", {
+              schema_version: 1,
+              status: "rebound",
+              campaign_id: params.campaign.trim(),
+            });
+          } catch { /* zero-tool recovery audit is best effort */ }
+        }
+      }
       const acceptedContractProjection = objectOrNull(
         acceptedData?.contract_projection,
       );
@@ -11750,22 +11802,33 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       } else {
         const openTurnData = objectOrNull(objectOrNull(value)?.data);
         const recoveryRoot = currentWorkspaceRoot;
+        const zeroToolAccepted = (
+          objectOrNull(openTurnData?.current_turn)?.zero_tool_accepted_input
+          === true
+        );
         const recoveredInput = (
           openTurnData?.mode === "open_turn_recovery"
           && typeof params.campaign === "string"
           && params.campaign.trim()
           && currentOpenTurnAnchor?.campaignId === params.campaign.trim()
-        ) ? loadOpenTurnPlayerInput({
-            root: recoveryRoot,
-            campaignId: params.campaign.trim(),
-            currentTurn: openTurnData.current_turn,
-            anchor: currentOpenTurnAnchor.anchor,
-          }) : null;
+        ) ? zeroToolAccepted
+          ? loadZeroToolOpenTurnPlayerInput({
+              root: recoveryRoot,
+              campaignId: params.campaign.trim(),
+              anchor: currentOpenTurnAnchor.anchor,
+            })
+          : loadOpenTurnPlayerInput({
+              root: recoveryRoot,
+              campaignId: params.campaign.trim(),
+              currentTurn: openTurnData.current_turn,
+              anchor: currentOpenTurnAnchor.anchor,
+            }) : null;
         const guided = applyOpenTurnRecoveryGuidance(value, {
           expectedCampaign: typeof params.campaign === "string"
             ? params.campaign.trim()
             : undefined,
           playerInput: recoveredInput?.ok === true ? recoveredInput.card : null,
+          zeroToolAccepted,
         });
         if (guided.attached) {
           value = guided.envelope as JsonObject;

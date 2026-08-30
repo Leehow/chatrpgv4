@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -72,10 +72,15 @@ function resumeEnvelope(mode, extra = {}) {
       campaign_id: extra.campaign_id ?? "recovery-guide-campaign",
       mode,
       next_operations: extra.next_operations ?? [],
-      current_turn: extra.current_turn ?? { rows: [{ tool: "rules.roll", ok: true }] },
+      current_turn: Object.hasOwn(extra, "current_turn")
+        ? extra.current_turn
+        : { rows: [{ tool: "rules.roll", ok: true }] },
       ...(extra.open_turn_anchor === undefined
         ? {}
         : { open_turn_anchor: extra.open_turn_anchor }),
+      ...(Object.hasOwn(extra, "pending_turn")
+        ? { pending_turn: extra.pending_turn }
+        : {}),
     },
   };
 }
@@ -1160,6 +1165,132 @@ for (const name of ["coc_scene_context", "coc_rules_roll", "coc_state_journal"])
   assert.ok(!crossTimelineRecovery.activeTools.at(-1).includes(name), name);
 }
 await crossTimelineRecovery.shutdown();
+
+const zeroToolCampaign = "startup-zero-tool-open-turn-recovery";
+const zeroToolWorkspace = mkdtempSync(path.join(tmpdir(), "pi-coc-zero-tool-recovery-"));
+mkdirSync(path.join(zeroToolWorkspace, ".coc", "campaigns", zeroToolCampaign), {
+  recursive: true,
+});
+const zeroToolAnchor = openTurnInput.createOpenTurnAnchor({
+  timelineId: "timeline-main",
+  priorFinalizedTurn: 4,
+  priorFinalizedSourceDigest: `sha256:${"4".repeat(64)}`,
+});
+const zeroToolPlayerText = "我蹲下来检查地板上的血迹，但暂时不触碰它。";
+assert.equal(openTurnInput.recordOpenTurnPlayerInput({
+  root: zeroToolWorkspace,
+  campaignId: zeroToolCampaign,
+  sessionId: "zero-tool-natural-player-session",
+  playerTurnEpoch: 5,
+  text: zeroToolPlayerText,
+  anchor: zeroToolAnchor,
+}), "recorded");
+const zeroToolRecovery = harness((name, params) => {
+  if (name !== "coc_invoke" || params.operation !== "session.resume") {
+    throw new Error(`unexpected zero-tool ${name}:${params.operation}`);
+  }
+  return resumeEnvelope("awaiting_player", {
+    campaign_id: zeroToolCampaign,
+    open_turn_anchor: zeroToolAnchor,
+    next_operations: ["interpret_current_player_message"],
+    current_turn: null,
+    pending_turn: null,
+  });
+}, zeroToolCampaign, zeroToolWorkspace, []);
+await zeroToolRecovery.start();
+const zeroToolResumed = await invoke(
+  zeroToolRecovery,
+  "zero-tool-recovery-resume",
+  resumeParams(zeroToolCampaign, zeroToolWorkspace),
+  "coc_setup",
+);
+assert.equal(zeroToolResumed.data.mode, "open_turn_recovery");
+assert.equal(
+  zeroToolResumed.data.current_turn.player_input.text,
+  zeroToolPlayerText,
+);
+assert.equal(zeroToolResumed.data.host_recovery_guidance.acting_authorized, true);
+assert.equal(zeroToolResumed.data.open_turn_anchor, undefined);
+for (const name of ["coc_scene_context", "coc_actions_list", "coc_rules_roll"]) {
+  assert.ok(zeroToolRecovery.activeTools.at(-1).includes(name), name);
+}
+for (const name of [
+  "coc_turn_output_context",
+  "coc_narration_review",
+  "coc_turn_finalize",
+  "coc_setup_complete",
+]) {
+  assert.ok(!zeroToolRecovery.activeTools.at(-1).includes(name), name);
+}
+assert.equal(
+  zeroToolRecovery.sent.some((entry) => JSON.stringify(entry).includes(zeroToolPlayerText)),
+  false,
+);
+await zeroToolRecovery.shutdown();
+
+const zeroToolNeighbor = async ({ label, anchor, pendingTurn = null, tamper = false }) => {
+  const campaign = `zero-tool-neighbor-${label}`;
+  const workspace = mkdtempSync(path.join(tmpdir(), `pi-coc-zero-${label}-`));
+  mkdirSync(path.join(workspace, ".coc", "campaigns", campaign), { recursive: true });
+  if (label !== "missing") {
+    openTurnInput.recordOpenTurnPlayerInput({
+      root: workspace,
+      campaignId: campaign,
+      sessionId: `zero-tool-${label}-session`,
+      playerTurnEpoch: 1,
+      text: zeroToolPlayerText,
+      anchor: zeroToolAnchor,
+    });
+  }
+  if (tamper) {
+    const file = path.join(
+      workspace, ".coc", "runtime", "open-turn-player-inputs", `${campaign}.json`,
+    );
+    const payload = JSON.parse(readFileSync(file, "utf8"));
+    payload.text = "被篡改的玩家输入";
+    writeFileSync(file, `${JSON.stringify(payload)}\n`, "utf8");
+  }
+  const h = harness((name, params) => {
+    if (name !== "coc_invoke" || params.operation !== "session.resume") {
+      throw new Error(`unexpected ${label} ${name}:${params.operation}`);
+    }
+    return resumeEnvelope("awaiting_player", {
+      campaign_id: campaign,
+      open_turn_anchor: anchor,
+      next_operations: ["interpret_current_player_message"],
+      current_turn: null,
+      pending_turn: pendingTurn,
+    });
+  }, campaign, workspace, []);
+  await h.start();
+  const resumed = await invoke(
+    h,
+    `zero-tool-${label}-resume`,
+    resumeParams(campaign, workspace),
+    "coc_setup",
+  );
+  assert.equal(resumed.data.mode, "awaiting_player", label);
+  assert.equal(resumed.data.current_turn, null, label);
+  assert.equal(resumed.data.host_recovery_guidance, undefined, label);
+  assert.equal(h.activeTools.at(-1).includes("coc_state_journal"), false, label);
+  await h.shutdown();
+};
+
+await zeroToolNeighbor({ label: "missing", anchor: zeroToolAnchor });
+await zeroToolNeighbor({
+  label: "cross-timeline",
+  anchor: openTurnInput.createOpenTurnAnchor({
+    timelineId: "timeline-counterfactual",
+    priorFinalizedTurn: 4,
+    priorFinalizedSourceDigest: `sha256:${"4".repeat(64)}`,
+  }),
+});
+await zeroToolNeighbor({
+  label: "journaled",
+  anchor: zeroToolAnchor,
+  pendingTurn: { schema_version: 1, status: "pending" },
+});
+await zeroToolNeighbor({ label: "tampered", anchor: zeroToolAnchor, tamper: true });
 
 const missingRecoveryCampaign = "startup-open-turn-recovery-missing-input";
 const missingRecoveryAnchor = openTurnInput.createOpenTurnAnchor({
@@ -4433,6 +4564,10 @@ process.stdout.write(JSON.stringify({
   restartPlayerInputStable: true,
   crossTimelineAnchorFailsClosed: true,
   recoveryAnchorHiddenFromModel: true,
+  zeroToolAcceptedInputRecoversActing: true,
+  zeroToolNeighborsFailClosed: [
+    "missing", "tampered", "cross-timeline", "journaled",
+  ],
   skippedModes: ["table_opening", "awaiting_player", "pending_finalization"],
   noMidPairCustom: true,
   providerValid: true,

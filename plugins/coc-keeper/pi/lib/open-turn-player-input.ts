@@ -304,6 +304,14 @@ export function loadOpenTurnPlayerInput(args: {
   if (!validPreJournalWindow(args.currentTurn)) {
     return { ok: false, code: "not_open_pre_journal_turn" };
   }
+  return loadAnchoredPlayerInput(args);
+}
+
+function loadAnchoredPlayerInput(args: {
+  root: string;
+  campaignId: string;
+  anchor: OpenTurnAnchor;
+}): OpenTurnPlayerInputLoad {
   let value: unknown;
   try {
     value = JSON.parse(readFileSync(cachePath(args.root, args.campaignId), "utf8"));
@@ -328,6 +336,26 @@ export function loadOpenTurnPlayerInput(args: {
       intent_source: "external_player_message",
     },
   };
+}
+
+/**
+ * Recover an accepted external input that crashed before its first canonical
+ * operation. The caller owns proof that session.resume is awaiting_player with
+ * no current/pending turn; this function owns cache, campaign, and anchor
+ * integrity only.
+ */
+export function loadZeroToolOpenTurnPlayerInput(args: {
+  root: string;
+  campaignId: string;
+  anchor: OpenTurnAnchor;
+}): OpenTurnPlayerInputLoad {
+  if (!isCanonicalCampaignId(args.campaignId)) {
+    return { ok: false, code: "invalid_campaign" };
+  }
+  if (!validOpenTurnAnchor(args.anchor)) {
+    return { ok: false, code: "invalid_anchor" };
+  }
+  return loadAnchoredPlayerInput(args);
 }
 
 export function clearOpenTurnPlayerInput(

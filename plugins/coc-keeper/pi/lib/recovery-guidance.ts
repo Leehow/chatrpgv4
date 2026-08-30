@@ -1601,6 +1601,7 @@ function validOpenTurnPlayerInput(
 function semanticOpenTurnProjection(
   value: unknown,
   playerInput: OpenTurnPlayerInputCard | null,
+  zeroToolAccepted = false,
 ): JsonObject | null {
   if (!isPlainObject(value)) return null;
   const meaningful = value.meaningful_row_count;
@@ -1609,13 +1610,18 @@ function semanticOpenTurnProjection(
     const row = isPlainObject(candidate) ? candidate : null;
     return !(row?.tool === "state.journal" && row.ok === true);
   });
-  const verified = Number.isSafeInteger(meaningful)
+  const verifiedRows = Number.isSafeInteger(meaningful)
     && Number(meaningful) > 0
     && rows.length > 0
     && typeof value.source_digest === "string"
     && /^sha256:[0-9a-f]{64}$/u.test(value.source_digest)
-    && preJournal
-    && playerInput !== null;
+    && preJournal;
+  const verifiedZeroTool = zeroToolAccepted
+    && Number.isSafeInteger(meaningful)
+    && Number(meaningful) === 0
+    && rows.length === 0
+    && preJournal;
+  const verified = playerInput !== null && (verifiedRows || verifiedZeroTool);
   const projectedRows = rows.flatMap((candidate) => {
     if (!isPlainObject(candidate)) return [];
     const projected: JsonObject = {};
@@ -1677,6 +1683,7 @@ export function applyOpenTurnRecoveryGuidance(
   options: {
     expectedCampaign?: string;
     playerInput?: OpenTurnPlayerInputCard | null;
+    zeroToolAccepted?: boolean;
   } = {},
 ): {
   attached: boolean;
@@ -1695,6 +1702,7 @@ export function applyOpenTurnRecoveryGuidance(
   const currentTurn = semanticOpenTurnProjection(
     data.current_turn,
     campaignMatches ? playerInput : null,
+    options.zeroToolAccepted === true,
   );
   const actingAuthorized = campaignMatches
     && currentTurn?.recovery_status
