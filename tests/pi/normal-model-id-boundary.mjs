@@ -303,6 +303,42 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
   assert.deepEqual(out.data.journal_context, envelope.data.journal_context);
 }
 
+{
+  const envelope = structuredClone(FAMILIES.turn_output_context);
+  const hostExactExcerpt = "直到指节的皮裂开，血顺着拳面往下淌。";
+  envelope.data.accepted_review_evidence = {
+    schema_version: 1,
+    contract_id: "coc.accepted-review-evidence.v1",
+    visibility: "host_only",
+    review_id: "narration-review-v1:host-only",
+    turn_id: envelope.data.turn_id,
+    source_digest: envelope.data.source_digest,
+    revision: 1,
+    draft_sha256: `sha256:${"1".repeat(64)}`,
+    review_digest: `sha256:${"2".repeat(64)}`,
+    pending_draft_receipt_digest: `sha256:${"3".repeat(64)}`,
+    contract_projection_sha256: envelope.data.contract_projection_sha256,
+    verification: { agency_gate: "clear", state_authority_gate: "clear" },
+    state_authority_review: {
+      disposition: "claims_listed",
+      reason: "host only",
+      claims: [{ exact_excerpt: hostExactExcerpt }],
+    },
+    player_input_source_ref: "player_input:host-only",
+    agency_authority: { pc_subject_refs: ["pc:host-only"] },
+    control_overrides: [],
+    evidence_sha256: `sha256:${"4".repeat(64)}`,
+  };
+  const out = projectModelVisibleCanonicalResult(
+    "turn.output_context",
+    envelope,
+    emptySemanticProjectionView(),
+  );
+  assert.equal(Object.hasOwn(out.data, "accepted_review_evidence"), false);
+  assert.equal(JSON.stringify(out).includes(hostExactExcerpt), false);
+  assert.equal(JSON.stringify(out).includes("narration-review-v1:host-only"), false);
+}
+
 // Opening substance survives: exact opening text and time anchor.
 {
   const out = projectModelVisibleCanonicalResult(

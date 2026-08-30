@@ -8672,26 +8672,54 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     pendingFinalizationHydrationState = entry;
     return attempt;
   };
-  // Arm the preserved `turn.finalize` binding from a persisted draft-shape
-  // recovery card after a successful live hydration. The accepted review
-  // identity (narration_review_id) exists only in the frozen card — canonical
-  // output-context receipts carry no review id — so this is the only way a
-  // fresh session can re-arm typed finalize without re-reviewing. Every fact
-  // comes from the validated live hydration plus the exact invocation scope;
-  // a receipt without an exact journal fact refuses to arm — returning
-  // false so the caller attaches no guidance and suppresses no quarantine —
-  // rather than manufacturing a placeholder. Mirrors the narration.review
-  // observation arming exactly; binding and factory derive from the same
-  // retained facts so they validate as current host context.
+  // Rebuild the ordinary reviewed-agency finalize binding after successful
+  // live hydration. Identity comes from the exact frozen draft while semantic
+  // span/authority facts come from the independently validated canonical
+  // accepted-review evidence block; neither is reconstructed from transcript
+  // prose. A missing journal fact or any cross-source mismatch returns null,
+  // so callers attach no finalize-only guidance rather than manufacturing a
+  // partial binding. The same path also re-arms a persisted draft-shape repair
+  // card; that sealed lane retains its narrower draft-only replay gate.
   const armRecoveredFinalizeBinding = (args: {
     campaign: string;
     root: string;
     narrationReviewId: string;
     cards: LiveOutputContextCards;
     exactCardDecision?: boolean;
-  }): boolean => {
+  }): ReviewedAgencyBinding | null => {
     const revision = args.cards.revision;
-    if (args.cards.journalDecisionId === null) return false;
+    const frozenDraft = objectOrNull(args.cards.frozenDraft);
+    const acceptedEvidence = objectOrNull(
+      args.cards.acceptedReviewEvidence,
+    );
+    if (
+      args.cards.journalDecisionId === null
+      || frozenDraft === null
+      || acceptedEvidence === null
+      || acceptedEvidence.review_id !== args.narrationReviewId
+      || frozenDraft.review_id !== args.narrationReviewId
+      || acceptedEvidence.revision !== revision
+      || frozenDraft.revision !== revision
+      || acceptedEvidence.draft_sha256 !== frozenDraft.draft_sha256
+      || typeof frozenDraft.draft_text !== "string"
+    ) return null;
+    let reviewedAgencyBinding: ReviewedAgencyBinding;
+    try {
+      reviewedAgencyBinding = buildReviewedAgencyBinding({
+        review_id: args.narrationReviewId,
+        revision,
+        draft_sha256: String(frozenDraft.draft_sha256),
+        draft: frozenDraft.draft_text,
+        state_authority_review: acceptedEvidence.state_authority_review,
+        player_input_source_ref: String(
+          acceptedEvidence.player_input_source_ref ?? "",
+        ),
+        agency_authority: acceptedEvidence.agency_authority,
+        control_overrides: acceptedEvidence.control_overrides,
+      });
+    } catch {
+      return null;
+    }
     let finalizeDecisionId = semanticDecisionId("turn.finalize", revision);
     if (args.exactCardDecision === true) {
       const finalizePrefilled = objectOrNull(
@@ -8702,7 +8730,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ? finalizePrefilled.decision_id
         : "";
       if (exactDecision !== `${args.cards.journalDecisionId}:finalize`) {
-        return false;
+        return null;
       }
       finalizeDecisionId = exactDecision;
     }
@@ -8715,10 +8743,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       journalDecisionId: args.cards.journalDecisionId,
       finalizeDecisionId,
       narrationReviewId: args.narrationReviewId,
-      playerInputSourceRef: "",
-      agencyAuthority: {},
-      controlOverrides: [],
-      reviewedAgencyBinding: null,
+      playerInputSourceRef: String(acceptedEvidence.player_input_source_ref),
+      agencyAuthority: structuredClone(
+        acceptedEvidence.agency_authority as JsonObject,
+      ),
+      controlOverrides: structuredClone(
+        acceptedEvidence.control_overrides as JsonObject[],
+      ),
+      reviewedAgencyBinding,
     };
     const facts = retainedOutputContextFacts;
     const retainedFinalizeBinding: TypedToolBindingCard = {
@@ -8732,6 +8764,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       turn_id: facts.turnId,
       source_digest: facts.sourceDigest,
       narration_review_id: facts.narrationReviewId,
+      reviewed_agency_binding: structuredClone(reviewedAgencyBinding),
     };
     armTypedBinding(retainedFinalizeBinding, () => {
       const current = retainedOutputContextFacts;
@@ -8751,6 +8784,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         turn_id: current.turnId,
         source_digest: current.sourceDigest,
         narration_review_id: current.narrationReviewId,
+        ...(current.reviewedAgencyBinding === null
+          ? {}
+          : {
+              reviewed_agency_binding: structuredClone(
+                current.reviewedAgencyBinding,
+              ),
+            }),
       };
     });
     clearTypedBinding("narration.review");
@@ -8758,7 +8798,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       stage: "review_ready",
       reviewRevision: revision,
     });
-    return true;
+    return reviewedAgencyBinding;
   };
   // Host-injected `turn.finalize` identity fields: the canonical host-owned
   // contract set (including optional identities a given binding may not
@@ -9212,6 +9252,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         const reviewedFinalizeCurrent = restoredOperation === "turn.finalize"
           ? currentTypedBindingFactories.get("turn.finalize")?.() ?? null
           : null;
+        const armedDraftShapeRecovery = (
+          restoredOperation === "turn.finalize"
+          && invocationCampaign !== ""
+          && draftShapeRecoveryCards.has(invocationCampaign)
+        );
         // Generic-surface raw validation mirrors the typed branch: the raw
         // model payload is grammar-checked before host restoration attaches
         // provenance-tagged identity. Typed tools were already validated
@@ -9304,6 +9349,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         let semanticArgs = restoredArgs;
         if (
           typedDefinition === undefined
+          && !armedDraftShapeRecovery
           && reviewedFinalizeBinding?.operation === "turn.finalize"
           && reviewedFinalizeBinding.reviewed_agency_binding !== undefined
         ) {
@@ -9334,6 +9380,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         if (
           reviewedFinalizeBinding?.operation === "turn.finalize"
           && reviewedFinalizeBinding.reviewed_agency_binding !== undefined
+          && !armedDraftShapeRecovery
           && Object.hasOwn(semanticArgs, "agency_claims")
         ) {
           semanticArgs = { ...semanticArgs };
@@ -10533,13 +10580,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           if (recoveredHydration.status === "success" && isCurrent(epoch)) {
             // Missing or mismatched journal evidence fails the whole lane
             // closed: no binding, no guidance, no quarantine suppression.
-            const recoveryArmed = armRecoveredFinalizeBinding({
+            const recoveredAgencyBinding = armRecoveredFinalizeBinding({
               campaign: campaignId,
               root: recoveryRoot,
               narrationReviewId: String(card.narration_review_id),
               cards: recoveredHydration.cards,
             });
-            if (recoveryArmed) {
+            if (recoveredAgencyBinding !== null) {
               const guided = applyAcknowledgedResumeRecoveryGuidance(
                 value,
                 card,
@@ -11397,20 +11444,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const recoveryRoot = typeof params.root === "string" && params.root
         ? params.root
         : ctx.cwd;
-      let acceptedReviewFinalizeArmed = false;
+      let acceptedReviewBinding: ReviewedAgencyBinding | null = null;
       if (
         effectiveLiveHydration.status === "success"
         && effectiveLiveHydration.cards.agencyReviewRequired
         && effectiveLiveHydration.cards.reviewCard !== null
         && effectiveLiveHydration.cards.frozenDraftMode === "exact_replay"
         && effectiveLiveHydration.cards.frozenDraft !== null
-        && typeof effectiveLiveHydration.cards.frozenDraft.review_id === "string"
-        && effectiveLiveHydration.cards.frozenDraft.review_id.length > 0
+        && effectiveLiveHydration.cards.acceptedReviewEvidence !== null
+        && typeof effectiveLiveHydration.cards.acceptedReviewEvidence.review_id
+          === "string"
+        && effectiveLiveHydration.cards.acceptedReviewEvidence.review_id.length > 0
       ) {
-        acceptedReviewFinalizeArmed = armRecoveredFinalizeBinding({
+        acceptedReviewBinding = armRecoveredFinalizeBinding({
           campaign: resumeCampaign,
           root: recoveryRoot,
-          narrationReviewId: effectiveLiveHydration.cards.frozenDraft.review_id,
+          narrationReviewId:
+            effectiveLiveHydration.cards.acceptedReviewEvidence.review_id,
           cards: effectiveLiveHydration.cards,
           exactCardDecision: true,
         });
@@ -11420,7 +11470,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         campaign: resumeCampaign,
       }, {
         reviewRecoveryArmed,
-        acceptedReviewFinalizeArmed,
+        acceptedReviewBinding,
         ...(reviewRecoveryArmed ? { revision: recoveryIdentity.revision } : {}),
         ...(effectiveLiveHydration.status !== "not_attempted"
           ? { liveHydration: effectiveLiveHydration }

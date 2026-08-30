@@ -89,7 +89,11 @@ function clearAgencyReviewData(params, reviewId) {
 // Canonical `frozen_narration_draft` receipt (coc.pending-narration-draft):
 // closed 20-field producer schema, draft digest over the kernel canonical
 // convention, and a recomputed receipt_digest excluding only itself.
-function frozenNarrationDraftReceipt({ draftText, revision = 1 } = {}) {
+function frozenNarrationDraftReceipt({
+  draftText,
+  revision = 1,
+  reviewId = "narration-review-v2:dfd1d66b",
+} = {}) {
   const reviewDecisionId = "review-fault-1";
   const receipt = {
     schema_version: 1,
@@ -98,7 +102,7 @@ function frozenNarrationDraftReceipt({ draftText, revision = 1 } = {}) {
     campaign_id: campaign,
     receipt_id: `pending-narration-draft:${reviewDecisionId}:revision-${revision}`,
     review_decision_id: reviewDecisionId,
-    review_id: "narration-review-v2:dfd1d66b",
+    review_id: reviewId,
     turn_id: baseReview.turn_id,
     source_digest: baseReview.source_digest,
     revision,
@@ -207,6 +211,57 @@ const outputContext = {
     },
   },
 };
+
+function acceptedOutputContext(
+  draftText,
+  reviewId = "narration-review-v2:dfd1d66b",
+  revision = 1,
+) {
+  const envelope = structuredClone(outputContext);
+  const frozen = frozenNarrationDraftReceipt({
+    draftText,
+    revision,
+    reviewId,
+  });
+  envelope.data.frozen_narration_draft = frozen;
+  envelope.data.agency_review_operation.prefilled_arguments.revision = revision;
+  envelope.data.finalize_operation.prefilled_arguments.revision = revision;
+  const projectionSha256 = canonicalDigest(envelope.data.contract_projection);
+  envelope.data.contract_projection_sha256 = projectionSha256;
+  const evidence = {
+    schema_version: 1,
+    contract_id: "coc.accepted-review-evidence.v1",
+    visibility: "host_only",
+    review_id: reviewId,
+    turn_id: envelope.data.turn_id,
+    source_digest: envelope.data.source_digest,
+    revision,
+    draft_sha256: frozen.draft_sha256,
+    review_digest: frozen.review_digest,
+    pending_draft_receipt_digest: frozen.receipt_digest,
+    contract_projection_sha256: projectionSha256,
+    verification: {
+      agency_gate: "clear",
+      state_authority_gate: "clear",
+    },
+    state_authority_review: {
+      disposition: "no_player_state_change_claimed",
+      reason: "没有调查员状态变化。",
+      claims: [],
+    },
+    player_input_source_ref:
+      envelope.data.contract_projection.player_input.source_ref,
+    agency_authority: structuredClone(
+      envelope.data.contract_projection.agency_authority,
+    ),
+    control_overrides: structuredClone(
+      envelope.data.contract_projection.control_overrides,
+    ),
+  };
+  evidence.evidence_sha256 = canonicalDigest(evidence);
+  envelope.data.accepted_review_evidence = evidence;
+  return envelope;
+}
 
 function assistant(text, timestamp) {
   return {
@@ -1600,7 +1655,11 @@ test("run-02 chain: placement failure freezes an executable card and an acknowle
           },
         };
       }
-      if (params.operation === "turn.output_context") return outputContext;
+      if (params.operation === "turn.output_context") {
+        return resumeMode === "already_acknowledged"
+          ? acceptedOutputContext(mergedDraft, reviewId)
+          : outputContext;
+      }
       if (params.operation === "narration.review") {
         return {
           ok: true,
@@ -2468,15 +2527,18 @@ async function run02AdversarialHarness(options = {}) {
       };
     }
     if (params.operation === "turn.output_context") {
+      const currentContext = phase === 2
+        ? acceptedOutputContext(mergedDraft, reviewId)
+        : outputContext;
       if (phase === 2 && options.staleLiveReceipt) {
         return {
-          ...outputContext,
+          ...currentContext,
           data: {
-            ...outputContext.data,
+            ...currentContext.data,
             finalize_operation: {
-              ...outputContext.data.finalize_operation,
+              ...currentContext.data.finalize_operation,
               prefilled_arguments: {
-                ...outputContext.data.finalize_operation.prefilled_arguments,
+                ...currentContext.data.finalize_operation.prefilled_arguments,
                 revision: 2,
               },
             },
@@ -2485,10 +2547,10 @@ async function run02AdversarialHarness(options = {}) {
       }
       if (phase === 2 && options.session2OmitJournalDecisionId) {
         const { journal_decision_id: _omitted, ...withoutJournalId } =
-          outputContext.data;
-        return { ...outputContext, data: withoutJournalId };
+          currentContext.data;
+        return { ...currentContext, data: withoutJournalId };
       }
-      return outputContext;
+      return currentContext;
     }
     if (params.operation === "narration.review") {
       return {

@@ -575,13 +575,19 @@ test("rewrite-required review advances the retained host binding before correcte
     assert.equal(corrected.ok, true, JSON.stringify({ corrected, reviewTrace }));
     assert.equal(corrected.data.revision, 2);
 
+    const callsBeforeReplay = h.clientCalls.length;
     const replay = JSON.parse(
       (await invokeReviewSurface(
         h, "coc_narration_review", "review-revision-2-replay", correctedDraft,
       )).content[0].text,
     );
-    assert.equal(replay.ok, true, JSON.stringify(replay));
-    assert.equal(replay.data.revision, 2);
+    assert.equal(replay.ok, false, JSON.stringify(replay));
+    assert.equal(replay.error.code, "state_claim_compiler_context_missing");
+    assert.equal(
+      h.clientCalls.length,
+      callsBeforeReplay,
+      "an accepted review is closed and cannot be repeated at transport",
+    );
 
     const callsBeforeStale = h.clientCalls.length;
     const stale = JSON.parse(
@@ -593,17 +599,16 @@ test("rewrite-required review advances the retained host binding before correcte
       )).content[0].text,
     );
     assert.equal(stale.ok, false);
-    assert.equal(stale.error.code, "forged_host_argument");
+    assert.equal(stale.error.code, "state_claim_compiler_context_missing");
     assert.equal(h.clientCalls.length, callsBeforeStale);
 
     const forwarded = h.clientCalls
       .filter((call) => call.params.operation === "narration.review")
       .map((call) => call.params.arguments);
-    assert.equal(forwarded.length, 3);
-    assert.deepEqual(forwarded.map((args) => args.revision), [1, 2, 2]);
-    assert.equal(compilation, 2, "revision-2 replay reuses the compiled receipt");
+    assert.equal(forwarded.length, 2);
+    assert.deepEqual(forwarded.map((args) => args.revision), [1, 2]);
+    assert.equal(compilation, 2, "accepted revision 2 closes the review lane");
     assert.notEqual(forwarded[0].decision_id, forwarded[1].decision_id);
-    assert.equal(forwarded[2].decision_id, forwarded[1].decision_id);
     assert.equal(forwarded[1].turn_id, forwarded[0].turn_id);
     assert.equal(forwarded[1].source_digest, forwarded[0].source_digest);
     assert.equal(

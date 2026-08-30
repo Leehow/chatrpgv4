@@ -96,6 +96,7 @@ _SPAN_REPAIRS_MAX_CLAIM_KIND_UTF8_BYTES = 128
 _SPAN_REPAIRS_MAX_REASON_UTF8_BYTES = 1024
 _SPAN_REPAIRS_MAX_INSTRUCTION_UTF8_BYTES = 512
 _SPAN_REPAIRS_MAX_AGGREGATE_EXCERPT_UTF8_BYTES = 4096
+_ACCEPTED_REVIEW_EVIDENCE_CONTRACT_ID = "coc.accepted-review-evidence.v1"
 
 
 def _utf8_len(value: str) -> int:
@@ -1469,6 +1470,94 @@ def _active_pending_review(
     return active[0], "submitted"
 
 
+def _accepted_review_evidence(
+    ctx: Ctx,
+    *,
+    review: dict[str, Any],
+    frozen_draft: dict[str, Any],
+    settled: dict[str, Any],
+    contract_projection: dict[str, Any],
+    contract_projection_sha256: str,
+) -> dict[str, Any] | None:
+    """Close the exact accepted-review facts needed by a fresh Pi host.
+
+    This is host-only recovery evidence, not a second review engine.  Every
+    semantic judgment was already made by the canonical narration review;
+    this function only revalidates its current settlement binding and seals
+    the exact structured facts needed to rebuild the ordinary reviewed-agency
+    binding after a process restart.
+    """
+    if (
+        review.get("agency_gate") != "clear"
+        or review.get("state_authority_gate") != "clear"
+        or _review_has_agency_violation(review)
+        or review.get("turn_id") != settled.get("turn_id")
+        or review.get("source_digest") != settled.get("source_digest")
+        or review.get("review_id") != frozen_draft.get("review_id")
+        or review.get("revision") != frozen_draft.get("revision")
+        or review.get("draft_sha256") != frozen_draft.get("draft_sha256")
+        or review.get("review_digest") != frozen_draft.get("review_digest")
+        or contract_projection_sha256 != _canonical_digest(contract_projection)
+    ):
+        return None
+    draft = frozen_draft.get("draft_text")
+    revision = review.get("revision")
+    state_authority_review = review.get("state_authority_review")
+    player_input = contract_projection.get("player_input")
+    agency_authority = contract_projection.get("agency_authority")
+    control_overrides = contract_projection.get("control_overrides")
+    if (
+        not isinstance(draft, str)
+        or not draft.strip()
+        or isinstance(revision, bool)
+        or not isinstance(revision, int)
+        or revision < 1
+        or not isinstance(state_authority_review, dict)
+        or not isinstance(player_input, dict)
+        or not isinstance(player_input.get("source_ref"), str)
+        or not player_input["source_ref"].strip()
+        or not isinstance(agency_authority, dict)
+        or not isinstance(control_overrides, list)
+        or any(not isinstance(row, dict) for row in control_overrides)
+    ):
+        return None
+    if _recompute_state_authority_gate(
+        ctx,
+        row=review,
+        draft=draft,
+        settled=settled,
+        turn_id=str(settled["turn_id"]),
+        source_digest=str(settled["source_digest"]),
+        revision=revision,
+    ) != "clear":
+        return None
+    payload = {
+        "schema_version": 1,
+        "contract_id": _ACCEPTED_REVIEW_EVIDENCE_CONTRACT_ID,
+        "visibility": "host_only",
+        "review_id": str(review["review_id"]),
+        "turn_id": str(review["turn_id"]),
+        "source_digest": str(review["source_digest"]),
+        "revision": revision,
+        "draft_sha256": str(review["draft_sha256"]),
+        "review_digest": str(review["review_digest"]),
+        "pending_draft_receipt_digest": str(
+            frozen_draft["receipt_digest"]
+        ),
+        "contract_projection_sha256": contract_projection_sha256,
+        "verification": {
+            "agency_gate": "clear",
+            "state_authority_gate": "clear",
+        },
+        "state_authority_review": deepcopy(state_authority_review),
+        "player_input_source_ref": str(player_input["source_ref"]),
+        "agency_authority": deepcopy(agency_authority),
+        "control_overrides": deepcopy(control_overrides),
+    }
+    payload["evidence_sha256"] = _canonical_digest(payload)
+    return payload
+
+
 def _tool_state_recover_pending_narration_draft(
     ctx: Ctx, args: dict[str, Any]
 ):
@@ -2293,7 +2382,8 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
     data["drafting_injection_brief"] = _drafting_injection_brief(data)
     contract_projection = _turn_contract_projection(ctx, data)
     data["contract_projection"] = contract_projection
-    data["contract_projection_sha256"] = _canonical_digest(contract_projection)
+    contract_projection_sha256 = _canonical_digest(contract_projection)
+    data["contract_projection_sha256"] = contract_projection_sha256
     agency_review_required = contract_projection["agency_review_required"] is True
     agency_review_revision = (
         _pending_authority_review_revision(ctx, data)
@@ -2314,6 +2404,16 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
             )
             if frozen_draft is not None:
                 data["frozen_narration_draft"] = frozen_draft
+                accepted_review = _accepted_review_evidence(
+                    ctx,
+                    review=active_review,
+                    frozen_draft=frozen_draft,
+                    settled=data,
+                    contract_projection=contract_projection,
+                    contract_projection_sha256=contract_projection_sha256,
+                )
+                if accepted_review is not None:
+                    data["accepted_review_evidence"] = accepted_review
             else:
                 draft_contract_usable = False
         elif draft_status != "not_submitted":

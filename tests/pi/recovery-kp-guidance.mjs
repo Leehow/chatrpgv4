@@ -1229,6 +1229,65 @@ const liveEnvelope = (mutateData = () => {}, frozenDraft) => {
   }
   return envelope;
 };
+const acceptedReviewEnvelope = (mutateEvidence = () => {}, { reseal = true } = {}) => {
+  const envelope = liveEnvelope();
+  envelope.data.contract_projection = {
+    agency_review_required: true,
+    player_input: {
+      source_ref: "player_input:live-hydrate-1",
+      text: "我等待诺特的答复。",
+    },
+    control_overrides: [],
+    agency_authority: {
+      pc_subject_refs: ["pc:live-hydrate-investigator"],
+      involuntary_physiology_sources: [{
+        source_ref: "narration_contract:involuntary_physiology",
+        source_type: "ownership_contract",
+      }],
+    },
+  };
+  envelope.data.contract_projection_sha256 = canonicalDigest(
+    envelope.data.contract_projection,
+  );
+  const frozen = envelope.data.frozen_narration_draft;
+  const evidence = {
+    schema_version: 1,
+    contract_id: "coc.accepted-review-evidence.v1",
+    visibility: "host_only",
+    review_id: frozen.review_id,
+    turn_id: envelope.data.turn_id,
+    source_digest: envelope.data.source_digest,
+    revision: frozen.revision,
+    draft_sha256: frozen.draft_sha256,
+    review_digest: frozen.review_digest,
+    pending_draft_receipt_digest: frozen.receipt_digest,
+    contract_projection_sha256: envelope.data.contract_projection_sha256,
+    verification: {
+      agency_gate: "clear",
+      state_authority_gate: "clear",
+    },
+    state_authority_review: {
+      disposition: "no_player_state_change_claimed",
+      reason: "草稿没有宣告玩家状态变化。",
+      claims: [],
+    },
+    player_input_source_ref:
+      envelope.data.contract_projection.player_input.source_ref,
+    agency_authority: structuredClone(
+      envelope.data.contract_projection.agency_authority,
+    ),
+    control_overrides: [],
+  };
+  mutateEvidence(evidence, envelope.data);
+  if (reseal) {
+    delete evidence.evidence_sha256;
+    evidence.evidence_sha256 = canonicalDigest(evidence);
+  } else if (!Object.hasOwn(evidence, "evidence_sha256")) {
+    evidence.evidence_sha256 = `sha256:${"0".repeat(64)}`;
+  }
+  envelope.data.accepted_review_evidence = evidence;
+  return envelope;
+};
 const pointerOnlyPendingEnvelope = (campaignId) => {
   const envelope = resumeEnvelope("pending_finalization", {
     campaign_id: campaignId,
@@ -1650,6 +1709,72 @@ for (const [label, envelope, resumeData, expectNull] of [
     `${liveTurnId}:player-epoch-7:revision-2:finalize`,
   );
   assert.equal(mutationValidated.frozenDraft.draft_text, liveDraftText);
+}
+
+// Accepted-review recovery evidence is a closed host-only bridge. It is
+// accepted only when its own seal, frozen review/draft identity, and exact
+// current authority projection all agree. A self-consistent forged mutation
+// still fails when it diverges from an independent canonical source.
+{
+  const acceptedSource = acceptedReviewEnvelope();
+  const accepted = validateLiveOutputContext(acceptedSource, null);
+  assert.ok(accepted !== null);
+  assert.deepEqual(
+    accepted.acceptedReviewEvidence,
+    acceptedSource.data.accepted_review_evidence,
+  );
+  acceptedSource.data.accepted_review_evidence.state_authority_review.reason =
+    "later source mutation";
+  assert.equal(
+    accepted.acceptedReviewEvidence.state_authority_review.reason,
+    "草稿没有宣告玩家状态变化。",
+    "validated accepted-review evidence is an exact deep copy",
+  );
+
+  const forgedCases = [
+    ["invalid evidence digest", acceptedReviewEnvelope(() => {}, { reseal: false })],
+    ["stale review identity", acceptedReviewEnvelope((e) => {
+      e.review_id = "narration-review-v1:stale";
+    })],
+    ["stale draft digest", acceptedReviewEnvelope((e) => {
+      e.draft_sha256 = canonicalDigest("另一份草稿");
+    })],
+    ["stale review digest", acceptedReviewEnvelope((e) => {
+      e.review_digest = `sha256:${"9".repeat(64)}`;
+    })],
+    ["stale receipt digest", acceptedReviewEnvelope((e) => {
+      e.pending_draft_receipt_digest = `sha256:${"8".repeat(64)}`;
+    })],
+    ["authority diverges from canonical projection", acceptedReviewEnvelope((e) => {
+      e.agency_authority.pc_subject_refs = ["pc:other-investigator"];
+    })],
+    ["player input authority diverges", acceptedReviewEnvelope((e) => {
+      e.player_input_source_ref = "player_input:other-turn";
+    })],
+    ["unreviewed exact state span", acceptedReviewEnvelope((e) => {
+      e.state_authority_review = {
+        disposition: "claims_listed",
+        reason: "forged exact span",
+        claims: [{
+          claim_id: "claim-forged",
+          subject_ref: "pc:live-hydrate-investigator",
+          claim_kind: "condition",
+          exact_excerpt: "不在冻结草稿中的文本",
+          source_effect_id: "effect:forged",
+          reason: "forged",
+        }],
+      };
+    })],
+    ["non-clear verification", acceptedReviewEnvelope((e) => {
+      e.verification.state_authority_gate = "rewrite_required";
+    })],
+    ["unknown evidence field", acceptedReviewEnvelope((e) => {
+      e.extra = "not closed";
+    })],
+  ];
+  for (const [label, envelope] of forgedCases) {
+    assert.equal(validateLiveOutputContext(envelope, null), null, label);
+  }
 }
 
 // Recovery hydration mode: a review-required live chain is usable only with

@@ -2259,8 +2259,25 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
   }));
   const turnId = "turn-affordance-pending-1";
   const sourceDigest = `sha256:${"c7".repeat(32)}`;
-  const draftText = "旅馆大厅的烛光在未封缄的信封上跳动，你把信推回桌角。";
+  const draftText = (
+    "你当着他的面抡起右拳，空着手，对着桌角一下一下砸下去。"
+    + "硬木棱反复撞上骨节，直到指节的皮裂开，血顺着拳面往下淌。\n\n"
+    + "诺特没有退，也没有叫人。"
+  );
   const draftSha256 = canonicalDigest(draftText);
+  const stateExcerpt = "直到指节的皮裂开，血顺着拳面往下淌。";
+  const stateAuthorityReview = {
+    disposition: "claims_listed",
+    reason: "精确记录草稿里的指节伤势。",
+    claims: [{
+      claim_id: "claim-knuckle-injury",
+      subject_ref: "pc:affordance-investigator",
+      claim_kind: "condition",
+      exact_excerpt: stateExcerpt,
+      source_effect_id: "effect:knuckle-injury",
+      reason: "已由冻结的伤势效果授权。",
+    }],
+  };
   const buildFrozenReceipt = (options = {}) => {
     const revision = options.revision ?? 2;
     const draft = options.draft_text ?? draftText;
@@ -2321,36 +2338,66 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
     authority: "settled_output_completeness",
     hard_gate: true,
   });
-  const liveContextEnvelope = (reviewCard = liveReviewCard(), finalizeCard = liveFinalizeCard(), receipt = frozenDraft()) => ({
-    ok: true,
-    tool: "turn.output_context",
-    data: {
+  const liveContextEnvelope = (reviewCard = liveReviewCard(), finalizeCard = liveFinalizeCard(), receipt = frozenDraft()) => {
+    const contractProjection = {
+      agency_review_required: true,
+      player_input: {
+        source_ref: "player_input:affordance-pending-1",
+        text: "我用右拳砸桌角，直到指节破裂流血。",
+      },
+      control_overrides: [],
+      agency_authority: {
+        pc_subject_refs: ["pc:affordance-investigator"],
+        involuntary_physiology_sources: [{
+          source_ref: "narration_contract:involuntary_physiology",
+          source_type: "ownership_contract",
+        }],
+      },
+    };
+    const contractProjectionSha256 = canonicalDigest(contractProjection);
+    const acceptedReviewEvidence = {
+      schema_version: 1,
+      contract_id: "coc.accepted-review-evidence.v1",
+      visibility: "host_only",
+      review_id: receipt.review_id,
       turn_id: turnId,
       source_digest: sourceDigest,
-      journal_decision_id:
-        "pi-state-journal:2a383743:player-epoch-7:revision-2",
-      settlement_snapshot_id: "turn-settlement-v1:affordance-pending-1",
-      mechanics_bundle_sha256: `sha256:${"e9".repeat(32)}`,
-      contract_projection: {
-        agency_review_required: true,
-        player_input: {
-          source_ref: "player_input:affordance-pending-1",
-          text: "我把信推回桌角。",
-        },
-        control_overrides: [],
-        agency_authority: {
-          pc_subject_refs: ["pc:affordance-investigator"],
-          involuntary_physiology_sources: [{
-            source_ref: "narration_contract:involuntary_physiology",
-            source_type: "ownership_contract",
-          }],
-        },
+      revision: receipt.revision,
+      draft_sha256: receipt.draft_sha256,
+      review_digest: receipt.review_digest,
+      pending_draft_receipt_digest: receipt.receipt_digest,
+      contract_projection_sha256: contractProjectionSha256,
+      verification: {
+        agency_gate: "clear",
+        state_authority_gate: "clear",
       },
-      frozen_narration_draft: receipt,
-      agency_review_operation: reviewCard,
-      finalize_operation: finalizeCard,
-    },
-  });
+      state_authority_review: structuredClone(stateAuthorityReview),
+      player_input_source_ref: contractProjection.player_input.source_ref,
+      agency_authority: structuredClone(contractProjection.agency_authority),
+      control_overrides: [],
+    };
+    acceptedReviewEvidence.evidence_sha256 = canonicalDigest(
+      acceptedReviewEvidence,
+    );
+    return {
+      ok: true,
+      tool: "turn.output_context",
+      data: {
+        turn_id: turnId,
+        source_digest: sourceDigest,
+        journal_decision_id:
+          "pi-state-journal:2a383743:player-epoch-7:revision-2",
+        settlement_snapshot_id: "turn-settlement-v1:affordance-pending-1",
+        mechanics_bundle_sha256: `sha256:${"e9".repeat(32)}`,
+        contract_projection_sha256: contractProjectionSha256,
+        contract_projection: contractProjection,
+        frozen_narration_draft: receipt,
+        accepted_review_evidence: acceptedReviewEvidence,
+        agency_review_operation: reviewCard,
+        finalize_operation: finalizeCard,
+      },
+    };
+  };
   let contextFetches = 0;
   const priorRole = process.env[ROLE_ENV];
   const priorCampaign = process.env[CAMPAIGN_ENV];
@@ -2473,9 +2520,9 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
       operation: "turn.finalize",
       invoke_via: "coc_turn_finalize",
       prefilled_arguments: { coverage: [] },
-      missing_arguments: ["draft", "agency_claims"],
+      missing_arguments: ["agency_claims"],
       host_bound_auto_attached_arguments: [
-        "campaign", "decision_id", "narration_review_id",
+        "campaign", "decision_id", "draft", "narration_review_id",
         "repair_finalization_id", "revision", "root",
       ],
       discovery_required: false,
@@ -2494,9 +2541,31 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
     }
     assert.deepEqual(guidance.then.finalize_input, {
       visibility: "keeper_only",
-      source: "turn.output_context.data.frozen_narration_draft",
-      mode: "accepted_review_exact",
-      accepted_draft_text: draftText,
+      source: "turn.output_context.data.accepted_review_evidence",
+      mode: "accepted_review_semantic",
+      reviewed_spans: [
+        "reviewed-state-claim:1",
+        "reviewed-sentence:paragraph-1:1",
+        "reviewed-sentence:paragraph-1:2",
+        "reviewed-paragraph:1",
+        "reviewed-sentence:paragraph-2:1",
+        "reviewed-paragraph:2",
+      ],
+      authorities: [
+        {
+          authority: "current-player-input",
+          claim_types: [
+            "voluntary_action", "voluntary_speech", "voluntary_plan",
+            "voluntary_belief", "voluntary_trust",
+            "voluntary_active_emotion",
+          ],
+        },
+        {
+          authority: "involuntary-physiology",
+          claim_types: ["involuntary_physiology"],
+        },
+      ],
+      model_arguments: ["coverage", "agency_claims"],
       instruction: guidance.then.finalize_input.instruction,
     });
     // Host-only details retain both exact canonical cards and accepted-review
@@ -2513,18 +2582,14 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
       JSON.stringify(liveFinalizeCard()),
       "host-only details must retain the exact canonical finalize card",
     );
-    assert.equal(
-      resumedResult.details.data.host_recovery_guidance.then
-        .finalize_input.accepted_draft_sha256,
-      draftSha256,
-      "host-only details must retain the exact frozen draft digest",
-    );
     const guidanceJson = JSON.stringify(guidance);
     assert.equal(
       guidanceJson.split(draftText).length - 1,
-      1,
-      "frozen draft appears exactly once in the guidance",
+      0,
+      "accepted-review recovery guidance never exposes the frozen draft",
     );
+    assert.equal(guidanceJson.includes(stateExcerpt), false);
+    assert.equal(guidanceJson.includes("accepted_review_evidence"), true);
     for (const hostOnlyValue of [
       turnId,
       sourceDigest,
@@ -2544,9 +2609,16 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
       "host-refreshed guidance must be pointer-free",
     );
     assert.deepEqual(guidance.model_calls.finalize.model_owned_required_arguments, [
-      "coverage",
-      "draft",
+      "coverage", "agency_claims",
     ]);
+    assert.deepEqual(
+      guidance.model_calls.finalize.model_owned_optional_arguments,
+      [],
+    );
+    assert.ok(
+      guidance.model_calls.finalize.host_bound_auto_attached_arguments
+        .includes("draft"),
+    );
     assert.equal(guidance.model_calls.finalize.invoke_via, "coc_turn_finalize");
     assert.equal(
       h.clientCalls.some((call) => call.params?.operation === "narration.review"),
@@ -2563,11 +2635,54 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
     // typed_flat surface: model-owned arguments only; the host attaches
     // decision/revision/review identities — no alias or forged rejection.
     assert.equal(guidance.model_calls.finalize.invocation_shape, "typed_flat");
+    for (const [label, agencyClaim] of [
+      ["stale reviewed span", {
+        reviewed_span: "reviewed-sentence:paragraph-99:1",
+        claim_type: "voluntary_action",
+        authority: "current-player-input",
+      }],
+      ["mismatched reviewed authority", {
+        reviewed_span: "reviewed-state-claim:1",
+        claim_type: "voluntary_action",
+        authority: "involuntary-physiology",
+      }],
+    ]) {
+      const beforeRejected = h.clientCalls.filter((call) => (
+        call.name === "coc_invoke" && call.params?.operation === "turn.finalize"
+      )).length;
+      const rejected = JSON.parse((await h.tools.get("coc_turn_finalize").execute(
+        `typed-finalize-reject-${label}`,
+        { coverage: [], agency_claims: [agencyClaim] },
+        undefined,
+        undefined,
+        h.ctx,
+      )).content[0].text);
+      assert.equal(rejected.ok, false, label);
+      assert.equal(
+        h.clientCalls.filter((call) => (
+          call.name === "coc_invoke"
+          && call.params?.operation === "turn.finalize"
+        )).length,
+        beforeRejected,
+        `${label} must fail before canonical transport`,
+      );
+    }
     const finalize = JSON.parse((await h.tools.get("coc_turn_finalize").execute(
       "typed-finalize",
       {
         coverage: [],
-        agency_claims: [],
+        agency_claims: [
+          {
+            reviewed_span: "reviewed-sentence:paragraph-1:1",
+            claim_type: "voluntary_action",
+            authority: "current-player-input",
+          },
+          {
+            reviewed_span: "reviewed-state-claim:1",
+            claim_type: "involuntary_physiology",
+            authority: "involuntary-physiology",
+          },
+        ],
       },
       undefined,
       undefined,
@@ -2580,6 +2695,19 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
     assert.equal(finalizeCalls.length, 1);
     const finalizeWire = finalizeCalls[0].params.arguments;
     assert.equal(finalizeWire.draft, draftText);
+    assert.equal(
+      finalizeWire.agency_claims[0].exact_excerpt,
+      "你当着他的面抡起右拳，空着手，对着桌角一下一下砸下去。",
+    );
+    assert.equal(finalizeWire.agency_claims[1].exact_excerpt, stateExcerpt);
+    assert.equal(
+      finalizeWire.agency_claims[0].source_ref,
+      "player_input:affordance-pending-1",
+    );
+    assert.equal(
+      finalizeWire.agency_claims[1].source_ref,
+      "narration_contract:involuntary_physiology",
+    );
     assert.equal(finalizeWire.revision, 2);
     assert.equal(
       finalizeWire.decision_id,

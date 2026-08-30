@@ -16,6 +16,7 @@ import {
 import {
   projectModelCallArguments,
   type ModelCallArgumentProjection,
+  type ReviewedAgencyBinding,
 } from "./tool-contract-projection.ts";
 
 export const OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT =
@@ -410,6 +411,175 @@ export function validateFrozenNarrationDraft(
   return deepCopyValue(value) as JsonObject;
 }
 
+const ACCEPTED_REVIEW_EVIDENCE_CONTRACT =
+  "coc.accepted-review-evidence.v1";
+const ACCEPTED_REVIEW_EVIDENCE_FIELDS = new Set([
+  "schema_version", "contract_id", "visibility", "review_id", "turn_id",
+  "source_digest", "revision", "draft_sha256", "review_digest",
+  "pending_draft_receipt_digest", "contract_projection_sha256",
+  "verification", "state_authority_review", "player_input_source_ref",
+  "agency_authority", "control_overrides", "evidence_sha256",
+]);
+const ACCEPTED_REVIEW_VERIFICATION_FIELDS = new Set([
+  "agency_gate", "state_authority_gate",
+]);
+const ACCEPTED_STATE_REVIEW_FIELDS = new Set([
+  "disposition", "reason", "claims",
+]);
+const ACCEPTED_STATE_CLAIM_FIELDS = new Set([
+  "claim_id", "subject_ref", "claim_kind", "exact_excerpt",
+  "source_effect_id", "reason",
+]);
+const ACCEPTED_STATE_CLAIM_KINDS = new Set([
+  "cash", "item", "purchase", "assets_liquidate", "scalar",
+  "loaded_ammunition", "condition", "time", "time_appearance", "rest",
+]);
+
+function hasExactFields(value: JsonObject, expected: ReadonlySet<string>): boolean {
+  const keys = Object.keys(value);
+  return keys.length === expected.size && keys.every((key) => expected.has(key));
+}
+
+function acceptedEvidenceDigestMatches(value: JsonObject): boolean {
+  const payload: JsonObject = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (key !== "evidence_sha256") payload[key] = entry;
+  }
+  return canonicalDigest(payload) === value.evidence_sha256;
+}
+
+function validAcceptedStateReview(
+  value: unknown,
+  draft: string,
+  pcSubjectRefs: readonly string[],
+): value is JsonObject {
+  if (!isPlainObject(value) || !hasExactFields(value, ACCEPTED_STATE_REVIEW_FIELDS)) {
+    return false;
+  }
+  const disposition = value.disposition;
+  const claims = value.claims;
+  if (
+    (disposition !== "no_player_state_change_claimed"
+      && disposition !== "claims_listed")
+    || !boundedString(value.reason, 4096)
+    || !Array.isArray(claims)
+    || claims.length > 64
+    || (disposition === "no_player_state_change_claimed" && claims.length !== 0)
+    || (disposition === "claims_listed" && claims.length === 0)
+  ) return false;
+  const seenClaims = new Set<string>();
+  const seenEffects = new Set<string>();
+  for (const raw of claims) {
+    if (!isPlainObject(raw) || !hasExactFields(raw, ACCEPTED_STATE_CLAIM_FIELDS)) {
+      return false;
+    }
+    if (
+      !boundedString(raw.claim_id, 256)
+      || seenClaims.has(raw.claim_id)
+      || !nonEmptyStringField(raw.subject_ref)
+      || !pcSubjectRefs.includes(raw.subject_ref)
+      || typeof raw.claim_kind !== "string"
+      || !ACCEPTED_STATE_CLAIM_KINDS.has(raw.claim_kind)
+      || !boundedString(raw.exact_excerpt, FROZEN_DRAFT_MAX_UTF8_BYTES)
+      || !draft.includes(raw.exact_excerpt)
+      || !boundedString(raw.source_effect_id, 512)
+      || seenEffects.has(raw.source_effect_id)
+      || !boundedString(raw.reason, 4096)
+    ) return false;
+    seenClaims.add(raw.claim_id);
+    seenEffects.add(raw.source_effect_id);
+  }
+  return true;
+}
+
+/**
+ * Validate the canonical host-only accepted-review bridge against three
+ * independent sources already present in the same live context: the frozen
+ * draft receipt, the current contract projection, and the output-context
+ * identity. A self-consistent mutation of the evidence block alone is never
+ * enough. The returned copy is safe for host-side binding only; model
+ * projection deliberately has no route for this field.
+ */
+function validateAcceptedReviewEvidence(
+  value: unknown,
+  binding: {
+    turnId: string;
+    sourceDigest: string;
+    revision: number;
+    frozenDraft: JsonObject;
+    contractProjection: JsonObject;
+    contractProjectionSha256: unknown;
+  },
+): JsonObject | null {
+  if (!isPlainObject(value) || !hasExactFields(value, ACCEPTED_REVIEW_EVIDENCE_FIELDS)) {
+    return null;
+  }
+  const verification = isPlainObject(value.verification)
+    ? value.verification
+    : null;
+  const agencyAuthority = isPlainObject(value.agency_authority)
+    ? value.agency_authority
+    : null;
+  const canonicalAuthority = isPlainObject(
+    binding.contractProjection.agency_authority,
+  ) ? binding.contractProjection.agency_authority : null;
+  const playerInput = isPlainObject(binding.contractProjection.player_input)
+    ? binding.contractProjection.player_input
+    : null;
+  const canonicalOverrides = Array.isArray(
+    binding.contractProjection.control_overrides,
+  ) ? binding.contractProjection.control_overrides : null;
+  const pcSubjectRefs = agencyAuthority !== null
+    && Array.isArray(agencyAuthority.pc_subject_refs)
+    ? agencyAuthority.pc_subject_refs.filter(
+      (entry): entry is string => nonEmptyStringField(entry),
+    )
+    : [];
+  if (
+    value.schema_version !== 1
+    || value.contract_id !== ACCEPTED_REVIEW_EVIDENCE_CONTRACT
+    || value.visibility !== "host_only"
+    || value.review_id !== binding.frozenDraft.review_id
+    || value.turn_id !== binding.turnId
+    || value.source_digest !== binding.sourceDigest
+    || value.revision !== binding.revision
+    || value.revision !== binding.frozenDraft.revision
+    || value.draft_sha256 !== binding.frozenDraft.draft_sha256
+    || value.review_digest !== binding.frozenDraft.review_digest
+    || value.pending_draft_receipt_digest !== binding.frozenDraft.receipt_digest
+    || !sha256DigestField(value.draft_sha256)
+    || !sha256DigestField(value.review_digest)
+    || !sha256DigestField(value.pending_draft_receipt_digest)
+    || !sha256DigestField(value.contract_projection_sha256)
+    || !sha256DigestField(value.evidence_sha256)
+    || value.contract_projection_sha256 !== binding.contractProjectionSha256
+    || value.contract_projection_sha256
+      !== canonicalDigest(binding.contractProjection)
+    || verification === null
+    || !hasExactFields(verification, ACCEPTED_REVIEW_VERIFICATION_FIELDS)
+    || verification.agency_gate !== "clear"
+    || verification.state_authority_gate !== "clear"
+    || agencyAuthority === null
+    || canonicalAuthority === null
+    || pcSubjectRefs.length !== 1
+    || canonicalDigest(agencyAuthority) !== canonicalDigest(canonicalAuthority)
+    || !nonEmptyStringField(value.player_input_source_ref)
+    || playerInput === null
+    || value.player_input_source_ref !== playerInput.source_ref
+    || !Array.isArray(value.control_overrides)
+    || canonicalOverrides === null
+    || canonicalDigest(value.control_overrides) !== canonicalDigest(canonicalOverrides)
+    || typeof binding.frozenDraft.draft_text !== "string"
+    || !validAcceptedStateReview(
+      value.state_authority_review,
+      binding.frozenDraft.draft_text,
+      pcSubjectRefs,
+    )
+    || !acceptedEvidenceDigestMatches(value)
+  ) return null;
+  return deepCopyValue(value) as JsonObject;
+}
+
 /**
  * Actual typed input schemas for the two recovery model-call surfaces,
  * loaded once from the canonical MCP operation contract archive. The
@@ -482,6 +652,57 @@ function buildRecoveryModelCalls(
   }
 }
 
+function buildAcceptedReviewFinalizeModelCall(
+  finalizeCard: JsonObject,
+): ModelCallArgumentProjection | null {
+  const ordinary = buildRecoveryModelCalls(null, finalizeCard)?.finalize;
+  if (ordinary === undefined) return null;
+  const prefilled = isPlainObject(finalizeCard.prefilled_arguments)
+    ? finalizeCard.prefilled_arguments
+    : {};
+  const missing = Array.isArray(finalizeCard.missing_arguments)
+    ? finalizeCard.missing_arguments
+    : [];
+  if (
+    !Object.hasOwn(prefilled, "coverage")
+      && !missing.includes("coverage")
+    || !missing.includes("agency_claims")
+    || !missing.includes("draft")
+  ) return null;
+  return {
+    ...ordinary,
+    model_owned_required_arguments: ["coverage", "agency_claims"],
+    model_owned_optional_arguments: [],
+    host_bound_auto_attached_arguments: [
+      ...new Set([
+        ...ordinary.host_bound_auto_attached_arguments,
+        "draft",
+      ]),
+    ].sort(),
+  };
+}
+
+function projectAcceptedReviewBindingForModel(
+  binding: ReviewedAgencyBinding,
+): JsonObject {
+  return {
+    visibility: "keeper_only",
+    source: "turn.output_context.data.accepted_review_evidence",
+    mode: "accepted_review_semantic",
+    reviewed_spans: binding.spans.map((row) => row.reviewed_span),
+    authorities: binding.authorities.map((row) => ({
+      authority: row.authority,
+      claim_types: [...row.claim_types],
+    })),
+    model_arguments: ["coverage", "agency_claims"],
+    instruction: (
+      "Call turn.finalize with coverage and semantic agency_claims only. "
+      + "Choose reviewed_span, claim_type, and authority from this card; "
+      + "the host restores the accepted draft and exact evidence."
+    ),
+  };
+}
+
 /** Positive integer card revision bound to its slot operation. */
 function operationCardRevisionOf(card: JsonObject): number | null {
   const prefilled = isPlainObject(card.prefilled_arguments)
@@ -526,6 +747,11 @@ export type LiveOutputContextCards = {
    * baseline and the model MUST edit only the listed span-repair excerpts.
    */
   frozenDraftMode: FrozenDraftMode | null;
+  /**
+   * Closed canonical evidence that the frozen draft already passed the
+   * active review. Exact excerpts and authority facts remain host-only.
+   */
+  acceptedReviewEvidence: JsonObject | null;
 };
 
 export type PendingFinalizationHydration =
@@ -697,6 +923,30 @@ export function validateLiveOutputContext(
     && agencyReviewRequired
     && frozenDraft === null
   ) return null;
+  const hasAcceptedReviewEvidence = Object.hasOwn(
+    data,
+    "accepted_review_evidence",
+  );
+  let acceptedReviewEvidence: JsonObject | null = null;
+  if (hasAcceptedReviewEvidence) {
+    if (
+      !agencyReviewRequired
+      || frozenDraft === null
+      || frozenDraftMode !== "exact_replay"
+    ) return null;
+    acceptedReviewEvidence = validateAcceptedReviewEvidence(
+      data.accepted_review_evidence,
+      {
+        turnId,
+        sourceDigest,
+        revision: finalizeRevision,
+        frozenDraft,
+        contractProjection,
+        contractProjectionSha256: data.contract_projection_sha256,
+      },
+    );
+    if (acceptedReviewEvidence === null) return null;
+  }
   const pendingContext = isPlainObject(resumeData)
     && isPlainObject((resumeData as JsonObject).pending_output_context)
     ? (resumeData as JsonObject).pending_output_context
@@ -730,6 +980,7 @@ export function validateLiveOutputContext(
       : null,
     frozenDraft,
     frozenDraftMode,
+    acceptedReviewEvidence,
   };
 }
 
@@ -831,12 +1082,12 @@ export function applyPendingFinalizationRecoveryGuidance(
   options?: {
     reviewRecoveryArmed?: boolean;
     /**
-     * The host validated an exact-replay frozen draft and successfully armed
-     * turn.finalize from that receipt's already accepted review identity.
-     * This suppresses review as an executable recovery step; false/absent
+     * The host validated the exact frozen draft plus the canonical accepted-
+     * review evidence and rebuilt the normal semantic reviewed-agency binding.
+     * Presence suppresses review as an executable recovery step; null/absent
      * keeps the existing review or pointer path fail-closed.
      */
-    acceptedReviewFinalizeArmed?: boolean;
+    acceptedReviewBinding?: ReviewedAgencyBinding | null;
     revision?: number;
     /**
      * Host-owned live-context hydration outcome. `not_attempted` (or
@@ -966,11 +1217,13 @@ export function applyPendingFinalizationRecoveryGuidance(
   }
   let acceptedReview = (
     liveProjected
-    && options?.acceptedReviewFinalizeArmed === true
+    && options?.acceptedReviewBinding != null
     && reviewCard !== null
     && finalizeCard !== null
     && liveFrozenDraft !== null
     && liveFrozenDraftMode === "exact_replay"
+    && liveHydration.status === "success"
+    && liveHydration.cards.acceptedReviewEvidence !== null
     && nonEmptyStringField(liveFrozenDraft.review_id)
   );
   // `modelCalls` was initially derived above to validate the complete live
@@ -978,7 +1231,10 @@ export function applyPendingFinalizationRecoveryGuidance(
   // the actionable projection again without a review call: the review card
   // remains host-only evidence, never another 154-second model action.
   const actionableModelCalls = acceptedReview && finalizeCard !== null
-    ? buildRecoveryModelCalls(null, finalizeCard)
+    ? (() => {
+        const finalize = buildAcceptedReviewFinalizeModelCall(finalizeCard);
+        return finalize === null ? null : { finalize };
+      })()
     : modelCalls;
   if (acceptedReview && actionableModelCalls === null) {
     acceptedReview = false;
@@ -1172,26 +1428,17 @@ export function applyPendingFinalizationRecoveryGuidance(
       ...(finalizeCard !== null ? { card: finalizeCard } : {}),
       ...(acceptedReview && liveFrozenDraft !== null
         ? {
-            finalize_input: {
-              visibility: "keeper_only",
-              source: "turn.output_context.data.frozen_narration_draft",
-              mode: "accepted_review_exact",
-              accepted_draft_text: liveFrozenDraft.draft_text,
-              accepted_draft_sha256: liveFrozenDraft.draft_sha256,
-              review_id: liveFrozenDraft.review_id,
-              instruction: (
-                "Use accepted_draft_text unchanged as the finalize draft. "
-                + "Supply the remaining model-owned finalize arguments only; "
-                + "the host attaches accepted review and revision identity."
-              ),
-            },
+            finalize_input: projectAcceptedReviewBindingForModel(
+              options!.acceptedReviewBinding!,
+            ),
           }
         : {}),
       instruction: (
         acceptedReview
           ? (
-            "Use the accepted-review draft and projected model-owned card "
-            + "arguments, call turn.finalize once, and never repeat review."
+            "Use the accepted-review semantic card and coverage, call "
+            + "turn.finalize once, and never repeat review; the host restores "
+            + "the accepted draft and exact evidence."
           )
           : (
             "Use the returned finalize_operation prefilled_arguments exactly, "

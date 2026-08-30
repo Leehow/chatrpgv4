@@ -418,6 +418,41 @@ def _frozen_receipt(
     return _sealed_receipt(receipt)
 
 
+def _accepted_review_evidence(data: dict, receipt: dict) -> dict:
+    data["contract_projection"]["player_input"]["source_ref"] = (
+        "player_input:journal-t13"
+    )
+    data["contract_projection"]["control_overrides"] = []
+    data["contract_projection_sha256"] = _digest(data["contract_projection"])
+    payload = {
+        "schema_version": 1,
+        "contract_id": "coc.accepted-review-evidence.v1",
+        "visibility": "host_only",
+        "review_id": receipt["review_id"],
+        "turn_id": data["turn_id"],
+        "source_digest": data["source_digest"],
+        "revision": receipt["revision"],
+        "draft_sha256": receipt["draft_sha256"],
+        "review_digest": receipt["review_digest"],
+        "pending_draft_receipt_digest": receipt["receipt_digest"],
+        "contract_projection_sha256": data["contract_projection_sha256"],
+        "verification": {
+            "agency_gate": "clear",
+            "state_authority_gate": "clear",
+        },
+        "state_authority_review": {
+            "disposition": "no_player_state_change_claimed",
+            "reason": "草稿没有宣告玩家状态变化。",
+            "claims": [],
+        },
+        "player_input_source_ref": "player_input:journal-t13",
+        "agency_authority": data["contract_projection"]["agency_authority"],
+        "control_overrides": [],
+    }
+    payload["evidence_sha256"] = _digest(payload)
+    return payload
+
+
 def _recovered_frozen_receipt() -> dict:
     """Canonical toolbox_audit_recovery receipt: its own distinct recovery
     decision id and the full bounded provenance binding."""
@@ -648,6 +683,44 @@ def test_wire_keeps_frozen_draft_and_cards_only_when_actionable_true():
     wire = _project("turn.output_context", _envelope(data))
     assert wire["ok"] is True
     assert wire["data"]["frozen_narration_draft"]["draft_text"] == FROZEN_DRAFT_TEXT
+
+
+def test_wire_keeps_host_only_accepted_review_evidence_with_exact_draft_chain():
+    data = _output_context_data(padding="短草稿")
+    receipt = _frozen_receipt()
+    data["frozen_narration_draft"] = receipt
+    data["accepted_review_evidence"] = _accepted_review_evidence(data, receipt)
+    data["pending_narration_draft_status"] = _draft_status(actionable=True)
+
+    compact = coc_mcp_wire._compact_output_context(data)
+    tight = coc_mcp_wire._project_output_context_review_card(data)
+    wire = _project("turn.output_context", _envelope(data))
+    for projected in (compact, tight, wire["data"]):
+        assert projected["accepted_review_evidence"] == data[
+            "accepted_review_evidence"
+        ]
+        assert projected["accepted_review_evidence"][
+            "state_authority_review"
+        ]["reason"] == "草稿没有宣告玩家状态变化。"
+
+    corrupt = _output_context_data(padding="短草稿")
+    bad_receipt = _frozen_receipt()
+    corrupt["frozen_narration_draft"] = bad_receipt
+    corrupt["accepted_review_evidence"] = _accepted_review_evidence(
+        corrupt, bad_receipt
+    )
+    corrupt["pending_narration_draft_status"] = _draft_status(actionable=True)
+    corrupt["frozen_narration_draft"]["receipt_digest"] = (
+        "sha256:" + "0" * 64
+    )
+    for projected in (
+        coc_mcp_wire._compact_output_context(corrupt),
+        coc_mcp_wire._project_output_context_review_card(corrupt),
+    ):
+        assert "accepted_review_evidence" not in projected
+        assert "frozen_narration_draft" not in projected
+        assert "agency_review_operation" not in projected
+        assert "finalize_operation" not in projected
 
 
 def test_wire_keeps_valid_recovered_receipt_with_cards():

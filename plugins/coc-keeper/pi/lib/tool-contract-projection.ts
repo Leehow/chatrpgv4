@@ -3307,8 +3307,39 @@ function projectSessionRecoveryGuidance(
           : {}),
         ...(typeof input.source === "string" ? { source: input.source } : {}),
         ...(typeof input.mode === "string" ? { mode: input.mode } : {}),
-        ...(typeof input.accepted_draft_text === "string"
-          ? { accepted_draft_text: input.accepted_draft_text }
+        ...(Array.isArray(input.reviewed_spans)
+          ? {
+              reviewed_spans: input.reviewed_spans.filter(
+                (entry): entry is string => typeof entry === "string",
+              ),
+            }
+          : {}),
+        ...(Array.isArray(input.authorities)
+          ? {
+              authorities: input.authorities.flatMap((entry) => {
+                const authority = isPlainObject(entry) ? entry : null;
+                if (authority === null || typeof authority.authority !== "string") {
+                  return [];
+                }
+                return [{
+                  authority: authority.authority,
+                  claim_types: Array.isArray(authority.claim_types)
+                    ? authority.claim_types.filter(
+                        (claim): claim is string => typeof claim === "string",
+                      )
+                    : [],
+                }];
+              }),
+            }
+          : {}),
+        ...(Array.isArray(input.model_arguments)
+          ? {
+              model_arguments: input.model_arguments.filter(
+                (entry): entry is string => (
+                  entry === "coverage" || entry === "agency_claims"
+                ),
+              ),
+            }
           : {}),
         ...(typeof input.instruction === "string"
           ? { instruction: input.instruction }

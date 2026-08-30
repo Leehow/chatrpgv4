@@ -1831,6 +1831,7 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
             "contract_projection_sha256",
             "contract_projection",
             "frozen_narration_draft",
+            "accepted_review_evidence",
             "pending_narration_draft_status",
             "npc_performance_constraints",
             "candidate_factors",
@@ -1972,6 +1973,8 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
         # status itself is wrong, not merely draftless.
         and not (status_name == "available" and not has_source_draft)
     )
+    if not draft_kept:
+        projected.pop("accepted_review_evidence", None)
     if not cards_survive:
         projected.pop("agency_review_operation", None)
         projected.pop("finalize_operation", None)
