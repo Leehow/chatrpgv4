@@ -1,0 +1,42 @@
+{
+  "section_id": "section-psychology-observation-source",
+  "families": [
+    "psychology"
+  ],
+  "coverage": {
+    "psychology": "partial"
+  },
+  "source": {
+    "source_id": "pdf:coc7-keeper-rulebook-40th",
+    "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+    "bundles": [
+      {
+        "bundle_id": "core-social-psychology-v1",
+        "bundle_sha256": "5f15436d31063a78c0d8d3d290c98374fbcf9533dd8c76d0511065823c8bdeb1",
+        "pages": [
+          {
+            "pdf_index": 83,
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 84,
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 215,
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          }
+        ]
+      }
+    ]
+  },
+  "span_count": 76,
+  "node_count": 21,
+  "relation_count": 22
+}

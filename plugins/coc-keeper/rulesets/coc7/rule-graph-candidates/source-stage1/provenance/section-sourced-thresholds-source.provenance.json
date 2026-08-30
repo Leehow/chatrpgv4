@@ -1,0 +1,60 @@
+{
+  "section_id": "section-sourced-thresholds-source",
+  "families": [
+    "sanity"
+  ],
+  "coverage": {
+    "sanity": "partial"
+  },
+  "source": {
+    "source_id": "pdf:coc7-keeper-rulebook-40th",
+    "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+    "bundles": [
+      {
+        "bundle_id": "damage-sanity-v1",
+        "bundle_sha256": "c9d4ddd344bf1c0b4dfb90323be0d43ff8f44cc0a6e5d3c4a6e8d1f486ef7516",
+        "pages": [
+          {
+            "pdf_index": 165,
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 166,
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 167,
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 168,
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 169,
+            "text_sha256": "ad7df03df773a0301835c261a452fda632c85bf33c4c90e74690eaf897984b9c",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 170,
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          }
+        ]
+      }
+    ]
+  },
+  "span_count": 112,
+  "node_count": 9,
+  "relation_count": 5
+}
