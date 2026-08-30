@@ -252,6 +252,38 @@ def test_pi_tool_working_set():
     _node_test(ROOT / "tests/pi/tool-working-set.mjs")
 
 
+def test_pi_agent_loop_graph_replan_patch_contract():
+    adapter = ROOT / "runtime/adapters/keeper"
+    package = json.loads((adapter / "package.json").read_text(encoding="utf-8"))
+    lock = json.loads((adapter / "package-lock.json").read_text(encoding="utf-8"))
+    version = package["dependencies"]["@earendil-works/pi-coding-agent"]
+    assert version == "0.84.2"
+    assert lock["packages"]["node_modules/@earendil-works/pi-agent-core"]["version"] == version
+    assert lock["packages"]["node_modules/@earendil-works/pi-coding-agent"]["version"] == version
+    patch = adapter / "patches" / f"@earendil-works+pi-agent-core+{version}.patch"
+    assert patch.is_file(), "a Pi upgrade must fail until the versioned core patch is replayed"
+    patch_text = patch.read_text(encoding="utf-8")
+    assert "replan?: boolean" in patch_text
+    assert "replan_requested" in patch_text
+    assert "executeToolCallsSequential" in patch_text
+    coding_patch = (
+        adapter / "patches"
+        / f"@earendil-works+pi-coding-agent+{version}.patch"
+    )
+    assert coding_patch.is_file()
+    coding_patch_text = coding_patch.read_text(encoding="utf-8")
+    assert "handlerResult.replan" in coding_patch_text
+    assert "replan: hookResult?.replan" in coding_patch_text
+    assert _node(ROOT / "tests/pi/agent-loop-graph-replan.mjs", str(ROOT)) == {
+        "ok": True,
+        "providerCalls": 2,
+        "executions": ["refresh_graph"],
+        "pairedToolResults": 3,
+        "refreshedTools": ["fresh_context"],
+        "extensionReplan": True,
+    }
+
+
 def test_pi_state_claim_compiler_contract():
     _node_test(ROOT / "tests/pi/state-claim-compiler.mjs")
 

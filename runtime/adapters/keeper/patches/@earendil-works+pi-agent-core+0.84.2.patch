@@ -1,0 +1,103 @@
+diff --git a/node_modules/@earendil-works/pi-agent-core/dist/agent-loop.js b/node_modules/@earendil-works/pi-agent-core/dist/agent-loop.js
+index 569149f..caaf5e3 100644
+--- a/node_modules/@earendil-works/pi-agent-core/dist/agent-loop.js
++++ b/node_modules/@earendil-works/pi-agent-core/dist/agent-loop.js
+@@ -295,7 +295,9 @@ async function executeToolCalls(currentContext, assistantMessage, config, signal
+ async function executeToolCallsSequential(currentContext, assistantMessage, toolCalls, config, signal, emit) {
+     const finalizedCalls = [];
+     const messages = [];
+-    for (const toolCall of toolCalls) {
++    let replanRequested = false;
++    for (let index = 0; index < toolCalls.length; index += 1) {
++        const toolCall = toolCalls[index];
+         await emit({
+             type: "tool_execution_start",
+             toolCallId: toolCall.id,
+@@ -320,13 +322,24 @@ async function executeToolCallsSequential(currentContext, assistantMessage, tool
+         await emitToolResultMessage(toolResultMessage, emit);
+         finalizedCalls.push(finalized);
+         messages.push(toolResultMessage);
++        if (finalized.result.replan === true) {
++            replanRequested = true;
++            for (const staleToolCall of toolCalls.slice(index + 1)) {
++                const deferred = createReplanDeferredToolResult(staleToolCall);
++                const deferredMessage = createToolResultMessage(deferred);
++                await emitToolResultMessage(deferredMessage, emit);
++                finalizedCalls.push(deferred);
++                messages.push(deferredMessage);
++            }
++            break;
++        }
+         if (signal?.aborted) {
+             break;
+         }
+     }
+     return {
+         messages,
+-        terminate: shouldTerminateToolBatch(finalizedCalls),
++        terminate: replanRequested ? false : shouldTerminateToolBatch(finalizedCalls),
+     };
+ }
+ async function executeToolCallsParallel(currentContext, assistantMessage, toolCalls, config, signal, emit) {
+@@ -501,6 +514,7 @@ async function finalizeExecutedToolCall(currentContext, assistantMessage, prepar
+                     details: afterResult.details ?? result.details,
+                     usage: afterResult.usage ?? result.usage,
+                     terminate: afterResult.terminate ?? result.terminate,
++                    replan: afterResult.replan ?? result.replan,
+                 };
+                 isError = afterResult.isError ?? isError;
+             }
+@@ -522,6 +536,22 @@ function createErrorToolResult(message) {
+         details: {},
+     };
+ }
++function createReplanDeferredToolResult(toolCall) {
++    return {
++        toolCall,
++        result: {
++            content: [{
++                    type: "text",
++                    text: `Tool call "${toolCall.name}" was not executed because an earlier tool result changed the available context or tools. Replan before calling it again.`,
++                }],
++            details: {
++                status: "not_executed",
++                reason: "replan_requested",
++            },
++        },
++        isError: false,
++    };
++}
+ async function emitToolExecutionEnd(finalized, emit) {
+     await emit({
+         type: "tool_execution_end",
+diff --git a/node_modules/@earendil-works/pi-agent-core/dist/types.d.ts b/node_modules/@earendil-works/pi-agent-core/dist/types.d.ts
+index a2d0ba2..1d6c9db 100644
+--- a/node_modules/@earendil-works/pi-agent-core/dist/types.d.ts
++++ b/node_modules/@earendil-works/pi-agent-core/dist/types.d.ts
+@@ -70,6 +70,13 @@ export interface AfterToolCallResult {
+      * Early termination only happens when every finalized tool result in the batch sets this to true.
+      */
+     terminate?: boolean;
++    /**
++     * Ask a sequential tool batch to stop executing its remaining stale calls
++     * and continue with a fresh model turn. The loop still emits one paired
++     * not-executed tool result for every skipped call before prepareNextTurn.
++     * Parallel batches cannot retract calls that have already started.
++     */
++    replan?: boolean;
+ }
+ /** Context passed to `beforeToolCall`. */
+ export interface BeforeToolCallContext {
+@@ -327,6 +334,12 @@ export interface AgentToolResult<T> {
+      * Early termination only happens when every finalized tool result in the batch sets this to true.
+      */
+     terminate?: boolean;
++    /**
++     * Ask a sequential tool batch to defer its remaining calls until the next
++     * model turn, after prepareNextTurn has refreshed context and tools.
++     * Parallel batches cannot retract calls that have already started.
++     */
++    replan?: boolean;
+ }
+ /**
+  * Callback used by tools to stream partial execution updates.
