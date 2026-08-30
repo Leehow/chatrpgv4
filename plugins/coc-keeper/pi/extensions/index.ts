@@ -3872,6 +3872,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   const supplyCoordinator = new PiSemanticSupplyCoordinator();
   let memoryExtractionRuns = new Set<Promise<unknown>>();
   const memoryExtractionDispatcher = new MemoryExtractionDispatcher();
+  // One successful, model-projectable session.resume may re-arm the durable
+  // extraction backlog once for this campaign/session epoch. Startup itself
+  // is deliberately absent from this boundary: for a continuing campaign the
+  // resume receipt must remain the first canonical campaign operation.
+  let memoryExtractionRearmedCampaigns = new Set<string>();
   const sceneSupplyDispatches = new Map<string, SceneSupplyDispatchStatus>();
   let kpPlayPhase: PlayPhase = "live_turn";
   let currentWorkspaceRoot = "";
@@ -7117,16 +7122,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       },
     });
   };
-  // Re-arm durable pending extraction rows exactly once per boundary
-  // (successful session.resume or session start). One read-only canonical
-  // status call, fired off the critical path; never a polling loop and
-  // never a trigger that interrupts player narration.
+  // Re-arm durable pending extraction rows exactly once after a successful,
+  // model-projectable session.resume. One read-only canonical status call,
+  // fired off the critical path; never a polling loop and never a trigger
+  // that interrupts player narration.
   const rearmPendingMemoryExtraction = (
     ctx: ExtensionContext,
     campaignId: string,
     epoch: number,
   ) => {
     if (!campaignId || !isCurrent(epoch)) return;
+    if (memoryExtractionRearmedCampaigns.has(campaignId)) return;
+    memoryExtractionRearmedCampaigns.add(campaignId);
     void (async () => {
       try {
         const response = await client(ctx).callTool("coc_invoke", {
@@ -7345,6 +7352,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     rawPdfBindBundleRuns = new Set<Promise<unknown>>();
     pendingStewardRefillStates = new Map<string, JsonObject>();
     pendingStewardRefillRuns = new Set<Promise<unknown>>();
+    memoryExtractionRearmedCampaigns = new Set<string>();
     idleTakeoverAttempts = new Map<string, number>();
     idleTakeoverBusy = false;
     const startupCampaignId = overrides.startupCampaignId === undefined
@@ -9600,6 +9608,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     let value: unknown;
     let transportMeta: McpTransportMeta | null = null;
+    // Set only after the canonical resume has crossed its lifecycle acceptance
+    // boundary. Startup result classification may reject an otherwise `ok`
+    // envelope (for example an incomplete opening route), so `ok` alone is not
+    // permission to inspect the extraction backlog.
+    let memoryExtractionRearmEligible = false;
     // Run-02 armed-recovery result projection: while an armed recovery
     // finalize is being handled, model-visible content is projected to
     // semantic status and player-visible text only — integrity hashes,
@@ -9681,6 +9694,25 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         : baseVisible;
       const internalDetails = recoveryCanonicalDetails ?? canonical;
       const rendered = { ...result(visible), details: internalDetails };
+      const resumeData = objectOrNull(canonical.data);
+      const resumeCampaign = typeof params.campaign === "string"
+        ? params.campaign.trim()
+        : "";
+      if (
+        params.operation === "session.resume"
+        && memoryExtractionRearmEligible
+        && canonical.ok === true
+        && canonical.tool === "session.resume"
+        && resumeCampaign
+        && resumeData?.schema_version === 1
+        && resumeData.campaign_id === resumeCampaign
+        && typeof resumeData.mode === "string"
+        && acceptedResumeModes.has(resumeData.mode)
+        && signal?.aborted !== true
+        && isCurrent(epoch)
+      ) {
+        rearmPendingMemoryExtraction(ctx, resumeCampaign, epoch);
+      }
       // `details` retains the canonical host receipt for the internal event;
       // model-facing `content` receives the host-only-field projection.
       return transportMeta === null
@@ -10079,6 +10111,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         value,
       );
       value = accepted.value;
+      if (
+        !startupResumeAttempt
+        && params.operation === "session.resume"
+        && accepted.accepted
+      ) {
+        memoryExtractionRearmEligible = true;
+      }
       const acceptedData = objectOrNull(objectOrNull(value)?.data);
       const acceptedContractProjection = objectOrNull(
         acceptedData?.contract_projection,
@@ -10443,9 +10482,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           briefingReason,
           epoch,
         );
-        if (briefingReason === "session_resume") {
-          rearmPendingMemoryExtraction(ctx, params.campaign.trim(), epoch);
-        }
         if (!isCurrent(epoch)) {
           return gatewayResult(asObject(value, "late canonical result"));
         }
@@ -10594,6 +10630,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           )
         );
         if (disposition.accepted && exactRoleNullResume) {
+          memoryExtractionRearmEligible = disposition.mode !== null;
           if (
             launcherRole === null
             && effectiveTypedRole === "setup"
@@ -12282,7 +12319,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     const startupCampaignId = initializeSession(ctx);
     if (startupCampaignId !== null) {
       await refreshKeeperBriefing(ctx, startupCampaignId, "session_start");
-      rearmPendingMemoryExtraction(ctx, startupCampaignId, sessionEpoch);
     }
     await startCocWelcome(event, ctx, startupCampaignId);
   });
