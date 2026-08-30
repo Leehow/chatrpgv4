@@ -1636,9 +1636,9 @@ const CLASSIFIED_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Operation-declared output identity projection registry. Each entry is the
- * closed declaration of the identity/integrity-bearing field paths ONE
- * operation's canonical data may carry and what happens to each:
+ * Operation-declared output identity projection registry. Each entry adds
+ * operation-local handling for identity/integrity-bearing fields whose
+ * disposition differs from the shared closed model-facing identity grammar:
  * - `integrity`: host-only machine identity — stripped from model content;
  *   the exact canonical values stay in host-only details. Declared = silent.
  * - `semantic`: declared model-visible semantic content — the value must
@@ -1651,10 +1651,13 @@ const CLASSIFIED_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
  * The registry-domain projectors (roll/effect/item/weapon/route handle
  * mapping, lost-id arrays, current-entity handles, obligations, provenance)
  * are the declared registry-domain-mapping dispositions and stay closed
- * tables. Any identity/integrity-like path NOT declared for the operation —
- * including plausible semantic slugs and unknown `*_id(s)`/`*_ref(s)` —
- * fails closed with exact path diagnostics. There is no global
- * grammar acceptance and no silent deletion.
+ * tables. Model-authored decisions, composed ids, and exact handles already
+ * classified by the closed grammar stay semantic on canonical result paths;
+ * operation-local host-only and integrity dispositions take precedence.
+ * Echoed entity/provenance fields remain operation-local. Any other
+ * identity/integrity-like path — including plausible semantic slugs under an
+ * unknown field name — fails closed with exact path diagnostics. There is no
+ * open field-name or value-shape fallback and no silent deletion.
  */
 type OperationIdentityDeclarations = {
   integrity: ReadonlySet<string>;
@@ -1835,13 +1838,15 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
 const IDENTITY_NAMED_FIELD = /(^|_)(id|ids|ref|refs)$/;
 
 /**
- * Globally declared semantic paths: closed host contracts (the
- * turn-processing fault receipt) whose semantic contract id may appear in
- * ANY operation's error details. Values still pass the closed semantic
- * grammar; unknown namespaced or entropy-bearing values fail closed.
+ * Globally declared host-semantic fields whose meaning is operation-neutral:
+ * contract ids may appear in any bounded fault receipt, and civil segment ids
+ * are the canonical time-coordinate vocabulary shared by state mutations.
+ * Values still pass the closed semantic grammar; unknown namespaced or
+ * entropy-bearing values fail closed.
  */
 const GLOBAL_SEMANTIC_IDENTITY_FIELDS: ReadonlySet<string> = new Set([
   "contract_id",
+  "civil_segment_id",
 ]);
 
 // Closed-universe check: every operation-declared integrity field must be a
@@ -1863,13 +1868,28 @@ function declaredIdentityDisposition(
   operation: string | null,
   field: string,
 ): "host_only" | "integrity" | "semantic" | null {
+  if (operation !== null) {
+    const declarations = OPERATION_IDENTITY_DECLARATIONS.get(operation);
+    // Operation-local privacy/integrity rules override the shared semantic
+    // grammar. For example, npc.query source_ref remains host-only even
+    // though source_ref is a closed model-facing semantic field elsewhere.
+    if (declarations?.hostOnly.has(field)) return "host_only";
+    if (declarations?.integrity.has(field)) return "integrity";
+    if (declarations?.semantic.has(field)) return "semantic";
+  }
   if (GLOBAL_SEMANTIC_IDENTITY_FIELDS.has(field)) return "semantic";
-  if (operation === null) return null;
-  const declarations = OPERATION_IDENTITY_DECLARATIONS.get(operation);
-  if (declarations === undefined) return null;
-  if (declarations.hostOnly.has(field)) return "host_only";
-  if (declarations.integrity.has(field)) return "integrity";
-  if (declarations.semantic.has(field)) return "semantic";
+  // One classifier already inventories identities authored by the model.
+  // Composed ids, decisions, and exact semantic handles remain the same
+  // contract when the canonical result nests them, so reuse that classifier
+  // instead of duplicating the field under every emitting operation. Echoed
+  // canonical entity/provenance/vocabulary fields remain operation-local and
+  // registry-backed; this does not open the path boundary for scene/item/etc.
+  const modelGrammar = closedIdentityGrammarSpec(field);
+  if (
+    modelGrammar?.kind === "decision"
+    || modelGrammar?.kind === "composed"
+    || modelGrammar?.kind === "handle_only"
+  ) return "semantic";
   return null;
 }
 
@@ -1912,6 +1932,13 @@ function projectEntityHandleValue(
         typeof entry === "string" ? CURRENT_PC_SUBJECT_HANDLE : entry
       ),
     };
+  }
+  if (
+    field === "subject_ref"
+    && typeof value === "string"
+    && value.startsWith("pc:")
+  ) {
+    return { action: "keep", value: CURRENT_PC_SUBJECT_HANDLE };
   }
   if (field === "advice_id" || field === "candidate_ref") {
     if (parentField === "narrative_opportunity" && typeof value === "string") {
@@ -2021,14 +2048,12 @@ function projectDiscoveredIdentityField(
   const identityNamed = DISCOVERY_IDENTITY_NAME.test(field)
     || DISCOVERY_INFRA_NAME.test(field);
   if (!identityNamed) return null;
-  // Operation-declared closure: an identity/integrity-bearing path the
-  // operation never declared is unknown STRING evidence — it fails closed
-  // with a bounded diagnostic regardless of its value shape. A
-  // semantic-looking slug on an undeclared path is still an undeclared
-  // path. Non-string values (counts, nested objects) carry no identity
-  // material themselves and recurse as before; host-rewritten
-  // current-entity handles are not model-authored and skip only this
-  // declaration gate.
+  // Closed field classification: an identity/integrity-bearing path that is
+  // neither operation-local nor part of the shared model-authored grammar is
+  // unknown STRING evidence — it fails closed regardless of value shape. A
+  // semantic-looking slug under an unclassified field name is still
+  // undeclared. Non-string values (counts, nested objects) recurse as before;
+  // host-rewritten current-entity handles skip only this declaration gate.
   const declared = valueFromHostProjector
     || declaredIdentityDisposition(operation, field) !== null;
   if (operation !== null && !declared && typeof value === "string") {
@@ -2359,8 +2384,9 @@ function projectProvenanceRefs(value: unknown): unknown {
  * archive/job/packet/receipt identity fields and rewrites current-entity
  * references to semantic handles. Semantic substance passes unchanged.
  * Operation-aware: identity/integrity-bearing paths are judged against the
- * operation's declared projection registry — undeclared paths fail closed
- * with exact path diagnostics regardless of their value shape.
+ * shared closed model-authored grammar plus operation-local overrides;
+ * unclassified paths fail closed with exact path diagnostics regardless of
+ * their value shape.
  */
 export function stripOpaqueModelIdentity(
   value: unknown,
@@ -2430,12 +2456,10 @@ export function stripOpaqueModelIdentity(
     const rewritten = handle.action === "keep" && handle.value !== undefined;
     const replacement = rewritten ? handle.value : child;
     // Unknown-identity discovery: any identity/integrity-bearing field the
-    // explicit projectors above declined must be DECLARED for this
-    // operation AND pass the closed semantic grammar — absence of a
-    // declaration is never a grammar pass, and a declaration never exempts
-    // the value from the grammar. Host-rewritten current-entity handles are
-    // themselves the closed projector output and carry no model-authored
-    // identity, so they skip only the declaration gate.
+    // explicit projectors above declined must be classified by the shared
+    // model-authored grammar or an operation-local override AND pass the closed
+    // semantic value grammar. Host-rewritten current-entity handles are the
+    // closed projector output and skip only the field-classification gate.
     const discovered = projectDiscoveredIdentityField(
       field,
       replacement,
