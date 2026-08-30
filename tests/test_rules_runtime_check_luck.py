@@ -26,6 +26,7 @@ import pytest
 sys.path.insert(0, str(Path("plugins/coc-keeper/scripts")))
 from toolbox_test_support import *  # noqa: E402,F401,F403
 import coc_rules_runtime  # noqa: E402
+import coc_rulesets  # noqa: E402
 
 FIXTURE_GRAPH = Path("tests/fixtures/coc7-rule-graph-check-luck.json")
 FIXTURE_MANIFEST = Path("tests/fixtures/coc7-rule-graph-manifest-check-luck.json")
@@ -58,7 +59,9 @@ def _load_fixture_graph() -> tuple[dict, dict]:
     return graph, manifest
 
 
-def _graph_owned_runtime(graph, manifest, facts):
+def _graph_owned_runtime(
+    graph, manifest, facts, *, projection_audience="keeper",
+):
     graph = copy.deepcopy(graph)
     manifest = copy.deepcopy(manifest)
     for family in ("core-check", "push-luck"):
@@ -68,10 +71,13 @@ def _graph_owned_runtime(graph, manifest, facts):
             family, {},
         )
         promo["runtime_ownership"] = "graph"
+        promo["promotion_eligible"] = True
     return coc_rules_runtime.RulesRuntime(
         graph, ruleset_id="coc7", graph_manifest=manifest,
         package_manifest=_PROMOTED_PACKAGE,
         facts_provider=lambda: facts,
+        ruleset_adapter=coc_rulesets.get_rule_graph_adapter("coc7"),
+        projection_audience=projection_audience,
     )
 
 
@@ -83,6 +89,24 @@ def _context_grant(runtime, family: str) -> dict:
     result = runtime.context({"family": family, "kind": "procedure"})
     assert result["status"] == "ok", result
     return result["card_grant"]
+
+
+def test_keeper_context_never_projects_host_internal_decisions():
+    graph, manifest = _load_fixture_graph()
+    runtime = _graph_owned_runtime(graph, manifest, _facts())
+    result = runtime.context({"family": "core-check", "kind": "procedure"})
+    assert result["status"] == "ok", result
+    refs = {card["decision_ref"] for card in result["cards"]}
+    assert _ORDINARY in refs
+    assert _RESOURCE not in refs
+
+    requested = runtime.context({
+        "family": "core-check",
+        "kind": "procedure",
+        "selected_affordance_ids": [_RESOURCE],
+    })
+    assert requested["status"] == "no_candidate_in_compiled_scope"
+    assert requested["unresolved"] == [_RESOURCE]
 
 
 def _host_provider(ref):
@@ -442,7 +466,9 @@ def test_luck_roll_cannot_spend_luck(tmp_path: Path):
 
 def test_resource_delta_host_internal_provenance(tmp_path: Path):
     graph, manifest = _load_fixture_graph()
-    runtime = _graph_owned_runtime(graph, manifest, _facts())
+    runtime = _graph_owned_runtime(
+        graph, manifest, _facts(), projection_audience="host-internal",
+    )
     runtime._host_locked_provider = _host_provider
     grant = _context_grant(runtime, "core-check")
     probe = _ExecutorProbe()

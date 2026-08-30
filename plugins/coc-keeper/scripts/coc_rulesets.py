@@ -236,6 +236,7 @@ def get_campaign_ruleset_id(campaign: dict[str, Any] | None) -> str:
 _REQUIRED_RESOLVER_ATTRS = ("check", "resource_delta", "public_api_index")
 
 _RESOLVER_CACHE: dict[str, ModuleType] = {}
+_RULE_GRAPH_ADAPTER_CACHE: dict[str, Any] = {}
 
 
 def get_resolver(campaign: dict[str, Any] | None = None) -> ModuleType:
@@ -289,3 +290,53 @@ def get_resolver(campaign: dict[str, Any] | None = None) -> ModuleType:
         )
     _RESOLVER_CACHE[ruleset_id] = module
     return module
+
+
+def get_rule_graph_adapter(ruleset_id: str) -> Any | None:
+    """Load the optional package-owned composed-settlement adapter.
+
+    The generic RuleGraph runtime never imports a game system directly. A
+    package declares this adapter only when some graph decisions need composed
+    settlement beyond the generic one-plan/one-executor path.
+    """
+    ruleset_id = _require_known_ruleset(ruleset_id)
+    if ruleset_id in _RULE_GRAPH_ADAPTER_CACHE:
+        return _RULE_GRAPH_ADAPTER_CACHE[ruleset_id]
+    manifest = load_manifest(ruleset_id)
+    entry_points = manifest.get("entry_points")
+    ref = entry_points.get("rule_graph_adapter") if isinstance(entry_points, dict) else None
+    if ref is None:
+        return None
+    if not isinstance(ref, str) or not ref:
+        raise ValueError(
+            f"ruleset {ruleset_id!r} rule_graph_adapter must be a non-empty path"
+        )
+    package_dir = (RULESETS_ROOT / ruleset_id).resolve()
+    path = (package_dir / ref).resolve()
+    if not path.is_relative_to(package_dir) or not path.is_file():
+        raise ValueError(
+            f"ruleset {ruleset_id!r} rule_graph_adapter is missing or escapes its package"
+        )
+    module_name = f"coc_ruleset_rule_graph_adapter_{ruleset_id}"
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise ValueError(
+            f"ruleset {ruleset_id!r} RuleGraph adapter at {path} is not loadable"
+        )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+        factory = getattr(module, "create_adapter", None)
+        if not callable(factory):
+            raise ValueError("create_adapter is missing")
+        adapter = factory()
+        if not callable(getattr(adapter, "settle", None)):
+            raise ValueError("adapter.settle is missing")
+    except Exception as exc:
+        sys.modules.pop(module_name, None)
+        raise ValueError(
+            f"ruleset {ruleset_id!r} RuleGraph adapter failed to load: {exc}"
+        ) from exc
+    _RULE_GRAPH_ADAPTER_CACHE[ruleset_id] = adapter
+    return adapter

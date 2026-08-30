@@ -1025,19 +1025,29 @@ def build(shards: Any, evidence_root: Path | str | None = None) -> dict[str, Any
         for node in shard.get("nodes") or []:
             if not isinstance(node, dict):
                 continue
-            node_id = node["node_id"]
+            normalized_node = copy.deepcopy(node)
+            if normalized_node.get("node_kind") == "rule-family":
+                properties = normalized_node.get("properties")
+                if isinstance(properties, dict):
+                    # Runtime ownership has exactly one generated authority:
+                    # the graph's top-level ledgers. Source candidates may
+                    # carry old migration hints, but build never duplicates
+                    # them into semantic family nodes.
+                    properties.pop("runtime_ownership", None)
+                    properties.pop("legacy_surface", None)
+            node_id = normalized_node["node_id"]
             if node_id in nodes:
-                conflict = _merge_node_conflict(nodes[node_id], node)
+                conflict = _merge_node_conflict(nodes[node_id], normalized_node)
                 if conflict:
                     findings_list.append(_finding("node_conflict", f"/nodes/{node_id}", conflict))
                     continue
-                nodes[node_id] = _merge_node(nodes[node_id], node)
+                nodes[node_id] = _merge_node(nodes[node_id], normalized_node)
             else:
-                nodes[node_id] = copy.deepcopy(node)
-            if node.get("node_kind") == "data-table" and node.get("properties", {}).get("table_name"):
-                data_tables.add(node["properties"]["table_name"])
-            if node.get("node_kind") == "capability" and node.get("properties", {}).get("resolver_capability"):
-                resolver_caps.add(node["properties"]["resolver_capability"])
+                nodes[node_id] = normalized_node
+            if normalized_node.get("node_kind") == "data-table" and normalized_node.get("properties", {}).get("table_name"):
+                data_tables.add(normalized_node["properties"]["table_name"])
+            if normalized_node.get("node_kind") == "capability" and normalized_node.get("properties", {}).get("resolver_capability"):
+                resolver_caps.add(normalized_node["properties"]["resolver_capability"])
         for relation in shard.get("relations") or []:
             if not isinstance(relation, dict):
                 continue

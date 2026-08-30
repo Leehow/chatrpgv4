@@ -39,6 +39,8 @@ KP_SURFACES = frozenset({
     "subsystem",
     "none",
 })
+DISCOVERY_MODES = frozenset({"surface", "exact"})
+_RULESET_POLICY_OVERRIDES: dict[str, dict[str, Any]] | None = None
 
 # Domain defaults apply to every registered operation in that prefix.
 # Exact operation names in OPERATION_POLICY_EXCEPTIONS overlay these fields.
@@ -527,28 +529,7 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
         "advisory": True,
         "kp_surface": "context",
         "phases": ("live_turn",),
-    },
-    # Graph-owned healing: Keeper surface is rules.settle + scene cards.
-    # These four stay registered as host-internal adapters (runtime path).
-    "rules.first_aid": {
-        "audience": "host",
-        "kp_surface": "none",
-        "phases": ("live_turn",),
-    },
-    "rules.dying_check": {
-        "audience": "host",
-        "kp_surface": "none",
-        "phases": ("live_turn",),
-    },
-    "rules.medicine": {
-        "audience": "host",
-        "kp_surface": "none",
-        "phases": ("live_turn",),
-    },
-    "rules.weekly_recovery": {
-        "audience": "host",
-        "kp_surface": "none",
-        "phases": ("live_turn",),
+        "discovery": "exact",
     },
     # R5: low-level package primitives leave the Keeper working set.
     # Live Keepers use rules.roll for ordinary checks; graph effects invoke
@@ -635,6 +616,7 @@ def _normalized_policy(raw: Mapping[str, Any]) -> dict[str, Any]:
     contract = str(raw["contract"])
     kp_surface = str(raw["kp_surface"])
     advisory = bool(raw["advisory"])
+    discovery = str(raw.get("discovery") or "surface")
     if audience not in AUDIENCES:
         raise ValueError(f"invalid operation audience: {audience}")
     if not phases or any(phase not in PHASES for phase in phases):
@@ -643,6 +625,8 @@ def _normalized_policy(raw: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError(f"invalid operation contract: {contract}")
     if kp_surface not in KP_SURFACES:
         raise ValueError(f"invalid operation kp_surface: {kp_surface}")
+    if discovery not in DISCOVERY_MODES:
+        raise ValueError(f"invalid operation discovery mode: {discovery}")
     if advisory and contract not in {"advisory", "none"}:
         # Advisory is a contract/classification flag, never a read-only access
         # rewrite. Allow only advisory/none so dice/state/finalize stay hard.
@@ -655,6 +639,7 @@ def _normalized_policy(raw: Mapping[str, Any]) -> dict[str, Any]:
         "contract": contract,
         "advisory": advisory,
         "kp_surface": kp_surface,
+        "discovery": discovery,
     }
 
 
@@ -665,8 +650,31 @@ def policy_for_operation(operation: str) -> dict[str, Any]:
     if default is None:
         raise KeyError(f"no domain policy default for operation {operation!r}")
     overlay = OPERATION_POLICY_EXCEPTIONS.get(operation) or {}
-    merged = {**default, **overlay}
+    ruleset_overlay = _ruleset_policy_overrides().get(operation) or {}
+    merged = {**default, **overlay, **ruleset_overlay}
     return _normalized_policy(merged)
+
+
+def _ruleset_policy_overrides() -> dict[str, dict[str, Any]]:
+    global _RULESET_POLICY_OVERRIDES
+    if _RULESET_POLICY_OVERRIDES is not None:
+        return _RULESET_POLICY_OVERRIDES
+    try:
+        import coc_rulesets
+
+        ruleset_id = coc_rulesets.DEFAULT_RULESET_ID
+        adapter = coc_rulesets.get_rule_graph_adapter(ruleset_id)
+        manifest = coc_rulesets.load_manifest(ruleset_id)
+        provider = getattr(adapter, "operation_policy_overrides", None)
+        raw = provider(manifest) if callable(provider) else {}
+        _RULESET_POLICY_OVERRIDES = {
+            str(name): dict(value)
+            for name, value in (raw.items() if isinstance(raw, Mapping) else [])
+            if isinstance(value, Mapping)
+        }
+    except (ImportError, ValueError):
+        _RULESET_POLICY_OVERRIDES = {}
+    return _RULESET_POLICY_OVERRIDES
 
 
 def policies_for_operations(operations: Iterable[str]) -> dict[str, dict[str, Any]]:
@@ -688,6 +696,7 @@ def public_policy(policy: Mapping[str, Any]) -> dict[str, Any]:
         "contract": policy["contract"],
         "advisory": bool(policy["advisory"]),
         "kp_surface": policy["kp_surface"],
+        "discovery": policy.get("discovery", "surface"),
     }
 
 
@@ -698,6 +707,7 @@ def query_operations(
     phase: str | None = None,
     kp_surface: str | None = None,
     contract: str | None = None,
+    discovery: str | None = None,
 ) -> list[str]:
     """Filter registered operations by structured policy fields.
 
@@ -711,6 +721,8 @@ def query_operations(
         raise ValueError(f"invalid kp_surface filter: {kp_surface}")
     if contract is not None and contract not in CONTRACTS:
         raise ValueError(f"invalid contract filter: {contract}")
+    if discovery is not None and discovery not in DISCOVERY_MODES:
+        raise ValueError(f"invalid discovery filter: {discovery}")
     matched: list[str] = []
     for name in sorted(policies):
         policy = policies[name]
@@ -721,6 +733,8 @@ def query_operations(
         if kp_surface is not None and policy.get("kp_surface") != kp_surface:
             continue
         if contract is not None and policy.get("contract") != contract:
+            continue
+        if discovery is not None and policy.get("discovery", "surface") != discovery:
             continue
         matched.append(name)
     return matched

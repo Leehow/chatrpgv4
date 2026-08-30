@@ -315,6 +315,15 @@ def _check_family_ownership_agreement(
                 else None
             )
             views["graph_manifest"] = (str(promo["runtime_ownership"]), surf)
+        package_owner = views["package"][0]
+        if package_owner == "graph" and (
+            not isinstance(promo, dict)
+            or promo.get("promotion_eligible") is not True
+        ):
+            problems.append(
+                f"rule family {family!r}: graph-owned family requires "
+                "promotion_eligible true in rule-graph-manifest.json"
+            )
         owners = [pair[0] for pair in views.values()]
         surfaces = [pair[1] for pair in views.values() if pair[1] is not None]
         if any(owner != owners[0] for owner in owners):
@@ -340,12 +349,15 @@ def _check_rule_graph(package_dir: Path, manifest: dict | None, problems: list[s
     entry_points = (manifest or {}).get("entry_points") or {}
     graph_ref = entry_points.get("rule_graph")
     manifest_ref = entry_points.get("rule_graph_manifest")
+    adapter_ref = entry_points.get("rule_graph_adapter")
     graph_declared = isinstance(graph_ref, str)
     manifest_declared = isinstance(manifest_ref, str)
     if graph_ref is not None and not graph_declared:
         problems.append("manifest.json: entry_points.rule_graph must be a path string")
     if manifest_ref is not None and not manifest_declared:
         problems.append("manifest.json: entry_points.rule_graph_manifest must be a path string")
+    if adapter_ref is not None and not isinstance(adapter_ref, str):
+        problems.append("manifest.json: entry_points.rule_graph_adapter must be a path string")
     if not graph_declared and not manifest_declared:
         return  # no graph artifacts declared; absence is legal
     if graph_declared != manifest_declared:
@@ -353,6 +365,20 @@ def _check_rule_graph(package_dir: Path, manifest: dict | None, problems: list[s
             "manifest.json: entry_points.rule_graph and "
             "entry_points.rule_graph_manifest must be declared together"
         )
+    if isinstance(adapter_ref, str):
+        if not graph_declared or not manifest_declared:
+            problems.append(
+                "manifest.json: entry_points.rule_graph_adapter requires the paired "
+                "RuleGraph artifacts"
+            )
+        else:
+            adapter_path = (package_dir / adapter_ref).resolve()
+            if not adapter_path.is_relative_to(package_dir.resolve()):
+                problems.append(
+                    f"{adapter_ref}: rule graph adapter must stay inside its package"
+                )
+            elif not adapter_path.is_file():
+                problems.append(f"{adapter_ref}: rule graph adapter file is missing")
 
     graph_path = package_dir / graph_ref if graph_declared else None
     manifest_path = package_dir / manifest_ref if manifest_declared else None

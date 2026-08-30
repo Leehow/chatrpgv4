@@ -102,8 +102,13 @@ _GRAPH_CONTRACT_CACHE: dict[str, Any] | None = None
 _GRAPH_CACHE: dict[str, dict[str, Any]] = {}
 _MANIFEST_CACHE: dict[str, dict[str, Any] | None] = {}
 _SHADOW_CONFIG: dict[str, Any] | None = None
-# Campaign-scoped runtime instances so scene.context grants survive until settle.
-_CAMPAIGN_RUNTIMES: dict[str, "RulesRuntime"] = {}
+# Campaign + semantic-subject scoped runtime instances so one investigator's
+# facts/grants can never be reused for another investigator in the same party.
+_CAMPAIGN_RUNTIMES: dict[tuple[str, str], "RulesRuntime"] = {}
+
+_GRANT_CONTEXT_KEYS = frozenset({
+    "role", "phase", "stage", "player_turn_epoch", "progress_revision",
+})
 
 # Closed v1 settle enum: compiled healing decision refs only. Exclusion
 # exception nodes are intentionally absent (spec §15 no_candidate).
@@ -133,18 +138,6 @@ _SOCIAL_ADJUDICATE_REF = SOCIAL_SETTLE_DECISION_REFS[0]
 _PSYCHOLOGY_OBSERVE_REF = PSYCHOLOGY_SETTLE_DECISION_REFS[0]
 _PSYCHOLOGY_REALIZE_REF = PSYCHOLOGY_SETTLE_DECISION_REFS[1]
 
-# Player-safe realization may release only the external-behavior conclusion
-# (mirror of the resolver's PSYCHOLOGY_REALIZATION_PUBLIC_KEYS; the runtime
-# enforces the projection boundary itself so a leaky adapter fails closed).
-PSYCHOLOGY_REALIZATION_PUBLIC_KEYS = frozenset({"external_behavior"})
-
-# Decision-id semantic pairing for the two psychology settlements (spec
-# §11.3): the realization decision_id shares the observation window and
-# swaps the suffix.  The host derives the frozen observe identity from the
-# realize decision_id; the model never echoes a hash or random identity.
-PSYCHOLOGY_OBSERVE_DECISION_SUFFIX = ":observe-concealed"
-PSYCHOLOGY_REALIZE_DECISION_SUFFIX = ":realize-player-safe"
-
 # R5 ordinary-check / Push / Luck / generic resource (spec §R5 / §11.1).
 # Packaged coc7 graph stays healing-only; tests load the check-luck fixture.
 CORE_CHECK_SETTLE_DECISION_REFS = (
@@ -161,9 +154,6 @@ _RESOURCE_DELTA_REF = CORE_CHECK_SETTLE_DECISION_REFS[1]
 _PUSHED_ROLL_REF = PUSH_LUCK_SETTLE_DECISION_REFS[0]
 _LUCK_SPEND_REF = PUSH_LUCK_SETTLE_DECISION_REFS[1]
 _LUCK_ROLL_REF = PUSH_LUCK_SETTLE_DECISION_REFS[2]
-_CHECK_FAILURE_OUTCOMES = frozenset({"failure"})
-_CHECK_FUMBLE_OUTCOMES = frozenset({"fumble"})
-_RESOURCE_KEYS = frozenset({"hp", "mp", "luck", "san"})
 
 
 
@@ -187,8 +177,6 @@ _BUILD_SCALE_REF = LOOKUP_CONTEXT_DECISION_REFS[2]
 _CASH_ASSETS_REF = LOOKUP_CONTEXT_DECISION_REFS[3]
 _DAMAGE_REF = COMBAT_SETTLE_DECISION_REFS[0]
 _SANITY_LOSS_REF = SANITY_SETTLE_DECISION_REFS[0]
-_SANITY_SESSION_EXCEPTION_REF = "exception:coc7:sanity:session-engine-uncompiled"
-_DAMAGE_KINDS = frozenset({"damage", "heal"})
 
 
 # --------------------------------------------------------------------------- #
@@ -256,15 +244,30 @@ def clear_runtime_cache() -> None:
     _CAMPAIGN_RUNTIMES.clear()
 
 
-def bind_campaign_runtime(campaign_id: str, runtime: "RulesRuntime") -> None:
+def _campaign_runtime_key(
+    campaign_id: str, subject_ref: str | None,
+) -> tuple[str, str]:
+    return (str(campaign_id), str(subject_ref or ""))
+
+
+def bind_campaign_runtime(
+    campaign_id: str,
+    runtime: "RulesRuntime",
+    *,
+    subject_ref: str | None = None,
+) -> None:
     if campaign_id:
-        _CAMPAIGN_RUNTIMES[str(campaign_id)] = runtime
+        _CAMPAIGN_RUNTIMES[_campaign_runtime_key(campaign_id, subject_ref)] = runtime
 
 
-def campaign_runtime(campaign_id: str | None) -> "RulesRuntime" | None:
+def campaign_runtime(
+    campaign_id: str | None,
+    *,
+    subject_ref: str | None = None,
+) -> "RulesRuntime" | None:
     if not campaign_id:
         return None
-    return _CAMPAIGN_RUNTIMES.get(str(campaign_id))
+    return _CAMPAIGN_RUNTIMES.get(_campaign_runtime_key(campaign_id, subject_ref))
 
 
 def _load_manifest_cached(ruleset_id: str, rulesets_root_path: Path | None = None) -> dict[str, Any] | None:
@@ -458,6 +461,13 @@ def agree_family_ownership(
     if surfaces and any(surface != surfaces[0] for surface in surfaces):
         findings.append(
             f"family {family!r} legacy_surface disagrees across artifacts: {views}"
+        )
+    if owners[0] == "graph" and (
+        not isinstance(promo, Mapping)
+        or promo.get("promotion_eligible") is not True
+    ):
+        findings.append(
+            f"family {family!r} graph ownership requires promotion_eligible true"
         )
     graph_claimed = any(owner == "graph" for owner in owners)
     if findings:
@@ -819,8 +829,11 @@ class RulesRuntime:
         campaign_id: str | None = None,
         facts_provider: Callable[[], Mapping[str, Any]] | None = None,
         state_revision_provider: Callable[[], str | None] | None = None,
+        grant_context_provider: Callable[[], Mapping[str, Any]] | None = None,
         host_locked_provider: Callable[[str], Mapping[str, Any]] | None = None,
         resolver_index: Mapping[str, Any] | None = None,
+        projection_audience: str = "keeper",
+        ruleset_adapter: Any | None = None,
     ) -> None:
         if not isinstance(graph, dict) or not isinstance(graph.get("nodes"), list):
             raise ValueError("RulesRuntime requires a compiled RuleGraph object")
@@ -841,27 +854,19 @@ class RulesRuntime:
         )
         self._facts_provider = facts_provider
         self._state_revision_provider = state_revision_provider
+        self._grant_context_provider = grant_context_provider
         self._host_locked_provider = host_locked_provider
         self._resolver_index = resolver_index
+        self._ruleset_adapter = ruleset_adapter
+        if projection_audience not in {"keeper", "host-internal", "audit"}:
+            raise ValueError(
+                "RulesRuntime projection_audience must be keeper, host-internal, or audit"
+            )
+        self._projection_audience = projection_audience
         # Machine-issued card grants (spec §8.5/§8.6): grants issued by
         # ``context()`` are recorded here; ``settle()`` validates the caller's
         # grant against this registry, ignoring any caller-authored fields.
         self._grants: dict[str, dict[str, Any]] = {}
-        # Frozen psychology observations keyed by the semantic observe
-        # decision_id (spec §11.3): the host re-attaches the frozen
-        # settlement identity to the realization; the model never echoes a
-        # hash or random identity.
-        self._psychology_frozen: dict[str, dict[str, Any]] = {}
-        # Realization replay records keyed by the realize decision_id.
-        self._psychology_realized: dict[str, dict[str, Any]] = {}
-        # R5 ordinary-check / push / luck / resource freeze maps (decision_id).
-        self._check_frozen: dict[str, dict[str, Any]] = {}
-        self._push_frozen: dict[str, dict[str, Any]] = {}
-        self._luck_spend_frozen: dict[str, dict[str, Any]] = {}
-        self._resource_frozen: dict[str, dict[str, Any]] = {}
-        # R6 damage / non-session SAN freeze maps (decision_id conflict).
-        self._damage_frozen: dict[str, dict[str, Any]] = {}
-        self._sanity_frozen: dict[str, dict[str, Any]] = {}
         # Optional read-only lookup executor for graph-owned context lookups.
         self._lookup_executor: Callable[..., Any] | None = None
         self._grant_sequence = 0
@@ -1029,13 +1034,14 @@ class RulesRuntime:
     def applicability(self, node_id: str, facts: Mapping[str, Any]) -> tuple[bool, bool]:
         """Return ``(applicable, hard_gated)`` for one decision."""
         conditions = self._conditions_for(node_id)
-        hard_gated = any(
-            (condition.get("properties") or {}).get("hard_gate") is True
-            for condition in conditions
-        )
+        hard_conditions = [
+            condition for condition in conditions
+            if condition.get("hard_gate") is True
+        ]
+        hard_gated = bool(hard_conditions)
         passed = all(
             evaluate_condition((condition.get("properties") or {}).get("expression"), facts)
-            for condition in conditions
+            for condition in hard_conditions
         )
         return bool(passed), hard_gated
 
@@ -1095,13 +1101,20 @@ class RulesRuntime:
             revision = self._state_revision_provider()
         else:
             revision = f"sha256:{_json_digest(facts)}"
-        return {
+        binding = {
             "campaign_id": self._campaign_id,
             "ruleset_id": self._ruleset_id,
             "ruleset_version": self._ruleset_version,
             "graph_generation": self._graph_generation,
             "state_revision": str(revision) if revision is not None else None,
         }
+        if self._grant_context_provider is not None:
+            provided = self._grant_context_provider()
+            if isinstance(provided, Mapping):
+                for key in sorted(_GRANT_CONTEXT_KEYS):
+                    if key in provided:
+                        binding[key] = deepcopy(provided[key])
+        return binding
 
     def _issue_card_grant(self, cards: list[dict[str, Any]]) -> dict[str, Any]:
         """Issue one machine-attached card grant for a projected card set.
@@ -1322,16 +1335,12 @@ class RulesRuntime:
         self, selected: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         facts = dict(self._facts_provider() or {}) if self._facts_provider is not None else {}
-        facts.setdefault("intent.rescuer_count", 1)
-        semantic = (
-            selected.get("semantic_inputs")
-            if isinstance(selected, Mapping)
-            and isinstance(selected.get("semantic_inputs"), Mapping)
-            else {}
-        )
-        assistant = semantic.get("assistant_rescuer_ref") if isinstance(semantic, Mapping) else None
-        if isinstance(assistant, str) and assistant.strip():
-            facts["intent.rescuer_count"] = 2
+        if self._ruleset_adapter is not None:
+            augment = getattr(self._ruleset_adapter, "augment_facts", None)
+            if callable(augment):
+                provided = augment(self, selected, facts)
+                if isinstance(provided, Mapping):
+                    facts = dict(provided)
         return facts
 
     def _uncompiled_scope_refs(self) -> set[str]:
@@ -1415,7 +1424,11 @@ class RulesRuntime:
         candidates = [
             node for node in self.decision_nodes(family)
             if (
-                requested is None or str(node.get("node_id")) in requested
+                node.get("audience") == self._projection_audience
+                and (
+                    requested is None
+                    or str(node.get("node_id")) in requested
+                )
             )
         ]
         cards: list[dict[str, Any]] = []
@@ -1473,7 +1486,19 @@ class RulesRuntime:
             # canonical state revision. settle() accepts ONLY this object.
             result["card_grant"] = self._issue_card_grant(cards)
         if str(question.get("kind") or "procedure") == "lookup":
-            result.update(self._context_lookup(question, family, facts))
+            lookup = None
+            if self._ruleset_adapter is not None:
+                handler = getattr(self._ruleset_adapter, "context_lookup", None)
+                if callable(handler):
+                    lookup = handler(self, question, family, facts)
+            if isinstance(lookup, Mapping):
+                result.update(lookup)
+            else:
+                result.update({
+                    "status": "no_candidate_in_compiled_scope",
+                    "lookup": None,
+                    "reason": "the active ruleset has no compiled lookup adapter",
+                })
         return result
 
     # -- settle (spec §8.6/§8.7) --------------------------------------------
@@ -1680,7 +1705,12 @@ class RulesRuntime:
                 "failure": {"code": "no_candidate_in_compiled_scope",
                             "message": "a semantic decision_ref is required"},
             }
-        if decision_ref in LOOKUP_CONTEXT_DECISION_REFS:
+        context_only = (
+            self._ruleset_adapter is not None
+            and callable(getattr(self._ruleset_adapter, "is_context_only", None))
+            and self._ruleset_adapter.is_context_only(decision_ref)
+        )
+        if context_only:
             return {
                 "schema_version": self.SCHEMA_VERSION,
                 "decision_ref": decision_ref,
@@ -1779,46 +1809,17 @@ class RulesRuntime:
                     },
                 }
         host_locked_extra: dict[str, Any] | None = None
-        if decision_ref == _PSYCHOLOGY_REALIZE_REF:
-            # Host re-attaches the frozen observation identity; the model
-            # never supplies it (locked_input_override already rejected any
-            # attempt).  A missing frozen observation fails closed BEFORE
-            # any compile/execution (spec §11.3).
-            observe_id = _paired_observe_decision_id(decision_id)
-            if observe_id is None:
-                return {
-                    "schema_version": self.SCHEMA_VERSION,
-                    "decision_ref": decision_ref,
-                    "decision_id": decision_id,
-                    "family": (node.get("properties") or {}).get("family_id") or "",
-                    "status": "invalid_decision_id",
-                    "failure": {
-                        "code": "invalid_decision_id",
-                        "message": (
-                            "realization decision_id must pair with the settle "
-                            "window (shared prefix, :realize-player-safe suffix)"
-                        ),
-                    },
-                }
-            frozen = self._psychology_frozen.get(observe_id)
-            if frozen is None:
-                return {
-                    "schema_version": self.SCHEMA_VERSION,
-                    "decision_ref": decision_ref,
-                    "decision_id": decision_id,
-                    "family": (node.get("properties") or {}).get("family_id") or "",
-                    "status": "rule_decision_not_applicable",
-                    "failure": {
-                        "code": "rule_decision_not_applicable",
-                        "message": (
-                            "the realization has no frozen observation for its "
-                            "window; settle observe-concealed first"
-                        ),
-                    },
-                }
-            host_locked_extra = {
-                "inference_ceiling": frozen["inference_ceiling"],
-            }
+        if self._ruleset_adapter is not None:
+            prepare = getattr(self._ruleset_adapter, "prepare_settlement", None)
+            if callable(prepare):
+                prepared = prepare(self, decision_ref, decision_id, selected)
+                if isinstance(prepared, Mapping):
+                    failure_envelope = prepared.get("failure_envelope")
+                    if isinstance(failure_envelope, Mapping):
+                        return dict(failure_envelope)
+                    candidate_locked = prepared.get("host_locked")
+                    if isinstance(candidate_locked, Mapping):
+                        host_locked_extra = dict(candidate_locked)
         result = self._compile_plan(
             decision_ref, semantic_inputs, facts=facts,
             host_locked=host_locked_extra,
@@ -1894,40 +1895,13 @@ class RulesRuntime:
                     ),
                 },
             }
-        # Family-specific settlement flows (spec §11.2/§11.3).  The R4b
-        # machinery exists for social/psychology even though their package
-        # ownership stays legacy/visible in this pass: tests promote the
-        # family to graph-owned so the composed settlement is exercised.
-        if family == "social" and decision_ref == _SOCIAL_ADJUDICATE_REF:
-            return self._settle_social(
-                executor, plan, decision_id, selected, facts, envelope)
-        if family == "psychology" and decision_ref == _PSYCHOLOGY_OBSERVE_REF:
-            return self._settle_psychology_observe(
-                executor, plan, decision_id, selected, facts, envelope)
-        if family == "psychology" and decision_ref == _PSYCHOLOGY_REALIZE_REF:
-            return self._settle_psychology_realize(
-                executor, plan, decision_id, selected, facts, envelope)
-        if family == "core-check" and decision_ref == _ORDINARY_CHECK_REF:
-            return self._settle_ordinary_check(
-                executor, plan, decision_id, selected, facts, envelope)
-        if family == "core-check" and decision_ref == _RESOURCE_DELTA_REF:
-            return self._settle_resource_delta(
-                executor, plan, decision_id, selected, facts, envelope)
-        if family == "push-luck" and decision_ref == _PUSHED_ROLL_REF:
-            return self._settle_pushed_roll(
-                executor, plan, decision_id, selected, facts, envelope)
-        if family == "push-luck" and decision_ref == _LUCK_SPEND_REF:
-            return self._settle_luck_spend(
-                executor, plan, decision_id, selected, facts, envelope)
-        if family == "push-luck" and decision_ref == _LUCK_ROLL_REF:
-            return self._settle_luck_roll(
-                executor, plan, decision_id, selected, facts, envelope)
-        if family == "combat" and decision_ref == _DAMAGE_REF:
-            return self._settle_damage(
-                executor, plan, decision_id, selected, facts, envelope)
-        if family == "sanity" and decision_ref == _SANITY_LOSS_REF:
-            return self._settle_sanity_loss(
-                executor, plan, decision_id, selected, facts, envelope)
+        if self._ruleset_adapter is not None:
+            settle_adapter = getattr(self._ruleset_adapter, "settle", None)
+            adapted = settle_adapter(
+                self, executor, plan, decision_id, selected, facts, envelope,
+            ) if callable(settle_adapter) else None
+            if adapted is not None:
+                return adapted
         executed = executor(_thaw(plan), decision_id, selected)
         data = executed
         warnings: list[str] = []
@@ -1950,1478 +1924,6 @@ class RulesRuntime:
         if hints:
             envelope["hints"] = hints
         return envelope
-
-
-    # -- family settlements (spec §11.2 / §11.3) ---------------------------- #
-    @staticmethod
-    def _split_executor_result(executed: Any) -> tuple[Any, list[str], list[str]]:
-        data = executed
-        warnings: list[str] = []
-        hints: list[str] = []
-        if isinstance(executed, tuple):
-            data = executed[0] if executed else None
-            if len(executed) > 1 and isinstance(executed[1], list):
-                warnings = list(executed[1])
-            if len(executed) > 2 and isinstance(executed[2], list):
-                hints = list(executed[2])
-        return data, warnings, hints
-
-    @staticmethod
-    def _settled_envelope(
-        envelope: dict[str, Any],
-        plan: Mapping[str, Any],
-        result: Any,
-        warnings: list[str],
-        hints: list[str],
-        *,
-        extra: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        base = {
-            "status": "settled",
-            "settlement": {
-                "existing_result_envelope": True,
-                "execution": "canonical-resolver-subsystem",
-                "plan": plan,
-                "result": result,
-            },
-        }
-        if extra:
-            base.update(extra)
-        envelope.update(base)
-        if warnings:
-            envelope["warnings"] = warnings
-        if hints:
-            envelope["hints"] = hints
-        return envelope
-
-    @staticmethod
-    def _validate_social_provenance(payload: Mapping[str, Any]) -> dict[str, Any] | None:
-        """Deterministic social provenance gate (mirrors the R4 contract).
-
-        Returns a failure dict (code/message/fields/missing), or None when
-        the semantics are coherent.  These are the R4 contract's own
-        requirements expressed as runtime gates so an incoherent selection
-        never reaches the executor.
-        """
-        direction = str(payload.get("motive_direction") or "")
-        intensity = payload.get("motive_intensity")
-        evidence = payload.get("motive_evidence")
-        if isinstance(evidence, (tuple, frozenset)):
-            evidence = list(evidence)
-        if direction not in {"support", "neutral", "oppose"}:
-            return {
-                "code": "invalid_semantic_input",
-                "message": "motive_direction must be support|neutral|oppose",
-                "fields": ["motive_direction"],
-            }
-        if isinstance(intensity, bool) or not isinstance(intensity, int) or intensity not in (0, 1, 2):
-            return {
-                "code": "invalid_semantic_input",
-                "message": "motive_intensity must be 0, 1, or 2",
-                "fields": ["motive_intensity"],
-            }
-        if intensity > 0 and not isinstance(evidence, list):
-            return {
-                "code": "invalid_semantic_input",
-                "message": (
-                    "motive.intensity > 0 requires motive.evidence_refs"
-                ),
-                "fields": ["motive_evidence"],
-                "missing": ["motive_evidence"],
-            }
-        if intensity > 0 and not evidence:
-            return {
-                "code": "invalid_semantic_input",
-                "message": (
-                    "motive.intensity > 0 requires at least one "
-                    "motive.evidence_ref"
-                ),
-                "fields": ["motive_evidence"],
-                "missing": ["motive_evidence"],
-            }
-        supporting_action = payload.get("supporting_action")
-        if supporting_action is not None:
-            if not isinstance(supporting_action, Mapping):
-                return {
-                    "code": "invalid_semantic_input",
-                    "message": "supporting_action must be an object",
-                    "fields": ["supporting_action"],
-                }
-            description = supporting_action.get("description", "")
-            if not isinstance(description, str):
-                return {
-                    "code": "invalid_semantic_input",
-                    "message": (
-                        "supporting_action.description must be a string"
-                    ),
-                    "fields": ["supporting_action"],
-                }
-            level = supporting_action.get("level", 0)
-            if (
-                isinstance(level, bool)
-                or not isinstance(level, int)
-                or level not in {0, 1}
-            ):
-                return {
-                    "code": "invalid_semantic_input",
-                    "message": "supporting_action.level must be 0 or 1",
-                    "fields": ["supporting_action"],
-                }
-            provenance = supporting_action.get("provenance", "")
-            if not isinstance(provenance, str):
-                return {
-                    "code": "invalid_semantic_input",
-                    "message": (
-                        "supporting_action.provenance must be a string"
-                    ),
-                    "fields": ["supporting_action"],
-                }
-        return None
-
-    def _settle_social(
-        self,
-        executor: Callable[..., Any],
-        plan: Mapping[str, Any],
-        decision_id: str,
-        selected: Mapping[str, Any],
-        facts: Mapping[str, Any],
-        envelope: dict[str, Any],
-    ) -> dict[str, Any]:
-        """One social settlement: adjudicate + bound check (spec §11.2).
-
-        Single settlement combining adjudication and the bound percentile
-        check.  ``executor`` is invoked for the adjudication only; if (and
-        ONLY if) ``feasibility == 'roll'`` the runtime machine-derives the
-        bound-check plan from the adjudication result (skill = approach
-        skill, difficulty = final difficulty, bonus/penalty dice = the
-        adjudication's own arithmetic) — never from the model's inputs — and
-        invokes the SAME executor for that check.  Automatic/conditional
-        results return without rolling.  No second model-authored transfer of
-        skill, difficulty, bonus/penalty, NPC, or goal identity.
-        """
-        payload = (plan.get("command") or {}).get("payload") or {}
-        if not isinstance(payload, Mapping):
-            payload = {}
-        provenance = self._validate_social_provenance(payload)
-        if provenance is not None:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_semantic_input",
-                "failure": provenance,
-            }
-        adjudicated = executor(_thaw(plan), decision_id, selected)
-        data, warnings, hints = self._split_executor_result(adjudicated)
-        if not isinstance(data, Mapping) or "feasibility" not in data:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_settlement_result",
-                "failure": {
-                    "code": "invalid_settlement_result",
-                    "message": (
-                        "bound adjudication must return feasibility; no second "
-                        "model-authored transfer is accepted"
-                    ),
-                },
-            }
-        feasibility = str(data.get("feasibility") or "")
-        result: dict[str, Any] = {"adjudication": _thaw(data)}
-        if feasibility == "roll":
-            # Machine-derived bound check; the model NEVER re-expresses skill,
-            # difficulty, bonus/penalty, NPC, or goal identity (spec §11.2).
-            derived = self._social_bound_check_plan(plan, data)
-            check = executor(_thaw(derived), decision_id, selected)
-            check_data, check_warnings, check_hints = self._split_executor_result(check)
-            warnings = list(warnings) + list(check_warnings)
-            hints = list(hints) + list(check_hints)
-            result["bound_check"] = _thaw(check_data)
-            result["bound_check_plan"] = _freeze(derived)
-        else:
-            hints = list(hints) + [
-                f"feasibility is {feasibility}: no bound roll is settled"
-            ]
-            if feasibility == "automatic":
-                hints.append("automatic success — play the compliance in fiction")
-            elif feasibility == "conditional":
-                hints.append(
-                    "the goal cannot be settled by a roll now; pursue the "
-                    "recorded requirements or change approach/target"
-                )
-        return self._settled_envelope(
-            envelope, plan, _freeze(result), warnings, hints,
-            extra={"visibility": "keeper-only"},
-        )
-
-    def _social_bound_check_plan(
-        self,
-        plan: Mapping[str, Any],
-        adjudication: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        """Machine-derived percentile check for one rolled social attempt."""
-        payload = (plan.get("command") or {}).get("payload") or {}
-        if not isinstance(payload, Mapping):
-            payload = {}
-        rule_refs = list(plan.get("rule_refs") or [])
-        check_payload: dict[str, Any] = {
-            "skill": str(adjudication.get("approach_skill") or ""),
-            "difficulty": str(adjudication.get("final_difficulty") or "regular"),
-            "bonus": int(adjudication.get("bonus_dice") or 0),
-            "penalty": int(adjudication.get("penalty_dice") or 0),
-            "difficulty_basis": "opponent_skill",
-            "goal": payload.get("goal"),
-            "social_adjudication_ref": plan["decision_ref"],
-        }
-        return {
-            "schema_version": self.SCHEMA_VERSION,
-            "decision_ref": plan["decision_ref"],
-            "family": plan["family"],
-            "capability": {
-                "ref": "capability:coc7:check",
-                "adapter": "resolver",
-                "resolver_capability": "check",
-            },
-            "command": {
-                "kind": "check",
-                "phase": "resolve",
-                "payload": _freeze(check_payload),
-            },
-            "rule_refs": rule_refs,
-            "source_refs": list(plan.get("source_refs") or []),
-            "resource_effects": [],
-            "visibility": "keeper-only",
-            "pending_choices": [],
-            "next_decisions": [],
-            "machine_derived": True,
-        }
-
-    def _settle_psychology_observe(
-        self,
-        executor: Callable[..., Any],
-        plan: Mapping[str, Any],
-        decision_id: str,
-        selected: Mapping[str, Any],
-        facts: Mapping[str, Any],
-        envelope: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Concealed psychology observation settlement (spec §11.3).
-
-        Executes the observation once; the runtime FREEZES the settled
-        observation identity (inference ceiling + concealed outcome) keyed by
-        the semantic observe decision_id so the realization can bind it via
-        the paired decision_id.  Concealed dice/outcome never enter public
-        player-visible fields.
-        """
-        if decision_id in self._psychology_frozen:
-            record = self._psychology_frozen[decision_id]
-            return self._settled_envelope(
-                envelope, plan, _freeze(record), [],
-                ["frozen observation reused: realization may bind it"],
-                extra={"visibility": "concealed-result"},
-            )
-        executed = executor(_thaw(plan), decision_id, selected)
-        data, warnings, hints = self._split_executor_result(executed)
-        if not isinstance(data, Mapping):
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_settlement_result",
-                "failure": {
-                    "code": "invalid_settlement_result",
-                    "message": "concealed observation must return a record",
-                },
-            }
-        ceiling = _observation_inference_ceiling(data)
-        if ceiling is None:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_settlement_result",
-                "failure": {
-                    "code": "invalid_settlement_result",
-                    "message": (
-                        "concealed observation result lacks a frozen inference "
-                        "ceiling"
-                    ),
-                },
-            }
-        frozen = {
-            "decision_id": decision_id,
-            "realm": "psychology",
-            "inference_ceiling": ceiling,
-            "concealed": _thaw(data),
-        }
-        self._psychology_frozen[decision_id] = deepcopy(frozen)
-        hints = list(hints) + [
-            "the roll and outcome are keeper-concealed: the player sees only "
-            "the realization's external_behavior; do not expose the die",
-        ]
-        return self._settled_envelope(
-            envelope, plan, _freeze(frozen), warnings, hints,
-            extra={"visibility": "concealed-result"},
-        )
-
-    def _settle_psychology_realize(
-        self,
-        executor: Callable[..., Any],
-        plan: Mapping[str, Any],
-        decision_id: str,
-        selected: Mapping[str, Any],
-        facts: Mapping[str, Any],
-        envelope: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Player-safe realization bound to a frozen observation (spec §11.3).
-
-        The realization decision_id binds the frozen observe-settlement
-        identity: the host re-attaches the observe decision_id (derived by
-        suffix swap — no hash relay, no model echo) and the frozen inference
-        ceiling; the realization performs NO RNG and NO re-execution of the
-        check.  The public player-visible output is exactly the contract's
-        allowlist ({external_behavior}); concealed dice/outcome never enter
-        player-visible fields.
-        """
-        observe_decision_id = _paired_observe_decision_id(decision_id)
-        if observe_decision_id is None:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_decision_id",
-                "failure": {
-                    "code": "invalid_decision_id",
-                    "message": (
-                        "realization decision_id must pair with the settle "
-                        "window (shared prefix, :realize-player-safe suffix)"
-                    ),
-                },
-            }
-        frozen = self._psychology_frozen.get(observe_decision_id)
-        if frozen is None:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "rule_decision_not_applicable",
-                "failure": {
-                    "code": "rule_decision_not_applicable",
-                    "message": (
-                        "the realization has no frozen observation for its "
-                        "window; settle observe-concealed first"
-                    ),
-                },
-            }
-        # No reroll / no re-execution: the realization executor consumes the
-        # frozen ceiling; the runtime never invokes a check plan here.  A
-        # replayed decision_id returns the SAME projection without invoking
-        # the executor again (host re-attach idempotency, spec §13.1).
-        prior = self._psychology_realized.get(decision_id)
-        request_identity = _json_digest({
-            "decision_ref": plan["decision_ref"],
-            "semantic": selected.get("semantic_inputs"),
-        })
-        if prior is not None and prior.get("request_identity") == request_identity:
-            return self._settled_envelope(
-                envelope, plan, _freeze(prior["result"]), [],
-                ["frozen realization reused: identical decision_id"],
-                extra={
-                    "visibility": "public",
-                    "player_projection": deepcopy(prior["player_projection"]),
-                    "concealed_result": deepcopy(prior["concealed_result"]),
-                },
-            )
-        if prior is not None:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "decision_conflict",
-                "failure": {
-                    "code": "decision_conflict",
-                    "message": (
-                        "decision_id already bound to a different "
-                        "realization request; executor not invoked"
-                    ),
-                },
-            }
-        realized = executor(_thaw(plan), decision_id, selected)
-        data, warnings, hints = self._split_executor_result(realized)
-        if not isinstance(data, Mapping):
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_settlement_result",
-                "failure": {
-                    "code": "invalid_settlement_result",
-                    "message": "realization must return a projection",
-                },
-            }
-        public = data.get("player_projection")
-        if not isinstance(public, Mapping):
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "concealed_projection_violation",
-                "failure": {
-                    "code": "concealed_projection_violation",
-                    "message": (
-                        "realization has no player_projection; concealed "
-                        "dice/outcome must never surface publicly"
-                    ),
-                },
-            }
-        leaked = sorted(
-            set(public) - PSYCHOLOGY_REALIZATION_PUBLIC_KEYS
-        )
-        if leaked:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "concealed_projection_violation",
-                "failure": {
-                    "code": "concealed_projection_violation",
-                    "message": (
-                        "player-safe realization leaked concealed fields"
-                    ),
-                    "leaked": leaked,
-                },
-            }
-        projection = {"external_behavior": _thaw(public.get("external_behavior"))}
-        concealed_outcome = _observation_public_outcome(frozen)
-        result = {
-            "player_projection": _freeze(projection),
-            "bound_to_observe": observe_decision_id,
-        }
-        self._psychology_realized[decision_id] = {
-            "request_identity": request_identity,
-            "result": _thaw(result),
-            "player_projection": dict(projection),
-            "concealed_result": dict(concealed_outcome),
-        }
-        return self._settled_envelope(
-            envelope, plan, _freeze(result), warnings, hints,
-            extra={
-                "visibility": "public",
-                "player_projection": deepcopy(projection),
-                "concealed_result": concealed_outcome,
-            },
-        )
-
-    @staticmethod
-    def _check_request_identity(
-        plan: Mapping[str, Any], selected: Mapping[str, Any],
-    ) -> str:
-        return _json_digest({
-            "decision_ref": plan["decision_ref"],
-            "semantic": selected.get("semantic_inputs"),
-        })
-
-    def _replay_or_conflict(
-        self,
-        store: dict[str, dict[str, Any]],
-        decision_id: str,
-        request_identity: str,
-        plan: Mapping[str, Any],
-        envelope: dict[str, Any],
-        *,
-        extra: dict[str, Any] | None = None,
-    ) -> dict[str, Any] | None:
-        prior = store.get(decision_id)
-        if prior is None:
-            return None
-        if prior.get("request_identity") == request_identity:
-            return self._settled_envelope(
-                envelope, plan, _freeze(prior["result"]), [],
-                ["frozen settlement reused: identical decision_id"],
-                extra=extra,
-            )
-        return {
-            "schema_version": self.SCHEMA_VERSION,
-            "decision_ref": plan["decision_ref"],
-            "decision_id": decision_id,
-            "family": plan["family"],
-            "status": "decision_conflict",
-            "failure": {
-                "code": "decision_conflict",
-                "message": (
-                    "decision_id already bound to a different request; "
-                    "executor not invoked"
-                ),
-            },
-        }
-
-    @staticmethod
-    def _validate_ordinary_check_provenance(
-        payload: Mapping[str, Any],
-    ) -> dict[str, Any] | None:
-        skill = str(payload.get("skill") or "").strip()
-        characteristic = str(payload.get("characteristic") or "").strip()
-        if not skill and not characteristic:
-            return {
-                "code": "invalid_semantic_input",
-                "message": (
-                    "ordinary check requires skill or characteristic"
-                ),
-                "missing": ["skill"],
-            }
-        difficulty = str(payload.get("difficulty") or "").strip()
-        if difficulty not in {"regular", "hard", "extreme"}:
-            return {
-                "code": "invalid_semantic_input",
-                "message": "difficulty must be regular, hard, or extreme",
-                "fields": ["difficulty"],
-            }
-        goal = payload.get("goal")
-        if not isinstance(goal, str) or not goal.strip():
-            return {
-                "code": "invalid_semantic_input",
-                "message": "goal must be a non-empty string",
-                "fields": ["goal"],
-            }
-        stakes = payload.get("stakes")
-        if not isinstance(stakes, Mapping):
-            return {
-                "code": "invalid_semantic_input",
-                "message": "stakes must be {on_success, on_failure}",
-                "fields": ["stakes"],
-            }
-        return None
-
-    def _context_lookup(
-        self,
-        question: Mapping[str, Any],
-        family: str,
-        facts: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        """Read-only table lookup on rules.context (spec §R6). Never settles."""
-        lookup_ref = question.get("lookup_ref") or question.get("decision_ref")
-        if not isinstance(lookup_ref, str) or not lookup_ref.strip():
-            return {}
-        lookup_ref = lookup_ref.strip()
-        if lookup_ref not in LOOKUP_CONTEXT_DECISION_REFS:
-            return {
-                "status": "no_candidate_in_compiled_scope",
-                "lookup": None,
-                "failure": {
-                    "code": "no_candidate_in_compiled_scope",
-                    "message": (
-                        f"{lookup_ref!r} is not a compiled context lookup"
-                    ),
-                },
-            }
-        node = self._nodes.get(lookup_ref) or {}
-        node_family = str((node.get("properties") or {}).get("family_id") or "")
-        if node_family != family:
-            return {
-                "status": "no_candidate_in_compiled_scope",
-                "lookup": None,
-                "failure": {
-                    "code": "no_candidate_in_compiled_scope",
-                    "message": (
-                        f"lookup {lookup_ref!r} is not in family {family!r}"
-                    ),
-                },
-            }
-        semantic = question.get("semantic_inputs") or {}
-        if semantic is None:
-            semantic = {}
-        if not isinstance(semantic, Mapping):
-            return {
-                "status": "invalid_semantic_input",
-                "lookup": None,
-                "failure": {
-                    "code": "invalid_semantic_input",
-                    "message": "semantic_inputs must be an object",
-                },
-            }
-        lookup_fail = self._validate_lookup_provenance(lookup_ref, semantic)
-        if lookup_fail is not None:
-            return {
-                "status": lookup_fail["code"],
-                "lookup": None,
-                "failure": lookup_fail,
-            }
-        compiled = self._compile_plan(lookup_ref, semantic, facts=facts)
-        if compiled.get("failure"):
-            failure = compiled["failure"]
-            return {
-                "status": str(failure.get("code") or "no_candidate_in_compiled_scope"),
-                "lookup": None,
-                "failure": failure,
-            }
-        plan = compiled["plan"]
-        try:
-            owner, _surface = self.family_ownership(family)
-        except FamilyOwnershipMismatch:
-            owner = "legacy"
-        if owner != "graph":
-            return {
-                "lookup": {
-                    "decision_ref": lookup_ref,
-                    "execution": "deferred-to-legacy",
-                    "plan": _thaw(plan),
-                },
-            }
-        if self._lookup_executor is None:
-            return {
-                "status": "rules_graph_unavailable",
-                "lookup": None,
-                "failure": {
-                    "code": "rules_graph_unavailable",
-                    "message": (
-                        "graph-owned lookup requires the canonical read-only "
-                        "resolver executor; no legacy fallback"
-                    ),
-                },
-            }
-        executed = self._lookup_executor(_thaw(plan), lookup_ref, semantic)
-        data, warnings, hints = self._split_executor_result(executed)
-        if not isinstance(data, Mapping):
-            return {
-                "status": "invalid_settlement_result",
-                "lookup": None,
-                "failure": {
-                    "code": "invalid_settlement_result",
-                    "message": "lookup executor must return an object",
-                },
-            }
-        payload = _thaw(data)
-        if lookup_ref == _CATALOG_SEARCH_REF:
-            payload = self._project_catalog_lookup(payload)
-        result: dict[str, Any] = {
-            "status": "ok",
-            "lookup": {
-                "decision_ref": lookup_ref,
-                "execution": "canonical-resolver-subsystem",
-                "plan": _thaw(plan),
-                "result": payload,
-            },
-        }
-        if warnings:
-            result["lookup_warnings"] = warnings
-        if hints:
-            result["lookup_hints"] = hints
-        return result
-
-    @staticmethod
-    def _project_catalog_lookup(payload: Mapping[str, Any]) -> dict[str, Any]:
-        """Keep secret:true rows secret; never invent a selected entity."""
-        row = dict(payload)
-        row["authority"] = "advisory"
-        row["candidate_only"] = True
-        row["selected"] = None
-        secret = False
-        for candidate in row.get("candidates") or []:
-            if isinstance(candidate, Mapping) and candidate.get("secret") is True:
-                secret = True
-                break
-        if secret:
-            row["secret"] = True
-        return row
-
-    @staticmethod
-    def _validate_lookup_provenance(
-        lookup_ref: str, semantic: Mapping[str, Any],
-    ) -> dict[str, Any] | None:
-        if lookup_ref == _CATALOG_SEARCH_REF:
-            query = semantic.get("query")
-            if not isinstance(query, str) or not query.strip():
-                return {
-                    "code": "missing_semantic_input",
-                    "message": "catalog search requires a non-empty query",
-                    "missing": ["query"],
-                }
-        if lookup_ref == _CASH_ASSETS_REF:
-            credit = semantic.get("credit_rating")
-            if isinstance(credit, bool) or not isinstance(credit, int):
-                return {
-                    "code": "invalid_semantic_input",
-                    "message": "credit_rating must be an integer",
-                    "fields": ["credit_rating"],
-                }
-        if lookup_ref == _BUILD_SCALE_REF:
-            build = semantic.get("build")
-            actor = semantic.get("actor_build")
-            target = semantic.get("target_build")
-            def _is_int(value: Any) -> bool:
-                return isinstance(value, int) and not isinstance(value, bool)
-            if build is None and actor is None and target is None:
-                return {
-                    "code": "missing_semantic_input",
-                    "message": "provide build, or actor_build and target_build",
-                    "missing": ["build"],
-                }
-            if (actor is None) != (target is None):
-                return {
-                    "code": "invalid_semantic_input",
-                    "message": "actor_build and target_build must be given together",
-                    "fields": ["actor_build", "target_build"],
-                }
-            for name, value in (("build", build), ("actor_build", actor), ("target_build", target)):
-                if value is not None and not _is_int(value):
-                    return {
-                        "code": "invalid_semantic_input",
-                        "message": f"{name} must be an integer",
-                        "fields": [name],
-                    }
-        if lookup_ref == _SKILL_DESCRIBE_REF:
-            skill = semantic.get("skill")
-            skills = semantic.get("skills")
-            if skill is not None and (not isinstance(skill, str) or not skill.strip()):
-                return {
-                    "code": "invalid_semantic_input",
-                    "message": "skill must be a non-empty string",
-                    "fields": ["skill"],
-                }
-            if skills is not None and not isinstance(skills, (list, tuple)):
-                return {
-                    "code": "invalid_semantic_input",
-                    "message": "skills must be an array of strings",
-                    "fields": ["skills"],
-                }
-        return None
-
-
-
-    @staticmethod
-    def _validate_damage_provenance(payload: Mapping[str, Any]) -> dict[str, Any] | None:
-        amount = payload.get("amount")
-        if isinstance(amount, bool) or amount is None:
-            return {
-                "code": "missing_semantic_input",
-                "message": "damage requires a non-empty amount",
-                "missing": ["amount"],
-            }
-        if isinstance(amount, int):
-            pass
-        elif not isinstance(amount, str) or not str(amount).strip():
-            return {
-                "code": "invalid_semantic_input",
-                "message": "amount must be an integer or dice expression string",
-                "fields": ["amount"],
-            }
-        kind = payload.get("kind", "damage")
-        if kind is None:
-            kind = "damage"
-        if kind not in _DAMAGE_KINDS:
-            return {
-                "code": "invalid_semantic_input",
-                "message": "kind must be damage or heal",
-                "fields": ["kind"],
-            }
-        return None
-
-    def _settle_damage(
-        self,
-        executor: Callable[..., Any],
-        plan: Mapping[str, Any],
-        decision_id: str,
-        selected: Mapping[str, Any],
-        facts: Mapping[str, Any],
-        envelope: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Non-session HP damage/heal; combat session engine is not invoked."""
-        payload = (plan.get("command") or {}).get("payload") or {}
-        if not isinstance(payload, Mapping):
-            payload = {}
-        provenance = self._validate_damage_provenance(payload)
-        if provenance is not None:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": provenance["code"],
-                "failure": provenance,
-            }
-        request_identity = self._check_request_identity(plan, selected)
-        replayed = self._replay_or_conflict(
-            self._damage_frozen, decision_id, request_identity, plan, envelope,
-            extra={"visibility": "public"},
-        )
-        if replayed is not None:
-            return replayed
-        executed = executor(_thaw(plan), decision_id, selected)
-        data, warnings, hints = self._split_executor_result(executed)
-        if not isinstance(data, Mapping):
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_settlement_result",
-                "failure": {
-                    "code": "invalid_settlement_result",
-                    "message": "damage must return an HP change record",
-                },
-            }
-        result = {
-            "kind": data.get("kind") or payload.get("kind") or "damage",
-            "amount": data.get("amount"),
-            "hp_before": data.get("hp_before"),
-            "hp_after": data.get("hp_after"),
-            "max_hp": data.get("max_hp"),
-            "bound": _thaw(data),
-            "session": False,
-        }
-        self._damage_frozen[decision_id] = {
-            "request_identity": request_identity,
-            "result": deepcopy(result),
-        }
-        return self._settled_envelope(
-            envelope, plan, _freeze(result), warnings, hints,
-            extra={"visibility": "public"},
-        )
-
-    @staticmethod
-    def _validate_sanity_provenance(payload: Mapping[str, Any]) -> dict[str, Any] | None:
-        source = payload.get("source")
-        if not isinstance(source, str) or not source.strip():
-            return {
-                "code": "missing_semantic_input",
-                "message": "SAN loss requires a non-empty source",
-                "missing": ["source"],
-            }
-        loss_failure = payload.get("loss_failure")
-        if loss_failure is None or (
-            isinstance(loss_failure, str) and not loss_failure.strip()
-        ):
-            return {
-                "code": "missing_semantic_input",
-                "message": "SAN loss requires loss_failure",
-                "missing": ["loss_failure"],
-            }
-        if isinstance(loss_failure, bool) or not isinstance(loss_failure, (str, int)):
-            return {
-                "code": "invalid_semantic_input",
-                "message": "loss_failure must be a constant or NdM expression",
-                "fields": ["loss_failure"],
-            }
-        loss_success = payload.get("loss_success")
-        if loss_success is not None and (
-            isinstance(loss_success, bool)
-            or not isinstance(loss_success, (str, int))
-        ):
-            return {
-                "code": "invalid_semantic_input",
-                "message": "loss_success must be a constant or NdM expression",
-                "fields": ["loss_success"],
-            }
-        return None
-
-    def _settle_sanity_loss(
-        self,
-        executor: Callable[..., Any],
-        plan: Mapping[str, Any],
-        decision_id: str,
-        selected: Mapping[str, Any],
-        facts: Mapping[str, Any],
-        envelope: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Keeper-adjudicated SAN check+loss; session engine stays the adapter."""
-        payload = (plan.get("command") or {}).get("payload") or {}
-        if not isinstance(payload, Mapping):
-            payload = {}
-        provenance = self._validate_sanity_provenance(payload)
-        if provenance is not None:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": provenance["code"],
-                "failure": provenance,
-            }
-        request_identity = self._check_request_identity(plan, selected)
-        replayed = self._replay_or_conflict(
-            self._sanity_frozen, decision_id, request_identity, plan, envelope,
-            extra={"visibility": "public"},
-        )
-        if replayed is not None:
-            return replayed
-        executed = executor(_thaw(plan), decision_id, selected)
-        data, warnings, hints = self._split_executor_result(executed)
-        if not isinstance(data, Mapping):
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_settlement_result",
-                "failure": {
-                    "code": "invalid_settlement_result",
-                    "message": "SAN loss must return a sanity-check record",
-                },
-            }
-        result = {
-            "source": data.get("source") or payload.get("source"),
-            "success": data.get("success"),
-            "san_loss": data.get("san_loss"),
-            "san_before": data.get("san_before"),
-            "san_after": data.get("san_after"),
-            "bound": _thaw(data),
-            "session_engine": "retained",
-            "session_exception_ref": _SANITY_SESSION_EXCEPTION_REF,
-        }
-        self._sanity_frozen[decision_id] = {
-            "request_identity": request_identity,
-            "result": deepcopy(result),
-        }
-        return self._settled_envelope(
-            envelope, plan, _freeze(result), warnings, hints,
-            extra={"visibility": "public"},
-        )
-
-    def _settle_ordinary_check(
-        self,
-        executor: Callable[..., Any],
-        plan: Mapping[str, Any],
-        decision_id: str,
-        selected: Mapping[str, Any],
-        facts: Mapping[str, Any],
-        envelope: dict[str, Any],
-    ) -> dict[str, Any]:
-        """One ordinary skill/characteristic check: one bound roll (spec R5).
-
-        Combined settlement: Keeper-selected skill/characteristic, difficulty,
-        goal, and stakes compile to exactly one resolver.check invocation.
-        No second model-authored transfer and no reroll primitive.  An ordinary
-        failure projects Push and Luck-spend continuation cards; a fumble does
-        not (source: pushed-roll.json / luck.json).
-        """
-        payload = (plan.get("command") or {}).get("payload") or {}
-        if not isinstance(payload, Mapping):
-            payload = {}
-        provenance = self._validate_ordinary_check_provenance(payload)
-        if provenance is not None:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_semantic_input",
-                "failure": provenance,
-            }
-        request_identity = self._check_request_identity(plan, selected)
-        replayed = self._replay_or_conflict(
-            self._check_frozen, decision_id, request_identity, plan, envelope,
-            extra={"visibility": "public"},
-        )
-        if replayed is not None:
-            return replayed
-        executed = executor(_thaw(plan), decision_id, selected)
-        data, warnings, hints = self._split_executor_result(executed)
-        if not isinstance(data, Mapping):
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_settlement_result",
-                "failure": {
-                    "code": "invalid_settlement_result",
-                    "message": "ordinary check must return a roll record",
-                },
-            }
-        outcome = str(data.get("outcome") or "")
-        result = {
-            "bound_check": _thaw(data),
-            "outcome": outcome,
-            "pushed": False,
-        }
-        if outcome in _CHECK_FAILURE_OUTCOMES:
-            result["next_continuations"] = [_PUSHED_ROLL_REF, _LUCK_SPEND_REF]
-            hints = list(hints) + [
-                "ordinary failure: the player may push this roll with a "
-                "changed method and an announced consequence, or spend Luck; "
-                "not both"
-            ]
-        elif outcome in _CHECK_FUMBLE_OUTCOMES:
-            result["next_continuations"] = []
-            hints = list(hints) + [
-                "a fumble cannot be pushed or bought off with Luck"
-            ]
-        else:
-            result["next_continuations"] = []
-        self._check_frozen[decision_id] = {
-            "request_identity": request_identity,
-            "result": deepcopy(result),
-        }
-        return self._settled_envelope(
-            envelope, plan, _freeze(result), warnings, hints,
-            extra={"visibility": "public"},
-        )
-
-    def _settle_luck_roll(
-        self,
-        executor: Callable[..., Any],
-        plan: Mapping[str, Any],
-        decision_id: str,
-        selected: Mapping[str, Any],
-        facts: Mapping[str, Any],
-        envelope: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Luck as a percentile check. Luck may not be spent on Luck rolls."""
-        request_identity = self._check_request_identity(plan, selected)
-        replayed = self._replay_or_conflict(
-            self._check_frozen, decision_id, request_identity, plan, envelope,
-            extra={"visibility": "public"},
-        )
-        if replayed is not None:
-            return replayed
-        executed = executor(_thaw(plan), decision_id, selected)
-        data, warnings, hints = self._split_executor_result(executed)
-        if not isinstance(data, Mapping):
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_settlement_result",
-                "failure": {
-                    "code": "invalid_settlement_result",
-                    "message": "Luck roll must return a roll record",
-                },
-            }
-        result = {
-            "bound_check": _thaw(data),
-            "outcome": str(data.get("outcome") or ""),
-            "luck_roll": True,
-            "next_continuations": [],
-        }
-        hints = list(hints) + [
-            "Luck may not be spent on Luck rolls (luck.json constraints)"
-        ]
-        self._check_frozen[decision_id] = {
-            "request_identity": request_identity,
-            "result": deepcopy(result),
-        }
-        return self._settled_envelope(
-            envelope, plan, _freeze(result), warnings, hints,
-            extra={"visibility": "public"},
-        )
-
-    def _settle_pushed_roll(
-        self,
-        executor: Callable[..., Any],
-        plan: Mapping[str, Any],
-        decision_id: str,
-        selected: Mapping[str, Any],
-        facts: Mapping[str, Any],
-        envelope: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Push: failed non-pushed check, Keeper consequence, then player confirm.
-
-        Source (pushed-roll.json required_stages): player_reframes_action,
-        keeper_foreshadows_failure, player_confirms_risk, roll_resolved.
-        The Keeper owns and announces ``failure_consequence``. Player
-        confirmation is a separate structured boolean ``player_confirmed_risk``;
-        presence of consequence text is not confirmation. The original
-        ordinary-check identity is host-reattached (locked slots).
-        """
-        payload = (plan.get("command") or {}).get("payload") or {}
-        if not isinstance(payload, Mapping):
-            payload = {}
-        method = str(payload.get("method_changed") or "").strip()
-        consequence = str(payload.get("failure_consequence") or "").strip()
-        if not method or not consequence:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_semantic_input",
-                "failure": {
-                    "code": "invalid_semantic_input",
-                    "message": (
-                        "pushed roll requires method_changed and "
-                        "failure_consequence locked before the roll"
-                    ),
-                    "missing": [
-                        name for name, value in (
-                            ("method_changed", method),
-                            ("failure_consequence", consequence),
-                        ) if not value
-                    ],
-                },
-            }
-        confirmed = payload.get("player_confirmed_risk")
-        if confirmed is not True:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_semantic_input",
-                "failure": {
-                    "code": "invalid_semantic_input",
-                    "message": (
-                        "pushed roll requires player_confirmed_risk=true "
-                        "after the Keeper announces the failure consequence; "
-                        "do not infer confirmation from consequence text"
-                    ),
-                    "fields": ["player_confirmed_risk"],
-                },
-            }
-        original_id = str(payload.get("original_check_decision_id") or "").strip()
-        original = self._check_frozen.get(original_id) if original_id else None
-        if original is None:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "rule_decision_not_applicable",
-                "failure": {
-                    "code": "rule_decision_not_applicable",
-                    "message": (
-                        "pushed roll requires a frozen failed non-pushed "
-                        "ordinary check; host re-attaches the original "
-                        "decision_id"
-                    ),
-                },
-            }
-        original_result = original.get("result") or {}
-        original_outcome = str(original_result.get("outcome") or "")
-        if original_result.get("pushed") or original_result.get("luck_roll"):
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "rule_decision_not_applicable",
-                "failure": {
-                    "code": "rule_decision_not_applicable",
-                    "message": (
-                        "only a failed non-pushed ordinary check may be pushed"
-                    ),
-                },
-            }
-        if original_outcome in _CHECK_FUMBLE_OUTCOMES:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "rule_decision_not_applicable",
-                "failure": {
-                    "code": "rule_decision_not_applicable",
-                    "message": "a fumble cannot be pushed; it is final",
-                },
-            }
-        if original_outcome not in _CHECK_FAILURE_OUTCOMES:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "rule_decision_not_applicable",
-                "failure": {
-                    "code": "rule_decision_not_applicable",
-                    "message": (
-                        "only an ordinary failed original check may be pushed"
-                    ),
-                },
-            }
-        if original_id in self._luck_spend_frozen:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "rule_decision_not_applicable",
-                "failure": {
-                    "code": "rule_decision_not_applicable",
-                    "message": "push or spend Luck, but not both",
-                },
-            }
-        request_identity = self._check_request_identity(plan, selected)
-        replayed = self._replay_or_conflict(
-            self._push_frozen, decision_id, request_identity, plan, envelope,
-            extra={"visibility": "public"},
-        )
-        if replayed is not None:
-            return replayed
-        executed = executor(_thaw(plan), decision_id, selected)
-        data, warnings, hints = self._split_executor_result(executed)
-        if not isinstance(data, Mapping):
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_settlement_result",
-                "failure": {
-                    "code": "invalid_settlement_result",
-                    "message": "pushed roll must return a roll record",
-                },
-            }
-        result = {
-            "bound_check": _thaw(data),
-            "outcome": str(data.get("outcome") or ""),
-            "pushed": True,
-            "original_check_decision_id": original_id,
-            "failure_consequence": consequence,
-            "method_changed": method,
-            "player_confirmed_risk": True,
-        }
-        hints = list(hints) + [
-            "the recorded failure_consequence is authoritative; apply it if "
-            "the pushed roll fails"
-        ]
-        self._push_frozen[decision_id] = {
-            "request_identity": request_identity,
-            "result": deepcopy(result),
-            "original_check_decision_id": original_id,
-        }
-        return self._settled_envelope(
-            envelope, plan, _freeze(result), warnings, hints,
-            extra={"visibility": "public"},
-        )
-
-    def _settle_luck_spend(
-        self,
-        executor: Callable[..., Any],
-        plan: Mapping[str, Any],
-        decision_id: str,
-        selected: Mapping[str, Any],
-        facts: Mapping[str, Any],
-        envelope: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Luck spend: receipt-bound continuation of one ordinary check."""
-        payload = (plan.get("command") or {}).get("payload") or {}
-        if not isinstance(payload, Mapping):
-            payload = {}
-        points = payload.get("points")
-        if isinstance(points, bool) or not isinstance(points, int) or points <= 0:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_semantic_input",
-                "failure": {
-                    "code": "invalid_semantic_input",
-                    "message": "points must be a positive integer",
-                    "fields": ["points"],
-                },
-            }
-        source_roll_id = str(payload.get("source_roll_id") or "").strip()
-        if not source_roll_id:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_semantic_input",
-                "failure": {
-                    "code": "invalid_semantic_input",
-                    "message": "source_roll_id is host-locked from the original receipt",
-                    "missing": ["source_roll_id"],
-                },
-            }
-        original_id = str(payload.get("original_check_decision_id") or "").strip()
-        original = self._check_frozen.get(original_id) if original_id else None
-        if original is not None:
-            original_result = original.get("result") or {}
-            if original_result.get("luck_roll"):
-                return {
-                    "schema_version": self.SCHEMA_VERSION,
-                    "decision_ref": plan["decision_ref"],
-                    "decision_id": decision_id,
-                    "family": plan["family"],
-                    "status": "rule_decision_not_applicable",
-                    "failure": {
-                        "code": "rule_decision_not_applicable",
-                        "message": "Luck may not be spent on Luck rolls",
-                    },
-                }
-            if original_id in {
-                row.get("original_check_decision_id")
-                for row in self._push_frozen.values()
-            }:
-                return {
-                    "schema_version": self.SCHEMA_VERSION,
-                    "decision_ref": plan["decision_ref"],
-                    "decision_id": decision_id,
-                    "family": plan["family"],
-                    "status": "rule_decision_not_applicable",
-                    "failure": {
-                        "code": "rule_decision_not_applicable",
-                        "message": "push or spend Luck, but not both",
-                    },
-                }
-        request_identity = self._check_request_identity(plan, selected)
-        replayed = self._replay_or_conflict(
-            self._luck_spend_frozen, decision_id, request_identity, plan,
-            envelope, extra={"visibility": "public"},
-        )
-        if replayed is not None:
-            return replayed
-        executed = executor(_thaw(plan), decision_id, selected)
-        data, warnings, hints = self._split_executor_result(executed)
-        if not isinstance(data, Mapping):
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_settlement_result",
-                "failure": {
-                    "code": "invalid_settlement_result",
-                    "message": "Luck spend must return a receipt",
-                },
-            }
-        result = {
-            "luck_spend": _thaw(data),
-            "source_roll_id": source_roll_id,
-            "points": points,
-            "resource_key": "luck",
-        }
-        self._luck_spend_frozen[decision_id] = {
-            "request_identity": request_identity,
-            "result": deepcopy(result),
-            "original_check_decision_id": original_id,
-        }
-        if original_id:
-            self._luck_spend_frozen[original_id] = self._luck_spend_frozen[decision_id]
-        return self._settled_envelope(
-            envelope, plan, _freeze(result), warnings, hints,
-            extra={"visibility": "public"},
-        )
-
-    def _settle_resource_delta(
-        self,
-        executor: Callable[..., Any],
-        plan: Mapping[str, Any],
-        decision_id: str,
-        selected: Mapping[str, Any],
-        facts: Mapping[str, Any],
-        envelope: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Host-internal generic resource delta with provenance (spec §11.1)."""
-        payload = (plan.get("command") or {}).get("payload") or {}
-        if not isinstance(payload, Mapping):
-            payload = {}
-        resource = str(payload.get("resource") or "").strip().lower()
-        direction = str(payload.get("direction") or "").strip()
-        if resource not in _RESOURCE_KEYS:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_semantic_input",
-                "failure": {
-                    "code": "invalid_semantic_input",
-                    "message": "resource must be a declared actor pool",
-                    "fields": ["resource"],
-                },
-            }
-        if direction not in {"loss", "gain"}:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_semantic_input",
-                "failure": {
-                    "code": "invalid_semantic_input",
-                    "message": "direction must be loss or gain",
-                    "fields": ["direction"],
-                },
-            }
-        request_identity = self._check_request_identity(plan, selected)
-        replayed = self._replay_or_conflict(
-            self._resource_frozen, decision_id, request_identity, plan, envelope,
-            extra={"visibility": "keeper-only"},
-        )
-        if replayed is not None:
-            return replayed
-        executed = executor(_thaw(plan), decision_id, selected)
-        data, warnings, hints = self._split_executor_result(executed)
-        if not isinstance(data, Mapping):
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_settlement_result",
-                "failure": {
-                    "code": "invalid_settlement_result",
-                    "message": "resource_delta must return a receipt",
-                },
-            }
-        result = {
-            "resource_delta": _thaw(data),
-            "resource": resource,
-            "direction": direction,
-            "provenance": {
-                "decision_id": decision_id,
-                "decision_ref": plan["decision_ref"],
-            },
-        }
-        self._resource_frozen[decision_id] = {
-            "request_identity": request_identity,
-            "result": deepcopy(result),
-        }
-        return self._settled_envelope(
-            envelope, plan, _freeze(result), warnings, hints,
-            extra={"visibility": "keeper-only"},
-        )
-
-
-def _observation_inference_ceiling(data: Mapping[str, Any]) -> str | None:
-    """Extract the frozen inference ceiling from one observation record."""
-    for key in ("inference_depth", "inference_ceiling"):
-        value = data.get(key)
-        if isinstance(value, str) and value:
-            return value
-    return None
-
-
-def _observation_public_outcome(frozen: Mapping[str, Any]) -> dict[str, Any]:
-    """Host-only concealed summary; never reaches player-visible fields."""
-    concealed = frozen.get("concealed")
-    if not isinstance(concealed, Mapping):
-        return {"inference_ceiling": frozen.get("inference_ceiling")}
-    outcome = concealed.get("outcome")
-    row: dict[str, Any] = {"realm": "psychology"}
-    if isinstance(outcome, str) and outcome:
-        row["outcome"] = outcome
-    return row
-
-
-def _paired_observe_decision_id(realize_decision_id: str) -> str | None:
-    """Derive the paired observe decision_id from a realize decision_id.
-
-    ``psychology:<inv>:<scene>:realize-player-safe`` ->
-    ``psychology:<inv>:<scene>:observe-concealed``.  Returns None when the id
-    does not follow the semantic pairing shape (fail closed).
-    """
-    id_text = str(realize_decision_id or "")
-    if not id_text.endswith(PSYCHOLOGY_REALIZE_DECISION_SUFFIX):
-        return None
-    prefix = id_text[: -len(PSYCHOLOGY_REALIZE_DECISION_SUFFIX)]
-    if not prefix.startswith("psychology:"):
-        return None
-    return prefix + PSYCHOLOGY_OBSERVE_DECISION_SUFFIX
 
 
 def public_card_projection(card: Mapping[str, Any]) -> dict[str, Any]:

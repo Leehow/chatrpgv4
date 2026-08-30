@@ -39,6 +39,7 @@ import pytest
 sys.path.insert(0, str(Path("plugins/coc-keeper/scripts")))
 from toolbox_test_support import *  # noqa: E402,F401,F403
 import coc_rules_runtime  # noqa: E402
+import coc_rulesets  # noqa: E402
 
 FIXTURE_GRAPH = Path("tests/fixtures/coc7-rule-graph-three-family.json")
 FIXTURE_MANIFEST = Path("tests/fixtures/coc7-rule-graph-manifest-three-family.json")
@@ -85,9 +86,11 @@ def _graph_owned_social_psychology_runtime(graph, manifest, facts):
             family, {},
         )
         promo["runtime_ownership"] = "graph"
+        promo["promotion_eligible"] = True
     return coc_rules_runtime.RulesRuntime(
         graph, ruleset_id="coc7", graph_manifest=manifest,
         package_manifest=_SOCIAL_PROMOTED_PACKAGE,
+        ruleset_adapter=coc_rulesets.get_rule_graph_adapter("coc7"),
         facts_provider=lambda: facts,
     )
 
@@ -401,10 +404,9 @@ def test_psychology_observe_freezes_and_realize_binds(tmp_path: Path):
     }, observe_id, card_grant=grant, executor=probe)
     assert observed["status"] == "settled"
     assert observed["visibility"] == "concealed-result"
-    # Frozen observation identity exists under the semantic observe id.
-    frozen = runtime._psychology_frozen[observe_id]
+    frozen = observed["settlement"]["result"]
     assert frozen["decision_id"] == observe_id
-    assert frozen["inference_ceiling"]  # host-frozen from the executor record
+    assert frozen["inference_ceiling"]
     # The observe executor ran exactly once; nothing player-visible.
     assert [call["requested_kind"] for call in probe.calls] == [
         "psychology_check_contract",
@@ -500,7 +502,7 @@ def test_psychology_realize_no_rng_reuses_frozen_ceiling(tmp_path: Path):
     grant = _context_grant(runtime, "psychology")
     observe_id = "psychology:thomas:library:observe-concealed"
     observe_probe = _ExecutorProbe()
-    runtime.settle({
+    observed = runtime.settle({
         "decision_ref": "decision:coc7:psychology:observe-concealed",
         "semantic_inputs": {"question": "他害怕什么?"},
     }, observe_id, card_grant=grant, executor=observe_probe)
@@ -526,7 +528,7 @@ def test_psychology_realize_no_rng_reuses_frozen_ceiling(tmp_path: Path):
     # host — never authored by the model.
     plan_payload = realize_probe.calls[0]["payload"]
     assert plan_payload["inference_ceiling"] == (
-        runtime._psychology_frozen[observe_id]["inference_ceiling"]
+        observed["settlement"]["result"]["inference_ceiling"]
     )
     # Exactly one executor invocation for the realization: no check, no reroll.
     assert [call["requested_kind"] for call in realize_probe.calls] == [

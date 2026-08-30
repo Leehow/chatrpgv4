@@ -481,12 +481,7 @@
       "visibility": "keeper-only",
       "hard_gate": false,
       "properties": {
-        "family_id": "healing",
-        "expression": {
-          "op": "gte",
-          "path": "intent.rescuer_count",
-          "value": 2
-        }
+        "family_id": "healing"
       },
       "evidence_span_ids": [
         "span-wounds-and-healing-page-131-block-49"
@@ -501,12 +496,7 @@
       "visibility": "keeper-only",
       "hard_gate": false,
       "properties": {
-        "family_id": "healing",
-        "expression": {
-          "op": "gt",
-          "path": "time.minutes_since_injury",
-          "value": 60
-        }
+        "family_id": "healing"
       },
       "evidence_span_ids": [
         "span-wounds-and-healing-page-131-block-49"
@@ -696,9 +686,7 @@
       "visibility": "public",
       "hard_gate": false,
       "properties": {
-        "family_id": "healing",
-        "runtime_ownership": "legacy",
-        "legacy_surface": "visible"
+        "family_id": "healing"
       }
     },
     {
@@ -1379,7 +1367,7 @@
     "combat": "legacy",
     "core-check": "legacy",
     "development": "legacy",
-    "healing": "graph",
+    "healing": "shadow",
     "magic": "legacy",
     "psychology": "legacy",
     "push-luck": "legacy",
@@ -1391,7 +1379,7 @@
     "combat": "visible",
     "core-check": "visible",
     "development": "visible",
-    "healing": "hidden",
+    "healing": "visible",
     "magic": "visible",
     "psychology": "visible",
     "push-luck": "visible",

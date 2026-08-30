@@ -67,7 +67,6 @@ def register_operations(registry) -> None:
         "investigator": {"type": "string", "desc": "investigator id; defaults to the linked party member"},
         "ending_id": {"type": "string", "desc": "exact persisted ending id; defaults to the latest ending"},
         "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
-        "seed": {"type": "integer", "desc": "deterministic RNG seed (tests only)"},
     },
 )(_tool_development_settle)
 

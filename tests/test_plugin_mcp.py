@@ -1774,6 +1774,7 @@ def test_module_context_is_exact_discovery_only_keeper_context(monkeypatch):
         "contract": "module_secret",
         "advisory": False,
         "kp_surface": "context",
+        "discovery": "surface",
     }
 
 
@@ -2013,6 +2014,7 @@ def test_coc_discover_operation_and_domain(monkeypatch):
         assert "inputSchema" not in row
         assert set(row["policy"]) == {
             "audience", "phases", "contract", "advisory", "kp_surface",
+            "discovery",
         }
 
     empty = server._call_tool("coc_discover", {})
@@ -3287,7 +3289,6 @@ def test_hidden_hotset_direct_call_still_succeeds(monkeypatch, tmp_path):
             "on_failure": "the focused check does not succeed",
         },
         "difficulty_basis": "keeper_judgment",
-        "seed": 11,
         "decision_id": "mcp-progressive-hotset-roll-1",
     }
     advised = server._call_tool("rules_roll", roll_arguments)

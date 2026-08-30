@@ -774,7 +774,6 @@ def register_operations(registry) -> None:
         "decision_id": {
             "type": "string", "required": True, "desc": "idempotency key"
         },
-        "seed": {"type": "integer", "desc": "deterministic RNG seed (tests only)"},
     },
 )(_tool_combat_resolve)
     registry.tool(
