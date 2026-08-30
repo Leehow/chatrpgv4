@@ -135,6 +135,7 @@ import {
   type PlayPhase,
 } from "../lib/domain-tools.ts";
 import {
+  executionClassForPolicy,
   KP_SURFACES,
   OPERATION_POLICY,
   type SessionRole,
@@ -3925,6 +3926,76 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let loadedNamespaces: LoadedNamespace[] = [];
   let loadedOperations: LoadedExactOperation[] = [];
   let lastWorkingSet: ToolWorkingSet | null = null;
+  const toolWorkingSetAtExecutionStart = new Map<string, string>();
+  /**
+   * Fingerprint the exact model-visible active tool interface. This is the
+   * single runtime seam for deciding whether a completed tool invalidated the
+   * remaining calls in the model's current batch. The digest is host-only;
+   * models never copy or emit it.
+   */
+  const activeToolWorkingSetRevision = (): string | null => {
+    try {
+      const activeNames = [...new Set(pi.getActiveTools())].sort();
+      const definitions = new Map(
+        pi.getAllTools().map((tool) => [tool.name, tool]),
+      );
+      const activeDefinitions = activeNames.map((name) => {
+        const definition = definitions.get(name);
+        if (definition === undefined) {
+          throw new Error(`active tool ${name} is not registered`);
+        }
+        return {
+          name,
+          description: definition.description,
+          parameters: definition.parameters,
+          promptGuidelines: definition.promptGuidelines,
+        };
+      });
+      return createHash("sha256")
+        .update(JSON.stringify({
+          projected_revision: lastWorkingSet?.revision ?? null,
+          player_turn_epoch: canonicalProgress.playerTurnEpoch,
+          canonical_progress_revision:
+            canonicalProgress.canonicalProgressRevision,
+          stage: canonicalProgress.stage,
+          active_tools: activeDefinitions,
+        }), "utf8")
+        .digest("hex");
+    } catch {
+      return null;
+    }
+  };
+  pi.on("tool_execution_start", (event: unknown) => {
+    const typed = event as { toolCallId?: unknown } | undefined;
+    const toolCallId = typeof typed?.toolCallId === "string"
+      ? typed.toolCallId
+      : "";
+    if (!toolCallId) return;
+    const revision = activeToolWorkingSetRevision();
+    if (revision !== null) {
+      toolWorkingSetAtExecutionStart.set(toolCallId, revision);
+    }
+  });
+  pi.on("tool_result", (event: unknown) => {
+    const typed = event as { toolCallId?: unknown } | undefined;
+    const toolCallId = typeof typed?.toolCallId === "string"
+      ? typed.toolCallId
+      : "";
+    if (!toolCallId) return undefined;
+    const before = toolWorkingSetAtExecutionStart.get(toolCallId) ?? null;
+    toolWorkingSetAtExecutionStart.delete(toolCallId);
+    const after = activeToolWorkingSetRevision();
+    return before !== null && after !== null && before !== after
+      ? { replan: true }
+      : undefined;
+  });
+  pi.on("tool_execution_end", (event: unknown) => {
+    const typed = event as { toolCallId?: unknown } | undefined;
+    if (typeof typed?.toolCallId === "string") {
+      // Immediate validation/block failures do not enter the tool_result hook.
+      toolWorkingSetAtExecutionStart.delete(typed.toolCallId);
+    }
+  });
   let operatorSystemInstructionScope: {
     sourceType: "operator_command";
     playerTurnEpoch: number;
@@ -11223,12 +11294,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   pi.registerTool({
     name: "coc_discover", label: "COC discover",
     description: "Load one canonical operation or one bounded namespace into the current turn working set.", parameters: discoverSchema,
+    executionMode: "sequential",
     execute: executeDiscovery,
     ...compactToolRenderers("coc_discover"),
   });
   pi.registerTool({
     name: "coc_invoke", label: "COC invoke (hidden compat)",
     description: "Hidden compatibility gateway. Live KP should use the closed domain tools.", parameters: invokeSchema,
+    executionMode: "sequential",
     execute: gateway("coc_invoke"),
     ...compactToolRenderers("coc_invoke"),
   });
@@ -11238,6 +11311,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       label: DOMAIN_TOOL_LABELS[domainName],
       description: DOMAIN_TOOL_DESCRIPTIONS[domainName],
       parameters: domainToolSchema(domainName),
+      executionMode: "sequential",
       execute: gateway(domainName),
       ...compactToolRenderers(domainName),
     });
@@ -11365,6 +11439,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       label: typed.label,
       description: typed.description,
       parameters,
+      executionMode: executionClassForPolicy(
+        OPERATION_POLICY[typed.operation],
+      ) === "parallel_read" ? "parallel" : "sequential",
       ...(typed.operation === "setup.complete" && launcherRole !== null ? {
         prepareArguments: (args: unknown) => (
           openingContinuationGate.prepareSetupCompleteArguments(args)
@@ -12153,6 +12230,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     registerSkillDocRead(pi);
   });
   pi.on("session_start", async (event, ctx) => {
+    toolWorkingSetAtExecutionStart.clear();
     sceneSupplyDispatches.clear();
     idleTakeoverContext = ctx;
     const startupCampaignId = initializeSession(ctx);
@@ -12174,6 +12252,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     loadedNamespaces = [];
     loadedOperations = [];
     lastWorkingSet = null;
+    toolWorkingSetAtExecutionStart.clear();
     faultRecoveryOperation = null;
     retainedOutputContextFacts = null;
     semanticRegistry.clearAll();

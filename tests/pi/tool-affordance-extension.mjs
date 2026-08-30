@@ -118,6 +118,13 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
     }
     return projected;
   };
+  const emitAll = async (type, message, eventExtra = {}) => {
+    const results = [];
+    for (const handler of handlers.get(type) || []) {
+      results.push(await handler({ type, message, ...eventExtra }, ctx));
+    }
+    return results;
+  };
   const start = async () => {
     for (const handler of handlers.get("session_start") || []) {
       await handler({ type: "session_start" }, ctx);
@@ -129,7 +136,7 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
     }
   };
   return {
-    tools, commands, handlers, active, sent, appended, clientCalls, ctx, emit, start, shutdown,
+    tools, commands, handlers, active, sent, appended, clientCalls, ctx, emit, emitAll, start, shutdown,
     get aborts() { return aborts; },
     hideRead() { hideRead = true; },
   };
@@ -327,6 +334,96 @@ test("Pi host projects a bounded role-manifest set and exact discovery load", as
       row.type === "coc-tool-working-set"
       && row.value.status === "rejected"
     )));
+  });
+});
+
+test("working-set invalidation requests a sequential replan but stable reads do not", async () => {
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我检查当前场景。" }],
+    });
+
+    await h.emit("tool_execution_start", null, {
+      toolCallId: "stable-capabilities",
+      toolName: "coc_capabilities",
+      args: {},
+    });
+    const stable = await h.tools.get("coc_capabilities").execute(
+      "stable-capabilities", {}, undefined, undefined, h.ctx,
+    );
+    const stableHooks = await h.emitAll("tool_result", null, {
+      toolCallId: "stable-capabilities",
+      toolName: "coc_capabilities",
+      input: {},
+      content: stable.content,
+      details: stable.details,
+      isError: false,
+    });
+    assert.equal(
+      stableHooks.some((hook) => hook?.replan === true),
+      false,
+      "stable read-only result must not replan",
+    );
+
+    await h.emit("tool_execution_start", null, {
+      toolCallId: "journal-stage-change",
+      toolName: "coc_invoke",
+      args: {
+        operation: "state.journal",
+        campaign: "tool-affordance-campaign",
+        arguments: { summary: "记录本轮调查。" },
+      },
+    });
+    const journal = await h.tools.get("coc_invoke").execute(
+      "journal-stage-change",
+      {
+        operation: "state.journal",
+        campaign: "tool-affordance-campaign",
+        arguments: { summary: "记录本轮调查。" },
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const changedHooks = await h.emitAll("tool_result", null, {
+      toolCallId: "journal-stage-change",
+      toolName: "coc_invoke",
+      input: {
+        operation: "state.journal",
+        campaign: "tool-affordance-campaign",
+        arguments: { summary: "记录本轮调查。" },
+      },
+      content: journal.content,
+      details: journal.details,
+      isError: false,
+    });
+    assert.ok(
+      changedHooks.some((hook) => hook?.replan === true),
+      JSON.stringify({ active: h.active.slice(-4), journal, changedHooks }),
+    );
+  }, (_name, params) => (
+    params.operation === "state.journal"
+      ? {
+          ok: true,
+          tool: "state.journal",
+          data: { turn_id: "turn-affordance-replan" },
+        }
+      : {
+          ok: true,
+          tool: params.operation,
+          data: {},
+        }
+  ));
+});
+
+test("only tools that can invalidate the working set declare sequential execution", async () => {
+  await withPlayHarness(async (h) => {
+    assert.equal(h.tools.get("coc_capabilities").executionMode, undefined);
+    assert.equal(h.tools.get("coc_discover").executionMode, "sequential");
+    assert.equal(h.tools.get("coc_invoke").executionMode, "sequential");
+    assert.equal(h.tools.get("coc_rules_context").executionMode, "parallel");
+    assert.equal(h.tools.get("coc_state_journal").executionMode, "sequential");
   });
 });
 
