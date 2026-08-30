@@ -850,6 +850,12 @@ async function invoke(h, id, params, toolName = "coc_invoke") {
   )).content[0].text);
 }
 
+async function invokeRaw(h, id, params, toolName = "coc_invoke") {
+  const tool = h.registered.get(toolName);
+  if (!tool) throw new Error(`missing tool ${toolName}`);
+  return tool.execute(id, params, undefined, undefined, h.ctx);
+}
+
 async function invokeWithSignal(h, id, params, signal, toolName = "coc_invoke") {
   const tool = h.registered.get(toolName);
   if (!tool) throw new Error(`missing tool ${toolName}`);
@@ -937,7 +943,7 @@ const recovery = harness((name, params) => {
   if (params.operation !== "session.resume") {
     throw new Error(`unexpected ${params.operation}`);
   }
-  return resumeEnvelope("open_turn_recovery", {
+  const canonical = resumeEnvelope("open_turn_recovery", {
     campaign_id: recoveryCampaign,
     open_turn_anchor: recoveryAnchor,
     next_operations: ["continue_current_turn_from_receipts"],
@@ -960,6 +966,16 @@ const recovery = harness((name, params) => {
       },
     },
   });
+  canonical.wire = {
+    schema_version: 1,
+    profile: "keeper_hot_v1",
+    canonical_operation: "session.resume",
+    control: {
+      mode: "open_turn_recovery",
+      next_operations: ["continue_current_turn_from_receipts"],
+    },
+  };
+  return canonical;
 }, recoveryCampaign, recoveryWorkspace, [{
   type: "message",
   message: {
@@ -969,12 +985,13 @@ const recovery = harness((name, params) => {
 }]);
 await recovery.start();
 const sentBeforeResume = recovery.sent.length;
-const recovered = await invoke(
+const recoveryRawResult = await invokeRaw(
   recovery,
   "recovery-resume",
   resumeParams(recoveryCampaign, recoveryWorkspace),
   "coc_setup",
 );
+const recovered = JSON.parse(recoveryRawResult.content[0].text);
 assert.equal(recovered.ok, true);
 assert.equal(recovered.data.mode, "open_turn_recovery");
 assert.deepEqual(
@@ -996,6 +1013,17 @@ assert.deepEqual(recovered.data.current_turn.player_input, {
 assert.equal(recovered.data.current_turn.detail_operation, undefined);
 assert.equal(JSON.stringify(recovered.data.current_turn).includes("sha256:"), false);
 assert.equal(JSON.stringify(recovered.data.current_turn).includes("toolbox-calls"), false);
+assert.equal(recoveryRawResult.details.data.mode, "open_turn_recovery");
+assert.equal(recoveryRawResult.details.data.host_recovery_guidance, undefined);
+assert.equal(recoveryRawResult.details.data.current_turn.player_input, undefined);
+assert.equal(
+  recoveryRawResult.details.data.current_turn.detail_operation.operation,
+  "session.continuation_detail",
+);
+assert.equal(
+  recoveryRawResult.details.wire.control.mode,
+  "open_turn_recovery",
+);
 assert.deepEqual(
   recovered.data.host_recovery_guidance.next_capabilities.map((row) => row.operation),
   ["scene.context", "actions.list"],
@@ -1189,21 +1217,32 @@ const zeroToolRecovery = harness((name, params) => {
   if (name !== "coc_invoke" || params.operation !== "session.resume") {
     throw new Error(`unexpected zero-tool ${name}:${params.operation}`);
   }
-  return resumeEnvelope("awaiting_player", {
+  const canonical = resumeEnvelope("awaiting_player", {
     campaign_id: zeroToolCampaign,
     open_turn_anchor: zeroToolAnchor,
     next_operations: ["interpret_current_player_message"],
     current_turn: null,
     pending_turn: null,
   });
+  canonical.wire = {
+    schema_version: 1,
+    profile: "keeper_hot_v1",
+    canonical_operation: "session.resume",
+    control: {
+      mode: "awaiting_player",
+      next_operations: ["interpret_current_player_message"],
+    },
+  };
+  return canonical;
 }, zeroToolCampaign, zeroToolWorkspace, []);
 await zeroToolRecovery.start();
-const zeroToolResumed = await invoke(
+const zeroToolRawResult = await invokeRaw(
   zeroToolRecovery,
   "zero-tool-recovery-resume",
   resumeParams(zeroToolCampaign, zeroToolWorkspace),
   "coc_setup",
 );
+const zeroToolResumed = JSON.parse(zeroToolRawResult.content[0].text);
 assert.equal(zeroToolResumed.data.mode, "open_turn_recovery");
 assert.equal(
   zeroToolResumed.data.current_turn.player_input.text,
@@ -1226,6 +1265,9 @@ assert.equal(
   zeroToolRecovery.sent.some((entry) => JSON.stringify(entry).includes(zeroToolPlayerText)),
   false,
 );
+assert.equal(zeroToolRawResult.details.data.mode, "awaiting_player");
+assert.equal(zeroToolRawResult.details.data.current_turn, null);
+assert.equal(zeroToolRawResult.details.wire.control.mode, "awaiting_player");
 await zeroToolRecovery.shutdown();
 
 const zeroToolNeighbor = async ({ label, anchor, pendingTurn = null, tamper = false }) => {
@@ -1254,24 +1296,38 @@ const zeroToolNeighbor = async ({ label, anchor, pendingTurn = null, tamper = fa
     if (name !== "coc_invoke" || params.operation !== "session.resume") {
       throw new Error(`unexpected ${label} ${name}:${params.operation}`);
     }
-    return resumeEnvelope("awaiting_player", {
+    const canonical = resumeEnvelope("awaiting_player", {
       campaign_id: campaign,
       open_turn_anchor: anchor,
       next_operations: ["interpret_current_player_message"],
       current_turn: null,
       pending_turn: pendingTurn,
     });
+    canonical.wire = {
+      schema_version: 1,
+      profile: "keeper_hot_v1",
+      canonical_operation: "session.resume",
+      control: {
+        mode: "awaiting_player",
+        next_operations: ["interpret_current_player_message"],
+      },
+    };
+    return canonical;
   }, campaign, workspace, []);
   await h.start();
-  const resumed = await invoke(
+  const rawResult = await invokeRaw(
     h,
     `zero-tool-${label}-resume`,
     resumeParams(campaign, workspace),
     "coc_setup",
   );
+  const resumed = JSON.parse(rawResult.content[0].text);
   assert.equal(resumed.data.mode, "awaiting_player", label);
   assert.equal(resumed.data.current_turn, null, label);
   assert.equal(resumed.data.host_recovery_guidance, undefined, label);
+  assert.equal(rawResult.details.data.mode, "awaiting_player", label);
+  assert.equal(rawResult.details.data.current_turn, null, label);
+  assert.equal(rawResult.details.wire.control.mode, "awaiting_player", label);
   assert.equal(h.activeTools.at(-1).includes("coc_state_journal"), false, label);
   await h.shutdown();
 };
@@ -4564,6 +4620,9 @@ process.stdout.write(JSON.stringify({
   restartPlayerInputStable: true,
   crossTimelineAnchorFailsClosed: true,
   recoveryAnchorHiddenFromModel: true,
+  openTurnCanonicalDetailsPreserved: true,
+  zeroToolRecoveryOverlaySeparated: true,
+  zeroToolNeighborCanonicalDetailsStable: true,
   zeroToolAcceptedInputRecoversActing: true,
   zeroToolNeighborsFailClosed: [
     "missing", "tampered", "cross-timeline", "journaled",

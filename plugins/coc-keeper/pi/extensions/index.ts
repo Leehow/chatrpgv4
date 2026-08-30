@@ -10056,6 +10056,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     // envelope is preserved there for event delivery/audit).
     let recoveryFinalizeActive = false;
     let recoveryCanonicalDetails: JsonObject | null = null;
+    // A Pi-host recovery overlay may deliberately refine the model/behavior
+    // surface without changing the canonical receipt. Keep that exact receipt
+    // for host-only details while the overlay continues through progress, ACL,
+    // working-set, and model projection.
+    let canonicalDetailsOverride: JsonObject | null = null;
     // Host-reconstructed semantic recovery instruction: derived ONLY from
     // the exact validated armed internal card, never from any downstream
     // canonical error payload.
@@ -10177,7 +10182,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           // Host-only evidence: the exact canonical envelope plus the bounded
           // field/domain diagnostics (never the unmapped values).
           details: {
-            canonical,
+            canonical: canonicalDetailsOverride ?? canonical,
             semantic_identity_diagnostics: diagnostics.unmapped.map((entry) => ({
               field: entry.field,
               parent_field: entry.parentField,
@@ -10190,7 +10195,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const visible = recoveryFinalizeActive
         ? projectRecoveryFinalizeResult(baseVisible, recoveryVisibleRecovery)
         : baseVisible;
-      const internalDetails = recoveryCanonicalDetails ?? canonical;
+      const internalDetails = recoveryCanonicalDetails
+        ?? canonicalDetailsOverride
+        ?? canonical;
       const rendered = { ...result(visible), details: internalDetails };
       const resumeData = objectOrNull(canonical.data);
       const resumeCampaign = typeof params.campaign === "string"
@@ -10619,6 +10626,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       if (
         accepted.accepted
         && params.operation === "session.resume"
+        && acceptedData?.mode === "open_turn_recovery"
+      ) {
+        canonicalDetailsOverride = structuredClone(accepted.value);
+      }
+      if (
+        accepted.accepted
+        && params.operation === "session.resume"
         && typeof params.campaign === "string"
         && params.campaign.trim()
         && acceptedData?.campaign_id === params.campaign.trim()
@@ -10635,6 +10649,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           anchor: acceptedData.open_turn_anchor,
         });
         if (cached.ok) {
+          canonicalDetailsOverride = structuredClone(accepted.value);
           value = {
             ...(objectOrNull(value) ?? {}),
             data: {
