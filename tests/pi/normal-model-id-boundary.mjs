@@ -158,6 +158,7 @@ const DENIED_KEY_NAMES = new Set([
   "manifest_revision",
   "archive_revision",
   "revision_token",
+  "source_receipt_id",
 ]);
 // Advisory identity fields are allowed ONLY with the semantic handle values.
 const HANDLE_ALLOWED_KEYS = new Map([
@@ -2874,6 +2875,233 @@ assertModelSafeContent("state.journal content", JSON.parse(modelContents.at(-1).
 assert.equal(journalResult.details.data.turn_id,
   "turn-v1-8e3599cdcb794cd5b993b59c077d126f",
   "exact canonical journal identity stays host-internal");
+
+// 5b) Production-shaped pending finalization: a fresh host observes the
+// exact canonical output_context before projection. First-impression
+// obligations, a nested HP state delta, and an NPC context effect all need
+// semantic aliases in one pass; receipt/digest identities remain host-only.
+// This is the real live-2/live-3 failure class that previously turned an
+// authoritative ok:true result into semantic_identity_unavailable and left
+// the model guessing finalize arguments.
+{
+  const firstImpressionReceipt =
+    "npc-first-impression-v2:e8cacaee8831cedf422612cac4e5cf6e219270e9";
+  const firstImpressionRoll =
+    "npc-first-impression-roll-v2:6c859213e858b4faa7a441da1e2bc4777a9c55de";
+  const hpEffect =
+    "turn-effect-v1:3a2f127eb04b7b718385ed5a19eed6c8a4100021";
+  const pendingModifierEffect =
+    "exceptional-effect-v1:73bf92c9e1f04a7aa8f1c70c09d8a1b2";
+  const contextEffect = `context:${firstImpressionReceipt}`;
+  const productionContext = structuredClone(FAMILIES.turn_output_context);
+  productionContext.data.obligations = [
+    {
+      obligation_id: `first-impression:${firstImpressionReceipt}`,
+      source_kind: "first_impression",
+      source_id: firstImpressionReceipt,
+      npc_display_name: "史蒂文·诺特",
+      visibility: "context_effect",
+      skill: null,
+      goal: "realize the NPC's first observable response",
+      outcome: null,
+      required_level: null,
+      achieved_level: null,
+      passed: null,
+      surplus_levels: null,
+      exceptional_required: false,
+      substantive_effect_required: false,
+      substantive_effect_direction: null,
+      substantive_effect_ids: [],
+      substantive_effect_status: "not_required",
+    },
+    {
+      obligation_id: `roll:${firstImpressionRoll}`,
+      source_kind: "check",
+      source_id: firstImpressionRoll,
+      npc_display_name: "史蒂文·诺特",
+      visibility: "public",
+      skill: "First Impression",
+      goal: "keeper_toolbox",
+      outcome: "extreme",
+      required_level: "regular",
+      achieved_level: "extreme",
+      passed: true,
+      surplus_levels: 2,
+      exceptional_required: false,
+      substantive_effect_required: false,
+      substantive_effect_direction: null,
+      substantive_effect_ids: [],
+      substantive_effect_status: "not_required",
+    },
+  ];
+  productionContext.data.required_obligation_ids = [
+    `first-impression:${firstImpressionReceipt}`,
+    `roll:${firstImpressionRoll}`,
+  ];
+  productionContext.data.source_roll_ids = [firstImpressionRoll];
+  productionContext.data.mechanics_summary = {
+    journal_decision_id: "pi-state-journal:player-epoch-2:revision-1",
+    public_check: [{
+      roll_id: firstImpressionRoll,
+      kind: "npc_first_impression",
+      skill: "First Impression",
+      display_skill: "初印象",
+      roll: 2,
+      base_target: 50,
+      required_level: "regular",
+      required_target: 50,
+      achieved_level: "extreme",
+      passed: true,
+      success: true,
+      surplus_levels: 2,
+      outcome: "extreme",
+      visibility: "public",
+    }],
+    state_delta: [{
+      schema_version: 1,
+      category: "state_delta",
+      effect_id: hpEffect,
+      effect_kind: "scalar",
+      resource: "HP",
+      investigator_id: "inv-x6a217e22-e0532209",
+      before: 12,
+      delta: -1,
+      after: 11,
+      source_decision_id: "roll-damage-right-knuckles-desk-v1",
+    }],
+    exceptional_effect: [],
+    concealed_consequence: [],
+  };
+  productionContext.data.npc_performance_constraints = [{
+    schema_version: 2,
+    category: "context_effect",
+    effect_id: contextEffect,
+    source_receipt_id: firstImpressionReceipt,
+    source_roll_id: firstImpressionRoll,
+    effect_kind: "npc_first_impression",
+    contract_version: "public-roll-v2",
+    investigator_id: "inv-x6a217e22-e0532209",
+    npc_id: "npc-steven-knott",
+    npc_display_name: "史蒂文·诺特",
+    reaction_tier: "strongly_favorable",
+    achieved_level: "extreme",
+    observable_manner: "诺特盯住你破裂流血的右拳，把文件夹推近了一点。",
+    causal_explanation: "极难成功使他把这理解成不易退缩的信号。",
+    boundary_preserved: "他仍不会泄露尚未发现的秘密。",
+    opportunity_or_friction: "他更愿意把佣金条件讲清楚。",
+  }];
+  productionContext.data.candidate_factors = [];
+  productionContext.data.pending_modifier_consumptions = [{
+    effect_id: pendingModifierEffect,
+    roll_id: firstImpressionRoll,
+    effect_kind: "bonus_die",
+    required_dice: 1,
+    investigator_id: "inv-x6a217e22-e0532209",
+    skill: "First Impression",
+  }];
+  productionContext.data.finalize_operation.coverage_contract.obligation_ids = [
+    `first-impression:${firstImpressionReceipt}`,
+    `roll:${firstImpressionRoll}`,
+  ];
+  routeOperation("turn.output_context", productionContext);
+  const productionResult = await executeTool(
+    "coc_turn_output_context",
+    { root: testRoot, campaign },
+  );
+  const productionVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(
+    productionVisible.ok,
+    true,
+    `production-shaped output_context must stay usable: ${JSON.stringify({
+      visible: productionVisible,
+      diagnostics: productionResult.details?.semantic_identity_diagnostics,
+    })}`,
+  );
+  assertModelSafeContent("production-shaped output_context", productionVisible);
+  assert.equal(productionVisible.data.required_obligation_ids.length, 2);
+  assert.ok(
+    productionVisible.data.required_obligation_ids.every((id) =>
+      typeof id === "string" && id.startsWith("roll:")
+    ),
+  );
+  assert.match(
+    productionVisible.data.mechanics_summary.public_check[0].roll_id,
+    /^roll:/,
+  );
+  assert.match(
+    productionVisible.data.mechanics_summary.state_delta[0].effect_id,
+    /^effect:/,
+  );
+  assert.match(
+    productionVisible.data.npc_performance_constraints[0].effect_id,
+    /^effect:/,
+  );
+  assert.match(
+    productionVisible.data.npc_performance_constraints[0].source_roll_id,
+    /^roll:/,
+  );
+  assert.match(
+    productionVisible.data.pending_modifier_consumptions[0].effect_id,
+    /^effect:/,
+  );
+  assert.match(
+    productionVisible.data.pending_modifier_consumptions[0].roll_id,
+    /^roll:/,
+  );
+  assert.equal(
+    productionVisible.data.npc_performance_constraints[0].source_receipt_id,
+    undefined,
+    "machine receipt identity stays host-owned",
+  );
+  assert.equal(
+    productionResult.details.data.npc_performance_constraints[0]
+      .source_receipt_id,
+    firstImpressionReceipt,
+    "the exact receipt remains available to host consumers",
+  );
+  assert.equal(
+    productionResult.details.data.mechanics_summary.state_delta[0].effect_id,
+    hpEffect,
+    "the exact state-effect identity remains available to host consumers",
+  );
+  assert.deepEqual(
+    productionVisible.data.agency_review_operation.missing_model_arguments,
+    ["draft_text", "findings", "state_authority_review"],
+  );
+  assert.deepEqual(
+    productionVisible.data.agency_review_operation
+      .host_bound_auto_attached_arguments,
+    ["decision_id", "revision", "source_digest", "turn_id"],
+  );
+  assert.deepEqual(
+    productionVisible.data.finalize_operation.missing_model_arguments,
+    ["draft", "coverage", "agency_claims"],
+  );
+  assert.deepEqual(
+    productionVisible.data.finalize_operation.host_bound_auto_attached_arguments,
+    ["decision_id", "narration_review_id", "revision"],
+  );
+  assert.deepEqual(
+    productionVisible.data.finalize_operation.coverage_contract.obligation_ids,
+    productionVisible.data.required_obligation_ids,
+    "the finalize descriptor reuses the exact semantic obligation aliases",
+  );
+  routeOperation("turn.output_context", productionContext);
+  await executeTool("coc_turn_output_context", { root: testRoot, campaign });
+  const replayVisible = JSON.parse(modelContents.at(-1).text);
+  assert.deepEqual(
+    replayVisible.data.required_obligation_ids,
+    productionVisible.data.required_obligation_ids,
+    "unchanged pending-turn observation reuses stable semantic aliases",
+  );
+  assert.deepEqual(
+    replayVisible.data.mechanics_summary.state_delta[0].effect_id,
+    productionVisible.data.mechanics_summary.state_delta[0].effect_id,
+  );
+  // The existing normal review/finalize vertical below proves these two
+  // descriptors restore their host-only turn/digest/review/decision identity.
+  routeOperation("turn.output_context", FAMILIES.turn_output_context);
+}
 
 // 6) turn.output_context — semantic obligations/draft instructions only.
 routeOperation("turn.output_context", FAMILIES.turn_output_context);

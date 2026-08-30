@@ -1824,9 +1824,10 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       "authorized_entity_refs", "authorized_route_ids", "clock_id", "clue_id",
       "decision_id", "family_id", "front_id", "last_storylet_id",
       "location_id", "npc_id", "required_obligation_ids", "run_segment_id",
-      "scene_id", "source_id", "source_ref", "storylet_id", "trope_id",
+      "scene_id", "source_ref", "storylet_id", "trope_id",
     ],
     ["contract_projection_sha256", "mechanics_bundle_sha256", "source_digest", "text_sha256"],
+    ["source_id", "source_receipt_id"],
   )],
   ["narration.review", declaredIdentityTable(
     ["decision_id"],

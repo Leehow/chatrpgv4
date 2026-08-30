@@ -4849,6 +4849,94 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         for (const rollId of Array.isArray(data.source_roll_ids) ? data.source_roll_ids : []) {
           registerRoll(rollId, [data.turn_number, "source-roll"]);
         }
+        // A recovered pending turn may be the first observation in this Pi
+        // session of the exact mechanics frozen by the prior host. Register
+        // every nested model-referenceable roll/effect from structured
+        // output_context facts before projecting it. The model receives only
+        // stable semantic handles; exact ids remain in canonical `details`
+        // and are restored through the same registry on review/finalize.
+        const mechanics = objectOrNull(data.mechanics_summary);
+        for (const rowValue of Array.isArray(mechanics?.public_check)
+          ? mechanics.public_check
+          : []) {
+          const row = objectOrNull(rowValue);
+          if (row === null) continue;
+          registerRoll(row.roll_id, [
+            row.display_skill,
+            row.skill,
+            row.kind,
+            row.outcome,
+          ]);
+        }
+        const registerOutputContextEffect = (
+          rowValue: unknown,
+          category: string,
+        ): void => {
+          const row = objectOrNull(rowValue);
+          if (row === null || typeof row.effect_id !== "string") return;
+          semanticRegistry.register({
+            domain: "effect",
+            canonicalId: row.effect_id,
+            facts: [
+              row.resource,
+              row.effect_kind,
+              row.kind,
+              row.npc_display_name,
+              category,
+            ],
+            scope,
+            lifetime: "player_turn",
+          });
+        };
+        for (const category of [
+          "state_delta",
+          "exceptional_effect",
+          "concealed_consequence",
+        ]) {
+          for (const row of Array.isArray(mechanics?.[category])
+            ? mechanics[category]
+            : []) {
+            registerOutputContextEffect(row, category);
+          }
+        }
+        for (const constraintValue of Array.isArray(data.npc_performance_constraints)
+          ? data.npc_performance_constraints
+          : []) {
+          const constraint = objectOrNull(constraintValue);
+          if (constraint === null) continue;
+          registerOutputContextEffect(constraint, "npc_performance_constraint");
+          registerRoll(constraint.source_roll_id, [
+            constraint.npc_display_name,
+            constraint.effect_kind,
+            "npc-performance-constraint",
+          ]);
+        }
+        for (const pendingValue of Array.isArray(data.pending_modifier_consumptions)
+          ? data.pending_modifier_consumptions
+          : []) {
+          const pending = objectOrNull(pendingValue);
+          if (pending === null) continue;
+          if (typeof pending.effect_id === "string") {
+            semanticRegistry.register({
+              domain: "effect",
+              canonicalId: pending.effect_id,
+              facts: [
+                pending.effect_kind,
+                pending.skill,
+                "pending-modifier-consumption",
+              ],
+              scope,
+              // This effect pre-existed the recovered turn and stays live
+              // until the authoritative consume operation retires it.
+              lifetime: "authoritative",
+            });
+          }
+          registerRoll(pending.roll_id, [
+            pending.skill,
+            pending.effect_kind,
+            "pending-modifier-roll",
+          ]);
+        }
       }
       // Exceptional effects: apply registers a persistent handle;
       // consume/resolve are the authoritative retirement of the named id.
