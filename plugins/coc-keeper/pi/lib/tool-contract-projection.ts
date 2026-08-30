@@ -4268,6 +4268,35 @@ function projectSessionRecoveryGuidance(
   return projected;
 }
 
+function projectOpenTurnPlayerInput(value: unknown): Record<string, unknown> | null {
+  if (!isPlainObject(value)) return null;
+  if (
+    value.schema_version !== 1
+    || value.kind !== "accepted_player_input"
+    || value.audience !== "keeper_only"
+    || typeof value.text !== "string"
+    || !value.text.trim()
+    || value.speaker !== "player"
+    || value.intent_source !== "external_player_message"
+    || Object.keys(value).some((key) => ![
+      "schema_version",
+      "kind",
+      "audience",
+      "text",
+      "speaker",
+      "intent_source",
+    ].includes(key))
+  ) return null;
+  return {
+    schema_version: 1,
+    kind: "accepted_player_input",
+    audience: "keeper_only",
+    text: value.text,
+    speaker: "player",
+    intent_source: "external_player_message",
+  };
+}
+
 function projectAdoptionOperation(card: unknown): Record<string, unknown> {
   const source = isPlainObject(card) ? card : {};
   const descriptor: Record<string, unknown> = {};
@@ -4832,6 +4861,12 @@ export function projectModelVisibleCanonicalResult(
       const sceneContext = isPlainObject(data.scene_context)
         ? data.scene_context
         : null;
+      const currentTurn = isPlainObject(data.current_turn)
+        ? data.current_turn
+        : null;
+      const openTurnPlayerInput = projectOpenTurnPlayerInput(
+        currentTurn?.player_input,
+      );
       const recoveryGuidance = isPlainObject(data.host_recovery_guidance)
         ? data.host_recovery_guidance
         : null;
@@ -4844,6 +4879,17 @@ export function projectModelVisibleCanonicalResult(
         diagnostics,
         operationName,
       ) as Record<string, unknown>;
+      if (openTurnPlayerInput !== null) {
+        const projectedCurrentTurn = isPlainObject(resumeView.current_turn)
+          ? resumeView.current_turn
+          : null;
+        if (projectedCurrentTurn !== null) {
+          resumeView.current_turn = {
+            ...projectedCurrentTurn,
+            player_input: openTurnPlayerInput,
+          };
+        }
+      }
       if (sceneContext !== null) {
         resumeView.scene_context = projectSceneContextData(
           sceneContext,

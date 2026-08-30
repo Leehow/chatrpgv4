@@ -34,6 +34,11 @@ export {
 export type { DomainToolName, PlayPhase, SessionRole };
 export { SESSION_ROLES, sessionRolesForPolicy };
 
+export type OpenTurnRecoveryAuthorization = {
+  kind: "open_turn_pre_journal";
+  stage: "acting";
+};
+
 const SESSION_ROLE_ENV = "COC_PI_SESSION_ROLE";
 
 /** Canonical caller: evaluateExecuteAcl / activeToolsForPhase. Consumer: Pi dual-session host. */
@@ -236,6 +241,8 @@ export function evaluateExecuteAcl(args: {
   phase: PlayPhase;
   /** Host-local typed role; omitted preserves the launcher/env contract. */
   role?: SessionRole | null;
+  /** Exact host-owned authorization restored from one verified open turn. */
+  recoveryAuthorization?: OpenTurnRecoveryAuthorization | null;
 }): AclDecision {
   const typedOperation = operationForTypedTool(args.toolName);
   const operation = (args.operation.trim() || typedOperation || "");
@@ -260,6 +267,42 @@ export function evaluateExecuteAcl(args: {
       ["do not call private source-coordinator operations from the live KP path"],
     );
   }
+  const verifiedOpenTurnRecovery = args.phase === "recovery"
+    && args.role === "play"
+    && args.recoveryAuthorization?.kind === "open_turn_pre_journal"
+    && args.recoveryAuthorization.stage === "acting";
+  const recoveryDenied = (): AclDecision | null => {
+    if (
+      args.phase === "recovery"
+      && !verifiedOpenTurnRecovery
+      && operation !== "session.resume"
+      && operation !== "session.delivery_text"
+    ) {
+      return aclDenied(
+        "recovery_authorization_required",
+        `operation ${operation} requires a verified pre-journal open-turn recovery binding`,
+        { operation, phase: args.phase },
+        ["preserve the open turn and recover its accepted player input through session.resume"],
+      );
+    }
+    if (
+      verifiedOpenTurnRecovery
+      && (
+        policy.kp_surface === "setup"
+        || operation === "turn.output_context"
+        || operation === "narration.review"
+        || operation === "turn.finalize"
+      )
+    ) {
+      return aclDenied(
+        "stage_forbidden",
+        `operation ${operation} is not available before the recovered turn is journaled`,
+        { operation, phase: args.phase, stage: "acting" },
+        ["settle the accepted player action first; state.journal advances to closure"],
+      );
+    }
+    return null;
+  };
   if (policy.kp_surface === "none") {
     const compat = (
       args.toolName === HIDDEN_COMPAT_INVOKE
@@ -273,11 +316,16 @@ export function evaluateExecuteAcl(args: {
         ["use a typed operation tool on the live KP surface; do not call coc_invoke for host-private ops"],
       );
     }
-    if (!policy.phases.includes(args.phase)) {
-      return phaseForbidden(operation, policy, args.phase);
-    }
     const compatRoleDenied = roleForbidden(operation, policy, args.role);
     if (compatRoleDenied) return compatRoleDenied;
+    const compatRecoveryDenied = recoveryDenied();
+    if (compatRecoveryDenied) return compatRecoveryDenied;
+    if (
+      !policy.phases.includes(args.phase)
+      && !(verifiedOpenTurnRecovery && policy.phases.includes("live_turn"))
+    ) {
+      return phaseForbidden(operation, policy, args.phase);
+    }
     return {
       ok: true,
       wrapper: HIDDEN_COMPAT_INVOKE,
@@ -307,11 +355,16 @@ export function evaluateExecuteAcl(args: {
       [`call ${expectedTool} or the typed tool for ${operation}`],
     );
   }
-  if (!policy.phases.includes(args.phase)) {
-    return phaseForbidden(operation, policy, args.phase);
-  }
   const roleDenied = roleForbidden(operation, policy, args.role);
   if (roleDenied) return roleDenied;
+  const surfacedRecoveryDenied = recoveryDenied();
+  if (surfacedRecoveryDenied) return surfacedRecoveryDenied;
+  if (
+    !policy.phases.includes(args.phase)
+    && !(verifiedOpenTurnRecovery && policy.phases.includes("live_turn"))
+  ) {
+    return phaseForbidden(operation, policy, args.phase);
+  }
   return {
     ok: true,
     wrapper: (

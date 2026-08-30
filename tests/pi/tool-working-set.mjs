@@ -522,6 +522,63 @@ test("rules.context is exact-loadable only and grants expire on epoch change", (
   )));
 });
 
+test("verified pre-journal open-turn recovery restores the acting surface without closure writes", () => {
+  const source = snapshot({
+    phase: "recovery",
+    stage: "acting",
+    recoveryRoute: {
+      authorization: "stage",
+      code: "open_turn_pre_journal",
+      operations: [],
+    },
+  });
+  const projected = workingSet.projectToolWorkingSet(source);
+  assert.equal(projected.ok, true, projected.error?.message);
+  for (const operation of [
+    "scene.context",
+    "actions.list",
+    "rules.roll",
+    "npc.query",
+    "state.journal",
+  ]) {
+    assert.ok(projected.activeOperationNames.includes(operation), operation);
+  }
+  for (const operation of [
+    "turn.output_context",
+    "narration.review",
+    "turn.finalize",
+  ]) {
+    assert.ok(!projected.activeOperationNames.includes(operation), operation);
+  }
+  assert.ok(projected.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET);
+
+  for (const operation of ["rules.context", "rules.settle"]) {
+    const loaded = workingSet.loadToolNamespace(source, {
+      kind: "exact_operation",
+      operation,
+    });
+    assert.equal(loaded.ok, true, loaded.message ?? operation);
+    assert.ok(loaded.workingSet.activeOperationNames.includes(operation));
+    assert.ok(
+      loaded.workingSet.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET,
+    );
+  }
+
+  const hostPointer = workingSet.loadToolNamespace(source, {
+    kind: "exact_operation",
+    operation: "session.continuation_detail",
+  });
+  assert.equal(hostPointer.ok, false);
+  assert.equal(hostPointer.code, "policy_forbidden");
+
+  const unverified = workingSet.projectToolWorkingSet(snapshot({
+    phase: "recovery",
+    stage: "acting",
+  }));
+  assert.equal(unverified.ok, true, unverified.error?.message);
+  assert.deepEqual(unverified.activeOperationNames, ["session.resume"]);
+});
+
 test("graph healing legacy ops are not model-loadable", () => {
   const source = snapshot();
   for (const operation of SHADOW_HEALING) {

@@ -232,6 +232,12 @@ const PLAY_ACTING_BASELINE = [
   "state.journal",
 ] as const;
 
+const OPEN_TURN_PRE_JOURNAL_FORBIDDEN = new Set([
+  "turn.output_context",
+  "narration.review",
+  "turn.finalize",
+]);
+
 /** Legacy healing operations retained while the family is shadow-owned. */
 export const SHADOW_HEALING_LEGACY_OPERATIONS = [
   "rules.first_aid",
@@ -284,10 +290,23 @@ function loadMatchesSnapshot(load: LoadScope, snapshot: ToolWorkingSetSnapshot):
   return grantKey(load) === grantKey(snapshot);
 }
 
+function isVerifiedOpenTurnRecovery(snapshot: ToolWorkingSetSnapshot): boolean {
+  return snapshot.role === "play"
+    && snapshot.phase === "recovery"
+    && snapshot.stage === "acting"
+    && snapshot.recoveryRoute?.authorization === "stage"
+    && snapshot.recoveryRoute.code === "open_turn_pre_journal";
+}
+
 function policyAllows(operation: string, snapshot: ToolWorkingSetSnapshot): boolean {
   const policy = OPERATION_POLICY[operation];
   if (!policy || policy.kp_surface === "none") return false;
-  if (!policy.phases.includes(snapshot.phase)) return false;
+  if (!policy.phases.includes(snapshot.phase)) {
+    if (
+      !isVerifiedOpenTurnRecovery(snapshot)
+      || !policy.phases.includes("live_turn")
+    ) return false;
+  }
   if (!sessionRolesForPolicy(operation, policy).includes(snapshot.role)) return false;
   return true;
 }
@@ -301,6 +320,10 @@ function faultRecoveryOperation(snapshot: ToolWorkingSetSnapshot): string | null
 }
 
 function stageAllows(operation: string, snapshot: ToolWorkingSetSnapshot): boolean {
+  if (
+    isVerifiedOpenTurnRecovery(snapshot)
+    && OPEN_TURN_PRE_JOURNAL_FORBIDDEN.has(operation)
+  ) return false;
   const capability = STAGE_CAPABILITIES[snapshot.stage];
   if (capability.allowedOperations === null) return true;
   if (capability.allowedOperations.has(operation)) return true;
@@ -318,7 +341,9 @@ function actingBaseline(snapshot: ToolWorkingSetSnapshot): readonly string[] {
       : SETUP_ACTING_BASELINE;
   }
   if (snapshot.phase === "recovery") {
-    return ["session.resume", "state.journal", "turn.output_context", "turn.finalize"];
+    return isVerifiedOpenTurnRecovery(snapshot)
+      ? PLAY_ACTING_BASELINE
+      : ["session.resume"];
   }
   if (snapshot.phase === "ending") return ["state.journal"];
   if (snapshot.phase === "opening" || snapshot.phase === "cold_start") {
@@ -344,7 +369,7 @@ function workingSetBudget(
   capability: StageCapability,
 ): typeof WORKING_SET_TOOL_BUDGET | typeof CLOSURE_TOOL_BUDGET {
   return snapshot.phase === "pending_finalization"
-    || snapshot.phase === "recovery"
+    || (snapshot.phase === "recovery" && !isVerifiedOpenTurnRecovery(snapshot))
     || snapshot.phase === "ending"
     ? CLOSURE_TOOL_BUDGET
     : capability.budget;
@@ -744,7 +769,7 @@ function exactLoadDenied(
       allowed_roles: [...sessionRolesForPolicy(operation, policy)],
     });
   }
-  if (!policy.phases.includes(snapshot.phase)) {
+  if (!policyAllows(operation, snapshot)) {
     return loadFailure("phase_forbidden", `operation ${operation} is not allowed in phase ${snapshot.phase}`, {
       operation,
       phase: snapshot.phase,

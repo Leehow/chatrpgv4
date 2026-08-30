@@ -20,6 +20,7 @@ import {
   type ReviewedAgencyBinding,
   type ReviewedCoverageBindingFacts,
 } from "./tool-contract-projection.ts";
+import type { OpenTurnPlayerInputCard } from "./open-turn-player-input.ts";
 
 export const OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT =
   "coc.pi-open-turn-recovery-guidance.v1";
@@ -40,14 +41,14 @@ const NON_RECOVERY_RESUME_MODES = new Set([
 
 export const OPEN_TURN_RECOVERY_CLOSURE_SEQUENCE = [
   {
-    operation: "turn.output_context",
-    when: "always",
-    purpose: "required_closures_and_finalize_card",
+    operation: "state.journal",
+    when: "after_missing_mechanics_are_settled",
+    purpose: "bind_the_exact_recovered_player_input",
   },
   {
-    operation: "state.journal",
-    when: "if_unrealized",
-    purpose: "realize_recovered_turn",
+    operation: "turn.output_context",
+    when: "after_state_journal",
+    purpose: "required_closures_and_finalize_card",
   },
   {
     operation: "turn.finalize",
@@ -57,10 +58,22 @@ export const OPEN_TURN_RECOVERY_CLOSURE_SEQUENCE = [
 ] as const;
 
 export const OPEN_TURN_RECOVERY_FORBIDDEN_UNTIL_CLOSED = [
-  "state.move_scene",
-  "scene_progression",
-  "new_rules_rolls",
-  "new_state_mutation",
+  "new_player_input",
+  "setup_operations",
+  "turn.output_context_before_state.journal",
+  "narration.review_before_turn.output_context",
+  "turn.finalize_before_narration.review",
+] as const;
+
+export const OPEN_TURN_RECOVERY_ACTING_CAPABILITIES = [
+  {
+    operation: "scene.context",
+    purpose: "rehydrate_current_scene_and_applicable_rule_cards",
+  },
+  {
+    operation: "actions.list",
+    purpose: "recover_current_scene_action_affordances_if_needed",
+  },
 ] as const;
 
 function isPlainObject(value: unknown): value is JsonObject {
@@ -1564,7 +1577,73 @@ export function isOpenTurnRecoveryResume(value: unknown): boolean {
   return nextOperationsOf(data).includes("continue_current_turn_from_receipts");
 }
 
-export function buildOpenTurnRecoveryGuidance(data: JsonObject): JsonObject {
+function validOpenTurnPlayerInput(
+  value: unknown,
+): value is OpenTurnPlayerInputCard {
+  if (!isPlainObject(value)) return false;
+  return value.schema_version === 1
+    && value.kind === "accepted_player_input"
+    && value.audience === "keeper_only"
+    && typeof value.text === "string"
+    && value.text.trim().length > 0
+    && value.speaker === "player"
+    && value.intent_source === "external_player_message"
+    && Object.keys(value).every((key) => [
+      "schema_version",
+      "kind",
+      "audience",
+      "text",
+      "speaker",
+      "intent_source",
+    ].includes(key));
+}
+
+function semanticOpenTurnProjection(
+  value: unknown,
+  playerInput: OpenTurnPlayerInputCard | null,
+): JsonObject | null {
+  if (!isPlainObject(value)) return null;
+  const meaningful = value.meaningful_row_count;
+  const rows = Array.isArray(value.rows) ? value.rows : [];
+  const preJournal = rows.every((candidate) => {
+    const row = isPlainObject(candidate) ? candidate : null;
+    return !(row?.tool === "state.journal" && row.ok === true);
+  });
+  const verified = Number.isSafeInteger(meaningful)
+    && Number(meaningful) > 0
+    && rows.length > 0
+    && typeof value.source_digest === "string"
+    && value.source_digest.startsWith("sha256:")
+    && preJournal
+    && playerInput !== null;
+  const projectedRows = rows.flatMap((candidate) => {
+    if (!isPlainObject(candidate)) return [];
+    const projected: JsonObject = {};
+    for (const field of ["call_index", "tool", "ok", "receipt_summary"]) {
+      if (candidate[field] !== undefined) projected[field] = candidate[field];
+    }
+    return [projected];
+  });
+  return {
+    schema_version: 1,
+    ...(Number.isSafeInteger(value.meaningful_row_count)
+      ? { meaningful_row_count: value.meaningful_row_count }
+      : {}),
+    ...(Number.isSafeInteger(value.operational_row_count)
+      ? { operational_row_count: value.operational_row_count }
+      : {}),
+    rows: projectedRows,
+    ...(verified ? { player_input: playerInput } : {}),
+    recovery_status: verified
+      ? "accepted_player_input_ready_for_adjudication"
+      : "player_input_binding_unavailable",
+  };
+}
+
+export function buildOpenTurnRecoveryGuidance(
+  data: JsonObject,
+  actingAuthorized = false,
+): JsonObject {
   const nextOperations = nextOperationsOf(data);
   return {
     schema_version: 1,
@@ -1574,11 +1653,15 @@ export function buildOpenTurnRecoveryGuidance(data: JsonObject): JsonObject {
     next_operations: nextOperations.includes("continue_current_turn_from_receipts")
       ? nextOperations
       : ["continue_current_turn_from_receipts", ...nextOperations],
-    current_acl_supersedes_prior_denials: true,
-    closure_sequence: OPEN_TURN_RECOVERY_CLOSURE_SEQUENCE.map((row) => ({
-      ...row,
-    })),
-    after_closure: "adjudicate_unsettled_player_action",
+    current_acl_supersedes_prior_denials: actingAuthorized,
+    acting_authorized: actingAuthorized,
+    next_capabilities: actingAuthorized
+      ? OPEN_TURN_RECOVERY_ACTING_CAPABILITIES.map((row) => ({ ...row }))
+      : [],
+    closure_sequence: actingAuthorized
+      ? OPEN_TURN_RECOVERY_CLOSURE_SEQUENCE.map((row) => ({ ...row }))
+      : [],
+    after_settlement: "journal_then_build_output_context_review_and_finalize",
     forbidden_until_closed: [...OPEN_TURN_RECOVERY_FORBIDDEN_UNTIL_CLOSED],
     keep: ["kp_semantic_judgment", "rule4"],
     do_not: [
@@ -1589,7 +1672,13 @@ export function buildOpenTurnRecoveryGuidance(data: JsonObject): JsonObject {
   };
 }
 
-export function applyOpenTurnRecoveryGuidance(value: unknown): {
+export function applyOpenTurnRecoveryGuidance(
+  value: unknown,
+  options: {
+    expectedCampaign?: string;
+    playerInput?: OpenTurnPlayerInputCard | null;
+  } = {},
+): {
   attached: boolean;
   envelope: unknown;
   audit: JsonObject | null;
@@ -1598,9 +1687,22 @@ export function applyOpenTurnRecoveryGuidance(value: unknown): {
     return { attached: false, envelope: value, audit: null };
   }
   const data = isPlainObject(value.data) ? value.data : {};
-  const guidance = buildOpenTurnRecoveryGuidance(data);
+  const campaignMatches = options.expectedCampaign === undefined
+    || data.campaign_id === options.expectedCampaign;
+  const playerInput = validOpenTurnPlayerInput(options.playerInput)
+    ? options.playerInput
+    : null;
+  const currentTurn = semanticOpenTurnProjection(
+    data.current_turn,
+    campaignMatches ? playerInput : null,
+  );
+  const actingAuthorized = campaignMatches
+    && currentTurn?.recovery_status
+      === "accepted_player_input_ready_for_adjudication";
+  const guidance = buildOpenTurnRecoveryGuidance(data, actingAuthorized);
   const rest = { ...data };
   delete rest.host_recovery_guidance;
+  if (currentTurn !== null) rest.current_turn = currentTurn;
   return {
     attached: true,
     envelope: {
@@ -1615,6 +1717,9 @@ export function applyOpenTurnRecoveryGuidance(value: unknown): {
       contract_id: OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT,
       campaign_id: typeof data.campaign_id === "string" ? data.campaign_id : null,
       mode: "open_turn_recovery",
+      acting_authorized: actingAuthorized,
+      player_input_status: currentTurn?.recovery_status
+        ?? "player_input_binding_unavailable",
     },
   };
 }

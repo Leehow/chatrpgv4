@@ -252,6 +252,10 @@ def test_pi_tool_working_set():
     _node_test(ROOT / "tests/pi/tool-working-set.mjs")
 
 
+def test_pi_open_turn_player_input_cache():
+    _node_test(ROOT / "tests/pi/open-turn-player-input.mjs")
+
+
 def test_pi_agent_loop_graph_replan_patch_contract():
     adapter = ROOT / "runtime/adapters/keeper"
     package = json.loads((adapter / "package.json").read_text(encoding="utf-8"))
@@ -337,10 +341,15 @@ def test_pi_startup_resume_typed_opening_phase():
 
 def test_pi_open_turn_recovery_host_guidance_is_structured_and_pairing_safe():
     result = _node(ROOT / "tests/pi/recovery-kp-guidance.mjs", str(ROOT))
-    assert result == {
+    expected = {
         "ok": True,
         "contract": "coc.pi-open-turn-recovery-guidance.v1",
         "attachedOnOpenTurnRecovery": True,
+        "openTurnPlayerInputHydrated": True,
+        "openTurnActingSurface": True,
+        "openTurnMissingInputFailsClosed": True,
+        "startupControlPromptNotCaptured": True,
+        "restartPlayerInputStable": True,
         "skippedModes": [
             "table_opening",
             "awaiting_player",
@@ -373,6 +382,7 @@ def test_pi_open_turn_recovery_host_guidance_is_structured_and_pairing_safe():
             "pending_finalization",
         ],
     }
+    assert {key: result.get(key) for key in expected} == expected
 
 
 def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():

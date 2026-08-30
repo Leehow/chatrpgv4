@@ -107,10 +107,14 @@ import { registerTurnTelemetry, type TurnTelemetry } from "../lib/turn-telemetry
 import {
   cocSystemInstructionOperations,
   latestExternalUserText,
-  recoveredOpenTurnPlayerText,
   registerCocSystemInstructionCommand,
   sendCocSystemInstruction,
 } from "../lib/system-instruction.ts";
+import {
+  clearOpenTurnPlayerInput,
+  loadOpenTurnPlayerInput,
+  recordOpenTurnPlayerInput,
+} from "../lib/open-turn-player-input.ts";
 import { createContextFold, readFoldSettings } from "../lib/context-fold.ts";
 import {
   registerCocWelcome,
@@ -3886,7 +3890,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   const sceneSupplyDispatches = new Map<string, SceneSupplyDispatchStatus>();
   let kpPlayPhase: PlayPhase = "live_turn";
   let currentWorkspaceRoot = "";
+  let currentHostSessionId = "";
   let canonicalProgressCampaignId = "";
+  let openTurnRecoveryAuthorization: {
+    campaignId: string;
+    sessionEpoch: number;
+    playerTurnEpoch: number;
+  } | null = null;
   // One host-owned live hydration attempt per strict pending identity:
   // campaign + pending turn/source identity (an identity-less marker for
   // pointer-only resumes) + player epoch + session generation. Concurrent
@@ -5448,6 +5458,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
 
     if (operation === "state.journal" && typeof data.turn_id === "string") {
+      if (campaignId && currentWorkspaceRoot) {
+        clearOpenTurnPlayerInput(currentWorkspaceRoot, campaignId);
+      }
+      openTurnRecoveryAuthorization = null;
       advanceCanonicalProgress(campaignId, {
         stage: "journaled",
         journalRevision: data.turn_id,
@@ -5926,12 +5940,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       advanceCanonicalProgress(campaignId, { stage: resumedStage });
       if (mode === "open_turn_recovery") {
         const currentTurn = objectOrNull(data.current_turn);
-        const recoveredPlayer = recoveredOpenTurnPlayerText(
+        const recoveryRoot = currentWorkspaceRoot;
+        const recoveredPlayer = loadOpenTurnPlayerInput({
+          root: recoveryRoot,
+          campaignId,
           currentTurn,
-          openingContinuationGate.currentExternalPlayerText,
-        );
-        if (recoveredPlayer !== null) {
-          openingContinuationGate.currentExternalPlayerText = recoveredPlayer.text;
+        });
+        if (recoveredPlayer.ok) {
+          openingContinuationGate.currentExternalPlayerText = recoveredPlayer.card.text;
           armJournalBinding(campaignId);
           try {
             pi.appendEntry("coc-open-turn-player-input-rebound", {
@@ -5939,10 +5955,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               status: "rebound",
               campaign_id: campaignId,
               player_turn_epoch: canonicalProgress.playerTurnEpoch,
-              source: recoveredPlayer.source,
+              source: "host_open_turn_input_cache",
             });
           } catch { /* recovery binding audit is best effort */ }
         } else {
+          openingContinuationGate.currentExternalPlayerText = null;
           clearTypedBinding("state.journal");
           try {
             pi.appendEntry("coc-open-turn-player-input-rebound", {
@@ -5950,7 +5967,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               status: "unavailable",
               campaign_id: campaignId,
               player_turn_epoch: canonicalProgress.playerTurnEpoch,
-              source: "current_turn.actions.advise",
+              source: recoveredPlayer.code,
             });
           } catch { /* recovery binding audit is best effort */ }
         }
@@ -6443,6 +6460,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   const workingSetSnapshot = (role: SessionRole): ToolWorkingSetSnapshot => {
     const phase = resolveAclPhase();
+    const verifiedOpenTurnRecovery = (
+      role === "play"
+      && phase === "recovery"
+      && canonicalProgress.stage === "acting"
+      && openTurnRecoveryAuthorization !== null
+      && openTurnRecoveryAuthorization.campaignId === canonicalProgressCampaignId
+      && openTurnRecoveryAuthorization.sessionEpoch === sessionEpoch
+      && openTurnRecoveryAuthorization.playerTurnEpoch
+        === canonicalProgress.playerTurnEpoch
+    );
     loadedNamespaces = loadedNamespaces.filter((grant) => (
       grant.role === role
       && grant.phase === phase
@@ -6505,7 +6532,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               operation: faultRecoveryOperation,
             },
           }
-        : {}),
+        : verifiedOpenTurnRecovery
+          ? {
+              recoveryRoute: {
+                authorization: "stage" as const,
+                code: "open_turn_pre_journal",
+                operations: [],
+              },
+            }
+          : {}),
     };
   };
   const withActualRegisteredSchemas = (
@@ -7473,7 +7508,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     semanticRegistry.clearSession(sessionEpoch - 1);
     sessionClosing = false;
     currentWorkspaceRoot = resolve(ctx.cwd);
+    currentHostSessionId = typeof ctx.sessionManager?.getSessionId === "function"
+      ? String(ctx.sessionManager.getSessionId() || "")
+      : "";
     canonicalProgressCampaignId = "";
+    openTurnRecoveryAuthorization = null;
     canonicalProgress = {
       playerTurnEpoch: 0,
       canonicalProgressRevision: 0,
@@ -9296,6 +9335,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         operation: String(params.operation || ""),
         phase: aclPhase,
         role: effectiveTypedRole,
+        recoveryAuthorization: (
+          aclPhase === "recovery"
+          && canonicalProgress.stage === "acting"
+          && openTurnRecoveryAuthorization !== null
+          && openTurnRecoveryAuthorization.campaignId
+            === (typeof params.campaign === "string"
+              ? params.campaign.trim()
+              : canonicalProgressCampaignId)
+          && openTurnRecoveryAuthorization.sessionEpoch === sessionEpoch
+          && openTurnRecoveryAuthorization.playerTurnEpoch
+            === canonicalProgress.playerTurnEpoch
+        ) ? { kind: "open_turn_pre_journal", stage: "acting" } : null,
       });
       if (!acl.ok) {
         try {
@@ -11591,6 +11642,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           : {}),
       });
       if (pendingGuided.attached) {
+        openTurnRecoveryAuthorization = null;
+        if (typeof params.campaign === "string" && params.campaign.trim()) {
+          clearOpenTurnPlayerInput(
+            currentWorkspaceRoot,
+            params.campaign.trim(),
+          );
+        }
         value = pendingGuided.envelope as JsonObject;
         try {
           pi.appendEntry(
@@ -11599,12 +11657,47 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           );
         } catch { /* recovery-guidance audit is best effort */ }
       } else {
-        const guided = applyOpenTurnRecoveryGuidance(value);
+        const openTurnData = objectOrNull(objectOrNull(value)?.data);
+        const recoveryRoot = currentWorkspaceRoot;
+        const recoveredInput = (
+          openTurnData?.mode === "open_turn_recovery"
+          && typeof params.campaign === "string"
+          && params.campaign.trim()
+        ) ? loadOpenTurnPlayerInput({
+            root: recoveryRoot,
+            campaignId: params.campaign.trim(),
+            currentTurn: openTurnData.current_turn,
+          }) : null;
+        const guided = applyOpenTurnRecoveryGuidance(value, {
+          expectedCampaign: typeof params.campaign === "string"
+            ? params.campaign.trim()
+            : undefined,
+          playerInput: recoveredInput?.ok === true ? recoveredInput.card : null,
+        });
         if (guided.attached) {
           value = guided.envelope as JsonObject;
+          const authorized = guided.audit?.acting_authorized === true;
+          openTurnRecoveryAuthorization = authorized
+            && typeof params.campaign === "string"
+            && params.campaign.trim()
+            ? {
+                campaignId: params.campaign.trim(),
+                sessionEpoch,
+                playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+              }
+            : null;
+          applyKpActiveTools();
           try {
             pi.appendEntry(OPEN_TURN_RECOVERY_GUIDANCE_AUDIT, guided.audit);
           } catch { /* recovery-guidance audit is best effort */ }
+        } else if (
+          openTurnData !== null
+          && openTurnData.mode !== "open_turn_recovery"
+          && typeof params.campaign === "string"
+          && params.campaign.trim()
+        ) {
+          openTurnRecoveryAuthorization = null;
+          clearOpenTurnPlayerInput(recoveryRoot, params.campaign.trim());
         }
       }
     }
@@ -12436,7 +12529,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       return decision;
     },
     (message) => {
-      const externalUser = userMessageText(message) !== null;
+      const externalPlayerText = userMessageText(message);
+      const externalUser = externalPlayerText !== null;
       if (externalUser) operatorSystemInstructionScope = null;
       openingContinuationGate.observeMessageStart(message);
       if (externalUser) {
@@ -12449,7 +12543,36 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           newPlayerEpoch: openingContinuationGate.playerTurnEpoch,
           reprojectTools: false,
         });
-        armJournalBinding(campaignId);
+        if (
+          startupResumeGate === null
+          && kpPlayPhase === "live_turn"
+          && campaignId
+          && currentWorkspaceRoot
+          && currentHostSessionId
+          && externalPlayerText !== null
+        ) {
+          const retained = recordOpenTurnPlayerInput({
+            root: currentWorkspaceRoot,
+            campaignId,
+            sessionId: currentHostSessionId,
+            playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+            text: externalPlayerText,
+          });
+          if (retained === "recorded" || retained === "idempotent") {
+            armJournalBinding(campaignId);
+          } else {
+            openingContinuationGate.currentExternalPlayerText = null;
+            clearTypedBinding("state.journal");
+          }
+          try {
+            pi.appendEntry("coc-open-turn-player-input-cache", {
+              schema_version: 1,
+              status: retained,
+              campaign_id: campaignId,
+              player_turn_epoch: canonicalProgress.playerTurnEpoch,
+            });
+          } catch { /* operational cache audit is best effort */ }
+        }
       }
       if (externalUser && startupResumeGate === null) {
         const preflightDelivery = deliverPendingPreInferenceFinalizationSteer(
@@ -12696,6 +12819,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     clearTurnEntityFacts();
     draftShapeRecoveryCards.clear();
     currentSceneBindingFacts = null;
+    currentHostSessionId = "";
+    openTurnRecoveryAuthorization = null;
     lastHealingCardProjection = null;
     currentCombatBindingFacts = null;
     retainedTypedBindings.clear();

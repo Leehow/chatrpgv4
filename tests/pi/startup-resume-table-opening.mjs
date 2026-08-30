@@ -9,6 +9,9 @@ delete process.env.PI_SUBAGENT_CHILD;
 const root = path.resolve(process.argv[2] || process.cwd());
 const welcomeAgentDir = mkdtempSync(path.join(tmpdir(), "pi-coc-resume-opening-"));
 const main = await import(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"));
+const openTurnInput = await import(
+  path.join(root, "plugins/coc-keeper/pi/lib/open-turn-player-input.ts"),
+);
 const exactTextSha256 = (text) => (
   `sha256:${createHash("sha256").update(JSON.stringify(text), "utf8").digest("hex")}`
 );
@@ -398,6 +401,17 @@ async function expectRejected(h, id, params, label) {
 }
 
 const recoveryCampaign = "startup-open-turn-recovery";
+const recoveryWorkspace = mkdtempSync(path.join(tmpdir(), "pi-coc-startup-recovery-"));
+mkdirSync(path.join(recoveryWorkspace, ".coc", "campaigns", recoveryCampaign), {
+  recursive: true,
+});
+openTurnInput.recordOpenTurnPlayerInput({
+  root: recoveryWorkspace,
+  campaignId: recoveryCampaign,
+  sessionId: "prior-natural-player-session",
+  playerTurnEpoch: 2,
+  text: "我仔细包扎右手伤口。",
+});
 const recovery = harness((name, params) => {
   if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
   if (params.operation === "session.resume") {
@@ -409,7 +423,20 @@ const recovery = harness((name, params) => {
         campaign_id: recoveryCampaign,
         mode: "open_turn_recovery",
         next_operations: ["continue_current_turn_from_receipts"],
+        current_turn: {
+          schema_version: 1,
+          meaningful_row_count: 1,
+          source_digest: "sha256:startup-recovery-current-turn",
+          rows: [{ call_index: 1, tool: "actions.list", ok: true }],
+        },
       },
+    };
+  }
+  if (params.operation === "scene.context") {
+    return {
+      ok: true,
+      tool: "scene.context",
+      data: { campaign_id: recoveryCampaign, active_scene_id: "office" },
     };
   }
   if (params.operation === "turn.output_context") {
@@ -433,7 +460,11 @@ const recovery = harness((name, params) => {
     };
   }
   if (params.operation === "state.journal") {
-    return { ok: true, tool: "state.journal", data: { entries: [] } };
+    return {
+      ok: true,
+      tool: "state.journal",
+      data: { turn_id: "turn-recovery-startup", entries: [] },
+    };
   }
   if (params.operation === "turn.finalize") {
     const renderedText = "闭合";
@@ -454,7 +485,7 @@ const recovery = harness((name, params) => {
     return { ok: true, tool: params.operation, data: { leaked: true } };
   }
   throw new Error(`unexpected ${params.operation}`);
-}, recoveryCampaign);
+}, recoveryCampaign, recoveryWorkspace);
 await recovery.start();
 const pendingClosure = [
   ["pending-output", "turn.output_context"],
@@ -473,27 +504,52 @@ for (const [id, operation] of pendingClosure) {
 }
 const recovered = await invoke(recovery, "recovery-resume", {
   operation: "session.resume",
-  root,
+  root: recoveryWorkspace,
   campaign: recoveryCampaign,
   arguments: {},
 });
 if (recovered.ok !== true || recovered.data.mode !== "open_turn_recovery") {
   throw new Error(`legal recovery resume rejected: ${JSON.stringify(recovered)}`);
 }
-const afterResumeOutput = await invoke(recovery, "recovery-output", {
-  operation: "turn.output_context",
-  root,
+const afterResumeScene = await invoke(recovery, "recovery-scene", {
+  operation: "scene.context",
+  root: recoveryWorkspace,
   campaign: recoveryCampaign,
   arguments: {},
 });
+await expectRejected(recovery, "recovery-output-before-journal", {
+  operation: "turn.output_context",
+  root: recoveryWorkspace,
+  campaign: recoveryCampaign,
+  arguments: {},
+}, "recovery output before journal");
+const afterResumeRule = await invoke(recovery, "recovery-rule", {
+  operation: "rules.roll",
+  root: recoveryWorkspace,
+  campaign: recoveryCampaign,
+  arguments: {
+    skill: "First Aid",
+    difficulty: "regular",
+    goal: "包扎右手伤口",
+    stakes: {
+      on_success: "止血并完成急救",
+      on_failure: "伤口仍未妥善处理",
+    },
+    difficulty_basis: "keeper_judgment",
+    decision_id: "roll-recovered-first-aid",
+  },
+});
+if (afterResumeRule.ok !== true || afterResumeRule.tool !== "rules.roll") {
+  throw new Error(`rules path blocked during recovered acting: ${JSON.stringify(afterResumeRule)}`);
+}
 const afterResumeJournal = await invoke(recovery, "recovery-journal", {
   operation: "state.journal",
-  root,
+  root: recoveryWorkspace,
   campaign: recoveryCampaign,
   arguments: { summary: "Continue the retained recovery turn." },
 });
-if (afterResumeOutput.ok !== true || afterResumeOutput.tool !== "turn.output_context") {
-  throw new Error(`output_context blocked after recovery resume: ${JSON.stringify(afterResumeOutput)}`);
+if (afterResumeScene.ok !== true || afterResumeScene.tool !== "scene.context") {
+  throw new Error(`scene.context blocked after recovery resume: ${JSON.stringify(afterResumeScene)}`);
 }
 if (afterResumeJournal.ok !== true || afterResumeJournal.tool !== "state.journal") {
   throw new Error(`journal blocked after recovery resume: ${JSON.stringify(afterResumeJournal)}`);
@@ -505,14 +561,23 @@ for (const [id, operation] of [
 ]) {
   await expectRejected(recovery, id, {
     operation,
-    root,
+    root: recoveryWorkspace,
     campaign: recoveryCampaign,
     arguments: {},
   }, `recovery ${operation}`);
 }
+const afterResumeOutput = await invoke(recovery, "recovery-output", {
+  operation: "turn.output_context",
+  root: recoveryWorkspace,
+  campaign: recoveryCampaign,
+  arguments: {},
+});
+if (afterResumeOutput.ok !== true || afterResumeOutput.tool !== "turn.output_context") {
+  throw new Error(`output_context blocked after recovery journal: ${JSON.stringify(afterResumeOutput)}`);
+}
 const afterResumeFinalize = await invoke(recovery, "recovery-finalize", {
   operation: "turn.finalize",
-  root,
+  root: recoveryWorkspace,
   campaign: recoveryCampaign,
   arguments: { draft: "闭合", coverage: [], agency_claims: [] },
 });

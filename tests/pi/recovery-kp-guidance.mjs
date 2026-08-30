@@ -15,6 +15,9 @@ const guidanceMod = await import(
 const main = await import(
   path.join(root, "plugins/coc-keeper/pi/extensions/index.ts")
 );
+const openTurnInput = await import(
+  path.join(root, "plugins/coc-keeper/pi/lib/open-turn-player-input.ts")
+);
 const {
   PiStateClaimCompiler,
   canonicalDigest,
@@ -126,16 +129,21 @@ assert.equal(guidance.contract_id, OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT);
 assert.equal(guidance.schema_version, 1);
 assert.equal(guidance.audience, "keeper_only");
 assert.equal(guidance.mode, "open_turn_recovery");
-assert.equal(guidance.current_acl_supersedes_prior_denials, true);
+assert.equal(guidance.current_acl_supersedes_prior_denials, false);
+assert.equal(guidance.acting_authorized, false);
+assert.deepEqual(guidance.next_capabilities, []);
 assert.deepEqual(
   guidance.closure_sequence.map((row) => row.operation),
-  OPEN_TURN_RECOVERY_CLOSURE_SEQUENCE.map((row) => row.operation),
+  [],
 );
 assert.deepEqual(
   guidance.forbidden_until_closed,
   [...OPEN_TURN_RECOVERY_FORBIDDEN_UNTIL_CLOSED],
 );
-assert.equal(guidance.after_closure, "adjudicate_unsettled_player_action");
+assert.equal(
+  guidance.after_settlement,
+  "journal_then_build_output_context_review_and_finalize",
+);
 assert.ok(guidance.keep.includes("kp_semantic_judgment"));
 assert.ok(guidance.keep.includes("rule4"));
 assert.ok(guidance.do_not.includes("fixed_narrative_template"));
@@ -846,32 +854,110 @@ async function invokeWithSignal(h, id, params, signal, toolName = "coc_invoke") 
   )).content[0].text);
 }
 
-function resumeParams(campaignId) {
+function resumeParams(campaignId, workspaceRoot = root) {
   return {
     operation: "session.resume",
-    root,
+    root: workspaceRoot,
     campaign: campaignId,
     arguments: {},
   };
 }
 
 const recoveryCampaign = "startup-open-turn-recovery";
+const recoveryPlayerText = "我停下来检查右手的伤口，撕下一条干净布料，按住伤口并仔细包扎止血。";
+const recoveryWorkspace = mkdtempSync(path.join(tmpdir(), "pi-coc-open-turn-recovery-"));
+mkdirSync(
+  path.join(recoveryWorkspace, ".coc", "campaigns", recoveryCampaign),
+  { recursive: true },
+);
+assert.equal(openTurnInput.recordOpenTurnPlayerInput({
+  root: recoveryWorkspace,
+  campaignId: recoveryCampaign,
+  sessionId: "previous-natural-player-session",
+  playerTurnEpoch: 2,
+  text: recoveryPlayerText,
+}), "recorded");
 const recovery = harness((name, params) => {
   if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
+  if (params.operation === "scene.context") {
+    return {
+      ok: true,
+      tool: "scene.context",
+      wire: { full_result_sha256: `sha256:${"1".repeat(64)}` },
+      cache: { revision: "scene-context:recovered-healing" },
+      data: {
+        active_scene_id: "infirmary-treatment-room",
+        party: ["thomas-hayes"],
+        exits: [],
+        time: { elapsed_minutes: 0 },
+        npcs_present: [],
+        action_routes: [],
+        rule_decision_cards: {
+          schema_version: 1,
+          family: "healing",
+          status: "ok",
+          cards: [{
+            schema_version: 1,
+            decision_ref: "decision:coc7:healing:first-aid-ordinary",
+            family: "healing",
+            label: "Administer First Aid",
+            applicability: "applicable",
+            required_inputs: [],
+            locked_inputs: ["skill_value"],
+            rule_refs: ["rule:coc7:healing:first-aid-stabilization"],
+            source_refs: ["span-wounds-and-healing-page-131-block-18"],
+            capability_ref: "capability:coc7:first-aid",
+            effect_refs: ["effect:coc7:healing:temporary-stabilization"],
+            possible_continuations: [],
+            authority: {
+              selection: "keeper-semantic",
+              execution: "current-ruleset-adapter",
+              hard_gate: false,
+            },
+          }],
+          authority: { hard_gate: false, role: "affordance" },
+        },
+      },
+    };
+  }
   if (params.operation !== "session.resume") {
     throw new Error(`unexpected ${params.operation}`);
   }
   return resumeEnvelope("open_turn_recovery", {
     campaign_id: recoveryCampaign,
     next_operations: ["continue_current_turn_from_receipts"],
+    current_turn: {
+      schema_version: 1,
+      meaningful_row_count: 10,
+      source_digest: "sha256:host-only-current-turn-digest",
+      rows: [{
+        call_index: 19,
+        tool: "actions.list",
+        ok: true,
+        data_ref: "logs/toolbox-calls.jsonl#call-19",
+        data_digest: "sha256:host-only-row-digest",
+      }],
+      detail_operation: {
+        operation: "session.continuation_detail",
+        invoke_via: "coc_invoke",
+        prefilled_arguments: { section: "current_turn" },
+        missing_arguments: [],
+      },
+    },
   });
-}, recoveryCampaign);
+}, recoveryCampaign, recoveryWorkspace, [{
+  type: "message",
+  message: {
+    role: "user",
+    content: [{ type: "text", text: "恢复这个既有战役；不要重发玩家输入。" }],
+  },
+}]);
 await recovery.start();
 const sentBeforeResume = recovery.sent.length;
 const recovered = await invoke(
   recovery,
   "recovery-resume",
-  resumeParams(recoveryCampaign),
+  resumeParams(recoveryCampaign, recoveryWorkspace),
   "coc_setup",
 );
 assert.equal(recovered.ok, true);
@@ -884,13 +970,66 @@ assert.equal(
   recovered.data.host_recovery_guidance?.contract_id,
   OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT,
 );
+assert.deepEqual(recovered.data.current_turn.player_input, {
+  schema_version: 1,
+  kind: "accepted_player_input",
+  audience: "keeper_only",
+  text: recoveryPlayerText,
+  speaker: "player",
+  intent_source: "external_player_message",
+}, JSON.stringify(recovered.data.current_turn));
+assert.equal(recovered.data.current_turn.detail_operation, undefined);
+assert.equal(JSON.stringify(recovered.data.current_turn).includes("sha256:"), false);
+assert.equal(JSON.stringify(recovered.data.current_turn).includes("toolbox-calls"), false);
 assert.deepEqual(
-  recovered.data.host_recovery_guidance.closure_sequence.map((row) => row.operation),
-  ["turn.output_context", "state.journal", "turn.finalize"],
+  recovered.data.host_recovery_guidance.next_capabilities.map((row) => row.operation),
+  ["scene.context", "actions.list"],
 );
+assert.equal(recovered.data.host_recovery_guidance.acting_authorized, true);
+assert.equal(
+  recovered.data.host_recovery_guidance.current_acl_supersedes_prior_denials,
+  true,
+);
+assert.deepEqual(
+  recovered.data.host_recovery_guidance.closure_sequence.map(
+    (row) => row.operation,
+  ),
+  OPEN_TURN_RECOVERY_CLOSURE_SEQUENCE.map((row) => row.operation),
+);
+const recoveryTools = recovery.activeTools.at(-1);
+for (const name of ["coc_scene_context", "coc_actions_list", "coc_rules_roll"]) {
+  assert.ok(recoveryTools.includes(name), name);
+}
+const recoveredScene = await invoke(
+  recovery,
+  "recovery-scene-card",
+  { root: recoveryWorkspace, campaign: recoveryCampaign },
+  "coc_scene_context",
+);
+assert.equal(recoveredScene.ok, true);
 assert.ok(
-  recovered.data.host_recovery_guidance.forbidden_until_closed.includes("state.move_scene"),
+  recovery.activeTools.at(-1).includes("coc_rules_settle"),
+  JSON.stringify({
+    message: "recovered scene RuleDecisionCard must project the graph settlement surface",
+    active: recovery.activeTools.at(-1),
+    scene: recoveredScene,
+    audits: recovery.audits.filter((row) => row.name === "coc-tool-working-set").slice(-2),
+  }),
 );
+for (const name of ["coc_turn_output_context", "coc_narration_review", "coc_turn_finalize"]) {
+  assert.ok(!recoveryTools.includes(name), name);
+}
+const discover = recovery.registered.get("coc_discover");
+for (const operation of ["rules.context", "rules.settle"]) {
+  const loaded = JSON.parse((await discover.execute(
+    `recovery-discover-${operation}`,
+    { operation },
+    undefined,
+    undefined,
+    recovery.ctx,
+  )).content[0].text);
+  assert.equal(loaded.ok, true, operation);
+}
 assert.ok(
   recovery.audits.some((entry) => (
     entry.name === OPEN_TURN_RECOVERY_GUIDANCE_AUDIT
@@ -905,6 +1044,13 @@ assert.equal(
   )),
   false,
   "guidance must stay on the tool result; no mid-pair custom message",
+);
+assert.equal(
+  recovery.sent.slice(sentBeforeResume).some((entry) => (
+    JSON.stringify(entry).includes(recoveryPlayerText)
+  )),
+  false,
+  "recovered player text is Keeper-only and never a duplicate player-visible send",
 );
 assert.ok(
   recovery.activeTools.length > 0
@@ -933,6 +1079,143 @@ assert.equal(
   "open_turn_recovery visible final must not arm a gate follow-up",
 );
 await recovery.shutdown();
+
+const recoveryRestart = harness((name, params) => {
+  if (name !== "coc_invoke" || params.operation !== "session.resume") {
+    throw new Error(`unexpected restart ${name}:${params.operation}`);
+  }
+  return resumeEnvelope("open_turn_recovery", {
+    campaign_id: recoveryCampaign,
+    next_operations: ["continue_current_turn_from_receipts"],
+    current_turn: {
+      schema_version: 1,
+      meaningful_row_count: 10,
+      source_digest: "sha256:host-only-current-turn-digest",
+      rows: [{ call_index: 19, tool: "actions.list", ok: true }],
+    },
+  });
+}, recoveryCampaign, recoveryWorkspace, []);
+await recoveryRestart.start();
+const restarted = await invoke(
+  recoveryRestart,
+  "recovery-restart-resume",
+  resumeParams(recoveryCampaign, recoveryWorkspace),
+  "coc_setup",
+);
+assert.equal(restarted.data.current_turn.player_input.text, recoveryPlayerText);
+assert.equal(restarted.data.host_recovery_guidance.acting_authorized, true);
+assert.equal(
+  JSON.stringify(restarted.data).match(new RegExp(recoveryPlayerText, "gu"))?.length,
+  1,
+  "one recovered tool result carries one exact semantic player-input card",
+);
+await recoveryRestart.shutdown();
+
+const missingRecoveryCampaign = "startup-open-turn-recovery-missing-input";
+const missingRecoveryWorkspace = mkdtempSync(
+  path.join(tmpdir(), "pi-coc-open-turn-recovery-missing-"),
+);
+mkdirSync(
+  path.join(missingRecoveryWorkspace, ".coc", "campaigns", missingRecoveryCampaign),
+  { recursive: true },
+);
+const missingRecovery = harness((name, params) => {
+  if (name !== "coc_invoke" || params.operation !== "session.resume") {
+    throw new Error(`unexpected missing-input ${name}:${params.operation}`);
+  }
+  return resumeEnvelope("open_turn_recovery", {
+    campaign_id: missingRecoveryCampaign,
+    next_operations: ["continue_current_turn_from_receipts"],
+    current_turn: {
+      schema_version: 1,
+      meaningful_row_count: 1,
+      source_digest: "sha256:verified-but-input-missing",
+      rows: [{ call_index: 1, tool: "actions.list", ok: true }],
+    },
+  });
+}, missingRecoveryCampaign, missingRecoveryWorkspace, []);
+await missingRecovery.start();
+const missingResumed = await invoke(
+  missingRecovery,
+  "recovery-missing-input-resume",
+  resumeParams(missingRecoveryCampaign, missingRecoveryWorkspace),
+  "coc_setup",
+);
+assert.equal(missingResumed.data.current_turn.player_input, undefined);
+assert.equal(
+  missingResumed.data.current_turn.recovery_status,
+  "player_input_binding_unavailable",
+);
+assert.equal(missingResumed.data.host_recovery_guidance.acting_authorized, false);
+const missingTools = missingRecovery.activeTools.at(-1);
+assert.ok(missingTools.includes("coc_session_resume"));
+for (const name of [
+  "coc_scene_context",
+  "coc_actions_list",
+  "coc_state_journal",
+  "coc_turn_output_context",
+  "coc_turn_finalize",
+]) {
+  assert.ok(!missingTools.includes(name), name);
+}
+await missingRecovery.shutdown();
+
+const captureCampaign = "startup-open-turn-input-capture";
+const captureWorkspace = mkdtempSync(path.join(tmpdir(), "pi-coc-open-input-capture-"));
+mkdirSync(path.join(captureWorkspace, ".coc", "campaigns", captureCampaign), {
+  recursive: true,
+});
+const captureHost = harness((name, params) => {
+  if (name !== "coc_invoke" || params.operation !== "session.resume") {
+    throw new Error(`unexpected capture ${name}:${params.operation}`);
+  }
+  return resumeEnvelope("awaiting_player", {
+    campaign_id: captureCampaign,
+    next_operations: ["interpret_current_player_message"],
+    current_turn: {
+      schema_version: 1,
+      meaningful_row_count: 0,
+      source_digest: "sha256:empty-before-player",
+      rows: [],
+    },
+  });
+}, captureCampaign, captureWorkspace, []);
+await captureHost.start();
+await captureHost.emit("message_start", {
+  role: "user",
+  content: [{ type: "text", text: "恢复这个既有战役；不要重发玩家输入。" }],
+});
+assert.deepEqual(openTurnInput.loadOpenTurnPlayerInput({
+  root: captureWorkspace,
+  campaignId: captureCampaign,
+  currentTurn: {
+    meaningful_row_count: 1,
+    source_digest: "sha256:control-must-not-bind",
+    rows: [{ tool: "actions.list", ok: true }],
+  },
+}), { ok: false, code: "missing" });
+await invoke(
+  captureHost,
+  "capture-awaiting-resume",
+  resumeParams(captureCampaign, captureWorkspace),
+  "coc_setup",
+);
+await captureHost.shutdown();
+await captureHost.emit("message_start", {
+  role: "user",
+  content: [{ type: "text", text: recoveryPlayerText }],
+});
+const capturedNaturalInput = openTurnInput.loadOpenTurnPlayerInput({
+  root: captureWorkspace,
+  campaignId: captureCampaign,
+  currentTurn: {
+    meaningful_row_count: 1,
+    source_digest: "sha256:natural-input-bound",
+    rows: [{ tool: "actions.list", ok: true }],
+  },
+});
+assert.equal(capturedNaturalInput.ok, true);
+assert.equal(capturedNaturalInput.card.text, recoveryPlayerText);
 
 // Exact cards survive the full extension path (coc_setup invoke → gateway →
 // applyPendingFinalizationRecoveryGuidance), stay keeper-only, and never
@@ -4079,6 +4362,11 @@ process.stdout.write(JSON.stringify({
   ok: true,
   contract: OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT,
   attachedOnOpenTurnRecovery: true,
+  openTurnPlayerInputHydrated: true,
+  openTurnActingSurface: true,
+  openTurnMissingInputFailsClosed: true,
+  startupControlPromptNotCaptured: true,
+  restartPlayerInputStable: true,
   skippedModes: ["table_opening", "awaiting_player", "pending_finalization"],
   noMidPairCustom: true,
   providerValid: true,
