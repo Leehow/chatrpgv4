@@ -2333,7 +2333,18 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
       mechanics_bundle_sha256: `sha256:${"e9".repeat(32)}`,
       contract_projection: {
         agency_review_required: true,
-        agency_authority: { pc_subject_refs: ["pc:affordance-investigator"] },
+        player_input: {
+          source_ref: "player_input:affordance-pending-1",
+          text: "我把信推回桌角。",
+        },
+        control_overrides: [],
+        agency_authority: {
+          pc_subject_refs: ["pc:affordance-investigator"],
+          involuntary_physiology_sources: [{
+            source_ref: "narration_contract:involuntary_physiology",
+            source_type: "ownership_contract",
+          }],
+        },
       },
       frozen_narration_draft: receipt,
       agency_review_operation: reviewCard,
@@ -2376,8 +2387,16 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
           data: {
             accepted: true,
             review_id: "narration-review-v1:affordance-accepted-1",
+            turn_id: turnId,
+            source_digest: sourceDigest,
             revision: 2,
+            draft_sha256: canonicalDigest(params.arguments.draft_text),
+            findings: [],
+            agency_gate: "clear",
+            state_authority_review: params.arguments.state_authority_review,
             state_claim_compilation: params.arguments.state_claim_compilation,
+            state_authority_gate: "clear",
+            recommendation: "no_revision_suggested",
           },
         };
       }
@@ -2547,7 +2566,6 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
     const finalize = JSON.parse((await h.tools.get("coc_turn_finalize").execute(
       "typed-finalize",
       {
-        draft: draftText,
         coverage: [],
         agency_claims: [],
       },
@@ -2887,7 +2905,18 @@ test("excerpt-only revision-2 repair requires an edited draft and completes thro
             mechanics_bundle_sha256: `sha256:${"f2".repeat(32)}`,
             contract_projection: {
               agency_review_required: true,
-              agency_authority: { pc_subject_refs: ["pc:affordance-investigator"] },
+              player_input: {
+                source_ref: "player_input:affordance-repair-1",
+                text: "我把东西收好后离开旅店。",
+              },
+              control_overrides: [],
+              agency_authority: {
+                pc_subject_refs: ["pc:affordance-investigator"],
+                involuntary_physiology_sources: [{
+                  source_ref: "narration_contract:involuntary_physiology",
+                  source_type: "ownership_contract",
+                }],
+              },
             },
             frozen_narration_draft: frozenReceipt,
             agency_review_operation: {
@@ -2926,8 +2955,16 @@ test("excerpt-only revision-2 repair requires an edited draft and completes thro
           data: {
             accepted: true,
             review_id: "narration-review-v1:affordance-repair-accepted-1",
+            turn_id: turnId,
+            source_digest: sourceDigest,
             revision: 2,
+            draft_sha256: canonicalDigest(params.arguments.draft_text),
+            findings: [],
+            agency_gate: "clear",
+            state_authority_review: params.arguments.state_authority_review,
             state_claim_compilation: params.arguments.state_claim_compilation,
+            state_authority_gate: "clear",
+            recommendation: "no_revision_suggested",
           },
         };
       }
@@ -3000,7 +3037,7 @@ test("excerpt-only revision-2 repair requires an edited draft and completes thro
     // Then finalize the repaired revision-2 draft.
     const finalize = JSON.parse((await h.tools.get("coc_turn_finalize").execute(
       "typed-repair-finalize",
-      { draft: repairedDraft, coverage: [], agency_claims: [] },
+      { coverage: [], agency_claims: [] },
       undefined,
       undefined,
       h.ctx,

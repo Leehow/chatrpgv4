@@ -267,7 +267,7 @@ type PresentedToolContract = {
 | goal、approach、fictional realization、player-safe summary | root、campaign、当前 player exact text、run/session identity |
 | 多个合法候选之间的 semantic choice | turn id、review id、revision、source/content digest |
 | 是否采用可选规则/状态动作 | idempotency key / decision namespace |
-| KP 的叙述 draft 与 coverage reasoning | 单一当前 investigator、单一 pending target、精确 state revision |
+| review 前的叙述 draft；review 后的 coverage 与 reviewed-span/authority 语义选择 | accepted review 的 frozen draft、exact agency excerpt、subject/source/override |
 | 无法从 canonical route 推导的语义参数 | source-authored edge 的 travel minutes、precise clock 派生 phase |
 
 约束：
@@ -277,6 +277,7 @@ type PresentedToolContract = {
 - 只有多个当前合法候选时才让模型选择 candidate；只有一个时自动绑定。
 - 跨字段约束应尽可能编码为 `enum`、`oneOf`、nested required 或 candidate card，而不是只写在 description。
 - strict static schema 不能表达动态合法性时，不伪造枚举；先读 canonical context，再投影当前 candidate set。
+- clear `narration.review` 后，`coc_turn_finalize` 必须刷新为 post-review schema：模型不再提交 `draft` 或 canonical `agency_claims`，只从 host 生成的 `reviewed_span`、`claim_type`、`authority` 闭集选择；host 反绑 accepted draft 与 exact evidence，canonical finalizer 继续逐字验证内部证据。
 
 #### 5.2.1 这场失败的参数归属修正
 
@@ -288,6 +289,7 @@ type PresentedToolContract = {
 | unknown combat target | `combat.context` 返回当前 semantic candidates；`combat.resolve` 只接受 retained candidate ref。 |
 | journal/review idempotency conflict | host 生成 player-epoch + semantic operation + revision ordinal 的 semantic idempotency key；model 不填写。 |
 | narration review mismatch | review id、turn id、source digest 与 revision 从当前 frozen output context 绑定。 |
+| accepted review 后 exact agency excerpt 转录漂移 | 按已审查 state-claim / 句 / 段生成 semantic span ordinal；模型只选 span 与 authority，host 从同一 review binding 恢复 exact draft/excerpt/PC/source。 |
 
 ### 5.3 Failure Projection
 

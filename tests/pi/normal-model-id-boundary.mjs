@@ -420,7 +420,9 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
   // fields; no canonical prose (and therefore no opaque tokens) is relayed.
   assert.deepEqual(out.hints, [
     "findings are advisory; the KP decides whether and how to revise them",
-    "bind every authorized PC proposition as an agency_claim in turn.finalize",
+    "after a clear Pi review, select reviewed_span + claim_type + authority "
+      + "from the refreshed finalize binding; the host attaches the frozen "
+      + "draft and exact agency evidence",
   ]);
 }
 
@@ -3317,7 +3319,9 @@ assert.ok(
 
 // 7) narration.review — host binds exact identity; content is guidance only.
 const draftText = "石街的夜很静。考夫特的住处门前无人应门，窗子里也没有灯。\n\n屋子仍黑着。";
-routeOperation("narration.review", FAMILIES.narration_review);
+const acceptedReview = structuredClone(FAMILIES.narration_review);
+acceptedReview.data.draft_sha256 = canonicalDigest(draftText);
+routeOperation("narration.review", acceptedReview);
 await executeTool("coc_narration_review", {
   draft_text: draftText,
   findings: [],
@@ -3351,11 +3355,21 @@ const reviewVisible = JSON.parse(modelContents.at(-1).text);
 assertModelSafeContent("narration.review content", reviewVisible);
 assert.equal(reviewVisible.data.recommendation, "no_revision_suggested");
 assert.ok(!("review_id" in reviewVisible.data));
+assert.equal(
+  reviewVisible.data.finalize_agency_binding.mode,
+  "semantic_reviewed_spans",
+);
+assert.equal(
+  JSON.stringify(reviewVisible.data.finalize_agency_binding)
+    .includes("考夫特的住处门前无人应门"),
+  false,
+  "review binding exposes semantic ordinals, never frozen exact excerpts",
+);
 
-// 8) turn.finalize — semantic handles restored; receipt stays details-only.
+// 8) turn.finalize — reviewed agency spans and all exact host evidence are
+// restored; receipt stays details-only.
 routeOperation("turn.finalize", FAMILIES.turn_finalize);
 const finalizeDelivered = await executeTool("coc_turn_finalize", {
-  draft: "石街的夜很静。考夫特的住处门前无人应门，窗子里也没有灯。\n\n屋子仍黑着。",
   coverage: [
     {
       // The semantic roll handle presented in output_context content.
@@ -3382,12 +3396,9 @@ const finalizeDelivered = await executeTool("coc_turn_finalize", {
     },
   ],
   agency_claims: [{
-    claim_id: "agency-inspect",
+    reviewed_span: "reviewed-sentence:paragraph-1:2",
     claim_type: "voluntary_action",
-    exact_excerpt: "考夫特的住处门前无人应门",
-    override_id: null,
-    source_ref: CURRENT_PLAYER_INPUT_SOURCE_HANDLE,
-    subject_ref: CURRENT_PC_SUBJECT_HANDLE,
+    authority: "current-player-input",
   }],
   advisory_uptake: {
     advice_id: CURRENT_ADVICE_HANDLE,
@@ -3402,6 +3413,12 @@ const finalizeTransport = clientCalls.find(
   (call) => call.operation === "turn.finalize",
 );
 assert.ok(finalizeTransport, "turn.finalize must reach transport");
+assert.equal(finalizeTransport.arguments.draft, draftText);
+assert.equal(
+  finalizeTransport.arguments.agency_claims[0].exact_excerpt,
+  "考夫特的住处门前无人应门，窗子里也没有灯。",
+  "host restores the exact accepted-review sentence",
+);
 assert.equal(
   finalizeTransport.arguments.agency_claims[0].subject_ref,
   "pc:inv-x6a217e22-e0532209",

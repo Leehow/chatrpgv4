@@ -69,6 +69,23 @@ const modelOwnedReview = (({
   ...owned
 }) => owned)(baseReview);
 
+function clearAgencyReviewData(params, reviewId) {
+  return {
+    accepted: true,
+    review_id: reviewId,
+    turn_id: baseReview.turn_id,
+    source_digest: baseReview.source_digest,
+    revision: Number(params.arguments.revision),
+    draft_sha256: canonicalDigest(params.arguments.draft_text),
+    findings: [],
+    agency_gate: "clear",
+    state_authority_review: params.arguments.state_authority_review,
+    state_claim_compilation: params.arguments.state_claim_compilation,
+    state_authority_gate: "clear",
+    recommendation: "no_revision_suggested",
+  };
+}
+
 // Canonical `frozen_narration_draft` receipt (coc.pending-narration-draft):
 // closed 20-field producer schema, draft digest over the kernel canonical
 // convention, and a recomputed receipt_digest excluding only itself.
@@ -148,7 +165,14 @@ const outputContext = {
     ],
     contract_projection: {
       agency_review_required: true,
-      agency_authority: { pc_subject_refs: ["pc:fault-investigator"] },
+      agency_authority: {
+        pc_subject_refs: ["pc:fault-investigator"],
+        involuntary_physiology_sources: [{
+          source_ref: "narration_contract:involuntary_physiology",
+          source_type: "ownership_contract",
+        }],
+      },
+      control_overrides: [],
       player_input: {
         source_ref: "player_input:9f2d4c8ab17e4460b3a9c5d1e7f02a46",
         text: baseReview.draft_text,
@@ -1473,23 +1497,23 @@ test("run-02 chain: placement failure freezes an executable card and an acknowle
     const failedCallMechanicsPlacements = [
       { after_paragraph: 0, segment_type: "public_check", source_ids: ["roll-spot-hidden"] },
     ];
-    // Model-facing claims carry only semantic handles and meaning-bearing
-    // ids; the host restores the exact opaque identities retained from the
-    // observed output_context envelope before transport. The restored claim
-    // material (nested random-hex source_ref) lives only in the internal
-    // card and host details — never in any model-visible recovery surface.
+    // After the accepted review, the model carries only the reviewed span and
+    // semantic authority. Exact excerpt/subject/source bytes are host-bound.
     const failedCallAgencyClaims = [
       {
-        claim_id: "claim-wall-listen-cupboard",
-        subject_ref: "pc:current-investigator",
+        reviewed_span: "reviewed-sentence:paragraph-1:1",
         claim_type: "voluntary_action",
-        exact_excerpt: "你贴着墙根屏息",
-        source_ref: "player_input:current",
+        authority: "current-player-input",
       },
     ];
     const transportedFailedCallAgencyClaims = [
       {
-        ...failedCallAgencyClaims[0],
+        claim_id: (
+          "agency-reviewed:reviewed-sentence-paragraph-1-1:voluntary-action"
+        ),
+        claim_type: "voluntary_action",
+        exact_excerpt: mergedDraft,
+        override_id: null,
         subject_ref: "pc:fault-investigator",
         source_ref: "player_input:9f2d4c8ab17e4460b3a9c5d1e7f02a46",
       },
@@ -1581,12 +1605,7 @@ test("run-02 chain: placement failure freezes an executable card and an acknowle
         return {
           ok: true,
           tool: "narration.review",
-          data: {
-            accepted: true,
-            review_id: reviewId,
-            revision: 1,
-            state_claim_compilation: params.arguments.state_claim_compilation,
-          },
+          data: clearAgencyReviewData(params, reviewId),
         };
       }
       if (params.operation === "turn.finalize") {
@@ -1695,7 +1714,11 @@ test("run-02 chain: placement failure freezes an executable card and an acknowle
     await invoke1("context", "turn.output_context", {});
     const reviewedResult = await session1.tools.get("coc_invoke").execute(
       "review",
-      { operation: "narration.review", campaign: campaignId, arguments: modelOwnedReview },
+      {
+        operation: "narration.review",
+        campaign: campaignId,
+        arguments: { ...modelOwnedReview, draft_text: mergedDraft },
+      },
       undefined,
       undefined,
       ctx1,
@@ -1714,7 +1737,6 @@ test("run-02 chain: placement failure freezes an executable card and an acknowle
     );
 
     const failed = await typedExecute1("finalize-1", {
-      draft: mergedDraft,
       coverage: finalizeCoverage,
       agency_claims: failedCallAgencyClaims,
       mechanics_placements: failedCallMechanicsPlacements,
@@ -1794,11 +1816,11 @@ test("run-02 chain: placement failure freezes an executable card and an acknowle
       internalCard.payload_sha256,
       draftShapePayloadDigest(internalCard.frozen_finalize_payload),
     );
-    // The opaque claim material is internal-only evidence: the UUID claim
-    // id and the nested random source_ref are retained host-side...
+    // The canonical exact claim material is internal-only evidence: the
+    // host-minted semantic claim id and exact source_ref stay host-side...
     assert.equal(
       JSON.stringify(internalCard.frozen_finalize_payload.agency_claims)
-        .includes("claim-wall-listen-cupboard"),
+        .includes("agency-reviewed:reviewed-sentence-paragraph-1-1:voluntary-action"),
       true,
     );
     assert.equal(
@@ -2472,12 +2494,7 @@ async function run02AdversarialHarness(options = {}) {
       return {
         ok: true,
         tool: "narration.review",
-        data: {
-          accepted: true,
-          review_id: reviewId,
-          revision: 1,
-          state_claim_compilation: params.arguments.state_claim_compilation,
-        },
+        data: clearAgencyReviewData(params, reviewId),
       };
     }
     if (params.operation === "turn.finalize") {
@@ -2576,12 +2593,14 @@ async function run02AdversarialHarness(options = {}) {
     }, ctx1);
   }
   await invoke1("context", "turn.output_context", {});
-  await invoke1("review", "narration.review", modelOwnedReview);
+  await invoke1("review", "narration.review", {
+    ...modelOwnedReview,
+    draft_text: mergedDraft,
+  });
   const session1Finalized = await JSON.parse(
     (await session1.tools.get("coc_turn_finalize").execute(
       "finalize-1",
       {
-        draft: mergedDraft,
         coverage: finalizeCoverage,
         agency_claims: [],
       },

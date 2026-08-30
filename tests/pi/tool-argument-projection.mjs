@@ -46,6 +46,13 @@ test("registered catalog projects host-owned fields out of model schemas", () =>
   }
   assert.ok(finalize.required.includes("draft"));
   assert.ok(finalize.required.includes("coverage"));
+  const canonicalClaimTypes = catalog.contracts.operations.get("turn.finalize")
+    .inputSchema.properties.agency_claims.items.properties.claim_type.enum;
+  assert.deepEqual(
+    [...typed.REVIEWED_AGENCY_CLAIM_TYPES].sort(),
+    [...canonicalClaimTypes].sort(),
+    "semantic reviewed-claim choices must track the canonical claim types",
+  );
 });
 
 test("state.journal binding hides transport/player identity but preserves KP semantics", () => {
@@ -276,6 +283,277 @@ test("turn.finalize binds review identity while coverage and prose stay model-ow
   assert.equal(bound.draft, "斜光里浮出数道新鲜刮痕。");
 });
 
+test("accepted review binds frozen draft and exact agency evidence from semantic spans", () => {
+  const draft = (
+    "你当着他的面抡起右拳，空着手，对着桌角一下一下砸下去。"
+    + "硬木棱反复撞上骨节，直到指节的皮裂开，血顺着拳面往下淌。\n\n"
+    + "诺特没有退，也没有叫人。"
+  );
+  const binding = {
+    schema_version: 1,
+    operation: "turn.finalize",
+    binding_revision: "turn:thomas-hayes:1:review-accepted-1",
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-thomas-hayes",
+    decision_id: "finalize:thomas-hayes:turn-1:revision-1",
+    revision: 1,
+    turn_id: "turn:thomas-hayes:1",
+    source_digest: `sha256:${"c".repeat(64)}`,
+    narration_review_id: "review:thomas-hayes:turn-1:revision-1",
+    reviewed_agency_binding: {
+      schema_version: 1,
+      review_id: "review:thomas-hayes:turn-1:revision-1",
+      revision: 1,
+      draft_sha256: `sha256:${"d".repeat(64)}`,
+      draft,
+      spans: [
+        {
+          reviewed_span: "reviewed-sentence:paragraph-1:1",
+          exact_excerpt: "你当着他的面抡起右拳，空着手，对着桌角一下一下砸下去。",
+        },
+        {
+          reviewed_span: "reviewed-state-claim:1",
+          exact_excerpt: "直到指节的皮裂开，血顺着拳面往下淌。",
+        },
+      ],
+      authorities: [
+        {
+          authority: "current-player-input",
+          claim_types: [
+            "voluntary_action", "voluntary_speech", "voluntary_plan",
+            "voluntary_belief", "voluntary_trust",
+            "voluntary_active_emotion",
+          ],
+          subject_ref: "pc:thomas-hayes",
+          source_ref: "player_input:journal-thomas-hayes-turn-1",
+          override_id: null,
+        },
+        {
+          authority: "involuntary-physiology",
+          claim_types: ["involuntary_physiology"],
+          subject_ref: "pc:thomas-hayes",
+          source_ref: "narration_contract:involuntary_physiology",
+          override_id: null,
+        },
+      ],
+    },
+  };
+  const current = independentCurrent(binding);
+  const schema = typed.projectBoundTypedToolParameters(
+    binding.operation,
+    catalog.byOperation.get(binding.operation).parameters,
+    binding,
+    current,
+  );
+
+  assert.ok(!Object.hasOwn(schema.properties, "draft"));
+  assert.ok(!schema.required.includes("draft"));
+  assert.ok(schema.required.includes("coverage"));
+  assert.ok(schema.required.includes("agency_claims"));
+  const agencySchemaText = JSON.stringify(schema.properties.agency_claims);
+  assert.ok(!agencySchemaText.includes("exact_excerpt"));
+  assert.ok(!agencySchemaText.includes("subject_ref"));
+  assert.ok(!agencySchemaText.includes("source_ref"));
+  assert.ok(!agencySchemaText.includes("override_id"));
+  assert.ok(agencySchemaText.includes("reviewed-sentence:paragraph-1:1"));
+  assert.ok(agencySchemaText.includes("reviewed-state-claim:1"));
+  assert.ok(agencySchemaText.includes("voluntary_trust"));
+  assert.ok(agencySchemaText.includes("voluntary_active_emotion"));
+  assert.ok(!agencySchemaText.includes('"voluntary_emotion"'));
+
+  const bound = typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    {
+      coverage: [],
+      agency_claims: [
+        {
+          reviewed_span: "reviewed-sentence:paragraph-1:1",
+          claim_type: "voluntary_action",
+          authority: "current-player-input",
+        },
+        {
+          reviewed_span: "reviewed-state-claim:1",
+          claim_type: "involuntary_physiology",
+          authority: "involuntary-physiology",
+        },
+      ],
+    },
+    binding,
+    current,
+  );
+  assert.equal(bound.draft, draft);
+  assert.deepEqual(bound.agency_claims, [
+    {
+      claim_id: "agency-reviewed:reviewed-sentence-paragraph-1-1:voluntary-action",
+      claim_type: "voluntary_action",
+      exact_excerpt: "你当着他的面抡起右拳，空着手，对着桌角一下一下砸下去。",
+      override_id: null,
+      source_ref: "player_input:journal-thomas-hayes-turn-1",
+      subject_ref: "pc:thomas-hayes",
+    },
+    {
+      claim_id: "agency-reviewed:reviewed-state-claim-1:involuntary-physiology",
+      claim_type: "involuntary_physiology",
+      exact_excerpt: "直到指节的皮裂开，血顺着拳面往下淌。",
+      override_id: null,
+      source_ref: "narration_contract:involuntary_physiology",
+      subject_ref: "pc:thomas-hayes",
+    },
+  ]);
+
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    {
+      draft,
+      coverage: [],
+      agency_claims: [],
+    },
+    binding,
+    current,
+  ), "forged_host_argument");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    {
+      coverage: [],
+      agency_claims: [{
+        reviewed_span: "reviewed-sentence:paragraph-1:99",
+        claim_type: "voluntary_action",
+        authority: "current-player-input",
+      }],
+    },
+    binding,
+    current,
+  ), "reviewed_agency_claim_stale");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    {
+      coverage: [],
+      agency_claims: [{
+        reviewed_span: "reviewed-state-claim:1",
+        claim_type: "forced_behavior",
+        authority: "involuntary-physiology",
+      }],
+    },
+    binding,
+    current,
+  ), "reviewed_agency_authority_mismatch");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    {
+      coverage: [],
+      agency_claims: [{
+        claim_id: "agency-forged-exact-claim",
+        claim_type: "voluntary_action",
+        exact_excerpt: draft.replace("抡起", "抢起"),
+        override_id: null,
+        source_ref: "player_input:current",
+        subject_ref: "pc:current-investigator",
+      }],
+    },
+    binding,
+    current,
+  ), "reviewed_agency_claim_invalid");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    { coverage: [], agency_claims: [] },
+    binding,
+    {
+      ...current,
+      reviewed_agency_binding: {
+        ...current.reviewed_agency_binding,
+        draft: current.reviewed_agency_binding.draft.replace("抡起", "抢起"),
+        spans: current.reviewed_agency_binding.spans.map((row) => ({
+          ...row,
+          exact_excerpt: row.exact_excerpt.replace("抡起", "抢起"),
+        })),
+      },
+    },
+  ), "binding_context_stale");
+});
+
+test("reviewed authority candidates bind one active control override and ignore inactive ones", () => {
+  const draft = "海斯失去意识，身体软倒在门边。";
+  const reviewed = typed.buildReviewedAgencyBinding({
+    review_id: "review:thomas-hayes:turn-2:revision-1",
+    revision: 1,
+    draft_sha256: `sha256:${"e".repeat(64)}`,
+    draft,
+    state_authority_review: {
+      disposition: "no_player_state_change_claimed",
+      reason: "无新增状态声称。",
+      claims: [],
+    },
+    player_input_source_ref: "player_input:journal-thomas-hayes-turn-2",
+    agency_authority: {
+      pc_subject_refs: ["pc:thomas-hayes"],
+      involuntary_physiology_sources: [{
+        source_ref: "narration_contract:involuntary_physiology",
+        source_type: "ownership_contract",
+      }],
+    },
+    control_overrides: [
+      {
+        override_id: "control-override-v1:active-unconscious",
+        subject_ref: "pc:thomas-hayes",
+        override_type: "unconscious",
+        source_ref: "investigator_state:thomas-hayes:condition:unconscious",
+        active: true,
+      },
+      {
+        override_id: "control-override-v1:expired-mania",
+        subject_ref: "pc:thomas-hayes",
+        override_type: "mania",
+        source_ref: "sanity:expired-mania",
+        active: false,
+      },
+    ],
+  });
+  assert.ok(
+    reviewed.authorities.some(
+      (row) => row.authority === "control-override:unconscious:1",
+    ),
+  );
+  assert.ok(
+    reviewed.authorities.every(
+      (row) => !row.authority.includes("mania"),
+    ),
+  );
+  const binding = {
+    schema_version: 1,
+    operation: "turn.finalize",
+    binding_revision: "turn:thomas-hayes:2:review-accepted-1",
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-thomas-hayes",
+    decision_id: "finalize:thomas-hayes:turn-2:revision-1",
+    revision: 1,
+    turn_id: "turn:thomas-hayes:2",
+    source_digest: `sha256:${"f".repeat(64)}`,
+    narration_review_id: reviewed.review_id,
+    reviewed_agency_binding: reviewed,
+  };
+  const bound = typed.bindRetainedTypedToolArguments(
+    "turn.finalize",
+    {
+      coverage: [],
+      agency_claims: [{
+        reviewed_span: "reviewed-sentence:paragraph-1:1",
+        claim_type: "forced_behavior",
+        authority: "control-override:unconscious:1",
+      }],
+    },
+    binding,
+    independentCurrent(binding),
+  );
+  assert.deepEqual(bound.agency_claims[0], {
+    claim_id: "agency-reviewed:reviewed-sentence-paragraph-1-1:forced-behavior",
+    claim_type: "forced_behavior",
+    exact_excerpt: draft,
+    override_id: "control-override-v1:active-unconscious",
+    source_ref: "investigator_state:thomas-hayes:condition:unconscious",
+    subject_ref: "pc:thomas-hayes",
+  });
+});
+
 test("missing, mismatched, invalid, and stale retained contexts fail closed", () => {
   const revision = "turn:allan-ward:17:journaled";
   const binding = {
@@ -365,6 +643,7 @@ test("same revision cannot mask retained campaign/turn/source/review identity mu
   };
   const currentFinalize = independentCurrent(finalizeBinding);
   for (const mutation of [
+    { revision: 2 },
     { turn_id: "turn:allan-ward:99" },
     { source_digest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" },
     { narration_review_id: "review:allan-ward:turn-17:revision-2" },

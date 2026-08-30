@@ -162,14 +162,14 @@ pending draft first uses the exact `agency_review_operation` returned by
 turn/source/revision/draft. Its `state_authority_review` declares every
 player-state change claimed in the draft and binds each exact excerpt to one
 matching current frozen `source_effect_id`; a null source records an ungrounded
-claim. `agency_claims` bind exact draft excerpts to their
-authority: voluntary investigator claims use the exact current
-`player_input:<journal decision_id>`; forced behavior uses a matching active
-override frozen in `contract_projection`; involuntary physiology uses the
-typed ownership source listed by `agency_authority`. Voluntary and physiology
-subjects must resolve to a current party PC. These bindings are deterministic
-evidence only. An empty list does not semantically prove that the prose contains
-no agency violation. A clean bound semantic review supplies that proof. If it
+claim. Canonical `agency_claims` still bind exact draft excerpts to their
+authority. In Pi, a clear review projects semantic reviewed-span and authority
+choices; `coc_turn_finalize` accepts those choices and host-binds the exact
+draft, excerpt, current PC/player input, typed physiology source, or matching
+active override. The model never recopies the frozen excerpt or canonical
+identity. These bindings are deterministic evidence only. An empty list does
+not semantically prove that the prose contains no agency violation. A clean
+bound semantic review supplies that proof. If it
 records `agency_violation`, no output is accepted: keep the exact settlement
 pending, rewrite prose only, review `revision: 2`, and finalize that revision
 without rerunning rules, state, journal, coverage, or mechanics. An ungrounded

@@ -1309,7 +1309,7 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
                 })
                 return data, [], [
                     "replayed existing clear review_id for this exact draft and KP review; host compiler was not required",
-                    "bind this review_id and every authorized PC proposition as an agency_claim in turn.finalize",
+                    "in Pi, use the refreshed finalize_agency_binding semantic spans; the host binds this review, frozen draft, exact agency excerpts, and canonical sources",
                 ]
         state_claim_compilation, compiler_gate = (
             coc_state_authority.normalize_compiler_receipt(
@@ -1410,7 +1410,7 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         and data["state_authority_gate"] != "rewrite_required"
     ):
         hints.append(
-            "bind this review_id and every authorized PC proposition as an agency_claim in turn.finalize"
+            "in Pi, use the refreshed finalize_agency_binding semantic spans; the host binds this review, frozen draft, exact agency excerpts, and canonical sources"
         )
     return data, [], hints
 

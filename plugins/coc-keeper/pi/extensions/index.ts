@@ -185,6 +185,7 @@ import {
   applyRetainedAdoptSourceFacts,
   attachExpectedSchema,
   bindRetainedTypedToolArguments,
+  buildReviewedAgencyBinding,
   CURRENT_INVESTIGATOR_HANDLE,
   deriveSemanticEntityFacts,
   listTypedOperationTools,
@@ -197,10 +198,12 @@ import {
   typedToolNameForOperation,
   buildGenericInvokeInputSchema,
   validateGenericInvokeAgainstRegisteredSchema,
+  validateProjectedModelArguments,
   validateRawModelIdentityPayload,
   HOST_OWNED_FIELDS,
   wrapTypedToolInvokeParams,
   type CurrentTypedToolHostContext,
+  type ReviewedAgencyBinding,
   type SemanticEntityFacts,
   type SemanticIdMap,
   type TypedOperationTool,
@@ -4037,6 +4040,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     journalDecisionId: string;
     finalizeDecisionId: string | null;
     narrationReviewId: string | null;
+    playerInputSourceRef: string;
+    agencyAuthority: JsonObject;
+    controlOverrides: JsonObject[];
+    reviewedAgencyBinding: ReviewedAgencyBinding | null;
   } | null = null;
   // Exact canonical entity identities retained from observed envelopes so the
   // model can use semantic handles (current-investigator / pc:current-
@@ -5392,6 +5399,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ? data.source_digest
         : "";
       if (sourceDigest && revision !== null) {
+        const playerInput = objectOrNull(contractProjection?.player_input);
+        const agencyAuthority = objectOrNull(
+          contractProjection?.agency_authority,
+        );
+        const controlOverrides = Array.isArray(
+          contractProjection?.control_overrides,
+        )
+          ? contractProjection.control_overrides.filter(
+            (row): row is JsonObject => objectOrNull(row) !== null,
+          ) as JsonObject[]
+          : [];
         const journalDecisionId = typeof data.journal_decision_id === "string"
           ? data.journal_decision_id
           : semanticDecisionId("state.journal", 1);
@@ -5406,6 +5424,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           journalDecisionId,
           finalizeDecisionId: null,
           narrationReviewId: null,
+          playerInputSourceRef: typeof playerInput?.source_ref === "string"
+            ? playerInput.source_ref
+            : "",
+          agencyAuthority: agencyAuthority ?? {},
+          controlOverrides,
+          reviewedAgencyBinding: null,
         };
         if (agencyReviewRequired) {
           const retainedReviewBinding: TypedToolBindingCard = {
@@ -5492,9 +5516,61 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             revision,
             finalizeDecisionId: null,
             narrationReviewId: null,
+            reviewedAgencyBinding: null,
           };
           clearTypedBinding("turn.finalize");
           clearTypedBinding("narration.review");
+          advanceCanonicalProgress(campaignId, {
+            stage: "review_ready",
+            reviewRevision: revision,
+          });
+          return;
+        }
+        const reviewArgs = objectOrNull(params.arguments);
+        const reviewedDraft = typeof reviewArgs?.draft_text === "string"
+          ? reviewArgs.draft_text
+          : "";
+        let reviewedAgencyBinding: ReviewedAgencyBinding | null = null;
+        if (
+          data.agency_gate === "clear"
+          && data.state_authority_gate === "clear"
+          && revision === facts.revision
+          && data.turn_id === facts.turnId
+          && data.source_digest === facts.sourceDigest
+          && reviewArgs?.turn_id === facts.turnId
+          && reviewArgs?.source_digest === facts.sourceDigest
+          && reviewArgs?.revision === facts.revision
+          && reviewedDraft
+          && typeof data.draft_sha256 === "string"
+          && data.draft_sha256 === canonicalJsonValueSha256(reviewedDraft)
+        ) {
+          try {
+            reviewedAgencyBinding = buildReviewedAgencyBinding({
+              review_id: reviewId,
+              revision,
+              draft_sha256: data.draft_sha256,
+              draft: reviewedDraft,
+              state_authority_review: data.state_authority_review,
+              player_input_source_ref: facts.playerInputSourceRef,
+              agency_authority: facts.agencyAuthority,
+              control_overrides: facts.controlOverrides,
+            });
+          } catch {
+            reviewedAgencyBinding = null;
+          }
+        }
+        if (reviewedAgencyBinding === null) {
+          // A clear review without exact current span/authority binding cannot
+          // safely expose finalize. Keep the settlement frozen; never fall
+          // back to asking the model to transcribe exact reviewed evidence.
+          retainedOutputContextFacts = {
+            ...facts,
+            revision,
+            finalizeDecisionId: null,
+            narrationReviewId: null,
+            reviewedAgencyBinding: null,
+          };
+          clearTypedBinding("turn.finalize");
           advanceCanonicalProgress(campaignId, {
             stage: "review_ready",
             reviewRevision: revision,
@@ -5507,6 +5583,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           revision,
           finalizeDecisionId,
           narrationReviewId: reviewId,
+          reviewedAgencyBinding,
         };
         const retainedFinalizeBinding: TypedToolBindingCard = {
           schema_version: 1,
@@ -5519,6 +5596,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           turn_id: facts.turnId,
           source_digest: facts.sourceDigest,
           narration_review_id: reviewId,
+          reviewed_agency_binding: structuredClone(reviewedAgencyBinding),
         };
         armTypedBinding(retainedFinalizeBinding, () => {
           const current = retainedOutputContextFacts;
@@ -5538,6 +5616,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             turn_id: current.turnId,
             source_digest: current.sourceDigest,
             narration_review_id: current.narrationReviewId,
+            ...(current.reviewedAgencyBinding === null
+              ? {}
+              : {
+                  reviewed_agency_binding: structuredClone(
+                    current.reviewedAgencyBinding,
+                  ),
+                }),
           };
         });
         clearTypedBinding("narration.review");
@@ -8630,6 +8715,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       journalDecisionId: args.cards.journalDecisionId,
       finalizeDecisionId,
       narrationReviewId: args.narrationReviewId,
+      playerInputSourceRef: "",
+      agencyAuthority: {},
+      controlOverrides: [],
+      reviewedAgencyBinding: null,
     };
     const facts = retainedOutputContextFacts;
     const retainedFinalizeBinding: TypedToolBindingCard = {
@@ -8702,7 +8791,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ...RECOVERY_HOST_INJECTED_FINALIZE_ARGUMENTS,
         ...Object.keys(hostInjected),
       ]);
-      return Object.keys(properties).filter((field) => !hostOwned.has(field));
+      const fields = Object.keys(properties).filter((field) => !hostOwned.has(field));
+      // A clear review host-binds the ordinary finalize draft, but draft-shape
+      // recovery must still freeze that exact draft and expose it as the sole
+      // repairable field. Keep it in the internal recovery whitelist without
+      // returning it to the ordinary model schema.
+      if (
+        binding.operation === "turn.finalize"
+        && binding.reviewed_agency_binding !== undefined
+        && Object.hasOwn(properties, "draft")
+        && !fields.includes("draft")
+      ) fields.push("draft");
+      return fields;
     } catch {
       return null;
     }
@@ -9106,6 +9206,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ? params.campaign_id.trim()
           : "";
       if (restoredOperation && restoredArgs !== null) {
+        const reviewedFinalizeBinding = restoredOperation === "turn.finalize"
+          ? retainedTypedBindings.get("turn.finalize")
+          : undefined;
+        const reviewedFinalizeCurrent = restoredOperation === "turn.finalize"
+          ? currentTypedBindingFactories.get("turn.finalize")?.() ?? null
+          : null;
         // Generic-surface raw validation mirrors the typed branch: the raw
         // model payload is grammar-checked before host restoration attaches
         // provenance-tagged identity. Typed tools were already validated
@@ -9144,13 +9250,31 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             )
           )
         ) {
-          const shape = validateGenericInvokeAgainstRegisteredSchema(
-            {
-              operation: restoredOperation,
-              arguments: restoredArgs,
-            },
-            genericInvokeInputSchema,
-          );
+          const reviewedFinalizeSchema = (
+            reviewedFinalizeBinding?.operation === "turn.finalize"
+            && reviewedFinalizeBinding.reviewed_agency_binding !== undefined
+            && reviewedFinalizeCurrent !== null
+            && typedToolByOperation.get("turn.finalize") !== undefined
+          )
+            ? projectBoundTypedToolParameters(
+              "turn.finalize",
+              typedToolByOperation.get("turn.finalize")!.parameters,
+              reviewedFinalizeBinding,
+              reviewedFinalizeCurrent,
+            )
+            : null;
+          const shape = reviewedFinalizeSchema === null
+            ? validateGenericInvokeAgainstRegisteredSchema(
+              {
+                operation: restoredOperation,
+                arguments: restoredArgs,
+              },
+              genericInvokeInputSchema,
+            )
+            : validateProjectedModelArguments(
+              restoredArgs,
+              reviewedFinalizeSchema,
+            );
           if (!shape.ok) {
             return hostFailureResult({
               ok: false,
@@ -9179,6 +9303,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         const hostBoundAfterRestore: JsonObject = {};
         let semanticArgs = restoredArgs;
         if (
+          typedDefinition === undefined
+          && reviewedFinalizeBinding?.operation === "turn.finalize"
+          && reviewedFinalizeBinding.reviewed_agency_binding !== undefined
+        ) {
+          try {
+            semanticArgs = bindRetainedTypedToolArguments(
+              "turn.finalize",
+              restoredArgs,
+              reviewedFinalizeBinding,
+              reviewedFinalizeCurrent,
+            );
+          } catch (error) {
+            if (!(error instanceof ToolContractProjectionError)) throw error;
+            return hostFailureResult(hostBindingFailure("turn.finalize", error));
+          }
+        }
+        if (
           typedDefinition?.operation === "state.record_npc_engagement"
           || typedDefinition?.operation === "npc.reaction"
         ) {
@@ -9189,6 +9330,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               delete semanticArgs[field];
             }
           }
+        }
+        if (
+          reviewedFinalizeBinding?.operation === "turn.finalize"
+          && reviewedFinalizeBinding.reviewed_agency_binding !== undefined
+          && Object.hasOwn(semanticArgs, "agency_claims")
+        ) {
+          semanticArgs = { ...semanticArgs };
+          hostBoundAfterRestore.agency_claims = semanticArgs.agency_claims;
+          delete semanticArgs.agency_claims;
         }
         const restored = restoreSemanticEntityHandles(
           restoredOperation,
@@ -9640,7 +9790,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const identityScopeData = params.operation === "session.resume"
         ? objectOrNull(canonicalData?.scene_context) ?? canonicalData
         : canonicalData;
-      const baseVisible = modelVisibleCanonicalEnvelope(
+      let baseVisible = modelVisibleCanonicalEnvelope(
         params.operation,
         canonical,
         liveSemanticIdMap(
@@ -9649,6 +9799,47 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ),
         diagnostics,
       );
+      if (params.operation === "narration.review") {
+        const finalizeBinding = retainedTypedBindings.get("turn.finalize");
+        if (
+          finalizeBinding?.operation === "turn.finalize"
+          && finalizeBinding.reviewed_agency_binding !== undefined
+        ) {
+          const visibleEnvelope = objectOrNull(baseVisible);
+          const visibleData = objectOrNull(visibleEnvelope?.data);
+          if (visibleEnvelope?.ok === true && visibleData !== null) {
+            const reviewed = finalizeBinding.reviewed_agency_binding;
+            baseVisible = {
+              ...baseVisible,
+              data: {
+                ...visibleData,
+                finalize_agency_binding: {
+                  schema_version: 1,
+                  mode: "semantic_reviewed_spans",
+                  reviewed_spans: reviewed.spans.map(
+                    (row) => row.reviewed_span,
+                  ),
+                  authorities: reviewed.authorities.map((row) => ({
+                    authority: row.authority,
+                    claim_types: [...row.claim_types],
+                  })),
+                  model_arguments: ["coverage", "agency_claims"],
+                  host_bound_evidence: [
+                    "draft", "claim_id", "exact_excerpt", "subject_ref",
+                    "source_ref", "override_id", "narration_review_id",
+                  ],
+                  instruction: (
+                    "Call coc_turn_finalize with coverage and semantic "
+                    + "agency_claims selections only. Choose reviewed_span, "
+                    + "claim_type, and authority from this card; never copy "
+                    + "the frozen draft or an exact excerpt."
+                  ),
+                },
+              },
+            };
+          }
+        }
+      }
       // While an armed recovery owns this result, its closed semantic
       // whitelist is the projection — the hostile canonical payload never
       // reaches the identity discovery path.

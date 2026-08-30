@@ -440,16 +440,19 @@ visible `coc_session_resume` tool, then call visible
   by `turn.output_context`: draft once, call its `agency_review_operation`
   (`narration.review`) with the exact turn/source/revision/draft and a closed
   `state_authority_review` that binds every player-state claim to its current
-  frozen `source_effect_id`; then pass the returned `review_id` and all
-  authorized PC propositions as `agency_claims` to `turn.finalize`. Mark an
+  frozen `source_effect_id`. A clear review returns
+  `finalize_agency_binding`: call the refreshed `coc_turn_finalize` with
+  coverage and only semantic `reviewed_span` + `claim_type` + `authority`
+  selections. The host attaches review ID, frozen draft, exact excerpts,
+  subjects, sources, and overrides. Mark an
   unauthorized PC voluntary action, speech, plan,
   belief, trust, or active emotion as `agency_violation` with the exact
   `pc:<id>` and `source_ref: null`. That draft cannot be finalized: rewrite
   narration only, use revision 2, and reuse the same frozen rules, state,
   journal, coverage, and mechanics. An ungrounded state claim uses the same
-  revision-2 repair. Player-declared agency claims bind the exact
-  `player_input:` source; physiology binds the ownership contract; forced
-  behavior binds an active frozen override. Length, repetition, scope, and
+  revision-2 repair. The semantic authority choice maps player agency to the
+  current player input, physiology to the ownership contract, and forced
+  behavior to an active frozen override. Length, repetition, scope, and
   other prose findings remain advisory and never block finalization.
 - Long-tail temporal and transcript typed tools are not in the default
   active set. When current judgment needs one concrete long-tail operation,

@@ -26,7 +26,18 @@ const outputContext = {
     journal_decision_id: "journal-gateway-1",
     contract_projection: {
       agency_review_required: true,
-      agency_authority: { pc_subject_refs: [subjectRef] },
+      player_input: {
+        source_ref: "player_input:journal-gateway-1",
+        text: "我等待诺特的答复。",
+      },
+      control_overrides: [],
+      agency_authority: {
+        pc_subject_refs: [subjectRef],
+        involuntary_physiology_sources: [{
+          source_ref: "narration_contract:involuntary_physiology",
+          source_type: "ownership_contract",
+        }],
+      },
     },
     agency_review_operation: {
       operation: "narration.review",
@@ -522,6 +533,8 @@ test("rewrite-required review advances the retained host binding before correcte
             findings: [],
             agency_gate: "clear",
             state_authority_gate: "clear",
+            draft_sha256: canonicalDigest(forwarded.draft_text),
+            state_authority_review: forwarded.state_authority_review,
             recommendation: "accept",
           },
         };
@@ -607,10 +620,15 @@ test("rewrite-required review advances the retained host binding before correcte
     assert.equal(contextRefreshes.length, 2);
     assert.deepEqual(contextRefreshes[1].params.arguments, {});
 
-    await h.tools.get("coc_turn_finalize").execute(
+    const finalizeTool = h.tools.get("coc_turn_finalize");
+    assert.ok(!Object.hasOwn(finalizeTool.parameters.properties, "draft"));
+    assert.ok(
+      !JSON.stringify(finalizeTool.parameters.properties.agency_claims)
+        .includes("exact_excerpt"),
+    );
+    await finalizeTool.execute(
       "finalize-revision-2",
       {
-        draft: correctedDraft.draft_text,
         coverage: [],
         agency_claims: [],
       },
@@ -626,6 +644,147 @@ test("rewrite-required review advances the retained host binding before correcte
     assert.equal(
       finalizeCall.params.arguments.narration_review_id,
       "narration-review-v1:clear-revision-2-fixture",
+    );
+    assert.equal(finalizeCall.params.arguments.draft, correctedDraft.draft_text);
+  } finally {
+    if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
+    else process.env.COC_PI_SESSION_ROLE = previousRole;
+  }
+});
+
+test("clear review lets Grok submit semantic spans while host preserves Chinese exact evidence", async () => {
+  const previousRole = process.env.COC_PI_SESSION_ROLE;
+  process.env.COC_PI_SESSION_ROLE = "play";
+  try {
+    const compiler = new PiStateClaimCompiler(async (input) => ({
+      result: resultFor(input),
+      responseModel: { provider: "xai", id: "grok-4.6", api: "openai-responses" },
+    }));
+    const draft = (
+      "你当着他的面抡起右拳，空着手，对着桌角一下一下砸下去。"
+      + "硬木棱反复撞上骨节，直到指节的皮裂开，血顺着拳面往下淌。\n\n"
+      + "诺特没有退，也没有叫人。"
+    );
+    const stateExcerpt = "直到指节的皮裂开，血顺着拳面往下淌。";
+    const stateReview = {
+      disposition: "claims_listed",
+      reason: "精确记录草稿里的指节伤势。",
+      claims: [{
+        claim_id: "claim-knuckle-injury",
+        subject_ref: CURRENT_PC_SUBJECT_HANDLE,
+        claim_kind: "scalar",
+        exact_excerpt: stateExcerpt,
+        source_effect_id: null,
+        reason: "测试只锁定 accepted-review 到 finalize 的精确文本绑定。",
+      }],
+    };
+    const h = harness(compiler, {
+      async callTool(_name, params) {
+        if (params.operation === "narration.review") {
+          return {
+            ok: true,
+            tool: "narration.review",
+            data: {
+              review_id: "narration-review-v1:semantic-span-fixture",
+              turn_id: "turn-gateway-1",
+              source_digest: "sha256:source-gateway-1",
+              revision: 1,
+              draft_sha256: canonicalDigest(params.arguments.draft_text),
+              findings: [],
+              agency_gate: "clear",
+              state_authority_review: params.arguments.state_authority_review,
+              state_authority_gate: "clear",
+              recommendation: "no_revision_suggested",
+            },
+          };
+        }
+        if (params.operation === "turn.finalize") {
+          const renderedText = "宿主精确绑定的结算文本。";
+          return {
+            ok: true,
+            tool: "turn.finalize",
+            data: {
+              schema_version: 1,
+              status: "finalized",
+              accepted_revision: 1,
+              rendered_text: renderedText,
+              rendered_text_sha256: canonicalDigest(renderedText),
+            },
+          };
+        }
+        return undefined;
+      },
+    });
+    await initialize(h);
+    await invoke(h, "context-semantic-spans", "turn.output_context", {});
+    const review = await h.tools.get("coc_narration_review").execute(
+      "review-semantic-spans",
+      { draft_text: draft, findings: [], state_authority_review: stateReview },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const reviewVisible = JSON.parse(review.content[0].text);
+    assert.equal(reviewVisible.ok, true, JSON.stringify(reviewVisible));
+    assert.equal(
+      reviewVisible.data.finalize_agency_binding.mode,
+      "semantic_reviewed_spans",
+    );
+    assert.ok(
+      reviewVisible.data.finalize_agency_binding.reviewed_spans
+        .includes("reviewed-state-claim:1"),
+    );
+    assert.equal(
+      JSON.stringify(reviewVisible.data.finalize_agency_binding).includes(stateExcerpt),
+      false,
+      "model-visible binding contains semantic ordinals, never exact excerpts",
+    );
+
+    const finalizeTool = h.tools.get("coc_turn_finalize");
+    assert.equal(Object.hasOwn(finalizeTool.parameters.properties, "draft"), false);
+    assert.equal(
+      JSON.stringify(finalizeTool.parameters.properties.agency_claims)
+        .includes("exact_excerpt"),
+      false,
+    );
+    const modelArguments = {
+      coverage: [],
+      agency_claims: [
+        {
+          reviewed_span: "reviewed-sentence:paragraph-1:1",
+          claim_type: "voluntary_action",
+          authority: "current-player-input",
+        },
+        {
+          reviewed_span: "reviewed-state-claim:1",
+          claim_type: "involuntary_physiology",
+          authority: "involuntary-physiology",
+        },
+      ],
+    };
+    assert.equal(JSON.stringify(modelArguments).includes("抡起"), false);
+    assert.equal(JSON.stringify(modelArguments).includes("淌"), false);
+    const finalized = await invoke(
+      h,
+      "finalize-semantic-spans",
+      "turn.finalize",
+      modelArguments,
+    );
+    const finalizedVisible = JSON.parse(finalized.content[0].text);
+    assert.equal(finalizedVisible.ok, true, JSON.stringify(finalizedVisible));
+    const transported = h.clientCalls.filter(
+      (call) => call.params.operation === "turn.finalize",
+    ).at(-1).params.arguments;
+    assert.equal(transported.draft, draft);
+    assert.equal(
+      transported.agency_claims[0].exact_excerpt,
+      "你当着他的面抡起右拳，空着手，对着桌角一下一下砸下去。",
+    );
+    assert.equal(transported.agency_claims[1].exact_excerpt, stateExcerpt);
+    assert.equal(transported.agency_claims[0].source_ref, "player_input:journal-gateway-1");
+    assert.equal(
+      transported.agency_claims[1].source_ref,
+      "narration_contract:involuntary_physiology",
     );
   } finally {
     if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;

@@ -418,10 +418,12 @@ contract above still applies. This is the natural rhythm:
    later paragraph than that roll's placement. Also supply one closed coverage
    row per obligation, then call `turn.finalize`. Send only its exact
    `rendered_text`. In Pi play, first follow its exact
-   `agency_review_operation`: review the same draft/turn/source/revision, bind
-   every declared player-state change to the exact current frozen effect in
-   `state_authority_review`, then bind the clean `review_id` and all authorized
-   PC propositions as `agency_claims` before finalizing. An unauthorized PC
+   `agency_review_operation`: review the same draft/turn/source/revision and
+   bind every declared player-state change to the exact current frozen effect
+   in `state_authority_review`. On a clean review, use its
+   `finalize_agency_binding` and submit only semantic
+   `reviewed_span`/`claim_type`/`authority` selections with coverage; the host
+   binds the review ID, accepted draft, exact excerpts, PC, and sources. An unauthorized PC
    voluntary/internal claim or ungrounded player-state claim requires the same
    narration-only revision 2; rules, state, journal, coverage, and mechanics
    remain frozen. Pi host independently compiles the exact draft for PC state

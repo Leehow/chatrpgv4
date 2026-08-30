@@ -33,6 +33,46 @@ export type NarrationReviewBindingCard = {
   state_claim_compilation: Record<string, unknown>;
 };
 
+export const REVIEWED_AGENCY_CLAIM_TYPES = [
+  "voluntary_action",
+  "voluntary_speech",
+  "voluntary_plan",
+  "voluntary_belief",
+  "voluntary_trust",
+  "voluntary_active_emotion",
+  "forced_behavior",
+  "involuntary_physiology",
+] as const;
+
+export type ReviewedAgencyClaimType = typeof REVIEWED_AGENCY_CLAIM_TYPES[number];
+
+export type ReviewedAgencySpan = {
+  /** Stable model-facing ordinal selected after an accepted review. */
+  reviewed_span: string;
+  /** Exact reviewed bytes; host-only and restored at invocation time. */
+  exact_excerpt: string;
+};
+
+export type ReviewedAgencyAuthority = {
+  /** Stable model-facing authority choice, never a canonical source id. */
+  authority: string;
+  claim_types: readonly ReviewedAgencyClaimType[];
+  /** Exact canonical evidence below stays host-only. */
+  subject_ref: string;
+  source_ref: string;
+  override_id: string | null;
+};
+
+export type ReviewedAgencyBinding = {
+  schema_version: 1;
+  review_id: string;
+  revision: number;
+  draft_sha256: string;
+  draft: string;
+  spans: readonly ReviewedAgencySpan[];
+  authorities: readonly ReviewedAgencyAuthority[];
+};
+
 export type TurnFinalizeBindingCard = {
   schema_version: 1;
   operation: "turn.finalize";
@@ -45,6 +85,12 @@ export type TurnFinalizeBindingCard = {
   source_digest: string;
   narration_review_id: string;
   repair_finalization_id?: string;
+  /**
+   * Present only after a clear accepted narration.review. The model selects
+   * reviewed spans and semantic authority; the host restores the frozen
+   * draft and the canonical exact agency_claims object.
+   */
+  reviewed_agency_binding?: ReviewedAgencyBinding;
 };
 
 export type SceneRouteCandidate = {
@@ -650,6 +696,196 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
+export type ReviewedAgencyBindingSource = {
+  review_id: string;
+  revision: number;
+  draft_sha256: string;
+  draft: string;
+  state_authority_review: unknown;
+  player_input_source_ref: string;
+  agency_authority: unknown;
+  control_overrides: unknown;
+};
+
+function reviewedParagraphs(draft: string): string[] {
+  return draft
+    .split(/\n[\t ]*\n/u)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph.length > 0);
+}
+
+function reviewedSentences(paragraph: string): string[] {
+  const sentences: string[] = [];
+  let start = 0;
+  for (let index = 0; index < paragraph.length; index += 1) {
+    if (!"。！？!?".includes(paragraph[index])) continue;
+    const sentence = paragraph.slice(start, index + 1).trim();
+    if (sentence) sentences.push(sentence);
+    start = index + 1;
+  }
+  const tail = paragraph.slice(start).trim();
+  if (tail) sentences.push(tail);
+  return sentences;
+}
+
+function authoritySlug(value: unknown): string {
+  const slug = String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return slug || "override";
+}
+
+/**
+ * Build the host-only exact binding behind the post-review semantic surface.
+ * This performs only structural segmentation (review claim / sentence /
+ * paragraph ordinals); it never classifies prose meaning with strings.
+ */
+export function buildReviewedAgencyBinding(
+  source: ReviewedAgencyBindingSource,
+): ReviewedAgencyBinding {
+  const reviewId = nonEmptyString(source.review_id, "review_id");
+  const revision = requirePositiveRevision(source.revision, "revision");
+  const draftSha256 = nonEmptyString(source.draft_sha256, "draft_sha256");
+  const draft = nonEmptyString(source.draft, "draft");
+  const authority = isPlainObject(source.agency_authority)
+    ? source.agency_authority
+    : null;
+  const pcSubjectRefs = authority !== null && Array.isArray(authority.pc_subject_refs)
+    ? authority.pc_subject_refs.filter(
+      (value): value is string => typeof value === "string" && value.trim().length > 0,
+    )
+    : [];
+  if (pcSubjectRefs.length !== 1 || new Set(pcSubjectRefs).size !== 1) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "semantic accepted-review binding currently requires one exact current PC",
+      { field: "agency_authority.pc_subject_refs" },
+    );
+  }
+  const subjectRef = pcSubjectRefs[0];
+  const playerSourceRef = nonEmptyString(
+    source.player_input_source_ref,
+    "player_input_source_ref",
+  );
+  const spans: ReviewedAgencySpan[] = [];
+  const spanNames = new Set<string>();
+  const addSpan = (reviewedSpan: string, exactExcerpt: unknown): void => {
+    if (
+      spans.length >= 64
+      || typeof exactExcerpt !== "string"
+      || !exactExcerpt.trim()
+      || !draft.includes(exactExcerpt)
+      || spanNames.has(reviewedSpan)
+    ) return;
+    spans.push({ reviewed_span: reviewedSpan, exact_excerpt: exactExcerpt });
+    spanNames.add(reviewedSpan);
+  };
+  const stateReview = isPlainObject(source.state_authority_review)
+    ? source.state_authority_review
+    : null;
+  const stateClaims = stateReview !== null && Array.isArray(stateReview.claims)
+    ? stateReview.claims
+    : [];
+  stateClaims.forEach((raw, index) => {
+    const row = isPlainObject(raw) ? raw : null;
+    addSpan(`reviewed-state-claim:${index + 1}`, row?.exact_excerpt);
+  });
+  reviewedParagraphs(draft).forEach((paragraph, paragraphIndex) => {
+    reviewedSentences(paragraph).forEach((sentence, sentenceIndex) => {
+      addSpan(
+        `reviewed-sentence:paragraph-${paragraphIndex + 1}:${sentenceIndex + 1}`,
+        sentence,
+      );
+    });
+    addSpan(`reviewed-paragraph:${paragraphIndex + 1}`, paragraph);
+  });
+  if (spans.length === 0) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "accepted review did not yield any exact structural draft span",
+      { field: "reviewed_agency_binding.spans" },
+    );
+  }
+  const authorities: ReviewedAgencyAuthority[] = [{
+    authority: "current-player-input",
+    claim_types: [
+      "voluntary_action", "voluntary_speech", "voluntary_plan",
+      "voluntary_belief", "voluntary_trust", "voluntary_active_emotion",
+    ],
+    subject_ref: subjectRef,
+    source_ref: playerSourceRef,
+    override_id: null,
+  }];
+  const physiologySources = authority !== null
+    && Array.isArray(authority.involuntary_physiology_sources)
+    ? authority.involuntary_physiology_sources.filter(isPlainObject)
+    : [];
+  physiologySources.forEach((row, index) => {
+    if (
+      row.source_type !== "ownership_contract"
+      || typeof row.source_ref !== "string"
+      || !row.source_ref.trim()
+    ) return;
+    authorities.push({
+      authority: physiologySources.length === 1
+        ? "involuntary-physiology"
+        : `involuntary-physiology:${index + 1}`,
+      claim_types: ["involuntary_physiology"],
+      subject_ref: subjectRef,
+      source_ref: row.source_ref,
+      override_id: null,
+    });
+  });
+  const controlOverrides = Array.isArray(source.control_overrides)
+    ? source.control_overrides.filter(isPlainObject)
+    : [];
+  controlOverrides
+    .filter((row) => (
+      row.active === true
+      && row.subject_ref === subjectRef
+      && typeof row.override_id === "string"
+      && row.override_id.trim().length > 0
+      && typeof row.source_ref === "string"
+      && row.source_ref.trim().length > 0
+    ))
+    .sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)))
+    .forEach((row, index) => {
+      authorities.push({
+        authority: (
+          `control-override:${authoritySlug(row.override_type)}:${index + 1}`
+        ),
+        claim_types: ["forced_behavior"],
+        subject_ref: subjectRef,
+        source_ref: String(row.source_ref),
+        override_id: String(row.override_id),
+      });
+    });
+  const built: ReviewedAgencyBinding = {
+    schema_version: 1,
+    review_id: reviewId,
+    revision,
+    draft_sha256: draftSha256,
+    draft,
+    spans,
+    authorities,
+  };
+  validateReviewedAgencyBinding(built, {
+    schema_version: 1,
+    operation: "turn.finalize",
+    binding_revision: "reviewed-agency-construction",
+    root: "host",
+    campaign: "host",
+    decision_id: "host",
+    revision,
+    turn_id: "host",
+    source_digest: "host",
+    narration_review_id: reviewId,
+  });
+  return built;
+}
+
 function validateSceneCandidates(
   value: readonly SceneRouteCandidate[],
   allowEmpty = false,
@@ -770,6 +1006,158 @@ function validateCombatCandidates(value: readonly CombatTargetCandidate[]): void
   }
 }
 
+const REVIEWED_AGENCY_SPAN_RE =
+  /^reviewed-(?:state-claim|sentence|paragraph):[a-z0-9][a-z0-9:-]{0,126}$/;
+const REVIEWED_AGENCY_AUTHORITY_RE =
+  /^(?:current-player-input|involuntary-physiology(?::[1-9][0-9]{0,2})?|control-override:[a-z0-9][a-z0-9-]{0,63}:[1-9][0-9]{0,2})$/;
+
+function exactObjectKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+): boolean {
+  return canonicalJson(Object.keys(value).sort()) === canonicalJson([...expected].sort());
+}
+
+function validateReviewedAgencyBinding(
+  value: ReviewedAgencyBinding,
+  owner: TurnFinalizeBindingCard,
+): void {
+  if (
+    !isPlainObject(value)
+    || !exactObjectKeys(value, [
+      "schema_version", "review_id", "revision", "draft_sha256", "draft",
+      "spans", "authorities",
+    ])
+    || value.schema_version !== 1
+    || value.review_id !== owner.narration_review_id
+    || value.revision !== owner.revision
+  ) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "reviewed agency binding must match the accepted review identity and revision",
+      { field: "reviewed_agency_binding" },
+    );
+  }
+  const draft = nonEmptyString(value.draft, "reviewed_agency_binding.draft");
+  const digest = nonEmptyString(
+    value.draft_sha256,
+    "reviewed_agency_binding.draft_sha256",
+  );
+  if (!/^sha256:[0-9a-f]{64}$/.test(digest)) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "reviewed agency binding draft digest must be a canonical sha256 value",
+      { field: "reviewed_agency_binding.draft_sha256" },
+    );
+  }
+  if (!Array.isArray(value.spans) || value.spans.length < 1 || value.spans.length > 64) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "reviewed agency binding requires one to 64 exact reviewed spans",
+      { field: "reviewed_agency_binding.spans" },
+    );
+  }
+  const spanNames = new Set<string>();
+  for (const raw of value.spans) {
+    if (
+      !isPlainObject(raw)
+      || !exactObjectKeys(raw, ["reviewed_span", "exact_excerpt"])
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "reviewed agency spans use a closed semantic-ref/exact-excerpt schema",
+        { field: "reviewed_agency_binding.spans" },
+      );
+    }
+    const span = nonEmptyString(
+      raw.reviewed_span,
+      "reviewed_agency_binding.spans.reviewed_span",
+    );
+    const excerpt = nonEmptyString(
+      raw.exact_excerpt,
+      "reviewed_agency_binding.spans.exact_excerpt",
+    );
+    if (
+      !REVIEWED_AGENCY_SPAN_RE.test(span)
+      || !draft.includes(excerpt)
+      || spanNames.has(span)
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "reviewed agency spans must be unique semantic ordinals over exact draft excerpts",
+        { field: "reviewed_agency_binding.spans" },
+      );
+    }
+    spanNames.add(span);
+  }
+  if (
+    !Array.isArray(value.authorities)
+    || value.authorities.length < 1
+    || value.authorities.length > 32
+  ) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "reviewed agency binding requires one to 32 semantic authorities",
+      { field: "reviewed_agency_binding.authorities" },
+    );
+  }
+  const authorityNames = new Set<string>();
+  for (const raw of value.authorities) {
+    if (
+      !isPlainObject(raw)
+      || !exactObjectKeys(raw, [
+        "authority", "claim_types", "subject_ref", "source_ref", "override_id",
+      ])
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "reviewed agency authorities use a closed semantic/canonical binding schema",
+        { field: "reviewed_agency_binding.authorities" },
+      );
+    }
+    const authority = nonEmptyString(
+      raw.authority,
+      "reviewed_agency_binding.authorities.authority",
+    );
+    nonEmptyString(raw.subject_ref, "reviewed_agency_binding.authorities.subject_ref");
+    nonEmptyString(raw.source_ref, "reviewed_agency_binding.authorities.source_ref");
+    const types = Array.isArray(raw.claim_types) ? raw.claim_types : [];
+    const authorityTypesValid = authority === "current-player-input"
+      ? types.every((entry) => (
+        typeof entry === "string"
+        && entry.startsWith("voluntary_")
+      ))
+      : authority.startsWith("involuntary-physiology")
+        ? types.length === 1 && types[0] === "involuntary_physiology"
+        : authority.startsWith("control-override:")
+          ? types.length === 1 && types[0] === "forced_behavior"
+          : false;
+    if (
+      !REVIEWED_AGENCY_AUTHORITY_RE.test(authority)
+      || authorityNames.has(authority)
+      || types.length < 1
+      || types.length !== new Set(types).size
+      || !types.every((entry) => (
+        typeof entry === "string"
+        && (REVIEWED_AGENCY_CLAIM_TYPES as readonly string[]).includes(entry)
+      ))
+      || !authorityTypesValid
+      || (
+        authority.startsWith("control-override:")
+          ? typeof raw.override_id !== "string" || !raw.override_id.trim()
+          : raw.override_id !== null
+      )
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "reviewed agency authority is stale, duplicated, or incompatible with its claim types",
+        { field: "reviewed_agency_binding.authorities" },
+      );
+    }
+    authorityNames.add(authority);
+  }
+}
+
 function validateBindingShape(binding: TypedToolBindingCard): void {
   nonEmptyString(binding.binding_revision, "binding_revision");
   nonEmptyString(binding.root, "root");
@@ -796,6 +1184,9 @@ function validateBindingShape(binding: TypedToolBindingCard): void {
     nonEmptyString(binding.narration_review_id, "narration_review_id");
     if (binding.repair_finalization_id !== undefined) {
       nonEmptyString(binding.repair_finalization_id, "repair_finalization_id");
+    }
+    if (binding.reviewed_agency_binding !== undefined) {
+      validateReviewedAgencyBinding(binding.reviewed_agency_binding, binding);
     }
   } else if (binding.operation === "state.move_scene") {
     nonEmptyString(binding.source_revision, "source_revision");
@@ -934,6 +1325,9 @@ function bindingValues(binding: TypedToolBindingCard): Record<string, unknown> {
       decision_id: binding.decision_id,
       revision: binding.revision,
       narration_review_id: binding.narration_review_id,
+      ...(binding.reviewed_agency_binding === undefined
+        ? {}
+        : { draft: binding.reviewed_agency_binding.draft }),
       ...(binding.repair_finalization_id === undefined
         ? {}
         : { repair_finalization_id: binding.repair_finalization_id }),
@@ -997,6 +1391,10 @@ function hostOwnedFields(binding: TypedToolBindingCard): string[] {
     binding.operation === "combat.resolve"
     && binding.candidates.length === 1
   ) fields.push("candidate_id");
+  if (
+    binding.operation === "turn.finalize"
+    && binding.reviewed_agency_binding !== undefined
+  ) fields.push("draft");
   return fields;
 }
 
@@ -1029,6 +1427,57 @@ function setEnumProperty(
   if (!required.includes(field)) schema.required = [...required, field];
 }
 
+function projectReviewedAgencyClaimsSchema(
+  schema: JsonSchema,
+  binding: ReviewedAgencyBinding,
+): void {
+  if (!isPlainObject(schema.properties)) return;
+  const spanValues = binding.spans.map((row) => row.reviewed_span);
+  const authorityBranches: JsonSchema[] = binding.authorities.map((row) => ({
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      reviewed_span: {
+        type: "string",
+        enum: spanValues,
+        description: (
+          "Choose one host-reviewed semantic span ordinal. The host restores "
+          + "the exact accepted-draft excerpt; never copy prose here."
+        ),
+      },
+      claim_type: {
+        type: "string",
+        enum: [...row.claim_types],
+      },
+      authority: {
+        type: "string",
+        const: row.authority,
+        description: (
+          "Choose this semantic authority. The host binds the exact PC, "
+          + "player input, physiology contract, or active override receipt."
+        ),
+      },
+    },
+    required: ["reviewed_span", "claim_type", "authority"],
+  }));
+  schema.properties.agency_claims = {
+    type: "array",
+    maxItems: 64,
+    items: authorityBranches.length === 1
+      ? authorityBranches[0]
+      : { oneOf: authorityBranches },
+    description: (
+      "Semantic agency selections for the accepted review. Submit [] when "
+      + "the reviewed draft contains no authorized PC proposition. Exact "
+      + "draft excerpts and canonical sources are host-bound."
+    ),
+  };
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  if (!required.includes("agency_claims")) {
+    schema.required = [...required, "agency_claims"];
+  }
+}
+
 /**
  * Remove host-owned fields only after the exact retained binding is validated
  * against an independently derived current canonical host context.
@@ -1047,6 +1496,12 @@ export function projectBoundTypedToolParameters(
     : cloned.required;
   if (isPlainObject(cloned.properties)) {
     for (const field of owned) delete cloned.properties[field];
+  }
+  if (
+    valid.operation === "turn.finalize"
+    && valid.reviewed_agency_binding !== undefined
+  ) {
+    projectReviewedAgencyClaimsSchema(cloned, valid.reviewed_agency_binding);
   }
   if (valid.operation === "state.move_scene") {
     const selectionMode = valid.selection_mode;
@@ -1106,6 +1561,93 @@ export function bindRetainedTypedToolArguments(
     ...structuredClone(modelInput),
     ...bindingValues(valid),
   };
+  if (
+    valid.operation === "turn.finalize"
+    && valid.reviewed_agency_binding !== undefined
+  ) {
+    const hasAgencyClaims = Object.hasOwn(modelInput, "agency_claims");
+    const rawClaims = hasAgencyClaims ? modelInput.agency_claims : [];
+    if (!Array.isArray(rawClaims) || rawClaims.length > 64) {
+      throw new ToolContractProjectionError(
+        "reviewed_agency_claim_invalid",
+        "accepted-review agency_claims must be a bounded semantic selection array",
+        { operation, field: "agency_claims" },
+      );
+    }
+    const spans = new Map(
+      valid.reviewed_agency_binding.spans.map((row) => [row.reviewed_span, row]),
+    );
+    const authorities = new Map(
+      valid.reviewed_agency_binding.authorities.map((row) => [row.authority, row]),
+    );
+    const seen = new Set<string>();
+    const normalizedClaims = rawClaims.map((raw, index) => {
+      if (
+        !isPlainObject(raw)
+        || !exactObjectKeys(raw, ["reviewed_span", "claim_type", "authority"])
+      ) {
+        throw new ToolContractProjectionError(
+          "reviewed_agency_claim_invalid",
+          `agency_claims[${index}] must use the closed semantic reviewed-span schema`,
+          { operation, field: `agency_claims[${index}]` },
+        );
+      }
+      const reviewedSpan = typeof raw.reviewed_span === "string"
+        ? raw.reviewed_span
+        : "";
+      const claimType = typeof raw.claim_type === "string"
+        ? raw.claim_type
+        : "";
+      const authorityName = typeof raw.authority === "string"
+        ? raw.authority
+        : "";
+      const span = spans.get(reviewedSpan);
+      if (span === undefined) {
+        throw new ToolContractProjectionError(
+          "reviewed_agency_claim_stale",
+          "selected reviewed span is not in the current accepted review",
+          { operation, field: `agency_claims[${index}].reviewed_span` },
+        );
+      }
+      const authority = authorities.get(authorityName);
+      if (
+        authority === undefined
+        || !authority.claim_types.includes(claimType as ReviewedAgencyClaimType)
+      ) {
+        throw new ToolContractProjectionError(
+          "reviewed_agency_authority_mismatch",
+          "selected claim type is not authorized by the current reviewed authority",
+          { operation, field: `agency_claims[${index}].authority` },
+        );
+      }
+      const identity = `${reviewedSpan}\u0000${claimType}`;
+      if (seen.has(identity)) {
+        throw new ToolContractProjectionError(
+          "reviewed_agency_claim_invalid",
+          "accepted-review semantic agency selections must be unique",
+          { operation, field: `agency_claims[${index}]` },
+        );
+      }
+      seen.add(identity);
+      const semanticPart = (value: string): string => value
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 96);
+      return {
+        claim_id: (
+          `agency-reviewed:${semanticPart(reviewedSpan)}:${semanticPart(claimType)}`
+        ),
+        claim_type: claimType,
+        exact_excerpt: span.exact_excerpt,
+        override_id: authority.override_id,
+        source_ref: authority.source_ref,
+        subject_ref: authority.subject_ref,
+      };
+    });
+    if (hasAgencyClaims) result.agency_claims = normalizedClaims;
+    else delete result.agency_claims;
+  }
   if (valid.operation === "state.move_scene") {
     const selectionMode = valid.selection_mode;
     if (selectionMode === "manual_scene") {
@@ -2519,7 +3061,9 @@ const OPENING_DELIVERY_HINT =
   + "be contradicted, recomputed, rewritten, or duplicated";
 const REVIEW_GUIDANCE_HINTS = [
   "findings are advisory; the KP decides whether and how to revise them",
-  "bind every authorized PC proposition as an agency_claim in turn.finalize",
+  "after a clear Pi review, select reviewed_span + claim_type + authority "
+    + "from the refreshed finalize binding; the host attaches the frozen "
+    + "draft and exact agency evidence",
 ];
 const FINALIZE_DELIVERY_HINTS = [
   "echo rendered_text exactly; direct-host output is contract-invalid if any "
