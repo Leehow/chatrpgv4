@@ -423,6 +423,60 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
   ]);
 }
 
+// A successful narration review may echo the Keeper's nested semantic claim
+// identities. The composed claim id remains meaningful, while the canonical
+// current-PC ref is projected back to the one copy-safe model handle.
+{
+  const envelope = structuredClone(FAMILIES.narration_review);
+  envelope.data.state_authority_review = {
+    disposition: "claims_listed",
+    reason: "草稿声明了已经由状态工具落地的钥匙交接。",
+    claims: [{
+      claim_id: "claim-keys-handoff",
+      subject_ref: "pc:inv-x6a217e22-e0532209",
+      claim_kind: "item",
+      exact_excerpt: "钥匙现在在你手里。",
+      source_effect_id: null,
+      reason: "钥匙已经由权威物品写入落地。",
+    }],
+  };
+  const diagnostics = { unmapped: [] };
+  const out = projectModelVisibleCanonicalResult(
+    "narration.review",
+    envelope,
+    emptySemanticProjectionView(),
+    diagnostics,
+  );
+  assert.deepEqual(diagnostics.unmapped, []);
+  assert.equal(
+    out.data.state_authority_review.claims[0].claim_id,
+    "claim-keys-handoff",
+  );
+  assert.equal(
+    out.data.state_authority_review.claims[0].subject_ref,
+    CURRENT_PC_SUBJECT_HANDLE,
+  );
+  assertModelSafeContent("narration.review nested claim content", out);
+
+  const opaqueClaim = structuredClone(envelope);
+  opaqueClaim.data.state_authority_review.claims[0].claim_id =
+    "claim-7c9e6679-7425-40de-944b-e07fc1f90ae7";
+  const opaqueDiagnostics = { unmapped: [] };
+  const opaqueOut = projectModelVisibleCanonicalResult(
+    "narration.review",
+    opaqueClaim,
+    emptySemanticProjectionView(),
+    opaqueDiagnostics,
+  );
+  assert.equal(
+    opaqueOut.data.state_authority_review.claims[0].claim_id,
+    undefined,
+  );
+  assert.ok(
+    opaqueDiagnostics.unmapped.some((entry) => entry.field === "claim_id"),
+  );
+}
+
 // turn.finalize semantic view: rendered text + semantic status only.
 {
   const out = projectModelVisibleCanonicalResult(
@@ -1448,6 +1502,184 @@ assertModelSafeContent(
   "evidence.table_opening content",
   JSON.parse(modelContents.at(-1).text),
 );
+
+// 2c) Canonical mutation success must survive the model projection. These
+// fields already belong to the closed semantic grammar; an incomplete
+// per-operation output table must not turn the authoritative ok:true result
+// into semantic_identity_unavailable and invite a duplicate write.
+{
+  const canonicalCashGrant = {
+    ok: true,
+    tool: "state.cash_grant",
+    data: {
+      decision_id: "cash-knott-advance-accept-v1",
+      op: "grant",
+      amount: "20.00",
+      currency: "USD",
+      source: "npc:steven-knott-commission-advance",
+      reason: "Knott cash advance on accepting the commission",
+      localized_reason: "诺特支付的首日调查预付金",
+      balance_before: "0.00",
+      balance_after: "20.00",
+      recorded_at: "1920-10-12T10:00:00-04:00",
+      game_time: {
+        calendar_mode: "gregorian",
+        civil_segment_id: "civil-start",
+        day_phase: "morning",
+        display: "1920-10-12 10:00",
+        elapsed_minutes: 0,
+      },
+      changed: true,
+      investigator_id: "inv-x6a217e22-e0532209",
+    },
+    warnings: [],
+    hints: [],
+  };
+  routeOperation("state.cash_grant", canonicalCashGrant);
+  const cashResult = await executeTool("coc_invoke", {
+    operation: "state.cash_grant",
+    root: testRoot,
+    campaign,
+    arguments: {
+      amount: 20,
+      currency: "USD",
+      source: "npc:steven-knott-commission-advance",
+      reason: "Knott cash advance on accepting the commission",
+      localized_reason: "诺特支付的首日调查预付金",
+      decision_id: "cash-knott-advance-accept-v1",
+    },
+  });
+  const cashVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(
+    cashVisible.ok,
+    true,
+    `successful cash mutation must remain visible: ${JSON.stringify({
+      visible: cashVisible,
+      diagnostics: cashResult.details?.semantic_identity_diagnostics,
+    })}`,
+  );
+  assert.equal(cashVisible.data.decision_id, "cash-knott-advance-accept-v1");
+  assert.equal(cashVisible.data.game_time.civil_segment_id, "civil-start");
+  assert.equal(cashVisible.data.balance_after, "20.00");
+  assertModelSafeContent("state.cash_grant content", cashVisible);
+
+  const opaqueCashGrant = structuredClone(canonicalCashGrant);
+  opaqueCashGrant.data.decision_id =
+    "cash-7c9e6679-7425-40de-944b-e07fc1f90ae7";
+  routeOperation("state.cash_grant", opaqueCashGrant);
+  const opaqueCashResult = await executeTool("coc_invoke", {
+    operation: "state.cash_grant",
+    root: testRoot,
+    campaign,
+    arguments: {
+      amount: 20,
+      currency: "USD",
+      source: "npc:steven-knott-commission-advance",
+      reason: "opaque output identity probe",
+      localized_reason: "不透明输出身份探针",
+      decision_id: "cash-knott-advance-probe-v2",
+    },
+  });
+  const opaqueCashVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(opaqueCashVisible.ok, false);
+  assert.equal(
+    opaqueCashVisible.error.code,
+    "semantic_identity_unavailable",
+    "a classified field still rejects an opaque canonical value",
+  );
+  assert.ok(!modelContents.at(-1).text.includes("7c9e6679"));
+  assert.deepEqual(
+    opaqueCashResult.details.canonical,
+    opaqueCashGrant,
+    "the rejected exact mutation envelope stays host-only",
+  );
+
+  const misplacedEntityGrant = structuredClone(canonicalCashGrant);
+  misplacedEntityGrant.data.scene_id = "commission-briefing";
+  routeOperation("state.cash_grant", misplacedEntityGrant);
+  const misplacedResult = await executeTool("coc_invoke", {
+    operation: "state.cash_grant",
+    root: testRoot,
+    campaign,
+    arguments: {
+      amount: 20,
+      currency: "USD",
+      source: "npc:steven-knott-commission-advance",
+      reason: "operation-local echoed identity probe",
+      localized_reason: "操作局部实体身份探针",
+      decision_id: "cash-knott-advance-probe-v3",
+    },
+  });
+  const misplacedVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(misplacedVisible.ok, false);
+  assert.equal(misplacedVisible.error.code, "semantic_identity_unavailable");
+  assert.ok(!modelContents.at(-1).text.includes("commission-briefing"));
+  assert.ok(
+    misplacedResult.details.semantic_identity_diagnostics.some((entry) =>
+      entry.field === "scene_id" && entry.domain === "undeclared"
+    ),
+    "echoed entity fields remain operation-local rather than globally open",
+  );
+}
+
+// 2d) Nested model-authored semantic identities use the same systemic output
+// classifier. An acquisition receipt's decision_id must stay meaningful and
+// visible after a successful item mutation; it is not operation-local syntax.
+{
+  const canonicalItemGrant = {
+    ok: true,
+    tool: "state.item_grant",
+    data: {
+      investigator_id: "inv-x6a217e22-e0532209",
+      kind: "gear",
+      item_id: "corbitt-house-keys",
+      label: "科比特宅钥匙",
+      changed: true,
+      present_before: false,
+      present_after: true,
+      items: [{
+        item_id: "corbitt-house-keys",
+        kind: "gear",
+        label: "科比特宅钥匙",
+        note: "史蒂文·诺特当面交托",
+        acquired: {
+          tool: "state.item_grant",
+          decision_id: "item-corbitt-house-keys-v1",
+          ts: "1920-10-12T10:00:00-04:00",
+        },
+      }],
+    },
+    warnings: [],
+    hints: [],
+  };
+  routeOperation("state.item_grant", canonicalItemGrant);
+  const itemResult = await executeTool("coc_invoke", {
+    operation: "state.item_grant",
+    root: testRoot,
+    campaign,
+    arguments: {
+      kind: "gear",
+      label: "科比特宅钥匙",
+      note: "史蒂文·诺特当面交托",
+      decision_id: "item-corbitt-house-keys-v1",
+    },
+  });
+  const itemVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(
+    itemVisible.ok,
+    true,
+    `successful item mutation must remain visible: ${JSON.stringify({
+      visible: itemVisible,
+      diagnostics: itemResult.details?.semantic_identity_diagnostics,
+    })}`,
+  );
+  assert.equal(
+    itemVisible.data.items.at(-1).acquired.decision_id,
+    "item-corbitt-house-keys-v1",
+  );
+  assert.match(itemVisible.data.item_id, /^item:/);
+  assertModelSafeContent("state.item_grant nested receipt content", itemVisible);
+}
 
 
 // 1b) Campaign-10 regression — commission briefing route affordance
