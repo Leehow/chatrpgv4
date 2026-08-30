@@ -1814,7 +1814,253 @@ assert.equal(
     .investigator,
   "inv-x6a217e22-e0532209",
 );
-assertModelSafeContent("rules.roll content", JSON.parse(modelContents.at(-1).text));
+const rulesRollVisible = JSON.parse(modelContents.at(-1).text);
+assert.equal(
+  rulesRollVisible.data.roll_id,
+  "roll:inspect-exterior-stone-street-t1",
+  "public rolls the model may reference retain their registry-backed handle",
+);
+assertModelSafeContent("rules.roll content", rulesRollVisible);
+
+// 4a) A damage expression mints its canonical roll id inside the successful
+// mutation result, after the model's pre-call roll view was established. The
+// model needs the authoritative dice/HP facts, not that machine identity: a
+// missing immediate handle must never turn ok:true into an apparent failure
+// that invites the mutation to be retried.
+{
+  const canonicalDamage = {
+    ok: true,
+    tool: "rules.damage",
+    wire: {
+      schema_version: 1,
+      profile: "keeper_hot_v1",
+      canonical_operation: "rules.damage",
+      full_result_sha256: `sha256:${"a".repeat(64)}`,
+      contract_archive_sha256: `sha256:${"b".repeat(64)}`,
+      payload_projected: false,
+    },
+    data: {
+      investigator_id: "inv-x6a217e22-e0532209",
+      kind: "damage",
+      amount: 2,
+      roll_detail: {
+        expression: "1D3",
+        count: 1,
+        sides: 3,
+        modifier: 0,
+        rolls: [2],
+        total: 2,
+      },
+      hp_before: 12,
+      hp_after: 10,
+      max_hp: 12,
+      conditions_before: [],
+      conditions_after: [],
+      conditions: [],
+      source: "strike the desk corner until the knuckles bleed",
+      roll_id: "toolbox-rulegraph-healing-e2e-xai-20260830-03-000002",
+    },
+    warnings: [],
+    hints: [],
+  };
+  routeOperation("rules.damage", canonicalDamage);
+  const damageResult = await executeTool("coc_rules_damage", {
+    root: testRoot,
+    campaign,
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    kind: "damage",
+    amount: "1D3",
+    source: "strike the desk corner until the knuckles bleed",
+    decision_id: "roll-knuckles-desk-corner-v1",
+  });
+  const damageVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(
+    damageVisible.ok,
+    true,
+    `successful damage must remain visible: ${JSON.stringify({
+      visible: damageVisible,
+      diagnostics: damageResult.details?.semantic_identity_diagnostics,
+    })}`,
+  );
+  assert.equal(damageVisible.data.investigator_id, CURRENT_INVESTIGATOR_HANDLE);
+  assert.equal(damageVisible.data.amount, 2);
+  assert.deepEqual(damageVisible.data.roll_detail, {
+    expression: "1D3",
+    count: 1,
+    sides: 3,
+    modifier: 0,
+    rolls: [2],
+    total: 2,
+  });
+  assert.equal(damageVisible.data.hp_before, 12);
+  assert.equal(damageVisible.data.hp_after, 10);
+  assert.equal(damageVisible.data.roll_id, undefined);
+  assert.ok(
+    !modelContents.at(-1).text.includes(canonicalDamage.data.roll_id),
+    "the newly minted canonical damage roll id stays out of model content",
+  );
+  assert.deepEqual(
+    damageResult.details,
+    canonicalDamage,
+    "the exact successful damage envelope and roll identity stay host-only",
+  );
+  assert.equal(
+    clientCalls.filter((call) => call.operation === "rules.damage").length,
+    1,
+    "a successful damage mutation reaches canonical transport exactly once",
+  );
+  assertModelSafeContent("rules.damage content", damageVisible);
+}
+
+// The graph settlement surface returns the same class of newly minted roll
+// evidence nested inside an existing canonical result envelope. Keep its
+// public dice/actor/HP facts while command, roll, state-path, and digest
+// identity remain host-owned; no RuleGraph or healing implementation fixture
+// is involved in this projection-only regression.
+{
+  const graphCommandId = "healing:graph-first-aid-v1-first-aid";
+  const graphRollId = `${graphCommandId}:roll:primary`;
+  const graphEvent = {
+    event_type: "first_aid",
+    outcome: "extreme",
+    hp_before: 5,
+    hp_after: 6,
+    hp_gained: 1,
+    skill: "First Aid",
+    source_command_id: graphCommandId,
+    treatment_scope: {
+      day_id: "day-0",
+      wound_id: "wound-desk-corner",
+    },
+  };
+  const graphRoll = {
+    actor_id: "thomas-hayes",
+    decision_id: "roll-healing-graph-first-aid-v1",
+    dice: { expression: "1D100", raw: [8], total: 8 },
+    event_type: "combat_rescue_roll",
+    outcome: "extreme",
+    passed: true,
+    roll: 8,
+    roll_id: graphRollId,
+    roll_role: "percentile_check",
+    skill: "First Aid",
+    source_command_id: graphCommandId,
+    target: 80,
+  };
+  const canonicalGraphSettle = {
+    ok: true,
+    tool: "rules.settle",
+    wire: {
+      schema_version: 1,
+      profile: "keeper_hot_v1",
+      canonical_operation: "rules.settle",
+      full_result_sha256: `sha256:${"c".repeat(64)}`,
+      contract_archive_sha256: `sha256:${"d".repeat(64)}`,
+      payload_projected: false,
+    },
+    data: {
+      decision_ref: "decision:coc7:healing:first-aid-ordinary",
+      family: "healing",
+      status: "settled",
+      rule_refs: [],
+      investigator_id: "thomas-hayes",
+      event: graphEvent,
+      player_state_receipt: {
+        schema_version: 1,
+        investigator_id: "thomas-hayes",
+        hp: { before: 5, after: 6 },
+        conditions_before: ["major_wound"],
+        conditions_after: [],
+      },
+      current_hp: 6,
+      conditions: [],
+      settlement: {
+        existing_result_envelope: true,
+        result: {
+          investigator_id: "thomas-hayes",
+          event: graphEvent,
+          events: [graphEvent, graphRoll],
+          player_state_receipt: {
+            schema_version: 1,
+            investigator_id: "thomas-hayes",
+            hp: { before: 5, after: 6 },
+            conditions_before: ["major_wound"],
+            conditions_after: [],
+          },
+          current_hp: 6,
+          conditions: [],
+          rescuer_id: "thomas-hayes",
+          results: [{
+            command_id: graphCommandId,
+            events: [graphEvent, graphRoll],
+            kind: "stabilize",
+            pending_choice: null,
+            state_refs: [
+              "save/investigator-state/thomas-hayes.json#current_hp",
+              `logs/rolls.jsonl#${graphRollId}`,
+            ],
+            status: "completed",
+          }],
+        },
+      },
+      next_decisions: [],
+      authority: "canonical-resolver-state-receipts",
+      request_digest: `sha256:${"e".repeat(64)}`,
+    },
+    warnings: [],
+    hints: [],
+  };
+  routeOperation("rules.settle", canonicalGraphSettle);
+  const settleResult = await executeTool("coc_rules_settle", {
+    root: testRoot,
+    campaign,
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    decision_ref: "decision:coc7:healing:first-aid-ordinary",
+    semantic_inputs: { rescuer_ref: "npc:doctor-one" },
+    decision_id: "roll-healing-graph-first-aid-v1",
+  });
+  const settleVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(
+    settleVisible.ok,
+    true,
+    `successful graph settlement must remain visible: ${JSON.stringify({
+      visible: settleVisible,
+      diagnostics: settleResult.details?.semantic_identity_diagnostics,
+    })}`,
+  );
+  assert.equal(settleVisible.data.status, "settled");
+  assert.equal(settleVisible.data.current_hp, 6);
+  assert.equal(settleVisible.data.player_state_receipt.hp.before, 5);
+  assert.equal(settleVisible.data.player_state_receipt.hp.after, 6);
+  assert.equal(settleVisible.data.settlement.result.events[1].dice.total, 8);
+  assert.equal(settleVisible.data.settlement.result.events[1].roll_id, undefined);
+  assert.equal(settleVisible.data.settlement.result.events[1].actor_id, "thomas-hayes");
+  assert.equal(
+    settleVisible.data.settlement.result.events[1].source_command_id,
+    undefined,
+  );
+  assert.equal(
+    settleVisible.data.settlement.result.results[0].command_id,
+    undefined,
+  );
+  assert.equal(
+    settleVisible.data.settlement.result.results[0].state_refs,
+    undefined,
+  );
+  assert.equal(settleVisible.data.request_digest, undefined);
+  assert.ok(!modelContents.at(-1).text.includes(graphRollId));
+  assert.deepEqual(
+    settleResult.details,
+    canonicalGraphSettle,
+    "the exact graph settlement and minted roll evidence stay host-only",
+  );
+  assert.equal(
+    clientCalls.filter((call) => call.operation === "rules.settle").length,
+    1,
+    "a successful graph settlement reaches canonical transport exactly once",
+  );
+  assertModelSafeContent("rules.settle content", settleVisible);
+}
 
 // 4b) Exceptional effect bound to the observed roll handle: the source roll
 // handle restores to the canonical roll id, and the canonical effect id is

@@ -1789,6 +1789,16 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["attempt_id", "decision_id", "original_check_decision_id", "scene_id"],
     [],
   )],
+  ["rules.damage", declaredIdentityTable(
+    [],
+    [],
+    ["roll_id"],
+  )],
+  ["rules.settle", declaredIdentityTable(
+    ["actor_id", "day_id", "decision_ref", "rescuer_id", "wound_id"],
+    ["request_digest"],
+    ["command_id", "roll_id", "source_command_id", "state_refs"],
+  )],
   ["state.advance_time", declaredIdentityTable(
     ["civil_segment_id", "location_id", "source_ref"],
     [],
