@@ -26,6 +26,8 @@ rather than rewriting them"). No arithmetic is reimplemented here:
   ``coc_roll.spend_luck``; ``cash_assets`` / ``build_scale`` delegate to the
   ``coc_rules`` lookups; ``skill_describe`` reads this package's own
   ``rules-json/skill-descriptions.json``.
+- ``skill_base`` exposes only era-legal flat integer bases from this package's
+  canonical ``rules-json/skills.json``; actor-derived values remain unresolved.
 - ``first_aid`` / ``medicine`` / ``weekly_recovery`` / ``dying_check`` build
   the canonical healing-chain command requests this package owns; the
   toolbox submits them to the shared subsystem executor unchanged (the
@@ -80,6 +82,34 @@ coc_healing = _load_sibling("coc_healing", "coc_healing.py")
 _RESOURCE_KEYS = frozenset({"hp", "san", "mp", "luck"})
 
 _DIRECTIONS = frozenset({"loss", "gain"})
+
+
+def skill_base(skill_name: str, *, era: str | None = None) -> int | None:
+    """Return one flat catalog base suitable for a missing sheet skill.
+
+    Characteristic-derived and variable bases deliberately stay unresolved:
+    callers must not guess the actor-specific value. Modern-only skills are
+    unavailable outside the canonical modern era. Unknown skills also fail
+    closed with ``None``.
+    """
+    if not isinstance(skill_name, str) or not skill_name:
+        return None
+    try:
+        spec = coc_rules.skill_by_name(skill_name)
+    except (KeyError, OSError, json.JSONDecodeError):
+        return None
+    if spec.get("modern_only") is True:
+        era_key = str(era or "").strip().casefold()
+        if era_key != "modern":
+            return None
+    base = spec.get("base_chance")
+    if (
+        isinstance(base, bool)
+        or not isinstance(base, int)
+        or not 0 <= base <= 100
+    ):
+        return None
+    return base
 
 
 def damage_state_effect(

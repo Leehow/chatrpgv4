@@ -1413,20 +1413,233 @@ def _set_sheet_skill(ws, skill: str, value: int) -> None:
     path.write_text(json.dumps(sheet, indent=2) + "\n", encoding="utf-8")
 
 
-def _add_rescuer_sheet(ws, rescuer_id: str, *, first_aid: int) -> None:
+def _add_rescuer_sheet(
+    ws, rescuer_id: str, *, first_aid: int | None,
+) -> None:
     source = (
         ws["workspace"] / ".coc" / "investigators"
         / ws["investigator_id"] / "character.json"
     )
     sheet = json.loads(source.read_text(encoding="utf-8"))
     sheet["id"] = rescuer_id
-    sheet.setdefault("skills", {})["First Aid"] = first_aid
+    skills = sheet.setdefault("skills", {})
+    if first_aid is None:
+        skills.pop("First Aid", None)
+    else:
+        skills["First Aid"] = first_aid
     target = (
         ws["workspace"] / ".coc" / "investigators"
         / rescuer_id / "character.json"
     )
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(sheet, indent=2) + "\n", encoding="utf-8")
+
+
+def test_packaged_graph_settle_uses_catalog_base_when_quick_start_sheet_omits_first_aid(
+    tmp_path: Path,
+):
+    ws = _fresh_workspace(tmp_path, "graph-catalog-first-aid")
+    sheet_path = (
+        ws["workspace"] / ".coc" / "investigators"
+        / ws["investigator_id"] / "character.json"
+    )
+    sheet = json.loads(sheet_path.read_text(encoding="utf-8"))
+    assert "First Aid" not in sheet["skills"]
+    time_state = json.loads(
+        (ws["campaign_dir"] / "save" / "time-state.json")
+        .read_text(encoding="utf-8")
+    )
+    elapsed = int(time_state["clock"]["elapsed_minutes"])
+    _wounded_state(ws, hp=5, occurred_elapsed=elapsed)
+
+    context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "healing",
+        "selected_affordance_ids": [_ORDINARY_FIRST_AID],
+    })
+    assert context["ok"] is True, context
+    smuggled = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": _ORDINARY_FIRST_AID,
+        "semantic_inputs": {"skill_value": 99},
+        "decision_id": "healing:catalog-base:smuggled-first-aid",
+    })
+    assert smuggled["ok"] is False, smuggled
+    assert smuggled["error"]["code"] == "locked_input_override"
+    assert _rolls(ws) == []
+    args = {
+        "investigator": ws["investigator_id"],
+        "decision_ref": _ORDINARY_FIRST_AID,
+        "semantic_inputs": {"rescuer_ref": ws["investigator_id"]},
+        "decision_id": "healing:catalog-base:first-aid",
+        "seed": 2,
+    }
+    settled = _run(ws, "rules.settle", args)
+
+    assert settled["ok"] is True, settled
+    rolls = _rolls(ws)
+    assert len(rolls) == 1
+    assert rolls[0]["payload"]["target"] == 30
+    projected = json.dumps(settled["data"])
+    assert "skill_value" not in projected
+    assert "characteristics" not in projected
+    assert '"skills"' not in projected
+
+    replay = _run(ws, "rules.settle", args)
+    assert replay["ok"] is True, replay
+    assert replay["data"] == settled["data"]
+    assert len(_rolls(ws)) == 1
+
+
+def test_packaged_graph_settle_uses_catalog_base_for_missing_assistant_skill(
+    tmp_path: Path,
+):
+    ws = _fresh_workspace(tmp_path, "graph-catalog-assistant")
+    _set_sheet_skill(ws, "First Aid", 1)
+    _add_rescuer_sheet(ws, "rescuer-assistant", first_aid=None)
+    time_state = json.loads(
+        (ws["campaign_dir"] / "save" / "time-state.json")
+        .read_text(encoding="utf-8")
+    )
+    _wounded_state(
+        ws,
+        hp=5,
+        occurred_elapsed=int(time_state["clock"]["elapsed_minutes"]),
+    )
+    context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "healing",
+        "selected_affordance_ids": [_ORDINARY_FIRST_AID],
+    })
+    assert context["ok"] is True, context
+
+    settled = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": _ORDINARY_FIRST_AID,
+        "semantic_inputs": {
+            "rescuer_ref": ws["investigator_id"],
+            "assistant_rescuer_ref": "rescuer-assistant",
+        },
+        "decision_id": "healing:catalog-base:assistant-first-aid",
+        "seed": 2,
+    })
+
+    assert settled["ok"] is True, settled
+    assert settled["data"]["event"]["teamwork"] is True
+    rolls = _rolls(ws)
+    assert [row["payload"]["target"] for row in rolls] == [1, 30]
+    assert [row["payload"]["actor_id"] for row in rolls] == [
+        ws["investigator_id"], "rescuer-assistant",
+    ]
+
+
+def test_packaged_graph_settle_uses_catalog_base_when_sheet_omits_medicine(
+    tmp_path: Path,
+):
+    ws = _fresh_workspace(tmp_path, "graph-catalog-medicine")
+    time_state = json.loads(
+        (ws["campaign_dir"] / "save" / "time-state.json")
+        .read_text(encoding="utf-8")
+    )
+    _wounded_state(
+        ws,
+        hp=5,
+        occurred_elapsed=int(time_state["clock"]["elapsed_minutes"]),
+    )
+    decision_ref = "decision:coc7:healing:medicine-ordinary"
+    context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "healing",
+        "selected_affordance_ids": [decision_ref],
+    })
+    assert context["ok"] is True, context
+
+    settled = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": decision_ref,
+        "semantic_inputs": {"rescuer_ref": ws["investigator_id"]},
+        "decision_id": "healing:catalog-base:medicine",
+        "seed": 2,
+    })
+
+    assert settled["ok"] is True, settled
+    rolls = _rolls(ws)
+    assert len(rolls) == 1
+    assert rolls[0]["payload"]["target"] == 1
+
+
+def test_packaged_graph_settle_uses_catalog_base_for_weekly_caregiver(
+    tmp_path: Path,
+):
+    ws = _fresh_workspace(tmp_path, "graph-catalog-weekly-caregiver")
+    state_path = (
+        ws["campaign_dir"] / "save" / "investigator-state"
+        / f"{ws['investigator_id']}.json"
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update({
+        "current_hp": 2,
+        "conditions": ["major_wound"],
+        "wound_ledger": [{
+            "wound_id": "wound-catalog-weekly",
+            "source_damage_roll_id": "damage-catalog-weekly",
+            "occurred_elapsed_minutes": 0,
+            "status": "active",
+        }],
+    })
+    _write_json(state_path, state)
+    advanced = _run(ws, "state.advance_time", {
+        "minutes": 7 * 24 * 60,
+        "reason": "one full week of rest",
+        "decision_id": "healing:catalog-base:advance-week",
+    })
+    assert advanced["ok"] is True, advanced
+    decision_ref = "decision:coc7:healing:weekly-major-wound-recovery"
+    context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "healing",
+        "selected_affordance_ids": [decision_ref],
+    })
+    assert context["ok"] is True, context
+
+    settled = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": decision_ref,
+        "semantic_inputs": {
+            "complete_rest": True,
+            "poor_environment": False,
+        },
+        "decision_id": "healing:catalog-base:weekly-caregiver",
+        "seed": 5,
+    })
+
+    assert settled["ok"] is True, settled
+    rolls = _rolls(ws)
+    care_roll = next(
+        row for row in rolls if row["payload"].get("skill") == "Medicine"
+    )
+    assert care_roll["payload"]["target"] == 1
+    assert care_roll["payload"]["actor_id"] == ws["investigator_id"]
+
+
+def test_ruleset_skill_value_prefers_explicit_and_fails_closed_for_nonflat_base():
+    resolver = coc_rulesets.get_resolver({"ruleset_id": "coc7"})
+    sheet = {
+        "era": "1920s",
+        "characteristics": {"DEX": 60},
+        "skills": {"First Aid": {"value": 77}},
+    }
+    resolve = coc_rulesets.resolve_actor_skill_value
+
+    assert resolve(resolver, sheet, "First Aid") == 77
+    sheet["skills"].pop("First Aid")
+    assert resolve(resolver, sheet, "First Aid") == 30
+    assert resolve(resolver, sheet, "Medicine") == 1
+    assert resolve(resolver, sheet, "Unknown Skill") is None
+    assert resolve(resolver, sheet, "Dodge") is None
+    assert resolve(resolver, sheet, "Computer Use") is None
+    sheet["skills"]["First Aid"] = None
+    assert resolve(resolver, sheet, "First Aid") is None
 
 
 def test_packaged_graph_settle_executes_two_rescuer_first_aid_once(
@@ -1504,7 +1717,11 @@ def test_coc7_adapter_owns_healing_host_binding_and_executor_shape(tmp_path: Pat
         selected,
         resolve_investigator=kernel._resolve_investigator,
         safe_sheet=kernel._safe_sheet,
-        skill_value=kernel._sheet_skill_value,
+        skill_value=lambda sheet, skill_name: (
+            coc_rulesets.resolve_actor_skill_value(
+                kernel._rules_resolver(ctx, None), sheet, skill_name,
+            )
+        ),
     )
     locked = provider("decision:coc7:healing:first-aid-stabilization")
     assert locked == {

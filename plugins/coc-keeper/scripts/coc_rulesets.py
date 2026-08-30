@@ -18,6 +18,7 @@ per-id cache), never at module import time.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 import importlib.util
 import json
@@ -316,6 +317,50 @@ def apply_damage_state_effect(
     if not isinstance(projected, dict):
         raise ValueError("ruleset damage_state_effect must return actor state")
     return projected
+
+
+def resolve_actor_skill_value(
+    resolver: Any,
+    sheet: Mapping[str, Any] | None,
+    skill_name: str,
+) -> int | None:
+    """Resolve an actor skill without teaching the kernel any ruleset values.
+
+    A canonical sheet value wins. Only an omitted key may consult the active
+    package's optional ``skill_base`` hook; absent sheets, corrupt explicit
+    values, missing hooks, unknown skills, era-disabled skills, and non-flat
+    bases all fail closed with ``None``.
+    """
+    if not isinstance(sheet, Mapping) or not isinstance(skill_name, str):
+        return None
+    skills = sheet.get("skills")
+    if not isinstance(skills, Mapping):
+        return None
+    if skill_name in skills:
+        raw = skills[skill_name]
+        if isinstance(raw, Mapping):
+            raw = raw.get("value")
+        if isinstance(raw, bool) or raw is None:
+            return None
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return value if 0 <= value <= 100 else None
+    hook = getattr(resolver, "skill_base", None)
+    if not callable(hook):
+        return None
+    try:
+        value = hook(skill_name, era=sheet.get("era"))
+    except (OSError, TypeError, ValueError):
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 0 <= value <= 100
+    ):
+        return None
+    return value
 
 
 def get_resolver(campaign: dict[str, Any] | None = None) -> ModuleType:

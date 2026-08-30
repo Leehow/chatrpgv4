@@ -6328,21 +6328,6 @@ def _family_id_from_decision_ref(decision_ref: str) -> str:
     return "healing"
 
 
-def _sheet_skill_value(sheet: Mapping[str, Any] | None, skill_name: str) -> int | None:
-    if not isinstance(sheet, Mapping):
-        return None
-    skills = sheet.get("skills") if isinstance(sheet.get("skills"), dict) else {}
-    raw = skills.get(skill_name)
-    if isinstance(raw, dict):
-        raw = raw.get("value")
-    if isinstance(raw, bool) or raw is None:
-        return None
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return None
-
-
 def _safe_sheet(ctx: Ctx, investigator_id: str) -> dict[str, Any] | None:
     try:
         sheet = ctx.sheet(investigator_id)
@@ -6671,13 +6656,18 @@ def dispatch_rules_settle(
             "rules_graph_unavailable",
             "graph settlement requires the active ruleset adapter",
         )
+    active_resolver = _rules_resolver(ctx, None)
     runtime._host_locked_provider = ruleset_adapter.host_locked_provider(
         ctx,
         args,
         selected,
         resolve_investigator=_resolve_investigator,
         safe_sheet=_safe_sheet,
-        skill_value=_sheet_skill_value,
+        skill_value=lambda sheet, skill_name: (
+            coc_rulesets.resolve_actor_skill_value(
+                active_resolver, sheet, skill_name,
+            )
+        ),
     )
     grant = runtime.latest_grant_covering(decision_ref)
     if grant is None:

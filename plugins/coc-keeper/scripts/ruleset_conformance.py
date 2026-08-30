@@ -33,7 +33,7 @@ RULE_GRAPH_CONTRACT_PATH = (
 _FAMILY_RUNTIME_OWNERS = {"legacy", "shadow", "graph"}
 _FAMILY_LEGACY_SURFACES = {"visible", "hidden", "removed"}
 REQUIRED_RESOLVER_ATTRS = ("check", "resource_delta", "public_api_index")
-OPTIONAL_RESOLVER_ATTRS = ("damage_state_effect",)
+OPTIONAL_RESOLVER_ATTRS = ("damage_state_effect", "skill_base")
 _FRONTMATTER_KEY = re.compile(r"^([A-Za-z_]+):", re.MULTILINE)
 
 

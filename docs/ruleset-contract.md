@@ -247,6 +247,11 @@ the active campaign's resolver through the kernel registry
   hook returns the replacement actor-state object and performs no I/O. Absence
   is an exact no-op; generic kernel and subsystem code never know package
   fields such as wounds, injuries, or treatment ledgers.
+- Optional `skill_base(skill_name, *, era=None)` — package-owned lookup for a
+  flat integer catalog base when a complete actor sheet omits that skill. The
+  kernel always prefers an explicit canonical sheet value and validates the
+  returned integer; unknown, era-disabled, variable, and characteristic-derived
+  bases return `None` so the calling operation fails closed rather than guessing.
 - Optional subsystem session types (combat/chase/sanity equivalents) behind
   the same context/execute/end tool pattern the kernel already exposes.
 

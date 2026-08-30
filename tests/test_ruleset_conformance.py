@@ -159,17 +159,20 @@ def test_valid_minimal_package_passes(tmp_path: Path):
     assert ruleset_conformance.validate_package(package_dir) == []
 
 
-def test_optional_damage_state_effect_must_be_callable(tmp_path: Path):
+@pytest.mark.parametrize("attribute", ["damage_state_effect", "skill_base"])
+def test_optional_resolver_hooks_must_be_callable(
+    tmp_path: Path, attribute: str,
+):
     package_dir = tmp_path / "testrs"
     _build_minimal_package(package_dir)
     resolver = package_dir / "resolver.py"
     resolver.write_text(
-        resolver.read_text(encoding="utf-8") + "\ndamage_state_effect = 42\n",
+        resolver.read_text(encoding="utf-8") + f"\n{attribute} = 42\n",
         encoding="utf-8",
     )
     problems = ruleset_conformance.validate_package(package_dir)
     assert any(
-        "optional attribute 'damage_state_effect' must be callable" in problem
+        f"optional attribute {attribute!r} must be callable" in problem
         for problem in problems
     )
 
