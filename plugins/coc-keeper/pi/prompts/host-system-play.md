@@ -120,8 +120,8 @@ Take over from the ready table and open play.
   | `notebook_entry_ids` | multi-token semantic slug or namespace `notebook:` | `notebook:example-slug` | ✗ never `route:example-slug` |
   | `npc_id` | multi-token semantic slug or namespace `npc:` | `npc:example-slug` | ✗ never `route:example-slug` |
   | `npc_ids` | multi-token semantic slug or namespace `npc:` | `npc:example-slug` | ✗ never `route:example-slug` |
-  | `obligation_id` | multi-token semantic slug or namespace `roll:`, `first-impression:`, `sanity_bout:` | `roll:example-slug` | ✗ never `route:example-slug` |
-  | `obligation_ids` | multi-token semantic slug or namespace `roll:`, `first-impression:`, `sanity_bout:` | `roll:example-slug` | ✗ never `route:example-slug` |
+  | `obligation_id` | the exact obligation handle copied verbatim from turn.output_context required_obligation_ids (namespace `roll:`, `first-impression:`, or `sanity_bout:`); when turn.output_context presents no obligations, submit `coverage` as an empty array instead of any placeholder row | `roll:example-slug` | ✗ never `route:example-slug` |
+  | `obligation_ids` | the exact obligation handle copied verbatim from turn.output_context required_obligation_ids (namespace `roll:`, `first-impression:`, or `sanity_bout:`); when turn.output_context presents no obligations, submit `coverage` as an empty array instead of any placeholder row | `roll:example-slug` | ✗ never `route:example-slug` |
   | `observable_fact_refs` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
   | `opening_required_npc_ids` | multi-token semantic slug or namespace `npc:` | `npc:example-slug` | ✗ never `route:example-slug` |
   | `opening_required_secret_ids` | multi-token semantic slug or namespace `secret:` | `secret:example-slug` | ✗ never `route:example-slug` |

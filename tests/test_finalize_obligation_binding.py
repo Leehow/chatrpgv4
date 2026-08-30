@@ -113,6 +113,22 @@ def _sample_obligations() -> list[dict]:
     ]
 
 
+def test_zero_obligation_turn_accepts_empty_coverage() -> None:
+    """Campaign 09 canonical absence: zero obligations close with coverage=[]."""
+    assert coc_turn_finalization.validate_coverage([], [], DRAFT) == []
+
+
+def test_zero_obligation_sentinel_row_fails_closed_without_normalization() -> None:
+    """Campaign 09: a "none" placeholder row never normalizes into absence."""
+    with pytest.raises(coc_turn_finalization.TurnContractError) as caught:
+        coc_turn_finalization.validate_coverage(
+            [], [_coverage_row("none")], DRAFT,
+        )
+    assert caught.value.code == "unknown_obligation"
+    # Actionable, non-copyable correction: where valid handles come from.
+    assert "turn.output_context" in str(caught.value)
+
+
 def test_validate_coverage_accepts_bare_source_id_aliases() -> None:
     """Live restore bug: host rewrote roll handles to the bare source_id."""
     bound = coc_turn_finalization.validate_coverage(

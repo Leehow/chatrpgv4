@@ -1176,6 +1176,27 @@ export function bindRetainedTypedToolArguments(
 }
 
 /**
+ * Pi-only finalize absence overlay: zero presented obligations are
+ * represented structurally as `coverage: []`. The canonical archive is not
+ * changed; only the presented schema names the structural empty form so a
+ * no-obligation turn is never filled with a placeholder row or sentinel id.
+ */
+function overlayFinalizeCoverageAbsenceForm(schema: JsonSchema): void {
+  if (!isPlainObject(schema.properties)) return;
+  const coverage = schema.properties.coverage;
+  if (!isPlainObject(coverage)) return;
+  const absenceSentence = "when turn.output_context presents no obligations "
+    + "(required_obligation_ids empty), submit an empty array — never a "
+    + "placeholder row or invented obligation id";
+  const current = typeof coverage.description === "string"
+    ? coverage.description.trim()
+    : "";
+  coverage.description = current
+    ? `${current.replace(/\.+$/, ".")} ${absenceSentence}.`
+    : `${absenceSentence}.`;
+}
+
+/**
  * Pi-only static schema overlays that can reject invalid model arguments
  * before any retained host context exists. The canonical archive is not
  * changed; only the presented schema is deepened.
@@ -1187,6 +1208,9 @@ export function projectPiTypedToolParameters(
   // Semantic-handle overlay first: every presented schema exposes only the
   // stable entity handles; exact canonical identities are host-bound.
   const handleOverlayed = projectSemanticHandleSchemaOverlay(inputSchema);
+  if (operation === "turn.finalize") {
+    overlayFinalizeCoverageAbsenceForm(handleOverlayed);
+  }
   if (operation !== "rules.social_adjudicate") {
     overlayClosedIdentityGrammarDescriptions(handleOverlayed);
     return handleOverlayed;
@@ -3941,6 +3965,34 @@ export function closedIdentityGrammarSpec(
     const isAffordance = field === "matched_affordance_ids"
       || field === "selected_affordance_ids"
       || field === "affordance_id";
+    // Campaign-09 point of use: a coverage handle is never authored, it is
+    // copied verbatim from the presented output context — and a turn with no
+    // presented obligations is represented structurally as `coverage: []`,
+    // never filled with a placeholder row ("none" or any invented filler).
+    if (field === "obligation_id" || field === "obligation_ids") {
+      const acceptedForm = "the exact obligation handle copied verbatim from "
+        + "turn.output_context required_obligation_ids (namespace `roll:`, "
+        + "`first-impression:`, or `sanity_bout:`); when turn.output_context "
+        + "presents no obligations, submit `coverage` as an empty array "
+        + "instead of any placeholder row";
+      const right = `roll:${GRAMMAR_EXAMPLE_SLUG}`;
+      const wrong = echoedWrongExample(namespaces, field);
+      const marker = `Closed ${field} grammar`;
+      return {
+        field,
+        kind: "echoed",
+        acceptedForm,
+        rightExample: right,
+        wrongExample: wrong,
+        marker,
+        description: grammarOverlayDescription(
+          marker,
+          acceptedForm,
+          right,
+          "No other namespaces. ",
+        ),
+      };
+    }
     const right = isAffordance
       ? "affordance:commission-briefing-8"
       : namespaces.length > 0
