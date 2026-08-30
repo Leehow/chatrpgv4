@@ -5298,6 +5298,30 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           : "";
       if (facts !== null && reviewId) {
         const revision = Number(data.revision ?? facts.revision);
+        const rewriteRequired = (
+          data.agency_gate === "rewrite_required"
+          || data.state_authority_gate === "rewrite_required"
+        );
+        if (rewriteRequired) {
+          // A review receipt can be successfully recorded while still
+          // rejecting this exact prose. It is progress evidence, not
+          // finalize authority. Retire revision-N bindings immediately; the
+          // gateway refresh below will hydrate the canonical revision-N+1
+          // output-context card before another visible review can execute.
+          retainedOutputContextFacts = {
+            ...facts,
+            revision,
+            finalizeDecisionId: null,
+            narrationReviewId: null,
+          };
+          clearTypedBinding("turn.finalize");
+          clearTypedBinding("narration.review");
+          advanceCanonicalProgress(campaignId, {
+            stage: "review_ready",
+            reviewRevision: revision,
+          });
+          return;
+        }
         const finalizeDecisionId = semanticDecisionId("turn.finalize", revision);
         retainedOutputContextFacts = {
           ...facts,
@@ -10140,6 +10164,69 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           playerTurnEpoch: canonicalProgress.playerTurnEpoch,
           canonicalProgress,
         });
+      }
+      const reviewEnvelope = objectOrNull(value);
+      const reviewData = objectOrNull(reviewEnvelope?.data);
+      const reviewRevision = Number(reviewData?.revision);
+      const reviewRewriteRequired = (
+        accepted.accepted
+        && params.operation === "narration.review"
+        && reviewEnvelope?.ok === true
+        && typeof reviewData?.review_id === "string"
+        && reviewData.review_id.length > 0
+        && reviewRevision === 1
+        && (
+          reviewData.agency_gate === "rewrite_required"
+          || reviewData.state_authority_gate === "rewrite_required"
+        )
+      );
+      if (
+        reviewRewriteRequired
+        && typeof params.campaign === "string"
+        && params.campaign.trim()
+        && isCurrent(epoch)
+        && signal?.aborted !== true
+      ) {
+        const reviewArgs = objectOrNull(params.arguments);
+        const turnId = typeof reviewData?.turn_id === "string"
+          ? reviewData.turn_id
+          : typeof reviewArgs?.turn_id === "string"
+            ? reviewArgs.turn_id
+            : "";
+        const sourceDigest = typeof reviewData?.source_digest === "string"
+          ? reviewData.source_digest
+          : typeof reviewArgs?.source_digest === "string"
+            ? reviewArgs.source_digest
+            : "";
+        if (turnId && sourceDigest) {
+          const campaignId = params.campaign.trim();
+          const refreshed = await runPendingFinalizationHydration({
+            resumeValue: {
+              ok: true,
+              tool: "session.resume",
+              data: {
+                schema_version: 1,
+                campaign_id: campaignId,
+                mode: "pending_finalization",
+              },
+            },
+            campaign: campaignId,
+            root: typeof params.root === "string" && params.root
+              ? params.root
+              : ctx.cwd,
+            ctx,
+            signal,
+            epoch,
+            pendingIdentity: {
+              turnId,
+              sourceDigest,
+              revision: 2,
+            },
+          });
+          if (refreshed.status === "superseded") {
+            return gatewayResult(asObject(value, "late canonical result"));
+          }
+        }
       }
       const briefingOperation = String(params.operation);
       const briefingEnvelope = objectOrNull(value);
