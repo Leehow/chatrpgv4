@@ -1,0 +1,197 @@
+{
+  "contract_id": "coc.rule-graph-candidate.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "family_id": "sanity",
+  "section_id": "section-sourced-thresholds",
+  "source_language": "en",
+  "coverage": {
+    "sanity": "partial"
+  },
+  "nodes": [
+    {
+      "node_id": "rule-family:coc7:sanity",
+      "node_kind": "rule-family",
+      "name": "Sourced SAN thresholds, max SAN, and failed-roll involuntary actions; check/loss algorithm uncompiled",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "runtime_ownership": "legacy",
+        "legacy_surface": "visible",
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sourced-thresholds-page-0-block-2"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:sanity",
+      "node_kind": "data-table",
+      "name": "sanity.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "sanity.json"
+      },
+      "evidence_span_ids": [
+        "span-sourced-thresholds-page-0-block-2"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:temp-insanity-threshold",
+      "node_kind": "rule",
+      "name": "Temporary insanity triggers at 5 or more SAN lost from one source",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sourced-thresholds-page-0-block-2"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:indefinite-daily-fraction",
+      "node_kind": "rule",
+      "name": "Indefinite insanity uses a daily fraction of current SAN",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sourced-thresholds-page-0-block-2"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:max-san",
+      "node_kind": "rule",
+      "name": "Maximum Sanity is 99 minus current Cthulhu Mythos skill",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sourced-thresholds-page-0-block-2"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:failed-roll-involuntary-action",
+      "node_kind": "rule",
+      "name": "A failed SAN roll causes a Keeper-chosen involuntary action from the extracted kind list",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sourced-thresholds-page-0-block-2"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:bout-duration",
+      "node_kind": "rule",
+      "name": "A bout of madness lasts 1D10 real-time rounds or 1D10 summary hours",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sourced-thresholds-page-0-block-2"
+      ]
+    },
+    {
+      "node_id": "exception:coc7:sanity:check-then-loss-uncompiled",
+      "node_kind": "exception",
+      "name": "Percentile SAN check, success/failure loss expressions, and SAN floor-0 clamp are not in sanity.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sourced-thresholds-page-0-block-2"
+      ]
+    },
+    {
+      "node_id": "exception:coc7:sanity:session-engine-uncompiled",
+      "node_kind": "exception",
+      "name": "INT reality check, SAN 0 permanent insanity, and SanitySession state machine are not extracted as a check/loss algorithm",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sourced-thresholds-page-0-block-2"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "relation:coc7:sanity:temp-reads",
+      "relation_kind": "reads-table",
+      "from_node_id": "rule:coc7:sanity:temp-insanity-threshold",
+      "to_node_id": "data-table:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sourced-thresholds-page-0-block-2"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:indefinite-reads",
+      "relation_kind": "reads-table",
+      "from_node_id": "rule:coc7:sanity:indefinite-daily-fraction",
+      "to_node_id": "data-table:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sourced-thresholds-page-0-block-2"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:max-reads",
+      "relation_kind": "reads-table",
+      "from_node_id": "rule:coc7:sanity:max-san",
+      "to_node_id": "data-table:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sourced-thresholds-page-0-block-2"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:involuntary-reads",
+      "relation_kind": "reads-table",
+      "from_node_id": "rule:coc7:sanity:failed-roll-involuntary-action",
+      "to_node_id": "data-table:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sourced-thresholds-page-0-block-2"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:bout-reads",
+      "relation_kind": "reads-table",
+      "from_node_id": "rule:coc7:sanity:bout-duration",
+      "to_node_id": "data-table:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sourced-thresholds-page-0-block-2"
+      ]
+    }
+  ]
+}

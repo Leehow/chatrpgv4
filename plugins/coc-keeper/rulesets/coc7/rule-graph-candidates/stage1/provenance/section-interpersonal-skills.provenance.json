@@ -1,0 +1,29 @@
+{
+  "shard_id": "shard:coc7:social:section-interpersonal-skills",
+  "section_id": "section-interpersonal-skills",
+  "families": [
+    "social"
+  ],
+  "coverage": {
+    "social": "partial"
+  },
+  "sources": [
+    {
+      "source_id": "rules-json:coc7:skill-descriptions",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/skill-descriptions.json",
+      "file_sha256": "0c6314592978ab006c1ee5a7b7cca3741fcc6834d8c05bed3d3ce3ccc1d16c3f",
+      "bundle_manifest_sha256": "eee010f1f12b36e4e1e58e068ce1305c7e59b689aef433f8e1e7659249b8d845",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:skills",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/skills.json",
+      "file_sha256": "f079cf06256ea835b0c38b21bd884c22a2ce7801ed01d90300815d3f09118512",
+      "bundle_manifest_sha256": "a65513309f51a862d5c572b7f1a70d5dad2d4dc3d4d4edbb6461fe3f0346ce90",
+      "pages": 1
+    }
+  ],
+  "span_count": 123,
+  "node_count": 15,
+  "relation_count": 13
+}

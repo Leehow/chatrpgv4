@@ -1,0 +1,1272 @@
+{
+  "contract_id": "coc.rule-graph-candidate.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "family_id": "core-check",
+  "section_id": "section-checks-push-luck",
+  "source_language": "en",
+  "coverage": {
+    "core-check": "partial",
+    "push-luck": "partial"
+  },
+  "nodes": [
+    {
+      "node_id": "resource:coc7:push-luck:luck",
+      "node_kind": "resource",
+      "name": "Luck",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "resource_key": "luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5"
+      ]
+    },
+    {
+      "node_id": "rule-family:coc7:core-check",
+      "node_kind": "rule-family",
+      "name": "Ordinary skill and characteristic checks",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "runtime_ownership": "legacy",
+        "legacy_surface": "visible",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-6"
+      ]
+    },
+    {
+      "node_id": "rule-family:coc7:push-luck",
+      "node_kind": "rule-family",
+      "name": "Pushed rolls and Luck spend/roll continuations",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "runtime_ownership": "legacy",
+        "legacy_surface": "visible",
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5",
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:check",
+      "node_kind": "capability",
+      "name": "check",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "resolver_capability": "check",
+        "adapter": "resolver",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-6"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:push-policy",
+      "node_kind": "capability",
+      "name": "push_policy",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "resolver_capability": "push_policy",
+        "adapter": "resolver",
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:luck-spend",
+      "node_kind": "capability",
+      "name": "luck_spend",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "resolver_capability": "luck_spend",
+        "adapter": "resolver",
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:percentile-check",
+      "node_kind": "data-table",
+      "name": "percentile-check.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "percentile-check.json"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-6"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:pushed-roll",
+      "node_kind": "data-table",
+      "name": "pushed-roll.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "pushed-roll.json"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:luck",
+      "node_kind": "data-table",
+      "name": "luck.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "luck.json"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:derived-attributes",
+      "node_kind": "data-table",
+      "name": "derived-attributes.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "derived-attributes.json"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-2"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:spells",
+      "node_kind": "data-table",
+      "name": "spells.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "spells.json"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-10",
+        "span-checks-push-luck-page-0-block-11",
+        "span-checks-push-luck-page-0-block-12",
+        "span-checks-push-luck-page-0-block-13",
+        "span-checks-push-luck-page-0-block-14",
+        "span-checks-push-luck-page-0-block-15",
+        "span-checks-push-luck-page-0-block-16",
+        "span-checks-push-luck-page-0-block-17",
+        "span-checks-push-luck-page-0-block-18",
+        "span-checks-push-luck-page-0-block-19",
+        "span-checks-push-luck-page-0-block-20",
+        "span-checks-push-luck-page-0-block-21",
+        "span-checks-push-luck-page-0-block-9"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:success-levels",
+      "node_kind": "data-table",
+      "name": "success-levels.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "success-levels.json"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-22"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:difficulty-levels",
+      "node_kind": "data-table",
+      "name": "difficulty-levels.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "difficulty-levels.json"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-3"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:roll-modifiers",
+      "node_kind": "data-table",
+      "name": "roll-modifiers.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "roll-modifiers.json"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-8"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:core-check:percentile",
+      "node_kind": "rule",
+      "name": "1D100 succeeds when the roll is less than or equal to the effective target",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-6"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:core-check:difficulty",
+      "node_kind": "rule",
+      "name": "Regular / Hard (half) / Extreme (fifth) required success levels",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-3"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:core-check:success-levels",
+      "node_kind": "rule",
+      "name": "Critical is a natural 1; fumble is 96-100 below 50% target else 100",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-22"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:core-check:bonus-penalty",
+      "node_kind": "rule",
+      "name": "Bonus and penalty dice cancel one-for-one then extra tens dice",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-8"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:push-luck:one-reroll",
+      "node_kind": "rule",
+      "name": "A pushed roll is one reroll only after a failed non-pushed check",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:push-luck:consequences-locked",
+      "node_kind": "rule",
+      "name": "Keeper states the failure consequence and the player changes approach before the push is confirmed",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:push-luck:luck-spend",
+      "node_kind": "rule",
+      "name": "Spend Luck 1-for-1 after a skill/characteristic roll to lower the total toward the target",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:push-luck:luck-roll",
+      "node_kind": "rule",
+      "name": "A Luck roll is a percentile check against current Luck; a group uses the lowest individual Luck roll",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:core-check:ordinary-check",
+      "node_kind": "decision",
+      "name": "Settle one ordinary skill or characteristic percentile check as one bound roll",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "implementation": {
+          "adapter": "resolver",
+          "kind": "check",
+          "phase": "resolve",
+          "payload_constants": {},
+          "payload_slots": [
+            {
+              "name": "skill",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "characteristic",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "difficulty",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "goal",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "stakes",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "difficulty_basis",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "bonus",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "penalty",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "target",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "investigator_id",
+              "ownership": "host-locked"
+            }
+          ]
+        },
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-22",
+        "span-checks-push-luck-page-0-block-3",
+        "span-checks-push-luck-page-0-block-6",
+        "span-checks-push-luck-page-0-block-8"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:push-luck:pushed-roll",
+      "node_kind": "decision",
+      "name": "Push a failed non-pushed ordinary check after the Keeper announces the consequence and the player confirms the risk",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "implementation": {
+          "adapter": "resolver",
+          "kind": "check",
+          "phase": "resolve",
+          "payload_constants": {
+            "pushed": true
+          },
+          "payload_slots": [
+            {
+              "name": "method_changed",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "failure_consequence",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "player_confirmed_risk",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "original_check_decision_id",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "investigator_id",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "target",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "difficulty",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "bonus",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "penalty",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "skill",
+              "ownership": "host-locked"
+            }
+          ]
+        },
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:push-luck:luck-spend",
+      "node_kind": "decision",
+      "name": "Spend Luck against one settled public ordinary-check receipt",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "implementation": {
+          "adapter": "resolver",
+          "kind": "luck_spend",
+          "phase": "resolve",
+          "payload_constants": {},
+          "payload_slots": [
+            {
+              "name": "points",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "source_roll_id",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "investigator_id",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "original_check_decision_id",
+              "ownership": "host-locked"
+            }
+          ]
+        },
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:push-luck:luck-roll",
+      "node_kind": "decision",
+      "name": "Roll Luck as a percentile check against current Luck",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "implementation": {
+          "adapter": "resolver",
+          "kind": "check",
+          "phase": "resolve",
+          "payload_constants": {
+            "characteristic": "LUCK"
+          },
+          "payload_slots": [
+            {
+              "name": "difficulty",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "goal",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "stakes",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "difficulty_basis",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "target",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "investigator_id",
+              "ownership": "host-locked"
+            }
+          ]
+        },
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5",
+        "span-checks-push-luck-page-0-block-6"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:skill",
+      "node_kind": "input-slot",
+      "name": "skill",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "skill",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-6"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:characteristic",
+      "node_kind": "input-slot",
+      "name": "characteristic",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "optional-semantic",
+        "value_type": "scalar",
+        "path": "characteristic",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-6"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:difficulty",
+      "node_kind": "input-slot",
+      "name": "difficulty",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "difficulty",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-3"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:goal",
+      "node_kind": "input-slot",
+      "name": "goal",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "goal",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-6"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:stakes",
+      "node_kind": "input-slot",
+      "name": "stakes",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "stakes",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-6"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:difficulty-basis",
+      "node_kind": "input-slot",
+      "name": "difficulty_basis",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "difficulty_basis",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-3"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:target",
+      "node_kind": "input-slot",
+      "name": "target",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "host-locked",
+        "value_type": "scalar",
+        "path": "target",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-6"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:push-luck:method-changed",
+      "node_kind": "input-slot",
+      "name": "method_changed",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "method_changed",
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:push-luck:failure-consequence",
+      "node_kind": "input-slot",
+      "name": "failure_consequence",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "failure_consequence",
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:push-luck:player-confirmed-risk",
+      "node_kind": "input-slot",
+      "name": "player_confirmed_risk",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "boolean",
+        "path": "player_confirmed_risk",
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:push-luck:original-check-decision-id",
+      "node_kind": "input-slot",
+      "name": "original_check_decision_id",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "host-locked",
+        "value_type": "scalar",
+        "path": "original_check_decision_id",
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:push-luck:points",
+      "node_kind": "input-slot",
+      "name": "points",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "points",
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:push-luck:source-roll-id",
+      "node_kind": "input-slot",
+      "name": "source_roll_id",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "host-locked",
+        "value_type": "scalar",
+        "path": "source_roll_id",
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:push-luck:original-failed",
+      "node_kind": "condition",
+      "name": "The original ordinary check settled as an ordinary failure",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "expression": {
+          "op": "eq",
+          "path": "receipt.last_outcome",
+          "value": "failure"
+        },
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:push-luck:not-already-pushed",
+      "node_kind": "condition",
+      "name": "The original check has not already been pushed",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "expression": {
+          "op": "neq",
+          "path": "intent.pushed",
+          "value": true
+        },
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "node_id": "continuation:coc7:push-luck:after-fail-push",
+      "node_kind": "continuation",
+      "name": "After an ordinary failure the player may push with a changed method",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "node_id": "continuation:coc7:push-luck:after-fail-luck",
+      "node_kind": "continuation",
+      "name": "After an ordinary failure the player may spend Luck instead of pushing",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5"
+      ]
+    },
+    {
+      "node_id": "pending-choice:coc7:push-luck:announce-consequence",
+      "node_kind": "pending-choice",
+      "name": "Keeper must announce the pushed-failure consequence before the player confirms",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "node_id": "pending-choice:coc7:push-luck:player-confirms-risk",
+      "node_kind": "pending-choice",
+      "name": "Player must confirm the announced risk before the pushed roll executes",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "node_id": "effect:coc7:push-luck:luck-spend-mutate",
+      "node_kind": "effect",
+      "name": "Spend Luck points against the bound receipt",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "effect_kind": "luck_spend",
+        "resource_key": "luck",
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5"
+      ]
+    },
+    {
+      "node_id": "exception:coc7:push-luck:no-luck-on-luck-rolls",
+      "node_kind": "exception",
+      "name": "Luck may not be spent on Luck rolls",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5"
+      ]
+    },
+    {
+      "node_id": "exception:coc7:push-luck:push-or-luck-not-both",
+      "node_kind": "exception",
+      "name": "Push or spend Luck, but not both, on the same check",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5",
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "node_id": "visibility-policy:coc7:core-check:public-roll",
+      "node_kind": "visibility-policy",
+      "name": "Ordinary checks and their Push/Luck follow-ups are public unless the card says otherwise",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "policy": "public"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-6"
+      ]
+    },
+    {
+      "node_id": "exception:coc7:push-luck:fumble-push-uncompiled",
+      "node_kind": "exception",
+      "name": "Whether a fumble can be pushed is not stated in pushed-roll.json; luck.json only bars buying off criticals/fumbles/malfunctions with Luck",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5",
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "relation:coc7:core-check:percentile-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:core-check:percentile",
+      "to_node_id": "rule-family:coc7:core-check"
+    },
+    {
+      "relation_id": "relation:coc7:core-check:difficulty-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:core-check:difficulty",
+      "to_node_id": "rule-family:coc7:core-check"
+    },
+    {
+      "relation_id": "relation:coc7:core-check:success-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:core-check:success-levels",
+      "to_node_id": "rule-family:coc7:core-check"
+    },
+    {
+      "relation_id": "relation:coc7:core-check:modifiers-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:core-check:bonus-penalty",
+      "to_node_id": "rule-family:coc7:core-check"
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:one-reroll-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:push-luck:one-reroll",
+      "to_node_id": "rule-family:coc7:push-luck"
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:consequences-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:push-luck:consequences-locked",
+      "to_node_id": "rule-family:coc7:push-luck"
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:luck-spend-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:push-luck:luck-spend",
+      "to_node_id": "rule-family:coc7:push-luck"
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:luck-roll-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:push-luck:luck-roll",
+      "to_node_id": "rule-family:coc7:push-luck"
+    },
+    {
+      "relation_id": "relation:coc7:core-check:requires-skill",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:core-check:ordinary-check",
+      "to_node_id": "input-slot:coc7:core-check:skill",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-6"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:requires-difficulty",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:core-check:ordinary-check",
+      "to_node_id": "input-slot:coc7:core-check:difficulty",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-3"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:requires-goal",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:core-check:ordinary-check",
+      "to_node_id": "input-slot:coc7:core-check:goal",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-6"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:requires-stakes",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:core-check:ordinary-check",
+      "to_node_id": "input-slot:coc7:core-check:stakes",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-6"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:requires-basis",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:core-check:ordinary-check",
+      "to_node_id": "input-slot:coc7:core-check:difficulty-basis",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-3"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:locks-target",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:core-check:ordinary-check",
+      "to_node_id": "input-slot:coc7:core-check:target",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-6"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:requires-method",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:push-luck:pushed-roll",
+      "to_node_id": "input-slot:coc7:push-luck:method-changed",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:requires-consequence",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:push-luck:pushed-roll",
+      "to_node_id": "input-slot:coc7:push-luck:failure-consequence",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:requires-player-confirmation",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:push-luck:pushed-roll",
+      "to_node_id": "input-slot:coc7:push-luck:player-confirmed-risk",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:locks-original",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:push-luck:pushed-roll",
+      "to_node_id": "input-slot:coc7:push-luck:original-check-decision-id",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:requires-points",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:push-luck:luck-spend",
+      "to_node_id": "input-slot:coc7:push-luck:points",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:locks-source-roll",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:push-luck:luck-spend",
+      "to_node_id": "input-slot:coc7:push-luck:source-roll-id",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:continues-push",
+      "relation_kind": "continues-as",
+      "from_node_id": "decision:coc7:core-check:ordinary-check",
+      "to_node_id": "decision:coc7:push-luck:pushed-roll",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:continues-luck",
+      "relation_kind": "continues-as",
+      "from_node_id": "decision:coc7:core-check:ordinary-check",
+      "to_node_id": "decision:coc7:push-luck:luck-spend",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:continuation-push",
+      "relation_kind": "continues-as",
+      "from_node_id": "continuation:coc7:push-luck:after-fail-push",
+      "to_node_id": "decision:coc7:push-luck:pushed-roll"
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:continuation-luck",
+      "relation_kind": "continues-as",
+      "from_node_id": "continuation:coc7:push-luck:after-fail-luck",
+      "to_node_id": "decision:coc7:push-luck:luck-spend"
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:offers-consequence",
+      "relation_kind": "offers-choice",
+      "from_node_id": "decision:coc7:push-luck:pushed-roll",
+      "to_node_id": "pending-choice:coc7:push-luck:announce-consequence",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:offers-player-confirmation",
+      "relation_kind": "offers-choice",
+      "from_node_id": "decision:coc7:push-luck:pushed-roll",
+      "to_node_id": "pending-choice:coc7:push-luck:player-confirms-risk",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:emits-luck",
+      "relation_kind": "emits",
+      "from_node_id": "decision:coc7:push-luck:luck-spend",
+      "to_node_id": "effect:coc7:push-luck:luck-spend-mutate",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:mutates-luck",
+      "relation_kind": "mutates-resource",
+      "from_node_id": "effect:coc7:push-luck:luck-spend-mutate",
+      "to_node_id": "resource:coc7:push-luck:luck"
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:forbids-luck-on-luck",
+      "relation_kind": "forbids",
+      "from_node_id": "exception:coc7:push-luck:no-luck-on-luck-rolls",
+      "to_node_id": "decision:coc7:push-luck:luck-spend",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:forbids-both",
+      "relation_kind": "forbids",
+      "from_node_id": "exception:coc7:push-luck:push-or-luck-not-both",
+      "to_node_id": "decision:coc7:push-luck:luck-spend",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5",
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:fumble-push-uncompiled-applies",
+      "relation_kind": "applies-to",
+      "from_node_id": "exception:coc7:push-luck:fumble-push-uncompiled",
+      "to_node_id": "decision:coc7:push-luck:pushed-roll",
+      "evidence_span_ids": [
+        "span-checks-push-luck-page-0-block-4",
+        "span-checks-push-luck-page-0-block-5",
+        "span-checks-push-luck-page-0-block-7"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "shard_id": "shard:coc7:development:section-reference-lookups",
+  "section_id": "section-reference-lookups",
+  "families": [
+    "development"
+  ],
+  "coverage": {
+    "development": "partial"
+  },
+  "sources": [
+    {
+      "source_id": "rules-json:coc7:build-scale",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/build-scale.json",
+      "file_sha256": "f959e0dab6369d4e9cdb1f49a65b793bb43c9b0ba8b6a48071e9ff45f2575df5",
+      "bundle_manifest_sha256": "3fcf7cacfe7df6b70c4bbd5be26ddee4b971132b7c89ab8c04811f60a0108f73",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:cash-assets",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/cash-assets.json",
+      "file_sha256": "0f6e0c7a596312ccdf176d0caf7856fa7f9768676705cc30b4aa995cd6fc947d",
+      "bundle_manifest_sha256": "a13794d27e78b92c8510aa492e01f406dedbf81f6d7c453cb3506ad60adabdb2",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:equipment",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/equipment.json",
+      "file_sha256": "46dc8a97f2ae13456be213aece0908ed036a8e0ab6738164776265596b481a19",
+      "bundle_manifest_sha256": "81a0460ed9e93c628996bd0bca623337e351ef8825f3fa6d4fbbb0120e0c0a24",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:skill-descriptions",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/skill-descriptions.json",
+      "file_sha256": "0c6314592978ab006c1ee5a7b7cca3741fcc6834d8c05bed3d3ce3ccc1d16c3f",
+      "bundle_manifest_sha256": "eee010f1f12b36e4e1e58e068ce1305c7e59b689aef433f8e1e7659249b8d845",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:skills",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/skills.json",
+      "file_sha256": "f079cf06256ea835b0c38b21bd884c22a2ce7801ed01d90300815d3f09118512",
+      "bundle_manifest_sha256": "a65513309f51a862d5c572b7f1a70d5dad2d4dc3d4d4edbb6461fe3f0346ce90",
+      "pages": 1
+    }
+  ],
+  "span_count": 349,
+  "node_count": 21,
+  "relation_count": 2
+}

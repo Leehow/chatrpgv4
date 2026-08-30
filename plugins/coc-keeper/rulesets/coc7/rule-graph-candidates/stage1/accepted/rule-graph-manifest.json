@@ -1,0 +1,322 @@
+{
+  "contract_id": "coc.rule-graph-build-manifest.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "source_bundles": [
+    {
+      "source_id": "rules-json:coc7:build-scale",
+      "bundle_sha256": "3fcf7cacfe7df6b70c4bbd5be26ddee4b971132b7c89ab8c04811f60a0108f73",
+      "file_sha256": "f959e0dab6369d4e9cdb1f49a65b793bb43c9b0ba8b6a48071e9ff45f2575df5"
+    },
+    {
+      "source_id": "rules-json:coc7:cash-assets",
+      "bundle_sha256": "a13794d27e78b92c8510aa492e01f406dedbf81f6d7c453cb3506ad60adabdb2",
+      "file_sha256": "0f6e0c7a596312ccdf176d0caf7856fa7f9768676705cc30b4aa995cd6fc947d"
+    },
+    {
+      "source_id": "rules-json:coc7:damage",
+      "bundle_sha256": "46f72f162384eaddbc00e0ac2e4b37302aa1dbec5ccea8947623b57fb8a67969",
+      "file_sha256": "6117f2a445712bcd8f312a474dce096f3033367959076b843140a8b1f510dd36"
+    },
+    {
+      "source_id": "rules-json:coc7:derived-attributes",
+      "bundle_sha256": "45b19a02e0cb749b1bde3cf5beaaadcff3a2d40158eab1d80e35f0bed93d4a03",
+      "file_sha256": "7b581b27d84c5cb63d55b406b548716920340723e9e443c117cf73eddce42be2"
+    },
+    {
+      "source_id": "rules-json:coc7:difficulty-levels",
+      "bundle_sha256": "9bf67490904358016766b3c141b94030cb3e01826749c4aeb7ab6cb7d06a4e02",
+      "file_sha256": "d8964ca7d8a1a15b7a6959ee95d849b326ab7a9ec574564c5517a47bfccc0e28"
+    },
+    {
+      "source_id": "rules-json:coc7:equipment",
+      "bundle_sha256": "81a0460ed9e93c628996bd0bca623337e351ef8825f3fa6d4fbbb0120e0c0a24",
+      "file_sha256": "46dc8a97f2ae13456be213aece0908ed036a8e0ab6738164776265596b481a19"
+    },
+    {
+      "source_id": "rules-json:coc7:luck",
+      "bundle_sha256": "837b405d01e1abdeb500f26863e49cff347f37b73826f462bda83baad33c2ffa",
+      "file_sha256": "c9a0073acbaaeca703258f8d5ab34bdc04d8a65abe0c23c00fbc75be84b0348d"
+    },
+    {
+      "source_id": "rules-json:coc7:percentile-check",
+      "bundle_sha256": "64cd8c3e23b2ef6c5634a7b051c4e6db99f00021f7c76a09053d97f3521a202a",
+      "file_sha256": "a416aca3e6a375bb34182f97f217b70657ff1ff5f833e3e3608b3db57837e926"
+    },
+    {
+      "source_id": "rules-json:coc7:pushed-roll",
+      "bundle_sha256": "04baa9df720b10b3fb873be9b1ada8cfa5b9d2f9b0eea3ff506cce9a142d71e5",
+      "file_sha256": "7dbfbbf6a95244a99f0918d2db07d35d1a38b6988286daab26ae288caadfce6a"
+    },
+    {
+      "source_id": "rules-json:coc7:roll-modifiers",
+      "bundle_sha256": "b54d565bac95bcc1c50eb592a26c1419111b0804190a4957ecceed8f7e8b6f1e",
+      "file_sha256": "cbc15fc9586970946a5cb63b53e8bef17f2683a7d836dcf40d1a32534d10ecbe"
+    },
+    {
+      "source_id": "rules-json:coc7:sanity",
+      "bundle_sha256": "28b0438fc336b9948d9a3bf241940cfdc005d0693e74ac5fd363a0ea225a5af8",
+      "file_sha256": "e728de34170a2f13361735249ebb2639f8b691170f13a9529bf45ec0ef6f219c"
+    },
+    {
+      "source_id": "rules-json:coc7:skill-descriptions",
+      "bundle_sha256": "eee010f1f12b36e4e1e58e068ce1305c7e59b689aef433f8e1e7659249b8d845",
+      "file_sha256": "0c6314592978ab006c1ee5a7b7cca3741fcc6834d8c05bed3d3ce3ccc1d16c3f"
+    },
+    {
+      "source_id": "rules-json:coc7:skills",
+      "bundle_sha256": "a65513309f51a862d5c572b7f1a70d5dad2d4dc3d4d4edbb6461fe3f0346ce90",
+      "file_sha256": "f079cf06256ea835b0c38b21bd884c22a2ce7801ed01d90300815d3f09118512"
+    },
+    {
+      "source_id": "rules-json:coc7:spells",
+      "bundle_sha256": "33d95ac8e99aabffda481c5992468885463e1a7c91c7a163524714d34f9805a9",
+      "file_sha256": "b327f0cc8bff987c6239b491ff88e8ff399b90ac9da8f6956062f25802f633d7"
+    },
+    {
+      "source_id": "rules-json:coc7:success-levels",
+      "bundle_sha256": "4e9b1273f7fb5c380b139ef175c3c2daebf59571f8566d8e841bd432e6be2630",
+      "file_sha256": "2486d01ac3edd9cdc382fff401075d42b167528275e8bd2d57dfe9aeaa23beff"
+    }
+  ],
+  "graph_content_digest": "9ddbebd47681c48b30d5ff1faac25f40283fcf2cf801df8b5d15d737d889259b",
+  "shards": [
+    {
+      "shard_id": "shard:coc7:combat:section-non-session-damage",
+      "shard_digest": "ab09f16d843a74633ca27696bc59c1fff0b7e761f028374cd7cb0a0ba29eaaaf"
+    },
+    {
+      "shard_id": "shard:coc7:core-check:section-checks-push-luck",
+      "shard_digest": "397949bff69f1e2147313ffd4341e94a7281518a25cda405a065a1ce2229435d"
+    },
+    {
+      "shard_id": "shard:coc7:development:section-reference-lookups",
+      "shard_digest": "8d9784eb1a529d63715ea929847ec87dd3d8866753f09a377cc195b187e2d90a"
+    },
+    {
+      "shard_id": "shard:coc7:psychology:section-psychology-observation",
+      "shard_digest": "533d2a4964a4ae8197b61bc6a7ec3c15c00be111ec8833ae11804155f5488b7b"
+    },
+    {
+      "shard_id": "shard:coc7:sanity:section-sourced-thresholds",
+      "shard_digest": "e0f0c6e6a314baaf3170e96b09f6986a3c7bd325843af2f3140e2a7148a91f01"
+    },
+    {
+      "shard_id": "shard:coc7:social:section-interpersonal-skills",
+      "shard_digest": "035764db060bb06f8b8cc0c84f9cb6eea5dc5a0fef76ced01a39b6eac9e6c9c0"
+    }
+  ],
+  "family_coverage": {
+    "chase": "unresolved",
+    "combat": "partial",
+    "core-check": "partial",
+    "development": "partial",
+    "healing": "accepted",
+    "magic": "unresolved",
+    "psychology": "partial",
+    "push-luck": "partial",
+    "sanity": "partial",
+    "social": "partial"
+  },
+  "family_promotion_eligibility": {
+    "chase": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "combat": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "core-check": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "development": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "healing": {
+      "promotion_eligible": false,
+      "runtime_ownership": "graph",
+      "shadow_exclusions": [
+        {
+          "exclusion_id": "first-aid-one-hour-eligibility-enforcement",
+          "exception_ref": "exception:coc7:healing:first-aid-window-uncompiled",
+          "decision_ref": "decision:coc7:healing:first-aid-ordinary"
+        },
+        {
+          "exclusion_id": "dual-rescuer-either-success-composition",
+          "exception_ref": "exception:coc7:healing:first-aid-teamwork-uncompiled",
+          "decision_ref": "decision:coc7:healing:first-aid-ordinary"
+        }
+      ]
+    },
+    "magic": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "psychology": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "push-luck": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "sanity": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "social": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    }
+  },
+  "data_table_dependencies": [
+    "build-scale.json",
+    "cash-assets.json",
+    "damage.json",
+    "derived-attributes.json",
+    "difficulty-levels.json",
+    "equipment.json",
+    "luck.json",
+    "percentile-check.json",
+    "pushed-roll.json",
+    "roll-modifiers.json",
+    "sanity.json",
+    "skill-descriptions.json",
+    "skills.json",
+    "spells.json",
+    "success-levels.json"
+  ],
+  "resolver_capability_dependencies": [
+    "build_scale",
+    "cash_assets",
+    "catalog_search",
+    "check",
+    "damage",
+    "luck_spend",
+    "psychology_check_contract",
+    "psychology_policy",
+    "push_policy",
+    "skill_describe",
+    "social_difficulty",
+    "social_skill_names"
+  ],
+  "compiler_identity": "coc.rule-graph-compiler.v1",
+  "reviewer_identity": "r7-review-semantics-package",
+  "review_status": "accepted",
+  "findings": [
+    {
+      "code": "source_vs_derivative_mismatch",
+      "path": "/computed_thresholds/ceiling-half-major-wound-threshold",
+      "message": "source (hp_max + 1) // 2 vs derivative hp_max // 2"
+    },
+    {
+      "code": "executor_capability_gap",
+      "path": "/family_promotion_eligibility/healing/shadow_exclusions/first-aid-one-hour-eligibility-enforcement",
+      "message": "first-aid-one-hour-eligibility-enforcement is source-complete via exception:coc7:healing:first-aid-window-uncompiled and is excluded from shadow comparison"
+    },
+    {
+      "code": "executor_capability_gap",
+      "path": "/family_promotion_eligibility/healing/shadow_exclusions/dual-rescuer-either-success-composition",
+      "message": "dual-rescuer-either-success-composition is source-complete via exception:coc7:healing:first-aid-teamwork-uncompiled and is excluded from shadow comparison"
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/decision:coc7:social:adjudicate-difficulty/motive-leverage-supporting",
+      "message": "Fixture-level social motive direction/intensity/evidence, supporting-action, and one-level leverage difficulty modifiers are not present in rules-json; they stay uncompiled in this production candidate. Fixture graphs and the resolver keep them at runtime; promotion requires an extracted source table."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/exception:coc7:social:no-chance",
+      "message": "The Keeper may forbid a social attempt when there is no chance of success; no rules-json table states it, so the node is not compiled here. Recorded absence, not source backing."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/rule:coc7:social:opposing-difficulty/higher-of-composition",
+      "message": "difficulty-levels.json from_opponent backs a Regular/Hard/Extreme ladder against the opposing skill's level, but taking the higher of the matching social skill or Psychology is resolver composition, not an extracted rule. This revision REMOVED the composition from the compiled rule (it now carries only the opposed_by ladder) and records it as uncompiled via exception:coc7:social:higher-of-composition-uncompiled."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/exception:coc7:psychology:truth-mapping-uncompiled",
+      "message": "skill-descriptions.json says concealed Psychology rolls may reveal information 'true or false, that the user gained...' but does not encode success-reveals-truth / failure-may-mislead. This revision REMOVED the fixture's success-reveals-truth rule; the mapping stays uncompiled (exception marker)."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/rule:coc7:core-check:resource-arithmetic",
+      "message": "The fixture's generic HP/MP/Luck delta channel (resource-arithmetic rule, resource_delta decision/capability/effect, host-internal visibility policy) is NOT compiled in this revision: no extracted generic clamp/delta table exists. Source-backed remnants keep distinct family-scoped ids: resource:coc7:push-luck:luck (luck.json spend/roll, cap 99) and resource:coc7:combat:hp (damage.json negative roll-backed HP). Healing's resource:coc7:hp is not redeclared."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/exception:coc7:push-luck:fumble-push-uncompiled",
+      "message": "pushed-roll.json does not state whether a fumble can be pushed; luck.json only bars buying off criticals/fumbles/malfunctions with Luck. The fixture's fumble-cannot-push claim is therefore not compiled here; recorded as absence."
+    },
+    {
+      "code": "executor_capability_gap",
+      "path": "/exception:coc7:social:pc-coercion-penalty-uncompiled",
+      "message": "This revision REMOVED the fixture's compiled pc-coercion-penalty rule. The social_difficulty capability compiles opposition via the four interpersonal opposed_by lists only; the penalty die stays uncompiled (exception marker)."
+    },
+    {
+      "code": "executor_capability_gap",
+      "path": "/exception:coc7:psychology:disguise-uncompiled",
+      "message": "psychology_check_contract opposes the four interpersonal skills only; seeing through Disguise is not implemented and stays uncompiled (exception node)."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/rule-family:coc7:push-luck/luck-recovery-uncompiled",
+      "message": "luck.json recovery.applies_when is after_each_session; rule-index.json source_note places the optional recovery in the Investigator Development Phase. This shard binds spend/roll to luck.json; recovery stays uncompiled (development family)."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/rule-family:coc7:development",
+      "message": "development family here is lookup/read coverage only (skill-describe, catalog-search, build-scale, cash-assets). Investigator Development Phase skill-tick improvement stays uncompiled."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/rule-family:coc7:combat",
+      "message": "combat family here is non-session roll-backed HP damage only. The combat session engine (DEX order, dodge/fight-back, maneuvers) is retained."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/decision:coc7:combat:apply-damage/heal",
+      "message": "damage.json delta_sign is negative and dice_kind is damage. Healing amounts belong to the healing family, not this combat decision."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/decision:coc7:combat:apply-damage/integer-amount",
+      "message": "damage.json requires_die, requires_roll_id, and requires_roll_total. Unrolled integer HP application is not a compiled claim of this node."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/decision:coc7:combat:apply-damage/major-wound",
+      "message": "damage.json specifies non-percentile HP reduction evidence, not the half-max major-wound or 0 HP dying/unconscious transitions. Those condition writes remain in the legacy damage handler; no extracted major-wound table is cited."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/rule-family:coc7:sanity",
+      "message": "sanity.json supports thresholds, bout duration, failed-roll involuntary kinds, and max SAN. The percentile check, success/failure loss selection, and floor-0 clamp are absent (exception:coc7:sanity:check-then-loss-uncompiled). INT reality check, SAN 0 permanent, and the SanitySession state machine stay uncompiled (exception:coc7:sanity:session-engine-uncompiled)."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/exception:coc7:sanity:check-then-loss-uncompiled",
+      "message": "sanity.json does not contain a percentile check against current SAN, loss_success/loss_failure selection, or a SAN floor-0 clamp. Those claims are uncompiled; this finding marks their absence, not source backing."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/coverage/magic",
+      "message": "magic family has no R6 source+execution evidence; coverage stays unresolved."
+    },
+    {
+      "code": "independent_review",
+      "path": "/reviewer_identity/r7-review-semantics",
+      "message": "Independent semantic review APPROVE (reviewer r7-review-semantics). Evidence: .pi/findings/r7-review-semantics.md. Overall verdict: APPROVE AS PREPARED CANDIDATES. Families social, psychology, resource, core-check, push-luck, development/lookups, and healing preservation closed prior semantic blockers without broadening unsupported compiled claims."
+    },
+    {
+      "code": "independent_review",
+      "path": "/reviewer_identity/r7-review-package",
+      "message": "Independent package/process review APPROVE (reviewer r7-review-package). Evidence: .pi/findings/r7-review-package.md. Package/process verdict: APPROVE. No self-acceptance; immutable baseline generation; exhaustive healing byte equality; per-file source identities; ownership unchanged. Acceptance metadata requirements 1-7 applied at this independent accept/build step."
+    }
+  ]
+}

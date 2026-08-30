@@ -1,0 +1,29 @@
+{
+  "shard_id": "shard:coc7:combat:section-non-session-damage",
+  "section_id": "section-non-session-damage",
+  "families": [
+    "combat"
+  ],
+  "coverage": {
+    "combat": "partial"
+  },
+  "sources": [
+    {
+      "source_id": "rules-json:coc7:damage",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/damage.json",
+      "file_sha256": "6117f2a445712bcd8f312a474dce096f3033367959076b843140a8b1f510dd36",
+      "bundle_manifest_sha256": "46f72f162384eaddbc00e0ac2e4b37302aa1dbec5ccea8947623b57fb8a67969",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:derived-attributes",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/derived-attributes.json",
+      "file_sha256": "7b581b27d84c5cb63d55b406b548716920340723e9e443c117cf73eddce42be2",
+      "bundle_manifest_sha256": "45b19a02e0cb749b1bde3cf5beaaadcff3a2d40158eab1d80e35f0bed93d4a03",
+      "pages": 1
+    }
+  ],
+  "span_count": 2,
+  "node_count": 8,
+  "relation_count": 3
+}

@@ -1,0 +1,113 @@
+{
+  "contract_id": "coc.rule-graph-build-manifest.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "source_bundles": [
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "47615458fbd8a68cb093f10d54862b9870a16146c6b41bee17e4f720da0193fa",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    }
+  ],
+  "graph_content_digest": "fafa47a9406cdc3bfeb4284eba58b069dcb687f8f9387bbef25e5e6feed7b576",
+  "shards": [
+    {
+      "shard_id": "shard:coc7:healing:section-wounds-and-healing",
+      "shard_digest": "17a094feb9f4f1016464a0212f5ff0610c70359fe1ca1f83f39c8ee864c68425"
+    }
+  ],
+  "family_coverage": {
+    "chase": "unresolved",
+    "combat": "unresolved",
+    "core-check": "unresolved",
+    "development": "unresolved",
+    "healing": "accepted",
+    "magic": "unresolved",
+    "psychology": "unresolved",
+    "push-luck": "unresolved",
+    "sanity": "unresolved",
+    "social": "unresolved"
+  },
+  "family_promotion_eligibility": {
+    "chase": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "combat": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "core-check": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "development": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "healing": {
+      "promotion_eligible": false,
+      "runtime_ownership": "graph",
+      "shadow_exclusions": [
+        {
+          "exclusion_id": "first-aid-one-hour-eligibility-enforcement",
+          "exception_ref": "exception:coc7:healing:first-aid-window-uncompiled",
+          "decision_ref": "decision:coc7:healing:first-aid-ordinary"
+        },
+        {
+          "exclusion_id": "dual-rescuer-either-success-composition",
+          "exception_ref": "exception:coc7:healing:first-aid-teamwork-uncompiled",
+          "decision_ref": "decision:coc7:healing:first-aid-ordinary"
+        }
+      ]
+    },
+    "magic": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "psychology": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "push-luck": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "sanity": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "social": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    }
+  },
+  "data_table_dependencies": [],
+  "resolver_capability_dependencies": [
+    "dying_check",
+    "first_aid",
+    "medicine",
+    "weekly_recovery"
+  ],
+  "compiler_identity": "coc.rule-graph-compiler.v1",
+  "reviewer_identity": "r2-candidate-review",
+  "review_status": "accepted",
+  "findings": [
+    {
+      "code": "source_vs_derivative_mismatch",
+      "path": "/computed_thresholds/ceiling-half-major-wound-threshold",
+      "message": "source (hp_max + 1) // 2 vs derivative hp_max // 2"
+    },
+    {
+      "code": "executor_capability_gap",
+      "path": "/family_promotion_eligibility/healing/shadow_exclusions/first-aid-one-hour-eligibility-enforcement",
+      "message": "first-aid-one-hour-eligibility-enforcement is source-complete via exception:coc7:healing:first-aid-window-uncompiled and is excluded from shadow comparison"
+    },
+    {
+      "code": "executor_capability_gap",
+      "path": "/family_promotion_eligibility/healing/shadow_exclusions/dual-rescuer-either-success-composition",
+      "message": "dual-rescuer-either-success-composition is source-complete via exception:coc7:healing:first-aid-teamwork-uncompiled and is excluded from shadow comparison"
+    }
+  ]
+}

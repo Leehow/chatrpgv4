@@ -1,0 +1,36 @@
+{
+  "shard_id": "shard:coc7:psychology:section-psychology-observation",
+  "section_id": "section-psychology-observation",
+  "families": [
+    "psychology"
+  ],
+  "coverage": {
+    "psychology": "partial"
+  },
+  "sources": [
+    {
+      "source_id": "rules-json:coc7:difficulty-levels",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/difficulty-levels.json",
+      "file_sha256": "d8964ca7d8a1a15b7a6959ee95d849b326ab7a9ec574564c5517a47bfccc0e28",
+      "bundle_manifest_sha256": "9bf67490904358016766b3c141b94030cb3e01826749c4aeb7ab6cb7d06a4e02",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:skill-descriptions",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/skill-descriptions.json",
+      "file_sha256": "0c6314592978ab006c1ee5a7b7cca3741fcc6834d8c05bed3d3ce3ccc1d16c3f",
+      "bundle_manifest_sha256": "eee010f1f12b36e4e1e58e068ce1305c7e59b689aef433f8e1e7659249b8d845",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:skills",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/skills.json",
+      "file_sha256": "f079cf06256ea835b0c38b21bd884c22a2ce7801ed01d90300815d3f09118512",
+      "bundle_manifest_sha256": "a65513309f51a862d5c572b7f1a70d5dad2d4dc3d4d4edbb6461fe3f0346ce90",
+      "pages": 1
+    }
+  ],
+  "span_count": 124,
+  "node_count": 21,
+  "relation_count": 22
+}

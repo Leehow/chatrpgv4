@@ -1,0 +1,200 @@
+{
+  "contract_id": "coc.rule-graph-candidate.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "family_id": "combat",
+  "section_id": "section-non-session-damage",
+  "source_language": "en",
+  "coverage": {
+    "combat": "partial"
+  },
+  "nodes": [
+    {
+      "node_id": "resource:coc7:combat:hp",
+      "node_kind": "resource",
+      "name": "Hit points",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "resource_key": "hp"
+      },
+      "evidence_span_ids": [
+        "span-non-session-damage-page-0-block-1",
+        "span-non-session-damage-page-0-block-2"
+      ]
+    },
+    {
+      "node_id": "rule-family:coc7:combat",
+      "node_kind": "rule-family",
+      "name": "Non-session roll-backed HP damage (negative delta); combat session engine retained",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "runtime_ownership": "legacy",
+        "legacy_surface": "visible",
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-non-session-damage-page-0-block-1"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:damage",
+      "node_kind": "capability",
+      "name": "damage",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "resolver_capability": "damage",
+        "adapter": "resolver",
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-non-session-damage-page-0-block-1"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:damage",
+      "node_kind": "data-table",
+      "name": "damage.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "damage.json"
+      },
+      "evidence_span_ids": [
+        "span-non-session-damage-page-0-block-1"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:hp-damage",
+      "node_kind": "rule",
+      "name": "Damage rolls are non-percentile dice that reduce hit points; play logs keep roll id, expression, total, and HP before/delta/after",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-non-session-damage-page-0-block-1"
+      ]
+    },
+    {
+      "node_id": "effect:coc7:combat:hp-change",
+      "node_kind": "effect",
+      "name": "HP after a damage roll with before/delta/after evidence (negative delta)",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-non-session-damage-page-0-block-1"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:combat:apply-damage",
+      "node_kind": "decision",
+      "name": "Apply one non-session HP damage roll (die expression; negative delta)",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat",
+        "implementation": {
+          "adapter": "resolver",
+          "kind": "damage",
+          "phase": "resolve",
+          "payload_constants": {
+            "kind": "damage"
+          },
+          "payload_slots": [
+            {
+              "name": "amount",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "source",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "investigator_id",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "current_hp",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "max_hp",
+              "ownership": "host-locked"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-non-session-damage-page-0-block-1"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:combat:amount",
+      "node_kind": "input-slot",
+      "name": "amount",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "die",
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-non-session-damage-page-0-block-1"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "relation:coc7:combat:damage-requires-amount",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:combat:apply-damage",
+      "to_node_id": "input-slot:coc7:combat:amount",
+      "evidence_span_ids": [
+        "span-non-session-damage-page-0-block-1"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:damage-emits",
+      "relation_kind": "emits",
+      "from_node_id": "decision:coc7:combat:apply-damage",
+      "to_node_id": "effect:coc7:combat:hp-change",
+      "evidence_span_ids": [
+        "span-non-session-damage-page-0-block-1"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:damage-mutates",
+      "relation_kind": "mutates-resource",
+      "from_node_id": "effect:coc7:combat:hp-change",
+      "to_node_id": "resource:coc7:combat:hp",
+      "evidence_span_ids": [
+        "span-non-session-damage-page-0-block-1",
+        "span-non-session-damage-page-0-block-2"
+      ]
+    }
+  ]
+}

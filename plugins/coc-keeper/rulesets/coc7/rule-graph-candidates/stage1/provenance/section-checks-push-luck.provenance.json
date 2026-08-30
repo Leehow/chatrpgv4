@@ -1,0 +1,80 @@
+{
+  "shard_id": "shard:coc7:core-check:section-checks-push-luck",
+  "section_id": "section-checks-push-luck",
+  "families": [
+    "core-check",
+    "push-luck"
+  ],
+  "coverage": {
+    "core-check": "partial",
+    "push-luck": "partial"
+  },
+  "sources": [
+    {
+      "source_id": "rules-json:coc7:damage",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/damage.json",
+      "file_sha256": "6117f2a445712bcd8f312a474dce096f3033367959076b843140a8b1f510dd36",
+      "bundle_manifest_sha256": "46f72f162384eaddbc00e0ac2e4b37302aa1dbec5ccea8947623b57fb8a67969",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:derived-attributes",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/derived-attributes.json",
+      "file_sha256": "7b581b27d84c5cb63d55b406b548716920340723e9e443c117cf73eddce42be2",
+      "bundle_manifest_sha256": "45b19a02e0cb749b1bde3cf5beaaadcff3a2d40158eab1d80e35f0bed93d4a03",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:difficulty-levels",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/difficulty-levels.json",
+      "file_sha256": "d8964ca7d8a1a15b7a6959ee95d849b326ab7a9ec574564c5517a47bfccc0e28",
+      "bundle_manifest_sha256": "9bf67490904358016766b3c141b94030cb3e01826749c4aeb7ab6cb7d06a4e02",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:luck",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/luck.json",
+      "file_sha256": "c9a0073acbaaeca703258f8d5ab34bdc04d8a65abe0c23c00fbc75be84b0348d",
+      "bundle_manifest_sha256": "837b405d01e1abdeb500f26863e49cff347f37b73826f462bda83baad33c2ffa",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:percentile-check",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/percentile-check.json",
+      "file_sha256": "a416aca3e6a375bb34182f97f217b70657ff1ff5f833e3e3608b3db57837e926",
+      "bundle_manifest_sha256": "64cd8c3e23b2ef6c5634a7b051c4e6db99f00021f7c76a09053d97f3521a202a",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:pushed-roll",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/pushed-roll.json",
+      "file_sha256": "7dbfbbf6a95244a99f0918d2db07d35d1a38b6988286daab26ae288caadfce6a",
+      "bundle_manifest_sha256": "04baa9df720b10b3fb873be9b1ada8cfa5b9d2f9b0eea3ff506cce9a142d71e5",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:roll-modifiers",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/roll-modifiers.json",
+      "file_sha256": "cbc15fc9586970946a5cb63b53e8bef17f2683a7d836dcf40d1a32534d10ecbe",
+      "bundle_manifest_sha256": "b54d565bac95bcc1c50eb592a26c1419111b0804190a4957ecceed8f7e8b6f1e",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:spells",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/spells.json",
+      "file_sha256": "b327f0cc8bff987c6239b491ff88e8ff399b90ac9da8f6956062f25802f633d7",
+      "bundle_manifest_sha256": "33d95ac8e99aabffda481c5992468885463e1a7c91c7a163524714d34f9805a9",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:success-levels",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/success-levels.json",
+      "file_sha256": "2486d01ac3edd9cdc382fff401075d42b167528275e8bd2d57dfe9aeaa23beff",
+      "bundle_manifest_sha256": "4e9b1273f7fb5c380b139ef175c3c2daebf59571f8566d8e841bd432e6be2630",
+      "pages": 1
+    }
+  ],
+  "span_count": 22,
+  "node_count": 50,
+  "relation_count": 31
+}

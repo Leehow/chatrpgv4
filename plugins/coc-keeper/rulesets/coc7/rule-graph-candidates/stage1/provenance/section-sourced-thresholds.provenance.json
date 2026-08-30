@@ -1,0 +1,29 @@
+{
+  "shard_id": "shard:coc7:sanity:section-sourced-thresholds",
+  "section_id": "section-sourced-thresholds",
+  "families": [
+    "sanity"
+  ],
+  "coverage": {
+    "sanity": "partial"
+  },
+  "sources": [
+    {
+      "source_id": "rules-json:coc7:derived-attributes",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/derived-attributes.json",
+      "file_sha256": "7b581b27d84c5cb63d55b406b548716920340723e9e443c117cf73eddce42be2",
+      "bundle_manifest_sha256": "45b19a02e0cb749b1bde3cf5beaaadcff3a2d40158eab1d80e35f0bed93d4a03",
+      "pages": 1
+    },
+    {
+      "source_id": "rules-json:coc7:sanity",
+      "file": "plugins/coc-keeper/rulesets/coc7/rules-json/sanity.json",
+      "file_sha256": "e728de34170a2f13361735249ebb2639f8b691170f13a9529bf45ec0ef6f219c",
+      "bundle_manifest_sha256": "28b0438fc336b9948d9a3bf241940cfdc005d0693e74ac5fd363a0ea225a5af8",
+      "pages": 1
+    }
+  ],
+  "span_count": 2,
+  "node_count": 9,
+  "relation_count": 5
+}
