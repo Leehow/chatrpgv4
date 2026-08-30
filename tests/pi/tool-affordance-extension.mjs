@@ -224,7 +224,7 @@ async function withPlayHarness(fn, callTool = (_name, params) => (
   try {
     const harness = makeHarness(callTool, compiler, hostFaults);
     await harness.start();
-    await harness.tools.get("coc_invoke").execute(
+    const initialResume = await harness.tools.get("coc_invoke").execute(
       "resume-live",
       {
         operation: "session.resume",
@@ -235,7 +235,7 @@ async function withPlayHarness(fn, callTool = (_name, params) => (
       undefined,
       harness.ctx,
     );
-    await fn(harness);
+    await fn(harness, initialResume);
   } finally {
     if (priorRole === undefined) delete process.env[ROLE_ENV];
     else process.env[ROLE_ENV] = priorRole;
@@ -628,6 +628,225 @@ const contextReceipt = (revision, data) => ({
   },
   cache: { revision: `scene-context:${revision}` },
   data,
+});
+
+const PRODUCTION_HEALING_DECISION_CARD = {
+  schema_version: 1,
+  decision_ref: "decision:coc7:healing:first-aid-ordinary",
+  family: "healing",
+  label: "Administer First Aid to a non-dying injured character",
+  applicability: "applicable",
+  required_inputs: [
+    { name: "assistant_rescuer_ref", owner: "optional-semantic", type: "string" },
+    { name: "rescuer_ref", owner: "optional-semantic", type: "string" },
+  ],
+  locked_inputs: [
+    "assistant_rescuer_id", "assistant_skill_value", "first_aid_pushed",
+    "first_aid_skill", "pushed", "rescuer_id", "skill_value",
+  ],
+  rule_refs: ["rule:coc7:healing:first-aid-stabilization"],
+  source_refs: ["span-wounds-and-healing-page-131-block-18"],
+  capability_ref: "capability:coc7:first-aid",
+  effect_refs: ["effect:coc7:healing:temporary-stabilization"],
+  possible_continuations: [
+    "decision:coc7:healing:medicine-ordinary",
+  ],
+  authority: {
+    selection: "keeper-semantic",
+    execution: "current-ruleset-adapter",
+    hard_gate: false,
+  },
+};
+
+const healingCardBlock = (card = PRODUCTION_HEALING_DECISION_CARD) => ({
+  schema_version: 1,
+  family: "healing",
+  investigator_id: "thomas-hayes",
+  status: "ok",
+  cards: [structuredClone(card)],
+  authority: {
+    hard_gate: false,
+    role: "affordance",
+    note: "advisory healing affordances; settle via rules.settle; absence never blocks play",
+  },
+});
+
+const healingSceneData = (card = PRODUCTION_HEALING_DECISION_CARD) => ({
+  active_scene_id: "infirmary-treatment-room",
+  party: ["thomas-hayes"],
+  exits: [],
+  time: { elapsed_minutes: 0 },
+  npcs_present: [],
+  action_routes: [],
+  rule_decision_cards: healingCardBlock(card),
+  recovery: { healing: healingCardBlock(card) },
+});
+
+test("RuleDecisionCard survives resume, scene, exact context, and typed settle", async () => {
+  const forwarded = [];
+  const resumeEnvelope = {
+    ok: true,
+    tool: "session.resume",
+    wire: { full_result_sha256: `sha256:${"1".repeat(64)}` },
+    data: {
+      schema_version: 1,
+      campaign_id: "tool-affordance-campaign",
+      mode: "awaiting_player",
+      next_operations: [],
+      scene_context: healingSceneData(),
+    },
+  };
+  const sceneEnvelope = contextReceipt("ruledecision-card", healingSceneData());
+  const rulesContextEnvelope = {
+    ok: true,
+    tool: "rules.context",
+    data: {
+      schema_version: 1,
+      status: "ok",
+      family: "healing",
+      cards: [structuredClone(PRODUCTION_HEALING_DECISION_CARD)],
+      family_status: [{
+        family: "healing",
+        coverage: "accepted",
+        runtime_owner: "graph",
+        legacy_surface: "hidden",
+      }],
+    },
+  };
+  await withPlayHarness(async (h, initialResume) => {
+    const resumed = JSON.parse(initialResume.content[0].text);
+    assert.equal(resumed.ok, true, JSON.stringify({ resumed, details: initialResume.details }));
+    assert.deepEqual(
+      resumed.data.scene_context.rule_decision_cards.cards[0],
+      PRODUCTION_HEALING_DECISION_CARD,
+    );
+
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我请同伴立刻为伤口做急救。" }],
+    });
+    const sceneResult = await invokeCompat(h, "ruledecision-scene", "scene.context");
+    const sceneVisible = JSON.parse(sceneResult.content[0].text);
+    assert.equal(sceneVisible.ok, true, JSON.stringify({ sceneVisible, details: sceneResult.details }));
+    assert.deepEqual(
+      sceneVisible.data.rule_decision_cards.cards[0],
+      PRODUCTION_HEALING_DECISION_CARD,
+    );
+    assert.equal(
+      h.active.at(-1).filter((name) => name === "coc_rules_settle").length,
+      1,
+      JSON.stringify(h.active.at(-1)),
+    );
+    for (const legacy of [
+      "coc_rules_first_aid", "coc_rules_dying_check",
+      "coc_rules_medicine", "coc_rules_weekly_recovery",
+    ]) {
+      assert.equal(h.active.at(-1).includes(legacy), false, legacy);
+    }
+
+    const loaded = JSON.parse((await h.tools.get("coc_discover").execute(
+      "load-rule-context",
+      { operation: "rules.context" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(loaded.ok, true, JSON.stringify(loaded));
+    const exactContext = await h.tools.get("coc_rules_context").execute(
+      "ruledecision-exact-context",
+      {
+        root,
+        campaign: "tool-affordance-campaign",
+        investigator: "current-investigator",
+        family: "healing",
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const exactVisible = JSON.parse(exactContext.content[0].text);
+    assert.equal(exactVisible.ok, true, JSON.stringify({ exactVisible, details: exactContext.details }));
+    assert.deepEqual(exactVisible.data.cards[0], PRODUCTION_HEALING_DECISION_CARD);
+
+    const settle = await h.tools.get("coc_rules_settle").execute(
+      "ruledecision-settle",
+      {
+        root,
+        campaign: "tool-affordance-campaign",
+        investigator: "current-investigator",
+        decision_ref: exactVisible.data.cards[0].decision_ref,
+        semantic_inputs: {},
+        decision_id: "roll-healing-ruledecision-first-aid-v1",
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const settledVisible = JSON.parse(settle.content[0].text);
+    assert.equal(settledVisible.ok, true, JSON.stringify({ settledVisible, details: settle.details }));
+    const canonicalSettle = forwarded.findLast((row) => row.operation === "rules.settle");
+    assert.equal(
+      canonicalSettle.arguments.decision_ref,
+      PRODUCTION_HEALING_DECISION_CARD.decision_ref,
+    );
+  }, (_name, params) => {
+    forwarded.push(structuredClone(params));
+    if (params.operation === "session.resume") return resumeEnvelope;
+    if (params.operation === "scene.context") return sceneEnvelope;
+    if (params.operation === "rules.context") return rulesContextEnvelope;
+    if (params.operation === "rules.settle") {
+      return {
+        ok: true,
+        tool: "rules.settle",
+        data: {
+          schema_version: 1,
+          decision_ref: params.arguments.decision_ref,
+          family: "healing",
+          status: "settled",
+          next_decisions: [],
+          authority: "canonical-resolver-state-receipts",
+        },
+      };
+    }
+    return { ok: true, tool: params.operation, data: {} };
+  });
+});
+
+test("RuleDecisionCard rejects opaque or malformed semantic references", async () => {
+  for (const [field, value] of [
+    ["decision_ref", "7c9e6679-7425-40de-944b-e07fc1f90ae7"],
+    ["decision_ref", "capability:coc7:first-aid"],
+    ["capability_ref", `sha256:${"a".repeat(64)}`],
+    ["capability_ref", "decision:coc7:healing:first-aid-ordinary"],
+    ["rule_refs", ["effect:coc7:healing:wrong-domain"]],
+    ["effect_refs", ["rule:coc7:healing:wrong-domain"]],
+    ["possible_continuations", ["capability:coc7:first-aid"]],
+    ["source_refs", ["/private/rule-graph.json"]],
+  ]) {
+    const card = structuredClone(PRODUCTION_HEALING_DECISION_CARD);
+    card[field] = value;
+    await withPlayHarness(async (_h, initialResume) => {
+      const visible = JSON.parse(initialResume.content[0].text);
+      assert.equal(visible.ok, false, `${field}: ${JSON.stringify(visible)}`);
+      assert.equal(visible.error.code, "semantic_identity_unavailable", field);
+      assert.equal(JSON.stringify(visible).includes(String(value)), false, field);
+    }, (_name, params) => (
+      params.operation === "session.resume"
+        ? {
+            ok: true,
+            tool: "session.resume",
+            wire: { full_result_sha256: `sha256:${"2".repeat(64)}` },
+            data: {
+              schema_version: 1,
+              campaign_id: "tool-affordance-campaign",
+              mode: "awaiting_player",
+              next_operations: [],
+              scene_context: healingSceneData(card),
+            },
+          }
+        : { ok: true, tool: params.operation, data: {} }
+    ));
+  }
 });
 
 const invokeCompat = (h, id, operation, arguments_ = {}) => (

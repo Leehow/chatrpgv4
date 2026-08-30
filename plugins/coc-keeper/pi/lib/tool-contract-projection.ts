@@ -2937,6 +2937,19 @@ const declaredIdentityTable = (
 });
 
 /**
+ * Authored RuleGraph identities carried by every model-visible
+ * RuleDecisionCard. These are meaning-bearing graph node ids, not registry
+ * handles: the model copies `decision_ref` into rules.settle while
+ * `capability_ref` remains explanatory card context. The same declaration is
+ * reused by direct scene context, exact rules context, and the identical
+ * scene-context sub-document embedded by session.resume.
+ */
+const RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS = [
+  "decision_ref", "capability_ref", "rule_refs", "effect_refs",
+  "possible_continuations",
+] as const;
+
+/**
  * Identity-bearing fields emitted by the bounded `scene.context` wire view.
  * `session.resume.data.scene_context` is the same canonical sub-document and
  * must be projected through this exact closed declaration instead of widening
@@ -2949,6 +2962,7 @@ const SCENE_CONTEXT_SEMANTIC_IDENTITY_FIELDS = [
   "conclusion_id", "drilldown_refs", "flag_id", "grants_clue_ids",
   "location_id", "mechanics_ref", "npc_id", "npc_ids", "ref_id",
   "scene_id", "source_ref", "trigger_id",
+  ...RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS,
 ] as const;
 
 const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
@@ -3054,6 +3068,10 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [],
     [],
     ["roll_id"],
+  )],
+  ["rules.context", declaredIdentityTable(
+    RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS,
+    [],
   )],
   ["rules.settle", declaredIdentityTable(
     ["actor_id", "day_id", "decision_ref", "rescuer_id", "wound_id"],
@@ -3612,11 +3630,23 @@ const stringSet = (values: readonly string[]): ReadonlySet<string> => new Set(va
 
 const PROVENANCE_FIELD = /(?:^|_)source_refs$/;
 const PDF_PAGE_REF = /^pdf_index-\d+$/;
+/** Evidence-bound RuleGraph source span: semantic page/block coordinates. */
+const RULE_SOURCE_SPAN_REF = /^span-[a-z0-9]+(?:-[a-z0-9]+)+$/;
 const PROVENANCE_SOURCE_NAMESPACES = stringSet(["pdf:", "module:", "source:", "handout:"]);
+const RULE_DECISION_REF_NAMESPACE = stringSet(["decision:"]);
+const RULE_CAPABILITY_REF_NAMESPACE = stringSet(["capability:"]);
+const RULE_RULE_REF_NAMESPACE = stringSet(["rule:"]);
+const RULE_EFFECT_REF_NAMESPACE = stringSet(["effect:"]);
 
 function projectProvenanceMember(member: unknown): unknown {
   if (typeof member === "string") {
-    return PDF_PAGE_REF.test(member) ? member : null;
+    return (
+      PDF_PAGE_REF.test(member)
+      || (
+        RULE_SOURCE_SPAN_REF.test(member)
+        && !violatesSemanticIdentityGrammar(member)
+      )
+    ) ? member : null;
   }
   if (!isPlainObject(member)) return null;
   if (
@@ -3649,6 +3679,125 @@ function projectProvenanceRefs(value: unknown): unknown {
       .filter((member) => member !== null);
   }
   return projectProvenanceMember(value);
+}
+
+/**
+ * Apply the closed source-ref grammar specifically to RuleDecisionCards.
+ * Generic provenance projections may safely omit mixed host audit members;
+ * a RuleDecisionCard is different because its source refs are part of the
+ * model-facing evidence contract. One malformed card source therefore emits
+ * a bounded diagnostic and makes the gateway fail closed rather than quietly
+ * presenting a source-less decision.
+ */
+function projectRuleDecisionCard(
+  card: unknown,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  path: string,
+): unknown {
+  if (!isPlainObject(card)) return card;
+  const projected = { ...card };
+  for (const [field, namespaces] of [
+    ["decision_ref", RULE_DECISION_REF_NAMESPACE],
+    ["capability_ref", RULE_CAPABILITY_REF_NAMESPACE],
+  ] as const) {
+    const value = card[field];
+    if (
+      typeof value === "string"
+      && isNamespacedSemantic(value, namespaces)
+    ) continue;
+    diagnostics?.unmapped.push({
+      field,
+      parentField: "cards",
+      domain: field === "decision_ref" ? "decision" : "capability",
+      path: `${path}.${field}`,
+    });
+    delete projected[field];
+  }
+  for (const [field, namespaces, domain] of [
+    ["rule_refs", RULE_RULE_REF_NAMESPACE, "rule"],
+    ["effect_refs", RULE_EFFECT_REF_NAMESPACE, "effect"],
+    ["possible_continuations", RULE_DECISION_REF_NAMESPACE, "decision"],
+  ] as const) {
+    if (!Object.hasOwn(card, field)) continue;
+    const values = card[field];
+    if (!Array.isArray(values)) {
+      diagnostics?.unmapped.push({
+        field,
+        parentField: "cards",
+        domain,
+        path: `${path}.${field}`,
+      });
+      delete projected[field];
+      continue;
+    }
+    const safeValues: string[] = [];
+    for (const value of values) {
+      if (
+        typeof value === "string"
+        && isNamespacedSemantic(value, namespaces)
+      ) {
+        safeValues.push(value);
+        continue;
+      }
+      diagnostics?.unmapped.push({
+        field,
+        parentField: "cards",
+        domain,
+        path: `${path}.${field}`,
+      });
+    }
+    projected[field] = safeValues;
+  }
+  if (!Object.hasOwn(card, "source_refs")) return projected;
+  const sourceRefs = card.source_refs;
+  if (!Array.isArray(sourceRefs)) {
+    diagnostics?.unmapped.push({
+      field: "source_refs",
+      parentField: "cards",
+      domain: "provenance",
+      path: `${path}.source_refs`,
+    });
+    delete projected.source_refs;
+    return projected;
+  }
+  const safeRefs: unknown[] = [];
+  for (const sourceRef of sourceRefs) {
+    const safe = typeof sourceRef === "string"
+      && (
+        PDF_PAGE_REF.test(sourceRef)
+        || RULE_SOURCE_SPAN_REF.test(sourceRef)
+        || isNamespacedSemantic(sourceRef, PROVENANCE_SOURCE_NAMESPACES)
+      )
+      && !violatesSemanticIdentityGrammar(sourceRef)
+        ? sourceRef
+        : null;
+    if (safe === null) {
+      diagnostics?.unmapped.push({
+        field: "source_refs",
+        parentField: "cards",
+        domain: "provenance",
+        path: `${path}.source_refs`,
+      });
+      continue;
+    }
+    safeRefs.push(safe);
+  }
+  projected.source_refs = safeRefs;
+  return projected;
+}
+
+function projectRuleDecisionCardBlock(
+  block: Record<string, unknown>,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  path: string,
+): Record<string, unknown> {
+  if (!Array.isArray(block.cards)) return { ...block };
+  return {
+    ...block,
+    cards: block.cards.map((card, index) =>
+      projectRuleDecisionCard(card, diagnostics, `${path}.cards[${index}]`)
+    ),
+  };
 }
 
 /**
@@ -4320,6 +4469,27 @@ function projectSceneContextData(
   diagnostics: ProjectionIdentityDiagnostics | null,
 ): Record<string, unknown> {
   const view: Record<string, unknown> = { ...data };
+  if (isPlainObject(data.rule_decision_cards)) {
+    view.rule_decision_cards = projectRuleDecisionCardBlock(
+      data.rule_decision_cards,
+      diagnostics,
+      "rule_decision_cards",
+    );
+  }
+  const recovery = isPlainObject(data.recovery) ? data.recovery : null;
+  const healing = recovery !== null && isPlainObject(recovery.healing)
+    ? recovery.healing
+    : null;
+  if (recovery !== null && healing !== null) {
+    view.recovery = {
+      ...recovery,
+      healing: projectRuleDecisionCardBlock(
+        healing,
+        diagnostics,
+        "recovery.healing",
+      ),
+    };
+  }
   if (isPlainObject(data.exit_operation_template)) {
     const descriptor = projectOperationDescriptor(
       data.exit_operation_template,
@@ -4371,6 +4541,21 @@ function projectSceneContextData(
     semanticIds,
     diagnostics,
     "scene.context",
+  ) as Record<string, unknown>;
+}
+
+/** Exact-discovery RuleGraph cards share the scene card projection contract. */
+function projectRulesContextData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const view = projectRuleDecisionCardBlock(data, diagnostics, "rules.context");
+  return sanitizeEnvelopeBranch(
+    view,
+    semanticIds,
+    diagnostics,
+    "rules.context",
   ) as Record<string, unknown>;
 }
 
@@ -4635,6 +4820,8 @@ export function projectModelVisibleCanonicalResult(
   if (data !== null) {
     if (operation === "scene.context") {
       projected.data = projectSceneContextData(data, semanticIds, diagnostics);
+    } else if (operation === "rules.context") {
+      projected.data = projectRulesContextData(data, semanticIds, diagnostics);
     } else if (operation === "npc.reaction") {
       projected.data = projectNpcReactionData(data, semanticIds, diagnostics);
     } else if (operation === "state.record_npc_engagement") {
