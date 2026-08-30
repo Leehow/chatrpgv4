@@ -3937,14 +3937,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let loadedNamespaces: LoadedNamespace[] = [];
   let loadedOperations: LoadedExactOperation[] = [];
   let lastWorkingSet: ToolWorkingSet | null = null;
-  const toolWorkingSetAtExecutionStart = new Map<string, string>();
+  type ActiveToolWorkingSetFingerprint = {
+    digest: string;
+    workingSetRevision: string | null;
+  };
+  const toolWorkingSetAtExecutionStart = new Map<
+    string,
+    ActiveToolWorkingSetFingerprint
+  >();
   /**
    * Fingerprint the exact model-visible active tool interface. This is the
    * single runtime seam for deciding whether a completed tool invalidated the
    * remaining calls in the model's current batch. The digest is host-only;
    * models never copy or emit it.
    */
-  const activeToolWorkingSetRevision = (): string | null => {
+  const activeToolWorkingSetRevision = (): ActiveToolWorkingSetFingerprint | null => {
     try {
       const activeNames = [...new Set(pi.getActiveTools())].sort();
       const definitions = new Map(
@@ -3962,16 +3969,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           promptGuidelines: definition.promptGuidelines,
         };
       });
-      return createHash("sha256")
-        .update(JSON.stringify({
-          projected_revision: lastWorkingSet?.revision ?? null,
-          player_turn_epoch: canonicalProgress.playerTurnEpoch,
-          canonical_progress_revision:
-            canonicalProgress.canonicalProgressRevision,
-          stage: canonicalProgress.stage,
-          active_tools: activeDefinitions,
-        }), "utf8")
-        .digest("hex");
+      return {
+        digest: createHash("sha256")
+          .update(JSON.stringify({
+            projected_revision: lastWorkingSet?.revision ?? null,
+            player_turn_epoch: canonicalProgress.playerTurnEpoch,
+            canonical_progress_revision:
+              canonicalProgress.canonicalProgressRevision,
+            stage: canonicalProgress.stage,
+            active_tools: activeDefinitions,
+          }), "utf8")
+          .digest("hex"),
+        workingSetRevision: lastWorkingSet?.revision ?? null,
+      };
     } catch {
       return null;
     }
@@ -3982,13 +3992,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ? typed.toolCallId
       : "";
     if (!toolCallId) return;
-    const revision = activeToolWorkingSetRevision();
-    if (revision !== null) {
-      toolWorkingSetAtExecutionStart.set(toolCallId, revision);
+    const fingerprint = activeToolWorkingSetRevision();
+    if (fingerprint !== null) {
+      toolWorkingSetAtExecutionStart.set(toolCallId, fingerprint);
     }
   });
   pi.on("tool_result", (event: unknown) => {
-    const typed = event as { toolCallId?: unknown } | undefined;
+    const typed = event as {
+      toolCallId?: unknown;
+      toolName?: unknown;
+      input?: unknown;
+    } | undefined;
     const toolCallId = typeof typed?.toolCallId === "string"
       ? typed.toolCallId
       : "";
@@ -3996,9 +4010,39 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     const before = toolWorkingSetAtExecutionStart.get(toolCallId) ?? null;
     toolWorkingSetAtExecutionStart.delete(toolCallId);
     const after = activeToolWorkingSetRevision();
-    return before !== null && after !== null && before !== after
-      ? { replan: true }
-      : undefined;
+    if (
+      before === null
+      || after === null
+      || before.digest === after.digest
+    ) return undefined;
+    const input = objectOrNull(typed?.input);
+    try {
+      pi.appendEntry("coc-tool-working-set-replan", {
+        schema_version: 1,
+        contract_id: "coc.pi-tool-working-set-replan.v1",
+        status: "requested",
+        reason: "active_tool_interface_changed",
+        ...(typeof typed?.toolName === "string"
+          ? { tool_name: typed.toolName }
+          : {}),
+        ...(typeof input?.operation === "string"
+          ? { operation: input.operation }
+          : {}),
+        stage: canonicalProgress.stage,
+        player_turn_epoch: canonicalProgress.playerTurnEpoch,
+        canonical_progress_revision:
+          canonicalProgress.canonicalProgressRevision,
+        before: {
+          working_set_revision: before.workingSetRevision,
+          active_tool_interface_sha256: `sha256:${before.digest}`,
+        },
+        after: {
+          working_set_revision: after.workingSetRevision,
+          active_tool_interface_sha256: `sha256:${after.digest}`,
+        },
+      });
+    } catch { /* replan audit is host-only and best effort */ }
+    return { replan: true };
   });
   pi.on("tool_execution_end", (event: unknown) => {
     const typed = event as { toolCallId?: unknown } | undefined;

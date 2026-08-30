@@ -54,7 +54,10 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
       rows.push(handler);
       handlers.set(type, rows);
     },
-    appendEntry(type, value) { appended.push({ type, value }); },
+    appendEntry(type, value) {
+      hostFaults.beforeAppendEntry?.(type, value);
+      appended.push({ type, value });
+    },
     sendMessage(message, options) { sent.push({ message, options }); return true; },
     setActiveTools(names) {
       hostFaults.beforeSetActiveTools?.(names);
@@ -365,6 +368,11 @@ test("working-set invalidation requests a sequential replan but stable reads do 
       false,
       "stable read-only result must not replan",
     );
+    assert.equal(
+      h.appended.filter((row) => row.type === "coc-tool-working-set-replan").length,
+      0,
+      "stable read-only result must not append a replan audit",
+    );
 
     await h.emit("tool_execution_start", null, {
       toolCallId: "journal-stage-change",
@@ -402,6 +410,97 @@ test("working-set invalidation requests a sequential replan but stable reads do 
       changedHooks.some((hook) => hook?.replan === true),
       JSON.stringify({ active: h.active.slice(-4), journal, changedHooks }),
     );
+    const replanAudits = h.appended.filter(
+      (row) => row.type === "coc-tool-working-set-replan",
+    );
+    assert.equal(replanAudits.length, 1);
+    assert.deepEqual(
+      Object.keys(replanAudits[0].value).sort(),
+      [
+        "after",
+        "before",
+        "canonical_progress_revision",
+        "contract_id",
+        "operation",
+        "player_turn_epoch",
+        "reason",
+        "schema_version",
+        "stage",
+        "status",
+        "tool_name",
+      ],
+    );
+    assert.deepEqual({
+      schema_version: replanAudits[0].value.schema_version,
+      contract_id: replanAudits[0].value.contract_id,
+      status: replanAudits[0].value.status,
+      reason: replanAudits[0].value.reason,
+      tool_name: replanAudits[0].value.tool_name,
+      operation: replanAudits[0].value.operation,
+      stage: replanAudits[0].value.stage,
+      player_turn_epoch: replanAudits[0].value.player_turn_epoch,
+      canonical_progress_revision:
+        replanAudits[0].value.canonical_progress_revision,
+    }, {
+      schema_version: 1,
+      contract_id: "coc.pi-tool-working-set-replan.v1",
+      status: "requested",
+      reason: "active_tool_interface_changed",
+      tool_name: "coc_invoke",
+      operation: "state.journal",
+      stage: "journaled",
+      player_turn_epoch: 1,
+      canonical_progress_revision: 1,
+    });
+    assert.equal(typeof replanAudits[0].value.before.working_set_revision, "string");
+    assert.equal(typeof replanAudits[0].value.after.working_set_revision, "string");
+    assert.match(
+      replanAudits[0].value.before.active_tool_interface_sha256,
+      /^sha256:[0-9a-f]{64}$/u,
+    );
+    assert.match(
+      replanAudits[0].value.after.active_tool_interface_sha256,
+      /^sha256:[0-9a-f]{64}$/u,
+    );
+    assert.notEqual(
+      replanAudits[0].value.before.active_tool_interface_sha256,
+      replanAudits[0].value.after.active_tool_interface_sha256,
+    );
+    assert.doesNotMatch(
+      JSON.stringify(journal.content),
+      /coc\.pi-tool-working-set-replan|active_tool_interface_sha256/u,
+      "host audit identity must not enter model-visible tool-result content",
+    );
+    assert.equal(
+      h.sent.some((row) => (
+        JSON.stringify(row).includes("coc.pi-tool-working-set-replan")
+      )),
+      false,
+      "host audit must not be sent as model-visible follow-up content",
+    );
+
+    const repeatedHooks = await h.emitAll("tool_result", null, {
+      toolCallId: "journal-stage-change",
+      toolName: "coc_invoke",
+      input: {
+        operation: "state.journal",
+        campaign: "tool-affordance-campaign",
+        arguments: { summary: "记录本轮调查。" },
+      },
+      content: journal.content,
+      details: journal.details,
+      isError: false,
+    });
+    assert.equal(
+      repeatedHooks.some((hook) => hook?.replan === true),
+      false,
+      "a consumed execution fingerprint cannot request another replan",
+    );
+    assert.equal(
+      h.appended.filter((row) => row.type === "coc-tool-working-set-replan").length,
+      1,
+      "a repeated stale result cannot append another replan audit",
+    );
   }, (_name, params) => (
     params.operation === "state.journal"
       ? {
@@ -415,6 +514,131 @@ test("working-set invalidation requests a sequential replan but stable reads do 
           data: {},
         }
   ));
+});
+
+test("late, failed, and prior-session results do not append replan audits", async () => {
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我检查当前场景。" }],
+    });
+
+    const lateHooks = await h.emitAll("tool_result", null, {
+      toolCallId: "late-without-start",
+      toolName: "coc_capabilities",
+      input: {},
+      content: [{ type: "text", text: "late" }],
+      details: {},
+      isError: false,
+    });
+    assert.equal(lateHooks.some((hook) => hook?.replan === true), false);
+
+    await h.emit("tool_execution_start", null, {
+      toolCallId: "failed-stable-read",
+      toolName: "coc_capabilities",
+      args: {},
+    });
+    await h.emit("tool_execution_end", null, {
+      toolCallId: "failed-stable-read",
+      toolName: "coc_capabilities",
+      isError: true,
+    });
+    const failedHooks = await h.emitAll("tool_result", null, {
+      toolCallId: "failed-stable-read",
+      toolName: "coc_capabilities",
+      input: {},
+      content: [{ type: "text", text: "failed" }],
+      details: {},
+      isError: true,
+    });
+    assert.equal(failedHooks.some((hook) => hook?.replan === true), false);
+
+    await h.emit("tool_execution_start", null, {
+      toolCallId: "prior-session-read",
+      toolName: "coc_capabilities",
+      args: {},
+    });
+    await h.start();
+    const priorSessionHooks = await h.emitAll("tool_result", null, {
+      toolCallId: "prior-session-read",
+      toolName: "coc_capabilities",
+      input: {},
+      content: [{ type: "text", text: "stale session" }],
+      details: {},
+      isError: false,
+    });
+    assert.equal(
+      priorSessionHooks.some((hook) => hook?.replan === true),
+      false,
+    );
+    assert.equal(
+      h.appended.filter((row) => row.type === "coc-tool-working-set-replan").length,
+      0,
+    );
+  });
+});
+
+test("replan audit append failure cannot suppress the replan request", async () => {
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我记录当前调查。" }],
+    });
+    await h.emit("tool_execution_start", null, {
+      toolCallId: "journal-audit-failure",
+      toolName: "coc_invoke",
+      args: {
+        operation: "state.journal",
+        campaign: "tool-affordance-campaign",
+        arguments: { summary: "记录本轮调查。" },
+      },
+    });
+    const journal = await h.tools.get("coc_invoke").execute(
+      "journal-audit-failure",
+      {
+        operation: "state.journal",
+        campaign: "tool-affordance-campaign",
+        arguments: { summary: "记录本轮调查。" },
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const hooks = await h.emitAll("tool_result", null, {
+      toolCallId: "journal-audit-failure",
+      toolName: "coc_invoke",
+      input: {
+        operation: "state.journal",
+        campaign: "tool-affordance-campaign",
+        arguments: { summary: "记录本轮调查。" },
+      },
+      content: journal.content,
+      details: journal.details,
+      isError: false,
+    });
+    const visibleJournal = JSON.parse(journal.content[0].text);
+    assert.equal(visibleJournal.ok, true);
+    assert.equal(visibleJournal.tool, "state.journal");
+    assert.equal(hooks.some((hook) => hook?.replan === true), true);
+    assert.equal(
+      h.appended.filter((row) => row.type === "coc-tool-working-set-replan").length,
+      0,
+    );
+  }, (_name, params) => (
+    params.operation === "state.journal"
+      ? {
+          ok: true,
+          tool: "state.journal",
+          data: { turn_id: "turn-affordance-audit-failure" },
+        }
+      : { ok: true, tool: params.operation, data: {} }
+  ), {
+    beforeAppendEntry(type) {
+      if (type === "coc-tool-working-set-replan") {
+        throw new Error("audit unavailable");
+      }
+    },
+  });
 });
 
 test("only tools that can invalidate the working set declare sequential execution", async () => {
