@@ -2471,7 +2471,9 @@ def test_rules_roll_rejects_firearm_attack_without_generic_skill_alias(campaign_
         },
     )
     assert blocked_rifle["ok"] is False
-    assert blocked_rifle["error"]["code"] == "use_combat_resolve"
+    # Specialized names are ordinary-check selectors; "Firearms (Rifle)" is not
+    # a catalog skill (the canonical specialization is Firearms (Rifle/Shotgun)).
+    assert blocked_rifle["error"]["code"] == "unknown_skill"
 
 def test_cli_tool_call_with_root_and_campaign(campaign_ws):
     proc = subprocess.run(

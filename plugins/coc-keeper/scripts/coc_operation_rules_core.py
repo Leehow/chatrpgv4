@@ -576,6 +576,12 @@ def _tool_rules_build_scale(ctx: Ctx, args: dict[str, Any]):
     ]
 
 def _tool_rules_roll(ctx: Ctx, args: dict[str, Any]):
+    """Keeper-visible ordinary check. Single execution path: resolver.check.
+
+    RuleGraph ordinary-check settle compiles to this same `_roll_common` /
+    `resolver.check` adapter. No second roll primitive. Graph-absent plug
+    leaves this legacy path unchanged.
+    """
     return _roll_common(ctx, args, pushed=False, tool_name="rules.roll")
 
 def _tool_rules_push(ctx: Ctx, args: dict[str, Any]):

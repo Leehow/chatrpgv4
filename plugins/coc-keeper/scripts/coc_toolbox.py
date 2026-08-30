@@ -596,6 +596,9 @@ def _opening_projection_pacing_available(
 _SOCIAL_PSYCHOLOGY_SHADOW_TOOLS = frozenset({
     "rules.social_adjudicate", "rules.psychology_observe",
 })
+_CHECK_LUCK_SHADOW_TOOLS = frozenset({
+    "rules.roll", "rules.push", "rules.luck_spend", "rules.resource_delta",
+})
 
 
 def _shadow_legacy_command_for_social_psychology(
@@ -746,6 +749,75 @@ def _shadow_compare_social_psychology_fail_open(
     except Exception:
         pass
 
+
+def _shadow_legacy_command_for_check_luck(
+    ctx: Ctx, name: str, args: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Normalized legacy command for ordinary-check / Push / Luck / resource."""
+    if name == "rules.roll":
+        payload = {
+            "skill": args.get("skill"),
+            "characteristic": args.get("characteristic"),
+            "difficulty": args.get("difficulty"),
+            "goal": args.get("goal"),
+            "stakes": args.get("stakes"),
+            "difficulty_basis": args.get("difficulty_basis"),
+            "bonus": args.get("bonus", 0),
+            "penalty": args.get("penalty", 0),
+        }
+        return {"kind": "check", "phase": "resolve", "payload": payload}
+    if name == "rules.push":
+        return {
+            "kind": "check",
+            "phase": "resolve",
+            "payload": {
+                "method_changed": args.get("method_changed"),
+                "failure_consequence": args.get("failure_consequence"),
+                "original_check_decision_id": args.get("original_check_decision_id"),
+                "pushed": True,
+            },
+        }
+    if name == "rules.luck_spend":
+        return {
+            "kind": "luck_spend",
+            "phase": "resolve",
+            "payload": {
+                "points": args.get("points"),
+                "source_roll_id": args.get("source_roll_id"),
+            },
+        }
+    if name == "rules.resource_delta":
+        request = args.get("request") if isinstance(args.get("request"), dict) else {}
+        return {
+            "kind": "resource_delta",
+            "phase": "resolve",
+            "payload": dict(request),
+        }
+    return None
+
+
+def _shadow_compare_check_luck_fail_open(
+    ctx: Ctx, name: str, args: dict[str, Any],
+) -> None:
+    """Host-internal shadow compare for check/push/luck/resource; never raises."""
+    try:
+        command = _shadow_legacy_command_for_check_luck(ctx, name, args)
+        investigator = str(args.get("investigator") or args.get("actor") or "").strip()
+        coc_operation_kernel.coc_rules_runtime.maybe_shadow_compare_check_luck(
+            ruleset_id=_active_ruleset_id(ctx),
+            tool_name=name,
+            decision_id=str(args.get("decision_id") or ""),
+            command=command,
+            args=args,
+            state_path=(
+                ctx.inv_state_path(investigator) if investigator else None
+            ),
+            sheet_provider=(
+                (lambda: ctx.sheet(investigator)) if investigator else None
+            ),
+        )
+    except Exception:
+        pass
 
 
 def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any]) -> dict[str, Any]:
@@ -1044,6 +1116,8 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                 if name in _SOCIAL_PSYCHOLOGY_SHADOW_TOOLS and isinstance(args, dict):
                     # Host-internal, fail-open, compare-before-RNG (spec §14.1).
                     _shadow_compare_social_psychology_fail_open(ctx, name, args)
+                if name in _CHECK_LUCK_SHADOW_TOOLS and isinstance(args, dict):
+                    _shadow_compare_check_luck_fail_open(ctx, name, args)
                 data, warnings, hints = spec["handler"](ctx, args)
             # For write operations (access=mutation), attach a scene revision
             # hint so the KP can avoid the redundant scene.context full-fetch

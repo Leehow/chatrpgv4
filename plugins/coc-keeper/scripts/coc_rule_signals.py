@@ -289,8 +289,126 @@ def read_psychology_concealed(skill_value: int, roll: int, npc_lying: bool) -> d
 
 
 def read_pushed_fail_pending(is_pushed: bool, outcome: str) -> bool:
-    """Pushed-roll failure requires worse narrative consequence. Rulebook p.84."""
+    """Pushed-roll failure requires worse narrative consequence.
+
+    Source: rules-json/pushed-roll.json (Keeper Rulebook pushed-roll procedure).
+    """
     return bool(is_pushed and outcome == "failure")
+
+
+# Graph-declared signal kinds for R5 core-check / push-luck / resource.
+# Citations are the extracted rules-json tables (not PDF re-derivation).
+CHECK_SIGNAL_KINDS = {
+    "ordinary_check": {
+        "family": "core-check",
+        "source_table": "percentile-check.json",
+        "source_rule_id": "core.percentile_check",
+        "visibility": "public",
+    },
+    "pushed_roll": {
+        "family": "push-luck",
+        "source_table": "pushed-roll.json",
+        "source_rule_id": "core.pushed_roll",
+        "visibility": "public",
+    },
+    "luck_roll": {
+        "family": "push-luck",
+        "source_table": "luck.json",
+        "source_rule_id": "core.luck.roll",
+        "visibility": "public",
+    },
+    "luck_spend": {
+        "family": "push-luck",
+        "source_table": "luck.json",
+        "source_rule_id": "core.luck.spend",
+        "visibility": "public",
+    },
+    "resource_delta": {
+        "family": "core-check",
+        "source_table": "luck.json",
+        "source_rule_id": "core.luck.spend",
+        "visibility": "host-internal",
+    },
+}
+
+
+def read_check_signal(
+    outcome: str,
+    *,
+    pushed: bool = False,
+    luck_roll: bool = False,
+) -> dict[str, Any]:
+    """Classify one settled percentile check as a graph-declared signal kind."""
+    if luck_roll:
+        kind = "luck_roll"
+    elif pushed:
+        kind = "pushed_roll"
+    else:
+        kind = "ordinary_check"
+    meta = CHECK_SIGNAL_KINDS[kind]
+    return {
+        "kind": kind,
+        "family": meta["family"],
+        "outcome": str(outcome or ""),
+        "pushed": bool(pushed),
+        "luck_roll": bool(luck_roll),
+        "push_eligible": (not pushed and not luck_roll and outcome == "failure"),
+        "luck_spend_eligible": (not luck_roll and outcome == "failure"),
+        "source_table": meta["source_table"],
+        "source_rule_id": meta["source_rule_id"],
+        "visibility": meta["visibility"],
+    }
+
+
+def read_push_eligibility(
+    original_outcome: str,
+    *,
+    already_pushed: bool,
+    consequence_locked: bool,
+) -> dict[str, Any]:
+    """Pushed-roll eligibility from source tables, not keyword lists."""
+    meta = CHECK_SIGNAL_KINDS["pushed_roll"]
+    allowed = (
+        original_outcome == "failure"
+        and not already_pushed
+        and consequence_locked
+    )
+    reason = None
+    if original_outcome == "fumble":
+        reason = "fumble_is_final"
+    elif original_outcome != "failure":
+        reason = "original_was_not_ordinary_failure"
+    elif already_pushed:
+        reason = "already_pushed"
+    elif not consequence_locked:
+        reason = "consequence_not_locked"
+    return {
+        "kind": "pushed_roll",
+        "family": meta["family"],
+        "allowed": allowed,
+        "reason": reason,
+        "source_table": meta["source_table"],
+        "source_rule_id": meta["source_rule_id"],
+    }
+
+
+def read_resource_delta_signal(
+    resource: str,
+    direction: str,
+    delta: int,
+) -> dict[str, Any]:
+    """Generic HP/MP/Luck (and SAN) delta as a host-internal graph signal."""
+    meta = CHECK_SIGNAL_KINDS["resource_delta"]
+    return {
+        "kind": "resource_delta",
+        "family": meta["family"],
+        "resource": str(resource),
+        "direction": str(direction),
+        "delta": int(delta),
+        "source_table": meta["source_table"],
+        "visibility": meta["visibility"],
+        "host_internal": True,
+    }
 
 
 def read_contacts_difficulty(home_ground: bool, same_profession: bool) -> str:

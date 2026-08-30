@@ -1,0 +1,55 @@
+{
+  "provenance": {
+    "generator": "tests/fixtures/_gen_check_luck_golden.py",
+    "note": "Pre-slice golden from current main envelopes. Graph-absent legacy path must stay byte-stable on these pins."
+  },
+  "roll": {
+    "ok": true,
+    "warnings": [],
+    "hints": [
+      "failed: the player may push this roll with a changed method and an announced consequence (rules.push)"
+    ],
+    "data_keys": [
+      "achieved_level",
+      "base_target",
+      "bonus",
+      "difficulty",
+      "difficulty_basis",
+      "effective_target",
+      "goal",
+      "investigator_id",
+      "operation_opportunities",
+      "outcome",
+      "passed",
+      "penalty",
+      "pushed",
+      "required_level",
+      "required_target",
+      "roll",
+      "skill",
+      "stakes",
+      "success",
+      "surplus_levels",
+      "target",
+      "target_source",
+      "tens_values",
+      "units",
+      "unmodified_roll"
+    ]
+  },
+  "roll_outcome": "failure",
+  "push": {
+    "ok": true,
+    "pushed": true
+  },
+  "luck_spend": {
+    "ok": true,
+    "original_roll": 51,
+    "adjusted_roll": 50
+  },
+  "resource_delta": {
+    "ok": true,
+    "delta": -1,
+    "error": null
+  }
+}

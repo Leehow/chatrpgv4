@@ -1,0 +1,110 @@
+{
+  "contract_id": "coc.rule-graph-build-manifest.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "source_bundles": [
+    {
+      "source_id": "rules-json:coc7",
+      "bundle_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "file_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "graph_content_digest": "4001ed47a3922949980ee05b335c4ef71534787c8b89604a7e441deef75f301b",
+  "shards": [
+    {
+      "shard_id": "shard:coc7:core-check:section-percentile",
+      "shard_digest": "485c91c813f0cf9c8c3aeb3c3b57e0d882b0bd8c7dd84dfa522a6649851d6dfe"
+    },
+    {
+      "shard_id": "shard:coc7:push-luck:section-push-luck",
+      "shard_digest": "de208ba530eb30a26fcb77cf0c7a46fa91dcb99341aae76a62cbe3570b546bc5"
+    }
+  ],
+  "family_coverage": {
+    "chase": "unresolved",
+    "combat": "unresolved",
+    "core-check": "partial",
+    "development": "unresolved",
+    "healing": "unresolved",
+    "magic": "unresolved",
+    "psychology": "unresolved",
+    "push-luck": "partial",
+    "sanity": "unresolved",
+    "social": "unresolved"
+  },
+  "family_promotion_eligibility": {
+    "chase": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "combat": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "core-check": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "development": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "healing": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "magic": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "psychology": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "push-luck": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "sanity": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "social": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    }
+  },
+  "data_table_dependencies": [
+    "percentile-check.json",
+    "pushed-roll.json",
+    "luck.json",
+    "success-levels.json",
+    "difficulty-levels.json",
+    "roll-modifiers.json",
+    "derived-attributes.json",
+    "damage.json",
+    "spells.json"
+  ],
+  "resolver_capability_dependencies": [
+    "check",
+    "luck_spend",
+    "push_policy",
+    "resource_delta"
+  ],
+  "compiler_identity": "coc.rule-graph-compiler.v1",
+  "reviewer_identity": "r5-check-luck",
+  "review_status": "accepted",
+  "findings": [
+    {
+      "code": "source_ambiguity",
+      "path": "/rule-family:coc7:push-luck/luck-recovery-uncompiled",
+      "message": "luck.json recovery.applies_when is after_each_session; rule-index.json source_note places the optional recovery in the Investigator Development Phase. R5 binds spend/roll to luck.json; recovery stays uncompiled (development family)."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/rule:coc7:core-check:resource-arithmetic",
+      "message": "Extracted tables establish pool identity and some per-pool caps: HP from derived-attributes.json and damage.json; MP from derived-attributes.json and spells.json mp_economy (max POW/5); Luck from luck.json (recovery cap 99). Unified loss-floor-0 / gain-cap-maximum clamp is resolver.resource_delta host arithmetic; no extracted generic clamp table exists."
+    }
+  ]
+}

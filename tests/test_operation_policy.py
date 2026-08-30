@@ -329,6 +329,27 @@ def test_healing_legacy_ops_are_host_internal_not_keeper_visible():
     assert settle["phases"] == ["live_turn"]
 
 
+HIDDEN_CHECK_LUCK_PRIMITIVES = (
+    "rules.check",
+    "rules.resource_delta",
+)
+
+
+def test_check_and_resource_delta_are_host_internal_not_keeper_visible():
+    live = set(coc_toolbox.query_operations(audience="keeper"))
+    live_rules = set(coc_toolbox.query_operations(audience="keeper", kp_surface="rules"))
+    for name in HIDDEN_CHECK_LUCK_PRIMITIVES:
+        assert name in coc_toolbox.TOOLS
+        assert name not in live
+        assert name not in live_rules
+        policy = coc_toolbox.operation_policy(name)
+        assert policy["audience"] == "host"
+        assert policy["kp_surface"] == "none"
+    assert "rules.roll" in live_rules
+    assert "rules.push" in live_rules
+    assert "rules.luck_spend" in live_rules
+
+
 def test_rules_context_is_keeper_context_not_ordinary_rules_surface():
     policy = coc_toolbox.operation_policy("rules.context")
     assert policy["audience"] == "keeper"

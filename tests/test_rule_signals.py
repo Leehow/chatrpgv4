@@ -178,6 +178,48 @@ def test_pushed_fail_pending():
     assert coc_rule_signals.read_pushed_fail_pending(is_pushed=False, outcome="failure") is False
     assert coc_rule_signals.read_pushed_fail_pending(is_pushed=True, outcome="success") is False
 
+
+def test_check_signal_kinds_cite_extracted_rulebook():
+    ordinary = coc_rule_signals.read_check_signal("failure")
+    assert ordinary["kind"] == "ordinary_check"
+    assert ordinary["family"] == "core-check"
+    assert ordinary["source_table"] == "percentile-check.json"
+    assert ordinary["push_eligible"] is True
+    assert ordinary["luck_spend_eligible"] is True
+    luck = coc_rule_signals.read_check_signal("failure", luck_roll=True)
+    assert luck["kind"] == "luck_roll"
+    assert luck["luck_spend_eligible"] is False
+    pushed = coc_rule_signals.read_check_signal("failure", pushed=True)
+    assert pushed["kind"] == "pushed_roll"
+    assert pushed["source_table"] == "pushed-roll.json"
+    assert pushed["push_eligible"] is False
+
+
+def test_push_eligibility_locks_consequence_and_rejects_fumble():
+    ok = coc_rule_signals.read_push_eligibility(
+        "failure", already_pushed=False, consequence_locked=True,
+    )
+    assert ok["allowed"] is True
+    fumble = coc_rule_signals.read_push_eligibility(
+        "fumble", already_pushed=False, consequence_locked=True,
+    )
+    assert fumble["allowed"] is False
+    assert fumble["reason"] == "fumble_is_final"
+    unlocked = coc_rule_signals.read_push_eligibility(
+        "failure", already_pushed=False, consequence_locked=False,
+    )
+    assert unlocked["allowed"] is False
+    assert unlocked["reason"] == "consequence_not_locked"
+
+
+def test_resource_delta_signal_is_host_internal():
+    signal = coc_rule_signals.read_resource_delta_signal("hp", "loss", -3)
+    assert signal["kind"] == "resource_delta"
+    assert signal["host_internal"] is True
+    assert signal["visibility"] == "host-internal"
+    assert signal["resource"] == "hp"
+
+
 def test_contacts_difficulty_home_same_profession():
     assert coc_rule_signals.read_contacts_difficulty(home_ground=True, same_profession=True) == "regular"
 

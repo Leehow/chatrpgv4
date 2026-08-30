@@ -550,6 +550,19 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
         "kp_surface": "none",
         "phases": ("live_turn",),
     },
+    # R5: low-level package primitives leave the Keeper working set.
+    # Live Keepers use rules.roll for ordinary checks; graph effects invoke
+    # resource_delta. Both stay registered as host-internal adapters.
+    "rules.check": {
+        "audience": "host",
+        "kp_surface": "none",
+        "phases": ("live_turn",),
+    },
+    "rules.resource_delta": {
+        "audience": "host",
+        "kp_surface": "none",
+        "phases": ("live_turn",),
+    },
     "rules.roll_dice": {
         "phases": ("cold_start", "opening", "live_turn"),
     },

@@ -4839,7 +4839,10 @@ def _canonical_skill_selector(
     if not stripped:
         return ""
     compact = _compact_skill_fold(stripped)
-    if compact.startswith("firearms") or compact.startswith("fighting"):
+    # Bare Fighting/Firearms names are attack family selectors and stay on
+    # combat.resolve. Compact specializations (fighting(brawl), firearms(handgun))
+    # fold as ordinary skill identities for non-attack core-checks.
+    if compact in {"fighting", "firearms"}:
         raise ToolError(
             "use_combat_resolve",
             "attacks and firearm shots must use combat.resolve with an owned "

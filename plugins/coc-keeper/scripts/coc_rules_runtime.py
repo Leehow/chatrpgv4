@@ -145,6 +145,26 @@ PSYCHOLOGY_REALIZATION_PUBLIC_KEYS = frozenset({"external_behavior"})
 PSYCHOLOGY_OBSERVE_DECISION_SUFFIX = ":observe-concealed"
 PSYCHOLOGY_REALIZE_DECISION_SUFFIX = ":realize-player-safe"
 
+# R5 ordinary-check / Push / Luck / generic resource (spec §R5 / §11.1).
+# Packaged coc7 graph stays healing-only; tests load the check-luck fixture.
+CORE_CHECK_SETTLE_DECISION_REFS = (
+    "decision:coc7:core-check:ordinary-check",
+    "decision:coc7:core-check:resource-delta",
+)
+PUSH_LUCK_SETTLE_DECISION_REFS = (
+    "decision:coc7:push-luck:pushed-roll",
+    "decision:coc7:push-luck:luck-spend",
+    "decision:coc7:push-luck:luck-roll",
+)
+_ORDINARY_CHECK_REF = CORE_CHECK_SETTLE_DECISION_REFS[0]
+_RESOURCE_DELTA_REF = CORE_CHECK_SETTLE_DECISION_REFS[1]
+_PUSHED_ROLL_REF = PUSH_LUCK_SETTLE_DECISION_REFS[0]
+_LUCK_SPEND_REF = PUSH_LUCK_SETTLE_DECISION_REFS[1]
+_LUCK_ROLL_REF = PUSH_LUCK_SETTLE_DECISION_REFS[2]
+_CHECK_FAILURE_OUTCOMES = frozenset({"failure"})
+_CHECK_FUMBLE_OUTCOMES = frozenset({"fumble"})
+_RESOURCE_KEYS = frozenset({"hp", "mp", "luck", "san"})
+
 
 # --------------------------------------------------------------------------- #
 # Freeze helpers (immutable plans/cards; mirror of the kernel's pattern)
@@ -809,6 +829,11 @@ class RulesRuntime:
         self._psychology_frozen: dict[str, dict[str, Any]] = {}
         # Realization replay records keyed by the realize decision_id.
         self._psychology_realized: dict[str, dict[str, Any]] = {}
+        # R5 ordinary-check / push / luck / resource freeze maps (decision_id).
+        self._check_frozen: dict[str, dict[str, Any]] = {}
+        self._push_frozen: dict[str, dict[str, Any]] = {}
+        self._luck_spend_frozen: dict[str, dict[str, Any]] = {}
+        self._resource_frozen: dict[str, dict[str, Any]] = {}
         self._grant_sequence = 0
         self._nodes: dict[str, dict[str, Any]] = {}
         self._relations: list[dict[str, Any]] = []
@@ -1836,6 +1861,21 @@ class RulesRuntime:
         if family == "psychology" and decision_ref == _PSYCHOLOGY_REALIZE_REF:
             return self._settle_psychology_realize(
                 executor, plan, decision_id, selected, facts, envelope)
+        if family == "core-check" and decision_ref == _ORDINARY_CHECK_REF:
+            return self._settle_ordinary_check(
+                executor, plan, decision_id, selected, facts, envelope)
+        if family == "core-check" and decision_ref == _RESOURCE_DELTA_REF:
+            return self._settle_resource_delta(
+                executor, plan, decision_id, selected, facts, envelope)
+        if family == "push-luck" and decision_ref == _PUSHED_ROLL_REF:
+            return self._settle_pushed_roll(
+                executor, plan, decision_id, selected, facts, envelope)
+        if family == "push-luck" and decision_ref == _LUCK_SPEND_REF:
+            return self._settle_luck_spend(
+                executor, plan, decision_id, selected, facts, envelope)
+        if family == "push-luck" and decision_ref == _LUCK_ROLL_REF:
+            return self._settle_luck_roll(
+                executor, plan, decision_id, selected, facts, envelope)
         executed = executor(_thaw(plan), decision_id, selected)
         data = executed
         warnings: list[str] = []
@@ -2331,6 +2371,584 @@ class RulesRuntime:
             },
         )
 
+    @staticmethod
+    def _check_request_identity(
+        plan: Mapping[str, Any], selected: Mapping[str, Any],
+    ) -> str:
+        return _json_digest({
+            "decision_ref": plan["decision_ref"],
+            "semantic": selected.get("semantic_inputs"),
+        })
+
+    def _replay_or_conflict(
+        self,
+        store: dict[str, dict[str, Any]],
+        decision_id: str,
+        request_identity: str,
+        plan: Mapping[str, Any],
+        envelope: dict[str, Any],
+        *,
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        prior = store.get(decision_id)
+        if prior is None:
+            return None
+        if prior.get("request_identity") == request_identity:
+            return self._settled_envelope(
+                envelope, plan, _freeze(prior["result"]), [],
+                ["frozen settlement reused: identical decision_id"],
+                extra=extra,
+            )
+        return {
+            "schema_version": self.SCHEMA_VERSION,
+            "decision_ref": plan["decision_ref"],
+            "decision_id": decision_id,
+            "family": plan["family"],
+            "status": "decision_conflict",
+            "failure": {
+                "code": "decision_conflict",
+                "message": (
+                    "decision_id already bound to a different request; "
+                    "executor not invoked"
+                ),
+            },
+        }
+
+    @staticmethod
+    def _validate_ordinary_check_provenance(
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        skill = str(payload.get("skill") or "").strip()
+        characteristic = str(payload.get("characteristic") or "").strip()
+        if not skill and not characteristic:
+            return {
+                "code": "invalid_semantic_input",
+                "message": (
+                    "ordinary check requires skill or characteristic"
+                ),
+                "missing": ["skill"],
+            }
+        difficulty = str(payload.get("difficulty") or "").strip()
+        if difficulty not in {"regular", "hard", "extreme"}:
+            return {
+                "code": "invalid_semantic_input",
+                "message": "difficulty must be regular, hard, or extreme",
+                "fields": ["difficulty"],
+            }
+        goal = payload.get("goal")
+        if not isinstance(goal, str) or not goal.strip():
+            return {
+                "code": "invalid_semantic_input",
+                "message": "goal must be a non-empty string",
+                "fields": ["goal"],
+            }
+        stakes = payload.get("stakes")
+        if not isinstance(stakes, Mapping):
+            return {
+                "code": "invalid_semantic_input",
+                "message": "stakes must be {on_success, on_failure}",
+                "fields": ["stakes"],
+            }
+        return None
+
+    def _settle_ordinary_check(
+        self,
+        executor: Callable[..., Any],
+        plan: Mapping[str, Any],
+        decision_id: str,
+        selected: Mapping[str, Any],
+        facts: Mapping[str, Any],
+        envelope: dict[str, Any],
+    ) -> dict[str, Any]:
+        """One ordinary skill/characteristic check: one bound roll (spec R5).
+
+        Combined settlement: Keeper-selected skill/characteristic, difficulty,
+        goal, and stakes compile to exactly one resolver.check invocation.
+        No second model-authored transfer and no reroll primitive.  An ordinary
+        failure projects Push and Luck-spend continuation cards; a fumble does
+        not (source: pushed-roll.json / luck.json).
+        """
+        payload = (plan.get("command") or {}).get("payload") or {}
+        if not isinstance(payload, Mapping):
+            payload = {}
+        provenance = self._validate_ordinary_check_provenance(payload)
+        if provenance is not None:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_semantic_input",
+                "failure": provenance,
+            }
+        request_identity = self._check_request_identity(plan, selected)
+        replayed = self._replay_or_conflict(
+            self._check_frozen, decision_id, request_identity, plan, envelope,
+            extra={"visibility": "public"},
+        )
+        if replayed is not None:
+            return replayed
+        executed = executor(_thaw(plan), decision_id, selected)
+        data, warnings, hints = self._split_executor_result(executed)
+        if not isinstance(data, Mapping):
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_settlement_result",
+                "failure": {
+                    "code": "invalid_settlement_result",
+                    "message": "ordinary check must return a roll record",
+                },
+            }
+        outcome = str(data.get("outcome") or "")
+        result = {
+            "bound_check": _thaw(data),
+            "outcome": outcome,
+            "pushed": False,
+        }
+        if outcome in _CHECK_FAILURE_OUTCOMES:
+            result["next_continuations"] = [_PUSHED_ROLL_REF, _LUCK_SPEND_REF]
+            hints = list(hints) + [
+                "ordinary failure: the player may push this roll with a "
+                "changed method and an announced consequence, or spend Luck; "
+                "not both"
+            ]
+        elif outcome in _CHECK_FUMBLE_OUTCOMES:
+            result["next_continuations"] = []
+            hints = list(hints) + [
+                "a fumble cannot be pushed or bought off with Luck"
+            ]
+        else:
+            result["next_continuations"] = []
+        self._check_frozen[decision_id] = {
+            "request_identity": request_identity,
+            "result": deepcopy(result),
+        }
+        return self._settled_envelope(
+            envelope, plan, _freeze(result), warnings, hints,
+            extra={"visibility": "public"},
+        )
+
+    def _settle_luck_roll(
+        self,
+        executor: Callable[..., Any],
+        plan: Mapping[str, Any],
+        decision_id: str,
+        selected: Mapping[str, Any],
+        facts: Mapping[str, Any],
+        envelope: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Luck as a percentile check. Luck may not be spent on Luck rolls."""
+        request_identity = self._check_request_identity(plan, selected)
+        replayed = self._replay_or_conflict(
+            self._check_frozen, decision_id, request_identity, plan, envelope,
+            extra={"visibility": "public"},
+        )
+        if replayed is not None:
+            return replayed
+        executed = executor(_thaw(plan), decision_id, selected)
+        data, warnings, hints = self._split_executor_result(executed)
+        if not isinstance(data, Mapping):
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_settlement_result",
+                "failure": {
+                    "code": "invalid_settlement_result",
+                    "message": "Luck roll must return a roll record",
+                },
+            }
+        result = {
+            "bound_check": _thaw(data),
+            "outcome": str(data.get("outcome") or ""),
+            "luck_roll": True,
+            "next_continuations": [],
+        }
+        hints = list(hints) + [
+            "Luck may not be spent on Luck rolls (luck.json constraints)"
+        ]
+        self._check_frozen[decision_id] = {
+            "request_identity": request_identity,
+            "result": deepcopy(result),
+        }
+        return self._settled_envelope(
+            envelope, plan, _freeze(result), warnings, hints,
+            extra={"visibility": "public"},
+        )
+
+    def _settle_pushed_roll(
+        self,
+        executor: Callable[..., Any],
+        plan: Mapping[str, Any],
+        decision_id: str,
+        selected: Mapping[str, Any],
+        facts: Mapping[str, Any],
+        envelope: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Push: failed non-pushed check, Keeper consequence, then player confirm.
+
+        Source (pushed-roll.json required_stages): player_reframes_action,
+        keeper_foreshadows_failure, player_confirms_risk, roll_resolved.
+        The Keeper owns and announces ``failure_consequence``. Player
+        confirmation is a separate structured boolean ``player_confirmed_risk``;
+        presence of consequence text is not confirmation. The original
+        ordinary-check identity is host-reattached (locked slots).
+        """
+        payload = (plan.get("command") or {}).get("payload") or {}
+        if not isinstance(payload, Mapping):
+            payload = {}
+        method = str(payload.get("method_changed") or "").strip()
+        consequence = str(payload.get("failure_consequence") or "").strip()
+        if not method or not consequence:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_semantic_input",
+                "failure": {
+                    "code": "invalid_semantic_input",
+                    "message": (
+                        "pushed roll requires method_changed and "
+                        "failure_consequence locked before the roll"
+                    ),
+                    "missing": [
+                        name for name, value in (
+                            ("method_changed", method),
+                            ("failure_consequence", consequence),
+                        ) if not value
+                    ],
+                },
+            }
+        confirmed = payload.get("player_confirmed_risk")
+        if confirmed is not True:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_semantic_input",
+                "failure": {
+                    "code": "invalid_semantic_input",
+                    "message": (
+                        "pushed roll requires player_confirmed_risk=true "
+                        "after the Keeper announces the failure consequence; "
+                        "do not infer confirmation from consequence text"
+                    ),
+                    "fields": ["player_confirmed_risk"],
+                },
+            }
+        original_id = str(payload.get("original_check_decision_id") or "").strip()
+        original = self._check_frozen.get(original_id) if original_id else None
+        if original is None:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "rule_decision_not_applicable",
+                "failure": {
+                    "code": "rule_decision_not_applicable",
+                    "message": (
+                        "pushed roll requires a frozen failed non-pushed "
+                        "ordinary check; host re-attaches the original "
+                        "decision_id"
+                    ),
+                },
+            }
+        original_result = original.get("result") or {}
+        original_outcome = str(original_result.get("outcome") or "")
+        if original_result.get("pushed") or original_result.get("luck_roll"):
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "rule_decision_not_applicable",
+                "failure": {
+                    "code": "rule_decision_not_applicable",
+                    "message": (
+                        "only a failed non-pushed ordinary check may be pushed"
+                    ),
+                },
+            }
+        if original_outcome in _CHECK_FUMBLE_OUTCOMES:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "rule_decision_not_applicable",
+                "failure": {
+                    "code": "rule_decision_not_applicable",
+                    "message": "a fumble cannot be pushed; it is final",
+                },
+            }
+        if original_outcome not in _CHECK_FAILURE_OUTCOMES:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "rule_decision_not_applicable",
+                "failure": {
+                    "code": "rule_decision_not_applicable",
+                    "message": (
+                        "only an ordinary failed original check may be pushed"
+                    ),
+                },
+            }
+        if original_id in self._luck_spend_frozen:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "rule_decision_not_applicable",
+                "failure": {
+                    "code": "rule_decision_not_applicable",
+                    "message": "push or spend Luck, but not both",
+                },
+            }
+        request_identity = self._check_request_identity(plan, selected)
+        replayed = self._replay_or_conflict(
+            self._push_frozen, decision_id, request_identity, plan, envelope,
+            extra={"visibility": "public"},
+        )
+        if replayed is not None:
+            return replayed
+        executed = executor(_thaw(plan), decision_id, selected)
+        data, warnings, hints = self._split_executor_result(executed)
+        if not isinstance(data, Mapping):
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_settlement_result",
+                "failure": {
+                    "code": "invalid_settlement_result",
+                    "message": "pushed roll must return a roll record",
+                },
+            }
+        result = {
+            "bound_check": _thaw(data),
+            "outcome": str(data.get("outcome") or ""),
+            "pushed": True,
+            "original_check_decision_id": original_id,
+            "failure_consequence": consequence,
+            "method_changed": method,
+            "player_confirmed_risk": True,
+        }
+        hints = list(hints) + [
+            "the recorded failure_consequence is authoritative; apply it if "
+            "the pushed roll fails"
+        ]
+        self._push_frozen[decision_id] = {
+            "request_identity": request_identity,
+            "result": deepcopy(result),
+            "original_check_decision_id": original_id,
+        }
+        return self._settled_envelope(
+            envelope, plan, _freeze(result), warnings, hints,
+            extra={"visibility": "public"},
+        )
+
+    def _settle_luck_spend(
+        self,
+        executor: Callable[..., Any],
+        plan: Mapping[str, Any],
+        decision_id: str,
+        selected: Mapping[str, Any],
+        facts: Mapping[str, Any],
+        envelope: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Luck spend: receipt-bound continuation of one ordinary check."""
+        payload = (plan.get("command") or {}).get("payload") or {}
+        if not isinstance(payload, Mapping):
+            payload = {}
+        points = payload.get("points")
+        if isinstance(points, bool) or not isinstance(points, int) or points <= 0:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_semantic_input",
+                "failure": {
+                    "code": "invalid_semantic_input",
+                    "message": "points must be a positive integer",
+                    "fields": ["points"],
+                },
+            }
+        source_roll_id = str(payload.get("source_roll_id") or "").strip()
+        if not source_roll_id:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_semantic_input",
+                "failure": {
+                    "code": "invalid_semantic_input",
+                    "message": "source_roll_id is host-locked from the original receipt",
+                    "missing": ["source_roll_id"],
+                },
+            }
+        original_id = str(payload.get("original_check_decision_id") or "").strip()
+        original = self._check_frozen.get(original_id) if original_id else None
+        if original is not None:
+            original_result = original.get("result") or {}
+            if original_result.get("luck_roll"):
+                return {
+                    "schema_version": self.SCHEMA_VERSION,
+                    "decision_ref": plan["decision_ref"],
+                    "decision_id": decision_id,
+                    "family": plan["family"],
+                    "status": "rule_decision_not_applicable",
+                    "failure": {
+                        "code": "rule_decision_not_applicable",
+                        "message": "Luck may not be spent on Luck rolls",
+                    },
+                }
+            if original_id in {
+                row.get("original_check_decision_id")
+                for row in self._push_frozen.values()
+            }:
+                return {
+                    "schema_version": self.SCHEMA_VERSION,
+                    "decision_ref": plan["decision_ref"],
+                    "decision_id": decision_id,
+                    "family": plan["family"],
+                    "status": "rule_decision_not_applicable",
+                    "failure": {
+                        "code": "rule_decision_not_applicable",
+                        "message": "push or spend Luck, but not both",
+                    },
+                }
+        request_identity = self._check_request_identity(plan, selected)
+        replayed = self._replay_or_conflict(
+            self._luck_spend_frozen, decision_id, request_identity, plan,
+            envelope, extra={"visibility": "public"},
+        )
+        if replayed is not None:
+            return replayed
+        executed = executor(_thaw(plan), decision_id, selected)
+        data, warnings, hints = self._split_executor_result(executed)
+        if not isinstance(data, Mapping):
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_settlement_result",
+                "failure": {
+                    "code": "invalid_settlement_result",
+                    "message": "Luck spend must return a receipt",
+                },
+            }
+        result = {
+            "luck_spend": _thaw(data),
+            "source_roll_id": source_roll_id,
+            "points": points,
+            "resource_key": "luck",
+        }
+        self._luck_spend_frozen[decision_id] = {
+            "request_identity": request_identity,
+            "result": deepcopy(result),
+            "original_check_decision_id": original_id,
+        }
+        if original_id:
+            self._luck_spend_frozen[original_id] = self._luck_spend_frozen[decision_id]
+        return self._settled_envelope(
+            envelope, plan, _freeze(result), warnings, hints,
+            extra={"visibility": "public"},
+        )
+
+    def _settle_resource_delta(
+        self,
+        executor: Callable[..., Any],
+        plan: Mapping[str, Any],
+        decision_id: str,
+        selected: Mapping[str, Any],
+        facts: Mapping[str, Any],
+        envelope: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Host-internal generic resource delta with provenance (spec §11.1)."""
+        payload = (plan.get("command") or {}).get("payload") or {}
+        if not isinstance(payload, Mapping):
+            payload = {}
+        resource = str(payload.get("resource") or "").strip().lower()
+        direction = str(payload.get("direction") or "").strip()
+        if resource not in _RESOURCE_KEYS:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_semantic_input",
+                "failure": {
+                    "code": "invalid_semantic_input",
+                    "message": "resource must be a declared actor pool",
+                    "fields": ["resource"],
+                },
+            }
+        if direction not in {"loss", "gain"}:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_semantic_input",
+                "failure": {
+                    "code": "invalid_semantic_input",
+                    "message": "direction must be loss or gain",
+                    "fields": ["direction"],
+                },
+            }
+        request_identity = self._check_request_identity(plan, selected)
+        replayed = self._replay_or_conflict(
+            self._resource_frozen, decision_id, request_identity, plan, envelope,
+            extra={"visibility": "keeper-only"},
+        )
+        if replayed is not None:
+            return replayed
+        executed = executor(_thaw(plan), decision_id, selected)
+        data, warnings, hints = self._split_executor_result(executed)
+        if not isinstance(data, Mapping):
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_settlement_result",
+                "failure": {
+                    "code": "invalid_settlement_result",
+                    "message": "resource_delta must return a receipt",
+                },
+            }
+        result = {
+            "resource_delta": _thaw(data),
+            "resource": resource,
+            "direction": direction,
+            "provenance": {
+                "decision_id": decision_id,
+                "decision_ref": plan["decision_ref"],
+            },
+        }
+        self._resource_frozen[decision_id] = {
+            "request_identity": request_identity,
+            "result": deepcopy(result),
+        }
+        return self._settled_envelope(
+            envelope, plan, _freeze(result), warnings, hints,
+            extra={"visibility": "keeper-only"},
+        )
+
 
 def _observation_inference_ceiling(data: Mapping[str, Any]) -> str | None:
     """Extract the frozen inference ceiling from one observation record."""
@@ -2643,7 +3261,7 @@ def _compare_plan_and_legacy(
     plan_kind = str(plan_command.get("kind") or "")
     plan_phase = str(plan_command.get("phase") or "")
     plan_payload = {
-        str(key): deepcopy(value)
+        str(key): _thaw(value)
         for key, value in (plan_command.get("payload") or {}).items()
     }
     if plan_kind != legacy_kind:
@@ -3116,6 +3734,239 @@ def _maybe_shadow_compare_social_psychology_impl(
         _append_shadow_row(row, _current_log_path_from_config())
         return row
     decision_ref = _decision_ref_for_social_psychology(runtime, tool_name, command)
+    if decision_ref is None:
+        row = {
+            "family": family, "tool": tool_name, "decision_id": decision_id,
+            "decision_ref": None, "status": "mismatch", "skip_reason": None,
+            "differences": [{
+                "axis": "decision_ref", "field": "decision_ref",
+                "kind": "missing_in_graph",
+                "plan": None, "legacy": tool_name,
+            }],
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    facts = _facts_from_state_file(
+        Path(state_path), sheet, ruleset_id=ruleset_id,
+    ) if state_path is not None else facts_from_state(
+        None, sheet, ruleset_id=ruleset_id,
+    )
+    slot_ownership = {
+        slot["name"]: slot["ownership"] for slot in runtime._slots_for(decision_ref)
+    }
+    payload = {
+        str(key): deepcopy(value)
+        for key, value in (command.get("payload") or {}).items()
+        if str(key) not in _RUNTIME_OWNED_PAYLOAD_KEYS
+    }
+    semantic_inputs: dict[str, Any] = {}
+    host_locked: dict[str, Any] = {}
+    for key, value in payload.items():
+        ownership = slot_ownership.get(key)
+        if ownership in _SEMANTIC_SLOT_OWNERSHIPS:
+            semantic_inputs[key] = value
+        elif ownership in _LOCKED_SLOT_OWNERSHIPS:
+            host_locked[key] = value
+    result = runtime._compile_plan(
+        decision_ref, semantic_inputs, facts=facts, host_locked=host_locked,
+    )
+    if result["failure"] is not None:
+        failure = result["failure"]
+        row = {
+            "family": family, "tool": tool_name, "decision_id": decision_id,
+            "decision_ref": decision_ref, "status": "mismatch",
+            "skip_reason": None,
+            "differences": [{
+                "axis": "semantic_inputs",
+                "field": failure.get("code", "condition"),
+                "kind": "missing_semantic_input",
+                "plan": None, "legacy": "executing",
+                "message": failure.get("message"),
+                "missing": failure.get("missing"),
+            }],
+            "plan_profile": None, "legacy_profile": None,
+            "graph_content_digest": _json_digest(graph),
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    plan = result["plan"]
+    differences, plan_profile, legacy_profile = _compare_plan_and_legacy(
+        runtime, plan, command,
+    )
+    row = {
+        "contract_id": SHADOW_LOG_CONTRACT_ID,
+        "schema_version": SHADOW_LOG_SCHEMA_VERSION,
+        "ruleset_id": ruleset_id,
+        "family": family,
+        "tool": tool_name,
+        "decision_id": decision_id,
+        "decision_ref": decision_ref,
+        "status": "match" if not differences else "mismatch",
+        "skip_reason": None,
+        "differences": differences,
+        "plan_profile": plan_profile,
+        "legacy_profile": legacy_profile,
+        "graph_content_digest": _json_digest(graph),
+    }
+    _append_shadow_row(row, _current_log_path_from_config())
+    return row
+
+
+_CHECK_LUCK_TOOLS = frozenset({
+    "rules.roll", "rules.push", "rules.luck_spend", "rules.resource_delta",
+})
+
+
+def maybe_shadow_compare_check_luck(
+    *,
+    ruleset_id: str,
+    tool_name: str,
+    decision_id: str,
+    command: Mapping[str, Any] | None = None,
+    args: Mapping[str, Any] | None = None,
+    state_path: Path | str | None = None,
+    sheet_provider: Callable[[], dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Shadow-compare one ordinary-check / Push / Luck / resource op.
+
+    Fail-open, never blocks, never double-executes.  Engages only when the
+    family resolves to ``shadow`` (tests arm ``configure_shadow``).  Graph
+    absent/invalid → one host-internal ``skipped`` row; legacy continues.
+    """
+    if tool_name not in _CHECK_LUCK_TOOLS:
+        return None
+    try:
+        return _maybe_shadow_compare_check_luck_impl(
+            ruleset_id=ruleset_id,
+            tool_name=tool_name,
+            decision_id=decision_id,
+            command=command,
+            args=args,
+            state_path=state_path,
+            sheet_provider=sheet_provider,
+        )
+    except Exception as exc:  # pragma: no cover - defensive boundary
+        row = {
+            "contract_id": SHADOW_LOG_CONTRACT_ID,
+            "schema_version": SHADOW_LOG_SCHEMA_VERSION,
+            "ruleset_id": ruleset_id,
+            "family": _family_for_check_luck_tool(tool_name),
+            "tool": tool_name,
+            "decision_id": decision_id,
+            "status": "skipped",
+            "skip_reason": "comparator_error",
+            "error": str(exc)[:300],
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+
+
+def _family_for_check_luck_tool(tool_name: str) -> str:
+    if tool_name in {"rules.push", "rules.luck_spend"}:
+        return "push-luck"
+    return "core-check"
+
+
+def _decision_ref_for_check_luck(
+    runtime: RulesRuntime,
+    tool_name: str,
+    command: Mapping[str, Any],
+) -> str | None:
+    payload = command.get("payload") or {}
+    if not isinstance(payload, Mapping):
+        payload = {}
+    expected = None
+    if tool_name == "rules.roll":
+        characteristic = str(payload.get("characteristic") or "").strip().upper()
+        skill = str(payload.get("skill") or "").strip().upper()
+        if characteristic == "LUCK" or skill == "LUCK":
+            expected = _LUCK_ROLL_REF
+        else:
+            expected = _ORDINARY_CHECK_REF
+    elif tool_name == "rules.push":
+        expected = _PUSHED_ROLL_REF
+    elif tool_name == "rules.luck_spend":
+        expected = _LUCK_SPEND_REF
+    elif tool_name == "rules.resource_delta":
+        expected = _RESOURCE_DELTA_REF
+    if expected is not None and expected in runtime._nodes:
+        return expected
+    return None
+
+
+def _maybe_shadow_compare_check_luck_impl(
+    *,
+    ruleset_id: str,
+    tool_name: str,
+    decision_id: str,
+    command: Mapping[str, Any] | None,
+    args: Mapping[str, Any] | None,
+    state_path: Path | str | None,
+    sheet_provider: Callable[[], dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    config = _SHADOW_CONFIG
+    family = _family_for_check_luck_tool(tool_name)
+    owner, _surface = "legacy", "visible"
+    graph: dict[str, Any] | None = None
+    graph_manifest: dict[str, Any] | None = None
+    rulesets_root_path: Path | str | None = None
+    if config is not None and config.get("ruleset_id") == ruleset_id:
+        owner = str(config.get("runtime_owner") or "legacy")
+        graph = config.get("graph")
+        graph_manifest = config.get("graph_manifest")
+        rulesets_root_path = config.get("rulesets_root_path")
+    if owner == "legacy":
+        manifest = _load_manifest_cached(ruleset_id, rulesets_root_path)
+        if manifest is not None:
+            loaded = load_ruleset_graph(
+                ruleset_id, rulesets_root_path=rulesets_root_path,
+            )
+            if loaded["ok"]:
+                graph, graph_manifest = loaded["graph"], loaded["graph_manifest"]
+            owner, _ = resolve_family_ownership(
+                ruleset_id, family, manifest=manifest,
+                graph=graph, graph_manifest=graph_manifest,
+            )
+        if owner != "shadow":
+            return None
+    if not isinstance(command, Mapping):
+        row = {
+            "family": family, "tool": tool_name, "decision_id": decision_id,
+            "status": "skipped", "skip_reason": "no_normalized_command",
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    if graph is None or graph_manifest is None:
+        row = {
+            "family": family, "tool": tool_name, "decision_id": decision_id,
+            "status": "skipped", "skip_reason": "graph_absent",
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    sheet = None
+    if sheet_provider is not None:
+        try:
+            sheet = sheet_provider()
+        except Exception:
+            sheet = None
+    try:
+        runtime = RulesRuntime(
+            graph,
+            ruleset_id=ruleset_id,
+            graph_manifest=graph_manifest,
+            facts_provider=facts_from_state_closure(
+                state_path, sheet, ruleset_id=ruleset_id,
+            ),
+            host_locked_provider=None,
+        )
+    except ValueError:
+        row = {
+            "family": family, "tool": tool_name, "decision_id": decision_id,
+            "status": "skipped", "skip_reason": "graph_invalid",
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    decision_ref = _decision_ref_for_check_luck(runtime, tool_name, command)
     if decision_ref is None:
         row = {
             "family": family, "tool": tool_name, "decision_id": decision_id,
