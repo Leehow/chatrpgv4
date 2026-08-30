@@ -974,13 +974,36 @@ assert.equal(
 assert.deepEqual(
   cardsResumed.data.host_recovery_guidance.review_recovery.card,
   {
-    ...reviewCardFixture(),
-    prefilled_arguments: { revision: 1 },
+    operation: "narration.review",
+    invoke_via: "coc_narration_review",
+    prefilled_arguments: {},
+    missing_arguments: ["draft_text", "findings", "state_authority_review"],
+    host_bound_auto_attached_arguments: [
+      "campaign", "decision_id", "revision", "root", "source_digest",
+      "state_claim_compilation", "turn_id",
+    ],
+    discovery_required: false,
+    authority: "semantic_agency_and_player_state_review",
+    hard_gate_scope: "agency_and_player_state_authority_only",
+    host_state_claim_compiler_required: true,
+    span_repairs: [{ span: "cupboard-reveal", repaired_revision: 1 }],
   },
 );
 assert.deepEqual(
   cardsResumed.data.host_recovery_guidance.then.card,
-  finalizeCardFixture(),
+  {
+    operation: "turn.finalize",
+    invoke_via: "coc_turn_finalize",
+    prefilled_arguments: { coverage: [] },
+    missing_arguments: ["draft", "coverage", "agency_claims"],
+    host_bound_auto_attached_arguments: [
+      "campaign", "decision_id", "narration_review_id",
+      "repair_finalization_id", "revision", "root",
+    ],
+    discovery_required: false,
+    authority: "settled_output_completeness",
+    hard_gate: true,
+  },
 );
 assert.equal(
   JSON.stringify(
@@ -2038,13 +2061,31 @@ assert.equal(liveGuidance.output_context_status, "host_refreshed_live");
 assert.deepEqual(liveGuidance.next_call, { tool: "coc_narration_review" });
 assert.equal(liveGuidance.next_call.card, undefined, "first card is not duplicated");
 assert.deepEqual(liveGuidance.review_recovery.card, {
-  ...liveReviewCard(),
-  // Gateway boundary sanitizes opaque identity from model content; the host
-  // injects the exact turn/source binding at invoke time.
-  prefilled_arguments: { revision: 2 },
+  operation: "narration.review",
+  invoke_via: "coc_narration_review",
+  prefilled_arguments: {},
+  missing_arguments: ["draft_text", "findings", "state_authority_review"],
+  host_bound_auto_attached_arguments: [
+    "campaign", "decision_id", "revision", "root", "source_digest",
+    "state_claim_compilation", "turn_id",
+  ],
+  discovery_required: false,
+  authority: "semantic_agency_and_player_state_review",
 });
-assert.deepEqual(liveGuidance.then.card, liveFinalizeCard());
-assert.equal(liveGuidance.review_recovery.revision, 2);
+assert.deepEqual(liveGuidance.then.card, {
+  operation: "turn.finalize",
+  invoke_via: "coc_turn_finalize",
+  prefilled_arguments: { coverage: [] },
+  missing_arguments: ["draft", "agency_claims"],
+  host_bound_auto_attached_arguments: [
+    "campaign", "decision_id", "narration_review_id",
+    "repair_finalization_id", "revision", "root",
+  ],
+  discovery_required: false,
+  authority: "settled_output_completeness",
+  hard_gate: true,
+});
+assert.equal(liveGuidance.review_recovery.revision, undefined);
 assert.equal(liveGuidance.card_projection.source, "host_refreshed_live_context");
 // The exact frozen draft rides once, keeper-only, inside the review input.
 assert.deepEqual(liveGuidance.review_recovery.review_input, {
@@ -2169,25 +2210,23 @@ assert.equal(
   "coc.pi-state-claim-compilation-receipt.v1",
 );
 assertNoPlayerLeak(liveHost, "live hydration review");
-// Repeated resume of the same pending identity coalesces: no refetch, the
-// same live guidance.
+// A successful review invalidates the pre-review hydration even when the
+// pending turn/source tuple is unchanged; the next resume refetches once so
+// an accepted review can never be mistaken for the old review action.
 const liveResumedAgain = await invoke(
   liveHost,
   "live-hydrate-resume-2",
   resumeParams(liveCampaign),
   "coc_setup",
 );
-assert.equal(outputContextFetchCount(liveHost), 1, "repeated pending identity must not refetch");
+assert.equal(outputContextFetchCount(liveHost), 2, "post-review resume refetches exactly once");
 assert.equal(
   liveResumedAgain.data.host_recovery_guidance.output_context_status,
   "host_refreshed_live",
 );
 assert.deepEqual(
   liveResumedAgain.data.host_recovery_guidance.review_recovery.card,
-  {
-    ...liveReviewCard(),
-    prefilled_arguments: { revision: 2 },
-  },
+  liveGuidance.review_recovery.card,
 );
 await liveHost.shutdown();
 
@@ -2316,20 +2355,22 @@ await liveHost.shutdown();
   }, changedCampaign);
   await changedHost.start();
   const firstChanged = await invoke(changedHost, "changed-resume-1", resumeParams(changedCampaign), "coc_setup");
-  // Identity values are host-only at the gateway boundary; the model-visible
-  // card carries the semantic revision ordinal, and the changed-identity
-  // refetch below proves the host retained the exact turn binding.
+  // Identity values and revision are host-only at the gateway boundary; the
+  // changed-identity refetch below proves the host retained the exact binding.
   assert.equal(
     firstChanged.data.host_recovery_guidance.review_recovery.card.prefilled_arguments.revision,
-    2,
+    undefined,
   );
   const secondChanged = await invoke(changedHost, "changed-resume-2", resumeParams(changedCampaign), "coc_setup");
   assert.equal(outputContextFetchCount(changedHost), 2, "changed identity refetches once");
   assert.equal(
     secondChanged.data.host_recovery_guidance.review_recovery.card.prefilled_arguments.revision,
-    2,
+    undefined,
   );
-  assert.equal(secondChanged.data.host_recovery_guidance.review_recovery.revision, 2);
+  assert.equal(
+    secondChanged.data.host_recovery_guidance.review_recovery.revision,
+    undefined,
+  );
   await changedHost.shutdown();
 }
 
@@ -2387,8 +2428,9 @@ await liveHost.shutdown();
   const staleResume = await oldResume;
   assert.equal(outputContextFetchCount(raceHost), 2);
   assert.equal(
-    newResume.data.host_recovery_guidance.review_recovery.revision,
-    2,
+    newResume.data.host_recovery_guidance.review_recovery.card
+      .host_bound_auto_attached_arguments.includes("revision"),
+    true,
     "new revision-qualified identity commits its one live fetch",
   );
   assert.equal(

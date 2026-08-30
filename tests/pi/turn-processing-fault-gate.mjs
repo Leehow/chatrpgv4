@@ -814,7 +814,10 @@ test("resume-armed recovery retries compiler once and finalizes with host receip
       resumed.data.host_recovery_guidance.review_recovery.exact_card_path,
       "coc_turn_output_context.data.agency_review_operation",
     );
-    assert.equal(resumed.data.host_recovery_guidance.review_recovery.revision, 1);
+    assert.equal(
+      resumed.data.host_recovery_guidance.review_recovery.revision,
+      undefined,
+    );
     assert.equal(
       resumed.data.host_recovery_guidance.review_recovery.instruction.includes("revision-1"),
       false,
@@ -1163,7 +1166,10 @@ test("frozen revision 2 recovery uses the host card revision", async () => {
     h.setResumeMode("pending_finalization");
     const resumed = await h.parse("recover-resume", "session.resume", {});
     assert.equal(resumed.data.host_recovery_guidance.review_recovery.armed, true);
-    assert.equal(resumed.data.host_recovery_guidance.review_recovery.revision, 2);
+    assert.equal(
+      resumed.data.host_recovery_guidance.review_recovery.revision,
+      undefined,
+    );
     const wrongRevision = await h.parse("review-wrong-rev", "narration.review", {
       ...reviewTwo,
       revision: 1,

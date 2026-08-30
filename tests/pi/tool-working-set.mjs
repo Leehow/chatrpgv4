@@ -236,6 +236,30 @@ test("output_context_ready exposes both review and finalize plus exact context r
   }
 });
 
+test("live host bindings narrow closure tools without changing the stage table", () => {
+  const reviewOnly = snapshot({
+    phase: "pending_finalization",
+    stage: "output_context_ready",
+    canonicalProgressRevision: 4,
+    boundOperations: ["narration.review"],
+  });
+  const reviewProjected = workingSet.projectToolWorkingSet(reviewOnly);
+  assertPolicyVisible(reviewProjected, reviewOnly);
+  assert.ok(reviewProjected.activeOperationNames.includes("narration.review"));
+  assert.ok(!reviewProjected.activeOperationNames.includes("turn.finalize"));
+
+  const finalizeOnly = snapshot({
+    phase: "pending_finalization",
+    stage: "review_ready",
+    canonicalProgressRevision: 5,
+    boundOperations: ["turn.finalize"],
+  });
+  const finalizeProjected = workingSet.projectToolWorkingSet(finalizeOnly);
+  assertPolicyVisible(finalizeProjected, finalizeOnly);
+  assert.ok(finalizeProjected.activeOperationNames.includes("turn.finalize"));
+  assert.ok(!finalizeProjected.activeOperationNames.includes("narration.review"));
+});
+
 test("exact long-tail and bounded namespace loads remain provider-neutral", () => {
   const source = snapshot();
   const exact = workingSet.loadToolNamespace(source, {

@@ -2241,7 +2241,7 @@ test("valid ending receipt advances finalized then exact delivery", async () => 
   }
 });
 
-test("pending-finalization hydration carries the exact frozen draft keeper-only and projects model-owned review/finalize calls", async () => {
+test("accepted-review hydration projects finalize-only and host-binds exact review identity", async () => {
   const compiler = new PiStateClaimCompiler(async (input) => ({
     result: {
       schema_version: 1,
@@ -2312,7 +2312,7 @@ test("pending-finalization hydration carries the exact frozen draft keeper-only 
     operation: "turn.finalize",
     invoke_via: invokeVia,
     prefilled_arguments: {
-      decision_id: `${turnId}:player-epoch-7:revision-${revision}:finalize`,
+      decision_id: `pi-state-journal:2a383743:player-epoch-7:revision-${revision}:finalize`,
       revision,
       coverage: [],
     },
@@ -2327,6 +2327,8 @@ test("pending-finalization hydration carries the exact frozen draft keeper-only 
     data: {
       turn_id: turnId,
       source_digest: sourceDigest,
+      journal_decision_id:
+        "pi-state-journal:2a383743:player-epoch-7:revision-2",
       settlement_snapshot_id: "turn-settlement-v1:affordance-pending-1",
       mechanics_bundle_sha256: `sha256:${"e9".repeat(32)}`,
       contract_projection: {
@@ -2405,7 +2407,7 @@ test("pending-finalization hydration carries the exact frozen draft keeper-only 
       h.ctx,
     );
     const resumed = JSON.parse(resumedResult.content[0].text);
-    assert.equal(resumed.ok, true);
+    assert.equal(resumed.ok, true, JSON.stringify(resumed));
     assert.equal(contextFetches, 1, "exactly one host output-context fetch");
     assert.equal(
       h.clientCalls.filter((call) => (
@@ -2433,24 +2435,56 @@ test("pending-finalization hydration carries the exact frozen draft keeper-only 
     );
     const guidance = resumed.data.host_recovery_guidance;
     assert.equal(guidance.output_context_status, "host_refreshed_live");
-    // Model-visible cards are identity-sanitized by the gateway boundary
-    // (opaque turn/source binding values stripped; the host injects them at
-    // invoke time); the exact canonical cards stay authoritative in
-    // host-only details.
+    assert.equal(guidance.status, "review_accepted_pending_finalization");
+    assert.deepEqual(guidance.next_call, { tool: "coc_turn_finalize" });
     assert.equal(
-      JSON.stringify(guidance.review_recovery.card),
-      JSON.stringify({
-        ...liveReviewCard(),
-        prefilled_arguments: { revision: 2 },
-      }),
+      guidance.review_recovery,
+      undefined,
+      "an accepted review must never be offered as the next model action",
     );
-    assert.equal(
-      JSON.stringify(guidance.then.card),
-      JSON.stringify(liveFinalizeCard()),
-    );
+    assert.equal(guidance.model_calls.review, undefined);
+    assert.deepEqual(guidance.accepted_review, {
+      status: "accepted",
+      instruction: guidance.accepted_review.instruction,
+    });
+    // The model-facing finalize card carries only model-owned prefilled and
+    // missing arguments. Every exact identity is listed as host-attached and
+    // remains available only in canonical details.
+    assert.deepEqual(guidance.then.card, {
+      operation: "turn.finalize",
+      invoke_via: "coc_turn_finalize",
+      prefilled_arguments: { coverage: [] },
+      missing_arguments: ["draft", "agency_claims"],
+      host_bound_auto_attached_arguments: [
+        "campaign", "decision_id", "narration_review_id",
+        "repair_finalization_id", "revision", "root",
+      ],
+      discovery_required: false,
+      authority: "settled_output_completeness",
+      hard_gate: true,
+    });
+    for (const field of [
+      "decision_id", "narration_review_id", "repair_finalization_id",
+      "revision", "source_digest", "review_id", "receipt_id",
+    ]) {
+      assert.equal(
+        Object.hasOwn(guidance.then.card.prefilled_arguments, field),
+        false,
+        `model-facing finalize card leaked host-bound ${field}`,
+      );
+    }
+    assert.deepEqual(guidance.then.finalize_input, {
+      visibility: "keeper_only",
+      source: "turn.output_context.data.frozen_narration_draft",
+      mode: "accepted_review_exact",
+      accepted_draft_text: draftText,
+      instruction: guidance.then.finalize_input.instruction,
+    });
+    // Host-only details retain both exact canonical cards and accepted-review
+    // identity/digest evidence for audit and binding.
     assert.equal(
       JSON.stringify(
-        resumedResult.details.data.host_recovery_guidance.review_recovery.card,
+        resumedResult.details.data.host_recovery_guidance.accepted_review.card,
       ),
       JSON.stringify(liveReviewCard()),
       "host-only details must retain the exact canonical review card",
@@ -2460,20 +2494,9 @@ test("pending-finalization hydration carries the exact frozen draft keeper-only 
       JSON.stringify(liveFinalizeCard()),
       "host-only details must retain the exact canonical finalize card",
     );
-    // The exact frozen draft rides exactly once, keeper-only, as the
-    // immutable baseline with its mode relation to the actionable cards.
-    // Model content is digest-free (the draft text itself is the semantic
-    // baseline); the exact digest stays host-only in details.
-    assert.deepEqual(guidance.review_recovery.review_input, {
-      visibility: "keeper_only",
-      source: "turn.output_context.data.frozen_narration_draft",
-      mode: "exact_replay",
-      baseline_draft_text: draftText,
-      instruction: guidance.review_recovery.review_input.instruction,
-    });
     assert.equal(
-      resumedResult.details.data.host_recovery_guidance.review_recovery
-        .review_input.baseline_draft_sha256,
+      resumedResult.details.data.host_recovery_guidance.then
+        .finalize_input.accepted_draft_sha256,
       draftSha256,
       "host-only details must retain the exact frozen draft digest",
     );
@@ -2483,73 +2506,40 @@ test("pending-finalization hydration carries the exact frozen draft keeper-only 
       1,
       "frozen draft appears exactly once in the guidance",
     );
+    for (const hostOnlyValue of [
+      turnId,
+      sourceDigest,
+      liveFinalizeCard().prefilled_arguments.decision_id,
+      frozenDraft().review_id,
+      draftSha256,
+    ]) {
+      assert.equal(
+        guidanceJson.includes(hostOnlyValue),
+        false,
+        "model recovery guidance leaked host-only identity or integrity",
+      );
+    }
     assert.equal(
       guidanceJson.includes("coc_turn_output_context"),
       false,
       "host-refreshed guidance must be pointer-free",
     );
-    // Separate model-call projection: model-owned only, host-bound listed,
-    // exact card invoke_via surfaces.
-    assert.deepEqual(guidance.model_calls.review.model_owned_required_arguments, [
-      "draft_text",
-      "state_authority_review",
-    ]);
-    assert.deepEqual(guidance.model_calls.review.host_bound_auto_attached_arguments, [
-      "campaign", "decision_id", "revision", "root", "source_digest",
-      "state_claim_compilation", "turn_id",
-    ]);
-    assert.equal(guidance.model_calls.review.invoke_via, "coc_narration_review");
     assert.deepEqual(guidance.model_calls.finalize.model_owned_required_arguments, [
       "coverage",
       "draft",
     ]);
     assert.equal(guidance.model_calls.finalize.invoke_via, "coc_turn_finalize");
-    // The armed typed tool surface presents only model-owned fields: no
-    // host-owned identity, compiler receipt, or draft alias remains.
-    const reviewParameters = h.tools.get("coc_narration_review").parameters;
-    for (const hostOwned of [
-      "root", "campaign", "decision_id", "turn_id", "source_digest",
-      "revision", "state_claim_compilation",
-    ]) {
-      assert.ok(!Object.hasOwn(reviewParameters.properties, hostOwned), hostOwned);
-    }
-    assert.deepEqual(
-      reviewParameters.required,
-      ["draft_text", "state_authority_review"],
-    );
-    assert.ok(!Object.hasOwn(reviewParameters.properties, "draft"), "no draft alias");
-    // The projected model-owned arguments execute against the typed tool:
-    // the host attaches turn/source/revision and its compiler receipt.
-    const review = JSON.parse((await h.tools.get("coc_narration_review").execute(
-      "typed-review",
-      {
-        draft_text: draftText,
-        findings: [],
-        state_authority_review: {
-          disposition: "no_player_state_change_claimed",
-          reason: "没有调查员状态变化。",
-          claims: [],
-        },
-      },
-      undefined,
-      undefined,
-      h.ctx,
-    )).content[0].text);
-    assert.equal(review.ok, true, JSON.stringify(review));
-    const reviewCalls = h.clientCalls.filter((call) => (
-      call.name === "coc_invoke" && call.params?.operation === "narration.review"
-    ));
-    assert.equal(reviewCalls.length, 1);
-    const wireArguments = reviewCalls[0].params.arguments;
-    assert.equal(wireArguments.turn_id, turnId);
-    assert.equal(wireArguments.source_digest, sourceDigest);
-    assert.equal(wireArguments.revision, 2);
-    assert.equal(wireArguments.draft_text, draftText);
     assert.equal(
-      wireArguments.state_claim_compilation?.contract_id,
-      "coc.pi-state-claim-compilation-receipt.v1",
+      h.clientCalls.some((call) => call.params?.operation === "narration.review"),
+      false,
+      "resume and finalize-only recovery must not repeat the accepted review",
     );
-    assert.ok(!Object.hasOwn(wireArguments, "draft"), "no draft alias on the wire");
+    assert.ok(h.active.at(-1).includes("coc_turn_finalize"));
+    assert.equal(
+      h.active.at(-1).includes("coc_narration_review"),
+      false,
+      "accepted review advances the working set to finalize-only",
+    );
     // Complete through finalize using the generated finalize projection's
     // typed_flat surface: model-owned arguments only; the host attaches
     // decision/revision/review identities — no alias or forged rejection.
@@ -2573,15 +2563,15 @@ test("pending-finalization hydration carries the exact frozen draft keeper-only 
     const finalizeWire = finalizeCalls[0].params.arguments;
     assert.equal(finalizeWire.draft, draftText);
     assert.equal(finalizeWire.revision, 2);
-    // decision_id is host-owned and auto-attached: the binding layer mints
-    // its own semantic finalize decision id, never a model echo.
-    assert.ok(
-      finalizeWire.decision_id.startsWith("pi-turn-finalize:"),
+    assert.equal(
       finalizeWire.decision_id,
+      liveFinalizeCard().prefilled_arguments.decision_id,
+      "host restores the exact validated finalize decision",
     );
     assert.equal(
       finalizeWire.narration_review_id,
-      "narration-review-v1:affordance-accepted-1",
+      frozenDraft().review_id,
+      "host restores the accepted frozen review without repeating review",
     );
     // No player-visible leak of the draft, the receipt, or the guidance.
     assert.ok(

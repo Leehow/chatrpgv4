@@ -830,6 +830,13 @@ export function applyPendingFinalizationRecoveryGuidance(
   invocation: { root: string; campaign: string },
   options?: {
     reviewRecoveryArmed?: boolean;
+    /**
+     * The host validated an exact-replay frozen draft and successfully armed
+     * turn.finalize from that receipt's already accepted review identity.
+     * This suppresses review as an executable recovery step; false/absent
+     * keeps the existing review or pointer path fail-closed.
+     */
+    acceptedReviewFinalizeArmed?: boolean;
     revision?: number;
     /**
      * Host-owned live-context hydration outcome. `not_attempted` (or
@@ -957,17 +964,46 @@ export function applyPendingFinalizationRecoveryGuidance(
     liveProjected = false;
     liveProjectionDropped = true;
   }
-  const nextFirstCard = liveProjected && reviewCard !== null
-    ? reviewCard
+  let acceptedReview = (
+    liveProjected
+    && options?.acceptedReviewFinalizeArmed === true
+    && reviewCard !== null
+    && finalizeCard !== null
+    && liveFrozenDraft !== null
+    && liveFrozenDraftMode === "exact_replay"
+    && nonEmptyStringField(liveFrozenDraft.review_id)
+  );
+  // `modelCalls` was initially derived above to validate the complete live
+  // chain. Once the host proves the accepted review binding is armed, derive
+  // the actionable projection again without a review call: the review card
+  // remains host-only evidence, never another 154-second model action.
+  const actionableModelCalls = acceptedReview && finalizeCard !== null
+    ? buildRecoveryModelCalls(null, finalizeCard)
+    : modelCalls;
+  if (acceptedReview && actionableModelCalls === null) {
+    acceptedReview = false;
+    reviewCard = null;
+    finalizeCard = null;
+    liveRevision = null;
+    liveFrozenDraft = null;
+    liveFrozenDraftMode = null;
+    liveProjected = false;
+    liveProjectionDropped = true;
+  }
+  const actionableReviewCard = acceptedReview ? null : reviewCard;
+  const nextFirstCard = liveProjected && actionableReviewCard !== null
+    ? actionableReviewCard
     : liveProjected
       ? finalizeCard
       : null;
-  const guidance = {
+  const guidance: JsonObject = {
     schema_version: 1,
     contract_id: PENDING_FINALIZATION_RECOVERY_GUIDANCE_CONTRACT,
     audience: "keeper_only",
     mode: "pending_finalization",
-    status: "journaled_settled_pending_finalization",
+    status: acceptedReview
+      ? "review_accepted_pending_finalization"
+      : "journaled_settled_pending_finalization",
     ...(liveProjected
       ? {
           output_context_status: "host_refreshed_live",
@@ -990,7 +1026,15 @@ export function applyPendingFinalizationRecoveryGuidance(
               ? { authoritative_copy: "coc_turn_output_context" }
               : {}),
             instruction: liveProjected
-              ? (
+              ? acceptedReview
+                ? (
+                  "The host validated the live output context and armed "
+                  + "turn.finalize from the already accepted frozen review. "
+                  + "Call only the finalize tool named by next_call, supply "
+                  + "only its model-owned arguments, and never call "
+                  + "narration.review again or echo host-bound identity."
+                )
+                : (
                 "The host already ingested the validated live context through "
                 + "the canonical compiler and binding path. The exact cards "
                 + "inlined in review_recovery.card and then.card are the only "
@@ -1001,7 +1045,7 @@ export function applyPendingFinalizationRecoveryGuidance(
                 + "and never echo, invent, or construct "
                 + "host_bound_auto_attached_arguments; the host attaches "
                 + "them. Call review_recovery before then."
-              )
+                )
               : (
                 "The card fields inlined below are exact session.resume "
                 + "snapshots. The mandatory next_call coc_turn_output_context "
@@ -1013,15 +1057,15 @@ export function applyPendingFinalizationRecoveryGuidance(
           },
         }
       : {}),
-    ...(modelCalls !== null
+    ...(actionableModelCalls !== null
       ? {
           model_calls: {
             contract_source: "mcp_operation_contracts.inputSchema",
             audience: "keeper_only",
-            ...(modelCalls.review !== undefined
+            ...(actionableModelCalls.review !== undefined
               ? {
                   review: {
-                    ...modelCalls.review,
+                    ...actionableModelCalls.review,
                     instruction: (
                       "Supply exactly the model_owned_required_arguments (plus "
                       + "any model_owned_optional_arguments you semantically "
@@ -1044,7 +1088,7 @@ export function applyPendingFinalizationRecoveryGuidance(
                 }
               : {}),
             finalize: {
-              ...modelCalls.finalize,
+              ...actionableModelCalls.finalize,
               instruction: (
                 "After an accepted review, supply exactly the "
                 + "model_owned_required_arguments (plus any "
@@ -1052,7 +1096,7 @@ export function applyPendingFinalizationRecoveryGuidance(
                 + "any model-owned argument the then.card already prefills at "
                 + "its exact card value. Invoke through the projection's real "
                 + "surface: for invocation_shape generic_envelope call "
-                + modelCalls.finalize.invoke_via
+                + actionableModelCalls.finalize.invoke_via
                 + " with {operation: \"turn.finalize\", arguments: {"
                 + "...model-owned arguments...}}; for typed_flat pass the "
                 + "model-owned arguments directly to the typed tool. Never "
@@ -1074,11 +1118,6 @@ export function applyPendingFinalizationRecoveryGuidance(
       ...(reviewCard !== null ? { card: reviewCard } : {}),
       ...(liveProjected && reviewCard !== null && liveFrozenDraft !== null
         ? {
-            // The exact frozen draft appears exactly once in this clearly
-            // keeper-only review input as the immutable baseline for hash
-            // authority and comparison; the submitted draft_text remains a
-            // model-owned semantic input per review_input.mode. It is never
-            // player-visible before finalize.
             review_input: {
               visibility: "keeper_only",
               source: "turn.output_context.data.frozen_narration_draft",
@@ -1131,10 +1170,34 @@ export function applyPendingFinalizationRecoveryGuidance(
         ? { exact_card_path: "coc_turn_output_context.data.finalize_operation" }
         : {}),
       ...(finalizeCard !== null ? { card: finalizeCard } : {}),
+      ...(acceptedReview && liveFrozenDraft !== null
+        ? {
+            finalize_input: {
+              visibility: "keeper_only",
+              source: "turn.output_context.data.frozen_narration_draft",
+              mode: "accepted_review_exact",
+              accepted_draft_text: liveFrozenDraft.draft_text,
+              accepted_draft_sha256: liveFrozenDraft.draft_sha256,
+              review_id: liveFrozenDraft.review_id,
+              instruction: (
+                "Use accepted_draft_text unchanged as the finalize draft. "
+                + "Supply the remaining model-owned finalize arguments only; "
+                + "the host attaches accepted review and revision identity."
+              ),
+            },
+          }
+        : {}),
       instruction: (
-        "Use the returned finalize_operation prefilled_arguments exactly, "
-        + "supply only its missing_arguments, and do not construct, infer, "
-        + "or reuse turn.finalize arguments from prior transcript history."
+        acceptedReview
+          ? (
+            "Use the accepted-review draft and projected model-owned card "
+            + "arguments, call turn.finalize once, and never repeat review."
+          )
+          : (
+            "Use the returned finalize_operation prefilled_arguments exactly, "
+            + "supply only its missing_arguments, and do not construct, infer, "
+            + "or reuse turn.finalize arguments from prior transcript history."
+          )
       ),
     },
     after_success: "echo only the returned rendered_text exactly",
@@ -1146,6 +1209,21 @@ export function applyPendingFinalizationRecoveryGuidance(
       "accept_new_player_action_before_finalization",
     ],
   };
+  if (acceptedReview && reviewCard !== null && liveFrozenDraft !== null) {
+    guidance.accepted_review = {
+      status: "accepted",
+      // Exact host-only evidence. The session.resume model projector reduces
+      // this to status/instruction and never exposes the card or review id.
+      card: reviewCard,
+      review_id: liveFrozenDraft.review_id,
+      revision: liveFrozenDraft.revision,
+      instruction: (
+        "This frozen draft already has an accepted narration review. Do not "
+        + "call narration.review again; continue directly with next_call."
+      ),
+    };
+    delete guidance.review_recovery;
+  }
   return {
     attached: true,
     envelope: {

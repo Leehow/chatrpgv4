@@ -5459,6 +5459,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       return;
     }
     if (operation === "narration.review") {
+      // A successful review changes the authoritative pending-draft/review
+      // identity even when the turn/source/revision tuple is unchanged. A
+      // later resume must refetch that exact context; reusing the pre-review
+      // hydration would re-advertise an already consumed review card.
+      pendingFinalizationHydrationState = null;
       const facts = retainedOutputContextFacts;
       const reviewId = typeof data.review_id === "string"
         ? data.review_id
@@ -5530,6 +5535,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             narration_review_id: current.narrationReviewId,
           };
         });
+        clearTypedBinding("narration.review");
         advanceCanonicalProgress(campaignId, {
           stage: "review_ready",
           reviewRevision: revision,
@@ -6319,6 +6325,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       },
       loadedNamespaces,
       loadedOperations,
+      boundOperations: [...retainedTypedBindings.keys()].sort(),
       ...(canonicalProgress.stage === "faulted" && faultRecoveryOperation !== null
         ? {
             recoveryRoute: {
@@ -8588,10 +8595,24 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     root: string;
     narrationReviewId: string;
     cards: LiveOutputContextCards;
+    exactCardDecision?: boolean;
   }): boolean => {
     const revision = args.cards.revision;
     if (args.cards.journalDecisionId === null) return false;
-    const finalizeDecisionId = semanticDecisionId("turn.finalize", revision);
+    let finalizeDecisionId = semanticDecisionId("turn.finalize", revision);
+    if (args.exactCardDecision === true) {
+      const finalizePrefilled = objectOrNull(
+        args.cards.finalizeCard.prefilled_arguments,
+      );
+      const exactDecision = typeof finalizePrefilled?.decision_id === "string"
+        && finalizePrefilled.decision_id.length > 0
+        ? finalizePrefilled.decision_id
+        : "";
+      if (exactDecision !== `${args.cards.journalDecisionId}:finalize`) {
+        return false;
+      }
+      finalizeDecisionId = exactDecision;
+    }
     retainedOutputContextFacts = {
       root: args.root,
       campaign: args.campaign,
@@ -8634,6 +8655,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         source_digest: current.sourceDigest,
         narration_review_id: current.narrationReviewId,
       };
+    });
+    clearTypedBinding("narration.review");
+    advanceCanonicalProgress(args.campaign, {
+      stage: "review_ready",
+      reviewRevision: revision,
     });
     return true;
   };
@@ -11140,13 +11166,33 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       )
         ? { status: "unavailable" }
         : liveHydration;
+      const recoveryRoot = typeof params.root === "string" && params.root
+        ? params.root
+        : ctx.cwd;
+      let acceptedReviewFinalizeArmed = false;
+      if (
+        effectiveLiveHydration.status === "success"
+        && effectiveLiveHydration.cards.agencyReviewRequired
+        && effectiveLiveHydration.cards.reviewCard !== null
+        && effectiveLiveHydration.cards.frozenDraftMode === "exact_replay"
+        && effectiveLiveHydration.cards.frozenDraft !== null
+        && typeof effectiveLiveHydration.cards.frozenDraft.review_id === "string"
+        && effectiveLiveHydration.cards.frozenDraft.review_id.length > 0
+      ) {
+        acceptedReviewFinalizeArmed = armRecoveredFinalizeBinding({
+          campaign: resumeCampaign,
+          root: recoveryRoot,
+          narrationReviewId: effectiveLiveHydration.cards.frozenDraft.review_id,
+          cards: effectiveLiveHydration.cards,
+          exactCardDecision: true,
+        });
+      }
       const pendingGuided = applyPendingFinalizationRecoveryGuidance(value, {
-        root: typeof params.root === "string" && params.root
-          ? params.root
-          : ctx.cwd,
+        root: recoveryRoot,
         campaign: resumeCampaign,
       }, {
         reviewRecoveryArmed,
+        acceptedReviewFinalizeArmed,
         ...(reviewRecoveryArmed ? { revision: recoveryIdentity.revision } : {}),
         ...(effectiveLiveHydration.status !== "not_attempted"
           ? { liveHydration: effectiveLiveHydration }

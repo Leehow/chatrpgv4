@@ -2650,6 +2650,131 @@ function projectOperationDescriptor(
   return descriptor;
 }
 
+/**
+ * One recovery-card model view, driven by the same host-owned argument table
+ * and model-call split used by the invoke-time binder. Canonical cards stay
+ * untouched in gateway `details`; this view retains only model-owned
+ * prefilled/missing arguments plus the names of fields the host will attach.
+ * No recovery caller maintains a second per-field identity list.
+ */
+function projectRecoveryOperationCard(
+  card: unknown,
+  modelCall: unknown,
+): Record<string, unknown> | null {
+  if (!isPlainObject(card) || typeof card.operation !== "string") return null;
+  const operation = card.operation;
+  const hostOwned = new Set(
+    (HOST_OWNED_FIELDS as Record<string, readonly string[] | undefined>)[operation]
+      ?? [],
+  );
+  const call = isPlainObject(modelCall) ? modelCall : null;
+  const declaredHostBound = Array.isArray(call?.host_bound_auto_attached_arguments)
+    ? call.host_bound_auto_attached_arguments.filter(
+        (field): field is string => typeof field === "string" && field.length > 0,
+      )
+    : [];
+  for (const field of declaredHostBound) hostOwned.add(field);
+  const prefilled = isPlainObject(card.prefilled_arguments)
+    ? card.prefilled_arguments
+    : {};
+  const modelPrefilled: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(prefilled)) {
+    if (!hostOwned.has(field)) modelPrefilled[field] = structuredClone(value);
+  }
+  const missing = Array.isArray(card.missing_arguments)
+    ? card.missing_arguments.filter(
+        (field): field is string => typeof field === "string" && !hostOwned.has(field),
+      )
+    : [];
+  const projected: Record<string, unknown> = {
+    operation,
+    ...(typeof card.invoke_via === "string" ? { invoke_via: card.invoke_via } : {}),
+    prefilled_arguments: modelPrefilled,
+    missing_arguments: missing,
+    host_bound_auto_attached_arguments: declaredHostBound.length > 0
+      ? [...declaredHostBound]
+      : [...hostOwned].sort(),
+  };
+  for (const field of [
+    "discovery_required",
+    "authority",
+    "hard_gate",
+    "hard_gate_scope",
+    "host_state_claim_compiler_required",
+    "coverage_contract",
+    "span_repairs",
+  ]) {
+    if (field in card) projected[field] = structuredClone(card[field]);
+  }
+  return projected;
+}
+
+/**
+ * Operation-aware session.resume recovery projection. The recovery builder
+ * may retain exact canonical cards for host audit/binding; the model view
+ * projects every review/finalize card through `projectRecoveryOperationCard`
+ * and suppresses accepted-review evidence as an executable review action.
+ */
+function projectSessionRecoveryGuidance(
+  guidance: unknown,
+): Record<string, unknown> | null {
+  if (!isPlainObject(guidance)) return null;
+  const projected = structuredClone(guidance);
+  const modelCalls = isPlainObject(projected.model_calls)
+    ? projected.model_calls
+    : null;
+  const reviewRecovery = isPlainObject(projected.review_recovery)
+    ? projected.review_recovery
+    : null;
+  if (reviewRecovery !== null) {
+    delete reviewRecovery.revision;
+    if (reviewRecovery.card !== undefined) {
+      const card = projectRecoveryOperationCard(
+        reviewRecovery.card,
+        modelCalls?.review,
+      );
+      if (card === null) delete reviewRecovery.card;
+      else reviewRecovery.card = card;
+    }
+  }
+  const then = isPlainObject(projected.then) ? projected.then : null;
+  if (then !== null && then.card !== undefined) {
+    const card = projectRecoveryOperationCard(then.card, modelCalls?.finalize);
+    if (card === null) delete then.card;
+    else then.card = card;
+  }
+  const accepted = isPlainObject(projected.accepted_review)
+    ? projected.accepted_review
+    : null;
+  if (accepted !== null) {
+    projected.accepted_review = {
+      ...(typeof accepted.status === "string" ? { status: accepted.status } : {}),
+      ...(typeof accepted.instruction === "string"
+        ? { instruction: accepted.instruction }
+        : {}),
+    };
+    // Accepted review evidence is not another executable review operation.
+    delete projected.review_recovery;
+    if (then !== null && isPlainObject(then.finalize_input)) {
+      const input = then.finalize_input;
+      then.finalize_input = {
+        ...(typeof input.visibility === "string"
+          ? { visibility: input.visibility }
+          : {}),
+        ...(typeof input.source === "string" ? { source: input.source } : {}),
+        ...(typeof input.mode === "string" ? { mode: input.mode } : {}),
+        ...(typeof input.accepted_draft_text === "string"
+          ? { accepted_draft_text: input.accepted_draft_text }
+          : {}),
+        ...(typeof input.instruction === "string"
+          ? { instruction: input.instruction }
+          : {}),
+      };
+    }
+  }
+  return projected;
+}
+
 function projectAdoptionOperation(card: unknown): Record<string, unknown> {
   const source = isPlainObject(card) ? card : {};
   const descriptor: Record<string, unknown> = {};
@@ -3176,8 +3301,12 @@ export function projectModelVisibleCanonicalResult(
       const sceneContext = isPlainObject(data.scene_context)
         ? data.scene_context
         : null;
+      const recoveryGuidance = isPlainObject(data.host_recovery_guidance)
+        ? data.host_recovery_guidance
+        : null;
       const resumeData: Record<string, unknown> = { ...data };
       delete resumeData.scene_context;
+      delete resumeData.host_recovery_guidance;
       const resumeView = sanitizeEnvelopeBranch(
         resumeData,
         semanticIds,
@@ -3190,6 +3319,19 @@ export function projectModelVisibleCanonicalResult(
           semanticIds,
           diagnostics,
         );
+      }
+      if (recoveryGuidance !== null) {
+        const projectedGuidance = projectSessionRecoveryGuidance(
+          recoveryGuidance,
+        );
+        if (projectedGuidance !== null) {
+          resumeView.host_recovery_guidance = sanitizeEnvelopeBranch(
+            projectedGuidance,
+            semanticIds,
+            diagnostics,
+            operationName,
+          );
+        }
       }
       projected.data = resumeView;
     } else if (operation === "turn.output_context") {

@@ -377,7 +377,13 @@ visible `coc_session_resume` tool, then call visible
   - `output_context_status` is `host_refreshed_live`: the host already
     fetched and validated the live context. Do **not** call or discover
     `turn.output_context` again — not via `coc_turn_output_context`,
-    `coc_invoke`, or `coc_discover`. Use the supplied keeper-only
+    `coc_invoke`, or `coc_discover`.
+    - If `status` is `review_accepted_pending_finalization`, the exact review
+      is already accepted and host-bound. Do **not** call `narration.review`
+      again. Use `then.finalize_input.accepted_draft_text` unchanged as the
+      finalize `draft`, supply only the projected model-owned finalize
+      arguments, and call `next_call` once.
+    - Otherwise use the supplied keeper-only
     `review_recovery.review_input` baseline exactly as its `mode` directs:
     - `exact_replay` (card revision 1 or 2, baseline is that same
       revision): submit `baseline_draft_text` unchanged as `draft_text`, or
@@ -387,19 +393,18 @@ visible `coc_session_resume` tool, then call visible
       `baseline_draft_text` by changing ONLY the excerpts listed in
       `span_repairs`; every other sentence stays byte-stable. Never
       resubmit the unchanged baseline at revision 2.
-    Call the `model_calls.review` tool with exactly the listed
-    `model_owned_arguments`, with `draft_text` following that mode, plus
-    the host-provided `review_recovery.revision` (only revision 1 or 2
-    exists). Then call the `model_calls.finalize` tool — via the exact
-    finalize card's `invoke_via`, honoring its `invocation_shape`: a
-    `generic_envelope` finalize goes through `coc_invoke` as
-    `{operation: "turn.finalize", arguments: {...}}`; a `typed_flat`
-    finalize passes model-owned arguments directly — with only its listed
-    model-owned arguments. Never echo, invent, or construct any
-    `host_bound_auto_attached_arguments` (decision/review/turn/source/
-    revision identities or `state_claim_compilation`); the host attaches
-    them. The inlined cards remain the only authority for operation
-    identity and prefilled arguments.
+      Call the `model_calls.review` tool with exactly the listed
+      model-owned arguments and `draft_text` following that mode; revision is
+      host-bound and must not be supplied. Then call the
+      `model_calls.finalize` tool. In either live branch, honor the finalize
+      card's `invoke_via` and `invocation_shape`: a `generic_envelope`
+      finalize goes through `coc_invoke` as
+      `{operation: "turn.finalize", arguments: {...}}`; a `typed_flat`
+      finalize passes model-owned arguments directly. Never echo, invent, or
+      construct any `host_bound_auto_attached_arguments` (decision/review/
+      turn/source/revision identities or `state_claim_compilation`); the host
+      attaches them. The projected cards remain the only authority for
+      operation identity and model-owned arguments.
   - otherwise (pointer fallback, `pending_output_context.status` is
     `read_via_exact_typed_call`): call `turn.output_context` exactly once
     through the guidance's `next_call`, then follow the live guidance and

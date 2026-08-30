@@ -96,6 +96,13 @@ export type ToolWorkingSetSnapshot = LoadScope & {
   loadedNamespaces?: readonly LoadedNamespace[];
   loadedOperations?: readonly LoadedExactOperation[];
   recoveryRoute?: RecoveryRoute;
+  /**
+   * Exact host-binding availability for closure operations whose model schema
+   * is meaningful only after the host has armed canonical identity. Omitted
+   * preserves the pure projector's legacy/default stage view; the live Pi
+   * adapter always supplies it.
+   */
+  boundOperations?: readonly string[];
 };
 
 export type WorkingSetReasonCode =
@@ -321,9 +328,15 @@ function actingBaseline(snapshot: ToolWorkingSetSnapshot): readonly string[] {
 }
 
 function baselineOperations(snapshot: ToolWorkingSetSnapshot): readonly string[] {
-  return snapshot.stage === "acting"
+  const baseline = snapshot.stage === "acting"
     ? actingBaseline(snapshot)
     : STAGE_CAPABILITIES[snapshot.stage].operations;
+  if (snapshot.boundOperations === undefined) return baseline;
+  const bound = new Set(snapshot.boundOperations);
+  return baseline.filter((operation) => (
+    (operation !== "narration.review" && operation !== "turn.finalize")
+    || bound.has(operation)
+  ));
 }
 
 function workingSetBudget(
@@ -437,6 +450,21 @@ function invalidSnapshot(snapshot: ToolWorkingSetSnapshot): WorkingSetFailure | 
       code: "invalid_snapshot",
       message: "canonicalProgressRevision must be a non-negative safe integer",
       details: { canonicalProgressRevision: snapshot.canonicalProgressRevision },
+    };
+  }
+  if (
+    snapshot.boundOperations !== undefined
+    && (
+      !Array.isArray(snapshot.boundOperations)
+      || snapshot.boundOperations.some((operation) => (
+        typeof operation !== "string" || !operation.trim()
+      ))
+    )
+  ) {
+    return {
+      code: "invalid_snapshot",
+      message: "boundOperations must contain non-empty operation names",
+      details: { boundOperations: snapshot.boundOperations },
     };
   }
   if (snapshot.recoveryRoute !== undefined) {
