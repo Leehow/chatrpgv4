@@ -4874,13 +4874,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ): void => {
           const row = objectOrNull(rowValue);
           if (row === null || typeof row.effect_id !== "string") return;
+          // The registry uses its first fact as the presented handle base.
+          // Compose only controlled semantic dimensions so even a short
+          // resource token (`HP`, `MP`) yields a multi-token handle accepted
+          // by the same closed point-of-use grammar (`hp-scalar-state-delta`),
+          // without embedding canonical identity or weakening validation.
+          const semanticEffectFact = [
+            row.resource,
+            row.effect_kind,
+            category,
+          ].filter((fact): fact is string => (
+            typeof fact === "string" && fact.trim().length > 0
+          )).map((fact) => fact.trim()).join("-");
           semanticRegistry.register({
             domain: "effect",
             canonicalId: row.effect_id,
             facts: [
-              row.resource,
-              row.effect_kind,
-              row.kind,
+              semanticEffectFact,
               row.npc_display_name,
               category,
             ],

@@ -1252,21 +1252,39 @@ const tools = new Map();
 const handlers = new Map();
 const clientCalls = [];
 const modelContents = [];
-const stubCompilerInfer = async (input) => ({
-  result: {
-    schema_version: 1,
-    contract_id: "coc.pi-state-claim-compiler-result.v1",
-    disposition: "no_claims_detected",
-    reason: "每一段草稿都已复核。",
-    claims: [],
-    paragraph_coverage: draftParagraphs(input.draft_text).map((text, paragraph_index) => ({
-      paragraph_index,
-      paragraph_sha256: canonicalDigest(text),
-      claim_indices: [],
-    })),
-  },
-  responseModel: { provider: "offline", id: "offline", api: "openai-responses" },
-});
+const stubCompilerInfer = async (input) => {
+  const candidateClaims = Array.isArray(input.candidate_claims)
+    ? input.candidate_claims
+    : [];
+  const compiledClaims = candidateClaims.map((claim) => ({
+    subject_ref: claim.subject_ref,
+    claim_kind: claim.claim_kind,
+    exact_excerpt: claim.exact_excerpt,
+    matched_review_claim_id: claim.claim_id,
+    reason: "The exact draft claim matches the Keeper's semantic declaration.",
+  }));
+  return {
+    result: {
+      schema_version: 1,
+      contract_id: "coc.pi-state-claim-compiler-result.v1",
+      disposition: compiledClaims.length > 0
+        ? "claims_detected"
+        : "no_claims_detected",
+      reason: "每一段草稿都已复核。",
+      claims: compiledClaims,
+      paragraph_coverage: draftParagraphs(input.draft_text).map(
+        (text, paragraph_index) => ({
+          paragraph_index,
+          paragraph_sha256: canonicalDigest(text),
+          claim_indices: compiledClaims.flatMap((claim, index) =>
+            text.includes(claim.exact_excerpt) ? [index] : []
+          ),
+        }),
+      ),
+    },
+    responseModel: { provider: "offline", id: "offline", api: "openai-responses" },
+  };
+};
 
 // Host-initiated canonical probes (capabilities, memory.extraction_status)
 // interleave with KP transports, so the fake client routes by operation.
@@ -2890,6 +2908,8 @@ assert.equal(journalResult.details.data.turn_id,
     "npc-first-impression-roll-v2:6c859213e858b4faa7a441da1e2bc4777a9c55de";
   const hpEffect =
     "turn-effect-v1:3a2f127eb04b7b718385ed5a19eed6c8a4100021";
+  const secondHpEffect =
+    "turn-effect-v1:bf8d33d7f5a948c198d8c5f6bb6d91a4";
   const pendingModifierEffect =
     "exceptional-effect-v1:73bf92c9e1f04a7aa8f1c70c09d8a1b2";
   const contextEffect = `context:${firstImpressionReceipt}`;
@@ -2968,6 +2988,17 @@ assert.equal(journalResult.details.data.turn_id,
       delta: -1,
       after: 11,
       source_decision_id: "roll-damage-right-knuckles-desk-v1",
+    }, {
+      schema_version: 1,
+      category: "state_delta",
+      effect_id: secondHpEffect,
+      effect_kind: "scalar",
+      resource: "HP",
+      investigator_id: "inv-x6a217e22-e0532209",
+      before: 11,
+      delta: -1,
+      after: 10,
+      source_decision_id: "roll-damage-right-knuckles-desk-second-v1",
     }],
     exceptional_effect: [],
     concealed_consequence: [],
@@ -3032,6 +3063,20 @@ assert.equal(journalResult.details.data.turn_id,
     productionVisible.data.mechanics_summary.state_delta[0].effect_id,
     /^effect:/,
   );
+  const visibleHpEffects = productionVisible.data.mechanics_summary
+    .state_delta.map((row) => row.effect_id);
+  assert.deepEqual(
+    visibleHpEffects,
+    ["effect:hp-scalar-state-delta", "effect:hp-scalar-state-delta-2"],
+    "short-resource same-kind effects receive meaningful distinct handles",
+  );
+  for (const alias of visibleHpEffects) {
+    assert.equal(
+      validateRawModelIdentityPayload({ source_effect_id: alias }).ok,
+      true,
+      `host-issued effect alias must satisfy the raw grammar: ${alias}`,
+    );
+  }
   assert.match(
     productionVisible.data.npc_performance_constraints[0].effect_id,
     /^effect:/,
@@ -3095,8 +3140,71 @@ assert.equal(journalResult.details.data.turn_id,
     "unchanged pending-turn observation reuses stable semantic aliases",
   );
   assert.deepEqual(
-    replayVisible.data.mechanics_summary.state_delta[0].effect_id,
-    productionVisible.data.mechanics_summary.state_delta[0].effect_id,
+    replayVisible.data.mechanics_summary.state_delta.map((row) => row.effect_id),
+    visibleHpEffects,
+    "multiple same-kind effect aliases stay stable across replay",
+  );
+  const visibleHpEffect = productionVisible.data.mechanics_summary
+    .state_delta[0].effect_id;
+  const productionDraft = "你的右拳指节裂开，鲜血沿着手背滴下。";
+  const reviewCallsBeforeRoundTrip = clientCalls.filter(
+    (call) => call.operation === "narration.review",
+  ).length;
+  routeOperation("narration.review", FAMILIES.narration_review);
+  const productionReviewResult = await executeTool("coc_narration_review", {
+    draft_text: productionDraft,
+    findings: [],
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    state_authority_review: {
+      disposition: "claims_listed",
+      reason: "草稿准确陈述了本回合已经落地的生命值变化。",
+      claims: [{
+        claim_id: "claim-right-knuckles-hp-loss",
+        subject_ref: CURRENT_PC_SUBJECT_HANDLE,
+        claim_kind: "scalar",
+        exact_excerpt: "右拳指节裂开",
+        source_effect_id: visibleHpEffect,
+        reason: "绑定冻结的 HP 状态变化。",
+      }],
+    },
+  });
+  const productionReviewVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(
+    productionReviewVisible.ok,
+    true,
+    `host-issued effect alias must round-trip through review: ${JSON.stringify(
+      productionReviewVisible,
+    )}`,
+  );
+  assert.equal(
+    clientCalls.filter((call) => call.operation === "narration.review").length,
+    reviewCallsBeforeRoundTrip + 1,
+    "grammar-safe review reaches canonical transport exactly once",
+  );
+  const productionReviewTransport = clientCalls.filter(
+    (call) => call.operation === "narration.review",
+  ).at(-1);
+  assert.equal(
+    productionReviewTransport.arguments.state_authority_review.claims[0]
+      .source_effect_id,
+    hpEffect,
+    "the semantic effect alias restores the exact canonical state effect",
+  );
+  assert.equal(
+    productionReviewTransport.arguments.state_authority_review.claims[0]
+      .subject_ref,
+    "pc:inv-x6a217e22-e0532209",
+  );
+  assert.equal(
+    productionReviewTransport.arguments.state_claim_compilation.result
+      .claims[0].matched_review_claim_id,
+    "claim-right-knuckles-hp-loss",
+    "the host compiler and Keeper review agree on the exact grounded claim",
+  );
+  assert.equal(
+    productionReviewResult.details.data.review_id,
+    FAMILIES.narration_review.data.review_id,
+    "the exact review receipt remains host-only after semantic round-trip",
   );
   // The existing normal review/finalize vertical below proves these two
   // descriptors restore their host-only turn/digest/review/decision identity.
@@ -3220,9 +3328,9 @@ await executeTool("coc_narration_review", {
     reason: "草稿未声称现金、物品、资源、状态或明确的时间推进数值。",
   },
 });
-const reviewTransport = clientCalls.find(
+const reviewTransport = clientCalls.filter(
   (call) => call.operation === "narration.review",
-);
+).at(-1);
 assert.ok(reviewTransport, "narration.review must reach transport");
 assert.equal(reviewTransport.arguments.turn_id,
   "turn-v1-8e3599cdcb794cd5b993b59c077d126f",
