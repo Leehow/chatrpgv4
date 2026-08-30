@@ -13,6 +13,7 @@ from coc_operation_kernel_runtime import (
     _active_ruleset_id,
     _canonical_digest,
     _commit_new_roll_receipt,
+    _current_elapsed_minutes,
     _execute_subsystem_requests,
     _existing_roll_receipt,
     _is_exact_int,
@@ -51,6 +52,7 @@ from coc_operation_kernel_runtime import (
 )
 
 coc_catalog = _load_sibling("coc_catalog", "coc_catalog.py")
+coc_healing = _load_sibling("coc_healing_rules_core", "coc_healing.py")
 
 _DICE_MULTIPLIER_PATTERN = re.compile(
     r"^(?P<base>\d+D\d+(?:[+-]\d+)?)[*Xx×](?P<factor>\d+)$"
@@ -767,7 +769,6 @@ def _tool_rules_damage(ctx: Ctx, args: dict[str, Any]):
                 if gone in conditions:
                     conditions.remove(gone)
     state["conditions"] = conditions
-    ctx.save_inv_state(investigator_id, state)
     data = {
         "investigator_id": investigator_id,
         "kind": kind,
@@ -781,6 +782,7 @@ def _tool_rules_damage(ctx: Ctx, args: dict[str, Any]):
         "conditions": conditions,
         "source": args.get("source"),
     }
+    damage_record = None
     if detail is not None:
         damage_payload = {
             **detail,
@@ -792,7 +794,7 @@ def _tool_rules_damage(ctx: Ctx, args: dict[str, Any]):
             "hp_after": after,
             "source": args.get("source"),
         }
-        damage_record = ctx.log_roll({
+        damage_record = ctx.prepare_roll({
             "event_type": "roll",
             "type": "damage" if kind == "damage" else "healing",
             "kind": f"hp_{kind}",
@@ -802,6 +804,29 @@ def _tool_rules_damage(ctx: Ctx, args: dict[str, Any]):
             **damage_payload,
         })
         data["roll_id"] = damage_record["roll_id"]
+    if kind == "damage" and before - after > 0:
+        elapsed = _current_elapsed_minutes(ctx)
+        if elapsed is None:
+            raise ToolError(
+                "state_corrupt",
+                "campaign clock cannot provide authoritative injury time",
+            )
+        try:
+            coc_healing.establish_damage_wound(
+                state,
+                decision_id=str(args.get("decision_id") or ""),
+                occurred_elapsed_minutes=elapsed,
+                source_damage_roll_id=(
+                    str(damage_record["roll_id"])
+                    if isinstance(damage_record, dict)
+                    else None
+                ),
+            )
+        except ValueError as exc:
+            raise ToolError("state_corrupt", str(exc)) from exc
+    ctx.save_inv_state(investigator_id, state)
+    if damage_record is not None:
+        ctx.log_roll(damage_record)
     ctx.log_event({"event_type": "hp_change", **data})
     ctx.ledger_record(args.get("decision_id"), "rules.damage", data)
     return data, [], hints

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,75 @@ def _load_sibling(name: str, filename: str):
 
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
+
+_SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+
+
+def establish_damage_wound(
+    state: dict[str, Any],
+    *,
+    decision_id: str,
+    occurred_elapsed_minutes: int,
+    source_damage_roll_id: str | None,
+) -> dict[str, Any]:
+    """Ensure one semantic active-wound receipt for an HP-loss decision.
+
+    Damage arithmetic remains owned by the caller. This function only deepens
+    the existing ``wound_ledger`` persistence seam consumed by First Aid,
+    Medicine, weekly recovery, and the RuleGraph facts overlay. The semantic
+    wound id is derived from the model-authored decision id; opaque roll ids
+    remain optional host evidence and are never required from the model.
+
+    Repeating the same decision is an exact no-op, including after a process
+    stopped between the investigator-state write and the toolbox-ledger write.
+    """
+    if not isinstance(state, dict):
+        raise ValueError("investigator state must be an object")
+    if (
+        not isinstance(decision_id, str)
+        or not decision_id
+        or decision_id != decision_id.strip()
+    ):
+        raise ValueError("damage decision id must be an exact non-empty string")
+    wound_id = f"wound-{decision_id}"
+    if _SAFE_ID.fullmatch(wound_id) is None:
+        raise ValueError(
+            "damage decision id cannot form a safe semantic wound identity"
+        )
+    if (
+        isinstance(occurred_elapsed_minutes, bool)
+        or not isinstance(occurred_elapsed_minutes, int)
+        or occurred_elapsed_minutes < 0
+    ):
+        raise ValueError("injury elapsed minutes must be a non-negative integer")
+    if source_damage_roll_id is not None and (
+        not isinstance(source_damage_roll_id, str)
+        or not source_damage_roll_id
+    ):
+        raise ValueError("source damage roll id must be a non-empty string or null")
+
+    ledger = state.get("wound_ledger")
+    if ledger is None:
+        ledger = []
+    if not isinstance(ledger, list):
+        raise ValueError("wound ledger must be a list")
+    expected = {
+        "wound_id": wound_id,
+        "source_damage_roll_id": source_damage_roll_id,
+        "occurred_elapsed_minutes": occurred_elapsed_minutes,
+        "status": "active",
+    }
+    for row in ledger:
+        if isinstance(row, dict) and row.get("wound_id") == wound_id:
+            if row != expected:
+                raise ValueError(
+                    "semantic wound identity is already bound to different damage"
+                )
+            state["wound_ledger"] = ledger
+            return row
+    ledger.append(expected)
+    state["wound_ledger"] = ledger
+    return expected
 
 
 # --------------------------------------------------------------------------- #

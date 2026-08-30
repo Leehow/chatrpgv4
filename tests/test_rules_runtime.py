@@ -2113,6 +2113,94 @@ def test_scene_context_projects_only_current_graph_healing_cards(tmp_path: Path)
     assert "sha256" not in dumped
 
 
+def test_rules_damage_establishes_one_active_wound_and_projects_healing_cards(
+    tmp_path: Path,
+):
+    """A normal HP damage write must feed the next RuleGraph projection."""
+    ws = _fresh_workspace(tmp_path, "damage-wound-cards")
+    args = {
+        "investigator": ws["investigator_id"],
+        "amount": "1D3",
+        "kind": "damage",
+        "source": "struck a desk corner",
+        "decision_id": "damage-right-knuckles-desk-v1",
+        "seed": 3,
+    }
+
+    damaged = _run(ws, "rules.damage", args)
+    assert damaged["ok"] is True, damaged
+    replay = _run(ws, "rules.damage", args)
+    assert replay["ok"] is True, replay
+
+    wounds = _inv_state(ws).get("wound_ledger")
+    assert wounds == [{
+        "wound_id": "wound-damage-right-knuckles-desk-v1",
+        "source_damage_roll_id": damaged["data"]["roll_id"],
+        "occurred_elapsed_minutes": 0,
+        "status": "active",
+    }]
+    assert replay["data"] == damaged["data"]
+
+    context = _run(ws, "scene.context", {
+        "investigator": ws["investigator_id"],
+    })
+    assert context["ok"] is True, context
+    refs = {
+        row["decision_ref"]
+        for row in context["data"]["rule_decision_cards"]["cards"]
+    }
+    assert "decision:coc7:healing:first-aid-ordinary" in refs
+    assert "decision:coc7:healing:medicine-ordinary" in refs
+    projected = json.dumps(context["data"]["rule_decision_cards"])
+    assert damaged["data"]["roll_id"] not in projected
+    assert "source_damage_roll_id" not in projected
+
+
+@pytest.mark.parametrize(
+    ("kind", "amount", "decision_id"),
+    [
+        ("damage", "0", "damage-zero-v1"),
+        ("heal", "1", "heal-full-health-v1"),
+    ],
+)
+def test_rules_damage_does_not_fabricate_wounds_without_hp_loss(
+    tmp_path: Path,
+    kind: str,
+    amount: str,
+    decision_id: str,
+):
+    ws = _fresh_workspace(tmp_path, decision_id)
+    result = _run(ws, "rules.damage", {
+        "investigator": ws["investigator_id"],
+        "amount": amount,
+        "kind": kind,
+        "source": "no injury",
+        "decision_id": decision_id,
+    })
+    assert result["ok"] is True, result
+    assert "wound_ledger" not in _inv_state(ws)
+
+
+def test_rules_damage_unknown_investigator_cannot_create_wound_state(
+    tmp_path: Path,
+):
+    ws = _fresh_workspace(tmp_path, "damage-unknown-investigator")
+    valid_before = _state_bytes(ws)
+    unknown_id = "missing-investigator"
+    result = _run(ws, "rules.damage", {
+        "investigator": unknown_id,
+        "amount": "1",
+        "kind": "damage",
+        "source": "invalid target",
+        "decision_id": "damage-missing-investigator-v1",
+    })
+    assert result["ok"] is False, result
+    assert _state_bytes(ws) == valid_before
+    assert not (
+        ws["campaign_dir"] / "save" / "investigator-state" / f"{unknown_id}.json"
+    ).exists()
+
+
 def test_scene_context_survives_missing_graph(tmp_path: Path, monkeypatch):
     ws = _fresh_workspace(tmp_path, "cards-absent")
 

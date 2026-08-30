@@ -8142,6 +8142,22 @@ def _dispatch(
                     )
                     inv["current_hp"] = participant["current_hp"]
                     inv["conditions"] = list(participant.get("conditions") or [])
+                    if int(damage["hp_before"]) - int(damage["hp_after"]) > 0:
+                        try:
+                            coc_healing.establish_damage_wound(
+                                inv,
+                                decision_id=command_id,
+                                occurred_elapsed_minutes=(
+                                    _read_authoritative_elapsed_minutes(campaign_dir)
+                                ),
+                                source_damage_roll_id=f"{command_id}:damage",
+                            )
+                        except ValueError as exc:
+                            raise _error(
+                                "malformed_wound_ledger",
+                                "save/investigator-state.wound_ledger",
+                                str(exc),
+                            ) from exc
                     roll = damage["damage_roll"]
                     events.append({
                         "roll_id": f"{command_id}:damage", "decision_id": payload.get("decision_id"),

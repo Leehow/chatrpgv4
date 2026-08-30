@@ -742,6 +742,12 @@ def test_authored_hazard_and_damaged_tome_are_transactional_exact_replays(tmp_pa
     assert damage_amount["target_actor_id"] == "inv1"
     assert not executor.AMOUNT_FORBIDDEN_FIELDS.intersection(damage_amount)
     after_hazard = json.loads(inv_path.read_text())
+    assert after_hazard["wound_ledger"] == [{
+        "wound_id": "wound-chapel-floor",
+        "source_damage_roll_id": "chapel-floor:damage",
+        "occurred_elapsed_minutes": 0,
+        "status": "active",
+    }]
     roll_lines = (campaign / "logs" / "rolls.jsonl").read_text().splitlines()
     replay_rng = random.Random(999)
     rng_before = replay_rng.getstate()
