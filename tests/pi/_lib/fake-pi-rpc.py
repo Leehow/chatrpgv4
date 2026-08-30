@@ -62,6 +62,69 @@ def emit_canonical_handoff() -> None:
     }), flush=True)
 
 
+def emit_campaign08_live_handoff() -> None:
+    """Campaign 08 live shape: custom role messages, no outer exit 42."""
+    content = json.dumps(CANONICAL_HANDOFF, ensure_ascii=False)
+    print(json.dumps({
+        "type": "tool_execution_start",
+        "toolCallId": "call-setup-complete",
+        "toolName": "coc_setup_complete",
+    }), flush=True)
+    print(json.dumps({
+        "type": "tool_execution_end",
+        "toolCallId": "call-setup-complete",
+        "toolName": "coc_setup_complete",
+        "result": {
+            "content": [{
+                "type": "text",
+                "text": json.dumps({
+                    "ok": True,
+                    "tool": "setup.complete",
+                    "data": {"status": "PASS"},
+                }, ensure_ascii=False),
+            }],
+            "isError": False,
+        },
+    }), flush=True)
+    custom_message = {
+        "role": "custom",
+        "customType": "coc_setup_handoff",
+        "content": content,
+        "display": False,
+        "details": CANONICAL_HANDOFF,
+    }
+    print(json.dumps({
+        "type": "message_start",
+        "message": custom_message,
+    }), flush=True)
+    print(json.dumps({
+        "type": "message_end",
+        "message": custom_message,
+    }), flush=True)
+    print(json.dumps({
+        "type": "entry_appended",
+        "entry": {
+            "type": "custom",
+            "customType": "coc_setup_handoff",
+            "data": CANONICAL_HANDOFF,
+        },
+    }), flush=True)
+    print(json.dumps({
+        "type": "extension_ui_request",
+        "id": "ui-coc-loading",
+        "method": "setStatus",
+        "statusKey": "coc-loading",
+        "statusText": "正在恢复战役 setup-handoff-probe……请稍候。",
+    }), flush=True)
+    print(json.dumps({
+        "type": "extension_ui_request",
+        "id": "ui-coc-warm",
+        "method": "setStatus",
+        "statusKey": "coc-warm",
+        "statusText": "COC 已激活 · MCP 已预热",
+    }), flush=True)
+
+
 def main() -> int:
     for raw in sys.stdin:
         line = raw.strip()
@@ -85,17 +148,21 @@ def main() -> int:
                 "type": "message_start",
                 "message": {"role": "user", "content": [{"type": "text", "text": message_text}]},
             }), flush=True)
-            if message_text.startswith("__HANDOFF_THEN_READER_ERROR__"):
+            if message_text.startswith("__CAMPAIGN08_HANDOFF__"):
+                # Live launcher re-exec: envelope + setup.complete + UI
+                # freeze, outer process stays alive, no driver_pi_exited.
+                emit_campaign08_live_handoff()
+            elif message_text.startswith("__HANDOFF_THEN_READER_ERROR__"):
                 # Valid envelope first, then invalid UTF-8 kills the reader,
                 # then exit 42. The waiter must not freeze on the envelope.
                 emit_canonical_handoff()
                 sys.stdout.buffer.write(b"\xff\xfe\n")
                 sys.stdout.buffer.flush()
                 raise SystemExit(42)
-            if message_text.startswith("__HANDOFF_THEN_EXIT_1__"):
+            elif message_text.startswith("__HANDOFF_THEN_EXIT_1__"):
                 emit_canonical_handoff()
                 raise SystemExit(1)
-            if message_text.startswith("__HANDOFF_EXIT_READER_ERROR__"):
+            elif message_text.startswith("__HANDOFF_EXIT_READER_ERROR__"):
                 # Invalid UTF-8 on the text-mode RPC pipe raises in the driver
                 # stdout reader (UnicodeDecodeError → driver_reader_error),
                 # then the process exits 42. This is genuine reader failure,
@@ -103,7 +170,7 @@ def main() -> int:
                 sys.stdout.buffer.write(b"\xff\xfe\n")
                 sys.stdout.buffer.flush()
                 raise SystemExit(42)
-            if message_text.startswith("__TOOLS_NO_SETTLE__"):
+            elif message_text.startswith("__TOOLS_NO_SETTLE__"):
                 # Ordinary play: tools ran, no visible text, no agent_settled.
                 # The driver must wait out the timeout and fail closed.
                 print(json.dumps({

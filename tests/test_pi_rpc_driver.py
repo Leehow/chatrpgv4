@@ -458,8 +458,11 @@ def test_driver_classifies_setup_handoff_without_visible_settle(tmp_path: Path):
     ]
     assert module._prompt_turn_complete(
         envelope_only, session_role="setup",
-    ) is False
+    ) is True
     assert module._setup_handoff_pending(
+        envelope_only, session_role="setup",
+    ) is False
+    assert module._setup_handoff_proven(
         envelope_only, session_role="setup",
     ) is True
 
@@ -622,8 +625,8 @@ def test_setup_handoff_late_failure_after_envelope_fails_closed(tmp_path: Path):
         },
     }
     clean_42 = {"type": "driver_pi_exited", "code": 42, "signal": None}
-    assert module._setup_handoff_pending([envelope], session_role="setup") is True
-    assert module._prompt_turn_complete([envelope], session_role="setup") is False
+    assert module._setup_handoff_proven([envelope], session_role="setup") is True
+    assert module._prompt_turn_complete([envelope], session_role="setup") is True
     late_non42 = [envelope, {"type": "driver_pi_exited", "code": 1, "signal": None}]
     assert module._setup_handoff_proven(late_non42, session_role="setup") is False
     late_signal = [
@@ -650,6 +653,57 @@ def test_setup_handoff_late_failure_after_envelope_fails_closed(tmp_path: Path):
     assert module._setup_handoff_proven(
         [envelope, clean_42], session_role="setup",
     ) is True
+
+
+def test_setup_handoff_accepts_live_message_start_end(tmp_path: Path):
+    """Campaign 08 sendMessage shape: message_start/end role=custom."""
+    module = _install_driver(tmp_path)
+    payload = _canonical_handoff_payload()
+    content = json.dumps(payload, ensure_ascii=False)
+    start = {
+        "type": "message_start",
+        "message": {
+            "role": "custom",
+            "customType": "coc_setup_handoff",
+            "content": content,
+            "details": payload,
+        },
+    }
+    end = {
+        "type": "message_end",
+        "message": {
+            "role": "custom",
+            "customType": "coc_setup_handoff",
+            "content": content,
+            "details": payload,
+        },
+    }
+    assert module._setup_handoff_payload(start) == payload
+    assert module._setup_handoff_payload(end) == payload
+    assert module._prompt_turn_complete(
+        [start, end], session_role="setup",
+    ) is True
+    assert module._prompt_turn_complete(
+        [start, end], session_role="play",
+    ) is False
+
+
+def test_same_process_consumer_without_exit_is_not_launcher_reexec(
+    tmp_path: Path,
+):
+    module = _install_driver(tmp_path)
+    row = {
+        "type": "entry_appended",
+        "entry": {
+            "type": "custom",
+            "customType": "coc_setup_handoff",
+            "data": _canonical_handoff_payload(consumer="pi-coc/same-process"),
+        },
+    }
+    assert module._setup_handoff_payload(row) is not None
+    assert module._setup_handoff_proven([row], session_role="setup") is False
+    assert module._setup_handoff_pending([row], session_role="setup") is True
+    assert module._prompt_turn_complete([row], session_role="setup") is False
 
 
 def test_session_role_is_state_not_turn_env(tmp_path: Path):
@@ -703,18 +757,48 @@ def test_driver_setup_handoff_does_not_burn_timeout(setup_daemon: DaemonFixture)
     assert elapsed < 6, f"must not wait out the timeout; elapsed={elapsed:.1f}s"
 
 
-def test_driver_setup_handoff_envelope_without_exit_waits(
+def test_driver_campaign08_launcher_reexec_then_play_does_not_shortcut(
     setup_daemon: DaemonFixture,
 ):
-    """A valid envelope without exit 42 must not complete the setup prompt."""
+    """Campaign 08: launcher envelope, no outer exit 42; then play is ordinary."""
     started = time.monotonic()
-    completed = setup_daemon.turn("__SETUP_HANDOFF__ 完成建卡，开桌", timeout=2)
+    first = setup_daemon.turn("__CAMPAIGN08_HANDOFF__ 确认，打开游戏桌。", timeout=8)
     elapsed = time.monotonic() - started
-    assert completed.returncode == 2, completed.stderr
-    record = _latest_turn_record(setup_daemon)
-    assert record["settled"] is False
-    assert record["settle_class"] == "not_settled"
-    assert elapsed >= 1.5
+    assert first.returncode == 0, first.stderr
+    assert elapsed < 6, f"must not wait out the timeout; elapsed={elapsed:.1f}s"
+    first_record = _latest_turn_record(setup_daemon)
+    assert first_record["settled"] is True
+    assert first_record["settle_class"] == "setup_handoff"
+    assert first_record["session_role"] == "setup"
+    assert not any(
+        event.get("type") in ("driver_pi_exited", "process_exit")
+        for event in first_record["events"]
+    )
+    assert any(
+        event.get("type") == "extension_ui_request"
+        and event.get("statusKey") == "coc-loading"
+        for event in first_record["events"]
+    )
+    assert setup_daemon.pi_pid()  # outer process still alive
+    state = json.loads(setup_daemon.module.STATE.read_text(encoding="utf-8"))
+    assert state["session_role"] == "play"
+
+    second = setup_daemon.turn("__EMPTY_TOOLS__ 我走进门厅", timeout=8)
+    assert second.returncode == 5, second.stderr
+    second_records = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in setup_daemon.evidence.glob("turn-p-*.json")
+        if str(
+            json.loads(path.read_text(encoding="utf-8")).get("request", {}).get(
+                "message", "",
+            )
+        ).startswith("__EMPTY_TOOLS__")
+    ]
+    assert second_records
+    second_record = second_records[-1]
+    assert second_record["session_role"] == "play"
+    assert second_record["settle_class"] == "undelivered_settle_with_tools"
+    assert second_record["settled"] is True
 
 
 def test_driver_setup_handoff_exit_42_is_not_epipe(setup_daemon: DaemonFixture):

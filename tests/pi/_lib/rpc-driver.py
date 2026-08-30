@@ -90,7 +90,7 @@ HEARTBEAT_STALE_SECONDS = 6.0
 DIAGNOSTIC_POLL_SECONDS = 5.0
 # After envelope+exit 42, keep collecting so late reader/EPIPE/non-JSON
 # or a non-42 exit cannot arrive after the window was frozen.
-HANDOFF_DRAIN_SECONDS = 0.5
+HANDOFF_DRAIN_SECONDS = 1.5
 
 _driver_log_handle = None
 
@@ -158,6 +158,7 @@ SETUP_HANDOFF_CONSUMERS = {
     "server-node/launcher",
     "pi-coc/same-process",
 }
+LAUNCHER_HANDOFF_CONSUMER = "server-node/launcher"
 
 
 def _entry_custom_type(entry: object) -> str | None:
@@ -291,11 +292,27 @@ def _validated_setup_handoff_payload(blob: object) -> dict | None:
     return blob
 
 
-def _setup_handoff_candidate(row: dict) -> bool:
-    """True for the host envelopes, even when the payload is malformed."""
+def _custom_handoff_source(row: dict) -> dict | None:
+    """Object holding customType/details/content for a handoff envelope."""
     row_type = row.get("type")
     if row_type == "custom_message" and row.get("customType") == SETUP_HANDOFF_CUSTOM_TYPE:
+        return row
+    if row_type in ("message_start", "message_end"):
+        message = row.get("message")
+        if (
+            isinstance(message, dict)
+            and message.get("role") == "custom"
+            and message.get("customType") == SETUP_HANDOFF_CUSTOM_TYPE
+        ):
+            return message
+    return None
+
+
+def _setup_handoff_candidate(row: dict) -> bool:
+    """True for the host envelopes, even when the payload is malformed."""
+    if _custom_handoff_source(row) is not None:
         return True
+    row_type = row.get("type")
     if row_type == "entry_appended":
         entry = row.get("entry")
         return isinstance(entry, dict) and entry.get("customType") == SETUP_HANDOFF_CUSTOM_TYPE
@@ -305,19 +322,19 @@ def _setup_handoff_candidate(row: dict) -> bool:
 def _setup_handoff_payload(row: dict) -> dict | None:
     """Return a validated coc_setup_handoff payload, or None.
 
-    Accepts the two envelopes the host actually writes: ``custom_message``
-    (sendMessage) and ``entry_appended`` (appendEntry). Every supplied
-    representation must validate and agree; a valid details blob cannot
-    mask malformed content. Assistant prose that merely mentions the type
-    is not a handoff.
+    Accepts live RPC envelopes: ``message_start``/``message_end`` with
+    ``role=custom`` (Campaign 08 sendMessage), ``custom_message``, and
+    ``entry_appended``. Every supplied representation must validate and
+    agree. Assistant prose that merely mentions the type is not a handoff.
     """
     blobs: list[object] = []
     row_type = row.get("type")
-    if row_type == "custom_message" and row.get("customType") == SETUP_HANDOFF_CUSTOM_TYPE:
-        if "details" in row:
-            blobs.append(row.get("details"))
-        if "content" in row:
-            parsed = _parse_json_object(row.get("content"))
+    source = _custom_handoff_source(row)
+    if source is not None:
+        if "details" in source:
+            blobs.append(source.get("details"))
+        if "content" in source:
+            parsed = _parse_json_object(source.get("content"))
             if parsed is None:
                 return None
             blobs.append(parsed)
@@ -363,6 +380,25 @@ def _session_role_from_state() -> str | None:
         return None
     role = data.get("session_role")
     return role if role in ("setup", "play") else None
+
+
+def _persist_session_role(role: str) -> None:
+    """Write STATE.session_role once; never invent a state file."""
+    if role not in ("setup", "play") or not STATE.exists():
+        return
+    try:
+        data = json.loads(STATE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(data, dict):
+        return
+    if data.get("session_role") == role:
+        return
+    data["session_role"] = role
+    STATE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _canonical_session_role(
@@ -436,6 +472,52 @@ def _setup_handoff_envelope_observed(rows: list[dict]) -> bool:
     return any(_setup_handoff_payload(row) is not None for row in rows)
 
 
+def _setup_handoff_payloads(rows: list[dict]) -> list[dict]:
+    payloads: list[dict] = []
+    for row in rows:
+        payload = _setup_handoff_payload(row)
+        if payload is not None:
+            payloads.append(payload)
+    return payloads
+
+
+def _setup_handoff_proven(
+    rows: list[dict],
+    *,
+    session_role: object = _SESSION_ROLE_UNSET,
+) -> bool:
+    """Setup role + valid envelope; launcher consumer may omit outer exit 42."""
+    role = _canonical_session_role(session_role)
+    if role != "setup":
+        return False
+    if _handoff_stream_unreliable(rows):
+        return False
+    payloads = _setup_handoff_payloads(rows)
+    if not payloads:
+        return False
+    exits = _process_exit_rows(rows)
+    if exits:
+        return all(_clean_setup_handoff_exit(row) for row in exits)
+    return all(
+        payload.get("consumer") == LAUNCHER_HANDOFF_CONSUMER
+        for payload in payloads
+    )
+
+
+def _setup_handoff_ready(
+    rows: list[dict],
+    *,
+    session_role: object = _SESSION_ROLE_UNSET,
+    process_alive: bool,
+) -> bool:
+    """Proven handoff that is safe to drain: exit 42 recorded, or live re-exec."""
+    if not _setup_handoff_proven(rows, session_role=session_role):
+        return False
+    if _process_exit_rows(rows):
+        return True
+    return process_alive
+
+
 def _setup_handoff_pending(
     rows: list[dict],
     *,
@@ -447,23 +529,9 @@ def _setup_handoff_pending(
         return False
     if _handoff_stream_unreliable(rows):
         return False
-    return _setup_handoff_envelope_observed(rows) and not _setup_handoff_exit_observed(rows)
-
-
-def _setup_handoff_proven(
-    rows: list[dict],
-    *,
-    session_role: object = _SESSION_ROLE_UNSET,
-) -> bool:
-    """True only for setup role + valid envelope + clean exclusive exit 42."""
-    role = _canonical_session_role(session_role)
-    if role != "setup":
-        return False
-    if _handoff_stream_unreliable(rows):
-        return False
     if not _setup_handoff_envelope_observed(rows):
         return False
-    return _setup_handoff_exit_observed(rows)
+    return not _setup_handoff_proven(rows, session_role=role)
 
 
 def _assistant_message_end_visible(row: dict) -> bool:
@@ -720,8 +788,9 @@ def _finish_prompt_submit(
     if not record["settled"]:
         return 2
     if record["settle_class"] == "setup_handoff":
+        _persist_session_role("play")
         print(
-            "setup handoff: coc_setup_handoff/exit 42; "
+            "setup handoff: coc_setup_handoff launcher re-exec or clean exit 42; "
             "not waiting for agent_settled"
         )
         return 0
@@ -770,29 +839,36 @@ def submit(payload: dict, timeout: int) -> int:
     handoff_drain_deadline: float | None = None
     while time.monotonic() < deadline:
         rows = collect_after(before)
+        process_alive = _pid_alive(pi_pid)
         if payload["type"] == "set_model":
             completed = any(row.get("type") == "response" and row.get("id") == payload["id"] for row in rows)
-        elif _setup_handoff_proven(rows, session_role=session_role):
-            # Envelope + clean 42 observed. Keep collecting so a late
-            # reader/EPIPE/non-JSON/non-42 exit still fails closed.
+        elif _setup_handoff_ready(
+            rows, session_role=session_role, process_alive=process_alive,
+        ):
+            # Envelope proven (live launcher re-exec or recorded clean 42).
+            # Drain so a late reader/EPIPE/non-JSON/non-42 exit fails closed.
             now = time.monotonic()
             if handoff_drain_deadline is None:
                 handoff_drain_deadline = now + HANDOFF_DRAIN_SECONDS
             if now >= handoff_drain_deadline:
                 rows = collect_after(before)
-                completed = _setup_handoff_proven(
-                    rows, session_role=session_role,
+                completed = _setup_handoff_ready(
+                    rows,
+                    session_role=session_role,
+                    process_alive=_pid_alive(pi_pid),
                 )
                 if not completed:
                     handoff_drain_deadline = None
         else:
             handoff_drain_deadline = None
-            # Recovery markers keep the submit open only while the follow-up
-            # has not delivered visible text and settled. A pre-recovery
-            # abort that never emitted agent_settled must not require a
-            # second settle after the recovered turn already delivered.
-            # Setup handoff stays pending until envelope AND clean exit 42.
-            completed = _prompt_turn_complete(rows, session_role=session_role)
+            # Dead outer pid without an exit row is not launcher re-exec;
+            # wait for driver_pi_exited. Ordinary settlement otherwise.
+            if _setup_handoff_proven(rows, session_role=session_role) and not process_alive:
+                completed = False
+            else:
+                completed = _prompt_turn_complete(
+                    rows, session_role=session_role,
+                )
         if completed:
             break
         time.sleep(0.25)
@@ -806,11 +882,16 @@ def submit(payload: dict, timeout: int) -> int:
             # unless a setup-role handoff is pending or already proven.
             last_diagnostic = now
             rows = collect_after(before)
-            if _setup_handoff_proven(rows, session_role=session_role):
+            alive_now = _pid_alive(pi_pid)
+            if _setup_handoff_ready(
+                rows, session_role=session_role, process_alive=alive_now,
+            ):
+                continue
+            if _setup_handoff_proven(rows, session_role=session_role) and not alive_now:
                 continue
             if _setup_handoff_pending(rows, session_role=session_role):
                 continue
-            if not _pid_alive(pi_pid):
+            if not alive_now:
                 return _finish_prompt_submit(
                     payload,
                     timeout,
