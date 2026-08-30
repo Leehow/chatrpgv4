@@ -32,7 +32,7 @@ This driver keeps the same CLI (``start``/``serve``/``set-model``/``turn``/
    and re-checks pi liveness after a timeout; when pi died mid-turn it prints
    the driver log tail plus resume guidance (campaign state is durable;
    restart the daemon and continue the campaign through ``session.resume``).
-5. **Settle classification**: a submitted turn succeeds only when the
+5. **Settle classification**: a submitted played turn succeeds only when the
    settle window contains player-visible assistant text — tool activity is
    not delivery. ``settle_class`` distinguishes ``settled`` (visible text),
    ``undelivered_settle_with_tools`` (zero visible text but tool calls or
@@ -46,6 +46,16 @@ This driver keeps the same CLI (``start``/``serve``/``set-model``/``turn``/
    do not wait for a second settle that will never arrive. The marker is
    appended only after the recovery follow-up was actually sent, so a
    scheduling failure never fabricates an in-flight recovery.
+   The setup→play boundary is a separate terminal, and only for an
+   explicitly proven setup-role session captured at daemon startup
+   (``COC_PI_SESSION_ROLE`` persisted as ``STATE.session_role``). Per-turn
+   environment must not override that role. Canonical emission is a
+   validated ``coc_setup_handoff`` envelope *and* a clean exit 42; the
+   driver marks the envelope pending, waits for process termination and a
+   short stdout drain, then evaluates the full window. Envelope-alone or
+   exit-42-alone is not enough. Ordinary play, unproven/legacy role,
+   lookalike events, malformed handoff rows, and any later signal,
+   non-42 exit, reader/EPIPE/non-JSON evidence fail closed.
 
 The upstream pi gap (EPIPE on RPC stdout kills the whole agent) is reported
 separately; this driver makes the peer death survivable and diagnosable on the
@@ -54,6 +64,7 @@ repo side.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -75,8 +86,11 @@ HEARTBEAT = EVIDENCE / "rpc-driver-heartbeat"
 LAUNCH = EVIDENCE / "rpc-launch.json"
 # How old a heartbeat may be before the daemon is considered dead/hung.
 HEARTBEAT_STALE_SECONDS = 6.0
-# How long a turn may wait for an agent_settled before liveness is rechecked.
+# How long a turn may wait for a terminal before liveness is rechecked.
 DIAGNOSTIC_POLL_SECONDS = 5.0
+# After envelope+exit 42, keep collecting so late reader/EPIPE/non-JSON
+# or a non-42 exit cannot arrive after the window was frozen.
+HANDOFF_DRAIN_SECONDS = 0.5
 
 _driver_log_handle = None
 
@@ -118,6 +132,32 @@ def text_from(content: object) -> str:
 # plus claimed settled-output only.
 EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE = "coc-empty-terminal-recovery"
 SETTLED_OUTPUT_RECOVERY_CUSTOM_TYPE = "coc-settled-output-recovery"
+SETUP_HANDOFF_CUSTOM_TYPE = "coc_setup_handoff"
+COC_SETUP_HANDOFF_EXIT_CODE = 42
+SESSION_ROLE_ENV = "COC_PI_SESSION_ROLE"
+_SESSION_ROLE_UNSET = object()
+SETUP_HANDOFF_RECEIPT_KEYS = {
+    "schema_version",
+    "decision_id",
+    "campaign_id",
+    "investigator_ids",
+    "completed_at",
+    "opening_projection_ref",
+    "lane_interrupted_at_handoff",
+}
+# Exact top-level keys emitted by plugins/coc-keeper/pi/extensions/index.ts
+# emitSetupHandoff (type, campaign_id, receipt, at, consumer).
+SETUP_HANDOFF_PAYLOAD_KEYS = {
+    "type",
+    "campaign_id",
+    "receipt",
+    "at",
+    "consumer",
+}
+SETUP_HANDOFF_CONSUMERS = {
+    "server-node/launcher",
+    "pi-coc/same-process",
+}
 
 
 def _entry_custom_type(entry: object) -> str | None:
@@ -165,6 +205,265 @@ def _settled_output_recovery_markers(rows: list[dict]) -> int:
 
 def _in_flight_recovery_markers(rows: list[dict]) -> int:
     return _recovery_marker_counts(rows)["in_flight"]
+
+
+def _parse_json_object(raw: object) -> dict | None:
+    if not isinstance(raw, str) or not raw.strip().startswith("{"):
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _valid_handoff_investigator_ids(value: object) -> bool:
+    if not isinstance(value, list) or not value:
+        return False
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str) or not item or item != item.strip():
+            return False
+        if item in (".", "..") or "/" in item or chr(92) in item:
+            return False
+        if item in seen:
+            return False
+        seen.add(item)
+    return True
+
+
+def _valid_iso8601_at(value: object) -> bool:
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        return False
+    text = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        datetime.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
+
+
+def _validated_setup_handoff_payload(blob: object) -> dict | None:
+    """Canonical emitSetupHandoff payload: exact keys, at, consumer, receipt."""
+    if not isinstance(blob, dict):
+        return None
+    if set(blob) != SETUP_HANDOFF_PAYLOAD_KEYS:
+        return None
+    if blob.get("type") != SETUP_HANDOFF_CUSTOM_TYPE:
+        return None
+    campaign_id = blob.get("campaign_id")
+    if (
+        not isinstance(campaign_id, str)
+        or not campaign_id.strip()
+        or campaign_id != campaign_id.strip()
+    ):
+        return None
+    if not _valid_iso8601_at(blob.get("at")):
+        return None
+    if blob.get("consumer") not in SETUP_HANDOFF_CONSUMERS:
+        return None
+    receipt = blob.get("receipt")
+    if not isinstance(receipt, dict):
+        return None
+    if set(receipt) != SETUP_HANDOFF_RECEIPT_KEYS:
+        return None
+    if receipt.get("schema_version") != 1:
+        return None
+    decision_id = receipt.get("decision_id")
+    if (
+        not isinstance(decision_id, str)
+        or not decision_id.strip()
+        or decision_id != decision_id.strip()
+    ):
+        return None
+    if receipt.get("campaign_id") != campaign_id:
+        return None
+    completed_at = receipt.get("completed_at")
+    if not isinstance(completed_at, str) or not completed_at.strip():
+        return None
+    if not isinstance(receipt.get("lane_interrupted_at_handoff"), bool):
+        return None
+    projection = receipt.get("opening_projection_ref")
+    if projection is not None and not isinstance(projection, dict):
+        return None
+    if not _valid_handoff_investigator_ids(receipt.get("investigator_ids")):
+        return None
+    return blob
+
+
+def _setup_handoff_candidate(row: dict) -> bool:
+    """True for the host envelopes, even when the payload is malformed."""
+    row_type = row.get("type")
+    if row_type == "custom_message" and row.get("customType") == SETUP_HANDOFF_CUSTOM_TYPE:
+        return True
+    if row_type == "entry_appended":
+        entry = row.get("entry")
+        return isinstance(entry, dict) and entry.get("customType") == SETUP_HANDOFF_CUSTOM_TYPE
+    return row_type == SETUP_HANDOFF_CUSTOM_TYPE
+
+
+def _setup_handoff_payload(row: dict) -> dict | None:
+    """Return a validated coc_setup_handoff payload, or None.
+
+    Accepts the two envelopes the host actually writes: ``custom_message``
+    (sendMessage) and ``entry_appended`` (appendEntry). Every supplied
+    representation must validate and agree; a valid details blob cannot
+    mask malformed content. Assistant prose that merely mentions the type
+    is not a handoff.
+    """
+    blobs: list[object] = []
+    row_type = row.get("type")
+    if row_type == "custom_message" and row.get("customType") == SETUP_HANDOFF_CUSTOM_TYPE:
+        if "details" in row:
+            blobs.append(row.get("details"))
+        if "content" in row:
+            parsed = _parse_json_object(row.get("content"))
+            if parsed is None:
+                return None
+            blobs.append(parsed)
+        if not blobs:
+            return None
+    elif row_type == "entry_appended":
+        entry = row.get("entry")
+        if not isinstance(entry, dict) or entry.get("customType") != SETUP_HANDOFF_CUSTOM_TYPE:
+            return None
+        blobs.append(entry.get("data"))
+    elif row_type == SETUP_HANDOFF_CUSTOM_TYPE:
+        blobs.append(row)
+    else:
+        return None
+    validated: list[dict] = []
+    for blob in blobs:
+        payload = _validated_setup_handoff_payload(blob)
+        if payload is None:
+            return None
+        validated.append(payload)
+    first = validated[0]
+    for other in validated[1:]:
+        if other != first:
+            return None
+    return first
+
+
+def _session_role_from_env() -> str | None:
+    raw = os.environ.get(SESSION_ROLE_ENV)
+    if raw in ("setup", "play"):
+        return raw
+    return None
+
+
+def _session_role_from_state() -> str | None:
+    if not STATE.exists():
+        return None
+    try:
+        data = json.loads(STATE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    role = data.get("session_role")
+    return role if role in ("setup", "play") else None
+
+
+def _canonical_session_role(
+    override: object = _SESSION_ROLE_UNSET,
+) -> str | None:
+    """Daemon-lifetime role: STATE after startup, never the turn process env.
+
+    Serve captures ``COC_PI_SESSION_ROLE`` once into ``STATE.session_role``.
+    Later ``turn`` invocations must not promote play/unproven to setup by
+    exporting a different env. Only exact ``setup`` or ``play`` count.
+    Unset/invalid is unproven. Do not infer role from player prose.
+    """
+    if override is not _SESSION_ROLE_UNSET:
+        return override if override in ("setup", "play") else None
+    return _session_role_from_state()
+
+
+def _process_exit_rows(rows: list[dict]) -> list[dict]:
+    return [
+        row for row in rows
+        if row.get("type") in ("driver_pi_exited", "process_exit")
+    ]
+
+
+def _handoff_stream_unreliable(rows: list[dict]) -> bool:
+    """True when this window carries any transport/process/malformed failure.
+
+    A clean exit-42 row cannot mask a separate non-42 exit, signal, reader
+    error, EPIPE, non-JSON/parse error, or malformed handoff envelope.
+    """
+    for row in rows:
+        row_type = row.get("type")
+        if row_type in ("driver_malformed_event_line", "driver_non_json_stdout"):
+            return True
+        if row.get("epipe") is True:
+            return True
+        if _setup_handoff_candidate(row) and _setup_handoff_payload(row) is None:
+            return True
+    for row in _process_exit_rows(rows):
+        if row.get("driver_reader_error"):
+            return True
+        if row.get("signal") not in (None, 0):
+            return True
+        if row.get("code") != COC_SETUP_HANDOFF_EXIT_CODE:
+            return True
+        if row.get("epipe") is True:
+            return True
+    return False
+
+
+def _clean_setup_handoff_exit(row: dict) -> bool:
+    if row.get("type") not in ("driver_pi_exited", "process_exit"):
+        return False
+    if row.get("code") != COC_SETUP_HANDOFF_EXIT_CODE:
+        return False
+    if row.get("driver_reader_error"):
+        return False
+    if row.get("signal") not in (None, 0):
+        return False
+    return True
+
+
+def _setup_handoff_exit_observed(rows: list[dict]) -> bool:
+    exits = _process_exit_rows(rows)
+    if not exits:
+        return False
+    return all(_clean_setup_handoff_exit(row) for row in exits)
+
+
+def _setup_handoff_envelope_observed(rows: list[dict]) -> bool:
+    return any(_setup_handoff_payload(row) is not None for row in rows)
+
+
+def _setup_handoff_pending(
+    rows: list[dict],
+    *,
+    session_role: object = _SESSION_ROLE_UNSET,
+) -> bool:
+    """True when a setup-role stream has a valid envelope but is not terminal."""
+    role = _canonical_session_role(session_role)
+    if role != "setup":
+        return False
+    if _handoff_stream_unreliable(rows):
+        return False
+    return _setup_handoff_envelope_observed(rows) and not _setup_handoff_exit_observed(rows)
+
+
+def _setup_handoff_proven(
+    rows: list[dict],
+    *,
+    session_role: object = _SESSION_ROLE_UNSET,
+) -> bool:
+    """True only for setup role + valid envelope + clean exclusive exit 42."""
+    role = _canonical_session_role(session_role)
+    if role != "setup":
+        return False
+    if _handoff_stream_unreliable(rows):
+        return False
+    if not _setup_handoff_envelope_observed(rows):
+        return False
+    return _setup_handoff_exit_observed(rows)
 
 
 def _assistant_message_end_visible(row: dict) -> bool:
@@ -218,12 +517,22 @@ def _turn_window_has_tool_activity(rows: list[dict]) -> bool:
     return False
 
 
-def _prompt_turn_complete(rows: list[dict]) -> bool:
+def _prompt_turn_complete(
+    rows: list[dict],
+    *,
+    session_role: object = _SESSION_ROLE_UNSET,
+) -> bool:
     """True when the submitted player turn has settled enough to classify.
 
-    ``agent_settled`` is required. In-flight recovery markers (empty-terminal
-    plus claimed settled-output; exhausted settled-output does not count)
-    mean a hidden follow-up is in flight until either:
+    Setup→play is a distinct terminal, and only when the session role is
+    proven ``setup``: a validated ``coc_setup_handoff`` envelope *and* a
+    clean exclusive exit 42, after the full window is reliable. Envelope
+    or exit 42 alone does not complete. Ordinary play and unproven/legacy
+    sessions ignore lookalike events and still require ``agent_settled``.
+    In-flight recovery
+    markers (empty-terminal plus claimed settled-output; exhausted
+    settled-output does not count) mean a hidden follow-up is in flight until
+    either:
 
     - more ``agent_settled`` events than in-flight markers (the swallowed
       terminal settled, then the recovered turn settled), or
@@ -235,6 +544,9 @@ def _prompt_turn_complete(rows: list[dict]) -> bool:
     must still settle. Lack of visible text keeps the wait open so an
     in-flight recovery is not misread as empty_settle.
     """
+    role = _canonical_session_role(session_role)
+    if _setup_handoff_proven(rows, session_role=role):
+        return True
     settle_indices = [
         index for index, row in enumerate(rows)
         if row.get("type") == "agent_settled"
@@ -255,9 +567,17 @@ def _prompt_turn_complete(rows: list[dict]) -> bool:
     return any(index > last_visible for index in settle_indices)
 
 
-def _classify_prompt_settle(rows: list[dict], *, completed: bool) -> str:
+def _classify_prompt_settle(
+    rows: list[dict],
+    *,
+    completed: bool,
+    session_role: object = _SESSION_ROLE_UNSET,
+) -> str:
     if not completed:
         return "not_settled"
+    role = _canonical_session_role(session_role)
+    if _setup_handoff_proven(rows, session_role=role):
+        return "setup_handoff"
     if _turn_window_visible_output(rows):
         return "settled"
     if _turn_window_has_tool_activity(rows):
@@ -349,76 +669,30 @@ def _print_driver_tail() -> None:
         print(line, file=sys.stderr)
 
 
-def submit(payload: dict, timeout: int) -> int:
-    if not FIFO.exists() or not PID.exists():
-        raise SystemExit("RPC daemon is not running; run start first")
-    pi_pid = _daemon_pid()
-    healthy, diagnosis = _driver_alive()
-    if not healthy or not _pid_alive(pi_pid):
-        print(f"RPC daemon unhealthy: {diagnosis}", file=sys.stderr)
-        if pi_pid is not None and not _pid_alive(pi_pid):
-            print(
-                f"pi pid {pi_pid} is gone; campaign state is durable — "
-                "restart the daemon and continue through session.resume",
-                file=sys.stderr,
-            )
-        _print_driver_tail()
-        raise SystemExit(3)
-    before = event_offset()
-    with FIFO.open("w", encoding="utf-8") as f:
-        f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-        f.flush()
-    deadline = time.monotonic() + timeout
-    rows: list[dict] = []
-    completed = False
-    last_diagnostic = time.monotonic()
-    while time.monotonic() < deadline:
-        rows = collect_after(before)
-        if payload["type"] == "set_model":
-            completed = any(row.get("type") == "response" and row.get("id") == payload["id"] for row in rows)
-        else:
-            # Recovery markers keep the submit open only while the follow-up
-            # has not delivered visible text and settled. A pre-recovery
-            # abort that never emitted agent_settled must not require a
-            # second settle after the recovered turn already delivered.
-            completed = _prompt_turn_complete(rows)
-        if completed:
-            break
-        time.sleep(0.25)
-        now = time.monotonic()
-        if (
-            payload["type"] != "set_model"
-            and now - last_diagnostic >= DIAGNOSTIC_POLL_SECONDS
-        ):
-            # Periodic liveness re-check: a dead pi mid-turn is the EPIPE
-            # signature (events stopped because the RPC channel broke).
-            last_diagnostic = now
-            if not _pid_alive(pi_pid):
-                print(
-                    f"pi pid {pi_pid} died during the turn "
-                    f"(submit {payload['id']}) — EPIPE-class peer loss; "
-                    "campaign state is durable — restart the daemon and "
-                    "continue through session.resume",
-                    file=sys.stderr,
-                )
-                _print_driver_tail()
-                raise SystemExit(3)
-            healthy_now, diagnosis_now = _driver_alive()
-            if not healthy_now:
-                print(f"RPC driver died during the turn: {diagnosis_now}", file=sys.stderr)
-                _print_driver_tail()
-                raise SystemExit(3)
-    rows = collect_after(before) if not completed else rows
+def _finish_prompt_submit(
+    payload: dict,
+    timeout: int,
+    rows: list[dict],
+    *,
+    completed: bool,
+    session_role: str | None,
+    exit_code: int | None = None,
+    death_message: str | None = None,
+) -> int:
+    """Persist the turn record, print evidence, then return the submit code."""
     settle_class = "not_applicable"
     marker_counts = _recovery_marker_counts(rows)
     if payload["type"] != "set_model":
-        settle_class = _classify_prompt_settle(rows, completed=completed)
+        settle_class = _classify_prompt_settle(
+            rows, completed=completed, session_role=session_role,
+        )
     record = {
         "submitted_at": time.time(),
         "request": payload,
         "timeout_seconds": timeout,
         "settled": completed,
         "settle_class": settle_class,
+        "session_role": session_role,
         "recovery_markers": marker_counts["recovery_markers"],
         "empty_terminal_recovery_markers": marker_counts["empty_terminal"],
         "settled_output_recovery_markers": marker_counts["settled_output"],
@@ -439,8 +713,18 @@ def submit(payload: dict, timeout: int) -> int:
             f"empty_terminal_recovery_markers {marker_counts['empty_terminal']} "
             f"settled_output_recovery_markers {marker_counts['settled_output']}"
         )
+    if death_message:
+        print(death_message, file=sys.stderr)
+        _print_driver_tail()
+        return 3 if exit_code is None else exit_code
     if not record["settled"]:
         return 2
+    if record["settle_class"] == "setup_handoff":
+        print(
+            "setup handoff: coc_setup_handoff/exit 42; "
+            "not waiting for agent_settled"
+        )
+        return 0
     if record["settle_class"] == "empty_settle":
         print(
             "empty settle: agent_settled with zero visible assistant text and "
@@ -457,6 +741,113 @@ def submit(payload: dict, timeout: int) -> int:
         )
         return 5
     return 0
+
+
+def submit(payload: dict, timeout: int) -> int:
+    if not FIFO.exists() or not PID.exists():
+        raise SystemExit("RPC daemon is not running; run start first")
+    pi_pid = _daemon_pid()
+    healthy, diagnosis = _driver_alive()
+    if not healthy or not _pid_alive(pi_pid):
+        print(f"RPC daemon unhealthy: {diagnosis}", file=sys.stderr)
+        if pi_pid is not None and not _pid_alive(pi_pid):
+            print(
+                f"pi pid {pi_pid} is gone; campaign state is durable — "
+                "restart the daemon and continue through session.resume",
+                file=sys.stderr,
+            )
+        _print_driver_tail()
+        raise SystemExit(3)
+    before = event_offset()
+    session_role = _canonical_session_role()
+    with FIFO.open("w", encoding="utf-8") as f:
+        f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        f.flush()
+    deadline = time.monotonic() + timeout
+    rows: list[dict] = []
+    completed = False
+    last_diagnostic = time.monotonic()
+    handoff_drain_deadline: float | None = None
+    while time.monotonic() < deadline:
+        rows = collect_after(before)
+        if payload["type"] == "set_model":
+            completed = any(row.get("type") == "response" and row.get("id") == payload["id"] for row in rows)
+        elif _setup_handoff_proven(rows, session_role=session_role):
+            # Envelope + clean 42 observed. Keep collecting so a late
+            # reader/EPIPE/non-JSON/non-42 exit still fails closed.
+            now = time.monotonic()
+            if handoff_drain_deadline is None:
+                handoff_drain_deadline = now + HANDOFF_DRAIN_SECONDS
+            if now >= handoff_drain_deadline:
+                rows = collect_after(before)
+                completed = _setup_handoff_proven(
+                    rows, session_role=session_role,
+                )
+                if not completed:
+                    handoff_drain_deadline = None
+        else:
+            handoff_drain_deadline = None
+            # Recovery markers keep the submit open only while the follow-up
+            # has not delivered visible text and settled. A pre-recovery
+            # abort that never emitted agent_settled must not require a
+            # second settle after the recovered turn already delivered.
+            # Setup handoff stays pending until envelope AND clean exit 42.
+            completed = _prompt_turn_complete(rows, session_role=session_role)
+        if completed:
+            break
+        time.sleep(0.25)
+        now = time.monotonic()
+        if (
+            payload["type"] != "set_model"
+            and now - last_diagnostic >= DIAGNOSTIC_POLL_SECONDS
+        ):
+            # Periodic liveness re-check: a dead pi mid-turn is the EPIPE
+            # signature (events stopped because the RPC channel broke),
+            # unless a setup-role handoff is pending or already proven.
+            last_diagnostic = now
+            rows = collect_after(before)
+            if _setup_handoff_proven(rows, session_role=session_role):
+                continue
+            if _setup_handoff_pending(rows, session_role=session_role):
+                continue
+            if not _pid_alive(pi_pid):
+                return _finish_prompt_submit(
+                    payload,
+                    timeout,
+                    rows,
+                    completed=False,
+                    session_role=session_role,
+                    exit_code=3,
+                    death_message=(
+                        f"pi pid {pi_pid} died during the turn "
+                        f"(submit {payload['id']}) — EPIPE-class peer loss; "
+                        "campaign state is durable — restart the daemon and "
+                        "continue through session.resume"
+                    ),
+                )
+            healthy_now, diagnosis_now = _driver_alive()
+            if not healthy_now:
+                if _setup_handoff_pending(rows, session_role=session_role):
+                    continue
+                return _finish_prompt_submit(
+                    payload,
+                    timeout,
+                    rows,
+                    completed=False,
+                    session_role=session_role,
+                    exit_code=3,
+                    death_message=(
+                        f"RPC driver died during the turn: {diagnosis_now}"
+                    ),
+                )
+    rows = collect_after(before) if not completed else rows
+    return _finish_prompt_submit(
+        payload,
+        timeout,
+        rows,
+        completed=completed,
+        session_role=session_role,
+    )
 
 
 def serve() -> int:
@@ -482,7 +873,13 @@ def serve() -> int:
     proc = subprocess.Popen(cmd, cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=STDERR.open("a", encoding="utf-8"), text=True, bufsize=1, env=env)
     PID.write_text(str(proc.pid) + "\n", encoding="utf-8")
-    STATE.write_text(json.dumps({"pid": proc.pid, "command": cmd, "cwd": str(ROOT), "started_at": time.time()}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    STATE.write_text(json.dumps({
+        "pid": proc.pid,
+        "command": cmd,
+        "cwd": str(ROOT),
+        "started_at": time.time(),
+        "session_role": _session_role_from_env(),
+    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     log(f"pi spawned pid={proc.pid}")
 
     reader_alive = threading.Event()

@@ -1,0 +1,77 @@
+{
+  "comment": "Sanitized setup.complete terminal: tools ran, host emitted coc_setup_handoff with a receipt, process exited 42. No player-visible assistant prose and no agent_settled. The old waiter required agent_settled, burned the 900s timeout, and classified not_settled (or undelivered_settle_with_tools if it had completed).",
+  "events": [
+    {
+      "id": "p-setup-handoff-probe",
+      "type": "response",
+      "command": "prompt",
+      "success": true
+    },
+    {"type": "agent_start"},
+    {"type": "turn_start"},
+    {"type": "tool_execution_start", "tool": "coc_invoke"},
+    {
+      "type": "message_end",
+      "message": {
+        "role": "assistant",
+        "stopReason": "stop",
+        "content": [
+          {
+            "type": "toolCall",
+            "id": "call-setup-complete",
+            "name": "coc_invoke",
+            "arguments": {"operation": "setup.complete"}
+          }
+        ]
+      }
+    },
+    {"type": "tool_execution_end", "tool": "coc_invoke"},
+    {
+      "type": "entry_appended",
+      "entry": {
+        "type": "custom",
+        "customType": "coc_setup_handoff",
+        "data": {
+          "type": "coc_setup_handoff",
+          "campaign_id": "setup-handoff-probe",
+          "receipt": {
+            "schema_version": 1,
+            "decision_id": "handoff-1",
+            "campaign_id": "setup-handoff-probe",
+            "investigator_ids": ["thomas-hayes"],
+            "completed_at": "2026-08-30T00:00:00Z",
+            "opening_projection_ref": null,
+            "lane_interrupted_at_handoff": false
+          },
+          "at": "2026-08-30T00:00:00Z",
+          "consumer": "server-node/launcher"
+        }
+      }
+    },
+    {
+      "type": "custom_message",
+      "customType": "coc_setup_handoff",
+      "content": "{\"type\": \"coc_setup_handoff\", \"campaign_id\": \"setup-handoff-probe\", \"receipt\": {\"schema_version\": 1, \"decision_id\": \"handoff-1\", \"campaign_id\": \"setup-handoff-probe\", \"investigator_ids\": [\"thomas-hayes\"], \"completed_at\": \"2026-08-30T00:00:00Z\", \"opening_projection_ref\": null, \"lane_interrupted_at_handoff\": false}, \"at\": \"2026-08-30T00:00:00Z\", \"consumer\": \"server-node/launcher\"}",
+      "details": {
+        "type": "coc_setup_handoff",
+        "campaign_id": "setup-handoff-probe",
+        "receipt": {
+          "schema_version": 1,
+          "decision_id": "handoff-1",
+          "campaign_id": "setup-handoff-probe",
+          "investigator_ids": ["thomas-hayes"],
+          "completed_at": "2026-08-30T00:00:00Z",
+          "opening_projection_ref": null,
+          "lane_interrupted_at_handoff": false
+        },
+        "at": "2026-08-30T00:00:00Z",
+        "consumer": "server-node/launcher"
+      }
+    },
+    {
+      "type": "driver_pi_exited",
+      "code": 42,
+      "signal": null
+    }
+  ]
+}
