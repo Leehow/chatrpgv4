@@ -3756,31 +3756,43 @@ def _healing_rule_decision_card() -> dict:
         "applicability": "applicable",
         "required_inputs": [
             {
+                "name": "assistant_rescuer_ref",
+                "owner": "optional-semantic",
+                "type": "string",
+            },
+            {
                 "name": "rescuer_ref",
                 "owner": "optional-semantic",
                 "type": "string",
             }
         ],
-        "locked_inputs": ["rescuer_id", "skill_value"],
-        "rule_refs": ["rule:coc7:healing:first-aid"],
-        "source_refs": ["span-wounds-and-healing-page-131-block-18"],
-        "capability_ref": "capability:coc7:first-aid",
-        "effect_refs": ["effect:coc7:healing:restore-one-hp"],
-        "possible_continuations": [
-            "decision:coc7:healing:medicine-ordinary"
+        "locked_inputs": [
+            "assistant_rescuer_id",
+            "assistant_skill_value",
+            "first_aid_pushed",
+            "first_aid_skill",
+            "pushed",
+            "rescuer_id",
+            "skill_value",
         ],
+        "rule_refs": ["rule:coc7:healing:first-aid"],
+        "source_refs": [
+            "span-wounds-and-healing-page-131-block-18",
+            "span-wounds-and-healing-page-131-block-24",
+        ],
+        "capability_ref": "capability:coc7:first-aid",
+        "effect_refs": [],
+        "possible_continuations": [],
         "authority": {
             "selection": "keeper-semantic",
             "execution": "current-ruleset-adapter",
             "hard_gate": False,
         },
-        "card_grant": {
-            "grant_id": "card-grant:coc7:healing:opaque-machine-only"
-        },
-        "canonical_path": "/private/rule-graph.json",
-        "integrity_digest": "sha256:" + "a" * 64,
-        "receipt_id": "opaque-rule-card-receipt",
     }
+
+
+def _production_healing_rule_decision_card() -> dict:
+    return _healing_rule_decision_card()
 
 
 def _healing_rule_decision_block(cards: list[dict] | None = None) -> dict:
@@ -3796,6 +3808,114 @@ def _healing_rule_decision_block(cards: list[dict] | None = None) -> dict:
             "note": "advisory healing affordances",
         },
     }
+
+
+def _project_scene_rule_cards(server, card_block: dict) -> dict:
+    return server.wire_projection.project_envelope(
+        "scene.context",
+        {
+            "ok": True,
+            "tool": "scene.context",
+            "data": {
+                "campaign_id": "scene-rule-card-closed-wire",
+                "active_scene_id": "infirmary",
+                "scene": {"scene_type": "investigation"},
+                "npcs_present": [],
+                "clues_here": [],
+                "action_routes": [],
+                "exits": [],
+                "party": ["investigator-one"],
+                "rule_decision_cards": card_block,
+                "recovery": {"healing": deepcopy(card_block)},
+            },
+            "warnings": [],
+            "hints": [],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+
+
+def test_mcp_wire_drops_malformed_rule_cards_without_settle_operation():
+    server = _load_server()
+    invalid_cards = []
+
+    invalid_authority_selection = _production_healing_rule_decision_card()
+    invalid_authority_selection["authority"]["selection"] = "sha256:" + "a" * 64
+    invalid_cards.append(invalid_authority_selection)
+
+    invalid_authority_execution = _production_healing_rule_decision_card()
+    invalid_authority_execution["authority"]["execution"] = {
+        "adapter": "nested-object-is-not-an-enum",
+    }
+    invalid_cards.append(invalid_authority_execution)
+
+    invalid_authority_gate = _production_healing_rule_decision_card()
+    invalid_authority_gate["authority"]["hard_gate"] = "false"
+    invalid_cards.append(invalid_authority_gate)
+
+    empty_rule_refs = _production_healing_rule_decision_card()
+    empty_rule_refs["rule_refs"] = []
+    invalid_cards.append(empty_rule_refs)
+
+    empty_source_refs = _production_healing_rule_decision_card()
+    empty_source_refs["source_refs"] = []
+    invalid_cards.append(empty_source_refs)
+
+    opaque_decision = _production_healing_rule_decision_card()
+    opaque_decision["decision_ref"] = (
+        "decision:7c9e6679-7425-40de-944b-e07fc1f90ae7"
+    )
+    invalid_cards.append(opaque_decision)
+
+    invalid_schema = _production_healing_rule_decision_card()
+    invalid_schema["schema_version"] = "1"
+    invalid_cards.append(invalid_schema)
+
+    invalid_input_owner = _production_healing_rule_decision_card()
+    invalid_input_owner["required_inputs"][0]["owner"] = "host-locked"
+    invalid_cards.append(invalid_input_owner)
+
+    invalid_input_type = _production_healing_rule_decision_card()
+    invalid_input_type["required_inputs"][0]["type"] = "pickle"
+    invalid_cards.append(invalid_input_type)
+
+    invalid_locked_input = _production_healing_rule_decision_card()
+    invalid_locked_input["locked_inputs"].append("/private/skill-value")
+    invalid_cards.append(invalid_locked_input)
+
+    invalid_rule_namespace = _production_healing_rule_decision_card()
+    invalid_rule_namespace["rule_refs"] = ["effect:coc7:healing:not-a-rule"]
+    invalid_cards.append(invalid_rule_namespace)
+
+    invalid_source_ref = _production_healing_rule_decision_card()
+    invalid_source_ref["source_refs"] = ["/private/rulebook/page-131"]
+    invalid_cards.append(invalid_source_ref)
+
+    for field, value in (
+        ("card_grant", {"grant_id": "card-grant:opaque"}),
+        ("canonical_path", "/private/rule-graph.json"),
+        ("integrity_digest", "sha256:" + "b" * 64),
+    ):
+        card = _production_healing_rule_decision_card()
+        card[field] = value
+        invalid_cards.append(card)
+
+    for invalid_card in invalid_cards:
+        projected = _project_scene_rule_cards(
+            server,
+            _healing_rule_decision_block([invalid_card]),
+        )
+        assert "rule_decision_cards" not in projected["data"], invalid_card
+        assert "rules.settle" not in json.dumps(projected["data"]), invalid_card
+
+    malformed_block = _healing_rule_decision_block([
+        _production_healing_rule_decision_card(),
+    ])
+    malformed_block["authority"]["hard_gate"] = "false"
+    projected = _project_scene_rule_cards(server, malformed_block)
+    assert "rule_decision_cards" not in projected["data"]
+    assert "rules.settle" not in json.dumps(projected["data"])
 
 
 def test_mcp_wire_scene_context_preserves_one_bounded_rule_decision_card_block():
@@ -3844,10 +3964,6 @@ def test_mcp_wire_scene_context_preserves_one_bounded_rule_decision_card_block()
         "decision_ref", "semantic_inputs", "decision_id",
     ]
     expected_card = _healing_rule_decision_card()
-    for host_only in (
-        "card_grant", "canonical_path", "integrity_digest", "receipt_id",
-    ):
-        expected_card.pop(host_only)
     assert block["cards"] == [expected_card]
     assert "investigator_id" not in block
     dumped = json.dumps(block)
@@ -3857,6 +3973,28 @@ def test_mcp_wire_scene_context_preserves_one_bounded_rule_decision_card_block()
     assert "opaque-rule-card-receipt" not in dumped
     assert "7c9e6679-7425-40de-944b-e07fc1f90ae7" not in dumped
     assert "recovery" not in projected["data"]
+
+
+def test_mcp_wire_rule_card_closed_schema_is_ruleset_neutral():
+    server = _load_server()
+    card = _production_healing_rule_decision_card()
+    card.update({
+        "decision_ref": "decision:spark:restoration:stabilize-reactor",
+        "family": "restoration",
+        "label": "Stabilize the damaged reactor",
+        "rule_refs": ["rule:spark:restoration:reactor-stability"],
+        "source_refs": ["source:spark:core-manual:reactor-stability"],
+        "capability_ref": "capability:spark:stabilize-reactor",
+    })
+    block = _healing_rule_decision_block([card])
+    block["family"] = "restoration"
+
+    projected = _project_scene_rule_cards(server, block)
+
+    visible = projected["data"]["rule_decision_cards"]
+    assert visible["family"] == "restoration"
+    assert visible["cards"] == [card]
+    assert visible["settle_operation"]["operation"] == "rules.settle"
 
 
 def test_mcp_wire_scene_recovery_index_keeps_at_most_eight_rule_cards():
@@ -3915,6 +4053,88 @@ def test_mcp_wire_scene_recovery_index_keeps_at_most_eight_rule_cards():
     ]
     assert block["settle_operation"]["operation"] == "rules.settle"
     assert "recovery" not in projected["data"]
+
+
+def test_mcp_wire_tight_and_resume_drop_invalid_rule_card_blocks():
+    server = _load_server()
+    invalid_card = _production_healing_rule_decision_card()
+    invalid_card["source_refs"] = []
+    invalid_block = _healing_rule_decision_block([invalid_card])
+    oversized_scene = {
+        "campaign_id": "scene-invalid-rule-card-oversize",
+        "active_scene_id": "crowded-infirmary",
+        "scene": {"scene_id": "crowded-infirmary", "scene_type": "social"},
+        "npcs_present": [
+            {
+                "npc_id": f"npc-{index}",
+                "name": f"NPC {index}",
+                "agenda": "retain this long authored agenda " * 40,
+                "voice": "measured " * 30,
+                "relationship_to_investigators": "unknown",
+            }
+            for index in range(20)
+        ],
+        "clues_here": [],
+        "action_routes": [],
+        "exits": [],
+        "party": ["investigator-one"],
+        "rule_decision_cards": invalid_block,
+        "recovery": {"healing": deepcopy(invalid_block)},
+    }
+    tight = server.wire_projection.project_envelope(
+        "scene.context",
+        {
+            "ok": True,
+            "tool": "scene.context",
+            "data": oversized_scene,
+            "warnings": [],
+            "hints": [],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+    assert tight["wire"]["scene_recovery_index_projection"] is True
+    assert "rule_decision_cards" not in tight["data"]
+    assert "rules.settle" not in json.dumps(tight["data"])
+
+    malformed_block_authority = _healing_rule_decision_block([
+        _production_healing_rule_decision_card(),
+    ])
+    malformed_block_authority["authority"]["role"] = "sha256:" + "c" * 64
+    resumed = server.wire_projection.project_envelope(
+        "session.resume",
+        {
+            "ok": True,
+            "tool": "session.resume",
+            "data": {
+                "schema_version": 1,
+                "campaign_id": "resume-invalid-rule-card-wire",
+                "mode": "awaiting_player",
+                "next_operations": [],
+                "scene_context": {
+                    "campaign_id": "resume-invalid-rule-card-wire",
+                    "active_scene_id": "infirmary",
+                    "scene": {"scene_type": "investigation"},
+                    "npcs_present": [],
+                    "clues_here": [],
+                    "action_routes": [],
+                    "exits": [],
+                    "party": ["investigator-one"],
+                    "rule_decision_cards": malformed_block_authority,
+                    "recovery": {
+                        "healing": deepcopy(malformed_block_authority),
+                    },
+                },
+            },
+            "warnings": [],
+            "hints": [],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+    scene = resumed["data"]["scene_context"]
+    assert "rule_decision_cards" not in scene
+    assert "rules.settle" not in json.dumps(scene)
 
 
 def test_mcp_wire_session_resume_preserves_scene_rule_decision_cards():

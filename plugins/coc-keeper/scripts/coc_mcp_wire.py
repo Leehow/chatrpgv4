@@ -13,6 +13,7 @@ from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
+import re
 from typing import Any, Callable
 
 
@@ -39,6 +40,48 @@ RULE_DECISION_CARD_LIMIT = 8
 RULE_DECISION_INPUT_LIMIT = 16
 RULE_DECISION_REF_LIMIT = 16
 RULE_DECISION_LABEL_BYTE_LIMIT = 512
+RULE_DECISION_CARD_FIELDS = frozenset({
+    "schema_version",
+    "decision_ref",
+    "family",
+    "label",
+    "applicability",
+    "required_inputs",
+    "locked_inputs",
+    "rule_refs",
+    "source_refs",
+    "capability_ref",
+    "effect_refs",
+    "possible_continuations",
+    "authority",
+})
+RULE_DECISION_BLOCK_FIELDS = frozenset({
+    "schema_version",
+    "family",
+    "investigator_id",
+    "status",
+    "cards",
+    "authority",
+})
+RULE_DECISION_INPUT_FIELDS = frozenset({"name", "owner", "type"})
+RULE_DECISION_INPUT_OWNERS = frozenset({
+    "keeper-semantic", "player-source", "optional-semantic",
+})
+RULE_DECISION_INPUT_TYPES = frozenset({
+    "actor-ref", "boolean", "bool", "integer", "int", "number", "scalar",
+    "string",
+})
+RULE_DECISION_AUTHORITY_FIELDS = frozenset({
+    "selection", "execution", "hard_gate",
+})
+RULE_DECISION_BLOCK_AUTHORITY_FIELDS = frozenset({
+    "hard_gate", "role", "note",
+})
+_OPAQUE_UUID = re.compile(
+    r"(?i)(?:^|[:._-])[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
+    r"[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:$|[:._-])"
+)
+_OPAQUE_HEX = re.compile(r"(?i)(?:^|[:._-])[0-9a-f]{16,}(?:$|[:._-])")
 _SOURCE_IDENTIFIER_FIRST = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )
@@ -1088,50 +1131,130 @@ def _compact_source_material(value: Any) -> dict[str, Any] | None:
     }
 
 
-def _semantic_prefixed_ref(value: Any, prefix: str) -> bool:
+def _model_semantic_identifier(value: Any) -> bool:
+    """Meaning-bearing ASCII identity; rejects entropy/path/integrity tokens."""
     return (
         _is_source_identifier(value)
+        and isinstance(value, str)
+        and not value.startswith(("sha256:", "card-grant:", "receipt:"))
+        and _OPAQUE_UUID.search(value) is None
+        and _OPAQUE_HEX.search(value) is None
+    )
+
+
+def _semantic_prefixed_ref(value: Any, prefix: str) -> bool:
+    return (
+        _model_semantic_identifier(value)
         and isinstance(value, str)
         and value.startswith(prefix)
         and len(value) > len(prefix)
     )
 
 
-def _compact_rule_decision_ref_list(
+def _closed_rule_decision_ref_list(
     value: Any,
     *,
     prefix: str,
-) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [
-        ref
-        for ref in value[:RULE_DECISION_REF_LIMIT]
-        if _semantic_prefixed_ref(ref, prefix)
-    ]
+) -> list[str] | None:
+    if (
+        not isinstance(value, list)
+        or len(value) > RULE_DECISION_REF_LIMIT
+        or any(not _semantic_prefixed_ref(ref, prefix) for ref in value)
+        or len(set(value)) != len(value)
+    ):
+        return None
+    return list(value)
 
 
-def _compact_rule_source_refs(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
+def _closed_rule_source_refs(value: Any) -> list[str] | None:
+    if (
+        not isinstance(value, list)
+        or not value
+        or len(value) > RULE_DECISION_REF_LIMIT
+        or len(set(value)) != len(value)
+    ):
+        return None
     prefixes = ("span-", "source:", "pdf:", "module:", "handout:")
-    return [
-        ref
-        for ref in value[:RULE_DECISION_REF_LIMIT]
-        if _is_source_identifier(ref)
-        and isinstance(ref, str)
-        and any(ref.startswith(prefix) for prefix in prefixes)
-    ]
+    if any(
+        not _model_semantic_identifier(ref)
+        or not isinstance(ref, str)
+        or not any(ref.startswith(prefix) for prefix in prefixes)
+        for ref in value
+    ):
+        return None
+    return list(value)
 
 
-def _compact_rule_decision_card(value: Any) -> dict[str, Any] | None:
+def _closed_rule_required_inputs(value: Any) -> list[dict[str, str]] | None:
+    if not isinstance(value, list) or len(value) > RULE_DECISION_INPUT_LIMIT:
+        return None
+    rows: list[dict[str, str]] = []
+    names: set[str] = set()
+    for raw in value:
+        if (
+            not isinstance(raw, dict)
+            or set(raw) != RULE_DECISION_INPUT_FIELDS
+            or not _model_semantic_identifier(raw.get("name"))
+            or raw.get("owner") not in RULE_DECISION_INPUT_OWNERS
+            or raw.get("type") not in RULE_DECISION_INPUT_TYPES
+            or raw["name"] in names
+        ):
+            return None
+        names.add(raw["name"])
+        rows.append({
+            "name": raw["name"],
+            "owner": raw["owner"],
+            "type": raw["type"],
+        })
+    return rows
+
+
+def _closed_rule_locked_inputs(value: Any) -> list[str] | None:
+    if (
+        not isinstance(value, list)
+        or len(value) > RULE_DECISION_INPUT_LIMIT
+        or any(not _model_semantic_identifier(name) for name in value)
+        or len(set(value)) != len(value)
+    ):
+        return None
+    return list(value)
+
+
+def _closed_rule_card_authority(value: Any) -> dict[str, Any] | None:
+    if (
+        not isinstance(value, dict)
+        or set(value) != RULE_DECISION_AUTHORITY_FIELDS
+        or value.get("selection") != "keeper-semantic"
+        or value.get("execution") != "current-ruleset-adapter"
+        or not isinstance(value.get("hard_gate"), bool)
+    ):
+        return None
+    return {
+        "selection": value["selection"],
+        "execution": value["execution"],
+        "hard_gate": value["hard_gate"],
+    }
+
+
+def _compact_rule_decision_card(
+    value: Any,
+    *,
+    family: str,
+) -> dict[str, Any] | None:
     """Project one source-bound model-safe RuleDecisionCard.
 
     Card grants, canonical actor identity, paths, hashes, and arbitrary extra
     fields stay out of the MCP wire. Invalid identity-bearing cards drop as a
     whole so a partial card can never authorize settlement.
     """
-    if not isinstance(value, dict):
+    if (
+        not isinstance(value, dict)
+        or set(value) != RULE_DECISION_CARD_FIELDS
+        or value.get("schema_version") != 1
+        or value.get("family") != family
+        or not isinstance(value.get("label"), str)
+        or not value["label"].strip()
+    ):
         return None
     decision_ref = value.get("decision_ref")
     capability_ref = value.get("capability_ref")
@@ -1141,100 +1264,102 @@ def _compact_rule_decision_card(value: Any) -> dict[str, Any] | None:
         or value.get("applicability") != "applicable"
     ):
         return None
-    projected: dict[str, Any] = {
-        "decision_ref": decision_ref,
-        "capability_ref": capability_ref,
-        "applicability": "applicable",
-    }
-    schema_version = value.get("schema_version")
-    if isinstance(schema_version, int) and not isinstance(schema_version, bool):
-        projected["schema_version"] = schema_version
-    family = value.get("family")
-    if _is_source_identifier(family):
-        projected["family"] = family
+    required_inputs = _closed_rule_required_inputs(value.get("required_inputs"))
+    locked_inputs = _closed_rule_locked_inputs(value.get("locked_inputs"))
+    rule_refs = _closed_rule_decision_ref_list(
+        value.get("rule_refs"), prefix="rule:",
+    )
+    source_refs = _closed_rule_source_refs(value.get("source_refs"))
+    effect_refs = _closed_rule_decision_ref_list(
+        value.get("effect_refs"), prefix="effect:",
+    )
+    continuations = _closed_rule_decision_ref_list(
+        value.get("possible_continuations"), prefix="decision:",
+    )
+    authority = _closed_rule_card_authority(value.get("authority"))
+    if (
+        required_inputs is None
+        or locked_inputs is None
+        or rule_refs is None
+        or not rule_refs
+        or source_refs is None
+        or effect_refs is None
+        or continuations is None
+        or authority is None
+    ):
+        return None
     label, _trimmed = _bounded_source_text_bytes(
         value.get("label"), RULE_DECISION_LABEL_BYTE_LIMIT,
     )
-    if label is not None:
-        projected["label"] = label
-    required_inputs = []
-    raw_required_inputs = value.get("required_inputs")
-    if not isinstance(raw_required_inputs, list):
-        raw_required_inputs = []
-    for raw in raw_required_inputs[:RULE_DECISION_INPUT_LIMIT]:
-        if not isinstance(raw, dict):
-            continue
-        row = _pick(raw, ("name", "owner", "type"))
-        if (
-            all(
-                _is_source_identifier(row.get(field))
-                for field in ("name", "owner", "type")
-            )
-            and len(row) == 3
-        ):
-            required_inputs.append(row)
-    projected["required_inputs"] = required_inputs
-    locked_inputs = value.get("locked_inputs")
-    projected["locked_inputs"] = [
-        name
-        for name in (
-            locked_inputs[:RULE_DECISION_INPUT_LIMIT]
-            if isinstance(locked_inputs, list)
-            else []
-        )
-        if _is_source_identifier(name)
-    ]
-    projected["rule_refs"] = _compact_rule_decision_ref_list(
-        value.get("rule_refs"), prefix="rule:",
-    )
-    projected["source_refs"] = _compact_rule_source_refs(
-        value.get("source_refs"),
-    )
-    projected["effect_refs"] = _compact_rule_decision_ref_list(
-        value.get("effect_refs"), prefix="effect:",
-    )
-    projected["possible_continuations"] = _compact_rule_decision_ref_list(
-        value.get("possible_continuations"), prefix="decision:",
-    )
-    authority = value.get("authority")
-    if isinstance(authority, dict):
-        projected["authority"] = _pick(
-            authority, ("selection", "execution", "hard_gate"),
-        )
-    return projected
+    if label is None:
+        return None
+    return {
+        "schema_version": 1,
+        "decision_ref": decision_ref,
+        "family": family,
+        "label": label,
+        "applicability": "applicable",
+        "required_inputs": required_inputs,
+        "locked_inputs": locked_inputs,
+        "rule_refs": rule_refs,
+        "source_refs": source_refs,
+        "capability_ref": capability_ref,
+        "effect_refs": effect_refs,
+        "possible_continuations": continuations,
+        "authority": authority,
+    }
+
+
+def _closed_rule_block_authority(value: Any) -> dict[str, Any] | None:
+    if (
+        not isinstance(value, dict)
+        or set(value) != RULE_DECISION_BLOCK_AUTHORITY_FIELDS
+        or value.get("hard_gate") is not False
+        or value.get("role") != "affordance"
+        or not isinstance(value.get("note"), str)
+        or not value["note"].strip()
+    ):
+        return None
+    return {"hard_gate": False, "role": "affordance"}
 
 
 def _compact_rule_decision_card_block(value: Any) -> dict[str, Any] | None:
-    if not isinstance(value, dict) or not isinstance(value.get("cards"), list):
+    if (
+        not isinstance(value, dict)
+        or set(value) != RULE_DECISION_BLOCK_FIELDS
+        or value.get("schema_version") != 1
+        or not _model_semantic_identifier(value.get("family"))
+        or value.get("status") != "ok"
+        or not isinstance(value.get("investigator_id"), str)
+        or not value["investigator_id"]
+        or not isinstance(value.get("cards"), list)
+        or not value["cards"]
+    ):
+        return None
+    family = value["family"]
+    authority = _closed_rule_block_authority(value.get("authority"))
+    if authority is None:
         return None
     cards = [
         projected
         for raw in value["cards"][:RULE_DECISION_CARD_LIMIT]
-        if (projected := _compact_rule_decision_card(raw)) is not None
+        if (
+            projected := _compact_rule_decision_card(raw, family=family)
+        ) is not None
     ]
     if not cards:
         return None
-    projected: dict[str, Any] = {
+    return {
+        "schema_version": 1,
+        "family": family,
+        "status": "ok",
         "cards": cards,
         "settle_operation": _operation_card(
             "rules.settle",
             missing=["decision_ref", "semantic_inputs", "decision_id"],
         ),
+        "authority": authority,
     }
-    for field in ("schema_version", "family", "status"):
-        candidate = value.get(field)
-        if field == "schema_version":
-            valid = isinstance(candidate, int) and not isinstance(candidate, bool)
-        else:
-            valid = _is_source_identifier(candidate)
-        if valid:
-            projected[field] = candidate
-    authority = value.get("authority")
-    if isinstance(authority, dict):
-        projected["authority"] = _pick(
-            authority, ("hard_gate", "role"),
-        )
-    return projected
 
 
 def _compact_scene(
