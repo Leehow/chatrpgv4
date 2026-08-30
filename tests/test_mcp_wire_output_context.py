@@ -426,7 +426,7 @@ def _accepted_review_evidence(data: dict, receipt: dict) -> dict:
     data["contract_projection_sha256"] = _digest(data["contract_projection"])
     payload = {
         "schema_version": 1,
-        "contract_id": "coc.accepted-review-evidence.v1",
+        "contract_id": "coc.accepted-review-evidence.v2",
         "visibility": "host_only",
         "review_id": receipt["review_id"],
         "turn_id": data["turn_id"],
@@ -448,6 +448,25 @@ def _accepted_review_evidence(data: dict, receipt: dict) -> dict:
         "player_input_source_ref": "player_input:journal-t13",
         "agency_authority": data["contract_projection"]["agency_authority"],
         "control_overrides": [],
+        "coverage_binding_facts": {
+            "schema_version": 1,
+            "contract_id": "coc.reviewed-coverage-binding-facts.v1",
+            "settlement_snapshot_id": data["settlement_snapshot_id"],
+            "mechanics_bundle_sha256": data["mechanics_bundle_sha256"],
+            "obligations": data["obligations"],
+            "public_check_source_ids": sorted(
+                row["roll_id"]
+                for row in data["mechanics_bundle"]["public_check"]
+            ),
+            "state_delta_source_ids": sorted(
+                row["effect_id"]
+                for row in data["mechanics_bundle"]["state_delta"]
+            ),
+            "exceptional_effect_source_ids": sorted(
+                row["event_id"]
+                for row in data["mechanics_bundle"]["exceptional_effect"]
+            ),
+        },
     }
     payload["evidence_sha256"] = _digest(payload)
     return payload

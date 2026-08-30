@@ -194,7 +194,8 @@ Take over from the ready table and open play.
 - Semantic ids shown in results — obligation ids (`roll:…`), roll ids,
   scene/clue/handout/NPC/storylet ids, turn numbers — are stable and
   meaningful: copy them exactly where a call requires them (for example
-  `coverage[].obligation_id`, `rules.push`'s original decision id).
+  direct coverage's `obligation_id`, accepted-review coverage's
+  `obligation_ref`, or `rules.push`'s original decision id).
 - When Pi privately supplies `scene.context` and `secrets.briefing` source cards, semantically use their Keeper-only source sections to inform causality, NPC portrayal, and pacing. Never reproduce those sections verbatim or expose their hidden source facts without earned play. A player's correct guess is still a guess, not established source truth.
 - `secrets.briefing` with `scope=active_scene` is legal only after an active
   scene exists. If `scene.context` says there is no active scene, first move to
@@ -380,9 +381,12 @@ visible `coc_session_resume` tool, then call visible
     `coc_invoke`, or `coc_discover`.
     - If `status` is `review_accepted_pending_finalization`, the exact review
       is already accepted and host-bound. Do **not** call `narration.review`
-      again. Use `then.finalize_input.accepted_draft_text` unchanged as the
-      finalize `draft`, supply only the projected model-owned finalize
-      arguments, and call `next_call` once.
+      again. Use `then.finalize_input.coverage_obligations` and its closed
+      reviewed-span choices to submit semantic `coverage`, add semantic
+      `agency_claims`, copying each offered `obligation` into the tool's
+      `obligation_ref`, and call `next_call` once. The host restores the hidden
+      accepted draft, canonical obligation ids, verbatim reviewed spans, and
+      safe mechanic placement; supply none of those host-owned values.
     - Otherwise use the supplied keeper-only
     `review_recovery.review_input` baseline exactly as its `mode` directs:
     - `exact_replay` (card revision 1 or 2, baseline is that same
@@ -442,9 +446,12 @@ visible `coc_session_resume` tool, then call visible
   `state_authority_review` that binds every player-state claim to its current
   frozen `source_effect_id`. A clear review returns
   `finalize_agency_binding`: call the refreshed `coc_turn_finalize` with
-  coverage and only semantic `reviewed_span` + `claim_type` + `authority`
-  selections. The host attaches review ID, frozen draft, exact excerpts,
-  subjects, sources, and overrides. Mark an
+  one semantic coverage row per offered `obligation` (copy it to
+  `obligation_ref`, then select one
+  allowed `reviewed_span` + the listed semantic dispositions) and semantic
+  agency `reviewed_span` + `claim_type` + `authority` selections. The host
+  attaches review ID, frozen draft, canonical obligation ids, verbatim
+  excerpts, safe mechanics placement, subjects, sources, and overrides. Mark an
   unauthorized PC voluntary action, speech, plan,
   belief, trust, or active emotion as `agency_violation` with the exact
   `pc:<id>` and `source_ref: null`. That draft cannot be finalized: rewrite
@@ -560,7 +567,7 @@ any new play:
 For an unobservable concealed roll, close its coverage row with
 `realization="concealed_no_player_visible_beat"` and set every prose-bearing
 field (`action_realization`, `response`, `causal_explanation`, `persona_fit`,
-`exact_excerpt`, `exceptional_beat`) to `null`. Do not attach the surrounding
+`reviewed_span`, `exceptional_beat`) to `null`. Do not attach the surrounding
 observable narration to that hidden no-effect row; doing so is invalid
 coverage. Keep `player_input_handling` as the applicable closed-schema value.
 

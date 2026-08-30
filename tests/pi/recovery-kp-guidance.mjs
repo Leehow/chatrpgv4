@@ -1193,7 +1193,14 @@ const liveEnvelope = (mutateData = () => {}, frozenDraft) => {
       turn_id: liveTurnId,
       source_digest: liveSourceDigest,
       settlement_snapshot_id: "turn-settlement-v1:live-hydrate-1",
-      mechanics_bundle_sha256: "sha256:live-mechanics-hydrate-1",
+      mechanics_bundle_sha256: `sha256:${"c".repeat(64)}`,
+      obligations: [],
+      mechanics_summary: {
+        public_check: [],
+        state_delta: [],
+        exceptional_effect: [],
+        concealed_consequence: [],
+      },
       manifest_revision: 41,
       contract_projection: {
         agency_review_required: true,
@@ -1252,7 +1259,7 @@ const acceptedReviewEnvelope = (mutateEvidence = () => {}, { reseal = true } = {
   const frozen = envelope.data.frozen_narration_draft;
   const evidence = {
     schema_version: 1,
-    contract_id: "coc.accepted-review-evidence.v1",
+    contract_id: "coc.accepted-review-evidence.v2",
     visibility: "host_only",
     review_id: frozen.review_id,
     turn_id: envelope.data.turn_id,
@@ -1277,6 +1284,16 @@ const acceptedReviewEnvelope = (mutateEvidence = () => {}, { reseal = true } = {
       envelope.data.contract_projection.agency_authority,
     ),
     control_overrides: [],
+    coverage_binding_facts: {
+      schema_version: 1,
+      contract_id: "coc.reviewed-coverage-binding-facts.v1",
+      settlement_snapshot_id: envelope.data.settlement_snapshot_id,
+      mechanics_bundle_sha256: envelope.data.mechanics_bundle_sha256,
+      obligations: structuredClone(envelope.data.obligations),
+      public_check_source_ids: [],
+      state_delta_source_ids: [],
+      exceptional_effect_source_ids: [],
+    },
   };
   mutateEvidence(evidence, envelope.data);
   if (reseal) {
@@ -1768,6 +1785,27 @@ for (const [label, envelope, resumeData, expectNull] of [
     ["non-clear verification", acceptedReviewEnvelope((e) => {
       e.verification.state_authority_gate = "rewrite_required";
     })],
+    ["coverage facts diverge from current obligations", acceptedReviewEnvelope((e) => {
+      e.coverage_binding_facts.obligations = [{
+        obligation_id: "roll:forged-obligation",
+        source_kind: "check",
+        source_id: "forged-obligation",
+        visibility: "public",
+        exceptional_required: false,
+      }];
+      e.coverage_binding_facts.public_check_source_ids = ["forged-obligation"];
+    })],
+    ["coverage mechanics digest drifts", acceptedReviewEnvelope((e) => {
+      e.coverage_binding_facts.mechanics_bundle_sha256 =
+        `sha256:${"7".repeat(64)}`;
+    })],
+    ["current output context drifts after accepted evidence", acceptedReviewEnvelope(
+      (_e, data) => {
+        data.mechanics_summary.state_delta = [{
+          effect_id: "effect:late-drift",
+        }];
+      },
+    )],
     ["unknown evidence field", acceptedReviewEnvelope((e) => {
       e.extra = "not closed";
     })],

@@ -14,9 +14,11 @@ import {
   type JsonSchema,
 } from "./operation-contracts.ts";
 import {
+  buildReviewedCoverageBindingFacts,
   projectModelCallArguments,
   type ModelCallArgumentProjection,
   type ReviewedAgencyBinding,
+  type ReviewedCoverageBindingFacts,
 } from "./tool-contract-projection.ts";
 
 export const OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT =
@@ -412,13 +414,14 @@ export function validateFrozenNarrationDraft(
 }
 
 const ACCEPTED_REVIEW_EVIDENCE_CONTRACT =
-  "coc.accepted-review-evidence.v1";
+  "coc.accepted-review-evidence.v2";
 const ACCEPTED_REVIEW_EVIDENCE_FIELDS = new Set([
   "schema_version", "contract_id", "visibility", "review_id", "turn_id",
   "source_digest", "revision", "draft_sha256", "review_digest",
   "pending_draft_receipt_digest", "contract_projection_sha256",
   "verification", "state_authority_review", "player_input_source_ref",
-  "agency_authority", "control_overrides", "evidence_sha256",
+  "agency_authority", "control_overrides", "coverage_binding_facts",
+  "evidence_sha256",
 ]);
 const ACCEPTED_REVIEW_VERIFICATION_FIELDS = new Set([
   "agency_gate", "state_authority_gate",
@@ -509,6 +512,7 @@ function validateAcceptedReviewEvidence(
     frozenDraft: JsonObject;
     contractProjection: JsonObject;
     contractProjectionSha256: unknown;
+    coverageBindingFacts: ReviewedCoverageBindingFacts;
   },
 ): JsonObject | null {
   if (!isPlainObject(value) || !hasExactFields(value, ACCEPTED_REVIEW_EVIDENCE_FIELDS)) {
@@ -569,6 +573,8 @@ function validateAcceptedReviewEvidence(
     || !Array.isArray(value.control_overrides)
     || canonicalOverrides === null
     || canonicalDigest(value.control_overrides) !== canonicalDigest(canonicalOverrides)
+    || canonicalDigest(value.coverage_binding_facts)
+      !== canonicalDigest(binding.coverageBindingFacts)
     || typeof binding.frozenDraft.draft_text !== "string"
     || !validAcceptedStateReview(
       value.state_authority_review,
@@ -677,6 +683,7 @@ function buildAcceptedReviewFinalizeModelCall(
       ...new Set([
         ...ordinary.host_bound_auto_attached_arguments,
         "draft",
+        "mechanics_placements",
       ]),
     ].sort(),
   };
@@ -694,11 +701,28 @@ function projectAcceptedReviewBindingForModel(
       authority: row.authority,
       claim_types: [...row.claim_types],
     })),
+    coverage_obligations: binding.coverage_obligations.map((row) => ({
+      obligation: row.obligation_ref,
+      source_kind: row.source_kind,
+      visibility: row.visibility,
+      npc_display_name: row.npc_display_name,
+      skill: row.skill,
+      goal: row.goal,
+      outcome: row.outcome,
+      exceptional_required: row.exceptional_required,
+      allowed_reviewed_spans: [...row.allowed_reviewed_spans],
+      realization: row.realization,
+      placement_mode: row.placement_mode,
+    })),
+    mechanics_placement: deepCopyValue(binding.mechanics_placement),
     model_arguments: ["coverage", "agency_claims"],
     instruction: (
       "Call turn.finalize with coverage and semantic agency_claims only. "
-      + "Choose reviewed_span, claim_type, and authority from this card; "
-      + "the host restores the accepted draft and exact evidence."
+      + "Copy each offered obligation into coverage.obligation_ref and choose "
+      + "its reviewed_span; then choose "
+      + "reviewed_span, claim_type, and authority for agency; the host "
+      + "restores the accepted draft, exact evidence, canonical obligation "
+      + "identity, and safe mechanics placement."
     ),
   };
 }
@@ -934,6 +958,12 @@ export function validateLiveOutputContext(
       || frozenDraft === null
       || frozenDraftMode !== "exact_replay"
     ) return null;
+    let coverageBindingFacts: ReviewedCoverageBindingFacts;
+    try {
+      coverageBindingFacts = buildReviewedCoverageBindingFacts(data);
+    } catch {
+      return null;
+    }
     acceptedReviewEvidence = validateAcceptedReviewEvidence(
       data.accepted_review_evidence,
       {
@@ -943,6 +973,7 @@ export function validateLiveOutputContext(
         frozenDraft,
         contractProjection,
         contractProjectionSha256: data.contract_projection_sha256,
+        coverageBindingFacts,
       },
     );
     if (acceptedReviewEvidence === null) return null;

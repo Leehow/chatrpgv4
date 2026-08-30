@@ -63,6 +63,54 @@ export type ReviewedAgencyAuthority = {
   override_id: string | null;
 };
 
+export const REVIEWED_COVERAGE_FACTS_CONTRACT =
+  "coc.reviewed-coverage-binding-facts.v1";
+
+export type ReviewedCoverageBindingFacts = {
+  schema_version: 1;
+  contract_id: typeof REVIEWED_COVERAGE_FACTS_CONTRACT;
+  settlement_snapshot_id: string;
+  mechanics_bundle_sha256: string;
+  obligations: readonly Record<string, unknown>[];
+  public_check_source_ids: readonly string[];
+  state_delta_source_ids: readonly string[];
+  exceptional_effect_source_ids: readonly string[];
+};
+
+export type SemanticObligationRef = {
+  /** Exact canonical finalizer join key; host-only. */
+  obligation_id: string;
+  /** Stable meaning-bearing model selection minted by the identity registry. */
+  obligation_ref: string;
+};
+
+export type ReviewedCoverageObligation = {
+  obligation_ref: string;
+  /** Exact canonical finalizer join key; host-only. */
+  obligation_id: string;
+  source_kind: string;
+  visibility: string;
+  npc_display_name: string | null;
+  skill: string | null;
+  goal: string | null;
+  outcome: string | null;
+  exceptional_required: boolean;
+  allowed_reviewed_spans: readonly string[];
+  realization: "fictional_beat" | "concealed_no_player_visible_beat";
+  placement_mode:
+    | "host_safe_default_before_result"
+    | "canonical_repair_if_unsafe"
+    | "host_safe_default"
+    | "none";
+};
+
+export type ReviewedMechanicsPlacementBinding = {
+  mode: "host_safe_default";
+  public_check_count: number;
+  state_delta_count: number;
+  exceptional_effect_count: number;
+};
+
 export type ReviewedAgencyBinding = {
   schema_version: 1;
   review_id: string;
@@ -71,6 +119,8 @@ export type ReviewedAgencyBinding = {
   draft: string;
   spans: readonly ReviewedAgencySpan[];
   authorities: readonly ReviewedAgencyAuthority[];
+  coverage_obligations: readonly ReviewedCoverageObligation[];
+  mechanics_placement: ReviewedMechanicsPlacementBinding;
 };
 
 export type TurnFinalizeBindingCard = {
@@ -696,6 +746,192 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
+const REVIEWED_OBLIGATION_REF_RE =
+  /^roll:[a-z0-9\u3400-\u9fff][a-z0-9\u3400-\u9fff-]{0,126}$/;
+
+function exactUniqueStrings(
+  value: unknown,
+  field: string,
+  maxItems = 128,
+): string[] {
+  if (!Array.isArray(value) || value.length > maxItems) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      `${field} must be a bounded string array`,
+      { field },
+    );
+  }
+  const rows = value.map((entry) => nonEmptyString(entry, field));
+  if (rows.length !== new Set(rows).size) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      `${field} must not contain duplicate identities`,
+      { field },
+    );
+  }
+  return rows;
+}
+
+function validateReviewedCoverageBindingFacts(
+  value: unknown,
+): ReviewedCoverageBindingFacts {
+  if (
+    !isPlainObject(value)
+    || !exactObjectKeys(value, [
+      "schema_version", "contract_id", "settlement_snapshot_id",
+      "mechanics_bundle_sha256", "obligations", "public_check_source_ids",
+      "state_delta_source_ids", "exceptional_effect_source_ids",
+    ])
+    || value.schema_version !== 1
+    || value.contract_id !== REVIEWED_COVERAGE_FACTS_CONTRACT
+  ) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "accepted-review coverage facts use the closed v1 host contract",
+      { field: "coverage_binding_facts" },
+    );
+  }
+  nonEmptyString(
+    value.settlement_snapshot_id,
+    "coverage_binding_facts.settlement_snapshot_id",
+  );
+  const mechanicsDigest = nonEmptyString(
+    value.mechanics_bundle_sha256,
+    "coverage_binding_facts.mechanics_bundle_sha256",
+  );
+  if (!/^sha256:[0-9a-f]{64}$/.test(mechanicsDigest)) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "accepted-review coverage facts require the exact mechanics digest",
+      { field: "coverage_binding_facts.mechanics_bundle_sha256" },
+    );
+  }
+  if (!Array.isArray(value.obligations) || value.obligations.length > 64) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "accepted-review coverage facts require at most 64 obligations",
+      { field: "coverage_binding_facts.obligations" },
+    );
+  }
+  const obligations = value.obligations.map((raw, index) => {
+    if (!isPlainObject(raw)) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "accepted-review coverage obligation must be structured",
+        { field: `coverage_binding_facts.obligations[${index}]` },
+      );
+    }
+    for (const field of [
+      "obligation_id", "source_kind", "source_id", "visibility",
+    ]) {
+      nonEmptyString(
+        raw[field],
+        `coverage_binding_facts.obligations[${index}].${field}`,
+      );
+    }
+    if (typeof raw.exceptional_required !== "boolean") {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "coverage obligation exceptional_required must be boolean",
+        { field: `coverage_binding_facts.obligations[${index}].exceptional_required` },
+      );
+    }
+    return structuredClone(raw);
+  });
+  const obligationIds = obligations.map((row) => String(row.obligation_id));
+  if (obligationIds.length !== new Set(obligationIds).size) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "accepted-review coverage obligations must have unique canonical ids",
+      { field: "coverage_binding_facts.obligations" },
+    );
+  }
+  const publicCheckSourceIds = exactUniqueStrings(
+    value.public_check_source_ids,
+    "coverage_binding_facts.public_check_source_ids",
+  );
+  const obligationSourceIds = new Set(
+    obligations.map((row) => String(row.source_id)),
+  );
+  if (publicCheckSourceIds.some((sourceId) => !obligationSourceIds.has(sourceId))) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "every public check source must belong to a retained obligation",
+      { field: "coverage_binding_facts.public_check_source_ids" },
+    );
+  }
+  return {
+    schema_version: 1,
+    contract_id: REVIEWED_COVERAGE_FACTS_CONTRACT,
+    settlement_snapshot_id: String(value.settlement_snapshot_id),
+    mechanics_bundle_sha256: mechanicsDigest,
+    obligations,
+    public_check_source_ids: publicCheckSourceIds,
+    state_delta_source_ids: exactUniqueStrings(
+      value.state_delta_source_ids,
+      "coverage_binding_facts.state_delta_source_ids",
+    ),
+    exceptional_effect_source_ids: exactUniqueStrings(
+      value.exceptional_effect_source_ids,
+      "coverage_binding_facts.exceptional_effect_source_ids",
+    ),
+  };
+}
+
+/** Build the exact host-only coverage facts from one canonical output context. */
+export function buildReviewedCoverageBindingFacts(
+  value: unknown,
+): ReviewedCoverageBindingFacts {
+  const data = isPlainObject(value) ? value : null;
+  const mechanics = data !== null && isPlainObject(data.mechanics_summary)
+    ? data.mechanics_summary
+    : null;
+  if (data === null || mechanics === null) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "coverage binding requires one complete canonical output context",
+      { field: "output_context" },
+    );
+  }
+  const sourceIds = (
+    rows: unknown,
+    field: "roll_id" | "effect_id" | "event_id",
+  ): string[] => {
+    if (!Array.isArray(rows)) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        `mechanics_summary.${field} source rows must be an array`,
+        { field: `mechanics_summary.${field}` },
+      );
+    }
+    return rows.map((raw, index) => {
+      const row = isPlainObject(raw) ? raw : null;
+      const value = row?.[field];
+      if (typeof value !== "string" || !value.trim()) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          `mechanics_summary source row lacks ${field}`,
+          { field: `mechanics_summary.${field}[${index}]` },
+        );
+      }
+      return value.trim();
+    }).sort();
+  };
+  return validateReviewedCoverageBindingFacts({
+    schema_version: 1,
+    contract_id: REVIEWED_COVERAGE_FACTS_CONTRACT,
+    settlement_snapshot_id: data.settlement_snapshot_id,
+    mechanics_bundle_sha256: data.mechanics_bundle_sha256,
+    obligations: Array.isArray(data.obligations) ? data.obligations : [],
+    public_check_source_ids: sourceIds(mechanics.public_check, "roll_id"),
+    state_delta_source_ids: sourceIds(mechanics.state_delta, "effect_id"),
+    exceptional_effect_source_ids: sourceIds(
+      mechanics.exceptional_effect,
+      "event_id",
+    ),
+  });
+}
+
 export type ReviewedAgencyBindingSource = {
   review_id: string;
   revision: number;
@@ -705,6 +941,8 @@ export type ReviewedAgencyBindingSource = {
   player_input_source_ref: string;
   agency_authority: unknown;
   control_overrides: unknown;
+  coverage_binding_facts: unknown;
+  semantic_obligation_refs: unknown;
 };
 
 function reviewedParagraphs(draft: string): string[] {
@@ -808,6 +1046,119 @@ export function buildReviewedAgencyBinding(
       { field: "reviewed_agency_binding.spans" },
     );
   }
+  const coverageFacts = validateReviewedCoverageBindingFacts(
+    source.coverage_binding_facts,
+  );
+  if (!Array.isArray(source.semantic_obligation_refs)) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "accepted-review coverage binding requires semantic obligation refs",
+      { field: "semantic_obligation_refs" },
+    );
+  }
+  const semanticRefs = new Map<string, string>();
+  const seenObligationRefs = new Set<string>();
+  for (const [index, raw] of source.semantic_obligation_refs.entries()) {
+    if (
+      !isPlainObject(raw)
+      || !exactObjectKeys(raw, ["obligation_id", "obligation_ref"])
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "semantic obligation refs use the exact canonical/ref schema",
+        { field: `semantic_obligation_refs[${index}]` },
+      );
+    }
+    const obligationId = nonEmptyString(
+      raw.obligation_id,
+      `semantic_obligation_refs[${index}].obligation_id`,
+    );
+    const obligationRef = nonEmptyString(
+      raw.obligation_ref,
+      `semantic_obligation_refs[${index}].obligation_ref`,
+    );
+    if (
+      !REVIEWED_OBLIGATION_REF_RE.test(obligationRef)
+      || semanticRefs.has(obligationId)
+      || seenObligationRefs.has(obligationRef)
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "semantic obligation refs must be unique live roll-domain handles",
+        { field: `semantic_obligation_refs[${index}]` },
+      );
+    }
+    semanticRefs.set(obligationId, obligationRef);
+    seenObligationRefs.add(obligationRef);
+  }
+  const canonicalObligationIds = coverageFacts.obligations.map(
+    (row) => String(row.obligation_id),
+  );
+  if (
+    semanticRefs.size !== canonicalObligationIds.length
+    || canonicalObligationIds.some((obligationId) => !semanticRefs.has(obligationId))
+  ) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "semantic obligation refs must cover the exact accepted-review obligations",
+      { field: "semantic_obligation_refs" },
+    );
+  }
+  const paragraphs = reviewedParagraphs(draft);
+  const firstParagraphOrdinal = (excerpt: string): number => {
+    const index = paragraphs.findIndex((paragraph) => paragraph.includes(excerpt));
+    return index < 0 ? 0 : index + 1;
+  };
+  const publicCheckSources = new Set(coverageFacts.public_check_source_ids);
+  const semanticText = (value: unknown): string | null => (
+    typeof value === "string" && value.trim()
+      ? value.trim().slice(0, 1024)
+      : null
+  );
+  const coverageObligations: ReviewedCoverageObligation[] = coverageFacts.obligations
+    .map((row) => {
+      const obligationId = String(row.obligation_id);
+      const sourceKind = String(row.source_kind);
+      const concealed = sourceKind === "concealed_roll";
+      const publicCheck = publicCheckSources.has(String(row.source_id));
+      const safePublicSpans = publicCheck
+        ? spans.filter((span) => firstParagraphOrdinal(span.exact_excerpt) > 1)
+        : spans;
+      const allowedReviewedSpans = concealed
+        ? []
+        : (safePublicSpans.length > 0 ? safePublicSpans : spans)
+          .map((span) => span.reviewed_span);
+      if (!concealed && allowedReviewedSpans.length === 0) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          "a visible accepted-review obligation has no safe reviewed span",
+          { field: `coverage_binding_facts.obligations.${obligationId}` },
+        );
+      }
+      return {
+        obligation_ref: semanticRefs.get(obligationId)!,
+        obligation_id: obligationId,
+        source_kind: sourceKind,
+        visibility: String(row.visibility),
+        npc_display_name: semanticText(row.npc_display_name),
+        skill: semanticText(row.skill),
+        goal: semanticText(row.goal),
+        outcome: semanticText(row.outcome),
+        exceptional_required: row.exceptional_required === true,
+        allowed_reviewed_spans: allowedReviewedSpans,
+        realization: concealed
+          ? "concealed_no_player_visible_beat" as const
+          : "fictional_beat" as const,
+        placement_mode: concealed
+          ? "none" as const
+          : publicCheck
+            ? safePublicSpans.length > 0
+              ? "host_safe_default_before_result" as const
+              : "canonical_repair_if_unsafe" as const
+            : "host_safe_default" as const,
+      };
+    })
+    .sort((left, right) => left.obligation_id.localeCompare(right.obligation_id));
   const authorities: ReviewedAgencyAuthority[] = [{
     authority: "current-player-input",
     claim_types: [
@@ -870,6 +1221,13 @@ export function buildReviewedAgencyBinding(
     draft,
     spans,
     authorities,
+    coverage_obligations: coverageObligations,
+    mechanics_placement: {
+      mode: "host_safe_default",
+      public_check_count: coverageFacts.public_check_source_ids.length,
+      state_delta_count: coverageFacts.state_delta_source_ids.length,
+      exceptional_effect_count: coverageFacts.exceptional_effect_source_ids.length,
+    },
   };
   validateReviewedAgencyBinding(built, {
     schema_version: 1,
@@ -1026,7 +1384,7 @@ function validateReviewedAgencyBinding(
     !isPlainObject(value)
     || !exactObjectKeys(value, [
       "schema_version", "review_id", "revision", "draft_sha256", "draft",
-      "spans", "authorities",
+      "spans", "authorities", "coverage_obligations", "mechanics_placement",
     ])
     || value.schema_version !== 1
     || value.review_id !== owner.narration_review_id
@@ -1155,6 +1513,107 @@ function validateReviewedAgencyBinding(
       );
     }
     authorityNames.add(authority);
+  }
+  if (
+    !Array.isArray(value.coverage_obligations)
+    || value.coverage_obligations.length > 64
+  ) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "reviewed coverage binding requires at most 64 obligations",
+      { field: "reviewed_agency_binding.coverage_obligations" },
+    );
+  }
+  const obligationIds = new Set<string>();
+  const obligationRefs = new Set<string>();
+  for (const [index, raw] of value.coverage_obligations.entries()) {
+    if (
+      !isPlainObject(raw)
+      || !exactObjectKeys(raw, [
+        "obligation_ref", "obligation_id", "source_kind", "visibility",
+        "npc_display_name", "skill", "goal", "outcome",
+        "exceptional_required", "allowed_reviewed_spans", "realization",
+        "placement_mode",
+      ])
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "reviewed coverage obligations use the closed semantic/exact host schema",
+        { field: `reviewed_agency_binding.coverage_obligations[${index}]` },
+      );
+    }
+    const obligationRef = nonEmptyString(
+      raw.obligation_ref,
+      `reviewed_agency_binding.coverage_obligations[${index}].obligation_ref`,
+    );
+    const obligationId = nonEmptyString(
+      raw.obligation_id,
+      `reviewed_agency_binding.coverage_obligations[${index}].obligation_id`,
+    );
+    nonEmptyString(
+      raw.source_kind,
+      `reviewed_agency_binding.coverage_obligations[${index}].source_kind`,
+    );
+    nonEmptyString(
+      raw.visibility,
+      `reviewed_agency_binding.coverage_obligations[${index}].visibility`,
+    );
+    if (
+      !REVIEWED_OBLIGATION_REF_RE.test(obligationRef)
+      || obligationRefs.has(obligationRef)
+      || obligationIds.has(obligationId)
+      || typeof raw.exceptional_required !== "boolean"
+      || !Array.isArray(raw.allowed_reviewed_spans)
+      || raw.allowed_reviewed_spans.length > 64
+      || raw.allowed_reviewed_spans.some((span) => (
+        typeof span !== "string" || !spanNames.has(span)
+      ))
+      || raw.allowed_reviewed_spans.length
+        !== new Set(raw.allowed_reviewed_spans).size
+      || ![
+        "fictional_beat", "concealed_no_player_visible_beat",
+      ].includes(String(raw.realization))
+      || ![
+        "host_safe_default_before_result", "canonical_repair_if_unsafe",
+        "host_safe_default", "none",
+      ].includes(String(raw.placement_mode))
+      || (
+        raw.realization === "concealed_no_player_visible_beat"
+          ? raw.allowed_reviewed_spans.length !== 0 || raw.placement_mode !== "none"
+          : raw.allowed_reviewed_spans.length === 0 || raw.placement_mode === "none"
+      )
+      || [
+        raw.npc_display_name, raw.skill, raw.goal, raw.outcome,
+      ].some((entry) => entry !== null && typeof entry !== "string")
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "reviewed coverage obligation is stale, duplicated, or structurally unsafe",
+        { field: `reviewed_agency_binding.coverage_obligations[${index}]` },
+      );
+    }
+    obligationRefs.add(obligationRef);
+    obligationIds.add(obligationId);
+  }
+  const mechanics = value.mechanics_placement;
+  if (
+    !isPlainObject(mechanics)
+    || !exactObjectKeys(mechanics, [
+      "mode", "public_check_count", "state_delta_count",
+      "exceptional_effect_count",
+    ])
+    || mechanics.mode !== "host_safe_default"
+    || [
+      mechanics.public_check_count,
+      mechanics.state_delta_count,
+      mechanics.exceptional_effect_count,
+    ].some((count) => !Number.isInteger(count) || Number(count) < 0)
+  ) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "reviewed mechanics placement binding must use the closed safe-default contract",
+      { field: "reviewed_agency_binding.mechanics_placement" },
+    );
   }
 }
 
@@ -1394,7 +1853,7 @@ function hostOwnedFields(binding: TypedToolBindingCard): string[] {
   if (
     binding.operation === "turn.finalize"
     && binding.reviewed_agency_binding !== undefined
-  ) fields.push("draft");
+  ) fields.push("draft", "mechanics_placements");
   return fields;
 }
 
@@ -1478,6 +1937,90 @@ function projectReviewedAgencyClaimsSchema(
   }
 }
 
+function projectReviewedCoverageSchema(
+  schema: JsonSchema,
+  binding: ReviewedAgencyBinding,
+): void {
+  if (!isPlainObject(schema.properties)) return;
+  const branches: JsonSchema[] = binding.coverage_obligations.map((row) => {
+    const concealed = row.realization === "concealed_no_player_visible_beat";
+    const semanticField = concealed
+      ? { type: "null", const: null }
+      : { type: "string", minLength: 1 };
+    return {
+      type: "object",
+      additionalProperties: false,
+      description: [
+        `source_kind=${row.source_kind}`,
+        `visibility=${row.visibility}`,
+        ...(row.npc_display_name === null ? [] : [`npc=${row.npc_display_name}`]),
+        ...(row.skill === null ? [] : [`skill=${row.skill}`]),
+        ...(row.goal === null ? [] : [`goal=${row.goal}`]),
+        ...(row.outcome === null ? [] : [`outcome=${row.outcome}`]),
+        `placement=${row.placement_mode}`,
+      ].join("; "),
+      properties: {
+        obligation_ref: {
+          type: "string",
+          const: row.obligation_ref,
+          description: (
+            "Choose this semantic obligation reference. The host restores "
+            + "the exact canonical finalizer join key."
+          ),
+        },
+        reviewed_span: concealed
+          ? { type: "null", const: null }
+          : {
+              type: "string",
+              enum: [...row.allowed_reviewed_spans],
+              description: (
+                "Choose one exact accepted-review structural span. The host "
+                + "restores its hidden exact excerpt and safe placement."
+              ),
+            },
+        realization: { type: "string", const: row.realization },
+        action_realization: semanticField,
+        response: semanticField,
+        causal_explanation: semanticField,
+        persona_fit: semanticField,
+        player_input_handling: concealed
+          ? { type: "string", const: "not_applicable" }
+          : {
+              type: "string",
+              enum: ["abstract_completed", "not_applicable", "specific_preserved"],
+            },
+        exceptional_beat: concealed
+          ? { type: "null", const: null }
+          : row.exceptional_required
+            ? { type: "string", minLength: 1 }
+            : { type: ["string", "null"] },
+      },
+      required: [
+        "obligation_ref", "reviewed_span", "realization",
+        "action_realization", "response", "causal_explanation", "persona_fit",
+        "player_input_handling", "exceptional_beat",
+      ],
+    };
+  });
+  schema.properties.coverage = {
+    type: "array",
+    minItems: branches.length,
+    maxItems: branches.length,
+    items: branches.length === 0
+      ? { type: "object", not: {} }
+      : branches.length === 1
+        ? branches[0]
+        : { oneOf: branches },
+    description: (
+      "Exactly one semantic row per accepted-review obligation. Select an "
+      + "obligation_ref and reviewed_span; never submit verbatim prose, "
+      + "canonical ids, hidden draft text, or mechanics placement indices."
+    ),
+  };
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  if (!required.includes("coverage")) schema.required = [...required, "coverage"];
+}
+
 /**
  * Remove host-owned fields only after the exact retained binding is validated
  * against an independently derived current canonical host context.
@@ -1501,6 +2044,7 @@ export function projectBoundTypedToolParameters(
     valid.operation === "turn.finalize"
     && valid.reviewed_agency_binding !== undefined
   ) {
+    projectReviewedCoverageSchema(cloned, valid.reviewed_agency_binding);
     projectReviewedAgencyClaimsSchema(cloned, valid.reviewed_agency_binding);
   }
   if (valid.operation === "state.move_scene") {
@@ -1565,6 +2109,165 @@ export function bindRetainedTypedToolArguments(
     valid.operation === "turn.finalize"
     && valid.reviewed_agency_binding !== undefined
   ) {
+    const rawCoverage = modelInput.coverage;
+    if (
+      !Array.isArray(rawCoverage)
+      || rawCoverage.length !== valid.reviewed_agency_binding.coverage_obligations.length
+    ) {
+      throw new ToolContractProjectionError(
+        "reviewed_coverage_invalid",
+        "accepted-review coverage must contain exactly one semantic row per obligation",
+        { operation, field: "coverage" },
+      );
+    }
+    const coverageByRef = new Map(
+      valid.reviewed_agency_binding.coverage_obligations.map(
+        (row) => [row.obligation_ref, row],
+      ),
+    );
+    const spanByName = new Map(
+      valid.reviewed_agency_binding.spans.map((row) => [row.reviewed_span, row]),
+    );
+    const seenCoverage = new Set<string>();
+    const coverageFields = [
+      "obligation_ref", "reviewed_span", "realization", "action_realization",
+      "response", "causal_explanation", "persona_fit",
+      "player_input_handling", "exceptional_beat",
+    ];
+    const semanticString = (
+      value: unknown,
+      field: string,
+    ): string => {
+      if (typeof value !== "string" || !value.trim()) {
+        throw new ToolContractProjectionError(
+          "reviewed_coverage_invalid",
+          `${field} must be a non-empty semantic explanation`,
+          { operation, field },
+        );
+      }
+      return value;
+    };
+    const normalizedCoverage = rawCoverage.map((raw, index) => {
+      if (!isPlainObject(raw) || !exactObjectKeys(raw, coverageFields)) {
+        throw new ToolContractProjectionError(
+          "reviewed_coverage_invalid",
+          `coverage[${index}] must use the closed semantic reviewed-span schema`,
+          { operation, field: `coverage[${index}]` },
+        );
+      }
+      const obligationRef = typeof raw.obligation_ref === "string"
+        ? raw.obligation_ref
+        : "";
+      const obligation = coverageByRef.get(obligationRef);
+      if (obligation === undefined || seenCoverage.has(obligationRef)) {
+        throw new ToolContractProjectionError(
+          "reviewed_coverage_obligation_stale",
+          "selected coverage obligation is absent, stale, or duplicated",
+          { operation, field: `coverage[${index}].obligation_ref` },
+        );
+      }
+      seenCoverage.add(obligationRef);
+      const concealed = obligation.realization === "concealed_no_player_visible_beat";
+      if (raw.realization !== obligation.realization) {
+        throw new ToolContractProjectionError(
+          "reviewed_coverage_invalid",
+          "coverage realization does not match the retained obligation visibility",
+          { operation, field: `coverage[${index}].realization` },
+        );
+      }
+      if (concealed) {
+        if (
+          raw.reviewed_span !== null
+          || raw.action_realization !== null
+          || raw.response !== null
+          || raw.causal_explanation !== null
+          || raw.persona_fit !== null
+          || raw.exceptional_beat !== null
+          || raw.player_input_handling !== "not_applicable"
+        ) {
+          throw new ToolContractProjectionError(
+            "reviewed_coverage_invalid",
+            "concealed coverage cannot cite or describe player-visible prose",
+            { operation, field: `coverage[${index}]` },
+          );
+        }
+        return {
+          obligation_id: obligation.obligation_id,
+          realization: obligation.realization,
+          action_realization: null,
+          response: null,
+          causal_explanation: null,
+          persona_fit: null,
+          player_input_handling: "not_applicable",
+          exact_excerpt: null,
+          exceptional_beat: null,
+        };
+      }
+      const reviewedSpan = typeof raw.reviewed_span === "string"
+        ? raw.reviewed_span
+        : "";
+      if (!obligation.allowed_reviewed_spans.includes(reviewedSpan)) {
+        throw new ToolContractProjectionError(
+          "reviewed_coverage_span_stale",
+          "selected reviewed span is not safe for this current obligation",
+          { operation, field: `coverage[${index}].reviewed_span` },
+        );
+      }
+      const span = spanByName.get(reviewedSpan);
+      if (span === undefined) {
+        throw new ToolContractProjectionError(
+          "reviewed_coverage_span_stale",
+          "selected reviewed span is absent from the current accepted review",
+          { operation, field: `coverage[${index}].reviewed_span` },
+        );
+      }
+      const handling = raw.player_input_handling;
+      if (![
+        "abstract_completed", "not_applicable", "specific_preserved",
+      ].includes(String(handling))) {
+        throw new ToolContractProjectionError(
+          "reviewed_coverage_invalid",
+          "coverage player_input_handling is outside the closed canonical enum",
+          { operation, field: `coverage[${index}].player_input_handling` },
+        );
+      }
+      const exceptionalBeat = raw.exceptional_beat;
+      if (
+        obligation.exceptional_required
+          ? typeof exceptionalBeat !== "string" || !exceptionalBeat.trim()
+          : exceptionalBeat !== null
+            && (typeof exceptionalBeat !== "string" || !exceptionalBeat.trim())
+      ) {
+        throw new ToolContractProjectionError(
+          "reviewed_coverage_invalid",
+          "coverage exceptional_beat does not match the retained obligation",
+          { operation, field: `coverage[${index}].exceptional_beat` },
+        );
+      }
+      return {
+        obligation_id: obligation.obligation_id,
+        realization: obligation.realization,
+        action_realization: semanticString(
+          raw.action_realization,
+          `coverage[${index}].action_realization`,
+        ),
+        response: semanticString(raw.response, `coverage[${index}].response`),
+        causal_explanation: semanticString(
+          raw.causal_explanation,
+          `coverage[${index}].causal_explanation`,
+        ),
+        persona_fit: semanticString(
+          raw.persona_fit,
+          `coverage[${index}].persona_fit`,
+        ),
+        player_input_handling: handling,
+        exact_excerpt: span.exact_excerpt,
+        exceptional_beat: exceptionalBeat,
+      };
+    });
+    result.coverage = normalizedCoverage.sort((left, right) => (
+      String(left.obligation_id).localeCompare(String(right.obligation_id))
+    ));
     const hasAgencyClaims = Object.hasOwn(modelInput, "agency_claims");
     const rawClaims = hasAgencyClaims ? modelInput.agency_claims : [];
     if (!Array.isArray(rawClaims) || rawClaims.length > 64) {
@@ -1715,6 +2418,22 @@ export function bindRetainedTypedToolArguments(
     }
   }
   return result;
+}
+
+/**
+ * Return only the independently validated host-owned values for a retained
+ * binding. Recovery lanes use this when the semantic model payload is already
+ * sealed elsewhere; it must not manufacture an empty model call merely to
+ * discover host arguments (coverage/agency validation belongs to the normal
+ * bindRetainedTypedToolArguments path).
+ */
+export function retainedTypedToolHostArguments(
+  operation: string,
+  binding: TypedToolBindingCard | null | undefined,
+  currentHostContext: CurrentTypedToolHostContext | null | undefined,
+): Record<string, unknown> {
+  const valid = validateBindingCard(operation, binding, currentHostContext);
+  return bindingValues(valid);
 }
 
 /**
@@ -3330,6 +4049,56 @@ function projectSessionRecoveryGuidance(
                     : [],
                 }];
               }),
+            }
+          : {}),
+        ...(Array.isArray(input.coverage_obligations)
+          ? {
+              coverage_obligations: input.coverage_obligations.flatMap((entry) => {
+                const row = isPlainObject(entry) ? entry : null;
+                if (row === null || typeof row.obligation !== "string") {
+                  return [];
+                }
+                return [{
+                  obligation: row.obligation,
+                  ...(typeof row.source_kind === "string"
+                    ? { source_kind: row.source_kind }
+                    : {}),
+                  ...(typeof row.visibility === "string"
+                    ? { visibility: row.visibility }
+                    : {}),
+                  ...(typeof row.npc_display_name === "string"
+                    ? { npc_display_name: row.npc_display_name }
+                    : {}),
+                  ...(typeof row.skill === "string" ? { skill: row.skill } : {}),
+                  ...(typeof row.goal === "string" ? { goal: row.goal } : {}),
+                  ...(typeof row.outcome === "string" ? { outcome: row.outcome } : {}),
+                  ...(typeof row.exceptional_required === "boolean"
+                    ? { exceptional_required: row.exceptional_required }
+                    : {}),
+                  allowed_reviewed_spans: Array.isArray(row.allowed_reviewed_spans)
+                    ? row.allowed_reviewed_spans.filter(
+                        (span): span is string => typeof span === "string",
+                      )
+                    : [],
+                  ...(typeof row.realization === "string"
+                    ? { realization: row.realization }
+                    : {}),
+                  ...(typeof row.placement_mode === "string"
+                    ? { placement_mode: row.placement_mode }
+                    : {}),
+                }];
+              }),
+            }
+          : {}),
+        ...(isPlainObject(input.mechanics_placement)
+          ? {
+              mechanics_placement: {
+                mode: input.mechanics_placement.mode,
+                public_check_count: input.mechanics_placement.public_check_count,
+                state_delta_count: input.mechanics_placement.state_delta_count,
+                exceptional_effect_count:
+                  input.mechanics_placement.exceptional_effect_count,
+              },
             }
           : {}),
         ...(Array.isArray(input.model_arguments)

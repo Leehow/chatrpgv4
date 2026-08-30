@@ -336,6 +336,13 @@ test("accepted review binds frozen draft and exact agency evidence from semantic
           override_id: null,
         },
       ],
+      coverage_obligations: [],
+      mechanics_placement: {
+        mode: "host_safe_default",
+        public_check_count: 0,
+        state_delta_count: 0,
+        exceptional_effect_count: 0,
+      },
     },
   };
   const current = independentCurrent(binding);
@@ -471,6 +478,247 @@ test("accepted review binds frozen draft and exact agency evidence from semantic
   ), "binding_context_stale");
 });
 
+test("accepted review binds semantic coverage spans and host-owned safe placement", () => {
+  const draft = (
+    "海斯抡起右拳，对准桌角砸了下去。\n\n"
+    + "硬木棱撞上骨节，指节裂开，血顺着拳面淌下。诺特盯着那只手，没有退让。\n\n"
+    + "疼痛和对方冷硬的目光一起留在房间里。"
+  );
+  const coverageBindingFacts = {
+    schema_version: 1,
+    contract_id: "coc.reviewed-coverage-binding-facts.v1",
+    settlement_snapshot_id: `turn-effect-v1:${"a".repeat(32)}`,
+    mechanics_bundle_sha256: `sha256:${"b".repeat(64)}`,
+    obligations: [
+      {
+        obligation_id: "first-impression:first-impression-receipt-v1:steven-knott",
+        source_kind: "first_impression",
+        source_id: "first-impression-receipt-v1:steven-knott",
+        npc_display_name: "史蒂文·诺特",
+        visibility: "context_effect",
+        skill: null,
+        goal: "realize the NPC's first observable response",
+        outcome: null,
+        required_level: null,
+        achieved_level: null,
+        passed: null,
+        surplus_levels: null,
+        exceptional_required: false,
+        substantive_effect_required: false,
+        substantive_effect_direction: null,
+        substantive_effect_ids: [],
+        substantive_effect_status: "not_required",
+      },
+      {
+        obligation_id: "roll:roll-first-impression-steven-knott",
+        source_kind: "check",
+        source_id: "roll-first-impression-steven-knott",
+        npc_display_name: "史蒂文·诺特",
+        visibility: "public",
+        skill: "APP",
+        goal: "resolve the first material meeting",
+        outcome: "failure",
+        required_level: "regular",
+        achieved_level: "failure",
+        passed: false,
+        surplus_levels: -1,
+        exceptional_required: false,
+        substantive_effect_required: false,
+        substantive_effect_direction: null,
+        substantive_effect_ids: [],
+        substantive_effect_status: "not_required",
+      },
+    ],
+    public_check_source_ids: ["roll-first-impression-steven-knott"],
+    state_delta_source_ids: ["effect-hp-delta-right-knuckles"],
+    exceptional_effect_source_ids: [],
+  };
+  const reviewed = typed.buildReviewedAgencyBinding({
+    review_id: "review:thomas-hayes:turn-1:revision-1",
+    revision: 1,
+    draft_sha256: `sha256:${"c".repeat(64)}`,
+    draft,
+    state_authority_review: {
+      disposition: "claims_listed",
+      reason: "HP变化已绑定到当前伤害效果。",
+      claims: [{
+        claim_id: "state-claim-hp-right-knuckles",
+        subject_ref: "pc:thomas-hayes",
+        claim_kind: "scalar",
+        exact_excerpt: "指节裂开，血顺着拳面淌下",
+        source_effect_id: "effect-hp-delta-right-knuckles",
+        reason: "伤害结算导致HP下降。",
+      }],
+    },
+    player_input_source_ref: "player_input:journal-thomas-hayes-turn-1",
+    agency_authority: {
+      pc_subject_refs: ["pc:thomas-hayes"],
+      involuntary_physiology_sources: [{
+        source_ref: "narration_contract:involuntary_physiology",
+        source_type: "ownership_contract",
+      }],
+    },
+    control_overrides: [],
+    coverage_binding_facts: coverageBindingFacts,
+    semantic_obligation_refs: [
+      {
+        obligation_id: "first-impression:first-impression-receipt-v1:steven-knott",
+        obligation_ref: "roll:史蒂文-诺特-2",
+      },
+      {
+        obligation_id: "roll:roll-first-impression-steven-knott",
+        obligation_ref: "roll:史蒂文-诺特",
+      },
+    ],
+  });
+  assert.equal(reviewed.coverage_obligations.length, 2);
+  assert.deepEqual(
+    reviewed.coverage_obligations.find(
+      (row) => row.obligation_ref === "roll:史蒂文-诺特",
+    ).allowed_reviewed_spans,
+    [
+      "reviewed-state-claim:1",
+      "reviewed-sentence:paragraph-2:1",
+      "reviewed-sentence:paragraph-2:2",
+      "reviewed-paragraph:2",
+      "reviewed-sentence:paragraph-3:1",
+      "reviewed-paragraph:3",
+    ],
+    "public checks may select only exact reviewed spans with a safe preceding paragraph",
+  );
+
+  const binding = {
+    schema_version: 1,
+    operation: "turn.finalize",
+    binding_revision: "turn:thomas-hayes:1:review-accepted-1",
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-thomas-hayes",
+    decision_id: "finalize:thomas-hayes:turn-1:revision-1",
+    revision: 1,
+    turn_id: "turn:thomas-hayes:1",
+    source_digest: `sha256:${"d".repeat(64)}`,
+    narration_review_id: reviewed.review_id,
+    reviewed_agency_binding: reviewed,
+  };
+  const schema = typed.projectBoundTypedToolParameters(
+    "turn.finalize",
+    catalog.byOperation.get("turn.finalize").parameters,
+    binding,
+    independentCurrent(binding),
+  );
+  const coverageSchemaText = JSON.stringify(schema.properties.coverage);
+  assert.equal(coverageSchemaText.includes("exact_excerpt"), false);
+  assert.equal(coverageSchemaText.includes(draft), false);
+  assert.equal(coverageSchemaText.includes("指节裂开"), false);
+  assert.equal(coverageSchemaText.includes("roll:史蒂文-诺特"), true);
+  assert.equal(coverageSchemaText.includes("roll:史蒂文-诺特-2"), true);
+  assert.equal(Object.hasOwn(schema.properties, "mechanics_placements"), false);
+
+  const bound = typed.bindRetainedTypedToolArguments(
+    "turn.finalize",
+    {
+      coverage: [
+        {
+          obligation_ref: "roll:史蒂文-诺特",
+          reviewed_span: "reviewed-sentence:paragraph-2:1",
+          realization: "fictional_beat",
+          action_realization: "海斯以拳击打桌角。",
+          response: "伤势和失败的第一印象在场景中同时显现。",
+          causal_explanation: "公开检定未通过，诺特没有因此退让。",
+          persona_fit: "诺特保持冷硬克制。",
+          player_input_handling: "specific_preserved",
+          exceptional_beat: null,
+        },
+        {
+          obligation_ref: "roll:史蒂文-诺特-2",
+          reviewed_span: "reviewed-sentence:paragraph-2:2",
+          realization: "fictional_beat",
+          action_realization: "诺特看见海斯自伤。",
+          response: "诺特盯着那只手，没有退让。",
+          causal_explanation: "第一次实质接触形成冷硬回应。",
+          persona_fit: "回应符合诺特的职责与克制。",
+          player_input_handling: "specific_preserved",
+          exceptional_beat: null,
+        },
+      ],
+      agency_claims: [{
+        reviewed_span: "reviewed-sentence:paragraph-1:1",
+        claim_type: "voluntary_action",
+        authority: "current-player-input",
+      }],
+    },
+    binding,
+    independentCurrent(binding),
+  );
+  assert.equal(bound.draft, draft);
+  assert.equal(Object.hasOwn(bound, "mechanics_placements"), false);
+  assert.deepEqual(
+    bound.coverage.map((row) => ({
+      obligation_id: row.obligation_id,
+      exact_excerpt: row.exact_excerpt,
+    })),
+    [
+      {
+        obligation_id: "first-impression:first-impression-receipt-v1:steven-knott",
+        exact_excerpt: "诺特盯着那只手，没有退让。",
+      },
+      {
+        obligation_id: "roll:roll-first-impression-steven-knott",
+        exact_excerpt: "硬木棱撞上骨节，指节裂开，血顺着拳面淌下。",
+      },
+    ],
+  );
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    "turn.finalize",
+    {
+      coverage: [{
+        obligation_ref: "roll:史蒂文-诺特",
+        reviewed_span: "reviewed-sentence:paragraph-1:1",
+        realization: "fictional_beat",
+        action_realization: "伪造",
+        response: "伪造",
+        causal_explanation: "伪造",
+        persona_fit: "伪造",
+        player_input_handling: "specific_preserved",
+        exceptional_beat: null,
+      }, {
+        obligation_ref: "roll:史蒂文-诺特-2",
+        reviewed_span: "reviewed-sentence:paragraph-2:2",
+        realization: "fictional_beat",
+        action_realization: "诺特看见海斯自伤。",
+        response: "诺特没有退让。",
+        causal_explanation: "第一次实质接触形成冷硬回应。",
+        persona_fit: "诺特保持克制。",
+        player_input_handling: "specific_preserved",
+        exceptional_beat: null,
+      }],
+      agency_claims: [],
+    },
+    binding,
+    independentCurrent(binding),
+  ), "reviewed_coverage_span_stale");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    "turn.finalize",
+    {
+      coverage: [{
+        obligation_ref: "roll:史蒂文-诺特",
+        reviewed_span: "reviewed-sentence:paragraph-2:1",
+        exact_excerpt: "史蒂文·诺特",
+        realization: "fictional_beat",
+        action_realization: "伪造",
+        response: "伪造",
+        causal_explanation: "伪造",
+        persona_fit: "伪造",
+        player_input_handling: "specific_preserved",
+        exceptional_beat: null,
+      }],
+      agency_claims: [],
+    },
+    binding,
+    independentCurrent(binding),
+  ), "reviewed_coverage_invalid");
+});
+
 test("reviewed authority candidates bind one active control override and ignore inactive ones", () => {
   const draft = "海斯失去意识，身体软倒在门边。";
   const reviewed = typed.buildReviewedAgencyBinding({
@@ -507,6 +755,17 @@ test("reviewed authority candidates bind one active control override and ignore 
         active: false,
       },
     ],
+    coverage_binding_facts: {
+      schema_version: 1,
+      contract_id: "coc.reviewed-coverage-binding-facts.v1",
+      settlement_snapshot_id: `turn-effect-v1:${"f".repeat(32)}`,
+      mechanics_bundle_sha256: `sha256:${"a".repeat(64)}`,
+      obligations: [],
+      public_check_source_ids: [],
+      state_delta_source_ids: [],
+      exceptional_effect_source_ids: [],
+    },
+    semantic_obligation_refs: [],
   });
   assert.ok(
     reviewed.authorities.some(

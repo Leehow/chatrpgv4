@@ -2192,7 +2192,7 @@ def test_pending_draft_receipt_is_exact_idempotent_and_keeper_only(
     assert refreshed["data"]["frozen_narration_draft"]["draft_text"] == draft
     accepted = refreshed["data"]["accepted_review_evidence"]
     assert accepted["schema_version"] == 1
-    assert accepted["contract_id"] == "coc.accepted-review-evidence.v1"
+    assert accepted["contract_id"] == "coc.accepted-review-evidence.v2"
     assert accepted["visibility"] == "host_only"
     assert accepted["review_id"] == first["data"]["review_id"]
     assert accepted["turn_id"] == context["turn_id"]
@@ -2223,6 +2223,25 @@ def test_pending_draft_receipt_is_exact_idempotent_and_keeper_only(
     assert accepted["control_overrides"] == refreshed["data"][
         "contract_projection"
     ]["control_overrides"]
+    coverage_facts = accepted["coverage_binding_facts"]
+    assert coverage_facts["contract_id"] == (
+        "coc.reviewed-coverage-binding-facts.v1"
+    )
+    assert coverage_facts["settlement_snapshot_id"] == refreshed["data"][
+        "settlement_snapshot_id"
+    ]
+    assert coverage_facts["mechanics_bundle_sha256"] == refreshed["data"][
+        "mechanics_bundle_sha256"
+    ]
+    assert coverage_facts["obligations"] == refreshed["data"]["obligations"]
+    assert coverage_facts["public_check_source_ids"] == [
+        row["roll_id"]
+        for row in refreshed["data"]["mechanics_bundle"]["public_check"]
+    ]
+    assert coverage_facts["state_delta_source_ids"] == [
+        row["effect_id"]
+        for row in refreshed["data"]["mechanics_bundle"]["state_delta"]
+    ]
     evidence_payload = dict(accepted)
     evidence_digest = evidence_payload.pop("evidence_sha256")
     assert evidence_digest == _digest(evidence_payload)

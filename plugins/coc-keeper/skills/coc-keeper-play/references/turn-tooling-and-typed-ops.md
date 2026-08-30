@@ -410,20 +410,25 @@ contract above still applies. This is the natural rhythm:
    fictional draft as paragraphs. Treat `npc_performance_constraints` as
    Keeper-only portrayal context: realize each `observable_manner` naturally,
    but never print its causal explanation, opportunity/friction, or preserved
-   boundary as a player-facing analysis block. Supply one `mechanics_placements` row for
-   every public mechanic in its bundle, placing each authoritative block after
-   the paragraph that establishes the action or cause and before the paragraph
-   that narrates its result. One placement may group adjacent opposed rolls of
-   the same type. Every public-roll coverage `exact_excerpt` must occur in a
-   later paragraph than that roll's placement. Also supply one closed coverage
-   row per obligation, then call `turn.finalize`. Send only its exact
+   boundary as a player-facing analysis block. Normally omit
+   `mechanics_placements`: the canonical finalizer derives the safe causal
+   placement from coverage and inserts later state/asset/effect blocks exactly
+   once. On a direct, non-reviewed surface, use explicit placement rows only
+   for deliberate interleaving. Every public-roll consequence must remain in a
+   later paragraph than its roll. Supply one closed coverage row per
+   obligation, then call `turn.finalize`. Send only its exact
    `rendered_text`. In Pi play, first follow its exact
    `agency_review_operation`: review the same draft/turn/source/revision and
    bind every declared player-state change to the exact current frozen effect
    in `state_authority_review`. On a clean review, use its
-   `finalize_agency_binding` and submit only semantic
-   `reviewed_span`/`claim_type`/`authority` selections with coverage; the host
-   binds the review ID, accepted draft, exact excerpts, PC, and sources. An unauthorized PC
+   `finalize_agency_binding`: submit one semantic coverage row per offered
+   `obligation` by copying it into `obligation_ref`, choosing an allowed
+   `reviewed_span`, and supplying the
+   closed semantic disposition fields; submit agency as
+   `reviewed_span`/`claim_type`/`authority`. The host binds the review ID,
+   accepted draft, canonical obligation ids, verbatim excerpts, safe mechanics
+   placement, PC, and sources. The post-review model surface has no `draft`,
+   coverage excerpt, paragraph index, or mechanics source-id argument. An unauthorized PC
    voluntary/internal claim or ungrounded player-state claim requires the same
    narration-only revision 2; rules, state, journal, coverage, and mechanics
    remain frozen. Pi host independently compiles the exact draft for PC state

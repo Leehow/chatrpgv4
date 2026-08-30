@@ -1502,7 +1502,12 @@ const completeOutputContextData = ({
   turn_id: turnId,
   source_digest: `sha256:source-${turnId}`,
   settlement_snapshot_id: `turn-settlement-v1:${turnId}`,
-  mechanics_bundle_sha256: `sha256:mechanics-${turnId}`,
+  mechanics_bundle_sha256: `sha256:${"8".repeat(64)}`,
+  obligations: [],
+  mechanics_summary: {
+    public_check: [], state_delta: [], exceptional_effect: [],
+    concealed_consequence: [],
+  },
   contract_projection: {
     agency_review_required: agencyReviewRequired,
     agency_authority: { pc_subject_refs: ["pc:receipt-probe"] },
@@ -1801,6 +1806,11 @@ test("faulted turn advances only through the exact session-resume recovery recei
             source_digest: `sha256:${"f".repeat(64)}`,
             settlement_snapshot_id: "turn-settlement-v1:recovery-fault",
             mechanics_bundle_sha256: `sha256:${"0".repeat(64)}`,
+            obligations: [],
+            mechanics_summary: {
+              public_check: [], state_delta: [], exceptional_effect: [],
+              concealed_consequence: [],
+            },
             contract_projection: {
               agency_review_required: true,
               agency_authority: { pc_subject_refs: ["pc:probe"] },
@@ -1992,6 +2002,11 @@ test("explicit output-context receipt campaign binds fault recovery authorizatio
               source_digest: `sha256:${"f".repeat(64)}`,
               settlement_snapshot_id: "turn-settlement-v1:recovery-fault",
               mechanics_bundle_sha256: `sha256:${"0".repeat(64)}`,
+              obligations: [],
+              mechanics_summary: {
+                public_check: [], state_delta: [], exceptional_effect: [],
+                concealed_consequence: [],
+              },
               contract_projection: {
                 agency_review_required: true,
                 agency_authority: { pc_subject_refs: ["pc:probe"] },
@@ -2126,6 +2141,11 @@ test("state-claim compiler terminal failure enters the same narrow fault working
             source_digest: `sha256:${"d".repeat(64)}`,
             settlement_snapshot_id: "turn-settlement-v1:compiler-fault",
             mechanics_bundle_sha256: `sha256:${"e".repeat(64)}`,
+            obligations: [],
+            mechanics_summary: {
+              public_check: [], state_delta: [], exceptional_effect: [],
+              concealed_consequence: [],
+            },
             contract_projection: {
               agency_review_required: true,
               agency_authority: { pc_subject_refs: ["pc:probe"] },
@@ -2262,7 +2282,7 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
   const draftText = (
     "你当着他的面抡起右拳，空着手，对着桌角一下一下砸下去。"
     + "硬木棱反复撞上骨节，直到指节的皮裂开，血顺着拳面往下淌。\n\n"
-    + "诺特没有退，也没有叫人。"
+    + "诺特盯着那只手，没有退。房间里的沉默没有因此松动。"
   );
   const draftSha256 = canonicalDigest(draftText);
   const stateExcerpt = "直到指节的皮裂开，血顺着拳面往下淌。";
@@ -2331,14 +2351,53 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
     prefilled_arguments: {
       decision_id: `pi-state-journal:2a383743:player-epoch-7:revision-${revision}:finalize`,
       revision,
-      coverage: [],
     },
-    missing_arguments: ["draft", "narration_review_id", "agency_claims"],
+    missing_arguments: ["draft", "coverage", "narration_review_id", "agency_claims"],
     discovery_required: false,
     authority: "settled_output_completeness",
     hard_gate: true,
   });
   const liveContextEnvelope = (reviewCard = liveReviewCard(), finalizeCard = liveFinalizeCard(), receipt = frozenDraft()) => {
+    const obligations = [
+      {
+        obligation_id: "first-impression:first-impression-receipt-affordance-pending-1",
+        source_kind: "first_impression",
+        source_id: "first-impression-receipt-affordance-pending-1",
+        npc_display_name: "史蒂文·诺特",
+        visibility: "context_effect",
+        skill: null,
+        goal: "realize the NPC's first observable response",
+        outcome: null,
+        required_level: null,
+        achieved_level: null,
+        passed: null,
+        surplus_levels: null,
+        exceptional_required: false,
+        substantive_effect_required: false,
+        substantive_effect_direction: null,
+        substantive_effect_ids: [],
+        substantive_effect_status: "not_required",
+      },
+      {
+        obligation_id: "roll:toolbox-first-impression-affordance-pending-000001",
+        source_kind: "check",
+        source_id: "toolbox-first-impression-affordance-pending-000001",
+        npc_display_name: "史蒂文·诺特",
+        visibility: "public",
+        skill: "APP",
+        goal: "resolve the first material meeting",
+        outcome: "failure",
+        required_level: "regular",
+        achieved_level: "failure",
+        passed: false,
+        surplus_levels: -1,
+        exceptional_required: false,
+        substantive_effect_required: false,
+        substantive_effect_direction: null,
+        substantive_effect_ids: [],
+        substantive_effect_status: "not_required",
+      },
+    ];
     const contractProjection = {
       agency_review_required: true,
       player_input: {
@@ -2357,7 +2416,7 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
     const contractProjectionSha256 = canonicalDigest(contractProjection);
     const acceptedReviewEvidence = {
       schema_version: 1,
-      contract_id: "coc.accepted-review-evidence.v1",
+      contract_id: "coc.accepted-review-evidence.v2",
       visibility: "host_only",
       review_id: receipt.review_id,
       turn_id: turnId,
@@ -2375,6 +2434,18 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
       player_input_source_ref: contractProjection.player_input.source_ref,
       agency_authority: structuredClone(contractProjection.agency_authority),
       control_overrides: [],
+      coverage_binding_facts: {
+        schema_version: 1,
+        contract_id: "coc.reviewed-coverage-binding-facts.v1",
+        settlement_snapshot_id: "turn-settlement-v1:affordance-pending-1",
+        mechanics_bundle_sha256: `sha256:${"e9".repeat(32)}`,
+        obligations: structuredClone(obligations),
+        public_check_source_ids: [
+          "toolbox-first-impression-affordance-pending-000001",
+        ],
+        state_delta_source_ids: ["effect:knuckle-injury"],
+        exceptional_effect_source_ids: [],
+      },
     };
     acceptedReviewEvidence.evidence_sha256 = canonicalDigest(
       acceptedReviewEvidence,
@@ -2389,6 +2460,21 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
           "pi-state-journal:2a383743:player-epoch-7:revision-2",
         settlement_snapshot_id: "turn-settlement-v1:affordance-pending-1",
         mechanics_bundle_sha256: `sha256:${"e9".repeat(32)}`,
+        obligations: structuredClone(obligations),
+        mechanics_summary: {
+          public_check: [{
+            roll_id: "toolbox-first-impression-affordance-pending-000001",
+            display_skill: "APP",
+            outcome: "failure",
+          }],
+          state_delta: [{
+            effect_id: "effect:knuckle-injury",
+            resource: "HP",
+            effect_kind: "scalar",
+          }],
+          exceptional_effect: [],
+          concealed_consequence: [],
+        },
         contract_projection_sha256: contractProjectionSha256,
         contract_projection: contractProjection,
         frozen_narration_draft: receipt,
@@ -2519,11 +2605,11 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
     assert.deepEqual(guidance.then.card, {
       operation: "turn.finalize",
       invoke_via: "coc_turn_finalize",
-      prefilled_arguments: { coverage: [] },
-      missing_arguments: ["agency_claims"],
+      prefilled_arguments: {},
+      missing_arguments: ["coverage", "agency_claims"],
       host_bound_auto_attached_arguments: [
-        "campaign", "decision_id", "draft", "narration_review_id",
-        "repair_finalization_id", "revision", "root",
+        "campaign", "decision_id", "draft", "mechanics_placements",
+        "narration_review_id", "repair_finalization_id", "revision", "root",
       ],
       discovery_required: false,
       authority: "settled_output_completeness",
@@ -2549,6 +2635,7 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
         "reviewed-sentence:paragraph-1:2",
         "reviewed-paragraph:1",
         "reviewed-sentence:paragraph-2:1",
+        "reviewed-sentence:paragraph-2:2",
         "reviewed-paragraph:2",
       ],
       authorities: [
@@ -2565,6 +2652,50 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
           claim_types: ["involuntary_physiology"],
         },
       ],
+      coverage_obligations: [
+        {
+          obligation: "roll:史蒂文-诺特",
+          source_kind: "first_impression",
+          visibility: "context_effect",
+          npc_display_name: "史蒂文·诺特",
+          goal: "realize the NPC's first observable response",
+          exceptional_required: false,
+          allowed_reviewed_spans: [
+            "reviewed-state-claim:1",
+            "reviewed-sentence:paragraph-1:1",
+            "reviewed-sentence:paragraph-1:2",
+            "reviewed-paragraph:1",
+            "reviewed-sentence:paragraph-2:1",
+            "reviewed-sentence:paragraph-2:2",
+            "reviewed-paragraph:2",
+          ],
+          realization: "fictional_beat",
+          placement_mode: "host_safe_default",
+        },
+        {
+          obligation: "roll:史蒂文-诺特-2",
+          source_kind: "check",
+          visibility: "public",
+          npc_display_name: "史蒂文·诺特",
+          skill: "APP",
+          goal: "resolve the first material meeting",
+          outcome: "failure",
+          exceptional_required: false,
+          allowed_reviewed_spans: [
+            "reviewed-sentence:paragraph-2:1",
+            "reviewed-sentence:paragraph-2:2",
+            "reviewed-paragraph:2",
+          ],
+          realization: "fictional_beat",
+          placement_mode: "host_safe_default_before_result",
+        },
+      ],
+      mechanics_placement: {
+        mode: "host_safe_default",
+        public_check_count: 1,
+        state_delta_count: 1,
+        exceptional_effect_count: 0,
+      },
       model_arguments: ["coverage", "agency_claims"],
       instruction: guidance.then.finalize_input.instruction,
     });
@@ -2635,6 +2766,75 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
     // typed_flat surface: model-owned arguments only; the host attaches
     // decision/revision/review identities — no alias or forged rejection.
     assert.equal(guidance.model_calls.finalize.invocation_shape, "typed_flat");
+    const semanticCoverage = [
+      {
+        obligation_ref: "roll:史蒂文-诺特",
+        reviewed_span: "reviewed-sentence:paragraph-2:1",
+        realization: "fictional_beat",
+        action_realization: "诺特看见海斯以拳击打桌角。",
+        response: "诺特盯着那只手，没有退。",
+        causal_explanation: "第一次实质接触形成冷硬回应。",
+        persona_fit: "诺特保持克制，没有放弃职责。",
+        player_input_handling: "specific_preserved",
+        exceptional_beat: null,
+      },
+      {
+        obligation_ref: "roll:史蒂文-诺特-2",
+        reviewed_span: "reviewed-sentence:paragraph-2:2",
+        realization: "fictional_beat",
+        action_realization: "公开的第一印象检定在交谈中得到结果。",
+        response: "房间里的沉默没有因此松动。",
+        causal_explanation: "检定失败没有让诺特改变态度。",
+        persona_fit: "冷硬而克制的反应符合诺特的立场。",
+        player_input_handling: "specific_preserved",
+        exceptional_beat: null,
+      },
+    ];
+    for (const [label, arguments_] of [
+      ["stale obligation", {
+        coverage: [
+          { ...semanticCoverage[0], obligation_ref: "roll:不存在的义务" },
+          semanticCoverage[1],
+        ],
+        agency_claims: [],
+      }],
+      ["model-written exact excerpt", {
+        coverage: [
+          { ...semanticCoverage[0], exact_excerpt: "史蒂文·诺特" },
+          semanticCoverage[1],
+        ],
+        agency_claims: [],
+      }],
+      ["model-written placement", {
+        coverage: semanticCoverage,
+        agency_claims: [],
+        mechanics_placements: [{
+          after_paragraph: 0,
+          segment_type: "public_check",
+          source_ids: ["roll:史蒂文-诺特-2"],
+        }],
+      }],
+    ]) {
+      const beforeRejected = h.clientCalls.filter((call) => (
+        call.name === "coc_invoke" && call.params?.operation === "turn.finalize"
+      )).length;
+      const rejected = JSON.parse((await h.tools.get("coc_turn_finalize").execute(
+        `typed-finalize-coverage-reject-${label}`,
+        arguments_,
+        undefined,
+        undefined,
+        h.ctx,
+      )).content[0].text);
+      assert.equal(rejected.ok, false, label);
+      assert.equal(
+        h.clientCalls.filter((call) => (
+          call.name === "coc_invoke"
+          && call.params?.operation === "turn.finalize"
+        )).length,
+        beforeRejected,
+        `${label} must fail before canonical transport`,
+      );
+    }
     for (const [label, agencyClaim] of [
       ["stale reviewed span", {
         reviewed_span: "reviewed-sentence:paragraph-99:1",
@@ -2652,7 +2852,7 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
       )).length;
       const rejected = JSON.parse((await h.tools.get("coc_turn_finalize").execute(
         `typed-finalize-reject-${label}`,
-        { coverage: [], agency_claims: [agencyClaim] },
+        { coverage: semanticCoverage, agency_claims: [agencyClaim] },
         undefined,
         undefined,
         h.ctx,
@@ -2670,7 +2870,7 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
     const finalize = JSON.parse((await h.tools.get("coc_turn_finalize").execute(
       "typed-finalize",
       {
-        coverage: [],
+        coverage: semanticCoverage,
         agency_claims: [
           {
             reviewed_span: "reviewed-sentence:paragraph-1:1",
@@ -2695,6 +2895,26 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
     assert.equal(finalizeCalls.length, 1);
     const finalizeWire = finalizeCalls[0].params.arguments;
     assert.equal(finalizeWire.draft, draftText);
+    assert.equal(Object.hasOwn(finalizeWire, "mechanics_placements"), false);
+    assert.deepEqual(
+      finalizeWire.coverage.map((row) => ({
+        obligation_id: row.obligation_id,
+        exact_excerpt: row.exact_excerpt,
+      })),
+      [
+        {
+          obligation_id:
+            "first-impression:first-impression-receipt-affordance-pending-1",
+          exact_excerpt: "诺特盯着那只手，没有退。",
+        },
+        {
+          obligation_id:
+            "roll:toolbox-first-impression-affordance-pending-000001",
+          exact_excerpt: "房间里的沉默没有因此松动。",
+        },
+      ],
+      "host restores canonical obligation ids and exact reviewed spans",
+    );
     assert.equal(
       finalizeWire.agency_claims[0].exact_excerpt,
       "你当着他的面抡起右拳，空着手，对着桌角一下一下砸下去。",
@@ -2869,6 +3089,11 @@ test("pending-finalization direct finalize executes through the coc_invoke gener
             source_digest: sourceDigest,
             settlement_snapshot_id: "turn-settlement-v1:affordance-direct-1",
             mechanics_bundle_sha256: `sha256:${"f1".repeat(32)}`,
+            obligations: [],
+            mechanics_summary: {
+              public_check: [], state_delta: [], exceptional_effect: [],
+              concealed_consequence: [],
+            },
             contract_projection: { agency_review_required: false },
             finalize_operation: finalizeCard,
           },
@@ -3031,6 +3256,11 @@ test("excerpt-only revision-2 repair requires an edited draft and completes thro
             source_digest: sourceDigest,
             settlement_snapshot_id: "turn-settlement-v1:affordance-repair-1",
             mechanics_bundle_sha256: `sha256:${"f2".repeat(32)}`,
+            obligations: [],
+            mechanics_summary: {
+              public_check: [], state_delta: [], exceptional_effect: [],
+              concealed_consequence: [],
+            },
             contract_projection: {
               agency_review_required: true,
               player_input: {

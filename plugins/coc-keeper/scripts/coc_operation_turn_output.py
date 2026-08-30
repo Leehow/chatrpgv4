@@ -96,7 +96,10 @@ _SPAN_REPAIRS_MAX_CLAIM_KIND_UTF8_BYTES = 128
 _SPAN_REPAIRS_MAX_REASON_UTF8_BYTES = 1024
 _SPAN_REPAIRS_MAX_INSTRUCTION_UTF8_BYTES = 512
 _SPAN_REPAIRS_MAX_AGGREGATE_EXCERPT_UTF8_BYTES = 4096
-_ACCEPTED_REVIEW_EVIDENCE_CONTRACT_ID = "coc.accepted-review-evidence.v1"
+_ACCEPTED_REVIEW_EVIDENCE_CONTRACT_ID = "coc.accepted-review-evidence.v2"
+_REVIEWED_COVERAGE_FACTS_CONTRACT_ID = (
+    "coc.reviewed-coverage-binding-facts.v1"
+)
 
 
 def _utf8_len(value: str) -> int:
@@ -1531,6 +1534,63 @@ def _accepted_review_evidence(
         revision=revision,
     ) != "clear":
         return None
+    mechanics_bundle = settled.get("mechanics_bundle")
+    obligations = settled.get("obligations")
+    if (
+        not isinstance(mechanics_bundle, dict)
+        or not isinstance(obligations, list)
+        or len(obligations) > 64
+        or any(not isinstance(row, dict) for row in obligations)
+        or not isinstance(settled.get("settlement_snapshot_id"), str)
+        or not isinstance(settled.get("mechanics_bundle_sha256"), str)
+    ):
+        return None
+
+    def source_ids(rows: Any, field: str) -> list[str] | None:
+        if not isinstance(rows, list) or any(
+            not isinstance(row, dict)
+            or not isinstance(row.get(field), str)
+            or not row[field].strip()
+            for row in rows
+        ):
+            return None
+        values = sorted(str(row[field]).strip() for row in rows)
+        return values if len(values) == len(set(values)) else None
+
+    public_check_source_ids = source_ids(
+        mechanics_bundle.get("public_check"), "roll_id"
+    )
+    state_delta_source_ids = source_ids(
+        mechanics_bundle.get("state_delta"), "effect_id"
+    )
+    exceptional_effect_source_ids = source_ids(
+        mechanics_bundle.get("exceptional_effect"), "event_id"
+    )
+    obligation_source_ids = {
+        str(row.get("source_id") or "") for row in obligations
+    }
+    if (
+        public_check_source_ids is None
+        or state_delta_source_ids is None
+        or exceptional_effect_source_ids is None
+        or any(
+            source_id not in obligation_source_ids
+            for source_id in public_check_source_ids
+        )
+    ):
+        return None
+    coverage_binding_facts = {
+        "schema_version": 1,
+        "contract_id": _REVIEWED_COVERAGE_FACTS_CONTRACT_ID,
+        "settlement_snapshot_id": str(settled["settlement_snapshot_id"]),
+        "mechanics_bundle_sha256": str(
+            settled["mechanics_bundle_sha256"]
+        ),
+        "obligations": deepcopy(obligations),
+        "public_check_source_ids": public_check_source_ids,
+        "state_delta_source_ids": state_delta_source_ids,
+        "exceptional_effect_source_ids": exceptional_effect_source_ids,
+    }
     payload = {
         "schema_version": 1,
         "contract_id": _ACCEPTED_REVIEW_EVIDENCE_CONTRACT_ID,
@@ -1553,6 +1613,7 @@ def _accepted_review_evidence(
         "player_input_source_ref": str(player_input["source_ref"]),
         "agency_authority": deepcopy(agency_authority),
         "control_overrides": deepcopy(control_overrides),
+        "coverage_binding_facts": coverage_binding_facts,
     }
     payload["evidence_sha256"] = _canonical_digest(payload)
     return payload

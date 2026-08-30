@@ -15,6 +15,7 @@ const { PiStateClaimCompiler, canonicalDigest, draftParagraphs } = await import(
 const campaign = "state-claim-gateway";
 const subjectRef = "pc:thomas-hayes";
 const CURRENT_PC_SUBJECT_HANDLE = "pc:current-investigator";
+const mechanicsDigest = `sha256:${"6".repeat(64)}`;
 const outputContext = {
   ok: true,
   tool: "turn.output_context",
@@ -22,8 +23,15 @@ const outputContext = {
     turn_id: "turn-gateway-1",
     source_digest: "sha256:source-gateway-1",
     settlement_snapshot_id: "turn-settlement-v1:gateway-1",
-    mechanics_bundle_sha256: "sha256:mechanics-gateway-1",
+    mechanics_bundle_sha256: mechanicsDigest,
     journal_decision_id: "journal-gateway-1",
+    obligations: [],
+    mechanics_summary: {
+      public_check: [],
+      state_delta: [],
+      exceptional_effect: [],
+      concealed_consequence: [],
+    },
     contract_projection: {
       agency_review_required: true,
       player_input: {
@@ -298,7 +306,7 @@ test("all invoke surfaces overwrite input and scrub host receipt from output", a
   try {
     const hostReceipt = {
       contract_id: "coc.pi-state-claim-compilation-receipt.v1",
-      binding: { mechanics_bundle_sha256: "sha256:mechanics-gateway-1" },
+      binding: { mechanics_bundle_sha256: mechanicsDigest },
     };
     const compiler = {
       clear() {},
@@ -388,7 +396,7 @@ test("all invoke surfaces overwrite input and scrub host receipt from output", a
       const forwarded = call.params.arguments;
       assert.notDeepEqual(forwarded.state_claim_compilation, forged);
       assert.deepEqual(forwarded.state_claim_compilation, hostReceipt);
-      assert.equal(forwarded.state_claim_compilation.binding.mechanics_bundle_sha256, "sha256:mechanics-gateway-1");
+      assert.equal(forwarded.state_claim_compilation.binding.mechanics_bundle_sha256, mechanicsDigest);
     }
   } finally {
     if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;

@@ -267,7 +267,7 @@ type PresentedToolContract = {
 | goal、approach、fictional realization、player-safe summary | root、campaign、当前 player exact text、run/session identity |
 | 多个合法候选之间的 semantic choice | turn id、review id、revision、source/content digest |
 | 是否采用可选规则/状态动作 | idempotency key / decision namespace |
-| review 前的叙述 draft；review 后的 coverage 与 reviewed-span/authority 语义选择 | accepted review 的 frozen draft、exact agency excerpt、subject/source/override |
+| review 前的叙述 draft；review 后的 obligation/ref、reviewed-span、coverage disposition 与 agency authority 语义选择 | accepted review 的 frozen draft、canonical obligation、verbatim coverage/agency excerpt、mechanics placement、subject/source/override |
 | 无法从 canonical route 推导的语义参数 | source-authored edge 的 travel minutes、precise clock 派生 phase |
 
 约束：
@@ -277,7 +277,9 @@ type PresentedToolContract = {
 - 只有多个当前合法候选时才让模型选择 candidate；只有一个时自动绑定。
 - 跨字段约束应尽可能编码为 `enum`、`oneOf`、nested required 或 candidate card，而不是只写在 description。
 - strict static schema 不能表达动态合法性时，不伪造枚举；先读 canonical context，再投影当前 candidate set。
-- clear `narration.review` 后，`coc_turn_finalize` 必须刷新为 post-review schema：模型不再提交 `draft` 或 canonical `agency_claims`，只从 host 生成的 `reviewed_span`、`claim_type`、`authority` 闭集选择；host 反绑 accepted draft 与 exact evidence，canonical finalizer 继续逐字验证内部证据。
+- clear `narration.review` 后，`coc_turn_finalize` 必须刷新为 post-review schema：模型不再提交 `draft`、coverage `exact_excerpt`、canonical obligation、`mechanics_placements` 或 canonical `agency_claims`。Coverage 从 host 生成的 `obligation` 与 allowed `reviewed_span` 闭集选择，把前者复制到工具的 `obligation_ref`，并填写保留的 semantic disposition；agency 只选 `reviewed_span`、`claim_type`、`authority`。Host 反绑 accepted draft、canonical obligation、verbatim evidence 与 safe-default placement，canonical finalizer 的完整性、先掷后果和 exactly-once 校验不变。
+
+升级 Pi 或重放 generated contracts 时，`plugins/coc-keeper/pi/lib/tool-contract-projection.ts` 的 accepted-review binding 与 `coc.accepted-review-evidence.v2` 是这条边界的产品补丁，不得被旧的 byte-copy coverage schema 覆盖。至少重跑 `tool-argument-projection.mjs`、`normal-model-id-boundary.mjs`、`tool-affordance-extension.mjs`、`turn-processing-fault-gate.mjs` 和 accepted-review Python/MCP tests；出现 model-visible draft/excerpt、自由 placement 或恢复期 canonical id 转录即视为回归。
 
 #### 5.2.1 这场失败的参数归属修正
 

@@ -308,7 +308,7 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
   const hostExactExcerpt = "直到指节的皮裂开，血顺着拳面往下淌。";
   envelope.data.accepted_review_evidence = {
     schema_version: 1,
-    contract_id: "coc.accepted-review-evidence.v1",
+    contract_id: "coc.accepted-review-evidence.v2",
     visibility: "host_only",
     review_id: "narration-review-v1:host-only",
     turn_id: envelope.data.turn_id,
@@ -3351,6 +3351,7 @@ assert.ok(
   );
   // Restore the authoritative envelope for the settle steps that follow.
   routeOperation("turn.output_context", FAMILIES.turn_output_context);
+  await executeTool("coc_turn_output_context", { root: testRoot, campaign });
 }
 
 // 7) narration.review — host binds exact identity; content is guidance only.
@@ -3401,6 +3402,18 @@ assert.equal(
   false,
   "review binding exposes semantic ordinals, never frozen exact excerpts",
 );
+assert.equal(
+  JSON.stringify(reviewVisible.data.finalize_agency_binding)
+    .includes("exact_excerpt"),
+  false,
+  "same-session coverage binding never asks the model to transcribe excerpts",
+);
+assert.deepEqual(
+  reviewVisible.data.finalize_agency_binding.coverage_obligations.map(
+    (row) => row.obligation,
+  ).sort(),
+  ["roll:inspect-exterior-stone-street-t1", "roll:listen"].sort(),
+);
 
 // 8) turn.finalize — reviewed agency spans and all exact host evidence are
 // restored; receipt stays details-only.
@@ -3409,25 +3422,25 @@ const finalizeDelivered = await executeTool("coc_turn_finalize", {
   coverage: [
     {
       // The semantic roll handle presented in output_context content.
-      obligation_id: "roll:inspect-exterior-stone-street-t1",
+      obligation_ref: "roll:inspect-exterior-stone-street-t1",
+      reviewed_span: "reviewed-sentence:paragraph-2:1",
       realization: "fictional_beat",
       action_realization: "程远举灯查看门窗与墙根。",
       response: "夜色里看不清任何确定痕迹。",
       causal_explanation: "侦查未通过，无法确认脚印或撬痕。",
       persona_fit: "他以工匠般的耐心近距离查看。",
       player_input_handling: "specific_preserved",
-      exact_excerpt: "屋子仍黑着。",
       exceptional_beat: null,
     },
     {
-      obligation_id: "roll:listen",
+      obligation_ref: "roll:listen",
+      reviewed_span: "reviewed-sentence:paragraph-2:1",
       realization: "fictional_beat",
       action_realization: "他把耳朵贴上门板。",
       response: "门后没有可辨认的声响。",
       causal_explanation: "聆听未通过，听不出屋内动静。",
       persona_fit: "他贴得近且耐心。",
       player_input_handling: "specific_preserved",
-      exact_excerpt: "屋子仍黑着。",
       exceptional_beat: null,
     },
   ],
@@ -3490,6 +3503,17 @@ assert.deepEqual(
     "roll:toolbox-king-shreds-recovery-live-01-000004",
   ],
   "semantic roll handles restore the exact kind-prefixed Python obligation ids",
+);
+assert.ok(
+  finalizeTransport.arguments.coverage.every(
+    (row) => row.exact_excerpt === "屋子仍黑着。",
+  ),
+  "host restores exact reviewed consequence spans for every obligation",
+);
+assert.equal(
+  Object.hasOwn(finalizeTransport.arguments, "mechanics_placements"),
+  false,
+  "accepted-review placement stays host-owned through canonical safe default",
 );
 
 // 8b) Unknown semantic roll handles fail closed with zero transport.

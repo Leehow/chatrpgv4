@@ -185,7 +185,9 @@ import {
   applyRetainedAdoptSourceFacts,
   attachExpectedSchema,
   bindRetainedTypedToolArguments,
+  retainedTypedToolHostArguments,
   buildReviewedAgencyBinding,
+  buildReviewedCoverageBindingFacts,
   CURRENT_INVESTIGATOR_HANDLE,
   deriveSemanticEntityFacts,
   listTypedOperationTools,
@@ -204,6 +206,7 @@ import {
   wrapTypedToolInvokeParams,
   type CurrentTypedToolHostContext,
   type ReviewedAgencyBinding,
+  type ReviewedCoverageBindingFacts,
   type SemanticEntityFacts,
   type SemanticIdMap,
   type TypedOperationTool,
@@ -4043,6 +4046,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     playerInputSourceRef: string;
     agencyAuthority: JsonObject;
     controlOverrides: JsonObject[];
+    coverageBindingFacts: ReviewedCoverageBindingFacts;
     reviewedAgencyBinding: ReviewedAgencyBinding | null;
   } | null = null;
   // Exact canonical entity identities retained from observed envelopes so the
@@ -4135,6 +4139,25 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     resultData: Record<string, unknown> | null = null,
   ): SemanticIdMap =>
     semanticRegistry.projectAll(scopedRegistryScope(invocationCampaign, resultData));
+  const semanticObligationRefsFor = (
+    facts: ReviewedCoverageBindingFacts,
+    invocationCampaign: string,
+  ): Array<{ obligation_id: string; obligation_ref: string }> | null => {
+    const projected = liveSemanticIdMap(invocationCampaign);
+    const refs = facts.obligations.flatMap((row) => {
+      const obligationId = typeof row.obligation_id === "string"
+        ? row.obligation_id
+        : "";
+      const canonical = obligationId.startsWith("roll:")
+        ? obligationId.slice("roll:".length)
+        : obligationId;
+      const obligationRef = projected.rolls.get(canonical);
+      return obligationId && obligationRef
+        ? [{ obligation_id: obligationId, obligation_ref: obligationRef }]
+        : [];
+    });
+    return refs.length === facts.obligations.length ? refs : null;
+  };
   const liveSemanticResolver = (
     invocationCampaign: string,
     invocationArguments: Record<string, unknown> | null = null,
@@ -5399,6 +5422,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ? data.source_digest
         : "";
       if (sourceDigest && revision !== null) {
+        let coverageBindingFacts: ReviewedCoverageBindingFacts | null = null;
+        try {
+          coverageBindingFacts = buildReviewedCoverageBindingFacts(data);
+        } catch {
+          coverageBindingFacts = null;
+        }
         const playerInput = objectOrNull(contractProjection?.player_input);
         const agencyAuthority = objectOrNull(
           contractProjection?.agency_authority,
@@ -5413,7 +5442,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         const journalDecisionId = typeof data.journal_decision_id === "string"
           ? data.journal_decision_id
           : semanticDecisionId("state.journal", 1);
-        retainedOutputContextFacts = {
+        retainedOutputContextFacts = coverageBindingFacts === null ? null : {
           root: typeof params.root === "string" && params.root
             ? params.root
             : currentWorkspaceRoot,
@@ -5429,9 +5458,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             : "",
           agencyAuthority: agencyAuthority ?? {},
           controlOverrides,
+          coverageBindingFacts,
           reviewedAgencyBinding: null,
         };
-        if (agencyReviewRequired) {
+        if (agencyReviewRequired && retainedOutputContextFacts !== null) {
           const retainedReviewBinding: TypedToolBindingCard = {
             schema_version: 1,
             operation: "narration.review",
@@ -5530,6 +5560,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         const reviewedDraft = typeof reviewArgs?.draft_text === "string"
           ? reviewArgs.draft_text
           : "";
+        const semanticObligationRefs = semanticObligationRefsFor(
+          facts.coverageBindingFacts,
+          facts.campaign,
+        );
         let reviewedAgencyBinding: ReviewedAgencyBinding | null = null;
         if (
           data.agency_gate === "clear"
@@ -5543,6 +5577,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           && reviewedDraft
           && typeof data.draft_sha256 === "string"
           && data.draft_sha256 === canonicalJsonValueSha256(reviewedDraft)
+          && semanticObligationRefs !== null
         ) {
           try {
             reviewedAgencyBinding = buildReviewedAgencyBinding({
@@ -5554,6 +5589,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               player_input_source_ref: facts.playerInputSourceRef,
               agency_authority: facts.agencyAuthority,
               control_overrides: facts.controlOverrides,
+              coverage_binding_facts: facts.coverageBindingFacts,
+              semantic_obligation_refs: semanticObligationRefs,
             });
           } catch {
             reviewedAgencyBinding = null;
@@ -8703,6 +8740,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       || acceptedEvidence.draft_sha256 !== frozenDraft.draft_sha256
       || typeof frozenDraft.draft_text !== "string"
     ) return null;
+    const coverageBindingFacts = (
+      acceptedEvidence.coverage_binding_facts as ReviewedCoverageBindingFacts
+    );
+    const semanticObligationRefs = semanticObligationRefsFor(
+      coverageBindingFacts,
+      args.campaign,
+    );
+    if (semanticObligationRefs === null) return null;
     let reviewedAgencyBinding: ReviewedAgencyBinding;
     try {
       reviewedAgencyBinding = buildReviewedAgencyBinding({
@@ -8716,6 +8761,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ),
         agency_authority: acceptedEvidence.agency_authority,
         control_overrides: acceptedEvidence.control_overrides,
+        coverage_binding_facts: coverageBindingFacts,
+        semantic_obligation_refs: semanticObligationRefs,
       });
     } catch {
       return null;
@@ -8750,6 +8797,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       controlOverrides: structuredClone(
         acceptedEvidence.control_overrides as JsonObject[],
       ),
+      coverageBindingFacts: structuredClone(coverageBindingFacts),
       reviewedAgencyBinding,
     };
     const facts = retainedOutputContextFacts;
@@ -8821,17 +8869,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ?? null;
     if (binding === undefined || current === null) return null;
     try {
-      const hostInjected = bindRetainedTypedToolArguments(
+      const projected = projectBoundTypedToolParameters(
         "turn.finalize",
-        {},
+        typed!.parameters,
         binding,
         current,
       );
-      const hostOwned = new Set([
-        ...RECOVERY_HOST_INJECTED_FINALIZE_ARGUMENTS,
-        ...Object.keys(hostInjected),
-      ]);
-      const fields = Object.keys(properties).filter((field) => !hostOwned.has(field));
+      const projectedProperties = objectOrNull(projected.properties);
+      if (projectedProperties === null) return null;
+      const fields = Object.keys(projectedProperties);
       // A clear review host-binds the ordinary finalize draft, but draft-shape
       // recovery must still freeze that exact draft and expose it as the sole
       // repairable field. Keep it in the internal recovery whitelist without
@@ -9381,11 +9427,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           reviewedFinalizeBinding?.operation === "turn.finalize"
           && reviewedFinalizeBinding.reviewed_agency_binding !== undefined
           && !armedDraftShapeRecovery
-          && Object.hasOwn(semanticArgs, "agency_claims")
         ) {
           semanticArgs = { ...semanticArgs };
-          hostBoundAfterRestore.agency_claims = semanticArgs.agency_claims;
-          delete semanticArgs.agency_claims;
+          for (const field of ["coverage", "agency_claims"]) {
+            if (Object.hasOwn(semanticArgs, field)) {
+              hostBoundAfterRestore[field] = semanticArgs[field];
+              delete semanticArgs[field];
+            }
+          }
         }
         const restored = restoreSemanticEntityHandles(
           restoredOperation,
@@ -9870,16 +9919,38 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
                     authority: row.authority,
                     claim_types: [...row.claim_types],
                   })),
+                  coverage_obligations: reviewed.coverage_obligations.map(
+                    (row) => ({
+                      obligation: row.obligation_ref,
+                      source_kind: row.source_kind,
+                      visibility: row.visibility,
+                      npc_display_name: row.npc_display_name,
+                      skill: row.skill,
+                      goal: row.goal,
+                      outcome: row.outcome,
+                      exceptional_required: row.exceptional_required,
+                      allowed_reviewed_spans: [...row.allowed_reviewed_spans],
+                      realization: row.realization,
+                      placement_mode: row.placement_mode,
+                    }),
+                  ),
+                  mechanics_placement: structuredClone(
+                    reviewed.mechanics_placement,
+                  ),
                   model_arguments: ["coverage", "agency_claims"],
                   host_bound_evidence: [
-                    "draft", "claim_id", "exact_excerpt", "subject_ref",
+                    "draft", "claim_id", "verbatim_reviewed_prose", "subject_ref",
                     "source_ref", "override_id", "narration_review_id",
+                    "obligation_id", "mechanics_placements",
                   ],
                   instruction: (
-                    "Call coc_turn_finalize with coverage and semantic "
-                    + "agency_claims selections only. Choose reviewed_span, "
-                    + "claim_type, and authority from this card; never copy "
-                    + "the frozen draft or an exact excerpt."
+                    "Call coc_turn_finalize with semantic coverage and "
+                    + "agency_claims selections only. Copy each offered "
+                    + "obligation into coverage.obligation_ref and choose its "
+                    + "reviewed_span; then choose reviewed_span, "
+                    + "claim_type, and authority for agency; the host restores "
+                    + "the frozen draft, exact excerpts, canonical obligations, "
+                    + "and safe mechanics placement."
                   ),
                 },
               },
@@ -10015,9 +10086,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         }
         let hostInjected: Record<string, unknown>;
         try {
-          hostInjected = bindRetainedTypedToolArguments(
+          hostInjected = retainedTypedToolHostArguments(
             "turn.finalize",
-            {},
             binding,
             current,
           );
