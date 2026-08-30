@@ -4873,6 +4873,9 @@ export function projectModelVisibleCanonicalResult(
       const resumeData: Record<string, unknown> = { ...data };
       delete resumeData.scene_context;
       delete resumeData.host_recovery_guidance;
+      // Host recovery cache binding only. The model receives the hydrated
+      // semantic player-input card, never the timeline/source anchor or digest.
+      delete resumeData.open_turn_anchor;
       const resumeView = sanitizeEnvelopeBranch(
         resumeData,
         semanticIds,

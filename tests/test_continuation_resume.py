@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -209,6 +210,11 @@ def test_finalize_publishes_checkpoint_and_player_reply_confirms_delivery(
 
     resumed = _call(ws, "session.resume")["data"]
     assert resumed["mode"] == "awaiting_player"
+    assert resumed["open_turn_anchor"]["prior_finalized_turn"] == 1
+    assert resumed["open_turn_anchor"]["next_turn_ordinal"] == 2
+    assert resumed["open_turn_anchor"]["prior_finalized_source_digest"] == (
+        finalized["data"]["source_digest"]
+    )
     assert resumed["current_turn"]["meaningful_row_count"] == 0
     assert resumed["delivery"]["status"] == "unconfirmed"
     assert resumed["delivery"]["exact_text"] == finalized["data"]["rendered_text"]
@@ -219,6 +225,7 @@ def test_finalize_publishes_checkpoint_and_player_reply_confirms_delivery(
         {"ok": True, "tool": "session.resume", "data": resumed},
         contract_digest="sha256:test-contract",
     )["data"]
+    assert wire_resume["open_turn_anchor"] == resumed["open_turn_anchor"]
     for field in (
         "run_segment_id", "session_id", "turn_id", "accepted_revision",
         "rendered_text_sha256",
@@ -744,6 +751,23 @@ def test_resume_recovers_successful_open_turn_receipt_without_reroll(
     )
     resumed = _call(ws, "session.resume")["data"]
     assert resumed["mode"] == "open_turn_recovery"
+    anchor = resumed["open_turn_anchor"]
+    assert set(anchor) == {
+        "schema_version",
+        "kind",
+        "timeline_id",
+        "prior_finalized_turn",
+        "prior_finalized_source_digest",
+        "next_turn_ordinal",
+        "anchor_digest",
+    }
+    assert anchor["schema_version"] == 1
+    assert anchor["kind"] == "coc_open_turn_anchor"
+    assert anchor["timeline_id"]
+    assert anchor["prior_finalized_turn"] == 0
+    assert anchor["prior_finalized_source_digest"] is None
+    assert anchor["next_turn_ordinal"] == 1
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", anchor["anchor_digest"])
     roll_rows = [
         row for row in resumed["current_turn"]["rows"]
         if row["tool"] == "rules.roll" and row["ok"] is True
@@ -753,6 +777,7 @@ def test_resume_recovers_successful_open_turn_receipt_without_reroll(
     assert roll_rows[0]["data"]["roll"] == first["data"]["roll"]
 
     again = _call(ws, "session.resume")["data"]
+    assert again["open_turn_anchor"] == anchor
     again_rows = [
         row for row in again["current_turn"]["rows"]
         if row["tool"] == "rules.roll"

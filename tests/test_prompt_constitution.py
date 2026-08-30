@@ -81,7 +81,7 @@ def test_role_prompts_name_the_typed_surface_not_hidden_domain_wrappers() -> Non
     assert "`coc_evidence_table_opening` for canonical operation" in play
 
 
-def test_play_prompt_has_open_turn_recovery_closure_guidance() -> None:
+def test_play_prompt_has_open_turn_recovery_acting_then_closure_guidance() -> None:
     play = PLAY.read_text(encoding="utf-8")
     setup = SETUP.read_text(encoding="utf-8")
     assert "open_turn_recovery" in play
@@ -90,6 +90,16 @@ def test_play_prompt_has_open_turn_recovery_closure_guidance() -> None:
     assert "state.journal" in play
     assert "turn.finalize" in play
     assert "state.move_scene" in play
+    recovery = play.split("## Open-turn recovery", 1)[1]
+    acting = recovery.index("`scene.context` / `actions.list`")
+    journal = recovery.index("`state.journal`")
+    output = recovery.index("`turn.output_context`")
+    review = recovery.index("`narration.review`")
+    finalize = recovery.index("`turn.finalize`")
+    assert acting < journal < output < review < finalize
+    assert "settle only missing mechanics before journaling" in recovery
+    assert "no new `rules.*` rolls" not in recovery
+    assert "turn.output_context` — required closures" not in recovery
     assert "current_acl_supersedes_prior_denials" not in play
     assert "open_turn_recovery" not in _constitution(play)
     assert "open_turn_recovery" not in setup

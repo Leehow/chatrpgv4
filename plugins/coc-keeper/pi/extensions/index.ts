@@ -112,8 +112,11 @@ import {
 } from "../lib/system-instruction.ts";
 import {
   clearOpenTurnPlayerInput,
+  createOpenTurnAnchor,
   loadOpenTurnPlayerInput,
   recordOpenTurnPlayerInput,
+  validOpenTurnAnchor,
+  type OpenTurnAnchor,
 } from "../lib/open-turn-player-input.ts";
 import { createContextFold, readFoldSettings } from "../lib/context-fold.ts";
 import {
@@ -3892,10 +3895,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let currentWorkspaceRoot = "";
   let currentHostSessionId = "";
   let canonicalProgressCampaignId = "";
+  let currentOpenTurnAnchor: {
+    campaignId: string;
+    anchor: OpenTurnAnchor;
+  } | null = null;
+  let journaledOpenTurnAnchor: {
+    campaignId: string;
+    anchor: OpenTurnAnchor;
+    turnNumber: number;
+  } | null = null;
   let openTurnRecoveryAuthorization: {
     campaignId: string;
     sessionEpoch: number;
     playerTurnEpoch: number;
+    anchorDigest: string;
   } | null = null;
   // One host-owned live hydration attempt per strict pending identity:
   // campaign + pending turn/source identity (an identity-less marker for
@@ -5458,9 +5471,27 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
 
     if (operation === "state.journal" && typeof data.turn_id === "string") {
-      if (campaignId && currentWorkspaceRoot) {
-        clearOpenTurnPlayerInput(currentWorkspaceRoot, campaignId);
+      const retainedAnchor = currentOpenTurnAnchor;
+      if (
+        campaignId
+        && currentWorkspaceRoot
+        && retainedAnchor?.campaignId === campaignId
+      ) {
+        clearOpenTurnPlayerInput(
+          currentWorkspaceRoot,
+          campaignId,
+          retainedAnchor.anchor,
+        );
       }
+      journaledOpenTurnAnchor = (
+        retainedAnchor?.campaignId === campaignId
+        && Number.isSafeInteger(data.turn_number)
+        && Number(data.turn_number) > 0
+      ) ? {
+          campaignId,
+          anchor: retainedAnchor.anchor,
+          turnNumber: Number(data.turn_number),
+        } : null;
       openTurnRecoveryAuthorization = null;
       advanceCanonicalProgress(campaignId, {
         stage: "journaled",
@@ -5794,6 +5825,37 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           draftShapeRecoveryCards.delete(campaignId);
         } catch { /* recovery stays pending; no durable retirement claim */ }
       }
+      const journaledAnchor = journaledOpenTurnAnchor;
+      if (
+        journaledAnchor?.campaignId === campaignId
+        && currentWorkspaceRoot
+      ) {
+        clearOpenTurnPlayerInput(
+          currentWorkspaceRoot,
+          campaignId,
+          journaledAnchor.anchor,
+        );
+      }
+      if (
+        journaledAnchor?.campaignId === campaignId
+        && currentOpenTurnAnchor?.campaignId === campaignId
+        && currentOpenTurnAnchor.anchor.anchor_digest
+          === journaledAnchor.anchor.anchor_digest
+        && typeof data.source_digest === "string"
+        && /^sha256:[0-9a-f]{64}$/u.test(data.source_digest)
+      ) {
+        currentOpenTurnAnchor = {
+          campaignId,
+          anchor: createOpenTurnAnchor({
+            timelineId: journaledAnchor.anchor.timeline_id,
+            priorFinalizedTurn: journaledAnchor.turnNumber,
+            priorFinalizedSourceDigest: data.source_digest,
+          }),
+        };
+      } else {
+        currentOpenTurnAnchor = null;
+      }
+      journaledOpenTurnAnchor = null;
       clearTurnTypedBindings();
       return;
     }
@@ -5925,6 +5987,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         return;
       }
       const mode = typeof data.mode === "string" ? data.mode : "";
+      const resumedAnchor = validOpenTurnAnchor(data.open_turn_anchor)
+        ? structuredClone(data.open_turn_anchor)
+        : null;
+      if (resumedAnchor !== null && campaignId) {
+        currentOpenTurnAnchor = { campaignId, anchor: resumedAnchor };
+        journaledOpenTurnAnchor = null;
+      } else if (mode !== "already_acknowledged") {
+        currentOpenTurnAnchor = null;
+        journaledOpenTurnAnchor = null;
+      }
       const resumedStage = mode === "pending_finalization"
         ? nextOperations.includes("narration.review")
           ? "output_context_ready"
@@ -5941,11 +6013,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       if (mode === "open_turn_recovery") {
         const currentTurn = objectOrNull(data.current_turn);
         const recoveryRoot = currentWorkspaceRoot;
-        const recoveredPlayer = loadOpenTurnPlayerInput({
-          root: recoveryRoot,
-          campaignId,
-          currentTurn,
-        });
+        const recoveredPlayer = resumedAnchor === null
+          ? { ok: false as const, code: "invalid_anchor" as const }
+          : loadOpenTurnPlayerInput({
+              root: recoveryRoot,
+              campaignId,
+              currentTurn,
+              anchor: resumedAnchor,
+            });
         if (recoveredPlayer.ok) {
           openingContinuationGate.currentExternalPlayerText = recoveredPlayer.card.text;
           armJournalBinding(campaignId);
@@ -6469,6 +6544,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       && openTurnRecoveryAuthorization.sessionEpoch === sessionEpoch
       && openTurnRecoveryAuthorization.playerTurnEpoch
         === canonicalProgress.playerTurnEpoch
+      && currentOpenTurnAnchor?.campaignId === canonicalProgressCampaignId
+      && currentOpenTurnAnchor.anchor.anchor_digest
+        === openTurnRecoveryAuthorization.anchorDigest
     );
     loadedNamespaces = loadedNamespaces.filter((grant) => (
       grant.role === role
@@ -7512,6 +7590,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ? String(ctx.sessionManager.getSessionId() || "")
       : "";
     canonicalProgressCampaignId = "";
+    currentOpenTurnAnchor = null;
+    journaledOpenTurnAnchor = null;
     openTurnRecoveryAuthorization = null;
     canonicalProgress = {
       playerTurnEpoch: 0,
@@ -9346,6 +9426,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           && openTurnRecoveryAuthorization.sessionEpoch === sessionEpoch
           && openTurnRecoveryAuthorization.playerTurnEpoch
             === canonicalProgress.playerTurnEpoch
+          && currentOpenTurnAnchor?.campaignId
+            === (typeof params.campaign === "string"
+              ? params.campaign.trim()
+              : canonicalProgressCampaignId)
+          && currentOpenTurnAnchor.anchor.anchor_digest
+            === openTurnRecoveryAuthorization.anchorDigest
         ) ? { kind: "open_turn_pre_journal", stage: "acting" } : null,
       });
       if (!acl.ok) {
@@ -11643,10 +11729,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       });
       if (pendingGuided.attached) {
         openTurnRecoveryAuthorization = null;
-        if (typeof params.campaign === "string" && params.campaign.trim()) {
+        if (
+          typeof params.campaign === "string"
+          && params.campaign.trim()
+          && currentOpenTurnAnchor?.campaignId === params.campaign.trim()
+        ) {
           clearOpenTurnPlayerInput(
             currentWorkspaceRoot,
             params.campaign.trim(),
+            currentOpenTurnAnchor.anchor,
           );
         }
         value = pendingGuided.envelope as JsonObject;
@@ -11663,10 +11754,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           openTurnData?.mode === "open_turn_recovery"
           && typeof params.campaign === "string"
           && params.campaign.trim()
+          && currentOpenTurnAnchor?.campaignId === params.campaign.trim()
         ) ? loadOpenTurnPlayerInput({
             root: recoveryRoot,
             campaignId: params.campaign.trim(),
             currentTurn: openTurnData.current_turn,
+            anchor: currentOpenTurnAnchor.anchor,
           }) : null;
         const guided = applyOpenTurnRecoveryGuidance(value, {
           expectedCampaign: typeof params.campaign === "string"
@@ -11684,6 +11777,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
                 campaignId: params.campaign.trim(),
                 sessionEpoch,
                 playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+                anchorDigest: currentOpenTurnAnchor?.anchor.anchor_digest ?? "",
               }
             : null;
           applyKpActiveTools();
@@ -11695,9 +11789,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           && openTurnData.mode !== "open_turn_recovery"
           && typeof params.campaign === "string"
           && params.campaign.trim()
+          && currentOpenTurnAnchor?.campaignId === params.campaign.trim()
         ) {
           openTurnRecoveryAuthorization = null;
-          clearOpenTurnPlayerInput(recoveryRoot, params.campaign.trim());
+          clearOpenTurnPlayerInput(
+            recoveryRoot,
+            params.campaign.trim(),
+            currentOpenTurnAnchor.anchor,
+          );
         }
       }
     }
@@ -12551,14 +12650,25 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           && currentHostSessionId
           && externalPlayerText !== null
         ) {
-          const retained = recordOpenTurnPlayerInput({
-            root: currentWorkspaceRoot,
-            campaignId,
-            sessionId: currentHostSessionId,
-            playerTurnEpoch: canonicalProgress.playerTurnEpoch,
-            text: externalPlayerText,
-          });
-          if (retained === "recorded" || retained === "idempotent") {
+          const retained = currentOpenTurnAnchor?.campaignId === campaignId
+            ? recordOpenTurnPlayerInput({
+                root: currentWorkspaceRoot,
+                campaignId,
+                sessionId: currentHostSessionId,
+                playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+                text: externalPlayerText,
+                anchor: currentOpenTurnAnchor.anchor,
+              })
+            : "ignored" as const;
+          if (
+            retained === "recorded"
+            || retained === "replaced_stale"
+            || retained === "idempotent"
+            // A missing trustworthy recovery anchor disables only durable
+            // restart caching. The exact in-memory player message still owns
+            // this live session's ordinary journal binding.
+            || retained === "ignored"
+          ) {
             armJournalBinding(campaignId);
           } else {
             openingContinuationGate.currentExternalPlayerText = null;
@@ -12820,6 +12930,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     draftShapeRecoveryCards.clear();
     currentSceneBindingFacts = null;
     currentHostSessionId = "";
+    currentOpenTurnAnchor = null;
+    journaledOpenTurnAnchor = null;
     openTurnRecoveryAuthorization = null;
     lastHealingCardProjection = null;
     currentCombatBindingFacts = null;

@@ -102,6 +102,11 @@ function harness(responseForCall, startupCampaignId, workspaceRoot = root) {
         await handler({ reason: "tool-test" }, ctx);
       }
     },
+    async emit(name, message) {
+      for (const handler of handlers.get(name) || []) {
+        await handler({ message }, ctx);
+      }
+    },
     async shutdown() {
       for (const handler of handlers.get("agent_end") || []) {
         await handler({ reason: "tool-test" }, ctx);
@@ -405,12 +410,18 @@ const recoveryWorkspace = mkdtempSync(path.join(tmpdir(), "pi-coc-startup-recove
 mkdirSync(path.join(recoveryWorkspace, ".coc", "campaigns", recoveryCampaign), {
   recursive: true,
 });
+const recoveryAnchor = openTurnInput.createOpenTurnAnchor({
+  timelineId: "timeline-main",
+  priorFinalizedTurn: 1,
+  priorFinalizedSourceDigest: `sha256:${"c".repeat(64)}`,
+});
 openTurnInput.recordOpenTurnPlayerInput({
   root: recoveryWorkspace,
   campaignId: recoveryCampaign,
   sessionId: "prior-natural-player-session",
   playerTurnEpoch: 2,
   text: "我仔细包扎右手伤口。",
+  anchor: recoveryAnchor,
 });
 const recovery = harness((name, params) => {
   if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
@@ -423,10 +434,11 @@ const recovery = harness((name, params) => {
         campaign_id: recoveryCampaign,
         mode: "open_turn_recovery",
         next_operations: ["continue_current_turn_from_receipts"],
+        open_turn_anchor: recoveryAnchor,
         current_turn: {
           schema_version: 1,
           meaningful_row_count: 1,
-          source_digest: "sha256:startup-recovery-current-turn",
+          source_digest: `sha256:${"d".repeat(64)}`,
           rows: [{ call_index: 1, tool: "actions.list", ok: true }],
         },
       },
@@ -463,7 +475,7 @@ const recovery = harness((name, params) => {
     return {
       ok: true,
       tool: "state.journal",
-      data: { turn_id: "turn-recovery-startup", entries: [] },
+      data: { turn_id: "turn-recovery-startup", turn_number: 2, entries: [] },
     };
   }
   if (params.operation === "turn.finalize") {
@@ -474,6 +486,7 @@ const recovery = harness((name, params) => {
       data: {
         rendered_text: renderedText,
         rendered_text_sha256: exactTextSha256(renderedText),
+        source_digest: `sha256:${"9".repeat(64)}`,
       },
     };
   }
@@ -583,6 +596,28 @@ const afterResumeFinalize = await invoke(recovery, "recovery-finalize", {
 });
 if (afterResumeFinalize.ok !== true || afterResumeFinalize.tool !== "turn.finalize") {
   throw new Error(`finalize blocked after recovery resume: ${JSON.stringify(afterResumeFinalize)}`);
+}
+const nextTurnAnchor = openTurnInput.createOpenTurnAnchor({
+  timelineId: "timeline-main",
+  priorFinalizedTurn: 2,
+  priorFinalizedSourceDigest: `sha256:${"9".repeat(64)}`,
+});
+await recovery.emit("message_start", {
+  role: "user",
+  content: [{ type: "text", text: "下一轮，我检查包扎是否稳固。" }],
+});
+const nextTurnCached = openTurnInput.loadOpenTurnPlayerInput({
+  root: recoveryWorkspace,
+  campaignId: recoveryCampaign,
+  anchor: nextTurnAnchor,
+  currentTurn: {
+    meaningful_row_count: 1,
+    source_digest: `sha256:${"8".repeat(64)}`,
+    rows: [{ tool: "actions.list", ok: true }],
+  },
+});
+if (nextTurnCached.ok !== true || nextTurnCached.card.text !== "下一轮，我检查包扎是否稳固。") {
+  throw new Error(`next-turn anchor did not roll forward: ${JSON.stringify(nextTurnCached)}`);
 }
 await recovery.shutdown();
 

@@ -4675,6 +4675,23 @@ def test_mcp_wire_resume_inlines_small_hot_argument_contracts():
 
 def test_mcp_wire_open_turn_recovery_reuses_action_advice_hot_contract():
     server = _load_server()
+    anchor_body = {
+        "schema_version": 1,
+        "kind": "coc_open_turn_anchor",
+        "timeline_id": "timeline-main",
+        "prior_finalized_turn": 1,
+        "prior_finalized_source_digest": "sha256:" + "b" * 64,
+        "next_turn_ordinal": 2,
+    }
+    anchor = {
+        **anchor_body,
+        "anchor_digest": "sha256:" + hashlib.sha256(json.dumps(
+            anchor_body,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")).hexdigest(),
+    }
     projected = server.wire_projection.project_envelope(
         "session.resume",
         {
@@ -4691,6 +4708,7 @@ def test_mcp_wire_open_turn_recovery_reuses_action_advice_hot_contract():
                     },
                 },
                 "next_operations": ["continue_open_turn"],
+                "open_turn_anchor": anchor,
             },
             "warnings": [],
             "hints": [],
@@ -4699,6 +4717,7 @@ def test_mcp_wire_open_turn_recovery_reuses_action_advice_hot_contract():
         argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
     )
     hot = projected["data"]["ordinary_turn_operations"]
+    assert projected["data"]["open_turn_anchor"] == anchor
     assert set(hot) == {
         "turn_sequence", "actions.advise", "state.journal", "turn.output_context",
     }

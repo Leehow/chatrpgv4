@@ -1313,6 +1313,94 @@ def _recover_temporal_history_for_resume(
     })
     return history, capsule, warnings
 
+
+def _session_open_turn_anchor(
+    ctx: Ctx,
+    *,
+    checkpoint: dict[str, Any] | None,
+    temporal_capsule: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Host-only semantic worldline/turn anchor for accepted player input.
+
+    The anchor is rebuilt from canonical session-resume facts.  It never asks
+    the model to relay a timeline, digest, or turn identity.  Missing or
+    internally inconsistent history returns no anchor, so Pi declines to cache
+    the next player message rather than binding it to a guessed worldline.
+    """
+    timeline_id = temporal_capsule.get("timeline_id")
+    if not isinstance(timeline_id, str) or not timeline_id.strip():
+        try:
+            timeline_id = coc_git_history.active_timeline_id(
+                ctx.root, str(ctx.campaign_id)
+            )
+        except (
+            coc_git_history.GitHistoryError,
+            coc_git_history.GitHistoryUnavailableError,
+        ):
+            return None
+    timeline_id = str(timeline_id).strip()
+    if not timeline_id:
+        return None
+
+    prior_turn = 0
+    if isinstance(checkpoint, dict):
+        raw_turn = checkpoint.get("turn_number")
+        if isinstance(raw_turn, int) and not isinstance(raw_turn, bool):
+            prior_turn = raw_turn
+    if prior_turn < 0:
+        return None
+    history_turn = temporal_capsule.get("current_finalized_turn")
+    if history_turn is not None and (
+        isinstance(history_turn, bool)
+        or not isinstance(history_turn, int)
+        or history_turn != prior_turn
+    ):
+        return None
+
+    prior_source_digest: str | None = None
+    if prior_turn > 0:
+        source = (
+            checkpoint.get("source")
+            if isinstance(checkpoint, dict)
+            and isinstance(checkpoint.get("source"), dict)
+            else {}
+        )
+        finalization_id = str(source.get("finalization_id") or "").strip()
+        if not finalization_id:
+            return None
+        finalization = next(
+            (
+                row
+                for row in reversed(
+                    coc_turn_finalization.load_finalizations(ctx.campaign_dir)
+                )
+                if row.get("finalization_id") == finalization_id
+            ),
+            None,
+        )
+        digest = (
+            str(finalization.get("source_digest") or "").strip()
+            if isinstance(finalization, dict)
+            else ""
+        )
+        if (
+            not digest.startswith("sha256:")
+            or len(digest) != len("sha256:") + 64
+            or any(char not in "0123456789abcdef" for char in digest[7:])
+        ):
+            return None
+        prior_source_digest = digest
+
+    body = {
+        "schema_version": 1,
+        "kind": "coc_open_turn_anchor",
+        "timeline_id": timeline_id,
+        "prior_finalized_turn": prior_turn,
+        "prior_finalized_source_digest": prior_source_digest,
+        "next_turn_ordinal": prior_turn + 1,
+    }
+    return {**body, "anchor_digest": _canonical_digest(body)}
+
 def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
     current_host_marker = coc_host_context.current_marker(
         ctx.root, session_id=args.get("host_session_id")
@@ -1414,6 +1502,11 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
     attempt_opportunities = _open_attempt_opportunities(
         ctx,
         scene_id=str(ctx.world().get("active_scene_id") or "") or None,
+    )
+    open_turn_anchor = _session_open_turn_anchor(
+        ctx,
+        checkpoint=checkpoint,
+        temporal_capsule=temporal_capsule,
     )
 
     warnings = [*checkpoint_warnings, *archive_warnings, *temporal_warnings]
@@ -1562,6 +1655,8 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
             ],
         },
     }
+    if open_turn_anchor is not None:
+        data["open_turn_anchor"] = open_turn_anchor
     if ctx.campaign_dir is not None:
         try:
             campaign_row = coc_state.load_campaign_state(ctx.campaign_dir)

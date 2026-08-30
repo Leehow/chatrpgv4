@@ -401,6 +401,14 @@ contract above still applies. This is the natural rhythm:
    A critical or fumble first impression needs its own independent
    source-bound `state.exceptional_effect`; multiple exceptional first
    impressions in one journal never share or overwrite an effect.
+   For `open_turn_recovery`, the host's semantic player-input card and active
+   recovery tools are authoritative for the already accepted turn. Use
+   `scene.context` / `actions.list` only as needed, reuse each successful
+   current-turn receipt, and settle only missing mechanics before journaling.
+   This is the ordinary acting surface restored for one exact worldline/turn,
+   not a fixed rule-family workflow. Accept no new player input or setup work.
+   Once mechanics settle, continue with the ordinary closure below.
+
    Then close every played turn with `state.journal` (summary, intent class,
    tension, and exact `player_text`; pass the current `run_id` when one is
    active). Never condense or rewrite `player_text`. On a terminal turn, call

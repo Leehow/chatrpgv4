@@ -547,7 +547,7 @@ visible `coc_session_resume` tool, then call visible
   diegetic refusals (`phase_forbidden` and other flow constraints, failed
   checks and other rules results) are not this paragraph.
 
-## Open-turn recovery closure
+## Open-turn recovery
 
 When the **current** `session.resume` result is `mode=open_turn_recovery`
 (or `next_operations` includes `continue_current_turn_from_receipts`), that
@@ -555,14 +555,20 @@ result is the live capability and receipt authority. Earlier
 `phase_forbidden` / ACL denials in this same session are stale. Do not treat
 them as the current tool surface.
 
-This is **not** `table_opening` and **not** `awaiting_player`.
+This is **not** `table_opening`, **not** `awaiting_player`, and not a new player
+turn. `current_turn.player_input` is the accepted action to adjudicate. Follow
+the returned `host_recovery_guidance` and its active tool cards as the current
+authority; `acting_authorized=false` means stop with the turn preserved.
 
-Close the recovered turn from the resume receipts / required closures before
-any new play:
+Continue the same accepted action in this order:
 
-1. `turn.output_context` — required closures and the finalize card
-2. `state.journal` — only if that recovered turn still needs realization
-3. `turn.finalize` — Rule 4 hash-bound settled output
+1. `scene.context` / `actions.list` — recover only the semantic scene and
+   affordances needed now.
+2. Reuse every successful `current_turn.rows` receipt and settle only missing mechanics before journaling through the applicable live rule/state card. Never reroll or reapply a successful receipt. This is semantic adjudication, not a fixed First Aid or other rules workflow.
+3. `state.journal` — bind the exact recovered player input after mechanics settle.
+4. `turn.output_context` — obtain required closures and review/finalize cards.
+5. Follow `narration.review` when returned, then `turn.finalize` for the Rule 4
+   hash-bound settled output.
 
 For an unobservable concealed roll, close its coverage row with
 `realization="concealed_no_player_visible_beat"` and set every prose-bearing
@@ -571,9 +577,6 @@ field (`action_realization`, `response`, `causal_explanation`, `persona_fit`,
 observable narration to that hidden no-effect row; doing so is invalid
 coverage. Keep `player_input_handling` as the applicable closed-schema value.
 
-Then adjudicate any still-unsettled player action.
-
-Until that closure: no `state.move_scene`, no scene progression, no new
-`rules.*` rolls, no new state mutation. Keep KP semantic judgment and Rule 4.
-Do not emit a canned recovery speech, keyword-match the receipts, or let the
-host write the fiction.
+Until finalization, accept no new player input and run no setup operation.
+Keep KP semantic judgment and Rule 4. Do not emit a canned recovery speech,
+keyword-match receipts, or let the host write the fiction.

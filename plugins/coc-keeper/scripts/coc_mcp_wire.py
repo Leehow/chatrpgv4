@@ -2164,6 +2164,7 @@ def _project_resume(data: Any, *, tight: bool) -> Any:
                 # turn recovery. The Pi host needs this exact player-safe
                 # projection to release one terminal output after restart.
                 "ending_output",
+                "open_turn_anchor",
             ),
         ),
         "delivery": _compact_delivery(data.get("delivery"), tight=tight),
@@ -2480,6 +2481,7 @@ def _project_resume_recovery_index(data: Any) -> Any:
                 "compiled_archive_recovery",
                 "working_set_manifest",
                 "ending_output",
+                "open_turn_anchor",
             ),
         ),
         "delivery": deepcopy(base.get("delivery")),

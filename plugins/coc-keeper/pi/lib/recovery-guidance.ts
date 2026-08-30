@@ -1613,7 +1613,7 @@ function semanticOpenTurnProjection(
     && Number(meaningful) > 0
     && rows.length > 0
     && typeof value.source_digest === "string"
-    && value.source_digest.startsWith("sha256:")
+    && /^sha256:[0-9a-f]{64}$/u.test(value.source_digest)
     && preJournal
     && playerInput !== null;
   const projectedRows = rows.flatMap((candidate) => {

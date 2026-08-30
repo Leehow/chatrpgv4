@@ -73,6 +73,9 @@ function resumeEnvelope(mode, extra = {}) {
       mode,
       next_operations: extra.next_operations ?? [],
       current_turn: extra.current_turn ?? { rows: [{ tool: "rules.roll", ok: true }] },
+      ...(extra.open_turn_anchor === undefined
+        ? {}
+        : { open_turn_anchor: extra.open_turn_anchor }),
     },
   };
 }
@@ -865,6 +868,11 @@ function resumeParams(campaignId, workspaceRoot = root) {
 
 const recoveryCampaign = "startup-open-turn-recovery";
 const recoveryPlayerText = "我停下来检查右手的伤口，撕下一条干净布料，按住伤口并仔细包扎止血。";
+const recoveryAnchor = openTurnInput.createOpenTurnAnchor({
+  timelineId: "timeline-main",
+  priorFinalizedTurn: 1,
+  priorFinalizedSourceDigest: `sha256:${"b".repeat(64)}`,
+});
 const recoveryWorkspace = mkdtempSync(path.join(tmpdir(), "pi-coc-open-turn-recovery-"));
 mkdirSync(
   path.join(recoveryWorkspace, ".coc", "campaigns", recoveryCampaign),
@@ -876,6 +884,7 @@ assert.equal(openTurnInput.recordOpenTurnPlayerInput({
   sessionId: "previous-natural-player-session",
   playerTurnEpoch: 2,
   text: recoveryPlayerText,
+  anchor: recoveryAnchor,
 }), "recorded");
 const recovery = harness((name, params) => {
   if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
@@ -925,11 +934,12 @@ const recovery = harness((name, params) => {
   }
   return resumeEnvelope("open_turn_recovery", {
     campaign_id: recoveryCampaign,
+    open_turn_anchor: recoveryAnchor,
     next_operations: ["continue_current_turn_from_receipts"],
     current_turn: {
       schema_version: 1,
       meaningful_row_count: 10,
-      source_digest: "sha256:host-only-current-turn-digest",
+      source_digest: `sha256:${"c".repeat(64)}`,
       rows: [{
         call_index: 19,
         tool: "actions.list",
@@ -1086,11 +1096,12 @@ const recoveryRestart = harness((name, params) => {
   }
   return resumeEnvelope("open_turn_recovery", {
     campaign_id: recoveryCampaign,
+    open_turn_anchor: recoveryAnchor,
     next_operations: ["continue_current_turn_from_receipts"],
     current_turn: {
       schema_version: 1,
       meaningful_row_count: 10,
-      source_digest: "sha256:host-only-current-turn-digest",
+      source_digest: `sha256:${"c".repeat(64)}`,
       rows: [{ call_index: 19, tool: "actions.list", ok: true }],
     },
   });
@@ -1104,6 +1115,7 @@ const restarted = await invoke(
 );
 assert.equal(restarted.data.current_turn.player_input.text, recoveryPlayerText);
 assert.equal(restarted.data.host_recovery_guidance.acting_authorized, true);
+assert.equal(restarted.data.open_turn_anchor, undefined);
 assert.equal(
   JSON.stringify(restarted.data).match(new RegExp(recoveryPlayerText, "gu"))?.length,
   1,
@@ -1111,7 +1123,50 @@ assert.equal(
 );
 await recoveryRestart.shutdown();
 
+const counterfactualAnchor = openTurnInput.createOpenTurnAnchor({
+  timelineId: "timeline-counterfactual",
+  priorFinalizedTurn: 1,
+  priorFinalizedSourceDigest: `sha256:${"b".repeat(64)}`,
+});
+const crossTimelineRecovery = harness((name, params) => {
+  if (name !== "coc_invoke" || params.operation !== "session.resume") {
+    throw new Error(`unexpected cross-timeline ${name}:${params.operation}`);
+  }
+  return resumeEnvelope("open_turn_recovery", {
+    campaign_id: recoveryCampaign,
+    open_turn_anchor: counterfactualAnchor,
+    next_operations: ["continue_current_turn_from_receipts"],
+    current_turn: {
+      schema_version: 1,
+      meaningful_row_count: 10,
+      source_digest: `sha256:${"c".repeat(64)}`,
+      rows: [{ call_index: 19, tool: "actions.list", ok: true }],
+    },
+  });
+}, recoveryCampaign, recoveryWorkspace, []);
+await crossTimelineRecovery.start();
+const crossTimelineResumed = await invoke(
+  crossTimelineRecovery,
+  "cross-timeline-recovery-resume",
+  resumeParams(recoveryCampaign, recoveryWorkspace),
+  "coc_setup",
+);
+assert.equal(crossTimelineResumed.data.current_turn.player_input, undefined);
+assert.equal(
+  crossTimelineResumed.data.host_recovery_guidance.acting_authorized,
+  false,
+);
+for (const name of ["coc_scene_context", "coc_rules_roll", "coc_state_journal"]) {
+  assert.ok(!crossTimelineRecovery.activeTools.at(-1).includes(name), name);
+}
+await crossTimelineRecovery.shutdown();
+
 const missingRecoveryCampaign = "startup-open-turn-recovery-missing-input";
+const missingRecoveryAnchor = openTurnInput.createOpenTurnAnchor({
+  timelineId: "timeline-main",
+  priorFinalizedTurn: 2,
+  priorFinalizedSourceDigest: `sha256:${"d".repeat(64)}`,
+});
 const missingRecoveryWorkspace = mkdtempSync(
   path.join(tmpdir(), "pi-coc-open-turn-recovery-missing-"),
 );
@@ -1125,11 +1180,12 @@ const missingRecovery = harness((name, params) => {
   }
   return resumeEnvelope("open_turn_recovery", {
     campaign_id: missingRecoveryCampaign,
+    open_turn_anchor: missingRecoveryAnchor,
     next_operations: ["continue_current_turn_from_receipts"],
     current_turn: {
       schema_version: 1,
       meaningful_row_count: 1,
-      source_digest: "sha256:verified-but-input-missing",
+      source_digest: `sha256:${"e".repeat(64)}`,
       rows: [{ call_index: 1, tool: "actions.list", ok: true }],
     },
   });
@@ -1161,6 +1217,11 @@ for (const name of [
 await missingRecovery.shutdown();
 
 const captureCampaign = "startup-open-turn-input-capture";
+const captureAnchor = openTurnInput.createOpenTurnAnchor({
+  timelineId: "timeline-main",
+  priorFinalizedTurn: 3,
+  priorFinalizedSourceDigest: `sha256:${"f".repeat(64)}`,
+});
 const captureWorkspace = mkdtempSync(path.join(tmpdir(), "pi-coc-open-input-capture-"));
 mkdirSync(path.join(captureWorkspace, ".coc", "campaigns", captureCampaign), {
   recursive: true,
@@ -1171,11 +1232,12 @@ const captureHost = harness((name, params) => {
   }
   return resumeEnvelope("awaiting_player", {
     campaign_id: captureCampaign,
+    open_turn_anchor: captureAnchor,
     next_operations: ["interpret_current_player_message"],
     current_turn: {
       schema_version: 1,
       meaningful_row_count: 0,
-      source_digest: "sha256:empty-before-player",
+      source_digest: `sha256:${"0".repeat(64)}`,
       rows: [],
     },
   });
@@ -1190,9 +1252,10 @@ assert.deepEqual(openTurnInput.loadOpenTurnPlayerInput({
   campaignId: captureCampaign,
   currentTurn: {
     meaningful_row_count: 1,
-    source_digest: "sha256:control-must-not-bind",
+    source_digest: `sha256:${"1".repeat(64)}`,
     rows: [{ tool: "actions.list", ok: true }],
   },
+  anchor: captureAnchor,
 }), { ok: false, code: "missing" });
 await invoke(
   captureHost,
@@ -1210,9 +1273,10 @@ const capturedNaturalInput = openTurnInput.loadOpenTurnPlayerInput({
   campaignId: captureCampaign,
   currentTurn: {
     meaningful_row_count: 1,
-    source_digest: "sha256:natural-input-bound",
+    source_digest: `sha256:${"2".repeat(64)}`,
     rows: [{ tool: "actions.list", ok: true }],
   },
+  anchor: captureAnchor,
 });
 assert.equal(capturedNaturalInput.ok, true);
 assert.equal(capturedNaturalInput.card.text, recoveryPlayerText);
@@ -4367,6 +4431,8 @@ process.stdout.write(JSON.stringify({
   openTurnMissingInputFailsClosed: true,
   startupControlPromptNotCaptured: true,
   restartPlayerInputStable: true,
+  crossTimelineAnchorFailsClosed: true,
+  recoveryAnchorHiddenFromModel: true,
   skippedModes: ["table_opening", "awaiting_player", "pending_finalization"],
   noMidPairCustom: true,
   providerValid: true,

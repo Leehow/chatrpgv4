@@ -350,6 +350,8 @@ def test_pi_open_turn_recovery_host_guidance_is_structured_and_pairing_safe():
         "openTurnMissingInputFailsClosed": True,
         "startupControlPromptNotCaptured": True,
         "restartPlayerInputStable": True,
+        "crossTimelineAnchorFailsClosed": True,
+        "recoveryAnchorHiddenFromModel": True,
         "skippedModes": [
             "table_opening",
             "awaiting_player",
