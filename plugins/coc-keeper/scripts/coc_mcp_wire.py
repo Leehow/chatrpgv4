@@ -35,6 +35,10 @@ SOURCE_MATERIAL_NOTE_BYTE_LIMIT = 640
 SOURCE_MATERIAL_POLICY_BYTE_LIMIT = 512
 SOURCE_MATERIAL_LABEL_BYTE_LIMIT = 128
 SOURCE_IDENTIFIER_MAX_CHARS = 128
+RULE_DECISION_CARD_LIMIT = 8
+RULE_DECISION_INPUT_LIMIT = 16
+RULE_DECISION_REF_LIMIT = 16
+RULE_DECISION_LABEL_BYTE_LIMIT = 512
 _SOURCE_IDENTIFIER_FIRST = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )
@@ -1084,6 +1088,155 @@ def _compact_source_material(value: Any) -> dict[str, Any] | None:
     }
 
 
+def _semantic_prefixed_ref(value: Any, prefix: str) -> bool:
+    return (
+        _is_source_identifier(value)
+        and isinstance(value, str)
+        and value.startswith(prefix)
+        and len(value) > len(prefix)
+    )
+
+
+def _compact_rule_decision_ref_list(
+    value: Any,
+    *,
+    prefix: str,
+) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [
+        ref
+        for ref in value[:RULE_DECISION_REF_LIMIT]
+        if _semantic_prefixed_ref(ref, prefix)
+    ]
+
+
+def _compact_rule_source_refs(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    prefixes = ("span-", "source:", "pdf:", "module:", "handout:")
+    return [
+        ref
+        for ref in value[:RULE_DECISION_REF_LIMIT]
+        if _is_source_identifier(ref)
+        and isinstance(ref, str)
+        and any(ref.startswith(prefix) for prefix in prefixes)
+    ]
+
+
+def _compact_rule_decision_card(value: Any) -> dict[str, Any] | None:
+    """Project one source-bound model-safe RuleDecisionCard.
+
+    Card grants, canonical actor identity, paths, hashes, and arbitrary extra
+    fields stay out of the MCP wire. Invalid identity-bearing cards drop as a
+    whole so a partial card can never authorize settlement.
+    """
+    if not isinstance(value, dict):
+        return None
+    decision_ref = value.get("decision_ref")
+    capability_ref = value.get("capability_ref")
+    if (
+        not _semantic_prefixed_ref(decision_ref, "decision:")
+        or not _semantic_prefixed_ref(capability_ref, "capability:")
+        or value.get("applicability") != "applicable"
+    ):
+        return None
+    projected: dict[str, Any] = {
+        "decision_ref": decision_ref,
+        "capability_ref": capability_ref,
+        "applicability": "applicable",
+    }
+    schema_version = value.get("schema_version")
+    if isinstance(schema_version, int) and not isinstance(schema_version, bool):
+        projected["schema_version"] = schema_version
+    family = value.get("family")
+    if _is_source_identifier(family):
+        projected["family"] = family
+    label, _trimmed = _bounded_source_text_bytes(
+        value.get("label"), RULE_DECISION_LABEL_BYTE_LIMIT,
+    )
+    if label is not None:
+        projected["label"] = label
+    required_inputs = []
+    raw_required_inputs = value.get("required_inputs")
+    if not isinstance(raw_required_inputs, list):
+        raw_required_inputs = []
+    for raw in raw_required_inputs[:RULE_DECISION_INPUT_LIMIT]:
+        if not isinstance(raw, dict):
+            continue
+        row = _pick(raw, ("name", "owner", "type"))
+        if (
+            all(
+                _is_source_identifier(row.get(field))
+                for field in ("name", "owner", "type")
+            )
+            and len(row) == 3
+        ):
+            required_inputs.append(row)
+    projected["required_inputs"] = required_inputs
+    locked_inputs = value.get("locked_inputs")
+    projected["locked_inputs"] = [
+        name
+        for name in (
+            locked_inputs[:RULE_DECISION_INPUT_LIMIT]
+            if isinstance(locked_inputs, list)
+            else []
+        )
+        if _is_source_identifier(name)
+    ]
+    projected["rule_refs"] = _compact_rule_decision_ref_list(
+        value.get("rule_refs"), prefix="rule:",
+    )
+    projected["source_refs"] = _compact_rule_source_refs(
+        value.get("source_refs"),
+    )
+    projected["effect_refs"] = _compact_rule_decision_ref_list(
+        value.get("effect_refs"), prefix="effect:",
+    )
+    projected["possible_continuations"] = _compact_rule_decision_ref_list(
+        value.get("possible_continuations"), prefix="decision:",
+    )
+    authority = value.get("authority")
+    if isinstance(authority, dict):
+        projected["authority"] = _pick(
+            authority, ("selection", "execution", "hard_gate"),
+        )
+    return projected
+
+
+def _compact_rule_decision_card_block(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict) or not isinstance(value.get("cards"), list):
+        return None
+    cards = [
+        projected
+        for raw in value["cards"][:RULE_DECISION_CARD_LIMIT]
+        if (projected := _compact_rule_decision_card(raw)) is not None
+    ]
+    if not cards:
+        return None
+    projected: dict[str, Any] = {
+        "cards": cards,
+        "settle_operation": _operation_card(
+            "rules.settle",
+            missing=["decision_ref", "semantic_inputs", "decision_id"],
+        ),
+    }
+    for field in ("schema_version", "family", "status"):
+        candidate = value.get(field)
+        if field == "schema_version":
+            valid = isinstance(candidate, int) and not isinstance(candidate, bool)
+        else:
+            valid = _is_source_identifier(candidate)
+        if valid:
+            projected[field] = candidate
+    authority = value.get("authority")
+    if isinstance(authority, dict):
+        projected["authority"] = _pick(
+            authority, ("hard_gate", "role"),
+        )
+    return projected
+
+
 def _compact_scene(
     value: Any,
     *,
@@ -1141,6 +1294,14 @@ def _compact_scene(
         projected["progressive"] = _project_source_work_lifecycle(
             value["progressive"]
         )
+    rule_decision_cards = _compact_rule_decision_card_block(
+        value.get("rule_decision_cards")
+    )
+    if rule_decision_cards is not None:
+        # One main card block is sufficient for both ordinary scene context and
+        # recovery. The canonical duplicate under recovery.healing remains in
+        # the full result/cache but is not repeated across the bounded wire.
+        projected["rule_decision_cards"] = rule_decision_cards
     if tight:
         projected["npcs_present"] = [
             _compact_npc(row)
@@ -2337,6 +2498,12 @@ def _project_scene_recovery_index(scene: Any) -> dict[str, Any] | None:
     source_material = scene.get("source_material")
     if isinstance(source_material, dict):
         scene_index["source_material"] = deepcopy(source_material)
+    rule_decision_cards = scene.get("rule_decision_cards")
+    if isinstance(rule_decision_cards, dict):
+        # This is the one actionable RuleGraph surface. Keep it ahead of the
+        # identity-only fallback; recovery.healing is the same canonical card
+        # set and is deliberately not duplicated on the bounded wire.
+        scene_index["rule_decision_cards"] = deepcopy(rule_decision_cards)
     if isinstance(scene.get("exit_operation_template"), dict):
         scene_index["exit_operation_template"] = deepcopy(
             scene["exit_operation_template"]
