@@ -1407,7 +1407,6 @@ def register_operations(registry) -> None:
             "type": "object",
             "desc": "required for a new pair: exactly {player_conduct, scene_constraints, authored_or_relationship_boundary, semantic_reason}; structured semantic grounding only, never used to alter the die",
         },
-        "seed": {"type": "integer", "desc": "deterministic advisory seed"},
         "decision_id": {"type": "string", "required": True, "desc": "idempotency key; a second decision for the same pair returns the frozen receipt"},
     },
 )(_tool_npc_reaction)

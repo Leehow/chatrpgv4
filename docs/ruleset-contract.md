@@ -51,7 +51,9 @@ at conformance time. Required fields:
   "data": "rules-json/" }`. MAY additionally declare
   `"rule_graph": "rule-graph.json"` and
   `"rule_graph_manifest": "rule-graph-manifest.json"` for generated
-  RuleGraph artifacts (§2.1). Absence is legal: a package that ships no graph
+  RuleGraph artifacts (§2.1), plus an optional
+  `"rule_graph_adapter": "rule_graph_adapter.py"` for package-owned composed
+  settlements. Absence is legal: a package that ships no graph
   defaults every rule family to `legacy` runtime ownership with a `visible`
   legacy Keeper surface.
 - `resources` — the **resource registry** (§6).
@@ -86,6 +88,14 @@ optional `entry_points` keys:
 plugins/coc-keeper/rulesets/<id>/rule-graph.json
 plugins/coc-keeper/rulesets/<id>/rule-graph-manifest.json
 ```
+
+It MAY also expose `entry_points.rule_graph_adapter`. Its primary interface is
+`settle(runtime, executor, plan, decision_id, selected, facts, envelope)`,
+returning either a completed settlement envelope or `None` to use the generic
+one-plan/one-executor path. Optional package hooks own context lookup, schema,
+operation-surface, fact augmentation, and host-binding details. Rule-family
+decision IDs and composed choreography belong in this package adapter, never
+in the generic `coc_rules_runtime.py` dispatch path.
 
 `rule-graph-manifest.json` carries the machine-owned identity fields:
 
@@ -168,6 +178,9 @@ Rules:
 
 - One family cannot have `runtime_owner: "graph"` while its
   `legacy_surface` remains `visible` (spec §7.7).
+- `runtime_owner: "graph"` requires that exact family's graph-manifest row to
+  declare `promotion_eligible: true`; disagreement fails closed at conformance
+  and runtime load.
 - `shadow`/`graph` owners require the paired `entry_points.rule_graph` and
   `entry_points.rule_graph_manifest` (the R1 entry-point rule).
 - A package that ships no `rule_families` keeps every family at

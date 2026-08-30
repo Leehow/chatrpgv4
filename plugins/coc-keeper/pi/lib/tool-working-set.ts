@@ -221,14 +221,12 @@ const PLAY_ACTING_BASELINE = [
   "scene.context",
   "actions.list",
   "rules.roll",
-  "rules.check",
-  "rules.settle",
   "npc.query",
   "state.journal",
 ] as const;
 
-/** Hidden after healing promotion; host-internal adapters only. */
-export const HIDDEN_HEALING_LEGACY_OPERATIONS = [
+/** Legacy healing operations retained while the family is shadow-owned. */
+export const SHADOW_HEALING_LEGACY_OPERATIONS = [
   "rules.first_aid",
   "rules.dying_check",
   "rules.medicine",
@@ -788,6 +786,7 @@ export function loadToolNamespace(
   const operations = Object.entries(OPERATION_POLICY)
     .filter(([operation, policy]) => (
       policy.kp_surface === request.namespace
+      && policy.discovery === "surface"
       && policy.phases.includes(snapshot.phase)
       && sessionRolesForPolicy(operation, policy).includes(snapshot.role)
       && stageAllows(operation, snapshot)
@@ -870,5 +869,9 @@ export function affordancesFromHealingCardProjection(
   const block = healingCardBlock(projection);
   const cards = block === null ? null : block.cards;
   if (!Array.isArray(cards) || cards.length === 0) return [];
+  const policy = OPERATION_POLICY["rules.settle"];
+  if (!policy || policy.kp_surface !== "rules" || policy.discovery !== "surface") {
+    return [];
+  }
   return [{ operation: "rules.settle", source }];
 }

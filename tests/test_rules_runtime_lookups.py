@@ -28,6 +28,7 @@ import pytest
 sys.path.insert(0, str(Path("plugins/coc-keeper/scripts")))
 from toolbox_test_support import *  # noqa: E402,F401,F403
 import coc_rules_runtime  # noqa: E402
+import coc_rulesets  # noqa: E402
 
 FIXTURE_GRAPH = Path("tests/fixtures/coc7-rule-graph-lookups.json")
 FIXTURE_MANIFEST = Path("tests/fixtures/coc7-rule-graph-manifest-lookups.json")
@@ -68,10 +69,12 @@ def _graph_owned_runtime(graph, manifest, facts):
             family, {},
         )
         promo["runtime_ownership"] = "graph"
+        promo["promotion_eligible"] = True
     return coc_rules_runtime.RulesRuntime(
         graph, ruleset_id="coc7", graph_manifest=manifest,
         package_manifest=_PROMOTED_PACKAGE,
         facts_provider=lambda: facts,
+        ruleset_adapter=coc_rulesets.get_rule_graph_adapter("coc7"),
     )
 
 

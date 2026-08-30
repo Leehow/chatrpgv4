@@ -42,7 +42,6 @@ def register_operations(registry) -> None:
     {
         "investigator": {"type": "string", "desc": "investigator id"},
         "command": {"type": "object", "required": True, "desc": "exact chase_start/move/hazard/barrier/conflict/end command"},
-        "seed": {"type": "integer", "desc": "deterministic RNG seed"},
         "decision_id": {"type": "string", "desc": "idempotency key; must match command.payload.decision_id"},
     },
 )(_tool_chase_execute)

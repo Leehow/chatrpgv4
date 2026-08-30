@@ -1,20 +1,19 @@
 # Pi-Coc RuleGraph source compiler and RulesRuntime replacement specification
 
-> **Status:** Review-annotated — reviewed against repository reality on 2026-08-29. The R1 slice is authorized. R2–R7 remain unauthorized pending their own gates; production implementation beyond R1 is not authorized by this document.
+> **Status:** Refactor-authorized — reviewed against repository reality on 2026-08-29; the user explicitly authorized the bounded Pi-Coc RuleGraph refactor and necessary shared-kernel edits on 2026-08-30. Implementation authority is not family-promotion or acceptance authority.
 > **ID:** `pi-coc-rule-graph-runtime`
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`; Codex-host implementation, adapters, prompts, launchers, tests, and documentation remain off-limits.
 > **Scope owner:** Pi-Coc host plus the canonical ruleset packages under `plugins/coc-keeper/rulesets/`.
 > **Ruleset:** Generic contract with `coc7` as the first production Adapter.
-> **Last updated:** 2026-08-29 (revised against repository reality; see Revision log).
+> **Last updated:** 2026-08-30 (runtime safety and authorization correction; see Revision log).
 > **Depends on:** [`docs/ruleset-contract.md`](../ruleset-contract.md), [`docs/rulebook-abstraction-paradigm.md`](../rulebook-abstraction-paradigm.md), the PDF Source Bundle Contract in `AGENTS.md`, and the existing operation/state/finalization contracts.
 > **Prototype evidence:** Artifacts recovered uncommitted in the sibling worktree `chatrpgv4-wt-rule-graph-prototype-20260829` at `/Users/haoli/leehow/code/chatrpgv4-wt-rule-graph-prototype-20260829/plugins/coc-keeper/pi/prototypes/rule-graph/` (`rule_graph_prototype.py`, `candidate-rule-graph.json`, `built-rule-graph.json`, `test_rule_graph_prototype.py`, `README.md`, `VERDICT.md`), based on `0.7.1a@43552e2c`. They are external evidence, not committed to the repository. Future implementation branches use the **`pi-coc/`** prefix.
 
-This is an implementation specification, not implementation authority. It
-authorizes no edits to shared kernel, state, registry, ruleset contract, graph
-contract, Skill, generated projection, Codex track, push, deploy, migration, or
-historical playtest evidence beyond the explicitly authorized R1 slice in §18.1.
-Shared-file implementation beyond R1 requires explicit user approval after this
-specification is reviewed.
+This specification defines acceptance; the user's 2026-08-30 instruction grants
+implementation authority for the Pi-Coc RuleGraph refactor and the necessary
+shared rules-kernel, ruleset-contract, generated-policy, and focused-test paths.
+It does not authorize Codex-track changes, push, deploy, migration, destruction
+of historical playtest evidence, or promotion of a family before §14 passes.
 
 The words MUST, MUST NOT, SHOULD, and MAY below are acceptance requirements.
 
@@ -1210,9 +1209,10 @@ The R1 slice is scoped minimal, delivering exactly:
 - ruleset manifest contract update for the two graph artifacts
   (`rule-graph.json`, `rule-graph-manifest.json`).
 
-Explicitly **NO runtime operation changes in R1**. **NO full-rulebook
-extraction.** No Keeper-visible surface changes. R2–R7 remain unauthorized
-pending their own gates.
+The original R1 slice made **NO runtime operation changes** and performed **NO
+full-rulebook extraction**. The 2026-08-30 authorization permits later-slice
+implementation, but every runtime promotion remains conditional on its own
+§14 gates.
 
 ### R2 — RulesRuntime shadow for healing
 
@@ -1267,12 +1267,10 @@ Execution remains legacy exactly once.
 
 ### 18.1 Authorized and off-limits scope
 
-This spec alone authorizes only this Markdown file **plus the R1 slice described
-in §18 R1** (the R1 contract JSON, the R1 compiler, the R1 focused conformance
-tests, and the ruleset manifest contract update).
-
-Future implementation of R2–R7 requires explicit approval for the exact shared
-paths named above and any necessary updates to:
+The original spec alone authorized this Markdown file plus R1. On 2026-08-30
+the user explicitly authorized the bounded Pi-Coc refactor and all necessary
+shared-file changes for the following paths, while preserving the opposite
+Codex track and the no-push/no-deploy/no-evidence-destruction limits:
 
 - `docs/ruleset-contract.md`;
 - `plugins/coc-keeper/scripts/coc_operation_rules_core.py`;
@@ -1506,6 +1504,13 @@ adjudication, it is `invalid-for-spec` even when focused tests pass.
 ## Revision log
 
 Changes to the 2026-08-29 original, and why:
+
+0. **2026-08-30 authorization and safety correction.** Recorded the user's
+   explicit refactor/shared-file authority, while keeping promotion gates
+   independent. Healing returned from ineligible `graph/hidden` to
+   `shadow/visible`; exact discovery, audience filtering, grant lifecycle,
+   subject-scoped runtime caching, and a ruleset-owned settlement adapter were
+   made structural requirements.
 
 1. **Header — Status.** "Proposed; bounded prototype validated" → "Review-annotated; reviewed against repository reality on 2026-08-29; R1 slice authorized; R2–R7 unauthorized pending their own gates." Reason: the repository review found the prototype evidence is absent, so the original status overclaimed a validated prototype.
 2. **Header — Prototype evidence line.** Replaced the claimed `plugins/coc-keeper/pi/prototypes/rule-graph/` path with an honest statement that no prototype artifacts are present; branch `codex/pi-coc-rule-graph-prototype-20260829` tip `43552e2c` is ModuleGraph starter work. Reason: recon confirmed the path does not exist on disk or in the tree.

@@ -14,13 +14,14 @@
     "skills": "skills/",
     "data": "rules-json/",
     "rule_graph": "rule-graph.json",
-    "rule_graph_manifest": "rule-graph-manifest.json"
+    "rule_graph_manifest": "rule-graph-manifest.json",
+    "rule_graph_adapter": "rule_graph_adapter.py"
   },
   "rule_families": [
     {
       "family_id": "healing",
-      "runtime_owner": "graph",
-      "legacy_surface": "hidden"
+      "runtime_owner": "shadow",
+      "legacy_surface": "visible"
     }
   ],
   "resources": [

@@ -1294,6 +1294,15 @@ def _tool_rules_dying_check(ctx: Ctx, args: dict[str, Any]):
     return data, [], hints
 
 def register_operations(registry) -> None:
+    rule_graph_adapter = coc_rulesets.get_rule_graph_adapter(
+        coc_rulesets.DEFAULT_RULESET_ID
+    )
+    rule_settle_schema = (
+        rule_graph_adapter.settle_schema() if rule_graph_adapter is not None else {}
+    )
+    rule_context_schema = (
+        rule_graph_adapter.context_schema() if rule_graph_adapter is not None else {}
+    )
     global TOOLS
     TOOLS = registry.legacy_tools
     registry.tool(
@@ -1310,7 +1319,6 @@ def register_operations(registry) -> None:
             "required": True,
             "desc": "exact package-native low-level check kwargs (rng is injected); do not pass investigator skill or skill_id here",
         },
-        "seed": {"type": "integer", "desc": "deterministic RNG seed"},
         "decision_id": {
             "type": "string",
             "required": True,
@@ -1332,7 +1340,6 @@ def register_operations(registry) -> None:
             "required": True,
             "desc": "package-defined resource_delta arguments; current/rng and identity fields are kernel-reserved",
         },
-        "seed": {"type": "integer", "desc": "deterministic RNG seed"},
         "decision_id": {
             "type": "string",
             "required": True,
@@ -1432,7 +1439,6 @@ def register_operations(registry) -> None:
                 "Used only for soft Push/retry/route advice; never blocks the roll"
             ),
         },
-        "seed": {"type": "integer", "desc": "deterministic RNG seed (tests only)"},
         "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
     },
 )(_tool_rules_roll)
@@ -1451,7 +1457,6 @@ def register_operations(registry) -> None:
             "type": "string",
             "desc": "specific escalation if the pushed roll fumbles",
         },
-        "seed": {"type": "integer", "desc": "deterministic RNG seed"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )(_tool_rules_push)
@@ -1472,7 +1477,6 @@ def register_operations(registry) -> None:
                 "never by purpose alone"
             ),
         },
-        "seed": {"type": "integer", "desc": "deterministic RNG seed"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )(_tool_rules_roll_dice)
@@ -1492,7 +1496,6 @@ def register_operations(registry) -> None:
         "opponent_value": {"type": "integer", "required": True, "desc": "opponent's skill/characteristic value"},
         "opponent_label": {"type": "string", "desc": "opponent description (logged)"},
         "reason": {"type": "string", "desc": "what the contest is about"},
-        "seed": {"type": "integer", "desc": "deterministic RNG seed"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )(_tool_rules_opposed)
@@ -1504,7 +1507,6 @@ def register_operations(registry) -> None:
         "amount": {"type": "string", "required": True, "desc": "integer or dice expression (e.g. '1D6+1')"},
         "kind": {"type": "string", "desc": "damage | heal (default damage)"},
         "source": {"type": "string", "desc": "what caused it (logged)"},
-        "seed": {"type": "integer", "desc": "deterministic RNG seed"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )(_tool_rules_damage)
@@ -1544,7 +1546,6 @@ def register_operations(registry) -> None:
             "type": "string",
             "desc": "consequence announced before the pushed attempt",
         },
-        "seed": {"type": "integer", "desc": "deterministic RNG seed (tests only)"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )(_tool_rules_first_aid)
@@ -1562,7 +1563,6 @@ def register_operations(registry) -> None:
             "type": "string",
             "desc": "stable actor id for roll evidence (defaults to the investigator)",
         },
-        "seed": {"type": "integer", "desc": "deterministic RNG seed (tests only)"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )(_tool_rules_medicine)
@@ -1589,7 +1589,6 @@ def register_operations(registry) -> None:
             "type": "string",
             "desc": "stable caregiver id; defaults to the investigator when Medicine is supplied",
         },
-        "seed": {"type": "integer", "desc": "deterministic RNG seed (tests only)"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )(_tool_rules_weekly_recovery)
@@ -1603,91 +1602,18 @@ def register_operations(registry) -> None:
             "required": True,
             "desc": "round while unstabilized; hour while stabilized",
         },
-        "seed": {"type": "integer", "desc": "deterministic RNG seed (tests only)"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )(_tool_rules_dying_check)
     registry.tool(
     "rules.settle",
     "Settle one graph-owned rule decision card through the canonical resolver/subsystem path. Host-locked fields are absent; the runtime rechecks grant, state, and family ownership at execute time.",
-    {
-        "investigator": {
-            "type": "string",
-            "desc": "injured or recovering investigator id",
-        },
-        "decision_ref": {
-            "type": "string",
-            "required": True,
-            "enum": [
-                "decision:coc7:healing:dying-hour-clock",
-                "decision:coc7:healing:dying-round-clock",
-                "decision:coc7:healing:first-aid-ordinary",
-                "decision:coc7:healing:first-aid-stabilization",
-                "decision:coc7:healing:medicine-ordinary",
-                "decision:coc7:healing:medicine-stabilization",
-                "decision:coc7:healing:weekly-major-wound-recovery",
-            ],
-            "desc": "semantic decision card ref from scene.context / recovery.healing",
-        },
-        "semantic_inputs": {
-            "type": "object",
-            "required": True,
-            "additionalProperties": False,
-            "desc": "keeper-semantic inputs for the selected card; host-locked fields are forbidden",
-            "properties": {
-                "rescuer_ref": {"type": "string", "desc": "acting rescuer or caregiver actor ref"},
-                "assistant_rescuer_ref": {
-                    "type": "string",
-                    "desc": "second rescuer when two people attempt First Aid together (uncompiled composition)",
-                },
-                "changed_method": {"type": "string", "desc": "what materially changes on a pushed First Aid attempt"},
-                "failure_consequence": {"type": "string", "desc": "consequence announced before a pushed First Aid attempt"},
-                "complete_rest": {"type": "boolean", "desc": "weekly recovery: complete comfortable rest"},
-                "poor_environment": {"type": "boolean", "desc": "weekly recovery: inadequate rest or environment"},
-            },
-        },
-        "seed": {"type": "integer", "desc": "deterministic RNG seed (tests only)"},
-        "decision_id": {
-            "type": "string",
-            "required": True,
-            "desc": "idempotency key",
-        },
-    },
+    rule_settle_schema,
 )(_tool_rules_settle)
     registry.tool(
     "rules.context",
     "Exact-discovery RuleGraph context for one compiled family. Absent from ordinary play working sets; load only by exact operation name. Cards are affordances, never action gates.",
-    {
-        "investigator": {
-            "type": "string",
-            "desc": "investigator whose live state binds the card grant",
-        },
-        "family": {
-            "type": "string",
-            "desc": "compiled rule family id (healing, development, combat, sanity, ...)",
-        },
-        "kind": {
-            "type": "string",
-            "desc": "procedure (decision cards) or lookup (read-only table query)",
-        },
-        "lookup_ref": {
-            "type": "string",
-            "desc": "semantic lookup decision ref for kind=lookup",
-        },
-        "decision_ref": {
-            "type": "string",
-            "desc": "alias of lookup_ref for kind=lookup",
-        },
-        "semantic_inputs": {
-            "type": "object",
-            "desc": "keeper-semantic inputs for a kind=lookup query",
-        },
-        "selected_affordance_ids": {
-            "type": "array",
-            "items": {"type": "string"},
-            "desc": "optional semantic decision refs to narrow the card set",
-        },
-    },
+    rule_context_schema,
     access="query",
     read_domains=("party", "mechanics"),
     recovery_domains=(),

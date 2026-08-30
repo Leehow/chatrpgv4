@@ -78,6 +78,7 @@ def test_every_registered_operation_has_valid_policy():
         assert set(public["phases"]) <= coc_operation_policy.PHASES
         assert public["contract"] in coc_operation_policy.CONTRACTS
         assert public["kp_surface"] in coc_operation_policy.KP_SURFACES
+        assert public["discovery"] in coc_operation_policy.DISCOVERY_MODES
         assert public["advisory"] is True or public["advisory"] is False
         attached = coc_toolbox.TOOLS[name]["policy"]
         assert coc_operation_policy.public_policy(attached) == public
@@ -303,7 +304,7 @@ def test_query_helper_is_structured_not_keyword():
     assert "progressive.fulfill_host_work" not in opening_setup
 
 
-HIDDEN_HEALING_LEGACY = (
+HEALING_LEGACY_OPERATIONS = (
     "rules.first_aid",
     "rules.dying_check",
     "rules.medicine",
@@ -311,21 +312,21 @@ HIDDEN_HEALING_LEGACY = (
 )
 
 
-def test_healing_legacy_ops_are_host_internal_not_keeper_visible():
+def test_healing_legacy_ops_are_keeper_visible_while_family_is_shadow_owned():
     live = set(coc_toolbox.query_operations(audience="keeper"))
     live_rules = set(coc_toolbox.query_operations(audience="keeper", kp_surface="rules"))
-    for name in HIDDEN_HEALING_LEGACY:
+    for name in HEALING_LEGACY_OPERATIONS:
         assert name in coc_toolbox.TOOLS
-        assert name not in live
-        assert name not in live_rules
+        assert name in live
+        assert name in live_rules
         policy = coc_toolbox.operation_policy(name)
-        assert policy["audience"] == "host"
-        assert policy["kp_surface"] == "none"
+        assert policy["audience"] == "keeper"
+        assert policy["kp_surface"] == "rules"
         assert name not in coc_operation_policy.HOST_INVOKE_COMPAT_OPERATIONS
-    assert "rules.settle" in live_rules
+    assert "rules.settle" not in live_rules
     settle = coc_toolbox.operation_policy("rules.settle")
-    assert settle["audience"] == "keeper"
-    assert settle["kp_surface"] == "rules"
+    assert settle["audience"] == "host"
+    assert settle["kp_surface"] == "none"
     assert settle["phases"] == ["live_turn"]
 
 
@@ -355,7 +356,22 @@ def test_rules_context_is_keeper_context_not_ordinary_rules_surface():
     assert policy["audience"] == "keeper"
     assert policy["kp_surface"] == "context"
     assert policy["phases"] == ["live_turn"]
-    assert "rules.context" in coc_toolbox.query_operations(
-        audience="keeper", kp_surface="context", phase="live_turn"
+    assert policy["discovery"] == "exact"
+    assert "rules.context" not in coc_toolbox.query_operations(
+        audience="keeper", kp_surface="context", phase="live_turn",
+        discovery="surface",
     )
     assert "rules.context" not in coc_toolbox.query_operations(kp_surface="rules")
+
+
+def test_rules_settle_schema_has_no_model_controlled_rng_seed():
+    assert "seed" not in coc_toolbox.TOOLS["rules.settle"]["params"]
+
+
+def test_no_hard_rules_operation_exposes_test_rng_seed_to_the_model():
+    exposed = [
+        name for name, spec in coc_toolbox.TOOLS.items()
+        if coc_toolbox.operation_policy(name)["contract"] == "rules"
+        and "seed" in spec["params"]
+    ]
+    assert exposed == []

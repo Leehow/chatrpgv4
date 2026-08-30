@@ -429,7 +429,6 @@ def register_operations(registry) -> None:
             "type": "string",
             "desc": "authored scene SAN trigger id; marks that trigger fired after settlement",
         },
-        "seed": {"type": "integer", "desc": "deterministic RNG seed"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )(_tool_rules_sanity_check)
@@ -444,7 +443,6 @@ def register_operations(registry) -> None:
     {
         "investigator": {"type": "string", "desc": "investigator id"},
         "command": {"type": "object", "required": True, "desc": "exact sanity_check, bout_tick, or bout_end command"},
-        "seed": {"type": "integer", "desc": "deterministic RNG seed"},
         "decision_id": {"type": "string", "desc": "idempotency key; must match command.payload.decision_id"},
     },
 )(_tool_sanity_execute)

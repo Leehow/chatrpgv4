@@ -37,6 +37,7 @@ def _load(name, rel):
 
 sys.path.insert(0, str(SCRIPTS))
 coc_rule_graph = _load("coc_rule_graph_package", str(SCRIPTS / "coc_rule_graph.py"))
+coc_rulesets = _load("coc_rulesets_rule_graph_package", str(SCRIPTS / "coc_rulesets.py"))
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
 
 
@@ -96,8 +97,8 @@ def test_packaged_coc7_rule_graph_conforms_to_r1_contract():
     assert graph["ruleset_version"] == manifest["ruleset_version"] == "1.0.0"
     assert graph["coverage"]["healing"] == "accepted"
     assert manifest["family_coverage"]["healing"] == "accepted"
-    assert graph["family_runtime_ownership"]["healing"] == "graph"
-    assert graph["legacy_surface_lifecycle"]["healing"] == "hidden"
+    assert graph["family_runtime_ownership"]["healing"] == "shadow"
+    assert graph["legacy_surface_lifecycle"]["healing"] == "visible"
     assert manifest["compiler_identity"] == CONTRACT["compiler_identity"]
     assert manifest["reviewer_identity"] == "r2-candidate-review"
     assert manifest["review_status"] == "accepted"
@@ -115,8 +116,8 @@ def test_packaged_coc7_rule_graph_conforms_to_r1_contract():
     )
     assert healing == {
         "family_id": "healing",
-        "runtime_owner": "graph",
-        "legacy_surface": "hidden",
+        "runtime_owner": "shadow",
+        "legacy_surface": "visible",
     }
 
 
@@ -128,11 +129,44 @@ def test_packaged_coc7_graph_digest_matches_manifest():
     assert digest == coc_rule_graph._json_digest(graph)
 
 
+def test_family_node_does_not_duplicate_runtime_ownership_ledger():
+    graph = _load_package_graph()
+    family = next(
+        node for node in graph["nodes"]
+        if node["node_id"] == "rule-family:coc7:healing"
+    )
+    properties = family.get("properties") or {}
+    assert "runtime_ownership" not in properties
+    assert "legacy_surface" not in properties
+
+
+def test_composed_settlement_dispatch_is_owned_by_coc7_package():
+    ruleset = json.loads(PACKAGE_RULESET.read_text(encoding="utf-8"))
+    assert ruleset["entry_points"]["rule_graph_adapter"] == "rule_graph_adapter.py"
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    assert adapter.__class__.__name__ == "Coc7RuleGraphAdapter"
+    assert callable(adapter.settle)
+    assert adapter.promotion_blockers("healing") == []
+    assert adapter.promotion_blockers("social")
+    current = adapter.operation_policy_overrides(ruleset)
+    assert current["rules.first_aid"]["audience"] == "keeper"
+    assert current["rules.settle"]["audience"] == "host"
+
+    promoted = json.loads(json.dumps(ruleset))
+    promoted["rule_families"][0].update({
+        "runtime_owner": "graph",
+        "legacy_surface": "hidden",
+    })
+    switched = adapter.operation_policy_overrides(promoted)
+    assert switched["rules.first_aid"]["audience"] == "host"
+    assert switched["rules.settle"]["audience"] == "keeper"
+
+
 def test_packaged_healing_shadow_exclusions_are_machine_readable():
     manifest = _load_package_manifest()
     promo = manifest["family_promotion_eligibility"]["healing"]
     assert promo["promotion_eligible"] is False
-    assert promo["runtime_ownership"] == "graph"
+    assert promo["runtime_ownership"] == "shadow"
     exclusions = promo["shadow_exclusions"]
     by_id = {row["exclusion_id"]: row for row in exclusions}
     assert set(by_id) == {

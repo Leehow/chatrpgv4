@@ -287,7 +287,7 @@ def build_policy_projection(toolbox: Any | None = None) -> dict[str, Any]:
         policy["execution_class"] = operation_spec.execution_class
         policies[name] = policy
         surface = operation_spec.policy.kp_surface
-        if surface != "none":
+        if surface != "none" and operation_spec.policy.discovery == "surface":
             surfaces[surface].append(name)
 
     return {
@@ -328,6 +328,7 @@ export type OperationPolicy = {{
   contract: string;
   advisory: boolean;
   kp_surface: KpSurface;
+  discovery: "surface" | "exact";
   execution_class: ExecutionClass;
 }};
 export const OPERATION_POLICY: Record<string, OperationPolicy> = {encoded(projection["operation_policy"])};

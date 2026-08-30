@@ -338,7 +338,7 @@ _OWNERSHIP_GRAPH_MANIFEST = {
     "shards": [],
     "family_coverage": {},
     "family_promotion_eligibility": {
-        "healing": {"promotion_eligible": False, "runtime_ownership": "graph"},
+        "healing": {"promotion_eligible": True, "runtime_ownership": "graph"},
     },
     "data_table_dependencies": [],
     "resolver_capability_dependencies": [],
@@ -450,6 +450,42 @@ def test_rule_families_graph_owner_with_hidden_surface_and_artifacts_passes(
         json.dumps(_OWNERSHIP_GRAPH_MANIFEST), encoding="utf-8"
     )
     assert ruleset_conformance.validate_package(package_dir) == []
+
+
+def test_rule_families_graph_owner_requires_explicit_promotion_eligibility(
+    tmp_path: Path,
+):
+    """A family cannot execute from RuleGraph while its own gate says no."""
+    package_dir = _package_with_rule_families(tmp_path, [{
+        "family_id": "healing",
+        "runtime_owner": "graph",
+        "legacy_surface": "hidden",
+    }])
+    manifest_path = package_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["entry_points"]["rule_graph"] = "rule-graph.json"
+    manifest["entry_points"]["rule_graph_manifest"] = "rule-graph-manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (package_dir / "rule-graph.json").write_text(
+        json.dumps(_OWNERSHIP_GRAPH), encoding="utf-8"
+    )
+    graph_manifest = {
+        **_OWNERSHIP_GRAPH_MANIFEST,
+        "family_promotion_eligibility": {
+            "healing": {
+                "promotion_eligible": False,
+                "runtime_ownership": "graph",
+            },
+        },
+    }
+    (package_dir / "rule-graph-manifest.json").write_text(
+        json.dumps(graph_manifest), encoding="utf-8"
+    )
+    problems = ruleset_conformance.validate_package(package_dir)
+    assert any(
+        "graph-owned family requires promotion_eligible true" in problem
+        for problem in problems
+    ), problems
 
 
 def test_rule_families_artifact_disagreement_fails_closed(tmp_path: Path):

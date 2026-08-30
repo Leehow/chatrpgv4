@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:ecb25aa9c6780be7b24fe686e3ba645d1f92ea014509ca2a8cd1a34b2697f311",
+  "content_sha256": "sha256:061f48dde9d3bc222debecaff432641150240bd6a3b75eeb2e48a7f7b3c77b4c",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -129,6 +129,7 @@
         "advisory": true,
         "audience": "keeper",
         "contract": "advisory",
+        "discovery": "surface",
         "kp_surface": "advice",
         "phases": [
           "live_turn"
@@ -163,6 +164,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "opening",
@@ -199,6 +201,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "subsystem",
         "phases": [
           "live_turn",
@@ -235,10 +238,6 @@
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
-          },
-          "seed": {
-            "description": "deterministic RNG seed",
-            "type": "integer"
           }
         },
         "required": [
@@ -253,6 +252,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "subsystem",
         "phases": [
           "live_turn"
@@ -311,6 +311,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "opening",
@@ -347,6 +348,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "subsystem",
         "phases": [
           "live_turn",
@@ -396,6 +398,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "subsystem",
         "phases": [
           "live_turn"
@@ -439,10 +442,6 @@
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
           },
-          "seed": {
-            "description": "deterministic RNG seed (tests only)",
-            "type": "integer"
-          },
           "target_npc_id": {
             "description": "present stable NPC/combatant id. Required for emergent shots. A vague threat with no id is not a legal target; do not invent hit/damage.",
             "type": "string"
@@ -467,6 +466,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "subsystem",
         "phases": [
           "live_turn"
@@ -501,10 +501,6 @@
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
-          },
-          "seed": {
-            "description": "deterministic RNG seed (tests only)",
-            "type": "integer"
           }
         },
         "required": [
@@ -518,6 +514,7 @@
         "advisory": false,
         "audience": "audit",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "ending"
@@ -575,6 +572,7 @@
         "advisory": true,
         "audience": "keeper",
         "contract": "advisory",
+        "discovery": "surface",
         "kp_surface": "advice",
         "phases": [
           "live_turn"
@@ -609,6 +607,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "opening",
@@ -684,6 +683,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "live_turn",
@@ -765,6 +765,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "live_turn"
@@ -827,6 +828,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "opening"
@@ -883,6 +885,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "live_turn",
@@ -927,6 +930,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "live_turn",
@@ -995,6 +999,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "subsystem",
         "phases": [
           "live_turn"
@@ -1084,6 +1089,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -1149,6 +1155,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn",
@@ -1185,6 +1192,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "live_turn",
@@ -1267,6 +1275,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "opening",
@@ -1330,6 +1339,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "module_secret",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "opening",
@@ -1380,6 +1390,7 @@
         "advisory": true,
         "audience": "keeper",
         "contract": "advisory",
+        "discovery": "surface",
         "kp_surface": "advice",
         "phases": [
           "live_turn",
@@ -1530,6 +1541,7 @@
         "advisory": true,
         "audience": "keeper",
         "contract": "advisory",
+        "discovery": "surface",
         "kp_surface": "advice",
         "phases": [
           "live_turn",
@@ -1575,6 +1587,7 @@
         "advisory": true,
         "audience": "keeper",
         "contract": "advisory",
+        "discovery": "surface",
         "kp_surface": "advice",
         "phases": [
           "live_turn"
@@ -1621,6 +1634,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "npc",
         "phases": [
           "opening",
@@ -1670,10 +1684,6 @@
           "run_id": {
             "description": "current play/report segment run id; use the same value for the first engagement",
             "type": "string"
-          },
-          "seed": {
-            "description": "deterministic advisory seed",
-            "type": "integer"
           }
         },
         "required": [
@@ -1688,6 +1698,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "npc",
         "phases": [
           "opening",
@@ -1727,6 +1738,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "opening",
@@ -1815,6 +1827,7 @@
         "advisory": false,
         "audience": "source_worker",
         "contract": "source_lifecycle",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "opening",
@@ -1859,6 +1872,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "setup",
         "phases": [
           "live_turn"
@@ -1963,6 +1977,7 @@
         "advisory": false,
         "audience": "source_worker",
         "contract": "source_lifecycle",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "opening",
@@ -2007,6 +2022,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "setup",
         "phases": [
           "live_turn"
@@ -2074,6 +2090,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "setup",
         "phases": [
           "opening"
@@ -2161,6 +2178,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "setup",
         "phases": [
           "opening"
@@ -2224,6 +2242,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "opening"
@@ -2274,6 +2293,7 @@
         "advisory": false,
         "audience": "source_worker",
         "contract": "source_lifecycle",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "opening",
@@ -2314,6 +2334,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "source_lifecycle",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "cold_start",
@@ -2370,6 +2391,7 @@
         "advisory": false,
         "audience": "source_worker",
         "contract": "source_lifecycle",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "opening",
@@ -2427,6 +2449,7 @@
         "advisory": false,
         "audience": "source_worker",
         "contract": "source_lifecycle",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "opening",
@@ -2491,6 +2514,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "source_lifecycle",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "opening",
@@ -2544,6 +2568,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "setup",
         "phases": [
           "live_turn"
@@ -2621,6 +2646,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "source_lifecycle",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "opening"
@@ -2663,6 +2689,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "source_lifecycle",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "opening",
@@ -2706,6 +2733,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "opening",
@@ -2752,6 +2780,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "opening",
@@ -2799,6 +2828,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "opening",
@@ -2835,6 +2865,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "opening",
@@ -2881,6 +2912,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "opening",
@@ -2941,6 +2973,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "opening",
@@ -2987,6 +3020,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "rules",
         "phases": [
           "live_turn"
@@ -3029,6 +3063,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "rules",
         "phases": [
           "cold_start",
@@ -3081,6 +3116,7 @@
         "advisory": true,
         "audience": "keeper",
         "contract": "advisory",
+        "discovery": "surface",
         "kp_surface": "rules",
         "phases": [
           "cold_start",
@@ -3118,10 +3154,6 @@
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
-          },
-          "seed": {
-            "description": "deterministic RNG seed",
-            "type": "integer"
           }
         },
         "required": [
@@ -3137,6 +3169,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "live_turn"
@@ -3156,24 +3189,15 @@
             "description": "Campaign id. Required for campaign-bound operations.",
             "type": "string"
           },
-          "decision_ref": {
-            "description": "alias of lookup_ref for kind=lookup",
-            "type": "string"
-          },
           "family": {
-            "description": "compiled rule family id (healing, development, combat, sanity, ...)",
+            "description": "source-accepted compiled family",
+            "enum": [
+              "healing"
+            ],
             "type": "string"
           },
           "investigator": {
             "description": "investigator whose live state binds the card grant",
-            "type": "string"
-          },
-          "kind": {
-            "description": "procedure (decision cards) or lookup (read-only table query)",
-            "type": "string"
-          },
-          "lookup_ref": {
-            "description": "semantic lookup decision ref for kind=lookup",
             "type": "string"
           },
           "root": {
@@ -3186,11 +3210,6 @@
               "type": "string"
             },
             "type": "array"
-          },
-          "semantic_inputs": {
-            "additionalProperties": true,
-            "description": "keeper-semantic inputs for a kind=lookup query",
-            "type": "object"
           }
         },
         "required": [
@@ -3203,6 +3222,7 @@
         "advisory": true,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "exact",
         "kp_surface": "context",
         "phases": [
           "live_turn"
@@ -3242,10 +3262,6 @@
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
           },
-          "seed": {
-            "description": "deterministic RNG seed",
-            "type": "integer"
-          },
           "source": {
             "description": "what caused it (logged)",
             "type": "string"
@@ -3263,6 +3279,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "rules",
         "phases": [
           "live_turn"
@@ -3297,10 +3314,6 @@
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
-          },
-          "seed": {
-            "description": "deterministic RNG seed (tests only)",
-            "type": "integer"
           }
         },
         "required": [
@@ -3313,9 +3326,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "host",
+        "audience": "keeper",
         "contract": "rules",
-        "kp_surface": "none",
+        "discovery": "surface",
+        "kp_surface": "rules",
         "phases": [
           "live_turn"
         ]
@@ -3362,10 +3376,6 @@
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
           },
-          "seed": {
-            "description": "deterministic RNG seed (tests only)",
-            "type": "integer"
-          },
           "skill_value": {
             "description": "First Aid value of the acting rescuer (1..100)",
             "type": "integer"
@@ -3381,9 +3391,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "host",
+        "audience": "keeper",
         "contract": "rules",
-        "kp_surface": "none",
+        "discovery": "surface",
+        "kp_surface": "rules",
         "phases": [
           "live_turn"
         ]
@@ -3436,6 +3447,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "rules",
         "phases": [
           "live_turn"
@@ -3471,10 +3483,6 @@
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
           },
-          "seed": {
-            "description": "deterministic RNG seed (tests only)",
-            "type": "integer"
-          },
           "skill_value": {
             "description": "Medicine value of the acting caregiver (1..100)",
             "type": "integer"
@@ -3490,9 +3498,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "host",
+        "audience": "keeper",
         "contract": "rules",
-        "kp_surface": "none",
+        "discovery": "surface",
+        "kp_surface": "rules",
         "phases": [
           "live_turn"
         ]
@@ -3543,10 +3552,6 @@
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
           },
-          "seed": {
-            "description": "deterministic RNG seed",
-            "type": "integer"
-          },
           "skill": {
             "description": "investigator skill",
             "type": "string"
@@ -3569,6 +3574,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "rules",
         "phases": [
           "live_turn"
@@ -3640,10 +3646,6 @@
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
           },
-          "seed": {
-            "description": "deterministic RNG seed",
-            "type": "integer"
-          },
           "visible_observation": {
             "description": "player-safe external observation used only when action=realize",
             "type": "string"
@@ -3664,6 +3666,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "rules",
         "phases": [
           "live_turn"
@@ -3706,10 +3709,6 @@
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
-          },
-          "seed": {
-            "description": "deterministic RNG seed",
-            "type": "integer"
           }
         },
         "required": [
@@ -3726,6 +3725,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "rules",
         "phases": [
           "live_turn"
@@ -3761,10 +3761,6 @@
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
-          },
-          "seed": {
-            "description": "deterministic RNG seed",
-            "type": "integer"
           }
         },
         "required": [
@@ -3780,6 +3776,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "live_turn"
@@ -3863,10 +3860,6 @@
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
           },
-          "seed": {
-            "description": "deterministic RNG seed (tests only)",
-            "type": "integer"
-          },
           "skill": {
             "description": "skill name on the sheet (e.g. 'Library Use')",
             "type": "string"
@@ -3920,6 +3913,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "rules",
         "phases": [
           "live_turn"
@@ -3962,10 +3956,6 @@
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
-          },
-          "seed": {
-            "description": "deterministic RNG seed",
-            "type": "integer"
           }
         },
         "required": [
@@ -3980,6 +3970,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "rules",
         "phases": [
           "cold_start",
@@ -4021,10 +4012,6 @@
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
           },
-          "seed": {
-            "description": "deterministic RNG seed",
-            "type": "integer"
-          },
           "source": {
             "description": "what horror caused the check",
             "type": "string"
@@ -4047,6 +4034,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "rules",
         "phases": [
           "live_turn"
@@ -4071,7 +4059,7 @@
             "type": "string"
           },
           "decision_ref": {
-            "description": "semantic decision card ref from scene.context / recovery.healing",
+            "description": "semantic decision ref from a machine-projected card",
             "enum": [
               "decision:coc7:healing:dying-hour-clock",
               "decision:coc7:healing:dying-round-clock",
@@ -4091,36 +4079,26 @@
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
           },
-          "seed": {
-            "description": "deterministic RNG seed (tests only)",
-            "type": "integer"
-          },
           "semantic_inputs": {
             "additionalProperties": false,
-            "description": "keeper-semantic inputs for the selected card; host-locked fields are forbidden",
+            "description": "Keeper-semantic inputs; host-locked fields are forbidden",
             "properties": {
               "assistant_rescuer_ref": {
-                "description": "second rescuer when two people attempt First Aid together (uncompiled composition)",
                 "type": "string"
               },
               "changed_method": {
-                "description": "what materially changes on a pushed First Aid attempt",
                 "type": "string"
               },
               "complete_rest": {
-                "description": "weekly recovery: complete comfortable rest",
                 "type": "boolean"
               },
               "failure_consequence": {
-                "description": "consequence announced before a pushed First Aid attempt",
                 "type": "string"
               },
               "poor_environment": {
-                "description": "weekly recovery: inadequate rest or environment",
                 "type": "boolean"
               },
               "rescuer_ref": {
-                "description": "acting rescuer or caregiver actor ref",
                 "type": "string"
               }
             },
@@ -4138,9 +4116,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
-        "kp_surface": "rules",
+        "discovery": "surface",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -4184,6 +4163,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "rules",
         "phases": [
           "live_turn"
@@ -4299,6 +4279,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "rules",
         "phases": [
           "live_turn"
@@ -4345,10 +4326,6 @@
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
-          },
-          "seed": {
-            "description": "deterministic RNG seed (tests only)",
-            "type": "integer"
           }
         },
         "required": [
@@ -4362,9 +4339,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "host",
+        "audience": "keeper",
         "contract": "rules",
-        "kp_surface": "none",
+        "discovery": "surface",
+        "kp_surface": "rules",
         "phases": [
           "live_turn"
         ]
@@ -4402,6 +4380,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "subsystem",
         "phases": [
           "live_turn",
@@ -4438,10 +4417,6 @@
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
-          },
-          "seed": {
-            "description": "deterministic RNG seed",
-            "type": "integer"
           }
         },
         "required": [
@@ -4456,6 +4431,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "rules",
+        "discovery": "surface",
         "kp_surface": "subsystem",
         "phases": [
           "live_turn"
@@ -4498,6 +4474,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "opening",
@@ -4534,6 +4511,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "opening",
@@ -4586,6 +4564,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "module_secret",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "opening",
@@ -4627,6 +4606,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "cold_start",
@@ -4696,6 +4676,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "cold_start",
@@ -4761,6 +4742,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "cold_start",
@@ -4817,6 +4799,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "live_turn",
@@ -4865,6 +4848,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "setup",
         "phases": [
           "cold_start",
@@ -5331,6 +5315,7 @@
         "advisory": false,
         "audience": "setup",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "setup",
         "phases": [
           "cold_start",
@@ -5521,6 +5506,7 @@
         "advisory": false,
         "audience": "setup",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "setup",
         "phases": [
           "cold_start",
@@ -5567,6 +5553,7 @@
         "advisory": false,
         "audience": "setup",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "setup",
         "phases": [
           "cold_start",
@@ -5601,6 +5588,7 @@
         "advisory": false,
         "audience": "setup",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "setup",
         "phases": [
           "cold_start",
@@ -5642,6 +5630,7 @@
         "advisory": false,
         "audience": "setup",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "setup",
         "phases": [
           "cold_start",
@@ -5762,6 +5751,7 @@
         "advisory": false,
         "audience": "setup",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "setup",
         "phases": [
           "cold_start",
@@ -5801,6 +5791,7 @@
         "advisory": false,
         "audience": "setup",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "setup",
         "phases": [
           "cold_start",
@@ -5858,6 +5849,7 @@
         "advisory": false,
         "audience": "setup",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "setup",
         "phases": [
           "cold_start",
@@ -5923,6 +5915,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -6000,6 +5993,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -6058,6 +6052,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -6111,6 +6106,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -6183,6 +6179,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -6225,6 +6222,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -6291,6 +6289,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "cold_start",
@@ -6365,6 +6364,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -6418,6 +6418,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -6536,6 +6537,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -6588,6 +6590,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -6639,6 +6642,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -6785,6 +6789,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn",
@@ -6828,6 +6833,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -6870,6 +6876,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn",
@@ -6958,6 +6965,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -7014,6 +7022,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -7069,6 +7078,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -7236,6 +7246,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "turn",
         "phases": [
           "live_turn",
@@ -7290,6 +7301,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -7351,6 +7363,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -7414,6 +7427,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -7508,6 +7522,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -7566,6 +7581,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -7614,6 +7630,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -7681,6 +7698,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -7813,6 +7831,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -7866,6 +7885,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -7961,6 +7981,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "opening",
@@ -8022,6 +8043,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -8066,6 +8088,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "pending_finalization",
@@ -8137,6 +8160,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -8189,6 +8213,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -8246,6 +8271,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "recovery",
@@ -8292,6 +8318,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -8355,6 +8382,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -8416,6 +8444,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -8519,6 +8548,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "live_turn"
@@ -8569,6 +8599,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "opening",
@@ -8669,6 +8700,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "live_turn"
@@ -8713,6 +8745,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "live_turn"
@@ -8759,6 +8792,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "opening",
@@ -8808,6 +8842,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "live_turn"
@@ -8891,6 +8926,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "live_turn"
@@ -8939,6 +8975,7 @@
         "advisory": false,
         "audience": "host",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "none",
         "phases": [
           "live_turn"
@@ -8982,6 +9019,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "opening",
@@ -9047,6 +9085,7 @@
         "advisory": true,
         "audience": "keeper",
         "contract": "advisory",
+        "discovery": "surface",
         "kp_surface": "advice",
         "phases": [
           "live_turn"
@@ -9081,6 +9120,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "opening",
@@ -9163,6 +9203,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn",
@@ -9227,6 +9268,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "live_turn",
@@ -9274,6 +9316,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -9332,6 +9375,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -9403,6 +9447,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "state",
+        "discovery": "surface",
         "kp_surface": "state",
         "phases": [
           "live_turn"
@@ -9485,6 +9530,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "live_turn",
@@ -9539,6 +9585,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "none",
+        "discovery": "surface",
         "kp_surface": "context",
         "phases": [
           "live_turn",
@@ -9820,6 +9867,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "finalize",
+        "discovery": "surface",
         "kp_surface": "turn",
         "phases": [
           "live_turn",
@@ -9857,6 +9905,7 @@
         "advisory": false,
         "audience": "keeper",
         "contract": "finalize",
+        "discovery": "surface",
         "kp_surface": "turn",
         "phases": [
           "live_turn",

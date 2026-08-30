@@ -1064,7 +1064,6 @@ def register_operations(registry) -> None:
         "observable_fact_refs": {"type": "array", "desc": "non-empty exact typed refs. Same-turn target truth: npc_fact:<npc_id>/<fact_id> copied from npc.query facts[] (or target-bound npc_agenda:<npc_id>/npc_state:<npc_id>); these remain Keeper-only digest provenance. Previously delivered observation: clue:<clue_id> or event:<event_id>, which must already be player-known. Bare ids and arbitrary text are invalid. Required only for action=settle"},
         "insight_id": {"type": "string", "desc": "settled insight to realize when action=realize"},
         "visible_observation": {"type": "string", "desc": "player-safe external observation used only when action=realize"},
-        "seed": {"type": "integer", "desc": "deterministic RNG seed"},
         "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
     },
 )(_tool_rules_psychology_observe)

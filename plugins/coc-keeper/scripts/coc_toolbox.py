@@ -3490,6 +3490,7 @@ def query_operations(
     phase: str | None = None,
     kp_surface: str | None = None,
     contract: str | None = None,
+    discovery: str | None = None,
 ) -> list[str]:
     if set(TOOLS) == set(OPERATION_REGISTRY.specs):
         return OPERATION_REGISTRY.query(
@@ -3497,6 +3498,7 @@ def query_operations(
             phase=phase,
             kp_surface=kp_surface,
             contract=contract,
+            discovery=discovery,
         )
     policies = {
         name: spec.get("policy") or coc_operation_policy.policy_for_operation(name)
@@ -3508,6 +3510,7 @@ def query_operations(
         phase=phase,
         kp_surface=kp_surface,
         contract=contract,
+        discovery=discovery,
     )
 
 
