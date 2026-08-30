@@ -1,10 +1,10 @@
-"""Turn commit closure: git turn commits and resume-time turn-tail quarantine.
+"""Turn commit closure: Git commits and safe resume-time tail handling.
 
-Pins W1: finalization is the turn commit point. Public rolls bound to no
-finalization (an abandoned turn tail after a crash) are marked voided — never
-deleted — and turn-scoped state restores from HEAD's save/ subset at
-session.resume, so unfinalized branches cannot leak into canonical state or
-the battle report.
+Finalization is the turn commit point. A successful ordinary-turn source tail
+after the durable table-opening cursor is recoverable across a host restart and
+must close through its original receipts. Rolls outside a recoverable play
+window are marked voided — never deleted — and turn-scoped state can restore
+from HEAD's save/ subset without destroying a live current turn.
 """
 from __future__ import annotations
 
@@ -637,14 +637,13 @@ def test_ending_required_roll_stays_bound_and_delivery_survives_resume(campaign_
     assert resumed["data"]["delivery"]["ack_kind"] == "displayed"
 
 
-def test_resume_quarantines_unfinalized_turn_tail(campaign_ws):
+def test_resume_retains_unfinalized_turn_tail_for_current_turn_recovery(campaign_ws):
     # Committed turn A: one SAN loss (55 -> 52), finalized.
     _san_check(campaign_ws, decision_id="committed-san", seed=1, loss_success="1D3", loss_failure="1D3")
-    finalized = _finalize_current_turn(campaign_ws, "turn-a-finalize")
-    finalization_id = finalized["data"]["finalization_id"]
+    _finalize_current_turn(campaign_ws, "turn-a-finalize")
     assert _inv_state(campaign_ws)["current_san"] == 52
 
-    # Abandoned turn B (crash shape): rolls + state writes, no journal/finalize.
+    # Interrupted turn B: rolls + state writes succeeded before journal.
     orphan_san = _san_check(campaign_ws, decision_id="orphan-san", seed=10, loss_failure="5")
     assert orphan_san["data"]["bout_triggered"] is True
     orphan_roll = _run(
@@ -666,78 +665,37 @@ def test_resume_quarantines_unfinalized_turn_tail(campaign_ws):
 
     resumed = _run(campaign_ws, "session.resume", {})
     assert resumed["ok"] is True, resumed
+    assert resumed["data"]["mode"] == "open_turn_recovery"
     quarantine = resumed["data"]["turn_tail_quarantine"]
-    assert set(quarantine["quarantined_orphan_rolls"]) == orphan_roll_ids
-    assert quarantine["restored_commit_snapshot"] == finalization_id
-
-    # Rolls are never rewritten or deleted; dispositions live in an
-    # append-only ledger, so receipt prefix integrity survives.
-    rolls = {
-        row["roll_id"]: row
-        for row in _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
-    }
-    for roll_id in orphan_roll_ids:
-        assert "superseded" not in rolls[roll_id]
-    dispositions = json.loads(
-        (campaign_ws["campaign_dir"] / "save" / "roll-dispositions.json").read_text(
-            encoding="utf-8"
-        )
-    )["dispositions"]
-    for roll_id in orphan_roll_ids:
-        assert dispositions[roll_id]["visibility"] == "voided"
-        assert dispositions[roll_id]["reason"] == "unfinalized_turn_tail"
-    events = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "events.jsonl")
-    abandoned = [row for row in events if row.get("event_type") == "turn_tail_abandoned"]
-    assert len(abandoned) == 1
-    assert set(abandoned[0]["roll_ids"]) == orphan_roll_ids
-
-    # The abandoned turn's development tick is discarded, not earned later.
-    assert abandoned[0]["discarded_development_ticks"]["queue"] == 1
-    assert abandoned[0]["discarded_development_ticks"]["archive"] == 1
-    development_log = (
-        campaign_ws["coc_root"]
-        / "investigators"
-        / campaign_ws["investigator_id"]
-        / "development.jsonl"
-    )
-    assert development_log.read_text(encoding="utf-8") == ""
-
-    # Turn-scoped state restored to the commit point; bout never happened.
-    assert _inv_state(campaign_ws)["current_san"] == 52
-    assert _inv_state(campaign_ws)["bout_active"] is False
-    assert _sanity_snapshot(campaign_ws)["san_current"] == 52
-    assert _sanity_snapshot(campaign_ws)["bout_active"] is False
-
-    # Everything is now bound or dispositioned; a second resume is a no-op.
-    assert coc_turn_finalization.unbound_public_roll_ids(
-        campaign_ws["campaign_dir"]
-    ) == []
-    resumed_again = _run(campaign_ws, "session.resume", {})
-    assert resumed_again["ok"] is True, resumed_again
-    assert resumed_again["data"]["turn_tail_quarantine"] == {
+    assert quarantine == {
         "quarantined_orphan_rolls": [],
         "restored_commit_snapshot": None,
         "invalidated_decisions": [],
         "discarded_development_ticks": {"queue": 0, "claims": 0, "archive": 0},
     }
+    assert set(coc_turn_finalization.unbound_public_roll_ids(
+        campaign_ws["campaign_dir"]
+    )) == orphan_roll_ids
+    assert not (
+        campaign_ws["campaign_dir"] / "save" / "roll-dispositions.json"
+    ).exists()
+    assert _inv_state(campaign_ws)["current_san"] == 47
+    assert _inv_state(campaign_ws)["bout_active"] is True
+    assert _sanity_snapshot(campaign_ws)["san_current"] == 47
+    assert _sanity_snapshot(campaign_ws)["bout_active"] is True
 
-    # Idempotency evidence survives the restore for audit, but the abandoned
-    # branch is no longer a valid replay source.  Reusing either decision must
-    # fail closed instead of returning state that the commit restore removed.
-    replayed_san = _run(
+    # Exact retries reuse the original receipts; neither SAN nor the check is
+    # applied a second time after recovery.
+    replayed_san = _san_check(
         campaign_ws,
-        "rules.sanity_check",
-        {
-            "investigator": campaign_ws["investigator_id"],
-            "source": "horror orphan-san",
-            "loss_success": "0",
-            "loss_failure": "5",
-            "decision_id": "orphan-san",
-            "seed": 10,
-        },
+        decision_id="orphan-san",
+        seed=10,
+        loss_success="0",
+        loss_failure="5",
     )
-    assert replayed_san["ok"] is False
-    assert replayed_san["error"]["code"] == "decision_invalidated"
+    assert replayed_san["data"]["session_roll_ids"] == orphan_san["data"][
+        "session_roll_ids"
+    ]
     replayed_roll = _run(
         campaign_ws,
         "rules.roll",
@@ -749,22 +707,23 @@ def test_resume_quarantines_unfinalized_turn_tail(campaign_ws):
             "decision_id": "orphan-skill-roll",
         },
     )
-    assert replayed_roll["ok"] is False
-    assert replayed_roll["error"]["code"] == "decision_invalidated"
+    assert replayed_roll["ok"] is True, replayed_roll
+    assert replayed_roll["data"]["roll_id"] == orphan_roll["data"]["roll_id"]
+    assert _inv_state(campaign_ws)["current_san"] == 47
 
-    # The investigator is still usable: a fresh SAN check applies cleanly.
-    after = _san_check(
-        campaign_ws,
-        decision_id="post-quarantine-san",
-        seed=1,
-        loss_success="1D3",
-        loss_failure="1D3",
-    )
-    assert after["data"]["san_before"] == 52
-    assert after["data"]["san_after"] == 49
+    # Repeated resume keeps the same in-flight turn recoverable.
+    resumed_again = _run(campaign_ws, "session.resume", {})
+    assert resumed_again["ok"] is True, resumed_again
+    assert resumed_again["data"]["mode"] == "open_turn_recovery"
+    assert resumed_again["data"]["turn_tail_quarantine"] == {
+        "quarantined_orphan_rolls": [],
+        "restored_commit_snapshot": None,
+        "invalidated_decisions": [],
+        "discarded_development_ticks": {"queue": 0, "claims": 0, "archive": 0},
+    }
 
 
-def test_voided_turn_tail_rolls_never_reenter_later_output_context(campaign_ws):
+def test_recovered_turn_roll_enters_its_output_context_once(campaign_ws):
     _san_check(
         campaign_ws,
         decision_id="committed-san-before-void-projection",
@@ -782,7 +741,7 @@ def test_voided_turn_tail_rolls_never_reenter_later_output_context(campaign_ws):
             "skill": "Spot Hidden",
             "target": 99,
             "seed": 2,
-            "decision_id": "voided-roll-must-stay-audit-only",
+            "decision_id": "recovered-roll-must-close-once",
         },
     )
     assert orphan["ok"] is True, orphan
@@ -790,22 +749,26 @@ def test_voided_turn_tail_rolls_never_reenter_later_output_context(campaign_ws):
 
     resumed = _run(campaign_ws, "session.resume", {})
     assert resumed["ok"] is True, resumed
-    assert resumed["data"]["turn_tail_quarantine"]["quarantined_orphan_rolls"] == [
-        orphan_roll_id
-    ]
+    assert resumed["data"]["mode"] == "open_turn_recovery"
+    assert resumed["data"]["turn_tail_quarantine"]["quarantined_orphan_rolls"] == []
 
     journaled = _run(
         campaign_ws,
         "state.journal",
         {
-            "summary": "a later unrelated turn",
-            "player_text": "我进行一个与作废检定无关的新行动。",
-            "decision_id": "journal-after-voided-tail",
+            "summary": "恢复并完成已结算的侦查检定。",
+            "player_text": "我继续完成刚才的侦查检定。",
+            "decision_id": "journal-recovered-roll",
         },
     )
     assert journaled["ok"] is True, journaled
     output = _run(campaign_ws, "turn.output_context", {})
     assert output["ok"] is True, output
-    assert orphan_roll_id not in output["data"]["source_roll_ids"]
-    assert output["data"]["obligations"] == []
-    assert output["data"]["mechanics_bundle"]["public_check"] == []
+    assert output["data"]["source_roll_ids"] == [orphan_roll_id]
+    assert [
+        row["roll_id"]
+        for row in output["data"]["mechanics_bundle"]["public_check"]
+    ] == [orphan_roll_id]
+    assert [
+        row["obligation_id"] for row in output["data"]["obligations"]
+    ] == [f"roll:{orphan_roll_id}"]
