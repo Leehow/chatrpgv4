@@ -1,0 +1,679 @@
+{
+  "contract_id": "coc.rule-graph-candidate.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "family_id": "social",
+  "section_id": "section-interpersonal-skills-source",
+  "source_language": "en",
+  "coverage": {
+    "social": "partial"
+  },
+  "nodes": [
+    {
+      "node_id": "rule:coc7:psychology:opposes-social",
+      "node_kind": "rule",
+      "name": "Psychology opposes Charm, Fast Talk, Intimidate, and Persuade",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "psychology"
+      },
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-215-block-251",
+        "span-interpersonal-skills-source-page-83-block-157",
+        "span-interpersonal-skills-source-page-84-block-160"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:social-difficulty",
+      "node_kind": "capability",
+      "name": "social_difficulty",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "resolver_capability": "social_difficulty",
+        "adapter": "resolver"
+      },
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:social-skill-names",
+      "node_kind": "capability",
+      "name": "social_skill_names",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "resolver_capability": "social_skill_names",
+        "adapter": "resolver"
+      },
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:social:ruleset-coc7",
+      "node_kind": "condition",
+      "name": "Campaign is using the coc7 ruleset",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "expression": {
+          "op": "eq",
+          "path": "campaign.ruleset_id",
+          "value": "coc7"
+        }
+      },
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:social:adjudicate-difficulty",
+      "node_kind": "decision",
+      "name": "Adjudicate one social attempt (approach, goal, npc defense) as one settlement",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "implementation": {
+          "adapter": "resolver",
+          "kind": "social_difficulty",
+          "phase": "resolve",
+          "payload_constants": {},
+          "payload_slots": [
+            {
+              "name": "described_action",
+              "ownership": "player-source"
+            },
+            {
+              "name": "approach",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "goal",
+              "ownership": "player-source"
+            },
+            {
+              "name": "npc_defense",
+              "ownership": "host-locked"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "node_id": "exception:coc7:social:pc-coercion-penalty-uncompiled",
+      "node_kind": "exception",
+      "name": "PC-coercion penalty die stays uncompiled: the four interpersonal skills oppose via opposed_by only, and a successful social use never compels the player",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:approach",
+      "node_kind": "input-slot",
+      "name": "Social approach chosen by the Keeper from the described method",
+      "authority": "keeper-semantic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "enum",
+        "path": "intent.method"
+      },
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:described-action",
+      "node_kind": "input-slot",
+      "name": "Player-described conduct (what the investigator is doing and saying)",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "player-source",
+        "value_type": "string",
+        "path": "intent.method"
+      },
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:goal",
+      "node_kind": "input-slot",
+      "name": "Player-defined goal of the social attempt",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "player-source",
+        "value_type": "string",
+        "path": "intent.method"
+      },
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:npc-defense",
+      "node_kind": "input-slot",
+      "name": "Host-selected opposing skill level",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "host-locked",
+        "value_type": "int",
+        "path": "actor.sheet.social_defense"
+      },
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "node_id": "rule-family:coc7:social",
+      "node_kind": "rule-family",
+      "name": "Social interaction",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "runtime_ownership": "legacy",
+        "legacy_surface": "visible"
+      },
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:approach-selection",
+      "node_kind": "rule",
+      "name": "Player describes conduct; the Keeper then chooses Charm, Fast Talk, Intimidate, or Persuade",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:opposing-difficulty",
+      "node_kind": "rule",
+      "name": "Opposed social difficulty follows the Regular/Hard/Extreme ladder against the defender's opposed_by skill",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:player-goal",
+      "node_kind": "rule",
+      "name": "The player's intention defines the goal of the social attempt",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "node_id": "exception:coc7:social:higher-of-composition-uncompiled",
+      "node_kind": "exception",
+      "name": "Source uses the higher of the matching interpersonal skill or Psychology for opposition; this composition remains executor-uncompiled",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "relation:coc7:psychology:oppose-applies-social",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:psychology:opposes-social",
+      "to_node_id": "rule:coc7:social:opposing-difficulty",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-251",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126",
+        "span-interpersonal-skills-source-page-83-block-157",
+        "span-interpersonal-skills-source-page-84-block-160"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:adjudicate-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "condition:coc7:social:ruleset-coc7",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:adjudicate-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "capability:coc7:social-difficulty",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:adjudicate-reads-names",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "capability:coc7:social-skill-names",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:approach-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:approach-selection",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:goal-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:player-goal",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:ladder-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:opposing-difficulty",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:pc-penalty-uncompiled-applies",
+      "relation_kind": "applies-to",
+      "from_node_id": "exception:coc7:social:pc-coercion-penalty-uncompiled",
+      "to_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-approach",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:approach",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-described-action",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:described-action",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-goal",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:goal",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-npc-defense",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:npc-defense",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:higher-of-uncompiled-applies",
+      "relation_kind": "applies-to",
+      "from_node_id": "exception:coc7:social:higher-of-composition-uncompiled",
+      "to_node_id": "rule:coc7:social:opposing-difficulty",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    }
+  ]
+}

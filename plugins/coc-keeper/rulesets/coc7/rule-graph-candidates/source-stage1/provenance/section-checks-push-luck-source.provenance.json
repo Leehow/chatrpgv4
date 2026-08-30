@@ -1,0 +1,92 @@
+{
+  "section_id": "section-checks-push-luck-source",
+  "families": [
+    "core-check",
+    "push-luck"
+  ],
+  "coverage": {
+    "core-check": "partial",
+    "push-luck": "partial"
+  },
+  "source": {
+    "source_id": "pdf:coc7-keeper-rulebook-40th",
+    "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+    "bundles": [
+      {
+        "bundle_id": "core-social-psychology-v1",
+        "bundle_sha256": "5f15436d31063a78c0d8d3d290c98374fbcf9533dd8c76d0511065823c8bdeb1",
+        "pages": [
+          {
+            "pdf_index": 93,
+            "text_sha256": "6d054f450e668a8333cfc293a73accbde870ecf5ce7b2611ae19f17ab8da691a",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 94,
+            "text_sha256": "3ed96f0b4db84f1f1707a99f7fbc28460598bd0d97473610b8fd493d5813f7b0",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 95,
+            "text_sha256": "7ae682bf226d43d7d6ecf7088dffa263f26db12f46dc00df78a982984a6db9a5",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 97,
+            "text_sha256": "65b53395c8dd8826e34365f13b27d0db6edc2643163fa40a3d64993d5c3dc60f",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 100,
+            "text_sha256": "bc66d48f0d16c18a03725c787ec853722faa6e573e57cc83a884d738c6af6f18",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 101,
+            "text_sha256": "822469933049eb55e0b50fc5897283076395bece7170a4ed6a8c19aaa9f1af08",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 102,
+            "text_sha256": "4f4b028fd2249c9830df7ba6104bf46d253e6bfe504195401b5d3fd496d02e6a",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 103,
+            "text_sha256": "4e30c6b08d887adc0d8a65bb8dda3717e01063cc4c340fc56d69b4f5293e330a",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 104,
+            "text_sha256": "51952cdb452ec8877308efddd06b40511d54efee4d8ac9091f40a3ff21d7d7b8",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 105,
+            "text_sha256": "681f8eabc5dd9d43cbacd56b134c150c4b120dbc1babb17043eb67ee02e33fc1",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 110,
+            "text_sha256": "6666ded4694bee69326437f6d8bc498e9d30dc51d0cdcdb8f59a77224d880364",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          }
+        ]
+      }
+    ]
+  },
+  "span_count": 182,
+  "node_count": 50,
+  "relation_count": 31
+}

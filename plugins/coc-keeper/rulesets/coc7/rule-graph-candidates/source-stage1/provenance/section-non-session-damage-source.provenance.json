@@ -1,0 +1,36 @@
+{
+  "section_id": "section-non-session-damage-source",
+  "families": [
+    "combat"
+  ],
+  "coverage": {
+    "combat": "partial"
+  },
+  "source": {
+    "source_id": "pdf:coc7-keeper-rulebook-40th",
+    "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+    "bundles": [
+      {
+        "bundle_id": "damage-sanity-v1",
+        "bundle_sha256": "c9d4ddd344bf1c0b4dfb90323be0d43ff8f44cc0a6e5d3c4a6e8d1f486ef7516",
+        "pages": [
+          {
+            "pdf_index": 113,
+            "text_sha256": "4b7c9056bb97d465c557bf8ae7eb19fa79122341e9be7d07291d1352ca4c2225",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 114,
+            "text_sha256": "7fc2729cedb4568561e1e3d0626c57a044a3d769c04bce9f3e109f88a8e3c8e6",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          }
+        ]
+      }
+    ]
+  },
+  "span_count": 59,
+  "node_count": 8,
+  "relation_count": 3
+}

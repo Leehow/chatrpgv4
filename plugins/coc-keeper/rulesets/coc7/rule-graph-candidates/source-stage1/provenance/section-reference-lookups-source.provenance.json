@@ -1,0 +1,246 @@
+{
+  "section_id": "section-reference-lookups-source",
+  "families": [
+    "development"
+  ],
+  "coverage": {
+    "development": "partial"
+  },
+  "source": {
+    "source_id": "pdf:coc7-keeper-rulebook-40th",
+    "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+    "bundles": [
+      {
+        "bundle_id": "skill-prose-v1",
+        "bundle_sha256": "51234cc28d21c5ddf9acf28f00186fcf880ae97798e4ba8c1a011b98d8375043",
+        "pages": [
+          {
+            "pdf_index": 69,
+            "text_sha256": "059436578de4c3ceeedfab79f6df0ddc7810ad07feed41da56c1102d0e8973cb",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 70,
+            "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 71,
+            "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 72,
+            "text_sha256": "5fc5f3466f0f78b2c1db8f21839536f38557e68371c19887a48ed9262800535d",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 73,
+            "text_sha256": "ce3140d88c88772495a469c6bd26bdf28149594e6f48e6643c6ead663cbbde62",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 74,
+            "text_sha256": "89029e3b28c61ed98987ca23b53fba8efb531bf3a1fe08256633607c8026dbea",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 75,
+            "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 76,
+            "text_sha256": "28d4ba0880fdaa6280cfcaf5d361021b9e28ea85b2a4938dd98fff8f1c7c505d",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 77,
+            "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 78,
+            "text_sha256": "89c29f530c461484957df66ff18240b6091908423eec23bd4ff7fa78ed920faa",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 79,
+            "text_sha256": "3a8328feba50951e6c9b75b8b912cfd1905a8ff4a35c41d1caa6ba2685327300",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 80,
+            "text_sha256": "2a0300fc239b78cee85ea9d9e2b00454a230c316c2b0b16a274f95b496a357fc",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 81,
+            "text_sha256": "a416ed4375f396e013f811e9760e02409a328c31ff9b11678252a21420c188df",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 82,
+            "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 83,
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 84,
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 86,
+            "text_sha256": "1f805de3515284d050c5417788316cb5c7d404a77aec636fe73b66ff570ce012",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 87,
+            "text_sha256": "853f77265102c3119cee95be7c478b1407c63149a0199f230106cf28a5bd71be",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 88,
+            "text_sha256": "9af0c2b751f57c9062f00b65297b3424404cde781b0b534725303ac017139213",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 89,
+            "text_sha256": "ca8db879d273f58ea1cc9360c27b680f4b32a6a224996e50a0c965e1c6c41494",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 90,
+            "text_sha256": "91617a23dfc2d72a5a45fe180defd6321766dad893c044c24f6d538717792ac8",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          }
+        ]
+      },
+      {
+        "bundle_id": "reference-tables-v2",
+        "bundle_sha256": "7779dba25613add8a5e11338bb95658debc925ce8109ef85f40ff8d278348a78",
+        "pages": [
+          {
+            "pdf_index": 56,
+            "text_sha256": "2748f07ea08b55ff4a7b159c3e0d41d8bc85b5589ba5cd521551d15fcfc6d936",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 57,
+            "text_sha256": "377e7af949d3578b9293ef3b40d605071cdb44b76d0403b9d3a8d8edc6ebcaa2",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 58,
+            "text_sha256": "b40f1fe7f5bc7ced71b87e423b31e8209d54a40eea26a0cb6068eebff1f4ea8b",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 290,
+            "text_sha256": "059a01460940481806a851beb855e644957f7a90cfc433bca83bf0fd2ff40c9b",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 291,
+            "text_sha256": "247a12744dd7158634f244d236e3fad248672ff721f7db0c5291a9e0bbb691bc",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 408,
+            "text_sha256": "6bbe59d4293d6b9ef861f8403e111a5122b54a6d34e213cfd7de1f8b2496c060",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 409,
+            "text_sha256": "75639688b811b2422f6fb8076a4a6072243fa2ddc367f793cefd9896e0e8f2ec",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93
+          },
+          {
+            "pdf_index": 410,
+            "text_sha256": "a4339c4955e01c7250a36c5799c585e040fcded2680165968f1202413e901f77",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 411,
+            "text_sha256": "4e42636d70a59a3cd7b91e3791815afacd98742f04cb55bcb378f36552d6dcca",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 412,
+            "text_sha256": "b5397dc7b6ebb5d4b48d6f930592cfc25b21a2d8fda38c6083d2588f875a0e27",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 413,
+            "text_sha256": "661f3c4b1f7158b0b4c56088a58da368af583fb6e0fca6f8fca5f6c0a3a6ead2",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 414,
+            "text_sha256": "69dd911d03d240a109baea471c7b725eb5b4e22e55b1571aa998add9a3966a8b",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 415,
+            "text_sha256": "c7f8c75f75d8becbb929f75a709553abaee04c99f3b934918921a4c79bc5875f",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 416,
+            "text_sha256": "fbd7949bcabff44165c767d7ef632056c80a2ab6e4ad3f50a3f4b3550eda781e",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          },
+          {
+            "pdf_index": 417,
+            "text_sha256": "3bc95b3a716f3db32e1482461cb8617c9b0ffde1d288f7055f9ae1b14451fe9f",
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88
+          }
+        ]
+      }
+    ]
+  },
+  "span_count": 808,
+  "node_count": 21,
+  "relation_count": 2
+}

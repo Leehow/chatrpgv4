@@ -1,0 +1,185 @@
+{
+  "contract_id": "coc.rule-graph-build-manifest.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "source_bundles": [
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "5f15436d31063a78c0d8d3d290c98374fbcf9533dd8c76d0511065823c8bdeb1",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    },
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "c9d4ddd344bf1c0b4dfb90323be0d43ff8f44cc0a6e5d3c4a6e8d1f486ef7516",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    },
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "7779dba25613add8a5e11338bb95658debc925ce8109ef85f40ff8d278348a78",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    },
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "51234cc28d21c5ddf9acf28f00186fcf880ae97798e4ba8c1a011b98d8375043",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    }
+  ],
+  "graph_content_digest": null,
+  "shards": [
+    {
+      "shard_id": "shard:coc7:core-check:section-checks-push-luck-source",
+      "shard_digest": null
+    },
+    {
+      "shard_id": "shard:coc7:social:section-interpersonal-skills-source",
+      "shard_digest": null
+    },
+    {
+      "shard_id": "shard:coc7:psychology:section-psychology-observation-source",
+      "shard_digest": null
+    },
+    {
+      "shard_id": "shard:coc7:combat:section-non-session-damage-source",
+      "shard_digest": null
+    },
+    {
+      "shard_id": "shard:coc7:sanity:section-sourced-thresholds-source",
+      "shard_digest": null
+    },
+    {
+      "shard_id": "shard:coc7:development:section-reference-lookups-source",
+      "shard_digest": null
+    }
+  ],
+  "family_coverage": {
+    "chase": "unresolved",
+    "combat": "partial",
+    "core-check": "partial",
+    "development": "partial",
+    "healing": "unresolved",
+    "magic": "unresolved",
+    "psychology": "partial",
+    "push-luck": "partial",
+    "sanity": "partial",
+    "social": "partial"
+  },
+  "family_promotion_eligibility": {
+    "chase": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "combat": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "core-check": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "development": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "healing": {
+      "promotion_eligible": false,
+      "runtime_ownership": "shadow"
+    },
+    "magic": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "psychology": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "push-luck": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "sanity": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "social": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    }
+  },
+  "data_table_dependencies": [
+    "build-scale.json",
+    "cash-assets.json",
+    "damage.json",
+    "derived-attributes.json",
+    "difficulty-levels.json",
+    "equipment.json",
+    "luck.json",
+    "percentile-check.json",
+    "pushed-roll.json",
+    "roll-modifiers.json",
+    "sanity.json",
+    "skill-descriptions.json",
+    "skills.json",
+    "spells.json",
+    "success-levels.json"
+  ],
+  "resolver_capability_dependencies": [
+    "build_scale",
+    "cash_assets",
+    "catalog_search",
+    "check",
+    "damage",
+    "luck_spend",
+    "psychology_check_contract",
+    "psychology_policy",
+    "push_policy",
+    "skill_describe",
+    "social_difficulty",
+    "social_skill_names"
+  ],
+  "compiler_identity": "coc.rule-graph-compiler.v1",
+  "reviewer_identity": null,
+  "review_status": "revision-required",
+  "findings": [
+    {
+      "code": "independent_source_review_required",
+      "path": "/section-checks-push-luck-source",
+      "message": "Candidate is bound to visually reviewed rulebook pages but has not received independent semantic acceptance"
+    },
+    {
+      "code": "independent_source_review_required",
+      "path": "/section-interpersonal-skills-source",
+      "message": "Candidate is bound to visually reviewed rulebook pages but has not received independent semantic acceptance"
+    },
+    {
+      "code": "independent_source_review_required",
+      "path": "/section-psychology-observation-source",
+      "message": "Candidate is bound to visually reviewed rulebook pages but has not received independent semantic acceptance"
+    },
+    {
+      "code": "independent_source_review_required",
+      "path": "/section-non-session-damage-source",
+      "message": "Candidate is bound to visually reviewed rulebook pages but has not received independent semantic acceptance"
+    },
+    {
+      "code": "independent_source_review_required",
+      "path": "/section-sourced-thresholds-source",
+      "message": "Candidate is bound to visually reviewed rulebook pages but has not received independent semantic acceptance"
+    },
+    {
+      "code": "independent_source_review_required",
+      "path": "/section-reference-lookups-source",
+      "message": "Candidate is bound to visually reviewed rulebook pages but has not received independent semantic acceptance"
+    },
+    {
+      "code": "source_extraction_gap",
+      "path": "/source/pdf-index-85",
+      "message": "Full-page skill-chapter art was visually reviewed but has no text to bind and is excluded from the source packet"
+    },
+    {
+      "code": "runtime_policy_review_required",
+      "path": "/section-reference-lookups-source",
+      "message": "Rulebook pages support underlying reference content; lookup, advisory, and secrecy adapter semantics remain candidate policy requiring independent review"
+    }
+  ]
+}
