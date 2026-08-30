@@ -155,6 +155,72 @@ def _project(operation: str, envelope: dict) -> dict:
     )
 
 
+def test_hot_schema_fit_reserves_final_measurement_field(monkeypatch):
+    result = {
+        "ok": True,
+        "tool": "session.resume",
+        "wire": {},
+        "data": {
+            "ordinary_turn_operations": {
+                "actions.advise": {
+                    "operation": "actions.advise",
+                    "arguments_schema": {
+                        "type": "object",
+                        "properties": {
+                            f"field_{index}": {"type": "string"}
+                            for index in range(40)
+                        },
+                    },
+                },
+            },
+        },
+        "warnings": [],
+        "hints": [],
+    }
+    pre_measurement = coc_mcp_wire.transport_bytes(result)
+    monkeypatch.setattr(
+        coc_mcp_wire, "MAX_INLINE_BYTES", pre_measurement + 32,
+    )
+
+    coc_mcp_wire._fit_hot_argument_schemas(
+        result,
+        omit_order=("actions.advise",),
+        reserve_bytes=64,
+    )
+
+    assert result["wire"]["hot_argument_schemas_omitted"] == [
+        "actions.advise"
+    ]
+    measured = coc_mcp_wire.transport_bytes(result)
+    result["wire"]["measured_inline_bytes"] = measured
+    measured = coc_mcp_wire.transport_bytes(result)
+    result["wire"]["measured_inline_bytes"] = measured
+    assert coc_mcp_wire.transport_bytes(result) <= coc_mcp_wire.MAX_INLINE_BYTES
+
+
+def test_resume_recovery_budget_includes_final_measurement_reserve(monkeypatch):
+    result = {
+        "ok": True,
+        "tool": "session.resume",
+        "wire": {},
+        "data": {"payload": "x" * 256},
+        "warnings": [],
+        "hints": [],
+    }
+    current_bytes = coc_mcp_wire.transport_bytes(result)
+    monkeypatch.setattr(
+        coc_mcp_wire,
+        "MAX_INLINE_BYTES",
+        current_bytes + coc_mcp_wire.FINAL_MEASUREMENT_RESERVE_BYTES - 1,
+    )
+
+    assert coc_mcp_wire._exceeds_inline_budget(
+        result,
+        reserve_bytes=coc_mcp_wire.FINAL_MEASUREMENT_RESERVE_BYTES,
+    ) is True
+    assert coc_mcp_wire._exceeds_inline_budget(result) is False
+
+
 def test_t13_shaped_output_context_reproduces_oversize_then_keeps_review_card():
     data = _output_context_data()
     envelope = _envelope(data)

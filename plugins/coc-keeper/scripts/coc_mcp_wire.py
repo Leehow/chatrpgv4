@@ -21,6 +21,10 @@ PROFILE_ID = "keeper_hot_v1"
 # Grok's documented default is 20,000 bytes.  Budget the complete envelope,
 # not only ``data``, and retain headroom for the host's MCP wrapper.
 MAX_INLINE_BYTES = 16 * 1024
+# ``wire.measured_inline_bytes`` is attached after projection. Reserve enough
+# space while fitting hot schemas so that final accounting cannot push an
+# otherwise valid packet back over the hard wire ceiling.
+FINAL_MEASUREMENT_RESERVE_BYTES = 64
 SOURCE_MATERIAL_MENTION_LIMIT = 6
 SOURCE_MATERIAL_SCENE_REF_LIMIT = 8
 SOURCE_MATERIAL_MENTION_REF_LIMIT = 4
@@ -95,6 +99,14 @@ def transport_bytes(value: Any) -> int:
     return len(json.dumps(value, ensure_ascii=False).encode("utf-8"))
 
 
+def _exceeds_inline_budget(value: Any, *, reserve_bytes: int = 0) -> bool:
+    """Return whether ``value`` plus bounded final metadata exceeds the wire."""
+    return (
+        transport_bytes(value) + max(0, reserve_bytes)
+        > MAX_INLINE_BYTES
+    )
+
+
 def canonical_digest(value: Any) -> str:
     payload = json.dumps(
         value,
@@ -123,6 +135,7 @@ def _fit_hot_argument_schemas(
     result: dict[str, Any],
     *,
     omit_order: tuple[str, ...],
+    reserve_bytes: int = 0,
 ) -> None:
     """Prefer structural hot schemas over another discovery round trip."""
     wire = result.setdefault("wire", {})
@@ -146,7 +159,7 @@ def _fit_hot_argument_schemas(
 
     omitted: list[str] = []
     for operation in omit_order:
-        if transport_bytes(result) <= MAX_INLINE_BYTES:
+        if not _exceeds_inline_budget(result, reserve_bytes=reserve_bytes):
             break
         card = hot.get(operation)
         if isinstance(card, dict) and card.pop("arguments_schema", None) is not None:
@@ -3245,9 +3258,16 @@ def project_envelope(
         _fit_hot_argument_schemas(
             result,
             omit_order=("state.journal", "turn.output_context"),
+            reserve_bytes=FINAL_MEASUREMENT_RESERVE_BYTES,
         )
 
-    if transport_bytes(result) > MAX_INLINE_BYTES and operation == "session.resume":
+    if (
+        _exceeds_inline_budget(
+            result,
+            reserve_bytes=FINAL_MEASUREMENT_RESERVE_BYTES,
+        )
+        and operation == "session.resume"
+    ):
         result["data"] = _decorate_cards(
             _project_resume_recovery_index(data),
             contract_digest=contract_digest,
@@ -3260,6 +3280,7 @@ def project_envelope(
                 "turn.output_context",
                 "actions.advise",
             ),
+            reserve_bytes=FINAL_MEASUREMENT_RESERVE_BYTES,
         )
         result["wire"]["payload_projected"] = True
         result["wire"]["recovery_index_projection"] = True
