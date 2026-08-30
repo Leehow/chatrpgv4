@@ -620,10 +620,10 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "rules.check": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -720,10 +720,10 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "rules.resource_delta": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -1663,13 +1663,11 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "rules.build_scale",
     "rules.cash_assets",
     "rules.catalog_search",
-    "rules.check",
     "rules.damage",
     "rules.luck_spend",
     "rules.opposed",
     "rules.psychology_observe",
     "rules.push",
-    "rules.resource_delta",
     "rules.roll",
     "rules.roll_dice",
     "rules.sanity_check",

@@ -1,6 +1,8 @@
 import hashlib
+import importlib.util
 import json
 import re
+import sys
 from pathlib import Path
 
 
@@ -2255,3 +2257,20 @@ def test_keeper_play_handout_link_guidance_covers_direct_and_reverse_identity():
         "No keyword or prose matching",
     ):
         assert phrase in play, phrase
+
+
+def test_mcp_contract_archive_matches_live_toolbox():
+    """Same as CLI `coc_mcp_contract_archive.py check` against live toolbox."""
+    script = PLUGIN_ROOT / "scripts" / "coc_mcp_contract_archive.py"
+    name = "test_plugin_metadata_mcp_contract_archive"
+    spec = importlib.util.spec_from_file_location(name, script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+
+    archive_path = PLUGIN_ROOT / "references" / "mcp-operation-contracts.json"
+    policy_path = PLUGIN_ROOT / "pi" / "lib" / "operation-policy.generated.ts"
+    toolbox = module._load_toolbox()
+    module.load_and_validate(archive_path, toolbox)
+    module.validate_policy_projection(policy_path, toolbox)

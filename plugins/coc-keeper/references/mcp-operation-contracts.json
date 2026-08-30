@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:ed3c226e9cf62bafeee5a3ef36e67969ef7dad778a8a57eb1770893b7bdd4b51",
+  "content_sha256": "sha256:4bc15a7122d8e0984da7aa0c3aa37f7bd54a5f122667e353ceaddd4f18f1660c",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -3135,9 +3135,9 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -3761,9 +3761,9 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
