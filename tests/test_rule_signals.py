@@ -220,6 +220,41 @@ def test_resource_delta_signal_is_host_internal():
     assert signal["resource"] == "hp"
 
 
+def test_lookup_signal_kinds_cite_extracted_rulebook():
+    skill = coc_rule_signals.read_lookup_signal("skill_describe")
+    assert skill["family"] == "development"
+    assert skill["source_table"] == "skill-descriptions.json"
+    assert skill["settle"] is False
+    catalog = coc_rule_signals.read_lookup_signal("catalog_search")
+    assert catalog["source_table"] == "equipment.json"
+    assert coc_rule_signals.read_lookup_signal("build_scale")["source_table"] == "build-scale.json"
+    assert coc_rule_signals.read_lookup_signal("cash_assets")["source_table"] == "cash-assets.json"
+
+
+def test_damage_signal_is_non_conversational():
+    signal = coc_rule_signals.read_damage_signal("damage")
+    assert signal["kind"] == "damage_application"
+    assert signal["family"] == "combat"
+    assert signal["source_table"] == "damage.json"
+    assert signal["source_rule_id"] == "core.damage.roll"
+    assert signal["conversational"] is False
+    assert signal["session"] is False
+    heal = coc_rule_signals.read_damage_signal("heal")
+    assert heal["direction"] == "heal"
+
+
+def test_sanity_loss_signal_distinguishes_session_engine():
+    loss = coc_rule_signals.read_sanity_loss_signal(conversational=False)
+    assert loss["kind"] == "sanity_loss"
+    assert loss["source_table"] == "sanity.json"
+    assert loss["conversational"] is False
+    assert loss["session"] is False
+    session = coc_rule_signals.read_sanity_loss_signal(conversational=True)
+    assert session["kind"] == "sanity_session"
+    assert session["conversational"] is True
+    assert session["uncompiled"] is True
+
+
 def test_contacts_difficulty_home_same_profession():
     assert coc_rule_signals.read_contacts_difficulty(home_ground=True, same_profession=True) == "regular"
 

@@ -411,6 +411,114 @@ def read_resource_delta_signal(
     }
 
 
+# Graph-declared signal kinds for R6 lookups / non-session damage / SAN.
+# Citations are extracted rules-json tables, never PDF re-derivation.
+LOOKUP_SIGNAL_KINDS = {
+    "skill_describe": {
+        "family": "development",
+        "source_table": "skill-descriptions.json",
+        "conversational": False,
+        "visibility": "keeper-only",
+        "settle": False,
+    },
+    "catalog_search": {
+        "family": "development",
+        "source_table": "equipment.json",
+        "conversational": False,
+        "visibility": "keeper-only",
+        "settle": False,
+    },
+    "build_scale": {
+        "family": "development",
+        "source_table": "build-scale.json",
+        "conversational": False,
+        "visibility": "keeper-only",
+        "settle": False,
+    },
+    "cash_assets": {
+        "family": "development",
+        "source_table": "cash-assets.json",
+        "conversational": False,
+        "visibility": "keeper-only",
+        "settle": False,
+    },
+}
+DAMAGE_SIGNAL_KINDS = {
+    "damage_application": {
+        "family": "combat",
+        "source_table": "damage.json",
+        "source_rule_id": "core.damage.roll",
+        "conversational": False,
+        "visibility": "public",
+        "session": False,
+    },
+}
+SANITY_SIGNAL_KINDS = {
+    "sanity_loss": {
+        "family": "sanity",
+        "source_table": "sanity.json",
+        "conversational": False,
+        "visibility": "public",
+        "session": False,
+    },
+    "sanity_session": {
+        "family": "sanity",
+        "source_table": "sanity.json",
+        "conversational": True,
+        "visibility": "host-internal",
+        "session": True,
+        "uncompiled": True,
+    },
+}
+
+
+def read_lookup_signal(kind: str) -> dict[str, Any]:
+    """Classify one skill/catalog/build/cash lookup as a graph-declared kind."""
+    if kind not in LOOKUP_SIGNAL_KINDS:
+        raise ValueError(f"unknown lookup signal kind: {kind}")
+    meta = LOOKUP_SIGNAL_KINDS[kind]
+    return {
+        "kind": kind,
+        "family": meta["family"],
+        "source_table": meta["source_table"],
+        "conversational": False,
+        "visibility": meta["visibility"],
+        "settle": False,
+    }
+
+
+def read_damage_signal(kind: str = "damage") -> dict[str, Any]:
+    """Non-session HP damage/heal signal. Combat session engine is not this kind."""
+    if kind not in {"damage", "heal"}:
+        raise ValueError("kind must be damage or heal")
+    meta = DAMAGE_SIGNAL_KINDS["damage_application"]
+    return {
+        "kind": "damage_application",
+        "direction": kind,
+        "family": meta["family"],
+        "source_table": meta["source_table"],
+        "source_rule_id": meta["source_rule_id"],
+        "conversational": False,
+        "visibility": meta["visibility"],
+        "session": False,
+    }
+
+
+def read_sanity_loss_signal(*, conversational: bool = False) -> dict[str, Any]:
+    """SAN loss signal: non-conversational check+loss vs retained session engine."""
+    key = "sanity_session" if conversational else "sanity_loss"
+    meta = SANITY_SIGNAL_KINDS[key]
+    return {
+        "kind": key,
+        "family": meta["family"],
+        "source_table": meta["source_table"],
+        "conversational": bool(conversational),
+        "visibility": meta["visibility"],
+        "session": bool(meta.get("session")),
+        "uncompiled": bool(meta.get("uncompiled")),
+    }
+
+
 def read_contacts_difficulty(home_ground: bool, same_profession: bool) -> str:
     """Contacts roll difficulty by location/profession match. Rulebook p.97."""
     if home_ground and same_profession:

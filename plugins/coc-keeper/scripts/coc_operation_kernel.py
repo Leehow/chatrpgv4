@@ -6593,12 +6593,20 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
             "family": family,
             "cards": [],
         }, [], []
-    question: dict[str, Any] = {"family": family, "kind": "procedure"}
+    kind = str(args.get("kind") or "procedure").strip() or "procedure"
+    question: dict[str, Any] = {"family": family, "kind": kind}
     selected = args.get("selected_affordance_ids")
     if isinstance(selected, list):
         question["selected_affordance_ids"] = [
             str(item) for item in selected if isinstance(item, str)
         ]
+    if kind == "lookup":
+        lookup_ref = args.get("lookup_ref") or args.get("decision_ref")
+        if isinstance(lookup_ref, str) and lookup_ref.strip():
+            question["lookup_ref"] = lookup_ref.strip()
+        semantic = args.get("semantic_inputs")
+        if isinstance(semantic, dict):
+            question["semantic_inputs"] = semantic
     result = runtime.context(question)
     findings = result.get("findings") if isinstance(result.get("findings"), list) else []
     if findings:

@@ -1664,7 +1664,23 @@ def register_operations(registry) -> None:
         },
         "family": {
             "type": "string",
-            "desc": "compiled rule family id (v1: healing)",
+            "desc": "compiled rule family id (healing, development, combat, sanity, ...)",
+        },
+        "kind": {
+            "type": "string",
+            "desc": "procedure (decision cards) or lookup (read-only table query)",
+        },
+        "lookup_ref": {
+            "type": "string",
+            "desc": "semantic lookup decision ref for kind=lookup",
+        },
+        "decision_ref": {
+            "type": "string",
+            "desc": "alias of lookup_ref for kind=lookup",
+        },
+        "semantic_inputs": {
+            "type": "object",
+            "desc": "keeper-semantic inputs for a kind=lookup query",
         },
         "selected_affordance_ids": {
             "type": "array",

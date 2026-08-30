@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:4bc15a7122d8e0984da7aa0c3aa37f7bd54a5f122667e353ceaddd4f18f1660c",
+  "content_sha256": "sha256:d4e88b079cbf5dc526db281cefec1c8fbb8e0806f4b69811c0cccb34ca08a10a",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -3156,12 +3156,24 @@
             "description": "Campaign id. Required for campaign-bound operations.",
             "type": "string"
           },
+          "decision_ref": {
+            "description": "alias of lookup_ref for kind=lookup",
+            "type": "string"
+          },
           "family": {
-            "description": "compiled rule family id (v1: healing)",
+            "description": "compiled rule family id (healing, development, combat, sanity, ...)",
             "type": "string"
           },
           "investigator": {
             "description": "investigator whose live state binds the card grant",
+            "type": "string"
+          },
+          "kind": {
+            "description": "procedure (decision cards) or lookup (read-only table query)",
+            "type": "string"
+          },
+          "lookup_ref": {
+            "description": "semantic lookup decision ref for kind=lookup",
             "type": "string"
           },
           "root": {
@@ -3174,6 +3186,11 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "semantic_inputs": {
+            "additionalProperties": true,
+            "description": "keeper-semantic inputs for a kind=lookup query",
+            "type": "object"
           }
         },
         "required": [

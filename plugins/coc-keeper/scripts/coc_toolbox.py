@@ -599,6 +599,11 @@ _SOCIAL_PSYCHOLOGY_SHADOW_TOOLS = frozenset({
 _CHECK_LUCK_SHADOW_TOOLS = frozenset({
     "rules.roll", "rules.push", "rules.luck_spend", "rules.resource_delta",
 })
+_LOOKUPS_SHADOW_TOOLS = frozenset({
+    "rules.skill_describe", "rules.catalog_search",
+    "rules.build_scale", "rules.cash_assets",
+    "rules.damage", "rules.sanity_check",
+})
 
 
 def _shadow_legacy_command_for_social_psychology(
@@ -804,6 +809,97 @@ def _shadow_compare_check_luck_fail_open(
         command = _shadow_legacy_command_for_check_luck(ctx, name, args)
         investigator = str(args.get("investigator") or args.get("actor") or "").strip()
         coc_operation_kernel.coc_rules_runtime.maybe_shadow_compare_check_luck(
+            ruleset_id=_active_ruleset_id(ctx),
+            tool_name=name,
+            decision_id=str(args.get("decision_id") or ""),
+            command=command,
+            args=args,
+            state_path=(
+                ctx.inv_state_path(investigator) if investigator else None
+            ),
+            sheet_provider=(
+                (lambda: ctx.sheet(investigator)) if investigator else None
+            ),
+        )
+    except Exception:
+        pass
+
+
+def _shadow_legacy_command_for_lookups(
+    ctx: Ctx, name: str, args: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Normalized legacy command for lookup / damage / SAN ops."""
+    if name == "rules.skill_describe":
+        return {
+            "kind": "skill_describe",
+            "phase": "lookup",
+            "payload": {
+                "skill": args.get("skill"),
+                "skills": args.get("skills"),
+                "include_selection_policy": args.get("include_selection_policy"),
+            },
+        }
+    if name == "rules.catalog_search":
+        return {
+            "kind": "catalog_search",
+            "phase": "lookup",
+            "payload": {
+                "query": args.get("query"),
+                "kinds": args.get("kinds"),
+                "era": args.get("era"),
+                "limit": args.get("limit"),
+            },
+        }
+    if name == "rules.build_scale":
+        return {
+            "kind": "build_scale",
+            "phase": "lookup",
+            "payload": {
+                "build": args.get("build"),
+                "actor_build": args.get("actor_build"),
+                "target_build": args.get("target_build"),
+            },
+        }
+    if name == "rules.cash_assets":
+        return {
+            "kind": "cash_assets",
+            "phase": "lookup",
+            "payload": {
+                "credit_rating": args.get("credit_rating"),
+                "period": args.get("period"),
+            },
+        }
+    if name == "rules.damage":
+        return {
+            "kind": "damage",
+            "phase": "resolve",
+            "payload": {
+                "amount": args.get("amount"),
+                "kind": args.get("kind") or "damage",
+                "source": args.get("source"),
+            },
+        }
+    if name == "rules.sanity_check":
+        return {
+            "kind": "sanity_check",
+            "phase": "resolve",
+            "payload": {
+                "source": args.get("source"),
+                "loss_success": args.get("loss_success"),
+                "loss_failure": args.get("loss_failure"),
+            },
+        }
+    return None
+
+
+def _shadow_compare_lookups_fail_open(
+    ctx: Ctx, name: str, args: dict[str, Any],
+) -> None:
+    """Host-internal shadow compare for lookups/damage/SAN; never raises."""
+    try:
+        command = _shadow_legacy_command_for_lookups(ctx, name, args)
+        investigator = str(args.get("investigator") or args.get("actor") or "").strip()
+        coc_operation_kernel.coc_rules_runtime.maybe_shadow_compare_lookups(
             ruleset_id=_active_ruleset_id(ctx),
             tool_name=name,
             decision_id=str(args.get("decision_id") or ""),
@@ -1118,6 +1214,8 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                     _shadow_compare_social_psychology_fail_open(ctx, name, args)
                 if name in _CHECK_LUCK_SHADOW_TOOLS and isinstance(args, dict):
                     _shadow_compare_check_luck_fail_open(ctx, name, args)
+                if name in _LOOKUPS_SHADOW_TOOLS and isinstance(args, dict):
+                    _shadow_compare_lookups_fail_open(ctx, name, args)
                 data, warnings, hints = spec["handler"](ctx, args)
             # For write operations (access=mutation), attach a scene revision
             # hint so the KP can avoid the redundant scene.context full-fetch

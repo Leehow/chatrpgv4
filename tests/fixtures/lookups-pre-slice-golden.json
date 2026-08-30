@@ -1,0 +1,40 @@
+{
+  "provenance": {
+    "generator": "tests/fixtures/_gen_lookups_golden.py",
+    "note": "Pre-slice golden from current main envelopes. Graph-absent legacy path must stay byte-stable on these pins."
+  },
+  "skill_describe": {
+    "ok": true,
+    "warnings": [],
+    "hints": [
+      "KP flow: decide candidate skill(s) from player fiction → call this tool → choose the matching skill → then rules.roll; narrate what success/failure changes before clue dumps"
+    ],
+    "data_keys": [
+      "catalog_skill_ids",
+      "missing",
+      "requested",
+      "schema_version",
+      "selection_policy",
+      "skills",
+      "source_note"
+    ]
+  },
+  "catalog_search": {
+    "ok": true
+  },
+  "build_scale": {
+    "ok": true
+  },
+  "cash_assets": {
+    "ok": true,
+    "credit_rating": 20
+  },
+  "damage": {
+    "ok": true,
+    "hp_after": 11
+  },
+  "sanity_check": {
+    "ok": true,
+    "san_loss": 0
+  }
+}

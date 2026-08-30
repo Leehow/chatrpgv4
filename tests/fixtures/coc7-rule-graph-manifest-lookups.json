@@ -1,0 +1,144 @@
+{
+  "contract_id": "coc.rule-graph-build-manifest.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "source_bundles": [
+    {
+      "source_id": "rules-json:coc7",
+      "bundle_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "file_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "graph_content_digest": "0e62015201565ba7f3482736219feb5b526265c66eed51664458a41608b28e98",
+  "shards": [
+    {
+      "shard_id": "shard:coc7:development:section-lookups",
+      "shard_digest": "53fe2c5aac37371c2001486fccc55c4ba18329c2981188cba9b7c23de5715efb"
+    },
+    {
+      "shard_id": "shard:coc7:combat:section-non-session-damage",
+      "shard_digest": "10649983305b3b7b735ca53cbb8f98b31eb5a2d3e5d54aa794563a598e1caf3d"
+    },
+    {
+      "shard_id": "shard:coc7:sanity:section-sourced-thresholds",
+      "shard_digest": "f604d378fa68beb59b926de88399a5576607de9e96fd807d775abf424435fd1d"
+    }
+  ],
+  "family_coverage": {
+    "chase": "unresolved",
+    "combat": "partial",
+    "core-check": "unresolved",
+    "development": "partial",
+    "healing": "unresolved",
+    "magic": "unresolved",
+    "psychology": "unresolved",
+    "push-luck": "unresolved",
+    "sanity": "partial",
+    "social": "unresolved"
+  },
+  "family_promotion_eligibility": {
+    "chase": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "combat": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "core-check": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "development": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "healing": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "magic": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "psychology": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "push-luck": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "sanity": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "social": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    }
+  },
+  "data_table_dependencies": [
+    "skill-descriptions.json",
+    "skills.json",
+    "equipment.json",
+    "build-scale.json",
+    "cash-assets.json",
+    "damage.json",
+    "derived-attributes.json",
+    "sanity.json"
+  ],
+  "resolver_capability_dependencies": [
+    "skill_describe",
+    "catalog_search",
+    "build_scale",
+    "cash_assets",
+    "damage"
+  ],
+  "compiler_identity": "coc.rule-graph-compiler.v1",
+  "reviewer_identity": "r6-lookups",
+  "review_status": "accepted",
+  "findings": [
+    {
+      "code": "source_ambiguity",
+      "path": "/rule-family:coc7:development",
+      "message": "development family here is lookup/read coverage only (skill-describe, catalog-search, build-scale, cash-assets). Investigator Development Phase skill-tick improvement stays uncompiled."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/rule-family:coc7:combat",
+      "message": "combat family here is non-session roll-backed HP damage only. The combat session engine (DEX order, dodge/fight-back, maneuvers) is retained."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/decision:coc7:combat:apply-damage/heal",
+      "message": "damage.json delta_sign is negative and dice_kind is damage. Healing amounts belong to the healing family, not this combat decision."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/decision:coc7:combat:apply-damage/integer-amount",
+      "message": "damage.json requires_die, requires_roll_id, and requires_roll_total. Unrolled integer HP application is not a compiled claim of this node."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/decision:coc7:combat:apply-damage/major-wound",
+      "message": "damage.json specifies non-percentile HP reduction evidence, not the half-max major-wound or 0 HP dying/unconscious transitions. Those condition writes remain in the legacy damage handler; no extracted major-wound table is cited."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/rule-family:coc7:sanity",
+      "message": "sanity.json supports thresholds, bout duration, failed-roll involuntary kinds, and max SAN. The percentile check, success/failure loss selection, and floor-0 clamp are absent (exception:coc7:sanity:check-then-loss-uncompiled). INT reality check, SAN 0 permanent, and the SanitySession state machine stay uncompiled (exception:coc7:sanity:session-engine-uncompiled)."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/exception:coc7:sanity:check-then-loss-uncompiled",
+      "message": "sanity.json does not contain a percentile check against current SAN, loss_success/loss_failure selection, or a SAN floor-0 clamp. Those claims are uncompiled; this finding marks their absence, not source backing."
+    },
+    {
+      "code": "source_ambiguity",
+      "path": "/coverage/magic",
+      "message": "magic family has no R6 source+execution evidence; coverage stays unresolved."
+    }
+  ]
+}

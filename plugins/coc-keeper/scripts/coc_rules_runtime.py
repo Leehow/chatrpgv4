@@ -166,6 +166,31 @@ _CHECK_FUMBLE_OUTCOMES = frozenset({"fumble"})
 _RESOURCE_KEYS = frozenset({"hp", "mp", "luck", "san"})
 
 
+
+# R6 lookup/read families (spec §R6 / §11): context-only, never settle.
+# Packaged coc7 graph stays healing-only; tests load the lookups fixture.
+LOOKUP_CONTEXT_DECISION_REFS = (
+    "decision:coc7:development:skill-describe",
+    "decision:coc7:development:catalog-search",
+    "decision:coc7:development:build-scale",
+    "decision:coc7:development:cash-assets",
+)
+COMBAT_SETTLE_DECISION_REFS = (
+    "decision:coc7:combat:apply-damage",
+)
+SANITY_SETTLE_DECISION_REFS = (
+    "decision:coc7:sanity:non-session-loss",
+)
+_SKILL_DESCRIBE_REF = LOOKUP_CONTEXT_DECISION_REFS[0]
+_CATALOG_SEARCH_REF = LOOKUP_CONTEXT_DECISION_REFS[1]
+_BUILD_SCALE_REF = LOOKUP_CONTEXT_DECISION_REFS[2]
+_CASH_ASSETS_REF = LOOKUP_CONTEXT_DECISION_REFS[3]
+_DAMAGE_REF = COMBAT_SETTLE_DECISION_REFS[0]
+_SANITY_LOSS_REF = SANITY_SETTLE_DECISION_REFS[0]
+_SANITY_SESSION_EXCEPTION_REF = "exception:coc7:sanity:session-engine-uncompiled"
+_DAMAGE_KINDS = frozenset({"damage", "heal"})
+
+
 # --------------------------------------------------------------------------- #
 # Freeze helpers (immutable plans/cards; mirror of the kernel's pattern)
 # --------------------------------------------------------------------------- #
@@ -834,6 +859,11 @@ class RulesRuntime:
         self._push_frozen: dict[str, dict[str, Any]] = {}
         self._luck_spend_frozen: dict[str, dict[str, Any]] = {}
         self._resource_frozen: dict[str, dict[str, Any]] = {}
+        # R6 damage / non-session SAN freeze maps (decision_id conflict).
+        self._damage_frozen: dict[str, dict[str, Any]] = {}
+        self._sanity_frozen: dict[str, dict[str, Any]] = {}
+        # Optional read-only lookup executor for graph-owned context lookups.
+        self._lookup_executor: Callable[..., Any] | None = None
         self._grant_sequence = 0
         self._nodes: dict[str, dict[str, Any]] = {}
         self._relations: list[dict[str, Any]] = []
@@ -1442,6 +1472,8 @@ class RulesRuntime:
             # set bound to campaign + ruleset version + graph generation +
             # canonical state revision. settle() accepts ONLY this object.
             result["card_grant"] = self._issue_card_grant(cards)
+        if str(question.get("kind") or "procedure") == "lookup":
+            result.update(self._context_lookup(question, family, facts))
         return result
 
     # -- settle (spec §8.6/§8.7) --------------------------------------------
@@ -1647,6 +1679,20 @@ class RulesRuntime:
                 "status": "no_candidate_in_compiled_scope",
                 "failure": {"code": "no_candidate_in_compiled_scope",
                             "message": "a semantic decision_ref is required"},
+            }
+        if decision_ref in LOOKUP_CONTEXT_DECISION_REFS:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": decision_ref,
+                "decision_id": decision_id,
+                "status": "no_candidate_in_compiled_scope",
+                "failure": {
+                    "code": "no_candidate_in_compiled_scope",
+                    "message": (
+                        f"decision {decision_ref!r} is a context-only lookup; "
+                        "use rules.context kind=lookup, never rules.settle"
+                    ),
+                },
             }
         if self._is_uncompiled_scope(decision_ref):
             return {
@@ -1875,6 +1921,12 @@ class RulesRuntime:
                 executor, plan, decision_id, selected, facts, envelope)
         if family == "push-luck" and decision_ref == _LUCK_ROLL_REF:
             return self._settle_luck_roll(
+                executor, plan, decision_id, selected, facts, envelope)
+        if family == "combat" and decision_ref == _DAMAGE_REF:
+            return self._settle_damage(
+                executor, plan, decision_id, selected, facts, envelope)
+        if family == "sanity" and decision_ref == _SANITY_LOSS_REF:
+            return self._settle_sanity_loss(
                 executor, plan, decision_id, selected, facts, envelope)
         executed = executor(_thaw(plan), decision_id, selected)
         data = executed
@@ -2450,6 +2502,391 @@ class RulesRuntime:
                 "fields": ["stakes"],
             }
         return None
+
+    def _context_lookup(
+        self,
+        question: Mapping[str, Any],
+        family: str,
+        facts: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Read-only table lookup on rules.context (spec §R6). Never settles."""
+        lookup_ref = question.get("lookup_ref") or question.get("decision_ref")
+        if not isinstance(lookup_ref, str) or not lookup_ref.strip():
+            return {}
+        lookup_ref = lookup_ref.strip()
+        if lookup_ref not in LOOKUP_CONTEXT_DECISION_REFS:
+            return {
+                "status": "no_candidate_in_compiled_scope",
+                "lookup": None,
+                "failure": {
+                    "code": "no_candidate_in_compiled_scope",
+                    "message": (
+                        f"{lookup_ref!r} is not a compiled context lookup"
+                    ),
+                },
+            }
+        node = self._nodes.get(lookup_ref) or {}
+        node_family = str((node.get("properties") or {}).get("family_id") or "")
+        if node_family != family:
+            return {
+                "status": "no_candidate_in_compiled_scope",
+                "lookup": None,
+                "failure": {
+                    "code": "no_candidate_in_compiled_scope",
+                    "message": (
+                        f"lookup {lookup_ref!r} is not in family {family!r}"
+                    ),
+                },
+            }
+        semantic = question.get("semantic_inputs") or {}
+        if semantic is None:
+            semantic = {}
+        if not isinstance(semantic, Mapping):
+            return {
+                "status": "invalid_semantic_input",
+                "lookup": None,
+                "failure": {
+                    "code": "invalid_semantic_input",
+                    "message": "semantic_inputs must be an object",
+                },
+            }
+        lookup_fail = self._validate_lookup_provenance(lookup_ref, semantic)
+        if lookup_fail is not None:
+            return {
+                "status": lookup_fail["code"],
+                "lookup": None,
+                "failure": lookup_fail,
+            }
+        compiled = self._compile_plan(lookup_ref, semantic, facts=facts)
+        if compiled.get("failure"):
+            failure = compiled["failure"]
+            return {
+                "status": str(failure.get("code") or "no_candidate_in_compiled_scope"),
+                "lookup": None,
+                "failure": failure,
+            }
+        plan = compiled["plan"]
+        try:
+            owner, _surface = self.family_ownership(family)
+        except FamilyOwnershipMismatch:
+            owner = "legacy"
+        if owner != "graph":
+            return {
+                "lookup": {
+                    "decision_ref": lookup_ref,
+                    "execution": "deferred-to-legacy",
+                    "plan": _thaw(plan),
+                },
+            }
+        if self._lookup_executor is None:
+            return {
+                "status": "rules_graph_unavailable",
+                "lookup": None,
+                "failure": {
+                    "code": "rules_graph_unavailable",
+                    "message": (
+                        "graph-owned lookup requires the canonical read-only "
+                        "resolver executor; no legacy fallback"
+                    ),
+                },
+            }
+        executed = self._lookup_executor(_thaw(plan), lookup_ref, semantic)
+        data, warnings, hints = self._split_executor_result(executed)
+        if not isinstance(data, Mapping):
+            return {
+                "status": "invalid_settlement_result",
+                "lookup": None,
+                "failure": {
+                    "code": "invalid_settlement_result",
+                    "message": "lookup executor must return an object",
+                },
+            }
+        payload = _thaw(data)
+        if lookup_ref == _CATALOG_SEARCH_REF:
+            payload = self._project_catalog_lookup(payload)
+        result: dict[str, Any] = {
+            "status": "ok",
+            "lookup": {
+                "decision_ref": lookup_ref,
+                "execution": "canonical-resolver-subsystem",
+                "plan": _thaw(plan),
+                "result": payload,
+            },
+        }
+        if warnings:
+            result["lookup_warnings"] = warnings
+        if hints:
+            result["lookup_hints"] = hints
+        return result
+
+    @staticmethod
+    def _project_catalog_lookup(payload: Mapping[str, Any]) -> dict[str, Any]:
+        """Keep secret:true rows secret; never invent a selected entity."""
+        row = dict(payload)
+        row["authority"] = "advisory"
+        row["candidate_only"] = True
+        row["selected"] = None
+        secret = False
+        for candidate in row.get("candidates") or []:
+            if isinstance(candidate, Mapping) and candidate.get("secret") is True:
+                secret = True
+                break
+        if secret:
+            row["secret"] = True
+        return row
+
+    @staticmethod
+    def _validate_lookup_provenance(
+        lookup_ref: str, semantic: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        if lookup_ref == _CATALOG_SEARCH_REF:
+            query = semantic.get("query")
+            if not isinstance(query, str) or not query.strip():
+                return {
+                    "code": "missing_semantic_input",
+                    "message": "catalog search requires a non-empty query",
+                    "missing": ["query"],
+                }
+        if lookup_ref == _CASH_ASSETS_REF:
+            credit = semantic.get("credit_rating")
+            if isinstance(credit, bool) or not isinstance(credit, int):
+                return {
+                    "code": "invalid_semantic_input",
+                    "message": "credit_rating must be an integer",
+                    "fields": ["credit_rating"],
+                }
+        if lookup_ref == _BUILD_SCALE_REF:
+            build = semantic.get("build")
+            actor = semantic.get("actor_build")
+            target = semantic.get("target_build")
+            def _is_int(value: Any) -> bool:
+                return isinstance(value, int) and not isinstance(value, bool)
+            if build is None and actor is None and target is None:
+                return {
+                    "code": "missing_semantic_input",
+                    "message": "provide build, or actor_build and target_build",
+                    "missing": ["build"],
+                }
+            if (actor is None) != (target is None):
+                return {
+                    "code": "invalid_semantic_input",
+                    "message": "actor_build and target_build must be given together",
+                    "fields": ["actor_build", "target_build"],
+                }
+            for name, value in (("build", build), ("actor_build", actor), ("target_build", target)):
+                if value is not None and not _is_int(value):
+                    return {
+                        "code": "invalid_semantic_input",
+                        "message": f"{name} must be an integer",
+                        "fields": [name],
+                    }
+        if lookup_ref == _SKILL_DESCRIBE_REF:
+            skill = semantic.get("skill")
+            skills = semantic.get("skills")
+            if skill is not None and (not isinstance(skill, str) or not skill.strip()):
+                return {
+                    "code": "invalid_semantic_input",
+                    "message": "skill must be a non-empty string",
+                    "fields": ["skill"],
+                }
+            if skills is not None and not isinstance(skills, (list, tuple)):
+                return {
+                    "code": "invalid_semantic_input",
+                    "message": "skills must be an array of strings",
+                    "fields": ["skills"],
+                }
+        return None
+
+
+
+    @staticmethod
+    def _validate_damage_provenance(payload: Mapping[str, Any]) -> dict[str, Any] | None:
+        amount = payload.get("amount")
+        if isinstance(amount, bool) or amount is None:
+            return {
+                "code": "missing_semantic_input",
+                "message": "damage requires a non-empty amount",
+                "missing": ["amount"],
+            }
+        if isinstance(amount, int):
+            pass
+        elif not isinstance(amount, str) or not str(amount).strip():
+            return {
+                "code": "invalid_semantic_input",
+                "message": "amount must be an integer or dice expression string",
+                "fields": ["amount"],
+            }
+        kind = payload.get("kind", "damage")
+        if kind is None:
+            kind = "damage"
+        if kind not in _DAMAGE_KINDS:
+            return {
+                "code": "invalid_semantic_input",
+                "message": "kind must be damage or heal",
+                "fields": ["kind"],
+            }
+        return None
+
+    def _settle_damage(
+        self,
+        executor: Callable[..., Any],
+        plan: Mapping[str, Any],
+        decision_id: str,
+        selected: Mapping[str, Any],
+        facts: Mapping[str, Any],
+        envelope: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Non-session HP damage/heal; combat session engine is not invoked."""
+        payload = (plan.get("command") or {}).get("payload") or {}
+        if not isinstance(payload, Mapping):
+            payload = {}
+        provenance = self._validate_damage_provenance(payload)
+        if provenance is not None:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": provenance["code"],
+                "failure": provenance,
+            }
+        request_identity = self._check_request_identity(plan, selected)
+        replayed = self._replay_or_conflict(
+            self._damage_frozen, decision_id, request_identity, plan, envelope,
+            extra={"visibility": "public"},
+        )
+        if replayed is not None:
+            return replayed
+        executed = executor(_thaw(plan), decision_id, selected)
+        data, warnings, hints = self._split_executor_result(executed)
+        if not isinstance(data, Mapping):
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_settlement_result",
+                "failure": {
+                    "code": "invalid_settlement_result",
+                    "message": "damage must return an HP change record",
+                },
+            }
+        result = {
+            "kind": data.get("kind") or payload.get("kind") or "damage",
+            "amount": data.get("amount"),
+            "hp_before": data.get("hp_before"),
+            "hp_after": data.get("hp_after"),
+            "max_hp": data.get("max_hp"),
+            "bound": _thaw(data),
+            "session": False,
+        }
+        self._damage_frozen[decision_id] = {
+            "request_identity": request_identity,
+            "result": deepcopy(result),
+        }
+        return self._settled_envelope(
+            envelope, plan, _freeze(result), warnings, hints,
+            extra={"visibility": "public"},
+        )
+
+    @staticmethod
+    def _validate_sanity_provenance(payload: Mapping[str, Any]) -> dict[str, Any] | None:
+        source = payload.get("source")
+        if not isinstance(source, str) or not source.strip():
+            return {
+                "code": "missing_semantic_input",
+                "message": "SAN loss requires a non-empty source",
+                "missing": ["source"],
+            }
+        loss_failure = payload.get("loss_failure")
+        if loss_failure is None or (
+            isinstance(loss_failure, str) and not loss_failure.strip()
+        ):
+            return {
+                "code": "missing_semantic_input",
+                "message": "SAN loss requires loss_failure",
+                "missing": ["loss_failure"],
+            }
+        if isinstance(loss_failure, bool) or not isinstance(loss_failure, (str, int)):
+            return {
+                "code": "invalid_semantic_input",
+                "message": "loss_failure must be a constant or NdM expression",
+                "fields": ["loss_failure"],
+            }
+        loss_success = payload.get("loss_success")
+        if loss_success is not None and (
+            isinstance(loss_success, bool)
+            or not isinstance(loss_success, (str, int))
+        ):
+            return {
+                "code": "invalid_semantic_input",
+                "message": "loss_success must be a constant or NdM expression",
+                "fields": ["loss_success"],
+            }
+        return None
+
+    def _settle_sanity_loss(
+        self,
+        executor: Callable[..., Any],
+        plan: Mapping[str, Any],
+        decision_id: str,
+        selected: Mapping[str, Any],
+        facts: Mapping[str, Any],
+        envelope: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Keeper-adjudicated SAN check+loss; session engine stays the adapter."""
+        payload = (plan.get("command") or {}).get("payload") or {}
+        if not isinstance(payload, Mapping):
+            payload = {}
+        provenance = self._validate_sanity_provenance(payload)
+        if provenance is not None:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": provenance["code"],
+                "failure": provenance,
+            }
+        request_identity = self._check_request_identity(plan, selected)
+        replayed = self._replay_or_conflict(
+            self._sanity_frozen, decision_id, request_identity, plan, envelope,
+            extra={"visibility": "public"},
+        )
+        if replayed is not None:
+            return replayed
+        executed = executor(_thaw(plan), decision_id, selected)
+        data, warnings, hints = self._split_executor_result(executed)
+        if not isinstance(data, Mapping):
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": plan["decision_ref"],
+                "decision_id": decision_id,
+                "family": plan["family"],
+                "status": "invalid_settlement_result",
+                "failure": {
+                    "code": "invalid_settlement_result",
+                    "message": "SAN loss must return a sanity-check record",
+                },
+            }
+        result = {
+            "source": data.get("source") or payload.get("source"),
+            "success": data.get("success"),
+            "san_loss": data.get("san_loss"),
+            "san_before": data.get("san_before"),
+            "san_after": data.get("san_after"),
+            "bound": _thaw(data),
+            "session_engine": "retained",
+            "session_exception_ref": _SANITY_SESSION_EXCEPTION_REF,
+        }
+        self._sanity_frozen[decision_id] = {
+            "request_identity": request_identity,
+            "result": deepcopy(result),
+        }
+        return self._settled_envelope(
+            envelope, plan, _freeze(result), warnings, hints,
+            extra={"visibility": "public"},
+        )
 
     def _settle_ordinary_check(
         self,
@@ -3060,10 +3497,17 @@ def _canonical_slot_name(node_id: str) -> str:
 
 
 def _scalar_type_from_guess(name: str) -> str:
-    known_bools = {"pushed", "complete_rest", "poor_environment"}
+    known_bools = {
+        "pushed", "complete_rest", "poor_environment",
+        "include_selection_policy",
+    }
     if name in known_bools:
         return "bool"
-    if name in {"skill_value", "medicine_skill_value"}:
+    if name in {
+        "skill_value", "medicine_skill_value", "credit_rating", "limit",
+        "build", "actor_build", "target_build", "current_hp", "max_hp",
+        "current_san",
+    }:
         return "int"
     return "scalar"
 
@@ -4044,6 +4488,221 @@ def _maybe_shadow_compare_check_luck_impl(
     _append_shadow_row(row, _current_log_path_from_config())
     return row
 
+
+_LOOKUPS_TOOLS = frozenset({
+    "rules.skill_describe", "rules.catalog_search",
+    "rules.build_scale", "rules.cash_assets",
+    "rules.damage", "rules.sanity_check",
+})
+
+
+def maybe_shadow_compare_lookups(
+    *,
+    ruleset_id: str,
+    tool_name: str,
+    decision_id: str,
+    command: Mapping[str, Any] | None = None,
+    args: Mapping[str, Any] | None = None,
+    state_path: Path | str | None = None,
+    sheet_provider: Callable[[], dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Shadow-compare one lookup / damage / SAN op. Fail-open, never blocks."""
+    if tool_name not in _LOOKUPS_TOOLS:
+        return None
+    try:
+        return _maybe_shadow_compare_lookups_impl(
+            ruleset_id=ruleset_id,
+            tool_name=tool_name,
+            decision_id=decision_id,
+            command=command,
+            args=args,
+            state_path=state_path,
+            sheet_provider=sheet_provider,
+        )
+    except Exception as exc:  # pragma: no cover - defensive boundary
+        row = {
+            "contract_id": SHADOW_LOG_CONTRACT_ID,
+            "schema_version": SHADOW_LOG_SCHEMA_VERSION,
+            "ruleset_id": ruleset_id,
+            "family": _family_for_lookups_tool(tool_name),
+            "tool": tool_name,
+            "decision_id": decision_id,
+            "status": "skipped",
+            "skip_reason": "comparator_error",
+            "error": str(exc)[:300],
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+
+
+def _family_for_lookups_tool(tool_name: str) -> str:
+    if tool_name == "rules.damage":
+        return "combat"
+    if tool_name == "rules.sanity_check":
+        return "sanity"
+    return "development"
+
+
+def _decision_ref_for_lookups(
+    runtime: RulesRuntime,
+    tool_name: str,
+) -> str | None:
+    expected = {
+        "rules.skill_describe": _SKILL_DESCRIBE_REF,
+        "rules.catalog_search": _CATALOG_SEARCH_REF,
+        "rules.build_scale": _BUILD_SCALE_REF,
+        "rules.cash_assets": _CASH_ASSETS_REF,
+        "rules.damage": _DAMAGE_REF,
+        "rules.sanity_check": _SANITY_LOSS_REF,
+    }.get(tool_name)
+    if expected is not None and expected in runtime._nodes:
+        return expected
+    return None
+
+
+def _maybe_shadow_compare_lookups_impl(
+    *,
+    ruleset_id: str,
+    tool_name: str,
+    decision_id: str,
+    command: Mapping[str, Any] | None,
+    args: Mapping[str, Any] | None,
+    state_path: Path | str | None,
+    sheet_provider: Callable[[], dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    config = _SHADOW_CONFIG
+    family = _family_for_lookups_tool(tool_name)
+    owner, _surface = "legacy", "visible"
+    graph: dict[str, Any] | None = None
+    graph_manifest: dict[str, Any] | None = None
+    rulesets_root_path: Path | str | None = None
+    if config is not None and config.get("ruleset_id") == ruleset_id:
+        owner = str(config.get("runtime_owner") or "legacy")
+        graph = config.get("graph")
+        graph_manifest = config.get("graph_manifest")
+        rulesets_root_path = config.get("rulesets_root_path")
+    if owner == "legacy":
+        manifest = _load_manifest_cached(ruleset_id, rulesets_root_path)
+        if manifest is not None:
+            loaded = load_ruleset_graph(
+                ruleset_id, rulesets_root_path=rulesets_root_path,
+            )
+            if loaded["ok"]:
+                graph, graph_manifest = loaded["graph"], loaded["graph_manifest"]
+            owner, _ = resolve_family_ownership(
+                ruleset_id, family, manifest=manifest,
+                graph=graph, graph_manifest=graph_manifest,
+            )
+        if owner != "shadow":
+            return None
+    if not isinstance(command, Mapping):
+        row = {
+            "family": family, "tool": tool_name, "decision_id": decision_id,
+            "status": "skipped", "skip_reason": "no_normalized_command",
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    if graph is None or graph_manifest is None:
+        row = {
+            "family": family, "tool": tool_name, "decision_id": decision_id,
+            "status": "skipped", "skip_reason": "graph_absent",
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    sheet = None
+    if sheet_provider is not None:
+        try:
+            sheet = sheet_provider()
+        except Exception:
+            sheet = None
+    try:
+        runtime = RulesRuntime(
+            graph,
+            ruleset_id=ruleset_id,
+            graph_manifest=graph_manifest,
+            facts_provider=facts_from_state_closure(
+                state_path, sheet, ruleset_id=ruleset_id,
+            ),
+            host_locked_provider=None,
+        )
+    except ValueError:
+        row = {
+            "family": family, "tool": tool_name, "decision_id": decision_id,
+            "status": "skipped", "skip_reason": "graph_invalid",
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    decision_ref = _decision_ref_for_lookups(runtime, tool_name)
+    if decision_ref is None:
+        row = {
+            "family": family, "tool": tool_name, "decision_id": decision_id,
+            "decision_ref": None, "status": "mismatch", "skip_reason": None,
+            "differences": [{
+                "axis": "decision_ref", "field": "decision_ref",
+                "kind": "missing_in_graph",
+                "plan": None, "legacy": tool_name,
+            }],
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    slot_ownership = {
+        slot["name"]: slot["ownership"] for slot in runtime._slots_for(decision_ref)
+    }
+    payload = {
+        str(key): deepcopy(value)
+        for key, value in (command.get("payload") or {}).items()
+        if str(key) not in _RUNTIME_OWNED_PAYLOAD_KEYS
+    }
+    semantic_inputs: dict[str, Any] = {}
+    host_locked: dict[str, Any] = {}
+    for key, value in payload.items():
+        ownership = slot_ownership.get(key)
+        if ownership in _SEMANTIC_SLOT_OWNERSHIPS:
+            semantic_inputs[key] = value
+        elif ownership in _LOCKED_SLOT_OWNERSHIPS:
+            host_locked[key] = value
+        elif ownership is None and key in slot_ownership:
+            host_locked[key] = value
+    compiled = runtime._compile_plan(
+        decision_ref, semantic_inputs, host_locked=host_locked or None,
+    )
+    failure = compiled.get("failure")
+    if failure:
+        row = {
+            "family": family, "tool": tool_name, "decision_id": decision_id,
+            "decision_ref": decision_ref, "status": "mismatch",
+            "skip_reason": None,
+            "differences": [{
+                "axis": "compile", "field": "compile",
+                "kind": str(failure.get("code") or "compile_failure"),
+                "plan": None, "legacy": "executing",
+                "message": failure.get("message"),
+            }],
+            "graph_content_digest": _json_digest(graph),
+        }
+        _append_shadow_row(row, _current_log_path_from_config())
+        return row
+    plan = compiled["plan"]
+    differences, plan_profile, legacy_profile = _compare_plan_and_legacy(
+        runtime, plan, command,
+    )
+    row = {
+        "contract_id": SHADOW_LOG_CONTRACT_ID,
+        "schema_version": SHADOW_LOG_SCHEMA_VERSION,
+        "ruleset_id": ruleset_id,
+        "family": family,
+        "tool": tool_name,
+        "decision_id": decision_id,
+        "decision_ref": decision_ref,
+        "status": "match" if not differences else "mismatch",
+        "skip_reason": None,
+        "differences": differences,
+        "plan_profile": plan_profile,
+        "legacy_profile": legacy_profile,
+        "graph_content_digest": _json_digest(graph),
+    }
+    _append_shadow_row(row, _current_log_path_from_config())
+    return row
 
 def facts_from_state_closure(
     state_path: Path | str | None,

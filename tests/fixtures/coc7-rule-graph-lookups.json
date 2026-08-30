@@ -1,0 +1,1078 @@
+{
+  "contract_id": "coc.rule-graph.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "source_language": "en",
+  "nodes": [
+    {
+      "node_id": "rule-family:coc7:development",
+      "node_kind": "rule-family",
+      "name": "Chargen and play reference table lookups (skill/catalog/build/cash)",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "runtime_ownership": "legacy",
+        "legacy_surface": "visible",
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-skill-descriptions-json",
+        "span-build-scale-json",
+        "span-cash-assets-json",
+        "span-equipment-json"
+      ]
+    },
+    {
+      "node_id": "rule-family:coc7:combat",
+      "node_kind": "rule-family",
+      "name": "Non-session roll-backed HP damage (negative delta); combat session engine retained",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "runtime_ownership": "legacy",
+        "legacy_surface": "visible",
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-damage-json"
+      ]
+    },
+    {
+      "node_id": "rule-family:coc7:sanity",
+      "node_kind": "rule-family",
+      "name": "Sourced SAN thresholds, max SAN, and failed-roll involuntary actions; check/loss algorithm uncompiled",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "runtime_ownership": "legacy",
+        "legacy_surface": "visible",
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-json"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:skill-describe",
+      "node_kind": "capability",
+      "name": "skill_describe",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "resolver_capability": "skill_describe",
+        "adapter": "resolver",
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-skill-descriptions-json"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:catalog-search",
+      "node_kind": "capability",
+      "name": "catalog_search",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "resolver_capability": "catalog_search",
+        "adapter": "resolver",
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-equipment-json",
+        "span-skills-json",
+        "span-skill-descriptions-json"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:build-scale",
+      "node_kind": "capability",
+      "name": "build_scale",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "resolver_capability": "build_scale",
+        "adapter": "resolver",
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-build-scale-json"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:cash-assets",
+      "node_kind": "capability",
+      "name": "cash_assets",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "resolver_capability": "cash_assets",
+        "adapter": "resolver",
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-cash-assets-json"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:damage",
+      "node_kind": "capability",
+      "name": "damage",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "resolver_capability": "damage",
+        "adapter": "resolver",
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-damage-json"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:skill-descriptions",
+      "node_kind": "data-table",
+      "name": "skill-descriptions.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "path": "rules-json/skill-descriptions.json"
+      },
+      "evidence_span_ids": [
+        "span-skill-descriptions-json"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:skills",
+      "node_kind": "data-table",
+      "name": "skills.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "path": "rules-json/skills.json"
+      },
+      "evidence_span_ids": [
+        "span-skills-json"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:equipment",
+      "node_kind": "data-table",
+      "name": "equipment.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "path": "rules-json/equipment.json"
+      },
+      "evidence_span_ids": [
+        "span-equipment-json"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:build-scale",
+      "node_kind": "data-table",
+      "name": "build-scale.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "path": "rules-json/build-scale.json"
+      },
+      "evidence_span_ids": [
+        "span-build-scale-json"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:cash-assets",
+      "node_kind": "data-table",
+      "name": "cash-assets.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "path": "rules-json/cash-assets.json"
+      },
+      "evidence_span_ids": [
+        "span-cash-assets-json"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:damage",
+      "node_kind": "data-table",
+      "name": "damage.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "path": "rules-json/damage.json"
+      },
+      "evidence_span_ids": [
+        "span-damage-json"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:derived-attributes",
+      "node_kind": "data-table",
+      "name": "derived-attributes.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "path": "rules-json/derived-attributes.json"
+      },
+      "evidence_span_ids": [
+        "span-derived-attributes-json"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:sanity",
+      "node_kind": "data-table",
+      "name": "sanity.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "path": "rules-json/sanity.json"
+      },
+      "evidence_span_ids": [
+        "span-sanity-json"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:development:skill-catalog",
+      "node_kind": "rule",
+      "name": "Keeper-facing skill prose is the compiled skill-descriptions catalog; mechanical bases stay in skills.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "source_table": "skill-descriptions.json",
+        "source_rule_id": "core.skills.describe",
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-skill-descriptions-json",
+        "span-skills-json"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:development:catalog-candidate-recall",
+      "node_kind": "rule",
+      "name": "Catalog search returns advisory candidates only; KP selects entity_id semantically; secret rows stay secret",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "source_table": "equipment.json",
+        "source_rule_id": "core.catalog.search",
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-equipment-json",
+        "span-skills-json",
+        "span-skill-descriptions-json"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:development:build-scale",
+      "node_kind": "rule",
+      "name": "Build scale and lift/throw bands are table lookups; they never roll",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "source_table": "build-scale.json",
+        "source_rule_id": "core.build.scale",
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-build-scale-json"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:development:cash-from-credit",
+      "node_kind": "rule",
+      "name": "Credit Rating maps to cash, assets, spending level, and living standard by era table",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "source_table": "cash-assets.json",
+        "source_rule_id": "core.cash.assets",
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-cash-assets-json"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:hp-damage",
+      "node_kind": "rule",
+      "name": "Damage rolls are non-percentile dice that reduce hit points; play logs keep roll id, expression, total, and HP before/delta/after",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "source_table": "damage.json",
+        "source_rule_id": "core.damage.roll",
+        "family_id": "combat",
+        "delta_sign": "negative",
+        "dice_kind": "damage",
+        "requires_die": true,
+        "requires_roll_id": true,
+        "requires_roll_total": true,
+        "requires_resource_before_delta_after": true,
+        "non_percentile": true
+      },
+      "evidence_span_ids": [
+        "span-damage-json"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:temp-insanity-threshold",
+      "node_kind": "rule",
+      "name": "Temporary insanity triggers at 5 or more SAN lost from one source",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "source_table": "sanity.json",
+        "source_field": "temporary_insanity_loss_threshold",
+        "family_id": "sanity",
+        "temporary_insanity_loss_threshold": 5
+      },
+      "evidence_span_ids": [
+        "span-sanity-json"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:indefinite-daily-fraction",
+      "node_kind": "rule",
+      "name": "Indefinite insanity uses a daily fraction of current SAN",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "source_table": "sanity.json",
+        "source_field": "indefinite_insanity_daily_fraction",
+        "family_id": "sanity",
+        "indefinite_insanity_daily_fraction": 0.2
+      },
+      "evidence_span_ids": [
+        "span-sanity-json"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:max-san",
+      "node_kind": "rule",
+      "name": "Maximum Sanity is 99 minus current Cthulhu Mythos skill",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "source_table": "sanity.json",
+        "source_field": "max_san",
+        "family_id": "sanity",
+        "formula": "99 - cthulhu_mythos",
+        "base_max": 99,
+        "subtract": "cthulhu_mythos_current_skill"
+      },
+      "evidence_span_ids": [
+        "span-sanity-json"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:failed-roll-involuntary-action",
+      "node_kind": "rule",
+      "name": "A failed SAN roll causes a Keeper-chosen involuntary action from the extracted kind list",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "source_table": "sanity.json",
+        "source_field": "failed_san_roll_involuntary_action",
+        "family_id": "sanity",
+        "applies_when": "sanity_roll_outcome == failure",
+        "kinds": [
+          "jump_in_fright",
+          "cry_out",
+          "involuntary_movement",
+          "involuntary_combat_action",
+          "freeze"
+        ]
+      },
+      "evidence_span_ids": [
+        "span-sanity-json"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:bout-duration",
+      "node_kind": "rule",
+      "name": "A bout of madness lasts 1D10 real-time rounds or 1D10 summary hours",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "source_table": "sanity.json",
+        "source_field": "bout_duration",
+        "family_id": "sanity",
+        "real_time_rounds": "1D10",
+        "summary_hours": "1D10"
+      },
+      "evidence_span_ids": [
+        "span-sanity-json"
+      ]
+    },
+    {
+      "node_id": "resource:coc7:hp",
+      "node_kind": "resource",
+      "name": "Hit points",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "pool": "hp",
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-derived-attributes-json",
+        "span-damage-json"
+      ]
+    },
+    {
+      "node_id": "resource:coc7:san",
+      "node_kind": "resource",
+      "name": "Sanity points",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "pool": "san",
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-derived-attributes-json",
+        "span-sanity-json"
+      ]
+    },
+    {
+      "node_id": "effect:coc7:combat:hp-change",
+      "node_kind": "effect",
+      "name": "HP after a damage roll with before/delta/after evidence (negative delta)",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "visibility": "public",
+        "family_id": "combat",
+        "delta_sign": "negative",
+        "requires_resource_before_delta_after": true
+      },
+      "evidence_span_ids": [
+        "span-damage-json"
+      ]
+    },
+    {
+      "node_id": "visibility-policy:coc7:development:catalog-secret",
+      "node_kind": "visibility-policy",
+      "name": "Secret catalog rows stay secret:true and are never player-projected",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "concealed-result",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development",
+        "audience": "keeper"
+      },
+      "evidence_span_ids": [
+        "span-equipment-json",
+        "span-skills-json",
+        "span-skill-descriptions-json"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:development:skill-describe",
+      "node_kind": "decision",
+      "name": "Look up Keeper-facing skill prose after the KP has narrowed candidate skills",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development",
+        "context_only": true,
+        "implementation": {
+          "adapter": "resolver",
+          "kind": "skill_describe",
+          "phase": "lookup",
+          "payload_constants": {},
+          "payload_slots": [
+            {
+              "name": "skill",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "skills",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "include_selection_policy",
+              "ownership": "optional-semantic"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-skill-descriptions-json"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:development:catalog-search",
+      "node_kind": "decision",
+      "name": "Recall advisory catalog candidates; KP chooses entity_id; never auto-select",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development",
+        "context_only": true,
+        "implementation": {
+          "adapter": "resolver",
+          "kind": "catalog_search",
+          "phase": "lookup",
+          "payload_constants": {},
+          "payload_slots": [
+            {
+              "name": "query",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "kinds",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "era",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "limit",
+              "ownership": "optional-semantic"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-equipment-json",
+        "span-skills-json",
+        "span-skill-descriptions-json"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:development:build-scale",
+      "node_kind": "decision",
+      "name": "Look up comparative build scale or a lift/throw verdict",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development",
+        "context_only": true,
+        "implementation": {
+          "adapter": "resolver",
+          "kind": "build_scale",
+          "phase": "lookup",
+          "payload_constants": {},
+          "payload_slots": [
+            {
+              "name": "build",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "actor_build",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "target_build",
+              "ownership": "optional-semantic"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-build-scale-json"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:development:cash-assets",
+      "node_kind": "decision",
+      "name": "Map Credit Rating to cash, assets, spending level, and living standard",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development",
+        "context_only": true,
+        "implementation": {
+          "adapter": "resolver",
+          "kind": "cash_assets",
+          "phase": "lookup",
+          "payload_constants": {},
+          "payload_slots": [
+            {
+              "name": "credit_rating",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "period",
+              "ownership": "optional-semantic"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-cash-assets-json"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:combat:apply-damage",
+      "node_kind": "decision",
+      "name": "Apply one non-session HP damage roll (die expression; negative delta)",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat",
+        "implementation": {
+          "adapter": "resolver",
+          "kind": "damage",
+          "phase": "resolve",
+          "payload_constants": {
+            "kind": "damage"
+          },
+          "payload_slots": [
+            {
+              "name": "amount",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "source",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "investigator_id",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "current_hp",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "max_hp",
+              "ownership": "host-locked"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-damage-json"
+      ]
+    },
+    {
+      "node_id": "exception:coc7:sanity:check-then-loss-uncompiled",
+      "node_kind": "exception",
+      "name": "Percentile SAN check, success/failure loss expressions, and SAN floor-0 clamp are not in sanity.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity",
+        "uncompiled": true,
+        "absent_from_source": [
+          "percentile_check_against_current_san",
+          "loss_success_loss_failure_selection",
+          "san_floor_zero_clamp"
+        ]
+      },
+      "evidence_span_ids": [
+        "span-sanity-json"
+      ]
+    },
+    {
+      "node_id": "exception:coc7:sanity:session-engine-uncompiled",
+      "node_kind": "exception",
+      "name": "INT reality check, SAN 0 permanent insanity, and SanitySession state machine are not extracted as a check/loss algorithm",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity",
+        "uncompiled": true
+      },
+      "evidence_span_ids": [
+        "span-sanity-json"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:development:query",
+      "node_kind": "input-slot",
+      "name": "query",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-equipment-json",
+        "span-skills-json",
+        "span-skill-descriptions-json"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:development:credit-rating",
+      "node_kind": "input-slot",
+      "name": "credit_rating",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "int",
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-cash-assets-json"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:combat:amount",
+      "node_kind": "input-slot",
+      "name": "amount",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "die",
+        "family_id": "combat",
+        "requires_die": true
+      },
+      "evidence_span_ids": [
+        "span-damage-json"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "relation:coc7:development:skill-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:development:skill-describe",
+      "to_node_id": "capability:coc7:skill-describe",
+      "evidence_span_ids": [
+        "span-skill-descriptions-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:skill-reads",
+      "relation_kind": "reads-table",
+      "from_node_id": "decision:coc7:development:skill-describe",
+      "to_node_id": "data-table:coc7:skill-descriptions",
+      "evidence_span_ids": [
+        "span-skill-descriptions-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:skill-rule-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:development:skill-catalog",
+      "to_node_id": "capability:coc7:skill-describe",
+      "evidence_span_ids": [
+        "span-skill-descriptions-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:catalog-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:development:catalog-search",
+      "to_node_id": "capability:coc7:catalog-search",
+      "evidence_span_ids": [
+        "span-equipment-json",
+        "span-skills-json",
+        "span-skill-descriptions-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:catalog-reads-equipment",
+      "relation_kind": "reads-table",
+      "from_node_id": "decision:coc7:development:catalog-search",
+      "to_node_id": "data-table:coc7:equipment",
+      "evidence_span_ids": [
+        "span-equipment-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:catalog-rule-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:development:catalog-candidate-recall",
+      "to_node_id": "capability:coc7:catalog-search",
+      "evidence_span_ids": [
+        "span-equipment-json",
+        "span-skills-json",
+        "span-skill-descriptions-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:catalog-requires-query",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:development:catalog-search",
+      "to_node_id": "input-slot:coc7:development:query",
+      "evidence_span_ids": [
+        "span-equipment-json",
+        "span-skills-json",
+        "span-skill-descriptions-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:build-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:development:build-scale",
+      "to_node_id": "capability:coc7:build-scale",
+      "evidence_span_ids": [
+        "span-build-scale-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:build-reads",
+      "relation_kind": "reads-table",
+      "from_node_id": "decision:coc7:development:build-scale",
+      "to_node_id": "data-table:coc7:build-scale",
+      "evidence_span_ids": [
+        "span-build-scale-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:build-rule-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:development:build-scale",
+      "to_node_id": "capability:coc7:build-scale",
+      "evidence_span_ids": [
+        "span-build-scale-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:cash-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:development:cash-assets",
+      "to_node_id": "capability:coc7:cash-assets",
+      "evidence_span_ids": [
+        "span-cash-assets-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:cash-reads",
+      "relation_kind": "reads-table",
+      "from_node_id": "decision:coc7:development:cash-assets",
+      "to_node_id": "data-table:coc7:cash-assets",
+      "evidence_span_ids": [
+        "span-cash-assets-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:cash-rule-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:development:cash-from-credit",
+      "to_node_id": "capability:coc7:cash-assets",
+      "evidence_span_ids": [
+        "span-cash-assets-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:cash-requires-cr",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:development:cash-assets",
+      "to_node_id": "input-slot:coc7:development:credit-rating",
+      "evidence_span_ids": [
+        "span-cash-assets-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:damage-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:combat:apply-damage",
+      "to_node_id": "capability:coc7:damage",
+      "evidence_span_ids": [
+        "span-damage-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:damage-rule-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:combat:hp-damage",
+      "to_node_id": "capability:coc7:damage",
+      "evidence_span_ids": [
+        "span-damage-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:damage-requires-amount",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:combat:apply-damage",
+      "to_node_id": "input-slot:coc7:combat:amount",
+      "evidence_span_ids": [
+        "span-damage-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:damage-emits",
+      "relation_kind": "emits",
+      "from_node_id": "decision:coc7:combat:apply-damage",
+      "to_node_id": "effect:coc7:combat:hp-change",
+      "evidence_span_ids": [
+        "span-damage-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:damage-mutates",
+      "relation_kind": "mutates-resource",
+      "from_node_id": "effect:coc7:combat:hp-change",
+      "to_node_id": "resource:coc7:hp",
+      "evidence_span_ids": [
+        "span-derived-attributes-json",
+        "span-damage-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:temp-reads",
+      "relation_kind": "reads-table",
+      "from_node_id": "rule:coc7:sanity:temp-insanity-threshold",
+      "to_node_id": "data-table:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:indefinite-reads",
+      "relation_kind": "reads-table",
+      "from_node_id": "rule:coc7:sanity:indefinite-daily-fraction",
+      "to_node_id": "data-table:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:max-reads",
+      "relation_kind": "reads-table",
+      "from_node_id": "rule:coc7:sanity:max-san",
+      "to_node_id": "data-table:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:involuntary-reads",
+      "relation_kind": "reads-table",
+      "from_node_id": "rule:coc7:sanity:failed-roll-involuntary-action",
+      "to_node_id": "data-table:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-json"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:bout-reads",
+      "relation_kind": "reads-table",
+      "from_node_id": "rule:coc7:sanity:bout-duration",
+      "to_node_id": "data-table:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-json"
+      ]
+    }
+  ],
+  "coverage": {
+    "chase": "unresolved",
+    "combat": "partial",
+    "core-check": "unresolved",
+    "development": "partial",
+    "healing": "unresolved",
+    "magic": "unresolved",
+    "psychology": "unresolved",
+    "push-luck": "unresolved",
+    "sanity": "partial",
+    "social": "unresolved"
+  },
+  "family_runtime_ownership": {
+    "chase": "legacy",
+    "combat": "legacy",
+    "core-check": "legacy",
+    "development": "legacy",
+    "healing": "legacy",
+    "magic": "legacy",
+    "psychology": "legacy",
+    "push-luck": "legacy",
+    "sanity": "legacy",
+    "social": "legacy"
+  },
+  "legacy_surface_lifecycle": {
+    "chase": "visible",
+    "combat": "visible",
+    "core-check": "visible",
+    "development": "visible",
+    "healing": "visible",
+    "magic": "visible",
+    "psychology": "visible",
+    "push-luck": "visible",
+    "sanity": "visible",
+    "social": "visible"
+  }
+}
