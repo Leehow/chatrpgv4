@@ -1806,6 +1806,35 @@ def _packaged_runtime(facts):
     )
 
 
+def test_packaged_healing_cards_carry_rule_and_source_refs():
+    runtime = _packaged_runtime(coc_rules_runtime.facts_from_state(
+        {
+            "current_hp": 5,
+            "conditions": ["major_wound"],
+            "wound_ledger": [{
+                "wound_id": "wound-production-card",
+                "source_damage_roll_id": "roll-production-card",
+                "occurred_elapsed_minutes": 0,
+                "status": "active",
+            }],
+        },
+        {"derived": {"HP": 12}},
+        elapsed_minutes=30,
+    ))
+    cards = runtime.context({"family": "healing", "kind": "procedure"})[
+        "cards"
+    ]
+    ordinary = next(
+        card for card in cards
+        if card["decision_ref"]
+        == "decision:coc7:healing:first-aid-ordinary"
+    )
+    assert ordinary["rule_refs"]
+    assert ordinary["source_refs"]
+    assert all(ref.startswith("rule:coc7:healing:") for ref in ordinary["rule_refs"])
+    assert all(ref.startswith("span-") for ref in ordinary["source_refs"])
+
+
 def _wounded_state(ws, *, hp=5, occurred_elapsed=0):
     inv = ws["investigator_id"]
     state_path = (
@@ -2368,6 +2397,16 @@ def test_rules_damage_establishes_one_active_wound_and_projects_healing_cards(
     }
     assert "decision:coc7:healing:first-aid-ordinary" in refs
     assert "decision:coc7:healing:medicine-ordinary" in refs
+    by_ref = {
+        row["decision_ref"]: row
+        for row in context["data"]["rule_decision_cards"]["cards"]
+    }
+    ordinary = by_ref["decision:coc7:healing:first-aid-ordinary"]
+    assert ordinary["rule_refs"] == ["rule:coc7:healing:first-aid"]
+    assert ordinary["source_refs"] == [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24",
+    ]
     projected = json.dumps(context["data"]["rule_decision_cards"])
     assert damaged["data"]["roll_id"] not in projected
     assert "source_damage_roll_id" not in projected

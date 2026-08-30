@@ -34,6 +34,13 @@ FIRST_AID_DECISIONS = (
     "decision:coc7:healing:first-aid-ordinary",
     "decision:coc7:healing:first-aid-stabilization",
 )
+RULE_CAPABILITY_BINDINGS = (
+    ("first-aid", "first-aid"),
+    ("medicine", "medicine"),
+    ("dying-clocks", "dying-check"),
+    ("dying-entry", "dying-check"),
+    ("weekly-recovery", "weekly-recovery"),
+)
 
 
 PHRASES = {
@@ -233,6 +240,22 @@ def _assistant_relations() -> list[dict[str, Any]]:
     return rows
 
 
+def _rule_capability_relations() -> list[dict[str, Any]]:
+    """Source-reviewed rule provenance for every promoted healing capability."""
+    return [
+        {
+            "relation_id": (
+                f"relation:coc7:healing:rule-{rule_name}-invokes-{capability_name}"
+            ),
+            "relation_kind": "invokes",
+            "from_node_id": f"rule:coc7:healing:{rule_name}",
+            "to_node_id": f"capability:coc7:{capability_name}",
+            "evidence_span_ids": [],
+        }
+        for rule_name, capability_name in RULE_CAPABILITY_BINDINGS
+    ]
+
+
 def build_candidate(packet: Mapping[str, Any]) -> dict[str, Any]:
     base = _read(BASE_GRAPH)
     nodes = [
@@ -248,6 +271,7 @@ def build_candidate(packet: Mapping[str, Any]) -> dict[str, Any]:
     ]
     nodes.extend(_assistant_nodes())
     relations.extend(_assistant_relations())
+    relations.extend(_rule_capability_relations())
 
     by_id = {str(node["node_id"]): node for node in nodes}
     for node in nodes:

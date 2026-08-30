@@ -10,11 +10,11 @@
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "07a94f2e4362b0cf076d62a0496d2b1964aa38bc21c07ba58a768046395fe4b2",
+  "graph_content_digest": "7b0469dc97f500cf552d3e67ed2165260098f9530e84319e444d120aa5541ffa",
   "shards": [
     {
       "shard_id": "shard:coc7:healing:section-wounds-and-healing",
-      "shard_digest": "ffa1352849c7e031887fe199ff676d72a148e0918d259b70b0917cd25773baba"
+      "shard_digest": "8908a5e9874464082b73f90bb6386b8008d4c28a30ae14822817f349e4da827b"
     }
   ],
   "family_coverage": {

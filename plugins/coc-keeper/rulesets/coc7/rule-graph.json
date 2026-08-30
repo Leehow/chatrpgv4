@@ -1740,6 +1740,70 @@
       ]
     },
     {
+      "relation_id": "relation:coc7:healing:rule-dying-clocks-invokes-dying-check",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:healing:dying-clocks",
+      "to_node_id": "capability:coc7:dying-check",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:rule-dying-entry-invokes-dying-check",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:healing:dying-entry",
+      "to_node_id": "capability:coc7:dying-check",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:rule-first-aid-invokes-first-aid",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:healing:first-aid",
+      "to_node_id": "capability:coc7:first-aid",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:rule-medicine-invokes-medicine",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:healing:medicine",
+      "to_node_id": "capability:coc7:medicine",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:rule-weekly-recovery-invokes-weekly-recovery",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:healing:weekly-recovery",
+      "to_node_id": "capability:coc7:weekly-recovery",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
+      ]
+    },
+    {
       "relation_id": "relation:coc7:healing:threshold-part-of",
       "relation_kind": "part-of",
       "from_node_id": "rule:coc7:healing:major-wound-threshold",

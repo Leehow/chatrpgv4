@@ -98,6 +98,39 @@ def test_packaged_healing_is_source_reviewed_and_graph_owned():
     )
 
 
+def test_packaged_healing_rules_explicitly_invoke_each_decision_capability():
+    graph = _read(PACKAGE / "rule-graph.json")
+    nodes = {row["node_id"]: row for row in graph["nodes"]}
+    relations = graph["relations"]
+    healing_decisions = [
+        row for row in graph["nodes"]
+        if row.get("node_kind") == "decision"
+        and (row.get("properties") or {}).get("family_id") == "healing"
+    ]
+    assert healing_decisions
+    for decision in healing_decisions:
+        decision_ref = decision["node_id"]
+        capabilities = {
+            row["to_node_id"]
+            for row in relations
+            if row.get("relation_kind") == "invokes"
+            and row.get("from_node_id") == decision_ref
+            and nodes.get(row.get("to_node_id"), {}).get("node_kind")
+            == "capability"
+        }
+        assert len(capabilities) == 1, decision_ref
+        capability_ref = next(iter(capabilities))
+        rule_refs = {
+            row["from_node_id"]
+            for row in relations
+            if row.get("relation_kind") == "invokes"
+            and row.get("to_node_id") == capability_ref
+            and nodes.get(row.get("from_node_id"), {}).get("node_kind") == "rule"
+        }
+        assert rule_refs, decision_ref
+        assert all(nodes[rule_ref].get("evidence_span_ids") for rule_ref in rule_refs)
+
+
 def test_external_source_bundle_rebuilds_production_artifacts_byte_exactly():
     raw = os.environ.get("COC_HEALING_RULE_GRAPH_SOURCE_BUNDLE")
     if not raw:
