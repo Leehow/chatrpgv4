@@ -729,6 +729,8 @@ def first_aid(
     pushed: bool = False,
     changed_method: str | None = None,
     failure_consequence: str | None = None,
+    assistant_skill_value: int | None = None,
+    assistant_rescuer_id: str | None = None,
 ) -> dict[str, Any]:
     """Build this package's canonical First Aid stabilize request.
 
@@ -746,6 +748,13 @@ def first_aid(
     if pushed:
         request["changed_method"] = changed_method
         request["failure_consequence"] = failure_consequence
+    if (assistant_skill_value is None) != (assistant_rescuer_id is None):
+        raise ValueError(
+            "assistant First Aid requires both skill value and rescuer id"
+        )
+    if assistant_skill_value is not None:
+        request["assistant_skill_value"] = assistant_skill_value
+        request["assistant_rescuer_id"] = assistant_rescuer_id
     return request
 
 
@@ -946,7 +955,8 @@ def public_api_index() -> dict[str, dict[str, Any]]:
             "aliases": [],
             "signature": (
                 "first_aid(decision_id, skill_value, rescuer_id, pushed=False, "
-                "changed_method=None, failure_consequence=None)"
+                "changed_method=None, failure_consequence=None, "
+                "assistant_skill_value=None, assistant_rescuer_id=None)"
             ),
             "returns": "canonical stabilize request for the subsystem executor",
         },

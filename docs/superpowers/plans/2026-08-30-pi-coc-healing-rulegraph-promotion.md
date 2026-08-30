@@ -165,4 +165,3 @@ plugins/coc-keeper/pi/bin/pi-coc --mode rpc --campaign rulegraph-healing-e2e-202
 - [ ] Run required metadata and rulebook audit gates plus all focused Python and Node tests.
 - [ ] Inspect the staged diff and commit only the scoped Pi-Coc/shared files.
 - [ ] Integrate the exact worker commit into `0.8.0a`, rerun the critical source/runtime/metadata gates on main, and close the task-owned worktree with the canonical lifecycle tool.
-

@@ -33,7 +33,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -1241,6 +1241,56 @@ def apply_healing_shadow_package(
         if (row["code"], row["path"]) not in existing:
             findings.append(row)
     manifest["findings"] = findings
+    return graph, manifest
+
+
+def apply_healing_graph_package(
+    graph: dict[str, Any],
+    manifest: dict[str, Any],
+    *,
+    source_bundle_identity: Mapping[str, Any],
+    reviewer_identity: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Package an independently reviewed healing shard as graph-owned.
+
+    The caller owns source review and promotion evidence.  This helper only
+    performs the deterministic, atomic ownership overlay after those gates:
+    one graph-owned family, hidden legacy Keeper surface, exact source-bundle
+    identity, and a graph digest recomputed from the resulting artifact.
+    """
+    required_source_keys = {"source_id", "bundle_sha256", "file_sha256"}
+    if set(source_bundle_identity) != required_source_keys:
+        raise ValueError(
+            "source_bundle_identity must contain source_id, bundle_sha256, "
+            "and file_sha256"
+        )
+    if not isinstance(reviewer_identity, str) or not reviewer_identity.strip():
+        raise ValueError("reviewer_identity must be a non-empty string")
+
+    graph = copy.deepcopy(graph)
+    manifest = copy.deepcopy(manifest)
+    family = "healing"
+    graph.setdefault("family_runtime_ownership", {})[family] = "graph"
+    graph.setdefault("legacy_surface_lifecycle", {})[family] = "hidden"
+    manifest["graph_content_digest"] = _json_digest(graph)
+    manifest.setdefault("family_promotion_eligibility", {})[family] = {
+        "promotion_eligible": True,
+        "runtime_ownership": "graph",
+    }
+    manifest["source_bundles"] = [copy.deepcopy(dict(source_bundle_identity))]
+    manifest["reviewer_identity"] = reviewer_identity.strip()
+    manifest["review_status"] = "accepted"
+    manifest["findings"] = [
+        copy.deepcopy(row)
+        for row in manifest.get("findings") or []
+        if not (
+            isinstance(row, Mapping)
+            and row.get("code") == "executor_capability_gap"
+            and str(row.get("path") or "").startswith(
+                "/family_promotion_eligibility/healing/"
+            )
+        )
+    ]
     return graph, manifest
 
 

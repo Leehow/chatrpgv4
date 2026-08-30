@@ -1317,6 +1317,52 @@ def test_dying_tick_and_stabilize_use_structured_healing_rules(tmp_path):
     assert "dead" not in final_state["conditions"]
 
 
+def test_two_rescuer_first_aid_emits_two_rolls_and_one_state_change(tmp_path):
+    executor = _executor("coc_subsystem_executor_first_aid_teamwork")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update({"current_hp": 5, "max_hp": 10, "conditions": []})
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    command = _command("team-aid", "stabilize", payload={
+        "decision_id": "team-aid",
+        "method": "first_aid",
+        "skill_value": 1,
+        "rescuer_id": "rescuer-primary",
+        "assistant_skill_value": 99,
+        "assistant_rescuer_id": "rescuer-assistant",
+    })
+
+    result = _execute(
+        executor, campaign, character, [command], random.Random(2),
+    )[0]
+
+    primary = result["events"][0]
+    assert primary["teamwork"] is True
+    assert primary["hp_gained"] == 1
+    evidence = [
+        row for row in result["events"]
+        if row.get("roll_role") == "percentile_check"
+    ]
+    assert [row["roll_id"] for row in evidence] == [
+        "team-aid:roll:primary",
+        "team-aid:roll:assistant",
+    ]
+    assert [row["actor_id"] for row in evidence] == [
+        "rescuer-primary",
+        "rescuer-assistant",
+    ]
+    assert [row["target"] for row in evidence] == [1, 99]
+    final_state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert final_state["current_hp"] == 6
+
+    replay = _execute(
+        executor, campaign, character, [command], random.Random(999),
+    )[0]
+    assert replay == result
+    assert json.loads(state_path.read_text(encoding="utf-8"))["current_hp"] == 6
+
+
 def test_deteriorated_stabilization_reopens_first_aid_window_and_migrates_legacy_usage(
     tmp_path,
 ):

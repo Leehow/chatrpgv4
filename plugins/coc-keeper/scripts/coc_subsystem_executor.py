@@ -4374,6 +4374,44 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                     f"{base}.rescuer_id",
                     "rescuer_id must be a stable safe ID",
                 )
+            assistant_skill = payload.get("assistant_skill_value")
+            assistant_id = payload.get("assistant_rescuer_id")
+            if (assistant_skill is None) != (assistant_id is None):
+                raise _error(
+                    "invalid_command_payload",
+                    base,
+                    "assistant First Aid requires both assistant_skill_value "
+                    "and assistant_rescuer_id",
+                )
+            if assistant_skill is not None:
+                if payload.get("method") != "first_aid":
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.assistant_skill_value",
+                        "only First Aid supports a second rescuer",
+                    )
+                if (
+                    isinstance(assistant_skill, bool)
+                    or not isinstance(assistant_skill, int)
+                    or not 1 <= assistant_skill <= 100
+                ):
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.assistant_skill_value",
+                        "assistant_skill_value must be 1..100",
+                    )
+                if not isinstance(assistant_id, str) or not _SAFE_ID.fullmatch(assistant_id):
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.assistant_rescuer_id",
+                        "assistant_rescuer_id must be a stable safe ID",
+                    )
+                if assistant_id == rescuer_id:
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.assistant_rescuer_id",
+                        "assistant_rescuer_id must name a different rescuer",
+                    )
             pushed = payload.get("pushed", False)
             if not isinstance(pushed, bool):
                 raise _error(
@@ -6793,6 +6831,87 @@ def _healing_roll_evidence(
     }
 
 
+def _healing_team_roll_evidence(
+    command_id: str,
+    payload: dict[str, Any],
+    event: dict[str, Any],
+) -> list[dict[str, Any]]:
+    rows = event.get("team_rolls")
+    if rows is None:
+        return []
+    if not isinstance(rows, list) or len(rows) != 2:
+        raise _error(
+            "invalid_healing_roll",
+            "healing.team_rolls",
+            "two-rescuer First Aid requires exactly two roll rows",
+        )
+    expected = (
+        ("primary", payload.get("rescuer_id"), payload.get("skill_value")),
+        (
+            "assistant",
+            payload.get("assistant_rescuer_id"),
+            payload.get("assistant_skill_value"),
+        ),
+    )
+    evidence: list[dict[str, Any]] = []
+    for index, (role, rescuer_id, target) in enumerate(expected):
+        row = rows[index]
+        if not isinstance(row, dict):
+            raise _error(
+                "invalid_healing_roll",
+                f"healing.team_rolls[{index}]",
+                "team roll must be an object",
+            )
+        roll = row.get("roll")
+        difficulty = str(row.get("difficulty") or "regular")
+        if (
+            row.get("rescuer_id") != rescuer_id
+            or isinstance(target, bool)
+            or not isinstance(target, int)
+            or row.get("target") != target
+            or isinstance(roll, bool)
+            or not isinstance(roll, int)
+        ):
+            raise _error(
+                "invalid_healing_roll",
+                f"healing.team_rolls[{index}]",
+                "team roll contradicts the validated command payload",
+            )
+        settlement = _resolved_percentile_fields(roll, target, difficulty)
+        if row.get("outcome") != settlement["outcome"]:
+            raise _error(
+                "invalid_healing_roll",
+                f"healing.team_rolls[{index}].outcome",
+                "team roll outcome contradicts canonical percentile settlement",
+            )
+        record = {
+            "event_type": "combat_rescue_roll",
+            "roll_id": f"{command_id}:roll:{role}",
+            "roll_role": "percentile_check",
+            "decision_id": payload.get("decision_id"),
+            "actor_id": rescuer_id,
+            "skill": "First Aid",
+            "teamwork_role": role,
+            "pushed": bool(payload.get("pushed", False)),
+            **settlement,
+            "roll": roll,
+            "bonus_penalty_dice": 0,
+            "bonus_dice": 0,
+            "penalty_dice": 0,
+            "dice": {"expression": "1D100", "raw": [roll], "total": roll},
+            "source_command_id": command_id,
+        }
+        if payload.get("pushed") is True:
+            record.update({
+                "changed_method": payload["changed_method"],
+                "announced_consequence": {
+                    "summary": payload["failure_consequence"],
+                },
+            })
+        evidence.append(record)
+    return evidence
+
+
 def _weekly_care_roll_evidence(
     command_id: str,
     payload: dict[str, Any],
@@ -7733,6 +7852,7 @@ def _dispatch_combat(
         if "dead" in healing.conditions:
             raise _error("investigator_dead", "save/investigator-state", "dead investigators cannot be rescued")
         care_event: dict[str, Any] | None = None
+        team_roll_evidence: list[dict[str, Any]] = []
         recovery_wound_id: str | None = None
         recovery_baseline: int | None = None
         recovery_elapsed: int | None = None
@@ -7805,7 +7925,11 @@ def _dispatch_combat(
             if _latest_healing_result_reopens_pushed_first_aid(state):
                 healing.reopen_subsequent_first_aid_attempt()
             event = healing.first_aid(
-                payload["skill_value"], pushed=bool(payload.get("pushed", False))
+                payload["skill_value"],
+                pushed=bool(payload.get("pushed", False)),
+                rescuer_id=payload.get("rescuer_id"),
+                assistant_skill_value=payload.get("assistant_skill_value"),
+                assistant_rescuer_id=payload.get("assistant_rescuer_id"),
             )
         else:
             wound_id, day_id, same_day = _authoritative_treatment_scope(
@@ -7830,7 +7954,14 @@ def _dispatch_combat(
                     care_event.get("outcome") if care_event is not None else None
                 ),
             )
-        roll_evidence = _healing_roll_evidence(command_id, payload, event)
+        team_roll_evidence = _healing_team_roll_evidence(
+            command_id, payload, event,
+        )
+        roll_evidence = (
+            None
+            if team_roll_evidence
+            else _healing_roll_evidence(command_id, payload, event)
+        )
         healing_evidence = _medicine_healing_evidence(command_id, payload, event)
         care_evidence = _weekly_care_roll_evidence(
             command_id, payload, care_event
@@ -7932,8 +8063,10 @@ def _dispatch_combat(
     events = [event, *additional_events]
     if kind == "combat_defend":
         events.extend(roll_events)
-    elif kind in {"dying_tick", "stabilize", "weekly_recovery"} and event.get("roll_evidence") is not None:
-        events.append(event["roll_evidence"])
+    elif kind in {"dying_tick", "stabilize", "weekly_recovery"}:
+        if event.get("roll_evidence") is not None:
+            events.append(event["roll_evidence"])
+        events.extend(team_roll_evidence)
         if care_evidence is not None:
             events.append(care_evidence)
         if healing_evidence is not None:

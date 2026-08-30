@@ -51,6 +51,67 @@ def test_first_aid_failure_heals_nothing():
     assert ev["hp_gained"] == 0
 
 
+def test_two_rescuer_first_aid_heals_once_when_either_roll_succeeds():
+    sess = coc_healing.HealingSession(
+        "inv1", hp_max=12, con_value=60, current_hp=8,
+    )
+    primary = {**_roll("failure"), "roll": 80, "target": 60}
+    assistant = {**_roll("regular"), "roll": 40, "target": 50}
+
+    event = sess.first_aid(
+        60,
+        skill_roll_result=primary,
+        rescuer_id="rescuer-primary",
+        assistant_skill_value=50,
+        assistant_roll_result=assistant,
+        assistant_rescuer_id="rescuer-assistant",
+    )
+
+    assert sess.current_hp == 9
+    assert event["hp_gained"] == 1
+    assert event["outcome"] == "regular"
+    assert event["teamwork"] is True
+    assert event["team_rolls"] == [
+        {
+            "rescuer_id": "rescuer-primary",
+            "outcome": "failure",
+            "roll": 80,
+            "target": 60,
+            "difficulty": "regular",
+        },
+        {
+            "rescuer_id": "rescuer-assistant",
+            "outcome": "regular",
+            "roll": 40,
+            "target": 50,
+            "difficulty": "regular",
+        },
+    ]
+
+
+def test_two_rescuer_first_aid_both_fail_without_duplicate_treatment():
+    sess = coc_healing.HealingSession(
+        "inv1", hp_max=12, con_value=60, current_hp=8,
+    )
+
+    event = sess.first_aid(
+        60,
+        skill_roll_result={**_roll("failure"), "roll": 80, "target": 60},
+        rescuer_id="rescuer-primary",
+        assistant_skill_value=50,
+        assistant_roll_result={
+            **_roll("failure"), "roll": 70, "target": 50,
+        },
+        assistant_rescuer_id="rescuer-assistant",
+    )
+
+    assert sess.current_hp == 8
+    assert event["hp_gained"] == 0
+    assert event["outcome"] == "failure"
+    assert len(event["team_rolls"]) == 2
+    assert sess._first_aid_used_today is True
+
+
 def test_first_aid_capped_at_hp_max():
     sess = coc_healing.HealingSession("inv1", hp_max=12, con_value=60, current_hp=12)
     ev = sess.first_aid(skill_value=60, skill_roll_result=_roll("regular"))

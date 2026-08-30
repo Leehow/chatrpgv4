@@ -1096,6 +1096,16 @@ def _tool_rules_first_aid(ctx: Ctx, args: dict[str, Any]):
         failure_consequence=(
             str(args["failure_consequence"]).strip() if pushed else None
         ),
+        assistant_skill_value=(
+            int(args["assistant_skill_value"])
+            if args.get("assistant_skill_value") is not None
+            else None
+        ),
+        assistant_rescuer_id=(
+            str(args["assistant_rescuer_id"])
+            if args.get("assistant_rescuer_id") is not None
+            else None
+        ),
     )
     results, events = _execute_subsystem_requests(
         ctx,

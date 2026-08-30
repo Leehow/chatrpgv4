@@ -554,8 +554,12 @@ changed method plus an announced consequence in `semantic_inputs`. A successful
 unstabilized CON clock or a failed hourly stabilization clock opens one new
 subsequent-attempt window; it does not turn the wound back into a fresh regular
 attempt. If no card appears — including First Aid more than an hour after the
-wound, or two people treating the same wound together — judge that as ordinary
-uncompiled long-tail; do not hunt for another healing operation. Do not wake or
+wound — judge that as ordinary uncompiled long-tail; do not hunt for another
+healing operation. When two distinct caregivers treat the same wound together,
+select the same First Aid card and pass the second caregiver as
+`semantic_inputs.assistant_rescuer_ref`; the host binds both First Aid values,
+records two public rolls, and applies at most one HP/stabilization effect when
+either succeeds. Do not wake or
 stabilize a dying investigator with generic `rules.damage(kind=heal)` or by
 editing the save; play may pause on `pending_resolution` until the applicable
 healing cards settle it.

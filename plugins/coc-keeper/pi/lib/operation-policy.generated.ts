@@ -706,22 +706,22 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "rules.dying_check": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
   },
   "rules.first_aid": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -739,11 +739,11 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "rules.medicine": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -829,11 +829,11 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "rules.settle": {
     "advisory": false,
-    "audience": "host",
+    "audience": "keeper",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "none",
+    "kp_surface": "rules",
     "phases": [
       "live_turn"
     ]
@@ -862,11 +862,11 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "rules.weekly_recovery": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -1809,19 +1809,16 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "rules.cash_assets",
     "rules.catalog_search",
     "rules.damage",
-    "rules.dying_check",
-    "rules.first_aid",
     "rules.luck_spend",
-    "rules.medicine",
     "rules.opposed",
     "rules.psychology_observe",
     "rules.push",
     "rules.roll",
     "rules.roll_dice",
     "rules.sanity_check",
+    "rules.settle",
     "rules.skill_describe",
-    "rules.social_adjudicate",
-    "rules.weekly_recovery"
+    "rules.social_adjudicate"
   ],
   "setup": [
     "progressive.follow_mentions",

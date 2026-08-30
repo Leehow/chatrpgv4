@@ -833,30 +833,30 @@ assert.equal(mod.evaluateExecuteAcl({
   phase: "live_turn",
 }).ok, true);
 
-const shadowHealing = [
+const graphHealingLegacy = [
   "rules.first_aid",
   "rules.dying_check",
   "rules.medicine",
   "rules.weekly_recovery",
 ];
 const rulesOps = mod.domainToolSchema("coc_rules").properties.operation.enum;
-assert.ok(!rulesOps.includes("rules.settle"));
 assert.ok(!rulesOps.includes("rules.context"));
-for (const operation of shadowHealing) {
-  assert.ok(rulesOps.includes(operation), operation);
-  const allowed = mod.evaluateExecuteAcl({
+assert.ok(rulesOps.includes("rules.settle"));
+for (const operation of graphHealingLegacy) {
+  assert.ok(!rulesOps.includes(operation), operation);
+  const denied = mod.evaluateExecuteAcl({
     toolName: "coc_rules",
     operation,
     phase: "live_turn",
   });
-  assert.equal(allowed.ok, true, operation);
+  assert.equal(denied.ok, false, operation);
 }
-const settleDenied = mod.evaluateExecuteAcl({
+const settleAllowed = mod.evaluateExecuteAcl({
   toolName: "coc_rules",
   operation: "rules.settle",
   phase: "live_turn",
 });
-assert.equal(settleDenied.ok, false);
+assert.equal(settleAllowed.ok, true);
 assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_context",
   operation: "rules.context",

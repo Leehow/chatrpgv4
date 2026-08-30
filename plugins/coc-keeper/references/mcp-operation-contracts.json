@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:061f48dde9d3bc222debecaff432641150240bd6a3b75eeb2e48a7f7b3c77b4c",
+  "content_sha256": "sha256:e299ce44c22c81223764932781dcbb7c8ba456b8d89f91b85bf10e3e468cc313",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -3326,10 +3326,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -3391,10 +3391,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -3498,10 +3498,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -4116,10 +4116,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "host",
+        "audience": "keeper",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "none",
+        "kp_surface": "rules",
         "phases": [
           "live_turn"
         ]
@@ -4339,10 +4339,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]

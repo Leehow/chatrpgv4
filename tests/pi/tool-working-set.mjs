@@ -448,7 +448,7 @@ const SHADOW_HEALING = [
   "rules.weekly_recovery",
 ];
 
-test("play acting keeps shadow healing and rules.settle out of the baseline", () => {
+test("play acting keeps graph healing settle card-driven", () => {
   const source = snapshot();
   const projected = workingSet.projectToolWorkingSet(source);
   assert.equal(projected.ok, true, projected.error?.message);
@@ -498,19 +498,19 @@ test("rules.context is exact-loadable only and grants expire on epoch change", (
   )));
 });
 
-test("shadow healing legacy ops are exact-loadable", () => {
+test("graph healing legacy ops are not model-loadable", () => {
   const source = snapshot();
   for (const operation of SHADOW_HEALING) {
     const loaded = workingSet.loadToolNamespace(source, {
       kind: "exact_operation",
       operation,
     });
-    assert.equal(loaded.ok, true, operation);
-    assert.ok(loaded.workingSet.activeOperationNames.includes(operation));
+    assert.equal(loaded.ok, false, operation);
+    assert.equal(loaded.code, "policy_forbidden", operation);
   }
 });
 
-test("shadow healing cards cannot promote host-only rules.settle", () => {
+test("graph healing cards activate the single rules.settle operation", () => {
   const empty = workingSet.affordancesFromHealingCardProjection({
     rule_decision_cards: { cards: [], authority: { hard_gate: false } },
   });
@@ -529,15 +529,15 @@ test("shadow healing cards cannot promote host-only rules.settle", () => {
       },
     },
   });
-  assert.deepEqual(hints, []);
+  assert.deepEqual(hints, [{ operation: "rules.settle", source: "scene" }]);
 
   const source = snapshot({
     affordances: { operations: hints },
   });
   const projected = workingSet.projectToolWorkingSet(source);
   assert.equal(projected.ok, true, projected.error?.message);
-  assert.ok(!projected.activeOperationNames.includes("rules.settle"));
+  assert.ok(projected.activeOperationNames.includes("rules.settle"));
   assert.ok(projected.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET);
   const baseline = workingSet.projectToolWorkingSet(snapshot());
-  assert.equal(projected.activeToolNames.length, baseline.activeToolNames.length);
+  assert.equal(projected.activeToolNames.length, baseline.activeToolNames.length + 1);
 });
