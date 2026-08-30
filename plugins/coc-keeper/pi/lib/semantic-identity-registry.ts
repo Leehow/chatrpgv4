@@ -38,6 +38,7 @@ export type SemanticIdentityDomain =
   | "item"
   | "weapon"
   | "route"
+  | "affordance"
   | "provenance";
 
 /** Handle prefix presented to the model for each mappable domain. */
@@ -50,6 +51,7 @@ const DOMAIN_HANDLE_PREFIX: ReadonlyMap<
   ["item", "item:"],
   ["weapon", "weapon:"],
   ["route", "route:"],
+  ["affordance", "affordance:"],
 ]);
 
 export type MappableSemanticIdentityDomain =
@@ -220,6 +222,10 @@ export type SemanticProjectionView = {
   items: ReadonlyMap<string, string>;
   weapons: ReadonlyMap<string, string>;
   routes: ReadonlyMap<string, string>;
+  /** Copy-verbatim affordance projection of the actionable route working
+   * set (scene.context `action_routes`/`route_index` rows). Same canonical
+   * ids as the route family, independently projected per family. */
+  affordances: ReadonlyMap<string, string>;
   /** Last-known handles for retired/lost snapshot entities: content may NAME
    * them (lost-id arrays) but resolution stays dead — they cannot be used. */
   lost: {
@@ -236,6 +242,7 @@ export function emptySemanticProjectionView(): SemanticProjectionView {
     items: new Map(),
     weapons: new Map(),
     routes: new Map(),
+    affordances: new Map(),
     lost: { items: new Map(), weapons: new Map() },
   };
 }
@@ -261,12 +268,16 @@ export type SemanticIdentityRegistry = {
     }
     | { live: true; state: "empty" | "ambiguous" };
   /**
-   * Authoritative snapshot replacement for `item`/`weapon`/`route` domains:
-   * members absent from the new snapshot are invalidated; present members are
-   * registered (or reused) so removed entities stop resolving immediately.
+   * Authoritative snapshot replacement for `item`/`weapon`/`route`/
+   * `affordance` domains: members absent from the new snapshot are
+   * invalidated; present members are registered (or reused) so removed
+   * entities stop resolving immediately.
    */
   applySnapshot(
-    domain: Extract<MappableSemanticIdentityDomain, "item" | "weapon" | "route">,
+    domain: Extract<
+      MappableSemanticIdentityDomain,
+      "item" | "weapon" | "route" | "affordance"
+    >,
     scope: SemanticIdentityScope,
     entries: ReadonlyArray<{ canonicalId: string; facts: readonly unknown[] }>,
   ): void;
@@ -474,7 +485,10 @@ export function createSemanticIdentityRegistry(): SemanticIdentityRegistry {
   };
 
   const applySnapshot = (
-    domain: Extract<MappableSemanticIdentityDomain, "item" | "weapon" | "route">,
+    domain: Extract<
+      MappableSemanticIdentityDomain,
+      "item" | "weapon" | "route" | "affordance"
+    >,
     scope: SemanticIdentityScope,
     entries: ReadonlyArray<{ canonicalId: string; facts: readonly unknown[] }>,
   ): void => {
@@ -591,6 +605,7 @@ export function createSemanticIdentityRegistry(): SemanticIdentityRegistry {
       items: Map<string, string>;
       weapons: Map<string, string>;
       routes: Map<string, string>;
+      affordances: Map<string, string>;
       lost: {
         items: Map<string, string>;
         weapons: Map<string, string>;
@@ -601,14 +616,19 @@ export function createSemanticIdentityRegistry(): SemanticIdentityRegistry {
       items: new Map(),
       weapons: new Map(),
       routes: new Map(),
+      affordances: new Map(),
       lost: { items: new Map(), weapons: new Map() },
     };
-    const viewProperty: ReadonlyMap<string, "rolls" | "effects" | "items" | "weapons" | "routes"> = new Map([
+    const viewProperty: ReadonlyMap<
+      string,
+      "rolls" | "effects" | "items" | "weapons" | "routes" | "affordances"
+    > = new Map([
       ["roll", "rolls"],
       ["effect", "effects"],
       ["item", "items"],
       ["weapon", "weapons"],
       ["route", "routes"],
+      ["affordance", "affordances"],
     ]);
     for (const [domain, byDomain] of records) {
       const property = viewProperty.get(domain);

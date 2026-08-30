@@ -185,8 +185,9 @@ def _tool_actions_advise(ctx: Ctx, args: dict[str, Any]):
         if legacy_route_ids and not selected_ids:
             warnings.append(
                 "intent_evidence.selected_route_ids is not a supported semantic "
-                "binding and was ignored; use matched_affordance_ids (or "
-                "selected_affordance_ids) with the exact action_routes IDs. "
+                "binding and was ignored; copy action_routes[*].affordance_id "
+                "handles verbatim into matched_affordance_ids (or "
+                "selected_affordance_ids). "
                 "Do not compensate by reading scenario files."
             )
     unavailable = [route_id for route_id in selected_ids if route_id not in route_index]
@@ -194,6 +195,8 @@ def _tool_actions_advise(ctx: Ctx, args: dict[str, Any]):
         warnings.append(
             "KP-selected authored route ids are not in the current open working set and were ignored: "
             + ", ".join(unavailable)
+            + "; copy the exact action_routes[*].affordance_id handles from "
+            + "the current scene.context verbatim"
         )
     selected_routes = [
         deepcopy(route_index[route_id])
@@ -1363,9 +1366,10 @@ def register_operations(registry) -> None:
         "intent_evidence": {
             "type": "object",
             "desc": (
-                "optional KP semantic result; bind authored routes only with "
-                "matched_affordance_ids or selected_affordance_ids from the "
-                "current action_routes index"
+                "optional KP semantic result; bind authored routes only by "
+                "copying scene.context action_routes[*].affordance_id "
+                "handles verbatim into matched_affordance_ids or "
+                "selected_affordance_ids"
             ),
             "properties": {
                 "primary_intent": {
@@ -1387,13 +1391,19 @@ def register_operations(registry) -> None:
                     "type": "array",
                     "items": {"type": "string", "minLength": 1},
                     "uniqueItems": True,
-                    "desc": "preferred exact route IDs from scene.context.action_routes",
+                    "desc": (
+                        "copy action_routes[*].affordance_id handles verbatim; "
+                        "never synthesize from route_id"
+                    ),
                 },
                 "selected_affordance_ids": {
                     "type": "array",
                     "items": {"type": "string", "minLength": 1},
                     "uniqueItems": True,
-                    "desc": "accepted alias for matched_affordance_ids",
+                    "desc": (
+                        "accepted alias for matched_affordance_ids; same "
+                        "verbatim action_routes[*].affordance_id handles"
+                    ),
                 },
                 "method": {
                     "type": "string",

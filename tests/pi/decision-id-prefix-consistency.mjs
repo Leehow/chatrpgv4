@@ -386,7 +386,9 @@ test("closed-grammar fields from validator source are covered by docs, overlays,
   const matched = advise.parameters.properties.intent_evidence
     ?.properties?.matched_affordance_ids?.description ?? "";
   assert.ok(matched.includes("Closed matched_affordance_ids grammar"));
-  assert.ok(matched.includes("affordance:commission-briefing-8"));
+  assert.ok(matched.includes("affordance:example-slug"));
+  assert.ok(matched.includes("copied verbatim"));
+  assert.ok(matched.includes("never synthesized from route_id"));
   assert.equal(matched.includes("route:commission-briefing-8"), false);
   assert.equal(matched.includes("WRONG:"), false);
   const finalize = presented.byOperation.get("turn.finalize");
@@ -464,9 +466,13 @@ test("closed-grammar fields from validator source are covered by docs, overlays,
     ["claim_id", "claim-sit-notebook-smoke", true],
     ["claim_id", "claim:sit-notebook-smoke", false],
     ["claim_id", "agency-sit-notebook-smoke", true],
+    // Campaign-10 contract: the copied affordance handle is the ONLY
+    // accepted form. The 04/05/10 guess ladder (route: → affordance: →
+    // bare slug) fails closed except for the verbatim handle.
     ["matched_affordance_ids", "route:commission-briefing-8", false],
     ["matched_affordance_ids", "affordance:commission-briefing-8", true],
-    ["matched_affordance_ids", "search-clippings", true],
+    ["matched_affordance_ids", "search-clippings", false],
+    ["matched_affordance_ids", "route:<route_id>", false],
     ["decision_id", "quick-start:x:finalize", true],
     ["original_check_decision_id", "roll-persuade-arty-access-v1", true],
     ["original_check_decision_id", "first-impression-arty-wilmot", false],

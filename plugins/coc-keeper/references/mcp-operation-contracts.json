@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:d4e88b079cbf5dc526db281cefec1c8fbb8e0806f4b69811c0cccb34ca08a10a",
+  "content_sha256": "sha256:ecb25aa9c6780be7b24fe686e3ba645d1f92ea014509ca2a8cd1a34b2697f311",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -31,7 +31,7 @@
           },
           "intent_evidence": {
             "additionalProperties": true,
-            "description": "optional KP semantic result; bind authored routes only with matched_affordance_ids or selected_affordance_ids from the current action_routes index",
+            "description": "optional KP semantic result; bind authored routes only by copying scene.context action_routes[*].affordance_id handles verbatim into matched_affordance_ids or selected_affordance_ids",
             "examples": [
               {
                 "matched_affordance_ids": [
@@ -48,7 +48,7 @@
                 "type": "object"
               },
               "matched_affordance_ids": {
-                "description": "preferred exact route IDs from scene.context.action_routes",
+                "description": "copy action_routes[*].affordance_id handles verbatim; never synthesize from route_id",
                 "items": {
                   "minLength": 1,
                   "type": "string"
@@ -83,7 +83,7 @@
                 "type": "string"
               },
               "selected_affordance_ids": {
-                "description": "accepted alias for matched_affordance_ids",
+                "description": "accepted alias for matched_affordance_ids; same verbatim action_routes[*].affordance_id handles",
                 "items": {
                   "minLength": 1,
                   "type": "string"

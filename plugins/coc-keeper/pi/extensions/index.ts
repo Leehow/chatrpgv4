@@ -4059,7 +4059,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (!invocationCampaign) return null;
     const scope = scopedRegistryScope(invocationCampaign, invocationArguments);
     const resolve = (
-      domain: "roll" | "effect" | "item" | "weapon" | "route",
+      domain: "roll" | "effect" | "item" | "weapon" | "route" | "affordance",
       handle: string,
     ): string | null => {
       const result = semanticRegistry.resolveHandle(domain, handle, scope);
@@ -4071,6 +4071,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       resolveItem: (handle) => resolve("item", handle),
       resolveWeapon: (handle) => resolve("weapon", handle),
       resolveRoute: (handle) => resolve("route", handle),
+      resolveAffordance: (handle) => resolve("affordance", handle),
     };
   };
   const clearTurnEntityFacts = (): void => {
@@ -5102,6 +5103,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           : null;
       if (sceneSnapshotData !== null) {
         const routeEntries: Array<{ canonicalId: string; facts: readonly unknown[] }> = [];
+        // Copy-verbatim affordance projection of the actionable route working
+        // set (`action_routes`/`route_index` rows — never travel `exits`).
+        // Same canonical ids, independently minted `affordance:` handles.
+        const affordanceEntries: Array<
+          { canonicalId: string; facts: readonly unknown[] }
+        > = [];
         const routeOwnerScope = {
           ...scope,
           ownerKey: `scene:${typeof sceneSnapshotData.active_scene_id === "string" ? sceneSnapshotData.active_scene_id.trim() : "unknown"}`,
@@ -5146,6 +5153,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               canonicalId: id,
               facts: [activeScene, row.resolution_kind, row.label, row.name],
             });
+            affordanceEntries.push({
+              canonicalId: id,
+              facts: [activeScene, row.resolution_kind, row.label, row.name],
+            });
           }
         }
         for (
@@ -5168,9 +5179,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
                 row.grants_clue_ids,
               ],
             });
+            affordanceEntries.push({
+              canonicalId: id,
+              facts: [
+                activeScene,
+                row.route_type,
+                row.resolution_kind,
+                row.grants_clue_ids,
+              ],
+            });
           }
         }
         semanticRegistry.applySnapshot("route", routeOwnerScope, routeEntries);
+        semanticRegistry.applySnapshot(
+          "affordance",
+          routeOwnerScope,
+          affordanceEntries,
+        );
       }
     }
 

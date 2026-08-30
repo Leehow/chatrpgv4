@@ -1449,6 +1449,95 @@ assertModelSafeContent(
   JSON.parse(modelContents.at(-1).text),
 );
 
+
+// 1b) Campaign-10 regression — commission briefing route affordance
+// projection. The model-visible action_routes row carries an exact
+// copy-verbatim `affordance_id` handle alongside its route-family
+// `route_id`; the copied handle restores to the canonical route id before
+// transport, while `route:`-prefixed and bare-slug forms fail closed at the
+// raw grammar gate (the 04/05/10 guess ladder), and route consumers keep
+// the `route:` family.
+const commissionRoute = resumeVisible.data.scene_context.action_routes[0];
+const affordanceHandle = commissionRoute.affordance_id;
+assert.match(
+  affordanceHandle,
+  /^affordance:/,
+  "actionable route must project an affordance-family handle",
+);
+assert.notEqual(
+  affordanceHandle,
+  commissionRoute.route_id,
+  "affordance and route families must stay separate namespaces",
+);
+routeOperation("actions.advise", FAMILIES.actions_advise);
+
+// Copied handle passes: the host restores the canonical route id exactly.
+await executeTool("coc_invoke", {
+  operation: "actions.advise",
+  root: testRoot,
+  campaign,
+  arguments: {
+    intent_evidence: {
+      primary_intent: "confirm the commission terms with Knott",
+      semantic_reason: "the player accepts the outlined commission",
+      matched_affordance_ids: [affordanceHandle],
+    },
+  },
+});
+assert.equal(
+  clientCalls.filter((call) => call.operation === "actions.advise").at(-1)
+    .arguments.intent_evidence.matched_affordance_ids[0],
+  "confirm-commission-terms",
+  "copied affordance handle must restore to the canonical route id",
+);
+
+// `route:` namespace on the affordance field fails closed, no transport.
+const routeFormAdvise = await executeTool("coc_invoke", {
+  operation: "actions.advise",
+  root: testRoot,
+  campaign,
+  arguments: {
+    intent_evidence: {
+      primary_intent: "confirm the commission terms with Knott",
+      semantic_reason: "the player accepts the outlined commission",
+      matched_affordance_ids: ["route:confirm-commission-terms"],
+    },
+  },
+});
+assert.equal(routeFormAdvise.isError, true);
+assert.equal(
+  JSON.parse(modelContents.at(-1).text).error.code,
+  "opaque_identity_grammar",
+);
+assert.ok(
+  !modelContents.at(-1).text.includes("confirm-commission-terms"),
+  "rejected route form must not echo the canonical id",
+);
+
+// Bare slug on the affordance field fails closed too: the verbatim handle
+// is the only accepted form.
+const bareFormAdvise = await executeTool("coc_invoke", {
+  operation: "actions.advise",
+  root: testRoot,
+  campaign,
+  arguments: {
+    intent_evidence: {
+      primary_intent: "confirm the commission terms with Knott",
+      semantic_reason: "the player accepts the outlined commission",
+      matched_affordance_ids: ["confirm-commission-terms"],
+    },
+  },
+});
+assert.equal(bareFormAdvise.isError, true);
+assert.equal(
+  JSON.parse(modelContents.at(-1).text).error.code,
+  "opaque_identity_grammar",
+);
+assert.equal(
+  clientCalls.filter((call) => call.operation === "actions.advise").length,
+  1,
+  "rejected affordance forms must never reach transport",
+);
 // 3) Explicit opaque investigator id fails closed without echo, no transport.
 const opaqueArgs = {
   root: testRoot,

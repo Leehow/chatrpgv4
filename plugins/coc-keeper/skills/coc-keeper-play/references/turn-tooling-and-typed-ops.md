@@ -32,7 +32,7 @@ neighboring namespace (`route:` is not `affordance:`; `claim:` is not `claim-`).
 | `decision_id` | `{prefix}{slug}` with prefix one of the listed DECISION_ID_PREFIXES; or `quick-start:` / `setup-complete:` colon forms; `tN-` on prefixed forms only; `:finalize` on prefixed and colon forms | `roll-persuade-arty-access-v1` | ✗ never `first-impression-arty-wilmot` |
 | `actor_id` | multi-token semantic slug or namespace `actor:`, `npc:` | `actor:example-slug` | ✗ never `route:example-slug` |
 | `advice_id` | exact handle `storylet:current-advice` or namespace `advice:`, `storylet:` | `storylet:current-advice` | ✗ never `current-advice` |
-| `affordance_id` | multi-token semantic slug or namespace `affordance:` | `affordance:commission-briefing-8` | ✗ never `route:commission-briefing-8` |
+| `affordance_id` | multi-token semantic slug or namespace `affordance:` | `affordance:example-slug` | ✗ never `route:example-slug` |
 | `assistant_rescuer_ref` | multi-token semantic slug or namespace `npc:`, `person:`, `actor:` | `npc:example-slug` | ✗ never `route:example-slug` |
 | `base_weapon_id` | multi-token semantic slug or namespace `weapon:`, `item:` | `weapon:example-slug` | ✗ never `route:example-slug` |
 | `campaign_id` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
@@ -69,10 +69,11 @@ neighboring namespace (`route:` is not `affordance:`; `claim:` is not `claim-`).
 | `item_id` | multi-token semantic slug or namespace `item:` | `item:example-slug` | ✗ never `route:example-slug` |
 | `item_ids` | multi-token semantic slug or namespace `item:` | `item:example-slug` | ✗ never `route:example-slug` |
 | `location_id` | multi-token semantic slug or namespace `location:` | `location:example-slug` | ✗ never `route:example-slug` |
+| `lookup_ref` | multi-token semantic slug or namespace `decision:` | `decision:example-slug` | ✗ never `route:example-slug` |
 | `lost_equipment_ids` | multi-token semantic slug or namespace `item:` | `item:example-slug` | ✗ never `route:example-slug` |
 | `lost_weapon_ids` | multi-token semantic slug or namespace `weapon:` | `weapon:example-slug` | ✗ never `route:example-slug` |
 | `marker_id` | multi-token semantic slug or namespace `marker:` | `marker:example-slug` | ✗ never `route:example-slug` |
-| `matched_affordance_ids` | multi-token semantic slug or namespace `affordance:` | `affordance:commission-briefing-8` | ✗ never `route:commission-briefing-8` |
+| `matched_affordance_ids` | the exact affordance_id handle copied verbatim from scene.context action_routes[*].affordance_id (namespace `affordance:`); never synthesized from route_id or any bare route id | `affordance:example-slug` | ✗ never `route:example-slug` |
 | `mechanics_ref` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
 | `notebook_entry_ids` | multi-token semantic slug or namespace `notebook:` | `notebook:example-slug` | ✗ never `route:example-slug` |
 | `npc_id` | multi-token semantic slug or namespace `npc:` | `npc:example-slug` | ✗ never `route:example-slug` |
@@ -106,7 +107,7 @@ neighboring namespace (`route:` is not `affordance:`; `claim:` is not `claim-`).
 | `scenario_id` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
 | `scene_id` | multi-token semantic slug or namespace `scene:` | `scene:example-slug` | ✗ never `route:example-slug` |
 | `seed_ids` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `selected_affordance_ids` | multi-token semantic slug or namespace `affordance:` | `affordance:commission-briefing-8` | ✗ never `route:commission-briefing-8` |
+| `selected_affordance_ids` | the exact affordance_id handle copied verbatim from scene.context action_routes[*].affordance_id (namespace `affordance:`); never synthesized from route_id or any bare route id | `affordance:example-slug` | ✗ never `route:example-slug` |
 | `social_adjudication_ref` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
 | `source_effect_id` | multi-token semantic slug or namespace `roll:`, `state:`, `rule:`, `check:`, `narration_contract:`, `effect:` | `roll:example-slug` | ✗ never `route:example-slug` |
 | `source_event_ids` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |

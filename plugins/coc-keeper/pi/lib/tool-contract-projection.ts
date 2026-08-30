@@ -2839,6 +2839,29 @@ function projectSceneContextData(
     }
     view.exit_operation_template = descriptor;
   }
+  // Campaign 04/05/10 point of use: every actionable route in the model
+  // view carries an exact copy-verbatim `affordance_id` handle (the
+  // registry's affordance family for the same canonical route id). The
+  // `route_id` keeps its own `route:` family for route consumers — the two
+  // namespaces stay separate; the KP copies the affordance handle into
+  // `actions.advise` matched/selected affordance id fields and the host
+  // restores the canonical id before transport. Rows without a live
+  // affordance mapping project without the field (fail closed).
+  for (const arrayField of ["action_routes", "route_index"]) {
+    const rows = Array.isArray(data[arrayField]) ? data[arrayField] : null;
+    if (rows === null || rows.length === 0) continue;
+    view[arrayField] = rows.map((row) => {
+      if (!isPlainObject(row)) return row;
+      const routeId = typeof row.route_id === "string" ? row.route_id : "";
+      if (!routeId || semanticIds === null) return row;
+      const canonical = routeId.startsWith("route:")
+        ? routeId.slice("route:".length)
+        : routeId;
+      const handle = semanticIds.affordances.get(canonical);
+      if (handle === undefined) return row;
+      return { ...row, affordance_id: handle };
+    });
+  }
   return sanitizeEnvelopeBranch(
     view,
     semanticIds,
@@ -3661,6 +3684,7 @@ const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["rescuer_id", stringSet(["npc:", "person:"])],
   // R3 rules.settle keeper-semantic ids: decision cards and actor refs.
   ["decision_ref", stringSet(["decision:"])],
+  ["lookup_ref", stringSet(["decision:"])],
   ["rescuer_ref", stringSet(["npc:", "person:", "actor:"])],
   ["assistant_rescuer_ref", stringSet(["npc:", "person:", "actor:"])],
   ["base_weapon_id", stringSet(["weapon:", "item:"])],
@@ -3839,6 +3863,14 @@ function rawIdentityFieldRule(
   }
   const echoed = RAW_ECHOED_FIELDS.get(field);
   if (echoed !== undefined) {
+    // Affordance binding fields are closed to the `affordance:` namespace:
+    // the exact copy-verbatim handle is the only accepted form (campaign
+    // 04/05/10 namespace-guessing ladder fails closed here).
+    if (
+      field === "matched_affordance_ids" || field === "selected_affordance_ids"
+    ) {
+      return (value) => isNamespacedSemantic(value, echoed);
+    }
     return (value) => isEchoedSemanticRef(value, echoed);
   }
   const handles = RAW_HANDLE_ONLY.get(field);
@@ -3892,14 +3924,14 @@ function grammarOverlayDescription(
     + `RIGHT: ${rightExample}.`;
 }
 
-function echoedWrongExample(namespaces: readonly string[], field: string): string {
-  if (
-    field === "matched_affordance_ids"
-    || field === "selected_affordance_ids"
-    || field === "affordance_id"
-  ) {
-    return "route:commission-briefing-8";
-  }
+/**
+ * WRONG examples in rejection guidance are deliberately NON-realistic
+ * placeholder forms. Campaigns 04/05/10 reproduced models echoing a
+ * realistic rejected literal (`route:commission-briefing-8`) straight out
+ * of the error text; a bracket-free generic slug teaches the namespace
+ * without handing the model a plausible-looking id to echo.
+ */
+function echoedWrongExample(namespaces: readonly string[]): string {
   if (namespaces.includes("route:")) return "affordance:example-slug";
   return "route:example-slug";
 }
@@ -3958,25 +3990,20 @@ export function closedIdentityGrammarSpec(
   }
   const echoed = RAW_ECHOED_FIELDS.get(field);
   if (echoed !== undefined) {
-    const namespaces = [...echoed];
-    const nsText = namespaces.length > 0
-      ? `multi-token semantic slug or namespace ${namespaces.map((n) => `\`${n}\``).join(", ")}`
-      : "multi-token semantic slug (no colon namespace)";
-    const isAffordance = field === "matched_affordance_ids"
-      || field === "selected_affordance_ids"
-      || field === "affordance_id";
-    // Campaign-09 point of use: a coverage handle is never authored, it is
-    // copied verbatim from the presented output context — and a turn with no
-    // presented obligations is represented structurally as `coverage: []`,
-    // never filled with a placeholder row ("none" or any invented filler).
-    if (field === "obligation_id" || field === "obligation_ids") {
-      const acceptedForm = "the exact obligation handle copied verbatim from "
-        + "turn.output_context required_obligation_ids (namespace `roll:`, "
-        + "`first-impression:`, or `sanity_bout:`); when turn.output_context "
-        + "presents no obligations, submit `coverage` as an empty array "
-        + "instead of any placeholder row";
-      const right = `roll:${GRAMMAR_EXAMPLE_SLUG}`;
-      const wrong = echoedWrongExample(namespaces, field);
+    // Campaign-10 point of use: affordance binding fields accept ONLY the
+    // exact `affordance_id` handle copied verbatim from scene.context
+    // `action_routes` rows. Route-namespace or bare-slug forms are closed —
+    // guessing namespaces was the 04/05/10 failure ladder
+    // (`route:` → `affordance:` → bare slug).
+    if (
+      field === "matched_affordance_ids" || field === "selected_affordance_ids"
+    ) {
+      const acceptedForm = "the exact affordance_id handle copied verbatim "
+        + "from scene.context action_routes[*].affordance_id (namespace "
+        + "`affordance:`); never synthesized from route_id or any bare "
+        + "route id";
+      const right = "affordance:example-slug";
+      const wrong = echoedWrongExample([...echoed]);
       const marker = `Closed ${field} grammar`;
       return {
         field,
@@ -3993,12 +4020,42 @@ export function closedIdentityGrammarSpec(
         ),
       };
     }
-    const right = isAffordance
-      ? "affordance:commission-briefing-8"
-      : namespaces.length > 0
-        ? `${namespaces[0]}${GRAMMAR_EXAMPLE_SLUG}`
-        : GRAMMAR_EXAMPLE_SLUG;
-    const wrong = echoedWrongExample(namespaces, field);
+    const namespaces = [...echoed];
+    const nsText = namespaces.length > 0
+      ? `multi-token semantic slug or namespace ${namespaces.map((n) => `\`${n}\``).join(", ")}`
+      : "multi-token semantic slug (no colon namespace)";
+    // Campaign-09 point of use: a coverage handle is never authored, it is
+    // copied verbatim from the presented output context — and a turn with no
+    // presented obligations is represented structurally as `coverage: []`,
+    // never filled with a placeholder row ("none" or any invented filler).
+    if (field === "obligation_id" || field === "obligation_ids") {
+      const acceptedForm = "the exact obligation handle copied verbatim from "
+        + "turn.output_context required_obligation_ids (namespace `roll:`, "
+        + "`first-impression:`, or `sanity_bout:`); when turn.output_context "
+        + "presents no obligations, submit `coverage` as an empty array "
+        + "instead of any placeholder row";
+      const right = `roll:${GRAMMAR_EXAMPLE_SLUG}`;
+      const wrong = echoedWrongExample(namespaces);
+      const marker = `Closed ${field} grammar`;
+      return {
+        field,
+        kind: "echoed",
+        acceptedForm,
+        rightExample: right,
+        wrongExample: wrong,
+        marker,
+        description: grammarOverlayDescription(
+          marker,
+          acceptedForm,
+          right,
+          "No other namespaces. ",
+        ),
+      };
+    }
+    const right = namespaces.length > 0
+      ? `${namespaces[0]}${GRAMMAR_EXAMPLE_SLUG}`
+      : GRAMMAR_EXAMPLE_SLUG;
+    const wrong = echoedWrongExample(namespaces);
     const marker = `Closed ${field} grammar`;
     const extra = namespaces.length > 0
       ? "No other namespaces. "
@@ -4308,6 +4365,7 @@ export type SemanticIdentityHandleResolver = {
   resolveItem: (handle: string) => string | null;
   resolveWeapon: (handle: string) => string | null;
   resolveRoute: (handle: string) => string | null;
+  resolveAffordance: (handle: string) => string | null;
 };
 
 /** Scalar fields whose entire value is a registry roll handle. */
@@ -4519,10 +4577,21 @@ export function restoreSemanticEntityHandles(
       if (RESTORE_ROUTE_FIELDS.has(field) && value.startsWith("route:")) {
         return "route";
       }
+      // Copy-verbatim affordance handles: the KP submits the exact
+      // `affordance_id` presented on scene.context `action_routes` rows;
+      // the host resolves it through the affordance registry family back to
+      // the canonical route id. Route-namespace or bare forms never enter
+      // this field (grammar rejects them before restoration).
+      if (
+        (field === "matched_affordance_ids" || field === "selected_affordance_ids")
+        && value.startsWith("affordance:")
+      ) {
+        return "affordance";
+      }
       return "";
     };
     const restoreOne = (
-      domain: "roll" | "effect" | "item" | "weapon" | "route",
+      domain: "roll" | "effect" | "item" | "weapon" | "route" | "affordance",
       value: string,
     ): { ok: true; value: string } | { ok: false; reason: string } => {
       const resolve = domain === "roll"
@@ -4533,7 +4602,9 @@ export function restoreSemanticEntityHandles(
         ? resolver.resolveItem
         : domain === "weapon"
         ? resolver.resolveWeapon
-        : resolver.resolveRoute;
+        : domain === "route"
+        ? resolver.resolveRoute
+        : resolver.resolveAffordance;
       const canonical = resolve(value);
       if (canonical === null) {
         return {
@@ -4558,7 +4629,7 @@ export function restoreSemanticEntityHandles(
           const domain = classify(field, value);
           if (domain === "") return null;
           const restored = restoreOne(
-            domain as "roll" | "effect" | "item" | "weapon" | "route",
+            domain as "roll" | "effect" | "item" | "weapon" | "route" | "affordance",
             value,
           );
           return restored.ok ? null : restored.reason;
@@ -4587,7 +4658,7 @@ export function restoreSemanticEntityHandles(
         const domain = classify(field, value);
         if (domain === "") return value;
         const restored = restoreOne(
-          domain as "roll" | "effect" | "item" | "weapon" | "route",
+          domain as "roll" | "effect" | "item" | "weapon" | "route" | "affordance",
           value,
         );
         if (!restored.ok) return value;
