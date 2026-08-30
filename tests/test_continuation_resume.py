@@ -762,6 +762,131 @@ def test_resume_recovers_successful_open_turn_receipt_without_reroll(
     assert again["current_turn"]["operational_row_count"] >= 1
 
 
+def test_restarted_host_closes_retained_damage_through_original_receipt(
+    tmp_path: Path,
+) -> None:
+    ws = _workspace(tmp_path, "continuation-recovered-damage")
+    workspace = Path(ws["workspace"])
+    session_id = "xai-recovered-damage-session"
+
+    first_epoch = coc_host_context.mark_lifecycle(
+        workspace,
+        session_id=session_id,
+        host="xai",
+        event="session_start",
+        source="test-host-start",
+    )
+    _call(
+        ws,
+        "session.resume",
+        {
+            "host_session_id": session_id,
+            "context_epoch": first_epoch["context_epoch"],
+        },
+    )
+    _call(
+        ws,
+        "evidence.table_opening",
+        {
+            "text": "[in_game]\n诺特的办公室里，晨光落在桌角。\n[/in_game]",
+            "run_id": "run-recovered-damage-test",
+            "presented_roll_ids": [],
+            "decision_id": "opening-recovered-damage-test",
+        },
+    )
+    player_text = "我用右拳猛砸桌角，直到指节明显破裂流血。"
+    retained = coc_host_context.record_prompt(
+        workspace,
+        session_id=session_id,
+        text=player_text,
+    )
+    assert retained is not None
+
+    damage = _call(
+        ws,
+        "rules.damage",
+        {
+            "investigator": ws["investigator_id"],
+            "amount": "1D3",
+            "kind": "damage",
+            "source": "right-fist-against-desk-corner",
+            "seed": 7,
+            "decision_id": "roll-recovered-desk-corner-damage",
+        },
+    )["data"]
+    assert damage["roll_detail"] is not None
+    assert damage["hp_after"] < damage["hp_before"]
+
+    restarted_epoch = coc_host_context.mark_lifecycle(
+        workspace,
+        session_id=session_id,
+        host="xai",
+        event="session_start",
+        source="test-host-restart",
+    )
+    resumed = _call(
+        ws,
+        "session.resume",
+        {
+            "host_session_id": session_id,
+            "context_epoch": restarted_epoch["context_epoch"],
+        },
+    )["data"]
+    assert resumed["mode"] == "open_turn_recovery"
+    assert resumed["host_input"]["text"] == player_text
+    assert resumed["host_input"]["disposition"] == "uncommitted_unclassified"
+    recovered_damage = [
+        row
+        for row in resumed["current_turn"]["rows"]
+        if row["tool"] == "rules.damage" and row["ok"] is True
+    ]
+    assert len(recovered_damage) == 1
+    assert recovered_damage[0]["data"]["roll_id"] == damage["roll_id"]
+
+    journal_args = {
+        "summary": "调查员砸向桌角，原有伤害回执已等待可见结算。",
+        "player_action": "用右拳猛砸桌角",
+        "player_text": player_text,
+        "player_speaker": "玩家",
+        "run_id": "run-recovered-damage-test",
+        "intent_class": "physical_action",
+        "decision_id": "journal-recovered-desk-corner-damage",
+    }
+    _call(ws, "state.journal", journal_args)
+    output = _call(ws, "turn.output_context")["data"]
+
+    assert output["source_roll_ids"] == [damage["roll_id"]]
+    assert [row["roll_id"] for row in output["mechanics_bundle"]["public_check"]] == [
+        damage["roll_id"]
+    ]
+    hp_deltas = [
+        row
+        for row in output["mechanics_bundle"]["state_delta"]
+        if row.get("effect_kind") == "scalar" and row.get("resource") == "HP"
+    ]
+    assert len(hp_deltas) == 1
+    assert hp_deltas[0]["before"] == damage["hp_before"]
+    assert hp_deltas[0]["after"] == damage["hp_after"]
+    assert resumed["turn_tail_quarantine"]["quarantined_orphan_rolls"] == []
+    assert resumed["turn_tail_quarantine"]["invalidated_decisions"] == []
+
+    replayed_journal = _call(ws, "state.journal", journal_args)
+    assert replayed_journal["data"]["turn_number"] == output["turn_number"]
+    replayed_output = _call(ws, "turn.output_context")["data"]
+    assert replayed_output["source_roll_ids"] == output["source_roll_ids"]
+    assert replayed_output["mechanics_bundle_sha256"] == output[
+        "mechanics_bundle_sha256"
+    ]
+
+    finalized = _finalize(
+        ws,
+        decision_id="finalize-recovered-desk-corner-damage",
+    )["data"]
+    assert finalized["source_roll_ids"] == [damage["roll_id"]]
+    assert finalized["bundle"]["public_check"][0]["roll_id"] == damage["roll_id"]
+    assert finalized["bundle"]["state_delta"] == hp_deltas
+
+
 def test_invalid_checkpoint_is_rebuilt_from_immutable_finalization(
     tmp_path: Path,
 ) -> None:

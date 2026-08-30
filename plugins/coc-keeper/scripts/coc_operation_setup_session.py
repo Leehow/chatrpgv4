@@ -909,14 +909,17 @@ _TURN_TAIL_DURABLE_DECISION_TOOLS = frozenset({
 })
 
 def _quarantine_unbound_turn_tail(ctx: Ctx) -> dict[str, Any]:
-    """Void public rolls bound to no finalization; restore save/ to the last commit.
+    """Quarantine true orphans without destroying a recoverable open turn.
 
-    Runs at session.resume: when a crash abandoned a turn mid-write, its rolls
-    and state writes must never silently persist into canonical state or the
-    battle report.  Rolls are dispositioned in an append-only ledger (never
-    rewritten or deleted); turn-scoped state restores from the latest
-    finalized turn commit.  Rolls owned by a live pending-turn manifest
-    are legitimate in-flight work, never quarantine targets.
+    A successful non-replay mutation after the durable turn cursor is the
+    current in-flight turn, even when a host restart happened before
+    ``state.journal``.  ``session.resume.current_turn`` already exposes that
+    exact source window, so quarantine must defer while it is recoverable;
+    otherwise it would advertise a reusable receipt after voiding the same
+    roll and restoring its state.  With no open source window, genuinely
+    unbound rolls are dispositioned append-only and turn-scoped state restores
+    from the latest finalized commit as before.  Rolls owned by a live pending
+    manifest are likewise legitimate in-flight work.
     """
     pending_window_rolls: set[str] = set()
     has_pending_turn = False
@@ -928,6 +931,38 @@ def _quarantine_unbound_turn_tail(ctx: Ctx) -> dict[str, Any]:
         has_pending_turn = True
         _manifest, window, _journal = refresh
         pending_window_rolls = coc_turn_finalization._referenced_roll_ids(window)
+    source_tail: list[dict[str, Any]] = []
+    if not has_pending_turn:
+        source_boundary = coc_turn_manifest.effective_source_boundary(
+            ctx.campaign_dir
+        )
+        source_tail = coc_turn_manifest.uncommitted_source_rows(ctx.campaign_dir)
+        meaningful_tools = _turn_recovery_meaningful_tools()
+        recoverable_rows = [
+            row
+            for row in source_tail
+            if row.get("ok") is True
+            and row.get("idempotent_replay") is not True
+            and str(row.get("tool") or "") in meaningful_tools
+        ]
+        if (
+            source_boundary["cursor_close_owner"] == "turn.finalize"
+            and int(source_boundary["effective_start_index"]) > 0
+            and recoverable_rows
+        ):
+            # The exact toolbox rows and canonical state are the recovery
+            # source.  Deferring unrelated orphan cleanup is required because
+            # restoring save/ here would also roll back this live turn.  Once
+            # the turn finalizes, its cursor advances and a later empty-window
+            # resume can quarantine any independent historical orphan safely.
+            return {
+                "quarantined_orphan_rolls": [],
+                "restored_commit_snapshot": None,
+                "invalidated_decisions": [],
+                "discarded_development_ticks": {
+                    "queue": 0, "claims": 0, "archive": 0,
+                },
+            }
     orphan_ids = [
         roll_id
         for roll_id in coc_turn_finalization.unbound_public_roll_ids(ctx.campaign_dir)
@@ -944,7 +979,6 @@ def _quarantine_unbound_turn_tail(ctx: Ctx) -> dict[str, Any]:
 
     invalidation_candidates: set[tuple[str, str]] = set()
     if not has_pending_turn:
-        source_tail = coc_turn_manifest.uncommitted_source_rows(ctx.campaign_dir)
         for row in source_tail:
             tool_name = str(row.get("tool") or "")
             tool_spec = TOOLS.get(tool_name)
