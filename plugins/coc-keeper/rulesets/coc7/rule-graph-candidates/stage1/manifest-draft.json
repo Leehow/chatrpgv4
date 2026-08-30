@@ -138,7 +138,7 @@
     },
     "healing": {
       "promotion_eligible": false,
-      "runtime_ownership": "graph",
+      "runtime_ownership": "shadow",
       "shadow_exclusions": [
         {
           "exclusion_id": "first-aid-one-hour-eligibility-enforcement",

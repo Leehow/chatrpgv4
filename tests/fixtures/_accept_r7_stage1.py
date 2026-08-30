@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""R7 stage-1 independent acceptance/build (post dual APPROVE reviews).
+"""R7 stage-1 deterministic review build (post dual candidate reviews).
 
-This script is the independent acceptance authority for the prepared
-stage-1 candidates.  It is NOT the producer: ``_gen_r7_stage1_candidates.py``
+This script mechanically exercises the compiler accept/build interface for the
+reviewed stage-1 candidates. It is NOT source-acceptance authority and is not
+the producer: ``_gen_r7_stage1_candidates.py``
 still writes a revision-required draft and never calls accept()/build().
 
 Inputs (immutable, reviewed):
@@ -20,8 +21,8 @@ Process:
 2. Pair each packet with the committed (reviewed) candidate.
 3. ``coc_rule_graph.accept(packet, candidate)`` per shard.
 4. ``coc_rule_graph.build(shards)``.
-5. Overlay independent-review metadata, preserve per-file source
-   identities, preserve ownership (healing graph/hidden; every other
+5. Overlay independent-review metadata, preserve per-file derivative
+   identities, preserve ownership (healing shadow/visible; every other
    family legacy/visible), recompute graph_content_digest.
 
 Never writes production ``rule-graph.json`` / ``rule-graph-manifest.json``.
@@ -48,34 +49,34 @@ import coc_rule_graph as _rg  # noqa: E402
 
 ACCEPTED_DIR = gen.CANDIDATES_DIR / "accepted"
 REVIEWER_IDENTITY = "r7-review-semantics-package"
-REVIEW_STATUS = "accepted"
+REVIEW_STATUS = "revision-required"
 
-# Independent review evidence. Paths are repo-relative; reasons are the
-# published verdicts. Bound as contract findings (code/path/message) so the
-# build manifest — not an extra sidecar — carries the acceptance authority.
+# Independent review evidence. The verdicts approve prepared candidates and
+# packaging discipline only. They explicitly do not grant source acceptance,
+# runtime promotion, or production integration authority.
 REVIEW_EVIDENCE_FINDINGS = [
     {
         "code": "independent_review",
         "path": "/reviewer_identity/r7-review-semantics",
         "message": (
-            "Independent semantic review APPROVE (reviewer r7-review-semantics). "
-            "Evidence: .pi/findings/r7-review-semantics.md. Overall verdict: "
-            "APPROVE AS PREPARED CANDIDATES. Families social, psychology, "
-            "resource, core-check, push-luck, development/lookups, and healing "
-            "preservation closed prior semantic blockers without broadening "
-            "unsupported compiled claims."
+            "Independent semantic review APPROVE AS PREPARED CANDIDATES "
+            "(reviewer r7-review-semantics). Evidence: plugins/coc-keeper/"
+            "rulesets/coc7/rule-graph-candidates/stage1/reviews/"
+            "r7-review-semantics.md. The verdict explicitly remains "
+            "revision-required and does not accept source binding, promotion, "
+            "or production integration."
         ),
     },
     {
         "code": "independent_review",
         "path": "/reviewer_identity/r7-review-package",
         "message": (
-            "Independent package/process review APPROVE (reviewer "
-            "r7-review-package). Evidence: .pi/findings/r7-review-package.md. "
-            "Package/process verdict: APPROVE. No self-acceptance; immutable "
-            "baseline generation; exhaustive healing byte equality; per-file "
-            "source identities; ownership unchanged. Acceptance metadata "
-            "requirements 1-7 applied at this independent accept/build step."
+            "Independent package/process review APPROVE AS A PREPARED "
+            "CANDIDATE PACKAGE (reviewer r7-review-package). Evidence: plugins/"
+            "coc-keeper/rulesets/coc7/rule-graph-candidates/stage1/reviews/"
+            "r7-review-package.md. The verdict explicitly remains "
+            "revision-required; rules-json identities are derivative parity "
+            "evidence, not rulebook source acceptance."
         ),
     },
 ]
@@ -103,10 +104,10 @@ def _overlay_acceptance(
     """Independent-review overlay on a compiler build() result.
 
     ``build()`` stays R1 (every family legacy, never promotion-eligible,
-    reviewer_identity=deterministic). Packaging for the accepted stage-1
+    reviewer_identity=deterministic). Packaging for the stage-1 review build
     candidate records the independent reviewers, preserves per-file source
     identities, and restores the production ownership ledger: healing remains
-    graph/hidden; every other family remains legacy/visible.
+    shadow/visible; every other family remains legacy/visible.
     """
     graph = copy.deepcopy(graph)
     manifest = copy.deepcopy(manifest)
@@ -114,8 +115,8 @@ def _overlay_acceptance(
     lifecycle = graph.setdefault("legacy_surface_lifecycle", {})
     for family in gen.ALL_FAMILIES:
         if family == "healing":
-            ownership[family] = "graph"
-            lifecycle[family] = "hidden"
+            ownership[family] = "shadow"
+            lifecycle[family] = "visible"
         else:
             ownership[family] = "legacy"
             lifecycle[family] = "visible"
@@ -194,7 +195,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="r7-stage1-evidence-") as raw:
         graph, manifest = accept_and_build(Path(raw))
     write_accepted(ACCEPTED_DIR, graph, manifest)
-    print("stage-1 independent acceptance written:")
+    print("stage-1 deterministic review build written:")
     print(f"  dir: {ACCEPTED_DIR.relative_to(ROOT)}")
     print(f"  nodes: {len(graph['nodes'])}  relations: {len(graph['relations'])}")
     print(f"  shards: {len(manifest['shards'])}")

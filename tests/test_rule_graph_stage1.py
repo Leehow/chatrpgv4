@@ -13,9 +13,9 @@ Floors asserted here:
 
 - Prepared draft remains ``review_status="revision-required"`` /
   ``reviewer_identity=None`` with unset digests (producer never accepts).
-- Accepted package: ``review_status="accepted"``, reviewer identity derived
-  from the independent reviews, real graph/shard digests, both review
-  evidence paths bound as contract findings.
+- Deterministic review build: ``review_status="revision-required"``, reviewer
+  identity derived from the independent reviews, real graph/shard digests,
+  and both committed review evidence paths bound as contract findings.
 - Healing byte preservation: production graph and manifest stay byte-identical
   to the pre-stage1 baselines; candidates and the accepted graph never
   redeclare healing-owned ``resource:coc7:hp``.
@@ -23,7 +23,7 @@ Floors asserted here:
   graph): higher-of social composition, PC-coercion penalty, psychology truth
   mapping, generic HP/MP/Luck delta.
 - Per-file source identities preserved through accept/build.
-- Ownership unchanged: healing graph/hidden, every other family legacy/visible.
+- Ownership unchanged: healing shadow/visible, every other family legacy/visible.
   Nothing integrated into production; nothing deleted.
 """
 from __future__ import annotations
@@ -432,7 +432,7 @@ def test_ownership_unchanged_and_promotion_ineligible(draft_manifest):
     for family in gen.ALL_FAMILIES:
         promo = draft_manifest["family_promotion_eligibility"][family]
         if family == "healing":
-            assert promo["runtime_ownership"] == "graph"
+            assert promo["runtime_ownership"] == "shadow"
             assert promo["promotion_eligible"] is False
             continue
         assert promo == {
@@ -440,8 +440,8 @@ def test_ownership_unchanged_and_promotion_ineligible(draft_manifest):
             "runtime_ownership": "legacy",
         }, family
     baseline = _load(BASELINE_GRAPH)
-    assert baseline["family_runtime_ownership"]["healing"] == "graph"
-    assert baseline["legacy_surface_lifecycle"]["healing"] == "hidden"
+    assert baseline["family_runtime_ownership"]["healing"] == "shadow"
+    assert baseline["legacy_surface_lifecycle"]["healing"] == "visible"
     for family in gen.ALL_FAMILIES:
         if family == "healing":
             continue
@@ -512,7 +512,7 @@ def test_accepted_package_equals_independent_accept_build(tmp_path):
 
 def test_accepted_reviewer_is_independent_not_producer(accepted_package):
     _graph, manifest = accepted_package
-    assert manifest["review_status"] == "accepted"
+    assert manifest["review_status"] == "revision-required"
     assert manifest["reviewer_identity"] == acc.REVIEWER_IDENTITY
     assert manifest["reviewer_identity"] != "deterministic"
     assert "stage1-candidates" not in manifest["reviewer_identity"]
@@ -529,11 +529,11 @@ def test_accepted_reviewer_is_independent_not_producer(accepted_package):
         row["path"]: row["message"] for row in manifest["findings"]
         if row["code"] == "independent_review"
     }
-    assert ".pi/findings/r7-review-semantics.md" in reasons[
+    assert "stage1/reviews/r7-review-semantics.md" in reasons[
         "/reviewer_identity/r7-review-semantics"
     ]
     assert "APPROVE" in reasons["/reviewer_identity/r7-review-semantics"]
-    assert ".pi/findings/r7-review-package.md" in reasons[
+    assert "stage1/reviews/r7-review-package.md" in reasons[
         "/reviewer_identity/r7-review-package"
     ]
     assert "APPROVE" in reasons["/reviewer_identity/r7-review-package"]
@@ -567,10 +567,24 @@ def test_accepted_preserves_per_file_source_identities(
         assert row["file_sha256"] == _sha256(path)
 
 
+def test_derivative_review_build_cannot_claim_rulebook_source_acceptance(
+    accepted_package,
+):
+    _graph, manifest = accepted_package
+    assert manifest["review_status"] == "revision-required"
+    assert all(
+        row["source_id"].startswith("rules-json:coc7:")
+        for row in manifest["source_bundles"]
+    )
+    status = (CANDIDATES / "STATUS.md").read_text(encoding="utf-8")
+    assert "not source-accepted" in status
+    assert "page-level rulebook corpus" in status
+
+
 def test_accepted_ownership_unchanged(accepted_package):
     graph, manifest = accepted_package
-    assert graph["family_runtime_ownership"]["healing"] == "graph"
-    assert graph["legacy_surface_lifecycle"]["healing"] == "hidden"
+    assert graph["family_runtime_ownership"]["healing"] == "shadow"
+    assert graph["legacy_surface_lifecycle"]["healing"] == "visible"
     for family in gen.ALL_FAMILIES:
         if family == "healing":
             continue
