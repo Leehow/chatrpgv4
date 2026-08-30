@@ -238,6 +238,85 @@ _REQUIRED_RESOLVER_ATTRS = ("check", "resource_delta", "public_api_index")
 _RESOLVER_CACHE: dict[str, ModuleType] = {}
 _RULE_GRAPH_ADAPTER_CACHE: dict[str, Any] = {}
 
+_DAMAGE_STATE_EFFECT_FIELDS = frozenset({
+    "schema_version",
+    "actor_id",
+    "decision_id",
+    "amount",
+    "before",
+    "after",
+    "maximum",
+    "occurred_elapsed_minutes",
+    "source_event_id",
+})
+
+
+def apply_damage_state_effect(
+    resolver: Any,
+    actor_state: dict[str, Any],
+    event: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply one optional package-owned consequence of settled damage.
+
+    The kernel supplies only a typed, ruleset-neutral damage event and treats
+    actor state as opaque. Packages without ``damage_state_effect`` receive an
+    exact deep-copied no-op. A package hook must remain pure: it returns the
+    replacement actor-state object and performs no campaign I/O.
+    """
+    if not isinstance(actor_state, dict):
+        raise ValueError("damage state effect requires an actor-state object")
+    if (
+        not isinstance(event, dict)
+        or set(event) != set(_DAMAGE_STATE_EFFECT_FIELDS)
+    ):
+        raise ValueError("damage state effect event does not match schema version 1")
+    exact_ints = (
+        event.get("amount"),
+        event.get("before"),
+        event.get("after"),
+        event.get("maximum"),
+        event.get("occurred_elapsed_minutes"),
+    )
+    if (
+        event.get("schema_version") != 1
+        or not isinstance(event.get("actor_id"), str)
+        or not event["actor_id"]
+        or not isinstance(event.get("decision_id"), str)
+        or not event["decision_id"]
+        or any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in exact_ints
+        )
+        or int(event["amount"]) <= 0
+        or not (
+            0
+            <= int(event["after"])
+            < int(event["before"])
+            <= int(event["maximum"])
+        )
+        or int(event["occurred_elapsed_minutes"]) < 0
+        or (
+            event.get("source_event_id") is not None
+            and (
+                not isinstance(event.get("source_event_id"), str)
+                or not event["source_event_id"]
+            )
+        )
+    ):
+        raise ValueError("damage state effect event is invalid")
+    hook = getattr(resolver, "damage_state_effect", None)
+    if hook is None:
+        return deepcopy(actor_state)
+    if not callable(hook):
+        raise ValueError("ruleset damage_state_effect must be callable")
+    projected = hook(
+        actor_state=deepcopy(actor_state),
+        event=deepcopy(event),
+    )
+    if not isinstance(projected, dict):
+        raise ValueError("ruleset damage_state_effect must return actor state")
+    return projected
+
 
 def get_resolver(campaign: dict[str, Any] | None = None) -> ModuleType:
     """Return the active campaign's ruleset resolver module (contract §4).

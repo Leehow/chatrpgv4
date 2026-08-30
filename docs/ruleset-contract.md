@@ -239,6 +239,14 @@ the active campaign's resolver through the kernel registry
   concealed-observation inference ceiling and fumble policy. The kernel owns
   one-window identity, concealed persistence, and player-safe realization
   binding.
+- Optional `damage_state_effect(actor_state, event)` — package-owned,
+  side-effect-free projection from one already-settled positive damage event
+  into the package's opaque actor state. The event contains only semantic
+  actor/decision identity, numeric before/after/maximum/amount values,
+  authoritative elapsed time, and an optional host-owned source-event id. The
+  hook returns the replacement actor-state object and performs no I/O. Absence
+  is an exact no-op; generic kernel and subsystem code never know package
+  fields such as wounds, injuries, or treatment ledgers.
 - Optional subsystem session types (combat/chase/sanity equivalents) behind
   the same context/execute/end tool pattern the kernel already exposes.
 

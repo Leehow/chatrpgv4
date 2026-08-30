@@ -33,6 +33,7 @@ RULE_GRAPH_CONTRACT_PATH = (
 _FAMILY_RUNTIME_OWNERS = {"legacy", "shadow", "graph"}
 _FAMILY_LEGACY_SURFACES = {"visible", "hidden", "removed"}
 REQUIRED_RESOLVER_ATTRS = ("check", "resource_delta", "public_api_index")
+OPTIONAL_RESOLVER_ATTRS = ("damage_state_effect",)
 _FRONTMATTER_KEY = re.compile(r"^([A-Za-z_]+):", re.MULTILINE)
 
 
@@ -93,6 +94,11 @@ def _check_resolver(package_dir: Path, problems: list[str]) -> None:
         if not callable(getattr(module, attr, None)):
             problems.append(
                 f"resolver.py: missing required callable attribute {attr!r}"
+            )
+    for attr in OPTIONAL_RESOLVER_ATTRS:
+        if hasattr(module, attr) and not callable(getattr(module, attr)):
+            problems.append(
+                f"resolver.py: optional attribute {attr!r} must be callable"
             )
 
 

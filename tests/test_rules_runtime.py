@@ -2154,6 +2154,9 @@ def test_rules_damage_establishes_one_active_wound_and_projects_healing_cards(
     projected = json.dumps(context["data"]["rule_decision_cards"])
     assert damaged["data"]["roll_id"] not in projected
     assert "source_damage_roll_id" not in projected
+    visible_context = json.dumps(context["data"])
+    assert "ruleset_damage_receipts" not in visible_context
+    assert "integrity_digest" not in visible_context
 
 
 @pytest.mark.parametrize(
@@ -2199,6 +2202,125 @@ def test_rules_damage_unknown_investigator_cannot_create_wound_state(
     assert not (
         ws["campaign_dir"] / "save" / "investigator-state" / f"{unknown_id}.json"
     ).exists()
+
+
+@pytest.mark.parametrize("failure_stage", ["state", "roll", "event", "ledger"])
+def test_rules_damage_recovers_every_post_settlement_write_without_double_damage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+):
+    ws = _fresh_workspace(tmp_path, f"damage-recovery-{failure_stage}")
+    decision_id = f"damage-recovery-{failure_stage}-v1"
+    args = {
+        "investigator": ws["investigator_id"],
+        "amount": "1D3",
+        "kind": "damage",
+        "source": "falling crate",
+        "decision_id": decision_id,
+        "seed": 3,
+    }
+    before_state = _inv_state(ws)
+    before_state_bytes = _state_bytes(ws)
+    ctx_type = coc_toolbox.Ctx
+    method_name = {
+        "state": "save_inv_state",
+        "roll": "log_roll",
+        "event": "log_event",
+        "ledger": "ledger_record",
+    }[failure_stage]
+    original = getattr(ctx_type, method_name)
+    failed_once = False
+
+    def injected_failure(self, *call_args, **call_kwargs):
+        nonlocal failed_once
+        relevant = {
+            "state": lambda: True,
+            "roll": lambda: bool(
+                call_args
+                and isinstance(call_args[0], dict)
+                and call_args[0].get("kind") == "hp_damage"
+            ),
+            "event": lambda: bool(
+                call_args
+                and isinstance(call_args[0], dict)
+                and call_args[0].get("event_type") == "hp_change"
+            ),
+            "ledger": lambda: bool(
+                len(call_args) >= 2 and call_args[1] == "rules.damage"
+            ),
+        }[failure_stage]()
+        if relevant and not failed_once:
+            failed_once = True
+            raise OSError(f"injected {failure_stage} persistence failure")
+        return original(self, *call_args, **call_kwargs)
+
+    monkeypatch.setattr(ctx_type, method_name, injected_failure)
+    failed = _run(ws, "rules.damage", args)
+    assert failed["ok"] is False, failed
+    assert failed_once is True
+    assert any("exact same decision_id" in hint for hint in failed["hints"])
+
+    if failure_stage == "state":
+        assert _state_bytes(ws) == before_state_bytes
+        assert _rolls(ws) == []
+        assert not any(
+            row.get("event_type") == "hp_change"
+            for row in _read_jsonl(ws["campaign_dir"] / "logs" / "events.jsonl")
+        )
+    else:
+        frozen_state = _inv_state(ws)
+        assert decision_id in frozen_state["ruleset_damage_receipts"]
+        assert frozen_state["current_hp"] < before_state["current_hp"]
+
+    recovered = _run(ws, "rules.damage", args)
+    assert recovered["ok"] is True, recovered
+    assert recovered["data"]["hp_before"] == before_state["current_hp"]
+    assert _inv_state(ws)["current_hp"] == recovered["data"]["hp_after"]
+    assert len(_inv_state(ws)["wound_ledger"]) == 1
+    roll_id = recovered["data"]["roll_id"]
+    assert len([row for row in _rolls(ws) if row.get("roll_id") == roll_id]) == 1
+    hp_events = [
+        row
+        for row in _read_jsonl(ws["campaign_dir"] / "logs" / "events.jsonl")
+        if row.get("event_type") == "hp_change"
+        and row.get("decision_id") == decision_id
+    ]
+    assert len(hp_events) == 1
+    ledger = json.loads(
+        (ws["campaign_dir"] / "save" / "toolbox-ledger.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    entries = [
+        row
+        for row in ledger["entries"].values()
+        if row.get("tool") == "rules.damage"
+        and row.get("decision_id") == decision_id
+    ]
+    assert len(entries) == 1
+
+    replay = _run(ws, "rules.damage", args)
+    assert replay["ok"] is True, replay
+    assert replay["data"] == recovered["data"]
+    assert len(_inv_state(ws)["wound_ledger"]) == 1
+    assert len([row for row in _rolls(ws) if row.get("roll_id") == roll_id]) == 1
+    assert len([
+        row
+        for row in _read_jsonl(ws["campaign_dir"] / "logs" / "events.jsonl")
+        if row.get("event_id") == hp_events[0]["event_id"]
+    ]) == 1
+    replay_ledger = json.loads(
+        (ws["campaign_dir"] / "save" / "toolbox-ledger.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert len([
+        row
+        for row in replay_ledger["entries"].values()
+        if row.get("tool") == "rules.damage"
+        and row.get("decision_id") == decision_id
+    ]) == 1
 
 
 def test_scene_context_survives_missing_graph(tmp_path: Path, monkeypatch):

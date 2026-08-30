@@ -19,7 +19,9 @@ rather than rewriting them"). No arithmetic is reimplemented here:
   exactly as the toolbox ``rules.sanity_check`` handler did inline.
 - ``damage`` resolves integer/dice amounts and HP clamp arithmetic exactly
   as the toolbox ``rules.damage`` handler did inline; ``resource_delta``
-  mirrors the same pool clamps for direct callers.
+  mirrors the same pool clamps for direct callers. ``damage_state_effect``
+  projects an already-settled positive loss into CoC7's wound ledger without
+  doing campaign I/O.
 - ``roll_dice`` / ``luck_spend`` delegate to ``coc_roll.roll_expression`` /
   ``coc_roll.spend_luck``; ``cash_assets`` / ``build_scale`` delegate to the
   ``coc_rules`` lookups; ``skill_describe`` reads this package's own
@@ -40,6 +42,7 @@ import importlib.util
 import json
 import random
 import sys
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -71,11 +74,32 @@ def _load_sibling(name: str, filename: str):
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
 coc_sanity = _load_sibling("coc_sanity", "coc_sanity.py")
+coc_healing = _load_sibling("coc_healing", "coc_healing.py")
 
 # Pool resources declared in manifest.json.
 _RESOURCE_KEYS = frozenset({"hp", "san", "mp", "luck"})
 
 _DIRECTIONS = frozenset({"loss", "gain"})
+
+
+def damage_state_effect(
+    *,
+    actor_state: dict[str, Any],
+    event: dict[str, Any],
+) -> dict[str, Any]:
+    """Project settled HP damage into CoC7's healing-domain wound ledger."""
+    state = deepcopy(actor_state)
+    coc_healing.establish_damage_wound(
+        state,
+        decision_id=str(event["decision_id"]),
+        occurred_elapsed_minutes=int(event["occurred_elapsed_minutes"]),
+        source_damage_roll_id=(
+            str(event["source_event_id"])
+            if event.get("source_event_id") is not None
+            else None
+        ),
+    )
+    return state
 
 _SOCIAL_APPROACH_SKILLS = {
     "charm": "Charm",

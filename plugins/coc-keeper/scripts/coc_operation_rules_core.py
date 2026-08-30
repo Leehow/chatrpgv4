@@ -52,7 +52,21 @@ from coc_operation_kernel_runtime import (
 )
 
 coc_catalog = _load_sibling("coc_catalog", "coc_catalog.py")
-coc_healing = _load_sibling("coc_healing_rules_core", "coc_healing.py")
+
+_DAMAGE_RECEIPTS_KEY = "ruleset_damage_receipts"
+_DAMAGE_RECEIPT_SCHEMA_VERSION = 1
+_DAMAGE_RECEIPT_LIMIT = 300
+_DAMAGE_RECEIPT_FIELDS = frozenset({
+    "schema_version",
+    "tool",
+    "decision_id",
+    "fingerprint",
+    "operation",
+    "data",
+    "roll_record",
+    "event",
+    "integrity_digest",
+})
 
 _DICE_MULTIPLIER_PATTERN = re.compile(
     r"^(?P<base>\d+D\d+(?:[+-]\d+)?)[*Xx×](?P<factor>\d+)$"
@@ -727,19 +741,167 @@ def _tool_rules_opposed(ctx: Ctx, args: dict[str, Any]):
         )
     return data, [], hints
 
+def _damage_operation(
+    args: dict[str, Any], investigator_id: str, kind: str
+) -> dict[str, Any]:
+    return {
+        "investigator_id": investigator_id,
+        "amount": deepcopy(args["amount"]),
+        "kind": kind,
+        "source": args.get("source"),
+        "seed": args.get("seed"),
+    }
+
+
+def _damage_receipt_integrity(receipt: dict[str, Any]) -> str:
+    return _canonical_digest({
+        key: value for key, value in receipt.items() if key != "integrity_digest"
+    })
+
+
+def _damage_receipts(state: dict[str, Any]) -> dict[str, Any]:
+    receipts = state.get(_DAMAGE_RECEIPTS_KEY)
+    if receipts is None:
+        return {}
+    if not isinstance(receipts, dict):
+        raise ToolError("state_corrupt", "damage receipt index is invalid")
+    return receipts
+
+
+def _validate_damage_receipt(
+    receipt: dict[str, Any],
+    *,
+    decision_id: str,
+    operation: dict[str, Any],
+) -> None:
+    data = receipt.get("data")
+    event = receipt.get("event")
+    roll_record = receipt.get("roll_record")
+    valid_roll = roll_record is None or (
+        isinstance(roll_record, dict)
+        and isinstance(data, dict)
+        and isinstance(data.get("roll_id"), str)
+        and roll_record.get("roll_id") == data.get("roll_id")
+    )
+    if (
+        set(receipt) != set(_DAMAGE_RECEIPT_FIELDS)
+        or receipt.get("schema_version") != _DAMAGE_RECEIPT_SCHEMA_VERSION
+        or receipt.get("tool") != "rules.damage"
+        or receipt.get("decision_id") != decision_id
+        or receipt.get("fingerprint")
+        != _operation_fingerprint("rules.damage", operation)
+        or receipt.get("operation") != operation
+        or not isinstance(data, dict)
+        or data.get("investigator_id") != operation["investigator_id"]
+        or not valid_roll
+        or not isinstance(event, dict)
+        or event
+        != {
+            "event_id": _operation_event_id("rules.damage", decision_id),
+            "event_type": "hp_change",
+            "decision_id": decision_id,
+            **deepcopy(data),
+        }
+        or receipt.get("integrity_digest") != _damage_receipt_integrity(receipt)
+    ):
+        raise ToolError(
+            "state_corrupt",
+            f"rules.damage receipt for decision_id {decision_id!r} is invalid",
+        )
+
+
+def _ensure_damage_roll(ctx: Ctx, receipt: dict[str, Any]) -> None:
+    expected = receipt.get("roll_record")
+    if expected is None:
+        return
+    roll_id = str(expected["roll_id"])
+    matches = [
+        row
+        for row in _read_jsonl_records(ctx.campaign_dir / "logs" / "rolls.jsonl")
+        if row.get("roll_id") == roll_id
+    ]
+    if not matches:
+        ctx.log_roll(deepcopy(expected))
+        return
+    if len(matches) != 1 or matches[0] != expected:
+        raise ToolError(
+            "state_corrupt", f"rules.damage roll_id {roll_id!r} is ambiguous"
+        )
+
+
+def _ensure_damage_event(ctx: Ctx, receipt: dict[str, Any]) -> None:
+    expected = receipt["event"]
+    event_id = str(expected["event_id"])
+    matches = [
+        row
+        for row in _read_jsonl_records(ctx.campaign_dir / "logs" / "events.jsonl")
+        if row.get("event_id") == event_id
+    ]
+    if not matches:
+        ctx.log_event(deepcopy(expected))
+        return
+    normalized = {
+        key: value for key, value in matches[0].items() if key != "ts"
+    }
+    if len(matches) != 1 or normalized != expected:
+        raise ToolError(
+            "state_corrupt", f"rules.damage event_id {event_id!r} is ambiguous"
+        )
+
+
+def _recover_damage_receipt(ctx: Ctx, receipt: dict[str, Any]) -> None:
+    try:
+        _ensure_damage_roll(ctx, receipt)
+        _ensure_damage_event(ctx, receipt)
+        prior = ctx.ledger_lookup("rules.damage", str(receipt["decision_id"]))
+        if prior is None:
+            ctx.ledger_record(
+                str(receipt["decision_id"]),
+                "rules.damage",
+                deepcopy(receipt["data"]),
+            )
+        elif prior.get("data") != receipt["data"]:
+            raise ToolError(
+                "state_corrupt", "toolbox ledger conflicts with damage receipt"
+            )
+    except ToolError:
+        raise
+    except Exception as exc:
+        raise ToolError(
+            "damage_transaction_incomplete",
+            "damage is frozen in actor state; retry the same decision_id to repair its evidence",
+        ) from exc
+
+
 def _tool_rules_damage(ctx: Ctx, args: dict[str, Any]):
     investigator_id = _resolve_investigator(ctx, args)
-    prior = ctx.ledger_lookup("rules.damage", args.get("decision_id"))
-    if prior is not None:
-        return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
     kind = str(args.get("kind") or "damage")
     if kind not in ("damage", "heal"):
         raise ToolError("invalid_param", "kind must be damage or heal")
+    decision_id = str(args.get("decision_id") or "")
     state = ctx.inv_state(investigator_id)
+    operation = _damage_operation(args, investigator_id, kind)
+    frozen = _damage_receipts(state).get(decision_id)
+    prior = ctx.ledger_lookup("rules.damage", decision_id)
+    if frozen is not None:
+        if not isinstance(frozen, dict):
+            raise ToolError("state_corrupt", "damage receipt is not an object")
+        _validate_damage_receipt(
+            frozen, decision_id=decision_id, operation=operation
+        )
+        _recover_damage_receipt(ctx, frozen)
+        return deepcopy(frozen["data"]), [
+            "duplicate decision_id: recovered the state-bound damage receipt"
+        ], []
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously settled result"
+        ], []
     sheet = ctx.sheet(investigator_id)
     max_hp = int((sheet.get("derived") or {}).get("HP") or 10)
     before = int(state.get("current_hp", max_hp))
-    settled = _rules_resolver(ctx, "damage").damage(
+    resolver = _rules_resolver(ctx, "damage")
+    settled = resolver.damage(
         args["amount"], before, max_hp, kind=kind, rng=_rng(args)
     )
     amount = settled["amount"]
@@ -812,23 +974,59 @@ def _tool_rules_damage(ctx: Ctx, args: dict[str, Any]):
                 "campaign clock cannot provide authoritative injury time",
             )
         try:
-            coc_healing.establish_damage_wound(
+            state = coc_rulesets.apply_damage_state_effect(
+                resolver,
                 state,
-                decision_id=str(args.get("decision_id") or ""),
-                occurred_elapsed_minutes=elapsed,
-                source_damage_roll_id=(
-                    str(damage_record["roll_id"])
-                    if isinstance(damage_record, dict)
-                    else None
-                ),
+                {
+                    "schema_version": 1,
+                    "actor_id": investigator_id,
+                    "decision_id": decision_id,
+                    "amount": int(amount),
+                    "before": before,
+                    "after": after,
+                    "maximum": max_hp,
+                    "occurred_elapsed_minutes": elapsed,
+                    "source_event_id": (
+                        str(damage_record["roll_id"])
+                        if isinstance(damage_record, dict)
+                        else None
+                    ),
+                },
             )
         except ValueError as exc:
             raise ToolError("state_corrupt", str(exc)) from exc
-    ctx.save_inv_state(investigator_id, state)
-    if damage_record is not None:
-        ctx.log_roll(damage_record)
-    ctx.log_event({"event_type": "hp_change", **data})
-    ctx.ledger_record(args.get("decision_id"), "rules.damage", data)
+    receipt = {
+        "schema_version": _DAMAGE_RECEIPT_SCHEMA_VERSION,
+        "tool": "rules.damage",
+        "decision_id": decision_id,
+        "fingerprint": _operation_fingerprint("rules.damage", operation),
+        "operation": deepcopy(operation),
+        "data": deepcopy(data),
+        "roll_record": deepcopy(damage_record),
+        "event": {
+            "event_id": _operation_event_id("rules.damage", decision_id),
+            "event_type": "hp_change",
+            "decision_id": decision_id,
+            **deepcopy(data),
+        },
+    }
+    receipt["integrity_digest"] = _damage_receipt_integrity(receipt)
+    receipts = _damage_receipts(state)
+    receipts[decision_id] = receipt
+    while len(receipts) > _DAMAGE_RECEIPT_LIMIT:
+        oldest = next(iter(receipts))
+        if oldest == decision_id:
+            break
+        receipts.pop(oldest)
+    state[_DAMAGE_RECEIPTS_KEY] = receipts
+    try:
+        ctx.save_inv_state(investigator_id, state)
+    except Exception as exc:
+        raise ToolError(
+            "damage_transaction_incomplete",
+            "damage actor-state receipt could not be committed; retry the same decision_id",
+        ) from exc
+    _recover_damage_receipt(ctx, receipt)
     return data, [], hints
 
 def _luck_source_receipt_by_roll_id(

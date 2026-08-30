@@ -241,6 +241,29 @@ coc_investigator_guard = _load_sibling(
 )
 coc_npc_state = _load_sibling("coc_npc_state_subsystem_executor", "coc_npc_state.py")
 coc_inventory = _load_sibling("coc_inventory_subsystem_executor", "coc_inventory.py")
+coc_rulesets = _load_sibling("coc_rulesets_subsystem_executor", "coc_rulesets.py")
+
+
+def _package_damage_state_effect(
+    campaign_dir: Path,
+    actor_state: dict[str, Any],
+    event: dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve and invoke the bound package's optional pure damage hook."""
+    campaign_path = Path(campaign_dir) / "campaign.json"
+    if campaign_path.is_file():
+        try:
+            campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("campaign ruleset binding is unreadable") from exc
+        if not isinstance(campaign, dict):
+            raise ValueError("campaign ruleset binding must be an object")
+    else:
+        campaign = None
+    resolver = coc_rulesets.get_resolver(campaign)
+    return coc_rulesets.apply_damage_state_effect(
+        resolver, actor_state, event
+    )
 
 
 def _resolved_percentile_fields(
@@ -8088,6 +8111,9 @@ def _dispatch(
     command: dict[str, Any],
     rng: random.Random,
     state: dict[str, Any],
+    damage_state_effect: Callable[
+        [dict[str, Any], dict[str, Any]], dict[str, Any]
+    ] | None,
 ) -> dict[str, Any]:
     command_id = command["command_id"]
     kind = command["kind"]
@@ -8142,22 +8168,30 @@ def _dispatch(
                     )
                     inv["current_hp"] = participant["current_hp"]
                     inv["conditions"] = list(participant.get("conditions") or [])
-                    if int(damage["hp_before"]) - int(damage["hp_after"]) > 0:
-                        try:
-                            coc_healing.establish_damage_wound(
-                                inv,
-                                decision_id=command_id,
-                                occurred_elapsed_minutes=(
-                                    _read_authoritative_elapsed_minutes(campaign_dir)
-                                ),
-                                source_damage_roll_id=f"{command_id}:damage",
-                            )
-                        except ValueError as exc:
+                    if (
+                        int(damage["hp_before"]) - int(damage["hp_after"]) > 0
+                        and damage_state_effect is not None
+                    ):
+                        projected = damage_state_effect(inv, {
+                            "schema_version": 1,
+                            "actor_id": investigator_id,
+                            "decision_id": command_id,
+                            "amount": int(damage["damage_roll"]["total"]),
+                            "before": int(damage["hp_before"]),
+                            "after": int(damage["hp_after"]),
+                            "maximum": int(inv["hp_max"]),
+                            "occurred_elapsed_minutes": (
+                                _read_authoritative_elapsed_minutes(campaign_dir)
+                            ),
+                            "source_event_id": f"{command_id}:damage",
+                        })
+                        if not isinstance(projected, dict):
                             raise _error(
-                                "malformed_wound_ledger",
-                                "save/investigator-state.wound_ledger",
-                                str(exc),
-                            ) from exc
+                                "invalid_damage_state_effect",
+                                "ruleset.damage_state_effect",
+                                "damage state effect must return actor state",
+                            )
+                        inv = projected
                     roll = damage["damage_roll"]
                     events.append({
                         "roll_id": f"{command_id}:damage", "decision_id": payload.get("decision_id"),
@@ -9012,9 +9046,16 @@ def execute_commands(
     rng: random.Random,
     append_jsonl: Callable[[Path, dict[str, Any]], None] | None = None,
     character_snapshot: dict[str, Any] | None = None,
+    damage_state_effect: Callable[
+        [dict[str, Any], dict[str, Any]], dict[str, Any]
+    ] | None = None,
 ) -> list[dict[str, Any]]:
     """Validate, execute, persist, and replay a strict subsystem command batch."""
     campaign = Path(campaign_dir)
+    if damage_state_effect is None:
+        damage_state_effect = lambda actor_state, event: (
+            _package_damage_state_effect(campaign, actor_state, event)
+        )
     if not isinstance(investigator_id, str) or not _SAFE_ID.fullmatch(investigator_id):
         raise _error(
             "invalid_investigator_id",
@@ -9219,6 +9260,7 @@ def execute_commands(
                 command,
                 rng,
                 next_state,
+                damage_state_effect,
             )
             result_events = [
                 event

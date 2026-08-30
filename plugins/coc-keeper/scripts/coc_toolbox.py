@@ -419,6 +419,9 @@ def _error_recovery_hints(code: str) -> list[str]:
         "subsystem_transaction_failed": [
             "the subsystem rolled back the failed transaction; retry later with the same decision_id if automatic recovery is exhausted"
         ],
+        "damage_transaction_incomplete": [
+            "retry rules.damage with the exact same decision_id and arguments; the state-bound receipt will repair missing roll, event, or ledger evidence without applying damage again"
+        ],
         "development_settlement_failed": [
             "the ending remains recorded and the development transaction was rolled back; retry with the same decision_id"
         ],

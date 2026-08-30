@@ -649,13 +649,22 @@ def _keeper_response(choice: dict, action: str = "tick") -> dict:
     }
 
 
-def _execute(module, campaign: Path, character: Path, commands: list[dict], rng):
+def _execute(
+    module,
+    campaign: Path,
+    character: Path,
+    commands: list[dict],
+    rng,
+    *,
+    damage_state_effect=None,
+):
     return module.execute_commands(
         campaign,
         character,
         "inv1",
         commands,
         rng=rng,
+        damage_state_effect=damage_state_effect,
     )
 
 
@@ -778,6 +787,74 @@ def test_authored_hazard_and_damaged_tome_are_transactional_exact_replays(tmp_pa
     assert json.loads(time_path.read_text()) == time_after
     assert (campaign / "logs" / "rolls.jsonl").read_text() == rolls_after
     assert (campaign / "logs" / "time.jsonl").read_text() == time_log_after
+
+
+def test_authored_hazard_damage_hook_failure_rolls_back_before_retry(tmp_path):
+    executor = _executor("coc_subsystem_executor_damage_hook_rollback")
+    resolver = _load(
+        "coc7_resolver_damage_hook_rollback",
+        Path("plugins/coc-keeper/rulesets/coc7/resolver.py"),
+    )
+    campaign, character = _campaign_and_character(tmp_path)
+    sheet = json.loads(character.read_text())
+    sheet["characteristics"]["LUCK"] = 1
+    sheet["derived"]["HP"] = 12
+    sheet["skills"]["Jump"] = 1
+    character.write_text(json.dumps(sheet))
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 12, "hp_max": 12, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    command = _command("cellar-drop", "environmental_hazard", payload={
+        "decision_id": "cellar-drop",
+        "roll_id": "cellar-drop",
+        "luck_skill": "Luck",
+        "jump_skill": "Jump",
+        "damage_expr": "1D6",
+        "source": "cellar drop",
+        "rule_ref": "module.test.cellar",
+    })
+    state_before = inv_path.read_bytes()
+    rolls_path = campaign / "logs" / "rolls.jsonl"
+    rolls_before = rolls_path.read_bytes()
+    rng = random.Random(2)
+    rng_before = rng.getstate()
+
+    def fail_hook(_actor_state, _event):
+        raise RuntimeError("injected package damage hook failure")
+
+    with pytest.raises(executor.SubsystemExecutorError) as failure:
+        _execute(
+            executor,
+            campaign,
+            character,
+            [command],
+            rng,
+            damage_state_effect=fail_hook,
+        )
+    assert failure.value.code == "subsystem_transaction_failed"
+    assert inv_path.read_bytes() == state_before
+    assert rolls_path.read_bytes() == rolls_before
+    assert rng.getstate() == rng_before
+
+    recovered = _execute(
+        executor,
+        campaign,
+        character,
+        [command],
+        random.Random(2),
+        damage_state_effect=lambda actor_state, event: resolver.damage_state_effect(
+            actor_state=actor_state,
+            event=event,
+        ),
+    )[0]
+    assert recovered["status"] == "completed"
+    assert json.loads(inv_path.read_text())["wound_ledger"] == [{
+        "wound_id": "wound-cellar-drop",
+        "source_damage_roll_id": "cellar-drop:damage",
+        "occurred_elapsed_minutes": 0,
+        "status": "active",
+    }]
 
 
 def test_authored_tome_failure_rolls_back_time_state_logs_and_rng(tmp_path, monkeypatch):
