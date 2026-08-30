@@ -80,7 +80,7 @@
       "file_sha256": "2486d01ac3edd9cdc382fff401075d42b167528275e8bd2d57dfe9aeaa23beff"
     }
   ],
-  "graph_content_digest": "9ddbebd47681c48b30d5ff1faac25f40283fcf2cf801df8b5d15d737d889259b",
+  "graph_content_digest": "1fc13307ee33ab8507eb33d3f76804793de52bd24327ab52850dd3666f69dd85",
   "shards": [
     {
       "shard_id": "shard:coc7:combat:section-non-session-damage",
@@ -138,7 +138,7 @@
     },
     "healing": {
       "promotion_eligible": false,
-      "runtime_ownership": "graph",
+      "runtime_ownership": "shadow",
       "shadow_exclusions": [
         {
           "exclusion_id": "first-aid-one-hour-eligibility-enforcement",
@@ -206,7 +206,7 @@
   ],
   "compiler_identity": "coc.rule-graph-compiler.v1",
   "reviewer_identity": "r7-review-semantics-package",
-  "review_status": "accepted",
+  "review_status": "revision-required",
   "findings": [
     {
       "code": "source_vs_derivative_mismatch",
@@ -311,12 +311,12 @@
     {
       "code": "independent_review",
       "path": "/reviewer_identity/r7-review-semantics",
-      "message": "Independent semantic review APPROVE (reviewer r7-review-semantics). Evidence: .pi/findings/r7-review-semantics.md. Overall verdict: APPROVE AS PREPARED CANDIDATES. Families social, psychology, resource, core-check, push-luck, development/lookups, and healing preservation closed prior semantic blockers without broadening unsupported compiled claims."
+      "message": "Independent semantic review APPROVE AS PREPARED CANDIDATES (reviewer r7-review-semantics). Evidence: plugins/coc-keeper/rulesets/coc7/rule-graph-candidates/stage1/reviews/r7-review-semantics.md. The verdict explicitly remains revision-required and does not accept source binding, promotion, or production integration."
     },
     {
       "code": "independent_review",
       "path": "/reviewer_identity/r7-review-package",
-      "message": "Independent package/process review APPROVE (reviewer r7-review-package). Evidence: .pi/findings/r7-review-package.md. Package/process verdict: APPROVE. No self-acceptance; immutable baseline generation; exhaustive healing byte equality; per-file source identities; ownership unchanged. Acceptance metadata requirements 1-7 applied at this independent accept/build step."
+      "message": "Independent package/process review APPROVE AS A PREPARED CANDIDATE PACKAGE (reviewer r7-review-package). Evidence: plugins/coc-keeper/rulesets/coc7/rule-graph-candidates/stage1/reviews/r7-review-package.md. The verdict explicitly remains revision-required; rules-json identities are derivative parity evidence, not rulebook source acceptance."
     }
   ]
 }

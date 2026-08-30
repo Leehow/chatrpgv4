@@ -29,7 +29,8 @@
   file sha256, bundle-manifest sha256, and page-text sha256 separately.
 
 Deterministic: same committed inputs -> identical output bytes.  Run
-``python tests/fixtures/_gen_r7_stage1_candidates.py`` to (re)write the
+``uv run --frozen python tests/fixtures/_gen_r7_stage1_candidates.py`` to
+(re)write the
 committed candidate tree under
 ``plugins/coc-keeper/rulesets/coc7/rule-graph-candidates/stage1/``.
 """

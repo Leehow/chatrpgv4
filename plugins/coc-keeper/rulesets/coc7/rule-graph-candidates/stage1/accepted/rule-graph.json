@@ -3972,8 +3972,6 @@
       "visibility": "keeper-only",
       "hard_gate": false,
       "properties": {
-        "runtime_ownership": "legacy",
-        "legacy_surface": "visible",
         "family_id": "combat"
       },
       "evidence_span_ids": [
@@ -3989,8 +3987,6 @@
       "visibility": "keeper-only",
       "hard_gate": false,
       "properties": {
-        "runtime_ownership": "legacy",
-        "legacy_surface": "visible",
         "family_id": "core-check"
       },
       "evidence_span_ids": [
@@ -4006,8 +4002,6 @@
       "visibility": "keeper-only",
       "hard_gate": false,
       "properties": {
-        "runtime_ownership": "legacy",
-        "legacy_surface": "visible",
         "family_id": "development"
       },
       "evidence_span_ids": [
@@ -4360,9 +4354,7 @@
       "visibility": "public",
       "hard_gate": false,
       "properties": {
-        "family_id": "psychology",
-        "runtime_ownership": "legacy",
-        "legacy_surface": "visible"
+        "family_id": "psychology"
       }
     },
     {
@@ -4374,8 +4366,6 @@
       "visibility": "keeper-only",
       "hard_gate": false,
       "properties": {
-        "runtime_ownership": "legacy",
-        "legacy_surface": "visible",
         "family_id": "push-luck"
       },
       "evidence_span_ids": [
@@ -4393,8 +4383,6 @@
       "visibility": "keeper-only",
       "hard_gate": false,
       "properties": {
-        "runtime_ownership": "legacy",
-        "legacy_surface": "visible",
         "family_id": "sanity"
       },
       "evidence_span_ids": [
@@ -4410,9 +4398,7 @@
       "visibility": "public",
       "hard_gate": false,
       "properties": {
-        "family_id": "social",
-        "runtime_ownership": "legacy",
-        "legacy_surface": "visible"
+        "family_id": "social"
       }
     },
     {
@@ -7692,7 +7678,7 @@
     "combat": "legacy",
     "core-check": "legacy",
     "development": "legacy",
-    "healing": "graph",
+    "healing": "shadow",
     "magic": "legacy",
     "psychology": "legacy",
     "push-luck": "legacy",
@@ -7704,7 +7690,7 @@
     "combat": "visible",
     "core-check": "visible",
     "development": "visible",
-    "healing": "hidden",
+    "healing": "visible",
     "magic": "visible",
     "psychology": "visible",
     "push-luck": "visible",
