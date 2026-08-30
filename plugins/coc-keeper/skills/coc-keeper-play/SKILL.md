@@ -196,7 +196,8 @@ output evidence boundary, not a replacement prose engine:
    `:finalize` is accepted on prefixed `{prefix}{slug}` ids and on `quick-start:` / `setup-complete:` colon forms.
    Colon forms: `quick-start:<1–6 slugs>`, `setup-complete:<1–6 slugs>`.
    Coverage handles such as `roll:first-impression` are obligation ids, not tool `decision_id` values.
-   WRONG: `first-impression-arty-wilmot`, `persuade-arty-morgue-access`. RIGHT: `roll-persuade-arty-access-v1`.
+   RIGHT: `roll-persuade-arty-access-v1`.
+   ✗ never write: `first-impression-arty-wilmot`, `persuade-arty-morgue-access`.
 3. **Module truth is read-only.** Tools mark keeper-only material
    (`secret: true`, undiscovered clues, NPC secrets). You may foreshadow and
    pace freely. Never edit module source or dump secrets without an earned

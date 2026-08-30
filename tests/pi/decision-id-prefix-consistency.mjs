@@ -133,6 +133,35 @@ function isStringishIdentitySchema(prop) {
   return false;
 }
 
+function assertPresentedOverlay(description, spec, label) {
+  assert.ok(
+    description.includes(spec.marker),
+    `${label} missing marker ${spec.marker}`,
+  );
+  if (spec.kind !== "decision") {
+    assert.ok(
+      description.includes(spec.acceptedForm),
+      `${label} missing accepted form`,
+    );
+  }
+  assert.ok(
+    description.includes(spec.rightExample),
+    `${label} missing RIGHT ${spec.rightExample}`,
+  );
+  assert.equal(
+    description.includes("WRONG:"),
+    false,
+    `${label} still contains unframed WRONG:`,
+  );
+  if (!spec.rightExample.includes(spec.wrongExample)) {
+    assert.equal(
+      description.includes(spec.wrongExample),
+      false,
+      `${label} still contains WRONG literal ${spec.wrongExample}`,
+    );
+  }
+}
+
 function collectFieldDescriptions(schema, acc = new Map()) {
   if (!schema || typeof schema !== "object") return acc;
   if (schema.properties && typeof schema.properties === "object") {
@@ -196,9 +225,10 @@ test("typed tool decision_id descriptions carry the closed grammar at point of u
         `${operation} decision_id description missing prefix ${prefix}`,
       );
     }
-    assert.match(description, /first-impression-arty-wilmot/);
-    assert.match(description, /persuade-arty-morgue-access/);
+    assert.equal(description.includes("first-impression-arty-wilmot"), false);
+    assert.equal(description.includes("persuade-arty-morgue-access"), false);
     assert.match(description, /roll-persuade-arty-access-v1/);
+    assert.equal(description.includes("WRONG:"), false);
     assert.equal(description.includes(typed.DECISION_ID_FIELD_DESCRIPTION), true);
     assert.equal(description.includes(typed.DECISION_ID_ANY_PREFIX_SENTENCE), true);
     assert.equal(description.includes(typed.DECISION_ID_TN_SCOPE_SENTENCE), true);
@@ -323,7 +353,11 @@ test("closed-grammar fields from validator source are covered by docs, overlays,
       );
       assert.ok(
         line.includes(`\`${spec.wrongExample}\``),
-        `${rel} ${spec.field} row missing WRONG ${spec.wrongExample}`,
+        `${rel} ${spec.field} row missing framed WRONG ${spec.wrongExample}`,
+      );
+      assert.ok(
+        line.includes(typed.CLOSED_IDENTITY_GRAMMAR_WRONG_FRAME),
+        `${rel} ${spec.field} row missing ${typed.CLOSED_IDENTITY_GRAMMAR_WRONG_FRAME}`,
       );
     }
   }
@@ -338,35 +372,13 @@ test("closed-grammar fields from validator source are covered by docs, overlays,
     const seen = descriptions.get(field) ?? [];
     assert.ok(seen.length > 0, `presented ${field} has no stringish description`);
     for (const description of seen) {
-      assert.ok(
-        description.includes(spec.marker),
-        `presented suffix ${field} missing marker ${spec.marker}`,
-      );
-      assert.ok(
-        description.includes(spec.rightExample),
-        `presented suffix ${field} missing RIGHT ${spec.rightExample}`,
-      );
-      assert.ok(
-        description.includes(spec.wrongExample),
-        `presented suffix ${field} missing WRONG ${spec.wrongExample}`,
-      );
+      assertPresentedOverlay(description, spec, `presented suffix ${field}`);
     }
   }
   for (const spec of catalog) {
     const seen = descriptions.get(spec.field) ?? [];
     for (const description of seen) {
-      assert.ok(
-        description.includes(spec.marker),
-        `presented ${spec.field} missing marker ${spec.marker}`,
-      );
-      assert.ok(
-        description.includes(spec.rightExample),
-        `presented ${spec.field} missing RIGHT ${spec.rightExample}`,
-      );
-      assert.ok(
-        description.includes(spec.wrongExample),
-        `presented ${spec.field} missing WRONG ${spec.wrongExample}`,
-      );
+      assertPresentedOverlay(description, spec, `presented ${spec.field}`);
     }
   }
   const advise = presented.byOperation.get("actions.advise");
@@ -375,14 +387,15 @@ test("closed-grammar fields from validator source are covered by docs, overlays,
     ?.properties?.matched_affordance_ids?.description ?? "";
   assert.ok(matched.includes("Closed matched_affordance_ids grammar"));
   assert.ok(matched.includes("affordance:commission-briefing-8"));
-  assert.ok(matched.includes("route:commission-briefing-8"));
+  assert.equal(matched.includes("route:commission-briefing-8"), false);
+  assert.equal(matched.includes("WRONG:"), false);
   const finalize = presented.byOperation.get("turn.finalize");
   assert.ok(finalize);
   const claimDesc = finalize.parameters.properties.agency_claims
     ?.items?.properties?.claim_id?.description ?? "";
   assert.ok(claimDesc.includes("Closed claim_id grammar"));
   assert.ok(claimDesc.includes("claim-sit-notebook-smoke"));
-  assert.ok(claimDesc.includes("sit-notebook-smoke"));
+  assert.equal(claimDesc.includes("WRONG:"), false);
 
   const live = (field, value) => (
     typed.validateRawModelIdentityPayload({ [field]: value }).ok === true
@@ -425,7 +438,26 @@ test("closed-grammar fields from validator source are covered by docs, overlays,
     ?.description ?? "";
   assert.ok(originalCheck.includes("Closed decision_id grammar"));
   assert.ok(originalCheck.includes("roll-persuade-arty-access-v1"));
-  assert.ok(originalCheck.includes("first-impression-arty-wilmot"));
+  assert.equal(originalCheck.includes("first-impression-arty-wilmot"), false);
+  assert.equal(originalCheck.includes("WRONG:"), false);
+
+  const bannedPresentedLiterals = [
+    "route:commission-briefing-8",
+    "route:commission-briefing-9",
+    "route:commission-briefing-10",
+    "route:commission-briefing-11",
+  ];
+  for (const [field, seen] of descriptions) {
+    for (const description of seen) {
+      for (const banned of bannedPresentedLiterals) {
+        assert.equal(
+          description.includes(banned),
+          false,
+          `presented ${field} still contains rejected literal ${banned}`,
+        );
+      }
+    }
+  }
 
   const campaign04 = [
     ["claim_id", "sit-notebook-smoke", false],

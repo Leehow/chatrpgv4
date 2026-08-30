@@ -3501,10 +3501,12 @@ export const DECISION_ID_FIELD_DESCRIPTION = (
   + `${DECISION_ID_TN_SCOPE_SENTENCE} `
   + `${DECISION_ID_FINALIZE_SCOPE_SENTENCE} `
   + "Colon forms: `quick-start:<slugs>` and `setup-complete:<slugs>` (1–6 segments). "
-  + "Coverage handles like `roll:...` are not this field. "
-  + "WRONG: first-impression-arty-wilmot, persuade-arty-morgue-access. "
+  + "Coverage obligation handles are not this field. "
   + "RIGHT: roll-persuade-arty-access-v1."
 );
+
+/** Prose-doc framing so a WRONG sample cannot be lifted as an example. */
+export const CLOSED_IDENTITY_GRAMMAR_WRONG_FRAME = "✗ never";
 
 /** Docs-table heading shared with KP-facing play docs. */
 export const CLOSED_IDENTITY_GRAMMAR_TABLE_HEADING = (
@@ -3859,12 +3861,11 @@ function grammarOverlayDescription(
   marker: string,
   acceptedForm: string,
   rightExample: string,
-  wrongExample: string,
   extra = "",
 ): string {
   return `${marker} (validator-bound): ${acceptedForm}. `
     + extra
-    + `RIGHT: ${rightExample}. WRONG: ${wrongExample}.`;
+    + `RIGHT: ${rightExample}.`;
 }
 
 function echoedWrongExample(namespaces: readonly string[], field: string): string {
@@ -3927,10 +3928,7 @@ export function closedIdentityGrammarSpec(
         marker,
         acceptedForm,
         right,
-        wrong,
-        field === "claim_id"
-          ? "Colon namespaces (`claim:…`) are not this field. "
-          : "",
+        field === "claim_id" ? "No colon namespace. " : "",
       ),
     };
   }
@@ -3950,6 +3948,9 @@ export function closedIdentityGrammarSpec(
         : GRAMMAR_EXAMPLE_SLUG;
     const wrong = echoedWrongExample(namespaces, field);
     const marker = `Closed ${field} grammar`;
+    const extra = namespaces.length > 0
+      ? "No other namespaces. "
+      : "No colon namespace. ";
     return {
       field,
       kind: "echoed",
@@ -3957,7 +3958,7 @@ export function closedIdentityGrammarSpec(
       rightExample: right,
       wrongExample: wrong,
       marker,
-      description: grammarOverlayDescription(marker, nsText, right, wrong),
+      description: grammarOverlayDescription(marker, nsText, right, extra),
     };
   }
   const handles = RAW_HANDLE_ONLY.get(field);
@@ -3974,7 +3975,7 @@ export function closedIdentityGrammarSpec(
       rightExample: right,
       wrongExample: wrong,
       marker,
-      description: grammarOverlayDescription(marker, acceptedForm, right, wrong),
+      description: grammarOverlayDescription(marker, acceptedForm, right),
     };
   }
   const handleOrNs = RAW_HANDLE_OR_NAMESPACE.get(field);
@@ -3993,7 +3994,7 @@ export function closedIdentityGrammarSpec(
       rightExample: right,
       wrongExample: wrong,
       marker,
-      description: grammarOverlayDescription(marker, acceptedForm, right, wrong),
+      description: grammarOverlayDescription(marker, acceptedForm, right),
     };
   }
   if (RAW_PROVENANCE_FIELDS.has(field)) {
@@ -4010,7 +4011,7 @@ export function closedIdentityGrammarSpec(
       rightExample: right,
       wrongExample: wrong,
       marker,
-      description: grammarOverlayDescription(marker, acceptedForm, right, wrong),
+      description: grammarOverlayDescription(marker, acceptedForm, right),
     };
   }
   if (RAW_VOCABULARY_FIELDS.has(field)) {
@@ -4027,7 +4028,7 @@ export function closedIdentityGrammarSpec(
       rightExample: right,
       wrongExample: wrong,
       marker,
-      description: grammarOverlayDescription(marker, acceptedForm, right, wrong),
+      description: grammarOverlayDescription(marker, acceptedForm, right),
     };
   }
   return null;
