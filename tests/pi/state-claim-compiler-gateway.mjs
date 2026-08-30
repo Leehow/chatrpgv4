@@ -23,6 +23,7 @@ const outputContext = {
     source_digest: "sha256:source-gateway-1",
     settlement_snapshot_id: "turn-settlement-v1:gateway-1",
     mechanics_bundle_sha256: "sha256:mechanics-gateway-1",
+    journal_decision_id: "journal-gateway-1",
     contract_projection: {
       agency_review_required: true,
       agency_authority: { pc_subject_refs: [subjectRef] },
@@ -115,6 +116,10 @@ function harness(compiler, overrides = {}) {
     createClient: () => {
       const callTool = async (name, params) => {
         clientCalls.push({ name, params });
+        if (typeof overrides.callTool === "function") {
+          const overridden = await overrides.callTool(name, params, clientCalls);
+          if (overridden !== undefined) return overridden;
+        }
         if (params.operation === "session.resume") {
           return {
             ok: true,
@@ -374,6 +379,254 @@ test("all invoke surfaces overwrite input and scrub host receipt from output", a
       assert.deepEqual(forwarded.state_claim_compilation, hostReceipt);
       assert.equal(forwarded.state_claim_compilation.binding.mechanics_bundle_sha256, "sha256:mechanics-gateway-1");
     }
+  } finally {
+    if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
+    else process.env.COC_PI_SESSION_ROLE = previousRole;
+  }
+});
+
+test("rewrite-required review advances the retained host binding before corrected draft", async () => {
+  const previousRole = process.env.COC_PI_SESSION_ROLE;
+  process.env.COC_PI_SESSION_ROLE = "play";
+  try {
+    let compilation = 0;
+    const compiler = new PiStateClaimCompiler(async (input) => {
+      compilation += 1;
+      const result = resultFor(input);
+      if (compilation === 1) {
+        result.disposition = "claims_detected";
+        result.reason = "The first draft claims an ungrounded current condition.";
+        result.claims = [{
+          subject_ref: subjectRef,
+          claim_kind: "condition",
+          exact_excerpt: "你身上一阵钝痛突然顶上来，呼吸跟着短了一截",
+          matched_review_claim_id: null,
+          reason: "The draft asserts a current player-character condition.",
+        }];
+        result.paragraph_coverage[0].claim_indices = [0];
+      }
+      return {
+        result,
+        responseModel: { provider: "p", id: "m", api: "a" },
+      };
+    });
+
+    let firstForwarded = null;
+    let acceptedRevisionTwo = null;
+    const h = harness(compiler, {
+      async callTool(_name, params, calls) {
+        if (params.operation === "turn.output_context") {
+          const outputContextCalls = calls.filter(
+            (call) => call.params.operation === "turn.output_context",
+          ).length;
+          if (outputContextCalls > 1) {
+            return {
+              ...outputContext,
+              data: {
+                ...outputContext.data,
+                agency_review_operation: {
+                  ...outputContext.data.agency_review_operation,
+                  prefilled_arguments: {
+                    ...outputContext.data.agency_review_operation.prefilled_arguments,
+                    revision: 2,
+                  },
+                },
+                finalize_operation: {
+                  ...outputContext.data.finalize_operation,
+                  prefilled_arguments: {
+                    ...outputContext.data.finalize_operation.prefilled_arguments,
+                    revision: 2,
+                  },
+                },
+              },
+            };
+          }
+          return undefined;
+        }
+        if (params.operation !== "narration.review") return undefined;
+        const forwarded = params.arguments;
+        if (firstForwarded === null) {
+          firstForwarded = structuredClone(forwarded);
+          return {
+            ok: true,
+            tool: "narration.review",
+            data: {
+              review_id: "narration-review-v1:rewrite-required-fixture",
+              turn_id: "turn-gateway-1",
+              source_digest: "sha256:source-gateway-1",
+              revision: 1,
+              findings: [],
+              agency_gate: "clear",
+              state_claim_review_disagreement: true,
+              state_authority_gate: "rewrite_required",
+              recommendation: "revision_required",
+              span_repairs: {
+                mode: "excerpt_only",
+                spans: [{
+                  exact_excerpt: "你身上一阵钝痛突然顶上来，呼吸跟着短了一截",
+                  claim_kind: "condition",
+                  repair: "rephrase_or_remove",
+                }],
+              },
+            },
+          };
+        }
+        if (
+          forwarded.revision !== 2
+          || forwarded.decision_id === firstForwarded.decision_id
+        ) {
+          return {
+            ok: false,
+            tool: "narration.review",
+            error: {
+              code: "idempotency_conflict",
+              message: "narration.review decision_id already owns another turn/revision/draft/findings request",
+              retryable: false,
+              class: "idempotency_conflict",
+              recoverable_by: "host_binding_refresh",
+              allowed_next_actions: [],
+              automatic_action: "refresh_retained_binding_or_fault",
+            },
+          };
+        }
+        if (acceptedRevisionTwo !== null) {
+          if (
+            forwarded.decision_id !== acceptedRevisionTwo.decision_id
+            || forwarded.draft_text !== acceptedRevisionTwo.draft_text
+          ) {
+            return {
+              ok: false,
+              tool: "narration.review",
+              error: {
+                code: "idempotency_conflict",
+                message: "narration.review revision-2 replay changed its frozen request",
+                retryable: false,
+                class: "idempotency_conflict",
+                recoverable_by: "host_binding_refresh",
+                allowed_next_actions: [],
+                automatic_action: "refresh_retained_binding_or_fault",
+              },
+            };
+          }
+        } else {
+          acceptedRevisionTwo = structuredClone(forwarded);
+        }
+        return {
+          ok: true,
+          tool: "narration.review",
+          data: {
+            review_id: "narration-review-v1:clear-revision-2-fixture",
+            turn_id: "turn-gateway-1",
+            source_digest: "sha256:source-gateway-1",
+            revision: 2,
+            findings: [],
+            agency_gate: "clear",
+            state_authority_gate: "clear",
+            recommendation: "accept",
+          },
+        };
+      },
+    });
+    await initialize(h);
+    await invoke(h, "context", "turn.output_context", {});
+
+    const firstDraft = {
+      ...modelOwnedReview,
+      draft_text: "你身上一阵钝痛突然顶上来，呼吸跟着短了一截。",
+    };
+    const first = JSON.parse(
+      (await invokeReviewSurface(
+        h, "coc_narration_review", "review-revision-1", firstDraft,
+      )).content[0].text,
+    );
+    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.equal(first.data.state_authority_gate, "rewrite_required");
+
+    const correctedDraft = {
+      ...modelOwnedReview,
+      draft_text: "诺特仍坐在桌后，钥匙在桌面轻轻碰了一下。",
+    };
+    const corrected = JSON.parse(
+      (await invokeReviewSurface(
+        h, "coc_narration_review", "review-revision-2", correctedDraft,
+      )).content[0].text,
+    );
+    const reviewTrace = h.clientCalls
+      .filter((call) => call.params.operation === "narration.review")
+      .map((call, index, calls) => ({
+        revision: call.params.arguments.revision,
+        same_decision_as_first: index > 0
+          && call.params.arguments.decision_id
+            === calls[0].params.arguments.decision_id,
+      }));
+    assert.equal(corrected.ok, true, JSON.stringify({ corrected, reviewTrace }));
+    assert.equal(corrected.data.revision, 2);
+
+    const replay = JSON.parse(
+      (await invokeReviewSurface(
+        h, "coc_narration_review", "review-revision-2-replay", correctedDraft,
+      )).content[0].text,
+    );
+    assert.equal(replay.ok, true, JSON.stringify(replay));
+    assert.equal(replay.data.revision, 2);
+
+    const callsBeforeStale = h.clientCalls.length;
+    const stale = JSON.parse(
+      (await invokeReviewSurface(
+        h,
+        "coc_narration_review",
+        "review-stale-revision",
+        { ...correctedDraft, revision: 1 },
+      )).content[0].text,
+    );
+    assert.equal(stale.ok, false);
+    assert.equal(stale.error.code, "forged_host_argument");
+    assert.equal(h.clientCalls.length, callsBeforeStale);
+
+    const forwarded = h.clientCalls
+      .filter((call) => call.params.operation === "narration.review")
+      .map((call) => call.params.arguments);
+    assert.equal(forwarded.length, 3);
+    assert.deepEqual(forwarded.map((args) => args.revision), [1, 2, 2]);
+    assert.equal(compilation, 2, "revision-2 replay reuses the compiled receipt");
+    assert.notEqual(forwarded[0].decision_id, forwarded[1].decision_id);
+    assert.equal(forwarded[2].decision_id, forwarded[1].decision_id);
+    assert.equal(forwarded[1].turn_id, forwarded[0].turn_id);
+    assert.equal(forwarded[1].source_digest, forwarded[0].source_digest);
+    assert.equal(
+      forwarded[1].state_claim_compilation.binding.settlement_snapshot_id,
+      forwarded[0].state_claim_compilation.binding.settlement_snapshot_id,
+    );
+    assert.equal(
+      forwarded[1].state_claim_compilation.binding.mechanics_bundle_sha256,
+      forwarded[0].state_claim_compilation.binding.mechanics_bundle_sha256,
+    );
+    const contextRefreshes = h.clientCalls.filter(
+      (call) => call.params.operation === "turn.output_context",
+    );
+    assert.equal(contextRefreshes.length, 2);
+    assert.deepEqual(contextRefreshes[1].params.arguments, {});
+
+    await h.tools.get("coc_turn_finalize").execute(
+      "finalize-revision-2",
+      {
+        draft: correctedDraft.draft_text,
+        coverage: [],
+        agency_claims: [],
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const finalizeCall = h.clientCalls.filter(
+      (call) => call.params.operation === "turn.finalize",
+    ).at(-1);
+    assert.ok(finalizeCall, "clean revision 2 must arm the finalize binding");
+    assert.equal(finalizeCall.params.arguments.revision, 2);
+    assert.equal(
+      finalizeCall.params.arguments.narration_review_id,
+      "narration-review-v1:clear-revision-2-fixture",
+    );
   } finally {
     if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
     else process.env.COC_PI_SESSION_ROLE = previousRole;
