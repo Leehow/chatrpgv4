@@ -1679,8 +1679,10 @@ test("combat.resolve keeps attack weapon semantics separate from pending defense
     independentCurrent(attack),
   );
   assert.ok(attackSchema.required.includes("action_kind"));
-  assert.ok(attackSchema.required.includes("weapon_id"));
-  assert.deepEqual(attackSchema.properties.action_kind.enum, ["attack"]);
+  assert.equal(attackSchema.required.includes("weapon_id"), false);
+  assert.deepEqual(attackSchema.properties.action_kind.enum, [
+    "attack", "aim", "reload", "maneuver", "flee",
+  ]);
   assert.ok(!Object.hasOwn(attackSchema.properties, "defense_kind"));
 
   const unarmed = typed.bindRetainedTypedToolArguments(
@@ -1690,14 +1692,17 @@ test("combat.resolve keeps attack weapon semantics separate from pending defense
     independentCurrent(attack),
   );
   assert.equal(unarmed.weapon_id, "unarmed");
-  assert.ok(!Object.hasOwn(unarmed, "action_kind"));
+  assert.equal(unarmed.action_kind, "attack");
   assert.ok(!Object.hasOwn(unarmed, "defense_kind"));
-  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+  const maneuver = typed.bindRetainedTypedToolArguments(
     attack.operation,
-    { action_kind: "maneuver", weapon_id: "unarmed" },
+    { action_kind: "maneuver", goal: "push" },
     attack,
     independentCurrent(attack),
-  ), "semantic_candidate_stale");
+  );
+  assert.equal(maneuver.action_kind, "maneuver");
+  assert.equal(maneuver.goal, "push");
+  assert.equal(maneuver.target_npc_id, "walter-corbitt");
   assertProjectionError(() => typed.bindRetainedTypedToolArguments(
     attack.operation,
     { action_kind: "attack", defense_kind: "dodge", weapon_id: "unarmed" },
@@ -1740,6 +1745,7 @@ test("combat.resolve keeps attack weapon semantics separate from pending defense
     independentCurrent(pendingDefense),
   );
   assert.equal(dodge.defense_kind, "dodge");
+  assert.equal(dodge.action_kind, "defend");
   assertProjectionError(() => typed.bindRetainedTypedToolArguments(
     pendingDefense.operation,
     { defense_kind: "dive_for_cover" },

@@ -428,6 +428,7 @@ export const HOST_OWNED_FIELDS: Readonly<Record<string, readonly string[]>> = {
     "decision_id",
     "target_npc_id",
     "affordance_id",
+    "combat_revision",
   ],
   "chase.execute": [
     "root",
@@ -2153,6 +2154,17 @@ function bindingValues(binding: TypedToolBindingCard): Record<string, unknown> {
       investigator: binding.investigator,
     };
   }
+  if (binding.operation === "combat.resolve") {
+    const revision = Number(binding.combat_revision);
+    return {
+      root: binding.root,
+      campaign: binding.campaign,
+      decision_id: binding.decision_id,
+      ...(Number.isInteger(revision) && revision >= 0
+        ? { combat_revision: revision }
+        : {}),
+    };
+  }
   if (binding.operation === "sanity.execute") {
     return {
       root: binding.root,
@@ -2517,6 +2529,7 @@ export function projectBoundTypedToolParameters(
     if (isPlainObject(cloned.properties)) {
       if (pending) {
         delete cloned.properties.action_kind;
+        delete cloned.properties.goal;
         delete cloned.properties.weapon_id;
         delete cloned.properties.weapon_effect_ids;
         const candidate = valid.candidates[0];
@@ -2538,10 +2551,14 @@ export function projectBoundTypedToolParameters(
         setEnumProperty(
           cloned,
           "action_kind",
-          ["attack"],
-          "Confirm that the player's semantic action is an attack. Maneuvers, waiting, Dodge, and Fight Back are not attacks and must not use this card.",
+          ["attack", "aim", "reload", "maneuver", "flee"],
+          "Choose one explicit CombatSession action. Attack and maneuver use a current target candidate; aim/reload/flee are actor-local actions.",
         );
-        requireSchemaField(cloned, "weapon_id");
+        cloned.properties.goal = {
+          type: "string",
+          enum: ["disarm", "ongoing_disadvantage", "escape", "push"],
+          description: "Choose one rulebook maneuver goal when action_kind is maneuver; omit for every other action.",
+        };
         if (isPlainObject(cloned.properties.weapon_id)) {
           cloned.properties.weapon_id = {
             ...cloned.properties.weapon_id,
@@ -2955,18 +2972,9 @@ export function bindRetainedTypedToolArguments(
     }
   }
   if (valid.operation === "combat.resolve") {
-    const candidateId = valid.candidates.length === 1
-      ? valid.candidates[0].candidate_id
-      : typeof result.candidate_id === "string" ? result.candidate_id : "";
-    const candidate = valid.candidates.find((row) => row.candidate_id === candidateId);
-    if (!candidate) {
-      throw new ToolContractProjectionError(
-        "semantic_candidate_stale",
-        "selected combat route is not in the current retained semantic candidates",
-        { operation, candidate_field: "candidate_id" },
-      );
-    }
-    if (candidate.invocation_mode === "pending_defense") {
+    const pending = valid.candidates[0].invocation_mode === "pending_defense";
+    if (pending) {
+      const candidate = valid.candidates[0];
       const defenseKind = typeof modelInput.defense_kind === "string"
         ? modelInput.defense_kind
         : "";
@@ -2982,29 +2990,51 @@ export function bindRetainedTypedToolArguments(
           { operation, candidate_field: "defense_kind" },
         );
       }
+      result.action_kind = "defend";
     } else {
+      const actionKind = typeof modelInput.action_kind === "string"
+        ? modelInput.action_kind
+        : "";
       const weaponId = typeof modelInput.weapon_id === "string"
         ? modelInput.weapon_id.trim()
         : "";
       if (
-        modelInput.action_kind !== "attack"
-        || !weaponId
+        !["attack", "aim", "reload", "maneuver", "flee"].includes(actionKind)
+        || (actionKind === "attack" && !weaponId)
         || Object.hasOwn(modelInput, "defense_kind")
       ) {
         throw new ToolContractProjectionError(
           "semantic_candidate_stale",
-          "combat attack must preserve explicit attack semantics and an exact selected weapon; defense or maneuver intent cannot be substituted",
+          "combat action must use an allowed explicit action; attacks require an exact selected weapon and cannot substitute a defense",
           { operation, candidate_field: "action_kind" },
         );
       }
-      delete result.action_kind;
+      const needsCandidate = actionKind === "attack" || actionKind === "maneuver";
+      const candidateId = valid.candidates.length === 1
+        ? valid.candidates[0].candidate_id
+        : typeof result.candidate_id === "string" ? result.candidate_id : "";
+      const candidate = valid.candidates.find((row) => row.candidate_id === candidateId);
+      if (needsCandidate && !candidate) {
+        throw new ToolContractProjectionError(
+          "semantic_candidate_stale",
+          "selected combat route is not in the current retained semantic candidates",
+          { operation, candidate_field: "candidate_id" },
+        );
+      }
+      if (actionKind === "maneuver" && typeof modelInput.goal !== "string") {
+        throw new ToolContractProjectionError(
+          "semantic_candidate_stale",
+          "combat maneuver requires one structured goal",
+          { operation, candidate_field: "goal" },
+        );
+      }
+      if (candidate?.invocation_mode === "target_npc_id") {
+        result.target_npc_id = candidate.target_npc_id;
+      } else if (candidate?.invocation_mode === "affordance_id") {
+        result.affordance_id = candidate.affordance_id;
+      }
     }
     delete result.candidate_id;
-    if (candidate.invocation_mode === "target_npc_id") {
-      result.target_npc_id = candidate.target_npc_id;
-    } else if (candidate.invocation_mode === "affordance_id") {
-      result.affordance_id = candidate.affordance_id;
-    }
   }
   if (valid.operation === "chase.execute") {
     const command = isPlainObject(modelInput.command)

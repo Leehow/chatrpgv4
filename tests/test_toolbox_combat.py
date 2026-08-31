@@ -1,6 +1,148 @@
 """Behavior tests owned by the combat operation cell."""
 from toolbox_test_support import *
 
+
+def _prime_typed_action_combat(campaign_ws, *, npc_first=False):
+    investigator_id = campaign_ws["investigator_id"]
+    ctx = coc_toolbox.Ctx(campaign_ws["workspace"], campaign_ws["campaign_id"])
+    sheet = ctx.sheet(investigator_id)
+    profile = coc_toolbox._investigator_combat_profile(
+        ctx, investigator_id, character_snapshot=sheet,
+    )
+    session = coc_combat.CombatSession(
+        "combat-typed-actions", "scene/typed-actions", 1, random.Random(1),
+    )
+    session.add_participant(**{
+        key: value for key, value in profile.items()
+        if key != "hp_current"
+    })
+    session.participants[investigator_id]["hp_current"] = profile["hp_current"]
+    session.add_participant(
+        "npc-typed-target", "npc", dex=99 if npc_first else 1,
+        combat_skill=25, dodge_skill=20,
+        build=0, hp_max=10, weapons=[{"weapon_id": "unarmed"}],
+    )
+    session.begin_round()
+    session.revision = 1
+    session.save(campaign_ws["campaign_dir"])
+    return session
+
+
+@pytest.mark.parametrize(
+    ("action_kind", "extra", "expected_hint"),
+    [
+        ("aim", {"weapon_id": "revolver_38_or_9mm"}, "aim"),
+        ("reload", {"weapon_id": "revolver_38_or_9mm"}, "reload"),
+        ("maneuver", {
+            "target_npc_id": "npc-typed-target",
+            "goal": "push",
+            "defense_kind": "none",
+        }, "maneuver"),
+        ("flee", {}, "flee"),
+    ],
+)
+def test_combat_resolve_supports_explicit_non_attack_actions(
+    campaign_ws, action_kind, extra, expected_hint,
+):
+    _prime_typed_action_combat(campaign_ws)
+    args = {
+        "action_kind": action_kind,
+        "investigator": campaign_ws["investigator_id"],
+        "combat_revision": 1,
+        "decision_id": f"typed-{action_kind}-1",
+        **extra,
+    }
+    first = _run(campaign_ws, "combat.resolve", args)
+    assert first["ok"] is True, first
+    turn = next(
+        event["turn"] for event in first["data"]["events"]
+        if event.get("event_type") == "combat_turn_resolved"
+    )
+    assert turn["resolution_hint"] == expected_hint
+    replay = _run(campaign_ws, "combat.resolve", args)
+    assert replay["ok"] is True
+    assert replay["data"] == first["data"]
+
+
+def test_combat_resolve_rejects_invalid_action_and_stale_revision(campaign_ws):
+    _prime_typed_action_combat(campaign_ws)
+    invalid = _run(campaign_ws, "combat.resolve", {
+        "action_kind": "wait-for-keyword",
+        "investigator": campaign_ws["investigator_id"],
+        "decision_id": "typed-invalid-action",
+    })
+    assert invalid["ok"] is False
+    assert invalid["error"]["code"] == "invalid_param"
+    stale = _run(campaign_ws, "combat.resolve", {
+        "action_kind": "flee",
+        "investigator": campaign_ws["investigator_id"],
+        "combat_revision": 0,
+        "decision_id": "typed-stale-flee",
+    })
+    assert stale["ok"] is False
+    assert stale["error"]["code"] == "stale_combat_revision"
+
+
+def test_combat_resolve_explicit_attack_preserves_legacy_route_and_replay(campaign_ws):
+    moved = _run(campaign_ws, "state.move_scene", {
+        "scene_id": "corbitt-confrontation",
+        "decision_id": "typed-actions-move-to-corbitt",
+    })
+    assert moved["ok"] is True
+    args = {
+        "action_kind": "attack",
+        "affordance_id": "conventional-assault",
+        "investigator": campaign_ws["investigator_id"],
+        "weapon_id": "unarmed",
+        "decision_id": "typed-explicit-attack",
+        "seed": 7,
+    }
+    first = _run(campaign_ws, "combat.resolve", args)
+    assert first["ok"] is True, first
+    assert any(
+        event.get("event_type") == "combat_turn_resolved"
+        for event in first["data"]["events"]
+    )
+    replay = _run(campaign_ws, "combat.resolve", args)
+    assert replay["data"] == first["data"]
+
+
+def test_combat_resolve_explicit_defend_binds_pending_attack_and_replays(campaign_ws):
+    session = _prime_typed_action_combat(campaign_ws, npc_first=True)
+    investigator_id = campaign_ws["investigator_id"]
+    session.pending_attack = {
+        "attack_command_id": "typed-pending-attack",
+        "actor_id": "npc-typed-target",
+        "target_actor_id": investigator_id,
+        "declared_intent": "structured incoming attack",
+        "resolution_hint": "opposed_melee",
+        "weapon_id": "unarmed",
+        "rulebook_exception": None,
+        "on_success": None,
+        "victory_outcome": None,
+        "defeat_outcome": None,
+        "allowed_defenses": ["dodge", "fight_back"],
+    }
+    session.revision = 2
+    session.save(campaign_ws["campaign_dir"])
+    args = {
+        "action_kind": "defend",
+        "defense_kind": "dodge",
+        "combat_revision": 2,
+        "investigator": investigator_id,
+        "decision_id": "typed-explicit-defend",
+        "seed": 3,
+    }
+    first = _run(campaign_ws, "combat.resolve", args)
+    assert first["ok"] is True, first
+    turn = next(
+        event["turn"] for event in first["data"]["events"]
+        if event.get("event_type") == "combat_turn_resolved"
+    )
+    assert turn["defense_kind"] == "dodge"
+    replay = _run(campaign_ws, "combat.resolve", args)
+    assert replay["data"] == first["data"]
+
 def test_bonus_die_only_combat_success_preserves_06_66_evidence_without_tick(
     campaign_ws,
 ):

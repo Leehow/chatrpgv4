@@ -281,12 +281,31 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
     target_npc_id = str(args.get("target_npc_id") or "").strip()
     combat = _combat_state(ctx)
     pending = combat.get("pending_attack")
+    action_kind = str(args.get("action_kind") or ("defend" if isinstance(pending, dict) else "attack")).strip()
+    if action_kind not in {"attack", "defend", "aim", "reload", "maneuver", "flee"}:
+        raise ToolError("invalid_param", "action_kind must be attack|defend|aim|reload|maneuver|flee")
+    if isinstance(pending, dict) and action_kind != "defend":
+        raise ToolError("combat_defense_required", "a pending attack accepts only action_kind=defend")
+    if not isinstance(pending, dict) and action_kind == "defend":
+        raise ToolError("combat_defense_not_pending", "action_kind=defend requires a pending attack")
+    supplied_revision = args.get("combat_revision")
+    if supplied_revision is not None and (
+        isinstance(supplied_revision, bool) or not isinstance(supplied_revision, int)
+    ):
+        raise ToolError("invalid_param", "combat_revision must be an integer")
+    if (
+        supplied_revision is not None
+        and combat.get("status") == "active"
+        and supplied_revision != combat.get("revision")
+    ):
+        raise ToolError("stale_combat_revision", "combat revision is stale")
     if isinstance(pending, dict) and target_npc_id:
         raise ToolError(
             "invalid_param",
             "target_npc_id cannot replace the actor bound to a pending attack",
         )
-    if not isinstance(pending, dict) and bool(affordance_id) == bool(target_npc_id):
+    needs_target = action_kind in {"attack", "maneuver"}
+    if not isinstance(pending, dict) and needs_target and bool(affordance_id) == bool(target_npc_id):
         raise ToolError(
             "unknown_combat_target",
             "provide exactly one present target_npc_id or combat affordance_id; "
@@ -299,6 +318,28 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
         # UI/Keeper to rediscover the authored route that created it.
         affordance = None
         operation = {}
+    elif not needs_target:
+        if affordance_id or target_npc_id:
+            raise ToolError(
+                "invalid_param",
+                f"action_kind={action_kind} does not accept a combat target or affordance",
+            )
+        affordance = None
+        operation = {}
+    elif (
+        action_kind == "maneuver"
+        and combat.get("status") == "active"
+        and target_npc_id in {
+            str(row.get("actor_id") or "")
+            for row in (combat.get("participants") or [])
+            if isinstance(row, dict)
+        }
+    ):
+        affordance = None
+        operation = {
+            "opponent": {"actor_id": target_npc_id},
+            "opponent_defense": "dodge",
+        }
     elif target_npc_id:
         presence_document = _load_npc_presence_document(ctx)
         live_presence = presence_document["presence"]
@@ -588,7 +629,7 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
                 "matched_route_ids": [affordance_id] if affordance_id else [],
             },
         }]
-    else:
+    elif action_kind == "attack":
         rich: dict[str, Any] = {
             "action_resolution": {
                 "matched_affordance_ids": [affordance_id],
@@ -615,6 +656,26 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
             request for request in requests
             if str(request.get("kind") or "").startswith("combat_")
         ]
+    else:
+        target_actor_id = target_npc_id
+        if not target_actor_id and isinstance(operation.get("opponent"), dict):
+            target_actor_id = str(operation["opponent"].get("actor_id") or "")
+        request = {
+            "kind": "combat_attack",
+            "command_id": f"{combat.get('combat_id', 'combat')}-{action_kind}-{combat.get('revision', 0)}",
+            "revision": int(combat.get("revision", 0)),
+            "actor_id": investigator_id,
+            "declared_intent": f"structured combat {action_kind}",
+            "resolution_hint": action_kind,
+        }
+        if target_actor_id:
+            request["target_actor_id"] = target_actor_id
+        if args.get("weapon_id"):
+            request["weapon_id"] = str(args["weapon_id"])
+        if action_kind == "maneuver":
+            request["goal"] = str(args.get("goal") or "ongoing_disadvantage")
+            request["defense_kind"] = str(args.get("defense_kind") or "dodge")
+        requests = [request]
 
     luck_cap = args.get("luck_spend_max")
     if luck_cap is not None:
@@ -746,6 +807,11 @@ def register_operations(registry) -> None:
     "combat.resolve",
     "Execute one authored or KP-selected combat beat. Required for every player attack, shot, Dodge, or Fight Back. Never substitute rules.roll or unrolled hit/damage prose. weapon_id may be catalog id or inventory item_id; skill is taken from the owned weapon + sheet. Without a present target_npc_id or combat affordance, fail closed — do not narrate a hit.",
     {
+        "action_kind": {
+            "type": "string",
+            "enum": ["attack", "defend", "aim", "reload", "maneuver", "flee"],
+            "desc": "explicit structured combat action; omitted only for legacy attack/pending-defense calls",
+        },
         "affordance_id": {
             "type": "string",
             "desc": "current-scene affordance whose rules_operation is combat_engagement",
@@ -770,6 +836,15 @@ def register_operations(registry) -> None:
         "luck_spend_max": {
             "type": "integer",
             "desc": "optional pre-authorization (1..99): spend only the minimum Luck that changes this opposed melee result",
+        },
+        "goal": {
+            "type": "string",
+            "enum": ["disarm", "ongoing_disadvantage", "escape", "push"],
+            "desc": "one rulebook maneuver goal; valid only for action_kind=maneuver",
+        },
+        "combat_revision": {
+            "type": "integer",
+            "desc": "host-bound current CombatSession revision; stale values fail closed",
         },
         "decision_id": {
             "type": "string", "required": True, "desc": "idempotency key"
