@@ -2538,6 +2538,94 @@ def test_combat_graph_binding_rejects_forged_candidate_and_stale_defense(
     assert stale.value.code == "combat_defense_not_pending"
 
 
+def test_sanity_graph_bout_binding_builds_existing_execute_command(
+    monkeypatch, tmp_path: Path,
+):
+    kernel = coc_toolbox.coc_operation_kernel
+    campaign_dir = tmp_path / "campaign"
+    (campaign_dir / "save").mkdir(parents=True)
+    monkeypatch.setattr(
+        kernel.coc_subsystem_executor,
+        "get_current_pending_choices",
+        lambda _path: [{
+            "kind": "bout_keeper_action",
+            "choice_id": "bout-choice-1",
+            "origin_command_id": "sanity-origin-1",
+            "revision": 2,
+        }],
+    )
+    ctx = SimpleNamespace(
+        campaign_dir=campaign_dir,
+        inv_state=lambda _investigator: {"current_san": 44, "max_san": 60},
+    )
+    binding = kernel._canonical_sanity_binding(
+        ctx,
+        decision_ref="decision:coc7:sanity:bout-tick",
+        investigator_id="thomas-hayes",
+        semantic_inputs={},
+    )
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    selected = {
+        "semantic_inputs": {},
+        "_host_sanity_binding": binding,
+    }
+    provider = adapter.host_locked_provider(
+        ctx,
+        {"investigator": "thomas-hayes", "decision_id": "san-bout-tick-1"},
+        selected,
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        safe_sheet=lambda *_args: {},
+        skill_value=lambda *_args: None,
+    )
+    locked = provider("decision:coc7:sanity:bout-tick")
+    execution = adapter.executor_args(
+        ctx,
+        {
+            "decision_ref": "decision:coc7:sanity:bout-tick",
+            "capability": {"resolver_capability": "sanity.execute"},
+            "command": {"phase": "bout-tick", "payload": locked},
+        },
+        selected,
+        {"investigator": "thomas-hayes", "decision_id": "san-bout-tick-1"},
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        tool_error=kernel.ToolError,
+    )
+    assert execution["command"] == {
+        "command_id": "san-bout-tick-1:command",
+        "kind": "bout_tick",
+        "phase": "resolve",
+        "payload": {
+            "decision_id": "san-bout-tick-1",
+            "choice_id": "bout-choice-1",
+            "responder": "keeper",
+            "revision": 2,
+            "action": "tick",
+            "terminal_command_ids": ["san-bout-tick-1:command"],
+        },
+    }
+
+
+def test_sanity_graph_gain_fails_without_canonical_pending_receipt():
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    kernel = coc_toolbox.coc_operation_kernel
+    with pytest.raises(kernel.ToolError) as failure:
+        adapter.executor_args(
+            SimpleNamespace(),
+            {
+                "decision_ref": "decision:coc7:sanity:gain-current-san",
+                "capability": {"resolver_capability": "sanity.session.gain_san"},
+                "command": {"phase": "resolve", "payload": {
+                    "gain_source": "scenario conclusion",
+                }},
+            },
+            {"semantic_inputs": {"gain_source": "scenario conclusion"}},
+            {"investigator": "thomas-hayes", "decision_id": "san-gain-graph-1"},
+            resolve_investigator=lambda *_args: "thomas-hayes",
+            tool_error=kernel.ToolError,
+        )
+    assert failure.value.code == "sanity_gain_receipt_unavailable"
+
+
 def test_runtime_settle_exclusion_scopes_are_no_candidate(tmp_path: Path):
     graph, manifest = _build_fixture_graph(tmp_path)
     promo = manifest.setdefault("family_promotion_eligibility", {}).setdefault(

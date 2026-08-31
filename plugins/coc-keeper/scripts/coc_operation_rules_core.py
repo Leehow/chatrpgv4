@@ -1295,6 +1295,14 @@ def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
         from coc_operation_kernel_runtime import _tool_combat_end
         return _tool_combat_end(active_ctx, active_args)
 
+    def sanity_check(active_ctx: Ctx, active_args: dict[str, Any]):
+        from coc_operation_kernel_runtime import _tool_rules_sanity_check
+        return _tool_rules_sanity_check(active_ctx, active_args)
+
+    def sanity_execute(active_ctx: Ctx, active_args: dict[str, Any]):
+        from coc_operation_kernel_runtime import _tool_sanity_execute
+        return _tool_sanity_execute(active_ctx, active_args)
+
     return dispatch_rules_settle(
         ctx,
         args,
@@ -1312,6 +1320,13 @@ def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
             "psychology_policy": psychology_observe,
             "combat.resolve": combat_resolve,
             "combat.end": combat_end,
+            "rules.sanity_check": sanity_check,
+            "sanity.execute": sanity_execute,
+            "sanity.session.gain_san": sanity_execute,
+            "sanity.session.reality_check": sanity_execute,
+            "sanity.context": sanity_execute,
+            "time.recover_temporary_insanity": sanity_execute,
+            "time.apply_psychoanalysis_treatment": sanity_execute,
         },
     )
 

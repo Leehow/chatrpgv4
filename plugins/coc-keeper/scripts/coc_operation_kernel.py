@@ -6671,12 +6671,50 @@ def _facts_provider_for(ctx: Ctx, investigator_id: str, ruleset_id: str):
                 elapsed = candidate
         except Exception:
             elapsed = None
-        return coc_rules_runtime.facts_from_state(
+        facts = coc_rules_runtime.facts_from_state(
             state if isinstance(state, dict) else {},
             sheet,
             ruleset_id=ruleset_id,
             elapsed_minutes=elapsed,
         )
+        snapshot = _read_optional_json(
+            ctx.campaign_dir / "save" / "sanity-state" / f"{investigator_id}.json",
+            {},
+        )
+        try:
+            choices = coc_subsystem_executor.get_current_pending_choices(
+                ctx.campaign_dir,
+            )
+        except Exception:
+            choices = []
+        try:
+            due = coc_time.peek_due_triggers(ctx.campaign_dir)
+        except Exception:
+            due = []
+        facts.update({
+            "sanity.bout.pending": any(
+                isinstance(row, Mapping) and row.get("kind") == "bout_keeper_action"
+                for row in choices
+            ),
+            "delusion.active": isinstance(snapshot, Mapping)
+            and isinstance(snapshot.get("active_delusion"), Mapping),
+            "treatment.due": any(
+                isinstance(row, Mapping)
+                and row.get("handler") == "apply_psychoanalysis_treatment"
+                for row in due
+            ),
+            "recovery.due": any(
+                isinstance(row, Mapping)
+                and row.get("handler") == "recover_temporary_insanity"
+                for row in due
+            ),
+            "insane": isinstance(snapshot, Mapping) and bool(
+                snapshot.get("temporary_insane") or snapshot.get("indefinite_insane")
+            ),
+            # No canonical pending SAN-gain receipt producer exists yet.
+            "gain.pending": False,
+        })
+        return facts
     return provider
 
 
@@ -6972,6 +7010,17 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
                 result.setdefault("warnings", []).extend(context_warnings)
             if context_hints:
                 result.setdefault("hints", []).extend(context_hints)
+    elif family == "sanity":
+        handler = globals().get("_tool_sanity_context")
+        if callable(handler):
+            context_data, context_warnings, context_hints = handler(
+                ctx, {"investigator": investigator_id},
+            )
+            result["canonical_context"] = context_data
+            if context_warnings:
+                result.setdefault("warnings", []).extend(context_warnings)
+            if context_hints:
+                result.setdefault("hints", []).extend(context_hints)
     findings = result.get("findings") if isinstance(result.get("findings"), list) else []
     if findings:
         coc_rules_runtime.record_host_internal_findings(
@@ -7230,6 +7279,101 @@ def _canonical_combat_binding(
     return binding
 
 
+def _canonical_sanity_binding(
+    ctx: Ctx,
+    *,
+    decision_ref: str,
+    investigator_id: str,
+    semantic_inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Hydrate exact SanitySession/choice/time-trigger inputs from state."""
+    suffix = decision_ref.rsplit(":", 1)[-1]
+    snapshot = _read_optional_json(
+        ctx.campaign_dir / "save" / "sanity-state" / f"{investigator_id}.json",
+        {},
+    )
+    state = ctx.inv_state(investigator_id)
+    binding: dict[str, Any] = {
+        "investigator_id": investigator_id,
+        "san_before": snapshot.get("san_current", state.get("current_san")),
+        "san_max": snapshot.get("san_max", state.get("max_san")),
+    }
+    if suffix == "check":
+        trigger_ref = str(semantic_inputs.get("trigger_ref") or "").strip()
+        if trigger_ref:
+            binding["trigger_id"] = (
+                trigger_ref[len("san-trigger:"):]
+                if trigger_ref.startswith("san-trigger:") else trigger_ref
+            )
+    elif suffix in {"bout-tick", "bout-end"}:
+        choices = [
+            row for row in coc_subsystem_executor.get_current_pending_choices(
+                ctx.campaign_dir,
+            )
+            if isinstance(row, Mapping) and row.get("kind") == "bout_keeper_action"
+        ]
+        if len(choices) != 1:
+            raise ToolError(
+                "sanity_bout_choice_unavailable",
+                "exactly one canonical Keeper bout choice is required",
+            )
+        choice = choices[0]
+        binding.update({
+            "pending_choice_ref": choice.get("choice_id"),
+            "origin_command_id": choice.get("origin_command_id"),
+            "bout_revision": choice.get("revision"),
+        })
+    elif suffix == "reality-check":
+        delusion = snapshot.get("active_delusion")
+        if not isinstance(delusion, Mapping):
+            raise ToolError(
+                "reality_check_unavailable",
+                "no active canonical delusion exists",
+            )
+        binding["active_delusion_ref"] = "active-delusion:current"
+    elif suffix == "insane-insight":
+        if not (snapshot.get("temporary_insane") or snapshot.get("indefinite_insane")):
+            raise ToolError(
+                "insane_insight_unavailable",
+                "the investigator is not currently insane",
+            )
+        binding["insanity_state"] = (
+            "indefinite" if snapshot.get("indefinite_insane") else "temporary"
+        )
+    elif suffix in {"apply-treatment", "recover-temporary"}:
+        handler = (
+            "apply_psychoanalysis_treatment"
+            if suffix == "apply-treatment" else "recover_temporary_insanity"
+        )
+        due = [
+            row for row in coc_time.peek_due_triggers(ctx.campaign_dir)
+            if isinstance(row, Mapping)
+            and row.get("handler") == handler
+            and str(row.get("target_id") or "") == investigator_id
+        ]
+        if len(due) != 1:
+            raise ToolError(
+                "sanity_trigger_stale",
+                "exactly one canonical due Sanity trigger is required",
+            )
+        trigger = due[0]
+        binding.update({
+            (
+                "treatment_trigger_ref"
+                if suffix == "apply-treatment" else "recovery_trigger_ref"
+            ): trigger.get("trigger_id"),
+            "due_elapsed_minutes": trigger.get("due_elapsed_minutes"),
+            "safe_place": bool(
+                coc_time.read_time_state(ctx.campaign_dir).get("safe_place", False)
+            ),
+        })
+        if suffix == "apply-treatment":
+            sheet = ctx.sheet(investigator_id)
+            skills = sheet.get("skills") if isinstance(sheet.get("skills"), Mapping) else {}
+            binding["psychoanalysis_skill"] = int(skills.get("Psychoanalysis", 1))
+    return binding
+
+
 def dispatch_rules_settle(
     ctx: Ctx,
     args: dict[str, Any],
@@ -7312,6 +7456,13 @@ def dispatch_rules_settle(
         )
     if family == "combat":
         selected["_host_combat_binding"] = _canonical_combat_binding(
+            ctx,
+            decision_ref=decision_ref,
+            investigator_id=investigator_id,
+            semantic_inputs=semantic_inputs,
+        )
+    if family == "sanity":
+        selected["_host_sanity_binding"] = _canonical_sanity_binding(
             ctx,
             decision_ref=decision_ref,
             investigator_id=investigator_id,

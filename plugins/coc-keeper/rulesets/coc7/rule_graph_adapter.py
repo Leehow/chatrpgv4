@@ -108,6 +108,17 @@ _COMBAT_SETTLE_DECISION_REFS = (
     "decision:coc7:combat:flee",
     "decision:coc7:combat:end",
 )
+_SANITY_CONTEXT_REF = "decision:coc7:sanity:context"
+_SANITY_SETTLE_DECISION_REFS = (
+    "decision:coc7:sanity:check",
+    "decision:coc7:sanity:bout-tick",
+    "decision:coc7:sanity:bout-end",
+    "decision:coc7:sanity:reality-check",
+    "decision:coc7:sanity:gain-current-san",
+    "decision:coc7:sanity:insane-insight",
+    "decision:coc7:sanity:apply-treatment",
+    "decision:coc7:sanity:recover-temporary",
+)
 _GROUP_ONE_SETTLE_DECISION_REFS = (
     *_HEALING_SETTLE_DECISION_REFS,
     *_CORE_SETTLE_DECISION_REFS,
@@ -115,6 +126,7 @@ _GROUP_ONE_SETTLE_DECISION_REFS = (
     *_SOCIAL_SETTLE_DECISION_REFS,
     *_PSYCHOLOGY_SETTLE_DECISION_REFS,
     *_COMBAT_SETTLE_DECISION_REFS,
+    *_SANITY_SETTLE_DECISION_REFS,
 )
 
 
@@ -382,6 +394,16 @@ class Coc7RuleGraphAdapter:
                         "type": "string",
                         "enum": ["dodge", "fight_back", "dive_for_cover", "none"],
                     },
+                    "source": {"type": "string"},
+                    "loss_success": {"type": "string"},
+                    "loss_failure": {"type": "string"},
+                    "trigger_ref": {"type": "string"},
+                    "involuntary_kind": {"type": "string"},
+                    "involuntary_summary": {"type": "string"},
+                    "request_reality_check": {"type": "boolean"},
+                    "gain_source": {"type": "string"},
+                    "insight": {"type": "string"},
+                    "outcome": {"type": "string"},
                 },
             },
             "decision_id": {
@@ -412,6 +434,7 @@ class Coc7RuleGraphAdapter:
                 "enum": [
                     "healing", "core-check", "push-luck", "social", "psychology",
                     "combat",
+                    "sanity",
                 ],
                 "desc": "source-accepted compiled family",
             },
@@ -444,6 +467,7 @@ class Coc7RuleGraphAdapter:
             "social": ("rules.social_adjudicate",),
             "psychology": ("rules.psychology_observe",),
             "combat": ("combat.context", "combat.resolve", "combat.end"),
+            "sanity": ("rules.sanity_check", "sanity.context", "sanity.execute"),
         }
         overrides: dict[str, dict[str, Any]] = {}
         any_graph_visible = False
@@ -486,6 +510,13 @@ class Coc7RuleGraphAdapter:
         return {
             "combat.resolve": {"adapter": "typed_operation"},
             "combat.end": {"adapter": "typed_operation"},
+            "rules.sanity_check": {"adapter": "typed_operation"},
+            "sanity.context": {"adapter": "typed_operation"},
+            "sanity.execute": {"adapter": "typed_operation"},
+            "sanity.session.gain_san": {"adapter": "sanity.execute"},
+            "sanity.session.reality_check": {"adapter": "sanity.execute"},
+            "time.recover_temporary_insanity": {"adapter": "sanity.execute"},
+            "time.apply_psychoanalysis_treatment": {"adapter": "sanity.execute"},
         }
 
     @staticmethod
@@ -673,6 +704,15 @@ class Coc7RuleGraphAdapter:
                 binding = (
                     selected.get("_host_combat_binding")
                     if isinstance(selected.get("_host_combat_binding"), Mapping)
+                    else {}
+                )
+                for key, value in binding.items():
+                    if value is not None:
+                        locked[str(key)] = _thaw(value)
+            elif decision_ref in _SANITY_SETTLE_DECISION_REFS:
+                binding = (
+                    selected.get("_host_sanity_binding")
+                    if isinstance(selected.get("_host_sanity_binding"), Mapping)
                     else {}
                 )
                 for key, value in binding.items():
@@ -927,13 +967,84 @@ class Coc7RuleGraphAdapter:
                 if payload.get(source) is not None:
                     out[target] = _thaw(payload[source])
         elif capability == "combat.end":
-            outcome = str(payload.get("combat_outcome") or "")
+            outcome = str(payload.get("outcome") or "")
             if not outcome:
                 raise tool_error(
                     "combat_outcome_unavailable",
                     "combat.end requires a mechanically concluded canonical outcome",
                 )
             out["outcome"] = outcome
+        elif capability == "rules.sanity_check":
+            out.update({
+                "source": payload.get("source"),
+                "loss_success": payload.get("loss_success", "0"),
+                "loss_failure": payload.get("loss_failure"),
+                "trigger_id": payload.get("trigger_id"),
+                "involuntary_action": {
+                    "kind": payload.get("involuntary_kind"),
+                    "summary": payload.get("involuntary_summary"),
+                },
+            })
+        elif capability in {
+            "sanity.execute", "sanity.session.gain_san",
+            "sanity.session.reality_check", "sanity.context",
+            "time.recover_temporary_insanity",
+            "time.apply_psychoanalysis_treatment",
+        }:
+            suffix = str(plan.get("decision_ref") or "").rsplit(":", 1)[-1]
+            kind = {
+                "bout-tick": "bout_tick",
+                "bout-end": "bout_end",
+                "reality-check": "reality_check",
+                "gain-current-san": "gain_current_san",
+                "insane-insight": "insane_insight",
+                "apply-treatment": "apply_psychoanalysis_treatment",
+                "recover-temporary": "recover_temporary_insanity",
+            }.get(suffix)
+            phase = str((plan.get("command") or {}).get("phase") or "resolve")
+            if not kind:
+                raise tool_error("unsupported_ruleset_operation", "unknown sanity phase")
+            command_id = f"{args['decision_id']}:command"
+            command_payload: dict[str, Any] = {"decision_id": str(args["decision_id"])}
+            if kind in {"bout_tick", "bout_end"}:
+                command_payload.update({
+                    "choice_id": payload.get("pending_choice_ref"),
+                    "responder": "keeper",
+                    "revision": payload.get("bout_revision"),
+                    "action": "tick" if kind == "bout_tick" else "end",
+                    "terminal_command_ids": [command_id],
+                })
+                phase = "resolve"
+            elif kind == "reality_check":
+                command_payload["request_reality_check"] = payload.get(
+                    "request_reality_check"
+                )
+            elif kind == "gain_current_san":
+                if payload.get("san_gain") is None:
+                    raise tool_error(
+                        "sanity_gain_receipt_unavailable",
+                        "gain-current-san requires a canonical host SAN gain receipt",
+                    )
+                command_payload.update({
+                    "san_gain": payload.get("san_gain"),
+                    "gain_source": payload.get("gain_source"),
+                })
+            elif kind == "insane_insight":
+                command_payload["insight"] = payload.get("insight")
+            elif kind == "apply_psychoanalysis_treatment":
+                command_payload["treatment_trigger_ref"] = payload.get(
+                    "treatment_trigger_ref"
+                )
+            elif kind == "recover_temporary_insanity":
+                command_payload["recovery_trigger_ref"] = payload.get(
+                    "recovery_trigger_ref"
+                )
+            out["command"] = {
+                "command_id": command_id,
+                "kind": kind,
+                "phase": phase,
+                "payload": command_payload,
+            }
         else:
             raise tool_error(
                 "unsupported_ruleset_operation",
@@ -943,7 +1054,9 @@ class Coc7RuleGraphAdapter:
 
     @staticmethod
     def is_context_only(decision_ref: str) -> bool:
-        return decision_ref in (*LOOKUP_CONTEXT_DECISION_REFS, _COMBAT_CONTEXT_REF)
+        return decision_ref in (
+            *LOOKUP_CONTEXT_DECISION_REFS, _COMBAT_CONTEXT_REF, _SANITY_CONTEXT_REF,
+        )
 
     def context_lookup(
         self,
