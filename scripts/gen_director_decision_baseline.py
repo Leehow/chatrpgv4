@@ -14,7 +14,8 @@ behaviour or play quality — that is what a DebugExperiment ``production`` lane
 is for, and it is recorded separately.
 
 Usage:
-    python scripts/gen_director_decision_baseline.py <campaign-id> [--check]
+    PYTHONDONTWRITEBYTECODE=1 uv run --frozen python \
+      scripts/gen_director_decision_baseline.py <campaign-id> [--check]
 
 ``--check`` recomputes and compares against the committed baseline instead of
 writing it, which is how the determinism gate runs in tests.
