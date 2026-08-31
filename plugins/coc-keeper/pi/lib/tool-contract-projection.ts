@@ -3633,7 +3633,18 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   ["sanity.execute", declaredIdentityTable(
     ["san_trigger_id", "rule_ref"],
     [],
-    ["bout_id", "command_id", "decision_id", "event_id", "state_refs"],
+    [
+      "bout_id", "choice_id", "command_id", "decision_id", "event_id",
+      "state_refs", "trigger_id",
+    ],
+  )],
+  ["sanity.context", declaredIdentityTable(
+    ["rule_ref"],
+    [],
+    [
+      "active_bout_id", "bout_id", "choice_id", "command_id", "event_id",
+      "state_refs", "trigger_id",
+    ],
   )],
   ["combat.resolve", declaredIdentityTable(
     [
@@ -3646,6 +3657,10 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       "attack_command_id", "opposed_roll_id", "resolution_command_id", "skill_owner_id",
       "source_command_id", "source_turn_id", "state_refs", "turn_id",
     ],
+  )],
+  ["combat.end", declaredIdentityTable(
+    [],
+    ["projection_sha256"],
   )],
   ["combat.context", declaredIdentityTable(
     ["actor_id", "combat_id", "scene_ref", "target_actor_id"],
@@ -4004,6 +4019,7 @@ const SEMANTIC_ID_SCALAR_FIELDS: ReadonlyMap<string, string> = new Map([
   ["bout_table_roll_id", "roll:"],
   ["bout_rounds_roll_id", "roll:"],
   ["mania_roll_id", "roll:"],
+  ["phobia_roll_id", "roll:"],
   ["loss_roll_id", "roll:"],
   ["consuming_roll_id", "roll:"],
   ["resolution_roll_id", "roll:"],

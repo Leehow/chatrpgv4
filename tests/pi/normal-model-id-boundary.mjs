@@ -1819,6 +1819,74 @@ assertModelSafeContent(
   "evidence.table_opening content",
   JSON.parse(modelContents.at(-1).text),
 );
+// An oversized combat.end result is intentionally reduced by the canonical
+// wire to an identity-only replay card. Its projection digest remains
+// host-only, while the replay operation must survive the FIRST response so
+// the model does not repeat an already-authoritative combat mutation.
+{
+  const combatProjectionDigest = `sha256:${"9".repeat(64)}`;
+  const combatEndCanonical = {
+    ok: true,
+    tool: "combat.end",
+    wire: {
+      schema_version: 1,
+      profile: "keeper_hot_v1",
+      canonical_operation: "combat.end",
+      max_inline_bytes: 16384,
+      full_result_bytes: 50656,
+      full_result_sha256: `sha256:${"8".repeat(64)}`,
+      contract_archive_sha256: `sha256:${"7".repeat(64)}`,
+      payload_projected: true,
+      identity_only: true,
+      measured_inline_bytes: 1068,
+    },
+    data: {
+      projection_sha256: combatProjectionDigest,
+      replay_operation: {
+        operation: "combat.end",
+        invoke_via: "coc_invoke",
+        prefilled_arguments: {},
+        missing_arguments: [],
+        authority: "advisory",
+        hard_gate: false,
+        contract_ref: "combat.end@4646cc703297402e",
+        discovery_required: false,
+      },
+    },
+    warnings: [
+      "The canonical result exceeded the bounded coding-host projection.",
+    ],
+    hints: [],
+  };
+  routeOperation("combat.end", combatEndCanonical);
+  const callsBefore = clientCalls.filter(
+    (call) => call.operation === "combat.end",
+  ).length;
+  const combatEndResult = await executeTool("coc_invoke", {
+    operation: "combat.end",
+    root: testRoot,
+    campaign,
+    arguments: {
+      outcome: "investigator escaped the confrontation",
+      decision_id: "combat-end-corbitt-escape-v1",
+    },
+  });
+  const combatEndVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(combatEndVisible.ok, true, JSON.stringify(combatEndVisible));
+  assert.equal(combatEndVisible.data.projection_sha256, undefined);
+  assert.equal(
+    combatEndVisible.data.replay_operation.operation,
+    "combat.end",
+  );
+  assert.equal(
+    clientCalls.filter((call) => call.operation === "combat.end").length,
+    callsBefore + 1,
+    "the first authoritative combat.end result must remain usable",
+  );
+  assert.ok(!modelContents.at(-1).text.includes(combatProjectionDigest));
+  assert.deepEqual(combatEndResult.details, combatEndCanonical);
+  assertModelSafeContent("combat.end identity-only content", combatEndVisible);
+}
 // Random dice and opposed checks are authoritative rolls too. Their exact
 // toolbox ids are registered before projection, so the first successful call
 // remains ok:true and exposes only stable semantic roll handles. A model must
@@ -1941,9 +2009,11 @@ assertModelSafeContent(
       session_roll_ids: [
         "toolbox-live-san-000001",
         "toolbox-live-san-000002",
+        "toolbox-live-san-000003",
       ],
       check_roll_id: "toolbox-live-san-000001",
       loss_roll_id: "toolbox-live-san-000002",
+      phobia_roll_id: "toolbox-live-san-000003",
       session_events: [{
         event_id: "se1",
         event_type: "sanity",
@@ -1967,9 +2037,14 @@ assertModelSafeContent(
   assert.equal(flatVisible.ok, true, JSON.stringify(flatVisible));
   assert.match(flatVisible.data.check_roll_id, /^roll:/);
   assert.match(flatVisible.data.loss_roll_id, /^roll:/);
+  assert.match(flatVisible.data.phobia_roll_id, /^roll:/);
   assert.deepEqual(
     flatVisible.data.session_roll_ids.sort(),
-    [flatVisible.data.check_roll_id, flatVisible.data.loss_roll_id].sort(),
+    [
+      flatVisible.data.check_roll_id,
+      flatVisible.data.loss_roll_id,
+      flatVisible.data.phobia_roll_id,
+    ].sort(),
   );
   assert.equal(flatVisible.data.san_before, 60);
   assert.equal(flatVisible.data.san_after, 59);
