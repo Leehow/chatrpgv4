@@ -108,6 +108,7 @@ def test_play_prompt_has_open_turn_recovery_acting_then_closure_guidance() -> No
 def test_play_prompt_has_contract_driven_single_draft_finalize_guidance() -> None:
     play = " ".join(PLAY.read_text(encoding="utf-8").split())
     assert "`agency_review_required=false`" in play
+    assert "`turn.output_context.contract_projection.agency_review_required=true`" in play
     assert "player-facing narration is still required" in play
     assert "treat that first draft as final" in play
     assert "Do **not** call or discover `narration.review`" in play

@@ -449,8 +449,9 @@ visible `coc_session_resume` tool, then call visible
   the returned `finalize_operation` exactly once. This direct branch has no
   prose-review or revision loop; only the exact finalizer result may be
   delivered to the player.
-- Every Pi-play narration revision follows the exact authority boundary returned
-  by `turn.output_context`: draft once, call its `agency_review_operation`
+- When `turn.output_context.contract_projection.agency_review_required=true`,
+  every Pi-play narration revision follows that exact authority boundary:
+  draft once, call its `agency_review_operation`
   (`narration.review`) with the exact turn/source/revision/draft and a closed
   `state_authority_review` that binds every player-state claim to its current
   frozen `source_effect_id`. A clear review returns
