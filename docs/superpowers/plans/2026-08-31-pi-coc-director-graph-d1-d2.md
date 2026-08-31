@@ -11,6 +11,11 @@
 **Spec:** [`docs/specs/pi-coc-director-graph-runtime.md`](../../specs/pi-coc-director-graph-runtime.md)
 **Evidence base:** [`docs/status/director-doctrine-inventory.md`](../../status/director-doctrine-inventory.md)
 
+**Status: completed 2026-08-31** on `claude/pi-coc-director-graph-20260831-docs`
+(`121e8908` for D1/D2, `ca472e01` for D3/D4/D5a). Director tests stayed at 337
+with no assertion edited; the ontology validator stayed clean. See the
+Implementation log in the spec for the four corrections the plan needed.
+
 **Non-negotiable:** no value changes in this plan. Every migrated number must be bit-identical to the literal it replaces. Retuning is slice D5 and is out of scope here.
 
 ---

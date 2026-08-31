@@ -1,12 +1,12 @@
 # Pi-Coc DirectorGraph specification
 
-> **Status:** Proposed — not implementation-authorized. Slice D0 (this document)
-> only. D1–D5 each require their own authorization.
+> **Status:** D0–D4 and D5a implemented on `claude/pi-coc-director-graph-20260831-docs`.
+> D5b is blocked on a recorded tool gap (see §8, slice D5) and is not delivered.
 > **ID:** `pi-coc-director-graph-runtime`
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`; Codex-host implementation,
 > adapters, prompts, launchers, tests, and documentation remain off-limits.
 > **Scope owner:** the Director decision surface inside `plugins/coc-keeper/`.
-> **Last updated:** 2026-08-31
+> **Last updated:** 2026-08-31 (implementation pass; see the Implementation log)
 > **Depends on:** [ADR 0003 system ontology composition registry](../adr/0003-system-ontology-composition-registry.md),
 > [DebugExperiment](pi-coc-debug-experiment.md),
 > [`docs/ruleset-contract.md`](../ruleset-contract.md).
@@ -368,3 +368,45 @@ Recorded, not repaired by this specification:
    and `category_count: 15` against 16 actual time-cost categories.
 4. No director test asserts any doctrine value, so no value is protected by a
    regression net today.
+
+
+---
+
+## Implementation log
+
+What the slices actually produced, including where the specification was wrong.
+
+| Slice | Outcome |
+| --- | --- |
+| D0 | This document plus the inventory. |
+| D1 | Contract, compiler, 148 vocabulary nodes; behaviour unchanged. |
+| D2 | 117 doctrine nodes carrying 135 tunable values; behaviour unchanged. |
+| D3 | Two grounded craft directives; director coverage `instance-linked`. |
+| D4 | 150-decision determinism baseline in `checks/`. |
+| D5a | Sensitivity triage: 17 decision-changing, 36 inert, 60 not-exercised. |
+| D5b | **Not delivered** — DebugExperiment cannot vary a doctrine value per lane. |
+
+Corrections this specification needed:
+
+1. **`player-signal` is 34, not 28.** `_LOW_AGENCY_RECENT_CLASSES` is described
+   in code comments as derived from `_LOW_AGENCY_TAGS`, but nothing computes
+   it — it is a hand-written 6-item subset, so it migrated as its own signal
+   group.
+2. **Vocabulary needs an `ordinal`.** `ACTIONS` order is behaviourally
+   observable (`select_action` seeds its score dict from it, uses it as the
+   fallback tiebreak order, and returns `candidates[0]`), and node ids sort
+   alphabetically. The contract gained an `ordinal_law`.
+3. **The residue gate found four values the inventory missed** — the
+   `0.95`/`0.05` PRESSURE posture caps, the default 6-segment clock, and the
+   4-digit score rounding. All four went into the graph rather than an
+   allowlist, as §8 D2 requires.
+4. **A fraction cannot be stored as a quotient.** The clock near-full test is
+   `segments * 2 / 3`; multiplying by `0.6666666666666666` diverges for 65 of
+   the first 199 segment counts, a 5-segment clock among them. It is stored as
+   `[2, 3]`.
+5. **DebugExperiment is the wrong instrument for D5**, as recorded in §8.
+
+Cross-graph finding, recorded and not repaired: the Director selects the dying
+clock on a `"stabilized"` condition tag while the RuleGraph conditions key on
+`hp > 0`. `coc_healing` writes both atomically, so they agree today; they
+remain two independent encodings of one state in different modules.
