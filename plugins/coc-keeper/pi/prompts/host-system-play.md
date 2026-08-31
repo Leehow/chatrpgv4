@@ -336,6 +336,19 @@ visible `coc_session_resume` tool, then call visible
   a hit, miss, damage, jam, or ammo spend without that receipt. Pass the owned
   inventory `item_id` or catalog `weapon_id`; the gateway maps it to the sheet
   skill (e.g. `Firearms (Rifle/Shotgun)`). Do not guess skill strings.
+- Preserve the player's exact combat action semantically. A non-pending
+  `combat.resolve` card is attack-only: set `action_kind=attack` and supply the
+  exact chosen owned `weapon_id`; use literal `unarmed` for fists, kicks, or
+  other unarmed attacks. Never omit the weapon and let another owned weapon
+  stand in. A maneuver, waiting for an attack, Dodge, or Fight Back is not an
+  attack: do not relabel it to satisfy the attack card. If the requested
+  maneuver has no current typed operation, explain/clarify the unsupported
+  settlement rather than firing or striking instead.
+- Dodge and Fight Back are legal only on a current pending-defense card. Read
+  `combat.context`; then copy one exact `defense_kind` from that card's
+  `allowed_defenses`. The pending card exposes no weapon or new-attack fields.
+  If there is no pending defense, do not start an attack as a substitute for
+  the player's declared reaction.
 - `combat.resolve` needs exactly one present `target_npc_id` or authored combat
   `affordance_id`. If the threat is only a vague shadow with no canonical
   combatant id, obtain one via scene/NPC/mechanics tools, or tell the player the

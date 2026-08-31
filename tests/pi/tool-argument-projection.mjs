@@ -1436,7 +1436,11 @@ test("combat.resolve binds exactly one canonical route, while pending defense bi
   assert.ok(Object.hasOwn(schema.properties, "weapon_id"));
   const targetBound = typed.bindRetainedTypedToolArguments(
     binding.operation,
-    { candidate_id: "attack-walter-corbitt", weapon_id: "ritual-dagger" },
+    {
+      candidate_id: "attack-walter-corbitt",
+      action_kind: "attack",
+      weapon_id: "ritual-dagger",
+    },
     binding,
     current,
   );
@@ -1446,7 +1450,11 @@ test("combat.resolve binds exactly one canonical route, while pending defense bi
   assert.equal(targetBound.weapon_id, "ritual-dagger");
   const affordanceBound = typed.bindRetainedTypedToolArguments(
     binding.operation,
-    { candidate_id: "use-floating-knife-route", weapon_id: "ritual-dagger" },
+    {
+      candidate_id: "use-floating-knife-route",
+      action_kind: "attack",
+      weapon_id: "ritual-dagger",
+    },
     binding,
     current,
   );
@@ -1512,7 +1520,7 @@ test("combat.resolve binds exactly one canonical route, while pending defense bi
   assert.ok(!Object.hasOwn(singleSchema.properties, "affordance_id"));
   const singleBound = typed.bindRetainedTypedToolArguments(
     single.operation,
-    { weapon_id: "ritual-dagger" },
+    { action_kind: "attack", weapon_id: "ritual-dagger" },
     single,
     independentCurrent(single),
   );
@@ -1528,6 +1536,7 @@ test("combat.resolve binds exactly one canonical route, while pending defense bi
     candidates: [{
       candidate_id: "defend-pending-floating-knife",
       invocation_mode: "pending_defense",
+      allowed_defenses: ["dodge", "fight_back"],
     }],
   };
   const pendingBound = typed.bindRetainedTypedToolArguments(
@@ -1546,6 +1555,104 @@ test("combat.resolve binds exactly one canonical route, while pending defense bi
     pendingDefense,
     independentCurrent(pendingDefense),
   ), "forged_host_argument");
+});
+
+test("combat.resolve keeps attack weapon semantics separate from pending defenses", () => {
+  const attack = {
+    schema_version: 1,
+    operation: "combat.resolve",
+    binding_revision: "combat:corbitt:attack-1",
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-allan-ward",
+    decision_id: "combat:allan-ward:attack-1",
+    combat_revision: "combat-context:corbitt:attack-1",
+    combat_digest: "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+    candidates: [{
+      candidate_id: "attack-walter-corbitt",
+      invocation_mode: "target_npc_id",
+      target_npc_id: "walter-corbitt",
+    }],
+  };
+  const attackSchema = typed.projectBoundTypedToolParameters(
+    attack.operation,
+    catalog.byOperation.get(attack.operation).parameters,
+    attack,
+    independentCurrent(attack),
+  );
+  assert.ok(attackSchema.required.includes("action_kind"));
+  assert.ok(attackSchema.required.includes("weapon_id"));
+  assert.deepEqual(attackSchema.properties.action_kind.enum, ["attack"]);
+  assert.ok(!Object.hasOwn(attackSchema.properties, "defense_kind"));
+
+  const unarmed = typed.bindRetainedTypedToolArguments(
+    attack.operation,
+    { action_kind: "attack", weapon_id: "unarmed" },
+    attack,
+    independentCurrent(attack),
+  );
+  assert.equal(unarmed.weapon_id, "unarmed");
+  assert.ok(!Object.hasOwn(unarmed, "action_kind"));
+  assert.ok(!Object.hasOwn(unarmed, "defense_kind"));
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    attack.operation,
+    { action_kind: "maneuver", weapon_id: "unarmed" },
+    attack,
+    independentCurrent(attack),
+  ), "semantic_candidate_stale");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    attack.operation,
+    { action_kind: "attack", defense_kind: "dodge", weapon_id: "unarmed" },
+    attack,
+    independentCurrent(attack),
+  ), "semantic_candidate_stale");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    attack.operation,
+    { action_kind: "attack" },
+    attack,
+    independentCurrent(attack),
+  ), "semantic_candidate_stale");
+
+  const pendingDefense = {
+    ...attack,
+    binding_revision: "combat:corbitt:pending-defense-2",
+    combat_revision: "combat-context:corbitt:pending-defense-2",
+    combat_digest: "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+    candidates: [{
+      candidate_id: "defend-pending-floating-knife",
+      invocation_mode: "pending_defense",
+      allowed_defenses: ["dodge", "fight_back"],
+    }],
+  };
+  const defenseSchema = typed.projectBoundTypedToolParameters(
+    pendingDefense.operation,
+    catalog.byOperation.get(pendingDefense.operation).parameters,
+    pendingDefense,
+    independentCurrent(pendingDefense),
+  );
+  assert.ok(defenseSchema.required.includes("defense_kind"));
+  assert.deepEqual(defenseSchema.properties.defense_kind.enum, ["dodge", "fight_back"]);
+  assert.ok(!Object.hasOwn(defenseSchema.properties, "action_kind"));
+  assert.ok(!Object.hasOwn(defenseSchema.properties, "weapon_id"));
+
+  const dodge = typed.bindRetainedTypedToolArguments(
+    pendingDefense.operation,
+    { defense_kind: "dodge" },
+    pendingDefense,
+    independentCurrent(pendingDefense),
+  );
+  assert.equal(dodge.defense_kind, "dodge");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    pendingDefense.operation,
+    { defense_kind: "dive_for_cover" },
+    pendingDefense,
+    independentCurrent(pendingDefense),
+  ), "semantic_candidate_stale");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    pendingDefense.operation,
+    { defense_kind: "fight_back", weapon_id: "unarmed" },
+    pendingDefense,
+    independentCurrent(pendingDefense),
+  ), "semantic_candidate_stale");
 });
 
 test("Pi failure projection classifies recovery ownership without replacing canonical details", () => {

@@ -192,9 +192,16 @@ export type CombatTargetCandidate =
   | {
     candidate_id: string;
     invocation_mode: "pending_defense";
+    allowed_defenses: readonly CombatDefenseKind[];
     target_npc_id?: never;
     affordance_id?: never;
   };
+
+export type CombatDefenseKind =
+  | "dodge"
+  | "fight_back"
+  | "dive_for_cover"
+  | "none";
 
 export type CombatResolveBindingCard = {
   schema_version: 1;
@@ -1441,6 +1448,22 @@ function validateCombatCandidates(value: readonly CombatTargetCandidate[]): void
           { field: "candidates" },
         );
       }
+      const allowed = candidate.allowed_defenses;
+      const validDefenses = new Set<CombatDefenseKind>([
+        "dodge", "fight_back", "dive_for_cover", "none",
+      ]);
+      if (
+        !Array.isArray(allowed)
+        || allowed.length === 0
+        || new Set(allowed).size !== allowed.length
+        || allowed.some((kind) => !validDefenses.has(kind))
+      ) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          "pending defense must retain one or more unique canonical allowed_defenses",
+          { field: "candidates.allowed_defenses" },
+        );
+      }
     } else {
       throw new ToolContractProjectionError(
         "binding_context_invalid",
@@ -2149,6 +2172,11 @@ function setEnumProperty(
   if (!required.includes(field)) schema.required = [...required, field];
 }
 
+function requireSchemaField(schema: JsonSchema, field: string): void {
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  if (!required.includes(field)) schema.required = [...required, field];
+}
+
 function projectChaseCommandSchema(
   schema: JsonSchema,
   binding: ChaseExecuteBindingCard,
@@ -2366,13 +2394,53 @@ export function projectBoundTypedToolParameters(
       );
     }
   }
-  if (valid.operation === "combat.resolve" && valid.candidates.length > 1) {
-    setEnumProperty(
-      cloned,
-      "candidate_id",
-      valid.candidates.map((candidate) => candidate.candidate_id),
-      "Choose one current semantic combat route; the host binds its exact canonical invocation mode.",
-    );
+  if (valid.operation === "combat.resolve") {
+    const pending = valid.candidates[0].invocation_mode === "pending_defense";
+    if (valid.candidates.length > 1) {
+      setEnumProperty(
+        cloned,
+        "candidate_id",
+        valid.candidates.map((candidate) => candidate.candidate_id),
+        "Choose one current semantic combat route; the host binds its exact canonical invocation mode.",
+      );
+    }
+    if (isPlainObject(cloned.properties)) {
+      if (pending) {
+        delete cloned.properties.action_kind;
+        delete cloned.properties.weapon_id;
+        delete cloned.properties.weapon_effect_ids;
+        const candidate = valid.candidates[0];
+        if (candidate.invocation_mode !== "pending_defense") {
+          throw new ToolContractProjectionError(
+            "binding_context_invalid",
+            "pending combat projection lost its sole defense candidate",
+            { operation: valid.operation },
+          );
+        }
+        setEnumProperty(
+          cloned,
+          "defense_kind",
+          candidate.allowed_defenses,
+          "Choose exactly one defense allowed by the current pending attack. This is not a new attack.",
+        );
+      } else {
+        delete cloned.properties.defense_kind;
+        setEnumProperty(
+          cloned,
+          "action_kind",
+          ["attack"],
+          "Confirm that the player's semantic action is an attack. Maneuvers, waiting, Dodge, and Fight Back are not attacks and must not use this card.",
+        );
+        requireSchemaField(cloned, "weapon_id");
+        if (isPlainObject(cloned.properties.weapon_id)) {
+          cloned.properties.weapon_id = {
+            ...cloned.properties.weapon_id,
+            minLength: 1,
+            description: "Exact semantically selected owned weapon handle. Use literal unarmed for fists, kicks, or other unarmed attacks; never omit this field and never substitute another owned weapon.",
+          };
+        }
+      }
+    }
   }
   if (valid.operation === "chase.execute") {
     projectChaseCommandSchema(cloned, valid);
@@ -2784,6 +2852,39 @@ export function bindRetainedTypedToolArguments(
         "selected combat route is not in the current retained semantic candidates",
         { operation, candidate_field: "candidate_id" },
       );
+    }
+    if (candidate.invocation_mode === "pending_defense") {
+      const defenseKind = typeof modelInput.defense_kind === "string"
+        ? modelInput.defense_kind
+        : "";
+      if (
+        !candidate.allowed_defenses.includes(defenseKind as CombatDefenseKind)
+        || Object.hasOwn(modelInput, "action_kind")
+        || Object.hasOwn(modelInput, "weapon_id")
+        || Object.hasOwn(modelInput, "weapon_effect_ids")
+      ) {
+        throw new ToolContractProjectionError(
+          "semantic_candidate_stale",
+          "pending combat defense must use one currently allowed defense and cannot substitute a new weapon/action",
+          { operation, candidate_field: "defense_kind" },
+        );
+      }
+    } else {
+      const weaponId = typeof modelInput.weapon_id === "string"
+        ? modelInput.weapon_id.trim()
+        : "";
+      if (
+        modelInput.action_kind !== "attack"
+        || !weaponId
+        || Object.hasOwn(modelInput, "defense_kind")
+      ) {
+        throw new ToolContractProjectionError(
+          "semantic_candidate_stale",
+          "combat attack must preserve explicit attack semantics and an exact selected weapon; defense or maneuver intent cannot be substituted",
+          { operation, candidate_field: "action_kind" },
+        );
+      }
+      delete result.action_kind;
     }
     delete result.candidate_id;
     if (candidate.invocation_mode === "target_npc_id") {
@@ -6707,6 +6808,13 @@ function rawIdentityFieldRule(
     ) {
       return (value) => isNamespacedSemantic(value, echoed);
     }
+    if (field === "weapon_id") {
+      // `unarmed` is the ruleset's canonical built-in weapon vocabulary,
+      // not an opaque entity id. Keeping this one literal lets a model
+      // preserve fists/kicks without inventing a registry handle or silently
+      // selecting another owned weapon.
+      return (value) => value === "unarmed" || isEchoedSemanticRef(value, echoed);
+    }
     return (value) => isEchoedSemanticRef(value, echoed);
   }
   const handles = RAW_HANDLE_ONLY.get(field);
@@ -6857,7 +6965,9 @@ export function closedIdentityGrammarSpec(
       };
     }
     const namespaces = [...echoed];
-    const nsText = namespaces.length > 0
+    const nsText = field === "weapon_id"
+      ? "literal `unarmed`, a multi-token semantic slug, or namespace `weapon:`, `item:`"
+      : namespaces.length > 0
       ? `multi-token semantic slug or namespace ${namespaces.map((n) => `\`${n}\``).join(", ")}`
       : "multi-token semantic slug (no colon namespace)";
     // Campaign-09 point of use: a coverage handle is never authored, it is
@@ -6888,7 +6998,9 @@ export function closedIdentityGrammarSpec(
         ),
       };
     }
-    const right = namespaces.length > 0
+    const right = field === "weapon_id"
+      ? "unarmed"
+      : namespaces.length > 0
       ? `${namespaces[0]}${GRAMMAR_EXAMPLE_SLUG}`
       : GRAMMAR_EXAMPLE_SLUG;
     const wrong = echoedWrongExample(namespaces);
