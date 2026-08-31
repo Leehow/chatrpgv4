@@ -140,15 +140,6 @@
       "declaration_ref_id": "ref:rule:coc7:capability-social-difficulty"
     },
     {
-      "ref_id": "ref:execution:coc7:social-skill-names",
-      "graph_id": "graph:execution:coc7-resolver",
-      "semantic_id": "capability:coc7:social-skill-names",
-      "reference_kind": "resolver-capability",
-      "node_kind": "capability",
-      "locator": "social_skill_names",
-      "declaration_ref_id": "ref:rule:coc7:capability-social-skill-names"
-    },
-    {
       "ref_id": "ref:execution:coc7:weekly-recovery",
       "graph_id": "graph:execution:coc7-resolver",
       "semantic_id": "capability:coc7:weekly-recovery",
@@ -308,13 +299,6 @@
       "node_kind": "capability"
     },
     {
-      "ref_id": "ref:rule:coc7:capability-social-skill-names",
-      "graph_id": "graph:rule:coc7",
-      "semantic_id": "capability:coc7:social-skill-names",
-      "reference_kind": "artifact-node",
-      "node_kind": "capability"
-    },
-    {
       "ref_id": "ref:rule:coc7:capability-weekly-recovery",
       "graph_id": "graph:rule:coc7",
       "semantic_id": "capability:coc7:weekly-recovery",
@@ -423,6 +407,13 @@
       "ref_id": "ref:rule:coc7:decision-coc7-psychology-realize-player-safe",
       "graph_id": "graph:rule:coc7",
       "semantic_id": "decision:coc7:psychology:realize-player-safe",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-push-luck-luck-roll",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:push-luck:luck-roll",
       "reference_kind": "artifact-node",
       "node_kind": "decision"
     },
@@ -738,6 +729,13 @@
       "ref_id": "ref:rule:coc7:rule-coc7-push-luck-canonical-continuation-hydration",
       "graph_id": "graph:rule:coc7",
       "semantic_id": "rule:coc7:push-luck:canonical-continuation-hydration",
+      "reference_kind": "artifact-node",
+      "node_kind": "rule"
+    },
+    {
+      "ref_id": "ref:rule:coc7:rule-coc7-push-luck-luck-roll",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "rule:coc7:push-luck:luck-roll",
       "reference_kind": "artifact-node",
       "node_kind": "rule"
     },
@@ -1261,6 +1259,18 @@
       "to_ref": "ref:execution:coc7:push-policy"
     },
     {
+      "relation_id": "relation:system:relation-coc7-push-luck-luck-roll-invokes",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:decision-coc7-push-luck-luck-roll",
+      "to_ref": "ref:execution:coc7:check"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-push-luck-luck-roll-rule-invokes",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:rule-coc7-push-luck-luck-roll",
+      "to_ref": "ref:execution:coc7:check"
+    },
+    {
       "relation_id": "relation:system:relation-coc7-push-luck-not-pushed-available:requires:intent-pushed",
       "relation_kind": "requires-live-state-fact",
       "from_ref": "ref:rule:coc7:decision-coc7-push-luck-pushed-roll",
@@ -1307,12 +1317,6 @@
       "relation_kind": "invokes-capability",
       "from_ref": "ref:rule:coc7:decision-coc7-social-adjudicate-difficulty",
       "to_ref": "ref:execution:coc7:social-difficulty"
-    },
-    {
-      "relation_id": "relation:system:relation-coc7-social-adjudicate-reads-names",
-      "relation_kind": "invokes-capability",
-      "from_ref": "ref:rule:coc7:decision-coc7-social-adjudicate-difficulty",
-      "to_ref": "ref:execution:coc7:social-skill-names"
     },
     {
       "relation_id": "relation:system:relation-coc7-social-motive-rule-invokes",

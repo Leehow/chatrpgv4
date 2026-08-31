@@ -158,7 +158,19 @@
         "span-core-check-source-accepted-page-97-block-50",
         "span-core-check-source-accepted-page-99-block-53",
         "span-core-check-source-accepted-page-99-block-54",
-        "span-core-check-source-accepted-page-99-block-55"
+        "span-core-check-source-accepted-page-99-block-55",
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
       ],
       "hard_gate": false,
       "name": "check",
@@ -7645,6 +7657,14 @@
             {
               "name": "described_action",
               "ownership": "player-source"
+            },
+            {
+              "name": "target_ref",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "commitment_ref",
+              "ownership": "keeper-semantic"
             },
             {
               "name": "approach",
@@ -17125,6 +17145,35 @@
     },
     {
       "audience": "keeper",
+      "authority": "deterministic",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ],
+      "hard_gate": false,
+      "name": "Semantic durable requested commitment reference; the host binds it to commitment_id without parsing goal prose",
+      "node_id": "input-slot:coc7:social:commitment-ref",
+      "node_kind": "input-slot",
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "path": "commitment_ref",
+        "value_type": "scalar"
+      },
+      "visibility": "keeper-only"
+    },
+    {
+      "audience": "keeper",
       "authority": "mixed",
       "evidence_span_ids": [
         "span-social-source-accepted-page-104-block-169",
@@ -17352,6 +17401,35 @@
         "ownership": "keeper-semantic",
         "path": "supporting_action",
         "value_type": "object"
+      },
+      "visibility": "keeper-only"
+    },
+    {
+      "audience": "keeper",
+      "authority": "deterministic",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ],
+      "hard_gate": false,
+      "name": "Semantic retained SocialInteractionCandidate target reference in the social-target:<npc_id> namespace",
+      "node_id": "input-slot:coc7:social:target-ref",
+      "node_kind": "input-slot",
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "path": "target_ref",
+        "value_type": "scalar"
       },
       "visibility": "keeper-only"
     },
@@ -38504,6 +38582,26 @@
     },
     {
       "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ],
+      "from_node_id": "decision:coc7:push-luck:luck-roll",
+      "relation_id": "relation:coc7:push-luck:luck-roll-invokes",
+      "relation_kind": "invokes",
+      "to_node_id": "capability:coc7:check"
+    },
+    {
+      "evidence_span_ids": [
         "span-checks-push-luck-source-page-100-block-74",
         "span-checks-push-luck-source-page-101-block-85",
         "span-checks-push-luck-source-page-101-block-86",
@@ -38519,6 +38617,26 @@
       "relation_id": "relation:coc7:push-luck:luck-roll-part-of",
       "relation_kind": "part-of",
       "to_node_id": "rule-family:coc7:push-luck"
+    },
+    {
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ],
+      "from_node_id": "rule:coc7:push-luck:luck-roll",
+      "relation_id": "relation:coc7:push-luck:luck-roll-rule-invokes",
+      "relation_kind": "invokes",
+      "to_node_id": "capability:coc7:check"
     },
     {
       "evidence_span_ids": [
@@ -43472,7 +43590,7 @@
       ],
       "from_node_id": "decision:coc7:social:adjudicate-difficulty",
       "relation_id": "relation:coc7:social:adjudicate-reads-names",
-      "relation_kind": "invokes",
+      "relation_kind": "requires-fact",
       "to_node_id": "capability:coc7:social-skill-names"
     },
     {
@@ -43913,6 +44031,26 @@
     },
     {
       "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ],
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "relation_id": "relation:coc7:social:requires-commitment-ref",
+      "relation_kind": "requires-input",
+      "to_node_id": "input-slot:coc7:social:commitment-ref"
+    },
+    {
+      "evidence_span_ids": [
         "span-interpersonal-skills-source-page-104-block-225",
         "span-interpersonal-skills-source-page-208-block-238",
         "span-interpersonal-skills-source-page-208-block-239",
@@ -44047,6 +44185,26 @@
       "relation_id": "relation:coc7:social:requires-support",
       "relation_kind": "requires-input",
       "to_node_id": "input-slot:coc7:social:supporting-action"
+    },
+    {
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ],
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "relation_id": "relation:coc7:social:requires-target-ref",
+      "relation_kind": "requires-input",
+      "to_node_id": "input-slot:coc7:social:target-ref"
     }
   ],
   "coverage": {
