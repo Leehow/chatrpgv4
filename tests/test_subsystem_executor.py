@@ -3836,7 +3836,7 @@ def test_structured_sanity_fields_are_forwarded_and_new_session_events_are_captu
     command["payload"].update({
         "san_loss_fail_expr": "1",
         "alone": True,
-        "involuntary_kind": "flee",
+        "involuntary_kind": "freeze",
         "involuntary_summary": "retreat to the marked safe doorway",
         "module_bout_override": {"force_mode": "summary"},
         "creature_type": "deep-one",
@@ -3856,7 +3856,7 @@ def test_structured_sanity_fields_are_forwarded_and_new_session_events_are_captu
     assert "involuntary_action" in event_types
     sanity = json.loads((campaign / "save" / "sanity.json").read_text())
     assert sanity["involuntary_actions"][-1] == {
-        "kind": "flee",
+        "kind": "freeze",
         "summary": "retreat to the marked safe doorway",
         "source": "structured-test-source",
         "rule_ref": "core.sanity.failure_involuntary_action",
@@ -3864,6 +3864,15 @@ def test_structured_sanity_fields_are_forwarded_and_new_session_events_are_captu
     assert sanity["awfulness_caps"]["deep-one"] == 1
     assert event_types.count("sanity") == 1
     assert event_types.count("involuntary_action") == 1
+    check_event = next(
+        event for event in result["events"] if event.get("kind") == "sanity_check"
+    )
+    assert check_event["involuntary_action"] == {
+        "kind": "freeze",
+        "summary": "retreat to the marked safe doorway",
+        "source": "structured-test-source",
+        "rule_ref": "core.sanity.failure_involuntary_action",
+    }
     roll_rows = [
         json.loads(line)
         for line in (campaign / "logs" / "rolls.jsonl").read_text().splitlines()
@@ -3871,6 +3880,12 @@ def test_structured_sanity_fields_are_forwarded_and_new_session_events_are_captu
     assert len(roll_rows) == 1
     assert roll_rows[0]["payload"].get("roll_id") == "san-forwarding"
     assert roll_rows[0]["payload"].get("event_type") is None
+    assert roll_rows[0]["payload"]["involuntary_action"] == {
+        "kind": "freeze",
+        "summary": "retreat to the marked safe doorway",
+        "source": "structured-test-source",
+        "rule_ref": "core.sanity.failure_involuntary_action",
+    }
 
 
 def test_forced_summary_bout_finishes_without_keeper_pending_choice(tmp_path):

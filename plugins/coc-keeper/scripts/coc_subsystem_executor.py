@@ -5792,6 +5792,7 @@ def _settle_sanity_check(
         "san_loss_rolls": _json_copy(san_roll.get("san_loss_rolls") or []),
         "san_loss_raw_total": san_roll.get("san_loss_raw_total"),
         "san_loss_resolution": san_roll.get("san_loss_resolution"),
+        "involuntary_action": _json_copy(san_roll.get("involuntary_action")),
         "bout_triggered": bool(session.bout_active or session.temporary_insane),
         "source": source,
         "san_trigger_id": payload.get("san_trigger_id"),
@@ -5965,6 +5966,11 @@ def _roll_result(
             "san_loss_rolls": settled["san_loss_rolls"],
             "san_loss_raw_total": settled["san_loss_raw_total"],
             "san_loss_resolution": settled["san_loss_resolution"],
+            **(
+                {"involuntary_action": _json_copy(settled["involuntary_action"])}
+                if isinstance(settled.get("involuntary_action"), dict)
+                else {}
+            ),
             "bout_triggered": settled["bout_triggered"],
             "source": settled["source"],
             "san_trigger_id": settled["san_trigger_id"],
