@@ -1,0 +1,149 @@
+{
+  "contract_id": "coc.rule-family-source-review.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "family_id": "sanity",
+  "reviewer_identity": "codex-worker-sanity-source-review-20260831",
+  "review_status": "accepted",
+  "source": {
+    "source_id": "pdf:coc7-keeper-rulebook-40th",
+    "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+    "bundle_sha256": "ce3c510abac55d751b3d8f35e418d5a17e378baaa3317b2fe75604f3ab2c6754",
+    "pdf_indices": [
+      165,
+      166,
+      167,
+      168,
+      169,
+      170,
+      171,
+      172,
+      173,
+      174,
+      175,
+      176,
+      177,
+      178,
+      179,
+      180
+    ]
+  },
+  "accepted_shard_id": "shard:coc7:sanity:section-sanity-complete-source",
+  "accepted_shard_digest": "bfa283ef774a31892f81c0a5da131b8ae0bb3193367c29151cac09c0e83a41ba",
+  "coverage": "accepted",
+  "unresolved_applicable_rules": [],
+  "applicability_ledger": [
+    {
+      "rule_id": "rule:coc7:sanity:san-roll",
+      "status": "accepted",
+      "source_group": "san-roll"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:failed-roll-involuntary-action",
+      "status": "accepted",
+      "source_group": "san-roll"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:fumble-maximum-loss",
+      "status": "accepted",
+      "source_group": "san-roll"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:max-san",
+      "status": "accepted",
+      "source_group": "max-san"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:temporary-threshold-and-int",
+      "status": "accepted",
+      "source_group": "temporary"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:indefinite-daily-fraction",
+      "status": "accepted",
+      "source_group": "indefinite"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:permanent-at-zero",
+      "status": "accepted",
+      "source_group": "permanent"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:bout-real-time",
+      "status": "accepted",
+      "source_group": "bout-real"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:bout-summary",
+      "status": "accepted",
+      "source_group": "bout-summary"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:underlying-repeat-bout",
+      "status": "accepted",
+      "source_group": "underlying"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:phobia-and-mania",
+      "status": "accepted",
+      "source_group": "phobia-mania"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:reality-check",
+      "status": "accepted",
+      "source_group": "reality"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:mythos-insanity-gain",
+      "status": "accepted",
+      "source_group": "mythos"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:temporary-recovery",
+      "status": "accepted",
+      "source_group": "temporary-recovery"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:indefinite-treatment",
+      "status": "accepted",
+      "source_group": "treatment"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:sanity-increase",
+      "status": "accepted",
+      "source_group": "san-gain"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:getting-used-to-awfulness",
+      "status": "accepted",
+      "source_group": "awfulness"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:optional-insane-insight",
+      "status": "accepted",
+      "source_group": "optional"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:optional-mythos-hardened",
+      "status": "accepted",
+      "source_group": "optional"
+    },
+    {
+      "rule_id": "rule:coc7:sanity:optional-multiple-san-rolls",
+      "status": "accepted",
+      "source_group": "optional"
+    }
+  ],
+  "runtime_integration_blockers": [
+    {
+      "code": "runtime_schedule_differs_from_source",
+      "runtime_claim": "weekly Psychoanalysis treatment trigger",
+      "source_rule": "indefinite treatment checks occur after each month",
+      "source_pdf_indices": [
+        175,
+        178
+      ],
+      "disposition": "excluded-from-source-shard-runtime-policy"
+    }
+  ]
+}

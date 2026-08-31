@@ -1,0 +1,3273 @@
+{
+  "accepted_shard": {
+    "contract_id": "coc.rule-graph-shard.v1",
+    "coverage": {
+      "sanity": "accepted"
+    },
+    "evidence_binding": {
+      "contract_id": "coc.rule-graph-evidence.v1",
+      "schema_version": 1,
+      "section_id": "section-sanity-complete-source",
+      "spans": [
+        {
+          "source_ref": {
+            "grep_anchor": "investigators begin the game sane and rational. During their investigations they will encounter otherworldly horrors, alien creatures, and the terrible cosmic t",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-1"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Each investigator has Sanity points that can rise and fall during play. Sanity is used to determine whether the investigator can withstand the horrors of the Ct",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-2"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Sanity in the game is modeled after the behavior of protagonists in H.P. Lovecraft's fiction who, more often than not, faint or go mad when confronted with mind",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-3"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "In an unnerving or horrifying situation the Keeper will test the resiliency and emotional strength of the investigators. This is done by calling for a Sanity ro",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-4"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Sanity Points and SAN Rolls",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-5"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Sanity points should be tracked carefully, as the number can change up and down throughout the game. When investigators encounter a sanity-threatening situation",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-6"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Note: If using the optional rule for spending Luck points, these may not be spent on Sanity rolls.",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-7"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "A successful roll means that the investigator loses no Sanity points, or only a minimal amount. A failed Sanity roll always means the investigator loses Sanity ",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-8"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## The Mythos is anathema to the human mind.",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-9"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "In published Call of Cthulhu scenarios, Sanity loss rolls are shown as two numbers or rolls separated by a slash, for instance: SAN 1/1D4+1. The number to the l",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-10"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Failing a Sanity roll always causes the investigator to lose self-control for a moment, at which point the Keeper should choose an involuntary action for the in",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-11"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "\\* Jump in fright—causing the investigator to drop something (spectacles, flashlight, gun, book, etc.)",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-12"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Cry out in terror—drawing attention, saying something inappropriate.",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-13"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Involuntary movement—swerving the steering wheel dangerously to one side, throwing up one's hands in horror, cringing.",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-14"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Involuntary combat action—if a Sanity roll is failed during a combat round, the investigator's action for that round may be dictated by the Keeper; for example,",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-15"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Freeze—stare disbelievingly for a moment but take no action.",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-16"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "A fumbled Sanity roll results in the character losing the maximum Sanity points for that particular situation or encounter.",
+            "pdf_index": 165,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e1dfab4b405ba32c014585f00d11f6a7ec3e736c3313c792f8b78a2ffe9f1fe"
+          },
+          "span_id": "span-sanity-complete-source-page-165-block-17"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Losing more than a few Sanity points at one time may cause an investigator to go insane, as described later.",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-18"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "When encountering one ghoul, the Sanity point loss is 0/1D6. It is the same when encountering multiple ghouls; the sanity effect is for the encounter rather tha",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-19"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Harvey Walters follows a trail into a crypt, where he finds a ghoul feasting on forbidden fruits among the coffins. The Keeper calls for a Sanity roll. Harvey h",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-20"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Maximum Sanity",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-21"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "The threat of insanity in Call of Cthulhu characterizes the Cthulhu Mythos in a way that allows no compromise. Exposed to it, few sane humans freely choose the ",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-22"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "An investigator's Sanity points may rise and fall during play; however, they may never rise above the character's maximum Sanity rating. Each investigator has a",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-23"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "When gaining Cthulhu Mythos skill points, the player should decrease the investigator's maximum Sanity by the same amount.",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-24"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Harvey Walters spends some time perusing ancient tomes, gaining 3% Cthulhu Mythos skill. His player adds 3 points to Harvey's Cthulhu Mythos skill and decreases",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-25"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "# Insanity",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-26"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "From that point forward my impressions are scarcely to be relied on—indeed, I still possess a final, desperate hope that they all form parts of some daemonic dr",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-27"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "—H.P. Lovecraft, The Shadow Out of Time",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-28"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "In Call of Cthulhu, insanity is induced by traumatic experiences and the ghastly comprehension that connects to the Cthulhu Mythos. The duration of the insane s",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-29"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Three states of insanity can result: temporary, indefinite, and permanent.",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-30"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Regardless of whether the insanity is temporary or indefinite, it will consist of three distinct game phases:",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-31"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "First: the insanity begins with a brief “bout of madness,” during which the player’s control of their investigator is compromised (see Insanity Phase 1: A Bout ",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-32"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Second: the bout of madness is followed by a period of underlying insanity, during which the player retains full control of their investigator; however, the inv",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-33"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Third: the final phase is recovery (see Treatment and Recovery from Insanity, page 164).",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-34"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Temporary Insanity",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-35"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "If an investigator loses 5 or more Sanity points from a single source of Sanity loss (e.g. a Sanity roll or reading a tome) sufficient emotional trauma has been",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-36"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "# Examples of Sanity Point Costs",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-37"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "0/1D2 Surprised to find mangled animal carcass.\n0/1D3 Surprised to find a corpse or body part.\n0/1D4 See a stream flow with blood.\n1/1D4+1 Find a horrifically m",
+            "pdf_index": 166,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fd3cfc73a1f49820eb397eb3571d6def9e9da50dea5563efe4c04914921d5c1a"
+          },
+          "span_id": "span-sanity-complete-source-page-166-block-38"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "the investigator has repressed the memory (a trick the mind uses to protect itself), and does not become insane. Perversely, if the INT roll succeeds, the inves",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-39"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Indefinite Insanity",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-40"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "On losing a fifth or more of current Sanity points in one game “day,” the investigator becomes indefinitely insane. No investigator is simply able to shrug off ",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-41"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Permanent Insanity",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-42"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "When Sanity points are reduced to zero the investigator is permanently and incurably insane and ceases to be a player character. In the real world, all insanity",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-43"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Many disorders, especially congenital conditions, offer little hope of recovery. Lovecraft concludes more than one story with the intimation that a lifetime of ",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-44"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Every Keeper must work out what the end-point of madness is in the game. Now and then a quiet release might be made from a local asylum. Some thin, unnaturally ",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-45"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## The Effects of Insanity",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-46"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "St John is a mangled corpse; I alone know why, and such is my knowledge that I am about to blow out my brains for fear I shall be mangled in the same way. Down ",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-47"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## —H. P. Lovecraft, The Hound",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-48"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Both temporary and indefinite insanity take the investigator through two distinct phases of insanity. First, the investigator experiences a short bout of madnes",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-49"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Insanity Phase 1: A Bout of Madness",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-50"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Also known as \"the red mist,\" \"frenzy,\" \"freak out,\"",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-51"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "and \"panic attack.\"",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-52"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "On becoming insane, the investigator experiences a bout of madness. While experiencing a bout of madness, the investigator loses all self-control. In game terms",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-53"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "On the upside, the investigator cannot lose further Sanity points while experiencing a bout of madness. The mind is completely unhinged at this point and any su",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-54"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Each time an investigator suffers a bout of madness, the Keeper may amend one of the investigator's backstory entries or add a new one. These alterations serve ",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-55"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Personal Description: Suitable entries might include “Wild-eyed,” “Thousand-yard stare,” “World-weary,” or “No longer cares for their own appearance”.",
+            "pdf_index": 167,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1c743016dec9a919e81e78fa1828569d71eb33e5b24d14cef0b8fff7d01dd47a"
+          },
+          "span_id": "span-sanity-complete-source-page-167-block-56"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Ideology/Beliefs: A balanced entry such as “religious” might be changed to something more extreme or deranged, such as “Unbelievers must be converted or made to",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-57"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Significant People: A new name might be added together with a reason for its inclusion. For example, “Can’t rest until Delbert Smith is in his grave,” or “Robin",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-58"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Meaningful Locations: The present location might take on",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-59"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## A Bout of Madness—Real Time",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-60"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "If the bout of madness happens during a scene in which other investigators are present, the bout of madness lasts for 1D10 combat rounds (note that this is not ",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-61"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "The option to play out the bout of madness round-by-round may be used even when the investigator is alone, or if the Keeper thinks it appropriate.",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-62"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "To determine the nature of the bout of madness, either roll on Table VII: Bouts of Madness—Real Time, or the Keeper may choose an appropriate option.",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-63"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "great significance, or the investigator might become fixated on reaching another location for either rational or irrational reasons. The former might be the cul",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-64"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Treasured Possessions: It is easy to lose possessions while one's mind is disrupted by insanity. Any possessions might be erased or noted as lost. A new possess",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-65"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Traits: A trait might be erased or altered to something more suitable; for example: \"bully,\" \"drug addict,\" \"easily distracted,\" \"talks too loudly,\" \"lack of in",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-66"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Injuries & Scars: These are more usually altered as a result of major wounds.",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-67"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Phobias and Manias: These may result from rolls during the bout of madness.",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-68"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Arcane Tomes, Spells and Artifacts: Such items might be lost or destroyed in a fit of pique. The investigator might involuntarily cast any spells that they know",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-69"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Encounters with Strange Entities: Encounters with a monster or deities should be recorded here regardless of whether insanity results or not. This also provides",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-70"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "A bout of madness can take one of two forms depending on the situation, either in real time (round-by-round) or in summary.",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-71"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "# Table VII: Bouts of Madness—Real Time (roll 1D10):",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-72"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "1) Amnesia: The investigator has no memory of events that have taken place since they were last in a place of safety. For example, it seems to them that one mom",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-73"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "2) Psychosomatic disability: The investigator suffers psychosomatic blindness, deafness, or loss of the use of a limb or limbs for 1D10 rounds.",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-74"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "3) Violence: A red mist descends on the investigator and they explode in a spree of uncontrolled violence and destruction directed at their surroundings, allies",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-75"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "4) Paranoia: The investigator suffers severe paranoia for ID10 rounds; everyone is out to get them; no one can be trusted; they are being spied on; someone has ",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-76"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "5) Significant Person: Review the investigator's backstory entry for Significant People. The investigator mistakes another person in the scene for their Signifi",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-77"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "6) Faint: The investigator faints. They recover after ID10 rounds.",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-78"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "7) Flee in panic: The investigator is compelled to get as far away as possible by whatever means are available, even if it means taking the only vehicle and lea",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-79"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "8) Physical hysterics or emotional outburst: The investigator is incapacitated from laughing, crying, screaming, etc. for ID10 rounds.",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-80"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "9) Phobia: Investigator gains a new phobia. Roll ID100 on Table IX: Sample Phobias, or the Keeper may choose one. Even if the source of the phobia is not presen",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-81"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "10) Mania: The investigator gains a new mania. Roll ID100 on Table X: Sample Manias, or the Keeper may choose one. The investigator seeks to indulge in their ne",
+            "pdf_index": 168,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "4f7a80a0e9b1619c70ea7b6fd80ea55f198fa57e2e88429af2ab9c23dc07a1f8"
+          },
+          "span_id": "span-sanity-complete-source-page-168-block-82"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## A Bout of Madness—Summary",
+            "pdf_index": 169,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "ad7df03df773a0301835c261a452fda632c85bf33c4c90e74690eaf897984b9c"
+          },
+          "span_id": "span-sanity-complete-source-page-169-block-83"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "If the bout of madness happens away from the company of other investigators, or if all the investigators present suffer a bout of madness simultaneously, the Ke",
+            "pdf_index": 169,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "ad7df03df773a0301835c261a452fda632c85bf33c4c90e74690eaf897984b9c"
+          },
+          "span_id": "span-sanity-complete-source-page-169-block-84"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Most of the outcomes require the investigator to leave the place where the onset of insanity occurs. If this is not possible the Keeper should adapt the outcome",
+            "pdf_index": 169,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "ad7df03df773a0301835c261a452fda632c85bf33c4c90e74690eaf897984b9c"
+          },
+          "span_id": "span-sanity-complete-source-page-169-block-85"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "To determine the nature of the bout of madness, either roll on Table VIII: Bouts of Madness—Summary or the Keeper may choose an appropriate option.",
+            "pdf_index": 169,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "ad7df03df773a0301835c261a452fda632c85bf33c4c90e74690eaf897984b9c"
+          },
+          "span_id": "span-sanity-complete-source-page-169-block-86"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Harvey is investigating an office at night. Opening a locked cabinet, he finds a metal canister. As he touches it a metallic voice speaks to him—the voice of a ",
+            "pdf_index": 169,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "ad7df03df773a0301835c261a452fda632c85bf33c4c90e74690eaf897984b9c"
+          },
+          "span_id": "span-sanity-complete-source-page-169-block-87"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Another example: The investigators have retired for the evening, each one to their own hotel room. Late that night one of the investigators, Kratos, is haunted ",
+            "pdf_index": 169,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "ad7df03df773a0301835c261a452fda632c85bf33c4c90e74690eaf897984b9c"
+          },
+          "span_id": "span-sanity-complete-source-page-169-block-88"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Insanity Phase 2: Underlying Insanity",
+            "pdf_index": 169,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "ad7df03df773a0301835c261a452fda632c85bf33c4c90e74690eaf897984b9c"
+          },
+          "span_id": "span-sanity-complete-source-page-169-block-89"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Once the initial bout of madness is over, the investigator enters a lower-level state of underlying insanity. Control of the investigator is placed firmly in th",
+            "pdf_index": 169,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "ad7df03df773a0301835c261a452fda632c85bf33c4c90e74690eaf897984b9c"
+          },
+          "span_id": "span-sanity-complete-source-page-169-block-90"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "While in the fragile state of underlying insanity (after the initial bout of madness has passed) any further loss of Sanity points (even a single point) will re",
+            "pdf_index": 169,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "ad7df03df773a0301835c261a452fda632c85bf33c4c90e74690eaf897984b9c"
+          },
+          "span_id": "span-sanity-complete-source-page-169-block-91"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "It is important to note that the investigator, while insane, may act completely rationally and normally, only outwardly presenting their insanity during bouts o",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-92"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Having recovered from his bout of madness, Harvey rejoins his friends. Harvey's player now has full control over Harvey and decides to play up Harvey's paranoia",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-93"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Insanity Side-Effects 1: Phobias and Manias",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-94"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "You ask me to explain why I am afraid of a draught of cool air",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-95"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "—H.P. Lovecraft, Cool Air",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-96"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "While the investigator is sane, a phobia or mania acts solely as a roleplaying trait. For example, if the player wishes for his or her (sane) investigator to ov",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-97"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Phobic and Manic Responses While Insane",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-98"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Direct exposure (close physical proximity) to the subject of the phobia causes panic; equally, exposure to the source of a mania causes an obsessive reaction.",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-99"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "For phobias, actions other than fighting or fleeing may only be made with one penalty die. This penalty does not apply to Sanity rolls or reality check rolls.",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-100"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "While in a state of underlying insanity (see following), being exposed to the subject of their mania will cause an overwhelming response in the investigator. If",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-101"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "# Table VIII : Bouts of Madness—Summary (roll IDIO):",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-102"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "1) Amnesia: The investigator comes to their senses in some unfamiliar place with no memory of who they are. Their memories will slowly return to them over time.",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-103"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "2) Robbed: The investigator comes to their senses 1D10 hours later, having been robbed. They are unharmed. If they were carrying a Treasured Possession (see inv",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-104"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "3) Battered: The investigator comes to their senses 1D10 hours later to find themselves battered and bruised. Hit points are reduced to half of what they were b",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-105"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "4) Violence: The investigator explodes in a spree of violence and destruction. When the investigator comes to their senses, their actions may or may not be appa",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-106"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "5) Ideology/Beliefs: Review the investigator's backstory entry for Ideology and Beliefs. The investigator manifests one of these in an extreme, crazed, and demo",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-107"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "6) Significant People: Consult the investigator's backstory entry for Significant People and why the relationship is so important. In the time that passes (1D10",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-108"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "7) Institutionalized: The investigator comes to their senses in a psychiatric ward or police cell. They may slowly recall the events that led them there.",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-109"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "8) Flee in panic: When the investigator comes to their senses they are far away, perhaps lost in the wilderness or on a train or long-distance bus.",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-110"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "9) Phobia: The investigator gains a new phobia. Roll 1D100 on Table IX: Sample Phobias, or the Keeper may choose one. The investigator comes to their senses 1D1",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-111"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "10) Mania: The investigator gains a new mania. Roll ID100 on Table X: Sample Manias, or the Keeper may choose one. The investigator comes to their senses ID10 h",
+            "pdf_index": 170,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "d0f3e716a46f8b480f0377cb4b4ceb8d87976a69e3a585942d36c0817c1b60ef"
+          },
+          "span_id": "span-sanity-complete-source-page-170-block-112"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Call of Cthulhu",
+            "pdf_index": 171,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "f202ad49c7865a8a63526f99123c70da88d3f5e63a35eac34012c3741d9f3292"
+          },
+          "span_id": "span-sanity-complete-source-page-171-block-113"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Table IX: Sample Phobias\n      A phobia is a lasting irrational fear of something. The Keeper may select randomly (roll 1D100) or choose an appropriate one.\n   ",
+            "pdf_index": 171,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "f202ad49c7865a8a63526f99123c70da88d3f5e63a35eac34012c3741d9f3292"
+          },
+          "span_id": "span-sanity-complete-source-page-171-block-114"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "9) Androphobia: Fear of men.              43) Hamartophobia: Fear of sinning.       80) Pyrophobia: Fear of fire.\n      10) Anglophobia: Fear of England or     ",
+            "pdf_index": 171,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "f202ad49c7865a8a63526f99123c70da88d3f5e63a35eac34012c3741d9f3292"
+          },
+          "span_id": "span-sanity-complete-source-page-171-block-115"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": " Fear of vegetables.        alive or of cemeteries.\n      20) Bibliophobia: Fear of books.          55) Ligyrophobia: Fear of loud noises.    89) Taurophobia: F",
+            "pdf_index": 171,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "f202ad49c7865a8a63526f99123c70da88d3f5e63a35eac34012c3741d9f3292"
+          },
+          "span_id": "span-sanity-complete-source-page-171-block-116"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "29) Demophobia: Fear of crowds.           64) Necrophobia: Fear of dead things.         yellow or the word “yellow”.\n      30) Dentophobia: Fear of dentists.   ",
+            "pdf_index": 171,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "f202ad49c7865a8a63526f99123c70da88d3f5e63a35eac34012c3741d9f3292"
+          },
+          "span_id": "span-sanity-complete-source-page-171-block-117"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "160",
+            "pdf_index": 171,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "f202ad49c7865a8a63526f99123c70da88d3f5e63a35eac34012c3741d9f3292"
+          },
+          "span_id": "span-sanity-complete-source-page-171-block-118"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "chapter 8: sanity",
+            "pdf_index": 172,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "f13ef1ff74d573b84ac12e0982b3a50d44080a286be36e42e43e1c0b4036cfd7"
+          },
+          "span_id": "span-sanity-complete-source-page-172-block-119"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Table X: Sample Manias\n  A mania results in an obsession or compulsion with its subject. The Keeper may select randomly (roll 1D100) or choose an\n  appropriate ",
+            "pdf_index": 172,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "f13ef1ff74d573b84ac12e0982b3a50d44080a286be36e42e43e1c0b4036cfd7"
+          },
+          "span_id": "span-sanity-complete-source-page-172-block-120"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": ").\n     pointed objects.                        42) Empleomania: Insatiable urge to hold        74) Onomamania: Obsession with names\n8) Ailuromania: Abnormal fo",
+            "pdf_index": 172,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "f13ef1ff74d573b84ac12e0982b3a50d44080a286be36e42e43e1c0b4036cfd7"
+          },
+          "span_id": "span-sanity-complete-source-page-172-block-121"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "e.                                    witchcraft.                                81) Phonomania: Pathological tendency to\n17) Balletomania: Abnormal fondness fo",
+            "pdf_index": 172,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "f13ef1ff74d573b84ac12e0982b3a50d44080a286be36e42e43e1c0b4036cfd7"
+          },
+          "span_id": "span-sanity-complete-source-page-172-block-122"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": " picking.\n23) Cartacoethes: Uncontrollable compulsion 58) Idolomania: Obsession or devotion to an 89) Scribbleomania: Obsession with\n     to see maps everywhere",
+            "pdf_index": 172,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "f13ef1ff74d573b84ac12e0982b3a50d44080a286be36e42e43e1c0b4036cfd7"
+          },
+          "span_id": "span-sanity-complete-source-page-172-block-123"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": ".                              oneself.\n     color.                                  65) Lypemania: An abnormal tendency             96) Tomomania: Irrational p",
+            "pdf_index": 172,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "f13ef1ff74d573b84ac12e0982b3a50d44080a286be36e42e43e1c0b4036cfd7"
+          },
+          "span_id": "span-sanity-complete-source-page-172-block-124"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "161",
+            "pdf_index": 172,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "f13ef1ff74d573b84ac12e0982b3a50d44080a286be36e42e43e1c0b4036cfd7"
+          },
+          "span_id": "span-sanity-complete-source-page-172-block-125"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Call of Cthulhu",
+            "pdf_index": 173,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e5d50db1aaaa7cd19cdfc20ef00e6a9126245687cd64a2e897e8b4e7ed25bb7"
+          },
+          "span_id": "span-sanity-complete-source-page-173-block-126"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "out of range of the stimulus. For example, while in a place\n                                                                           Insanity Side-Effects 2:\n",
+            "pdf_index": 173,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e5d50db1aaaa7cd19cdfc20ef00e6a9126245687cd64a2e897e8b4e7ed25bb7"
+          },
+          "span_id": "span-sanity-complete-source-page-173-block-127"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "                                   The only way for the player to be sure of what his or her\n      investigator enables the insane investigator to temporarily\n ",
+            "pdf_index": 173,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e5d50db1aaaa7cd19cdfc20ef00e6a9126245687cd64a2e897e8b4e7ed25bb7"
+          },
+          "span_id": "span-sanity-complete-source-page-173-block-128"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "r-looking individual.             Reality Check Rolls\n          The Keeper offers a Spot Hidden roll to Harvey’s                 While reality checks are only u",
+            "pdf_index": 173,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e5d50db1aaaa7cd19cdfc20ef00e6a9126245687cd64a2e897e8b4e7ed25bb7"
+          },
+          "span_id": "span-sanity-complete-source-page-173-block-129"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "A threat of the Mythos or just a nice old lady?\n162",
+            "pdf_index": 173,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5e5d50db1aaaa7cd19cdfc20ef00e6a9126245687cd64a2e897e8b4e7ed25bb7"
+          },
+          "span_id": "span-sanity-complete-source-page-173-block-130"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "chapter 8: sanity",
+            "pdf_index": 174,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "c154c97801a10015561ec08a24310a698343d3b16d816edecd3dceab7b0ffd00"
+          },
+          "span_id": "span-sanity-complete-source-page-174-block-131"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Failure: lose 1 Sanity point. This will immediately induce a\nbout of madness if the investigator is suffering underlying\ninsanity. Any delusions are not dispell",
+            "pdf_index": 174,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "c154c97801a10015561ec08a24310a698343d3b16d816edecd3dceab7b0ffd00"
+          },
+          "span_id": "span-sanity-complete-source-page-174-block-132"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "ngness for dangerous or imprudent\n    returns to his home. Going out of his back door,           activities such as reckless driving, hallucinations, delusions,",
+            "pdf_index": 174,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "c154c97801a10015561ec08a24310a698343d3b16d816edecd3dceab7b0ffd00"
+          },
+          "span_id": "span-sanity-complete-source-page-174-block-133"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "he\n    present, the Keeper is free to fast-forward to the         character may just forget the bad experience that caused\n    point where another investigator ",
+            "pdf_index": 174,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "c154c97801a10015561ec08a24310a698343d3b16d816edecd3dceab7b0ffd00"
+          },
+          "span_id": "span-sanity-complete-source-page-174-block-134"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "ll no doubt ensue.                    delusion, and I shall die calmly like a German, in the black\n                                                             ",
+            "pdf_index": 174,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "c154c97801a10015561ec08a24310a698343d3b16d816edecd3dceab7b0ffd00"
+          },
+          "span_id": "span-sanity-complete-source-page-174-block-135"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "163",
+            "pdf_index": 174,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "c154c97801a10015561ec08a24310a698343d3b16d816edecd3dceab7b0ffd00"
+          },
+          "span_id": "span-sanity-complete-source-page-174-block-136"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Call of Cthulhu",
+            "pdf_index": 175,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1b5c20b893edf84cb5080dd42f4aa2354cabfd0c9f43f4f9e65d4b7d2c6e84c1"
+          },
+          "span_id": "span-sanity-complete-source-page-175-block-137"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Treatment and\n      reading a Mythos tome, being affected by a Mythos spell), he\n      or she learns more of the Mythos, and this is reflected in the\n      Cthu",
+            "pdf_index": 175,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1b5c20b893edf84cb5080dd42f4aa2354cabfd0c9f43f4f9e65d4b7d2c6e84c1"
+          },
+          "span_id": "span-sanity-complete-source-page-175-block-138"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "y’s maximum Sanity points drops to 91 (99\n          minus 8 Cthulhu Mythos skill).                               Temporary insanity lasts 1D10 hours. Alternativ",
+            "pdf_index": 175,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1b5c20b893edf84cb5080dd42f4aa2354cabfd0c9f43f4f9e65d4b7d2c6e84c1"
+          },
+          "span_id": "span-sanity-complete-source-page-175-block-139"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Recovery from\n        A Note about Delusions\n                                                                       Indefinite Insanity\n        and Sanity Point",
+            "pdf_index": 175,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1b5c20b893edf84cb5080dd42f4aa2354cabfd0c9f43f4f9e65d4b7d2c6e84c1"
+          },
+          "span_id": "span-sanity-complete-source-page-175-block-140"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": " best care available is at home or in some friendly place\n            Note that while suffering a bout of madness the            where nursing can be tender, co",
+            "pdf_index": 175,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1b5c20b893edf84cb5080dd42f4aa2354cabfd0c9f43f4f9e65d4b7d2c6e84c1"
+          },
+          "span_id": "span-sanity-complete-source-page-175-block-141"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "If the result is 96–100: the character rebels against taking\n                                                                       the drugs or therapy. 1D6 Sa",
+            "pdf_index": 175,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1b5c20b893edf84cb5080dd42f4aa2354cabfd0c9f43f4f9e65d4b7d2c6e84c1"
+          },
+          "span_id": "span-sanity-complete-source-page-175-block-142"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "164",
+            "pdf_index": 175,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "1b5c20b893edf84cb5080dd42f4aa2354cabfd0c9f43f4f9e65d4b7d2c6e84c1"
+          },
+          "span_id": "span-sanity-complete-source-page-175-block-143"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "chapter 8: sanity",
+            "pdf_index": 176,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fb078ad82aac0cebb862e4ab5fd9a3baed3162c9b7b0344672b14792ef0db425"
+          },
+          "span_id": "span-sanity-complete-source-page-176-block-144"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Sanity Loss\n                                                                         The following is a guide for how the loss of Sanity\n                       ",
+            "pdf_index": 176,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fb078ad82aac0cebb862e4ab5fd9a3baed3162c9b7b0344672b14792ef0db425"
+          },
+          "span_id": "span-sanity-complete-source-page-176-block-145"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "                                                          physical reactions (violent body ticks, extreme nausea,\n                                              ",
+            "pdf_index": 176,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fb078ad82aac0cebb862e4ab5fd9a3baed3162c9b7b0344672b14792ef0db425"
+          },
+          "span_id": "span-sanity-complete-source-page-176-block-146"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "offer rude confinement.\n    Supervised activity, manual therapy, psychiatric\nmedications, and hydrotherapy are frequent, as is                         *50 is an",
+            "pdf_index": 176,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fb078ad82aac0cebb862e4ab5fd9a3baed3162c9b7b0344672b14792ef0db425"
+          },
+          "span_id": "span-sanity-complete-source-page-176-block-147"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "cessful then a            A medical practitioner licensed within the state\nfurther Sanity roll may be attempted in one month’s time.             can arrange tha",
+            "pdf_index": 176,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "fb078ad82aac0cebb862e4ab5fd9a3baed3162c9b7b0344672b14792ef0db425"
+          },
+          "span_id": "span-sanity-complete-source-page-176-block-148"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Call of Cthulhu",
+            "pdf_index": 177,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "6d397bc6c63fd5b1e56cafba56a12ab7cd93420dc22c5cd54f55ac8de9539904"
+          },
+          "span_id": "span-sanity-complete-source-page-177-block-149"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "another formal presentation to the court, in which an\n      investigator would have to be found mentally incompetent            Arrested after breaking into a c",
+            "pdf_index": 177,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "6d397bc6c63fd5b1e56cafba56a12ab7cd93420dc22c5cd54f55ac8de9539904"
+          },
+          "span_id": "span-sanity-complete-source-page-177-block-150"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "                              disorder, in the form of delusions concerning cultists\n          Unless the investigator is criminally insane (in which          a",
+            "pdf_index": 177,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "6d397bc6c63fd5b1e56cafba56a12ab7cd93420dc22c5cd54f55ac8de9539904"
+          },
+          "span_id": "span-sanity-complete-source-page-177-block-151"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "e               A few nights later, Harvey escapes from the\n      institution’s staff to bring notice of his or her restored mental   institute and heads toward",
+            "pdf_index": 177,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "6d397bc6c63fd5b1e56cafba56a12ab7cd93420dc22c5cd54f55ac8de9539904"
+          },
+          "span_id": "span-sanity-complete-source-page-177-block-152"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Mental Health\n      Dangerousness Criteria\n      When a person seems to be at risk of self-harm or for\n      harm to others, and apparently cannot care for him-",
+            "pdf_index": 177,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "6d397bc6c63fd5b1e56cafba56a12ab7cd93420dc22c5cd54f55ac8de9539904"
+          },
+          "span_id": "span-sanity-complete-source-page-177-block-153"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Dr. Shiny\n166",
+            "pdf_index": 177,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "6d397bc6c63fd5b1e56cafba56a12ab7cd93420dc22c5cd54f55ac8de9539904"
+          },
+          "span_id": "span-sanity-complete-source-page-177-block-154"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "chapter 8: sanity",
+            "pdf_index": 178,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "95526066763bd7c06907164d73cf7ea64625b39f97520f8063160433d61af020"
+          },
+          "span_id": "span-sanity-complete-source-page-178-block-155"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Increasing\n                                                                       patient loses 1D6 Sanity points, and treatment by that analyst\n               ",
+            "pdf_index": 178,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "95526066763bd7c06907164d73cf7ea64625b39f97520f8063160433d61af020"
+          },
+          "span_id": "span-sanity-complete-source-page-178-block-156"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Current Sanity Points\n                                                                       dramatic setback in the therapy, and the relationship between\n     ",
+            "pdf_index": 178,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "95526066763bd7c06907164d73cf7ea64625b39f97520f8063160433d61af020"
+          },
+          "span_id": "span-sanity-complete-source-page-178-block-157"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "               game’s equivalent of mental first aid and is a world removed\nreward, especially if they wish to enforce a moral agenda.             from real-lif",
+            "pdf_index": 178,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "95526066763bd7c06907164d73cf7ea64625b39f97520f8063160433d61af020"
+          },
+          "span_id": "span-sanity-complete-source-page-178-block-158"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "ows no benefit. Fumbling either\n3. Psychotherapy: intensive psychoanalysis can return Sanity           of the rolls results in a loss of 1D6 Sanity points (as a",
+            "pdf_index": 178,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "95526066763bd7c06907164d73cf7ea64625b39f97520f8063160433d61af020"
+          },
+          "span_id": "span-sanity-complete-source-page-178-block-159"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Seeing the shriveled body of a friend is likely to call for a Sanity roll.\n                                                                                     ",
+            "pdf_index": 178,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "95526066763bd7c06907164d73cf7ea64625b39f97520f8063160433d61af020"
+          },
+          "span_id": "span-sanity-complete-source-page-178-block-160"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Call of Cthulhu",
+            "pdf_index": 179,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "150187d8de074baef67d8a028e68f290dd98ecc556aab0e457487c1fe61f4443"
+          },
+          "span_id": "span-sanity-complete-source-page-179-block-161"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "168",
+            "pdf_index": 179,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "150187d8de074baef67d8a028e68f290dd98ecc556aab0e457487c1fe61f4443"
+          },
+          "span_id": "span-sanity-complete-source-page-179-block-162"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "chapter 8: sanity",
+            "pdf_index": 180,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "eae6bf7fb421f242e3edb4312b0d3405e825015890fe7f75efcf7c00cdc2200a"
+          },
+          "span_id": "span-sanity-complete-source-page-180-block-163"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "bias, manias, wounds or anything to do with the Cthulhu\nMythos. This may be done during downtime between ad-                       Harvey has lost a total of 6 ",
+            "pdf_index": 180,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "eae6bf7fb421f242e3edb4312b0d3405e825015890fe7f75efcf7c00cdc2200a"
+          },
+          "span_id": "span-sanity-complete-source-page-180-block-164"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Optional Rules\na head, and then make the Sanity roll, roleplaying the outcome.\nIf the roll is successful, the investigator gains 1D6 Sanity points.\nIf it is uns",
+            "pdf_index": 180,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "eae6bf7fb421f242e3edb4312b0d3405e825015890fe7f75efcf7c00cdc2200a"
+          },
+          "span_id": "span-sanity-complete-source-page-180-block-165"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "definite insanity. If the Sanity roll is failed, that aspect     Mythos Hardened\nof the investigator’s backstory is revised, and that investigator\n             ",
+            "pdf_index": 180,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "eae6bf7fb421f242e3edb4312b0d3405e825015890fe7f75efcf7c00cdc2200a"
+          },
+          "span_id": "span-sanity-complete-source-page-180-block-166"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": " key connection to replace the one that was lost.\n                                                                       understanding that is no longer shaken ",
+            "pdf_index": 180,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "eae6bf7fb421f242e3edb4312b0d3405e825015890fe7f75efcf7c00cdc2200a"
+          },
+          "span_id": "span-sanity-complete-source-page-180-block-167"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Awfulness                                                              Multiple Sanity rolls\nAt some point, constant exposure to the same Mythos                ",
+            "pdf_index": 180,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "eae6bf7fb421f242e3edb4312b0d3405e825015890fe7f75efcf7c00cdc2200a"
+          },
+          "span_id": "span-sanity-complete-source-page-180-block-168"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "an rise up anew. A player should keep track of the Sanity                 for each deep one, results in 2, 4 and 5. She also rolls\npoints lost to any given Myth",
+            "pdf_index": 180,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "eae6bf7fb421f242e3edb4312b0d3405e825015890fe7f75efcf7c00cdc2200a"
+          },
+          "span_id": "span-sanity-complete-source-page-180-block-169"
+        }
+      ]
+    },
+    "evidence_span_ids": [
+      "span-sanity-complete-source-page-165-block-17",
+      "span-sanity-complete-source-page-165-block-2",
+      "span-sanity-complete-source-page-165-block-4",
+      "span-sanity-complete-source-page-165-block-5",
+      "span-sanity-complete-source-page-165-block-6",
+      "span-sanity-complete-source-page-166-block-21",
+      "span-sanity-complete-source-page-166-block-22",
+      "span-sanity-complete-source-page-166-block-23",
+      "span-sanity-complete-source-page-166-block-24",
+      "span-sanity-complete-source-page-166-block-25",
+      "span-sanity-complete-source-page-166-block-33",
+      "span-sanity-complete-source-page-166-block-34",
+      "span-sanity-complete-source-page-166-block-35",
+      "span-sanity-complete-source-page-166-block-36",
+      "span-sanity-complete-source-page-167-block-39",
+      "span-sanity-complete-source-page-167-block-40",
+      "span-sanity-complete-source-page-167-block-41",
+      "span-sanity-complete-source-page-167-block-42",
+      "span-sanity-complete-source-page-167-block-43",
+      "span-sanity-complete-source-page-167-block-49",
+      "span-sanity-complete-source-page-167-block-54",
+      "span-sanity-complete-source-page-168-block-60",
+      "span-sanity-complete-source-page-168-block-61",
+      "span-sanity-complete-source-page-168-block-70",
+      "span-sanity-complete-source-page-168-block-81",
+      "span-sanity-complete-source-page-168-block-82",
+      "span-sanity-complete-source-page-169-block-83",
+      "span-sanity-complete-source-page-169-block-84",
+      "span-sanity-complete-source-page-169-block-89",
+      "span-sanity-complete-source-page-169-block-91",
+      "span-sanity-complete-source-page-170-block-100",
+      "span-sanity-complete-source-page-170-block-104",
+      "span-sanity-complete-source-page-170-block-105",
+      "span-sanity-complete-source-page-170-block-108",
+      "span-sanity-complete-source-page-170-block-111",
+      "span-sanity-complete-source-page-170-block-112",
+      "span-sanity-complete-source-page-170-block-98",
+      "span-sanity-complete-source-page-171-block-114",
+      "span-sanity-complete-source-page-172-block-120",
+      "span-sanity-complete-source-page-173-block-129",
+      "span-sanity-complete-source-page-174-block-132",
+      "span-sanity-complete-source-page-174-block-134",
+      "span-sanity-complete-source-page-174-block-135",
+      "span-sanity-complete-source-page-175-block-138",
+      "span-sanity-complete-source-page-175-block-139",
+      "span-sanity-complete-source-page-175-block-140",
+      "span-sanity-complete-source-page-176-block-145",
+      "span-sanity-complete-source-page-176-block-146",
+      "span-sanity-complete-source-page-178-block-158",
+      "span-sanity-complete-source-page-178-block-159",
+      "span-sanity-complete-source-page-180-block-165",
+      "span-sanity-complete-source-page-180-block-166",
+      "span-sanity-complete-source-page-180-block-167",
+      "span-sanity-complete-source-page-180-block-168"
+    ],
+    "family_id": "sanity",
+    "nodes": [
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-2",
+          "span-sanity-complete-source-page-165-block-4",
+          "span-sanity-complete-source-page-165-block-5",
+          "span-sanity-complete-source-page-165-block-6",
+          "span-sanity-complete-source-page-166-block-21",
+          "span-sanity-complete-source-page-166-block-22",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-166-block-33",
+          "span-sanity-complete-source-page-166-block-34",
+          "span-sanity-complete-source-page-166-block-35",
+          "span-sanity-complete-source-page-166-block-36",
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-167-block-40",
+          "span-sanity-complete-source-page-167-block-41",
+          "span-sanity-complete-source-page-167-block-42",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-167-block-54",
+          "span-sanity-complete-source-page-168-block-60",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-168-block-70",
+          "span-sanity-complete-source-page-168-block-81",
+          "span-sanity-complete-source-page-168-block-82",
+          "span-sanity-complete-source-page-169-block-83",
+          "span-sanity-complete-source-page-169-block-84",
+          "span-sanity-complete-source-page-169-block-89",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-170-block-100",
+          "span-sanity-complete-source-page-170-block-104",
+          "span-sanity-complete-source-page-170-block-105",
+          "span-sanity-complete-source-page-170-block-108",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-170-block-112",
+          "span-sanity-complete-source-page-170-block-98",
+          "span-sanity-complete-source-page-171-block-114",
+          "span-sanity-complete-source-page-172-block-120",
+          "span-sanity-complete-source-page-173-block-129",
+          "span-sanity-complete-source-page-174-block-132",
+          "span-sanity-complete-source-page-174-block-134",
+          "span-sanity-complete-source-page-174-block-135",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-175-block-140",
+          "span-sanity-complete-source-page-176-block-145",
+          "span-sanity-complete-source-page-176-block-146",
+          "span-sanity-complete-source-page-178-block-158",
+          "span-sanity-complete-source-page-178-block-159",
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-167",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "hard_gate": false,
+        "name": "Legacy sanity runtime capability",
+        "node_id": "capability:coc7:sanity-runtime",
+        "node_kind": "capability",
+        "properties": {
+          "adapter": "subsystem",
+          "family_id": "sanity",
+          "resolver_capability": "sanity_runtime"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-2",
+          "span-sanity-complete-source-page-165-block-4",
+          "span-sanity-complete-source-page-165-block-5",
+          "span-sanity-complete-source-page-165-block-6",
+          "span-sanity-complete-source-page-166-block-21",
+          "span-sanity-complete-source-page-166-block-22",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-166-block-33",
+          "span-sanity-complete-source-page-166-block-34",
+          "span-sanity-complete-source-page-166-block-35",
+          "span-sanity-complete-source-page-166-block-36",
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-167-block-40",
+          "span-sanity-complete-source-page-167-block-41",
+          "span-sanity-complete-source-page-167-block-42",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-167-block-54",
+          "span-sanity-complete-source-page-168-block-60",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-168-block-70",
+          "span-sanity-complete-source-page-168-block-81",
+          "span-sanity-complete-source-page-168-block-82",
+          "span-sanity-complete-source-page-169-block-83",
+          "span-sanity-complete-source-page-169-block-84",
+          "span-sanity-complete-source-page-169-block-89",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-170-block-100",
+          "span-sanity-complete-source-page-170-block-104",
+          "span-sanity-complete-source-page-170-block-105",
+          "span-sanity-complete-source-page-170-block-108",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-170-block-112",
+          "span-sanity-complete-source-page-170-block-98",
+          "span-sanity-complete-source-page-171-block-114",
+          "span-sanity-complete-source-page-172-block-120",
+          "span-sanity-complete-source-page-173-block-129",
+          "span-sanity-complete-source-page-174-block-132",
+          "span-sanity-complete-source-page-174-block-134",
+          "span-sanity-complete-source-page-174-block-135",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-175-block-140",
+          "span-sanity-complete-source-page-176-block-145",
+          "span-sanity-complete-source-page-176-block-146",
+          "span-sanity-complete-source-page-178-block-158",
+          "span-sanity-complete-source-page-178-block-159",
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-167",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "hard_gate": false,
+        "name": "manias.json",
+        "node_id": "data-table:coc7:manias",
+        "node_kind": "data-table",
+        "properties": {
+          "table_name": "manias.json"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-2",
+          "span-sanity-complete-source-page-165-block-4",
+          "span-sanity-complete-source-page-165-block-5",
+          "span-sanity-complete-source-page-165-block-6",
+          "span-sanity-complete-source-page-166-block-21",
+          "span-sanity-complete-source-page-166-block-22",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-166-block-33",
+          "span-sanity-complete-source-page-166-block-34",
+          "span-sanity-complete-source-page-166-block-35",
+          "span-sanity-complete-source-page-166-block-36",
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-167-block-40",
+          "span-sanity-complete-source-page-167-block-41",
+          "span-sanity-complete-source-page-167-block-42",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-167-block-54",
+          "span-sanity-complete-source-page-168-block-60",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-168-block-70",
+          "span-sanity-complete-source-page-168-block-81",
+          "span-sanity-complete-source-page-168-block-82",
+          "span-sanity-complete-source-page-169-block-83",
+          "span-sanity-complete-source-page-169-block-84",
+          "span-sanity-complete-source-page-169-block-89",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-170-block-100",
+          "span-sanity-complete-source-page-170-block-104",
+          "span-sanity-complete-source-page-170-block-105",
+          "span-sanity-complete-source-page-170-block-108",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-170-block-112",
+          "span-sanity-complete-source-page-170-block-98",
+          "span-sanity-complete-source-page-171-block-114",
+          "span-sanity-complete-source-page-172-block-120",
+          "span-sanity-complete-source-page-173-block-129",
+          "span-sanity-complete-source-page-174-block-132",
+          "span-sanity-complete-source-page-174-block-134",
+          "span-sanity-complete-source-page-174-block-135",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-175-block-140",
+          "span-sanity-complete-source-page-176-block-145",
+          "span-sanity-complete-source-page-176-block-146",
+          "span-sanity-complete-source-page-178-block-158",
+          "span-sanity-complete-source-page-178-block-159",
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-167",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "hard_gate": false,
+        "name": "phobias.json",
+        "node_id": "data-table:coc7:phobias",
+        "node_kind": "data-table",
+        "properties": {
+          "table_name": "phobias.json"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-2",
+          "span-sanity-complete-source-page-165-block-4",
+          "span-sanity-complete-source-page-165-block-5",
+          "span-sanity-complete-source-page-165-block-6",
+          "span-sanity-complete-source-page-166-block-21",
+          "span-sanity-complete-source-page-166-block-22",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-166-block-33",
+          "span-sanity-complete-source-page-166-block-34",
+          "span-sanity-complete-source-page-166-block-35",
+          "span-sanity-complete-source-page-166-block-36",
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-167-block-40",
+          "span-sanity-complete-source-page-167-block-41",
+          "span-sanity-complete-source-page-167-block-42",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-167-block-54",
+          "span-sanity-complete-source-page-168-block-60",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-168-block-70",
+          "span-sanity-complete-source-page-168-block-81",
+          "span-sanity-complete-source-page-168-block-82",
+          "span-sanity-complete-source-page-169-block-83",
+          "span-sanity-complete-source-page-169-block-84",
+          "span-sanity-complete-source-page-169-block-89",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-170-block-100",
+          "span-sanity-complete-source-page-170-block-104",
+          "span-sanity-complete-source-page-170-block-105",
+          "span-sanity-complete-source-page-170-block-108",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-170-block-112",
+          "span-sanity-complete-source-page-170-block-98",
+          "span-sanity-complete-source-page-171-block-114",
+          "span-sanity-complete-source-page-172-block-120",
+          "span-sanity-complete-source-page-173-block-129",
+          "span-sanity-complete-source-page-174-block-132",
+          "span-sanity-complete-source-page-174-block-134",
+          "span-sanity-complete-source-page-174-block-135",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-175-block-140",
+          "span-sanity-complete-source-page-176-block-145",
+          "span-sanity-complete-source-page-176-block-146",
+          "span-sanity-complete-source-page-178-block-158",
+          "span-sanity-complete-source-page-178-block-159",
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-167",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "hard_gate": false,
+        "name": "sanity.json",
+        "node_id": "data-table:coc7:sanity",
+        "node_kind": "data-table",
+        "properties": {
+          "table_name": "sanity.json"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "keeper",
+        "authority": "mixed",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-2",
+          "span-sanity-complete-source-page-165-block-4",
+          "span-sanity-complete-source-page-165-block-5",
+          "span-sanity-complete-source-page-165-block-6",
+          "span-sanity-complete-source-page-166-block-21",
+          "span-sanity-complete-source-page-166-block-22",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-166-block-33",
+          "span-sanity-complete-source-page-166-block-34",
+          "span-sanity-complete-source-page-166-block-35",
+          "span-sanity-complete-source-page-166-block-36",
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-167-block-40",
+          "span-sanity-complete-source-page-167-block-41",
+          "span-sanity-complete-source-page-167-block-42",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-167-block-54",
+          "span-sanity-complete-source-page-168-block-60",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-168-block-70",
+          "span-sanity-complete-source-page-168-block-81",
+          "span-sanity-complete-source-page-168-block-82",
+          "span-sanity-complete-source-page-169-block-83",
+          "span-sanity-complete-source-page-169-block-84",
+          "span-sanity-complete-source-page-169-block-89",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-170-block-100",
+          "span-sanity-complete-source-page-170-block-104",
+          "span-sanity-complete-source-page-170-block-105",
+          "span-sanity-complete-source-page-170-block-108",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-170-block-112",
+          "span-sanity-complete-source-page-170-block-98",
+          "span-sanity-complete-source-page-171-block-114",
+          "span-sanity-complete-source-page-172-block-120",
+          "span-sanity-complete-source-page-173-block-129",
+          "span-sanity-complete-source-page-174-block-132",
+          "span-sanity-complete-source-page-174-block-134",
+          "span-sanity-complete-source-page-174-block-135",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-175-block-140",
+          "span-sanity-complete-source-page-176-block-145",
+          "span-sanity-complete-source-page-176-block-146",
+          "span-sanity-complete-source-page-178-block-158",
+          "span-sanity-complete-source-page-178-block-159",
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-167",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "hard_gate": false,
+        "name": "Resolve one source-governed sanity action",
+        "node_id": "decision:coc7:sanity:resolve",
+        "node_kind": "decision",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "public"
+      },
+      {
+        "audience": "keeper",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-2",
+          "span-sanity-complete-source-page-165-block-4",
+          "span-sanity-complete-source-page-165-block-5",
+          "span-sanity-complete-source-page-165-block-6",
+          "span-sanity-complete-source-page-166-block-21",
+          "span-sanity-complete-source-page-166-block-22",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-166-block-33",
+          "span-sanity-complete-source-page-166-block-34",
+          "span-sanity-complete-source-page-166-block-35",
+          "span-sanity-complete-source-page-166-block-36",
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-167-block-40",
+          "span-sanity-complete-source-page-167-block-41",
+          "span-sanity-complete-source-page-167-block-42",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-167-block-54",
+          "span-sanity-complete-source-page-168-block-60",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-168-block-70",
+          "span-sanity-complete-source-page-168-block-81",
+          "span-sanity-complete-source-page-168-block-82",
+          "span-sanity-complete-source-page-169-block-83",
+          "span-sanity-complete-source-page-169-block-84",
+          "span-sanity-complete-source-page-169-block-89",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-170-block-100",
+          "span-sanity-complete-source-page-170-block-104",
+          "span-sanity-complete-source-page-170-block-105",
+          "span-sanity-complete-source-page-170-block-108",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-170-block-112",
+          "span-sanity-complete-source-page-170-block-98",
+          "span-sanity-complete-source-page-171-block-114",
+          "span-sanity-complete-source-page-172-block-120",
+          "span-sanity-complete-source-page-173-block-129",
+          "span-sanity-complete-source-page-174-block-132",
+          "span-sanity-complete-source-page-174-block-134",
+          "span-sanity-complete-source-page-174-block-135",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-175-block-140",
+          "span-sanity-complete-source-page-176-block-145",
+          "span-sanity-complete-source-page-176-block-146",
+          "span-sanity-complete-source-page-178-block-158",
+          "span-sanity-complete-source-page-178-block-159",
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-167",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "hard_gate": false,
+        "name": "Complete source-reviewed sanity family",
+        "node_id": "rule-family:coc7:sanity",
+        "node_kind": "rule-family",
+        "properties": {
+          "family_id": "sanity",
+          "legacy_surface": "visible",
+          "runtime_ownership": "legacy"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-167-block-54",
+          "span-sanity-complete-source-page-168-block-60",
+          "span-sanity-complete-source-page-168-block-61"
+        ],
+        "hard_gate": false,
+        "name": "A real-time bout lasts 1D10 combat rounds under Keeper control",
+        "node_id": "rule:coc7:sanity:bout-real-time",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-169-block-83",
+          "span-sanity-complete-source-page-169-block-84",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-170-block-104",
+          "span-sanity-complete-source-page-170-block-105",
+          "span-sanity-complete-source-page-170-block-108",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-175-block-139"
+        ],
+        "hard_gate": false,
+        "name": "An isolated or group-wide bout may be summarized over 1D10 hours and can be interrupted",
+        "node_id": "rule:coc7:sanity:bout-summary",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-5"
+        ],
+        "hard_gate": false,
+        "name": "A failed SAN roll causes a Keeper-chosen momentary involuntary action",
+        "node_id": "rule:coc7:sanity:failed-roll-involuntary-action",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-5"
+        ],
+        "hard_gate": false,
+        "name": "A fumbled SAN roll loses the encounter maximum",
+        "node_id": "rule:coc7:sanity:fumble-maximum-loss",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-168-block-70"
+        ],
+        "hard_gate": false,
+        "name": "Repeated exposure can cap SAN loss from one Mythos creature type",
+        "node_id": "rule:coc7:sanity:getting-used-to-awfulness",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-4",
+          "span-sanity-complete-source-page-167-block-40",
+          "span-sanity-complete-source-page-167-block-41",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-140",
+          "span-sanity-complete-source-page-176-block-146"
+        ],
+        "hard_gate": false,
+        "name": "Losing one fifth of current SAN in one Keeper-defined day triggers indefinite insanity",
+        "node_id": "rule:coc7:sanity:indefinite-daily-fraction",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-166-block-34",
+          "span-sanity-complete-source-page-175-block-140"
+        ],
+        "hard_gate": false,
+        "name": "Indefinite treatment is checked monthly or resolves at the Keeper's chapter boundary",
+        "node_id": "rule:coc7:sanity:indefinite-treatment",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-166-block-21",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-174-block-134",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-180-block-167"
+        ],
+        "hard_gate": false,
+        "name": "Maximum Sanity is 99 minus current Cthulhu Mythos skill",
+        "node_id": "rule:coc7:sanity:max-san",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-166-block-22",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-174-block-135",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-167"
+        ],
+        "hard_gate": false,
+        "name": "Mythos-induced insanity grants Cthulhu Mythos skill and lowers maximum SAN",
+        "node_id": "rule:coc7:sanity:mythos-insanity-gain",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "hard_gate": false,
+        "name": "Optional insane insight may reveal a useful clue or action",
+        "node_id": "rule:coc7:sanity:optional-insane-insight",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "hard_gate": false,
+        "name": "Optional simultaneous-monster handling may use one roll and the highest loss",
+        "node_id": "rule:coc7:sanity:optional-multiple-san-rolls",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "hard_gate": false,
+        "name": "Optional Mythos hardening changes future Mythos SAN loss and personality",
+        "node_id": "rule:coc7:sanity:optional-mythos-hardened",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-2",
+          "span-sanity-complete-source-page-167-block-42",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-178-block-158"
+        ],
+        "hard_gate": false,
+        "name": "SAN zero causes permanent insanity and ends player control",
+        "node_id": "rule:coc7:sanity:permanent-at-zero",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-168-block-81",
+          "span-sanity-complete-source-page-168-block-82",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-170-block-112",
+          "span-sanity-complete-source-page-170-block-98",
+          "span-sanity-complete-source-page-171-block-114",
+          "span-sanity-complete-source-page-172-block-120"
+        ],
+        "hard_gate": false,
+        "name": "Phobia and mania exposure impose their stated penalties while insane",
+        "node_id": "rule:coc7:sanity:phobia-and-mania",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-170-block-100",
+          "span-sanity-complete-source-page-173-block-129",
+          "span-sanity-complete-source-page-174-block-132"
+        ],
+        "hard_gate": false,
+        "name": "A reality check can dispel delusion; failure loses one SAN and starts a bout",
+        "node_id": "rule:coc7:sanity:reality-check",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-5"
+        ],
+        "hard_gate": false,
+        "name": "A SAN roll compares 1D100 with current Sanity and selects success or failure loss",
+        "node_id": "rule:coc7:sanity:san-roll",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-6",
+          "span-sanity-complete-source-page-178-block-159",
+          "span-sanity-complete-source-page-180-block-166"
+        ],
+        "hard_gate": false,
+        "name": "Keeper awards, skill mastery, monthly psychotherapy, and self-help can raise current SAN within maximum",
+        "node_id": "rule:coc7:sanity:sanity-increase",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-175-block-139"
+        ],
+        "hard_gate": false,
+        "name": "Temporary insanity ends after 1D10 hours or safe sleep",
+        "node_id": "rule:coc7:sanity:temporary-recovery",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-166-block-35",
+          "span-sanity-complete-source-page-166-block-36",
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-176-block-145"
+        ],
+        "hard_gate": false,
+        "name": "Five or more SAN from one source prompts INT; success triggers temporary insanity",
+        "node_id": "rule:coc7:sanity:temporary-threshold-and-int",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-166-block-33",
+          "span-sanity-complete-source-page-169-block-89",
+          "span-sanity-complete-source-page-169-block-91"
+        ],
+        "hard_gate": false,
+        "name": "Any further SAN loss during underlying insanity starts another bout",
+        "node_id": "rule:coc7:sanity:underlying-repeat-bout",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "sanity"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-2",
+          "span-sanity-complete-source-page-165-block-4",
+          "span-sanity-complete-source-page-165-block-5",
+          "span-sanity-complete-source-page-165-block-6",
+          "span-sanity-complete-source-page-166-block-21",
+          "span-sanity-complete-source-page-166-block-22",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-166-block-33",
+          "span-sanity-complete-source-page-166-block-34",
+          "span-sanity-complete-source-page-166-block-35",
+          "span-sanity-complete-source-page-166-block-36",
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-167-block-40",
+          "span-sanity-complete-source-page-167-block-41",
+          "span-sanity-complete-source-page-167-block-42",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-167-block-54",
+          "span-sanity-complete-source-page-168-block-60",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-168-block-70",
+          "span-sanity-complete-source-page-168-block-81",
+          "span-sanity-complete-source-page-168-block-82",
+          "span-sanity-complete-source-page-169-block-83",
+          "span-sanity-complete-source-page-169-block-84",
+          "span-sanity-complete-source-page-169-block-89",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-170-block-100",
+          "span-sanity-complete-source-page-170-block-104",
+          "span-sanity-complete-source-page-170-block-105",
+          "span-sanity-complete-source-page-170-block-108",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-170-block-112",
+          "span-sanity-complete-source-page-170-block-98",
+          "span-sanity-complete-source-page-171-block-114",
+          "span-sanity-complete-source-page-172-block-120",
+          "span-sanity-complete-source-page-173-block-129",
+          "span-sanity-complete-source-page-174-block-132",
+          "span-sanity-complete-source-page-174-block-134",
+          "span-sanity-complete-source-page-174-block-135",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-175-block-140",
+          "span-sanity-complete-source-page-176-block-145",
+          "span-sanity-complete-source-page-176-block-146",
+          "span-sanity-complete-source-page-178-block-158",
+          "span-sanity-complete-source-page-178-block-159",
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-167",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "hard_gate": false,
+        "name": "Canonical sanity subsystem",
+        "node_id": "subsystem:coc7:sanity",
+        "node_kind": "subsystem",
+        "properties": {
+          "subsystem_kind": "sanity"
+        },
+        "visibility": "keeper-only"
+      }
+    ],
+    "receipt": {
+      "candidate_sha256": "2cf4a8278c56c6c633c90c74be4462e645f82a5e86436dfe23f3c94c2aa5f973",
+      "contract_id": "coc.rule-graph-review-receipt.v1",
+      "family_id": "sanity",
+      "packet_sha256": "7517ff7951d061547ea614fbe6705cfa6879d3c30c68ad344ff79cb73fdf4cb1",
+      "ruleset_id": "coc7",
+      "schema_version": 1,
+      "section_id": "section-sanity-complete-source",
+      "shard_id": "shard:coc7:sanity:section-sanity-complete-source",
+      "shard_sha256": "bfa283ef774a31892f81c0a5da131b8ae0bb3193367c29151cac09c0e83a41ba"
+    },
+    "relations": [
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-167-block-54",
+          "span-sanity-complete-source-page-168-block-60",
+          "span-sanity-complete-source-page-168-block-61"
+        ],
+        "from_node_id": "rule:coc7:sanity:bout-real-time",
+        "relation_id": "relation:coc7:sanity:bout-real-time-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-167-block-54",
+          "span-sanity-complete-source-page-168-block-60",
+          "span-sanity-complete-source-page-168-block-61"
+        ],
+        "from_node_id": "rule:coc7:sanity:bout-real-time",
+        "relation_id": "relation:coc7:sanity:bout-real-time-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-169-block-83",
+          "span-sanity-complete-source-page-169-block-84",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-170-block-104",
+          "span-sanity-complete-source-page-170-block-105",
+          "span-sanity-complete-source-page-170-block-108",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-175-block-139"
+        ],
+        "from_node_id": "rule:coc7:sanity:bout-summary",
+        "relation_id": "relation:coc7:sanity:bout-summary-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-169-block-83",
+          "span-sanity-complete-source-page-169-block-84",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-170-block-104",
+          "span-sanity-complete-source-page-170-block-105",
+          "span-sanity-complete-source-page-170-block-108",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-175-block-139"
+        ],
+        "from_node_id": "rule:coc7:sanity:bout-summary",
+        "relation_id": "relation:coc7:sanity:bout-summary-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-2",
+          "span-sanity-complete-source-page-165-block-4",
+          "span-sanity-complete-source-page-165-block-5",
+          "span-sanity-complete-source-page-165-block-6",
+          "span-sanity-complete-source-page-166-block-21",
+          "span-sanity-complete-source-page-166-block-22",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-166-block-33",
+          "span-sanity-complete-source-page-166-block-34",
+          "span-sanity-complete-source-page-166-block-35",
+          "span-sanity-complete-source-page-166-block-36",
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-167-block-40",
+          "span-sanity-complete-source-page-167-block-41",
+          "span-sanity-complete-source-page-167-block-42",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-167-block-54",
+          "span-sanity-complete-source-page-168-block-60",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-168-block-70",
+          "span-sanity-complete-source-page-168-block-81",
+          "span-sanity-complete-source-page-168-block-82",
+          "span-sanity-complete-source-page-169-block-83",
+          "span-sanity-complete-source-page-169-block-84",
+          "span-sanity-complete-source-page-169-block-89",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-170-block-100",
+          "span-sanity-complete-source-page-170-block-104",
+          "span-sanity-complete-source-page-170-block-105",
+          "span-sanity-complete-source-page-170-block-108",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-170-block-112",
+          "span-sanity-complete-source-page-170-block-98",
+          "span-sanity-complete-source-page-171-block-114",
+          "span-sanity-complete-source-page-172-block-120",
+          "span-sanity-complete-source-page-173-block-129",
+          "span-sanity-complete-source-page-174-block-132",
+          "span-sanity-complete-source-page-174-block-134",
+          "span-sanity-complete-source-page-174-block-135",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-175-block-140",
+          "span-sanity-complete-source-page-176-block-145",
+          "span-sanity-complete-source-page-176-block-146",
+          "span-sanity-complete-source-page-178-block-158",
+          "span-sanity-complete-source-page-178-block-159",
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-167",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "from_node_id": "decision:coc7:sanity:resolve",
+        "relation_id": "relation:coc7:sanity:decision-invokes-runtime",
+        "relation_kind": "invokes",
+        "to_node_id": "capability:coc7:sanity-runtime"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-5"
+        ],
+        "from_node_id": "rule:coc7:sanity:failed-roll-involuntary-action",
+        "relation_id": "relation:coc7:sanity:failed-roll-involuntary-action-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-5"
+        ],
+        "from_node_id": "rule:coc7:sanity:failed-roll-involuntary-action",
+        "relation_id": "relation:coc7:sanity:failed-roll-involuntary-action-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-5"
+        ],
+        "from_node_id": "rule:coc7:sanity:fumble-maximum-loss",
+        "relation_id": "relation:coc7:sanity:fumble-maximum-loss-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-5"
+        ],
+        "from_node_id": "rule:coc7:sanity:fumble-maximum-loss",
+        "relation_id": "relation:coc7:sanity:fumble-maximum-loss-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-168-block-70"
+        ],
+        "from_node_id": "rule:coc7:sanity:getting-used-to-awfulness",
+        "relation_id": "relation:coc7:sanity:getting-used-to-awfulness-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-168-block-70"
+        ],
+        "from_node_id": "rule:coc7:sanity:getting-used-to-awfulness",
+        "relation_id": "relation:coc7:sanity:getting-used-to-awfulness-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-4",
+          "span-sanity-complete-source-page-167-block-40",
+          "span-sanity-complete-source-page-167-block-41",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-140",
+          "span-sanity-complete-source-page-176-block-146"
+        ],
+        "from_node_id": "rule:coc7:sanity:indefinite-daily-fraction",
+        "relation_id": "relation:coc7:sanity:indefinite-daily-fraction-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-4",
+          "span-sanity-complete-source-page-167-block-40",
+          "span-sanity-complete-source-page-167-block-41",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-140",
+          "span-sanity-complete-source-page-176-block-146"
+        ],
+        "from_node_id": "rule:coc7:sanity:indefinite-daily-fraction",
+        "relation_id": "relation:coc7:sanity:indefinite-daily-fraction-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-166-block-34",
+          "span-sanity-complete-source-page-175-block-140"
+        ],
+        "from_node_id": "rule:coc7:sanity:indefinite-treatment",
+        "relation_id": "relation:coc7:sanity:indefinite-treatment-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-166-block-34",
+          "span-sanity-complete-source-page-175-block-140"
+        ],
+        "from_node_id": "rule:coc7:sanity:indefinite-treatment",
+        "relation_id": "relation:coc7:sanity:indefinite-treatment-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-166-block-21",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-174-block-134",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-180-block-167"
+        ],
+        "from_node_id": "rule:coc7:sanity:max-san",
+        "relation_id": "relation:coc7:sanity:max-san-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-166-block-21",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-174-block-134",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-180-block-167"
+        ],
+        "from_node_id": "rule:coc7:sanity:max-san",
+        "relation_id": "relation:coc7:sanity:max-san-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-166-block-22",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-174-block-135",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-167"
+        ],
+        "from_node_id": "rule:coc7:sanity:mythos-insanity-gain",
+        "relation_id": "relation:coc7:sanity:mythos-insanity-gain-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-166-block-22",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-174-block-135",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-167"
+        ],
+        "from_node_id": "rule:coc7:sanity:mythos-insanity-gain",
+        "relation_id": "relation:coc7:sanity:mythos-insanity-gain-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "from_node_id": "rule:coc7:sanity:optional-insane-insight",
+        "relation_id": "relation:coc7:sanity:optional-insane-insight-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "from_node_id": "rule:coc7:sanity:optional-insane-insight",
+        "relation_id": "relation:coc7:sanity:optional-insane-insight-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "from_node_id": "rule:coc7:sanity:optional-multiple-san-rolls",
+        "relation_id": "relation:coc7:sanity:optional-multiple-san-rolls-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "from_node_id": "rule:coc7:sanity:optional-multiple-san-rolls",
+        "relation_id": "relation:coc7:sanity:optional-multiple-san-rolls-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "from_node_id": "rule:coc7:sanity:optional-mythos-hardened",
+        "relation_id": "relation:coc7:sanity:optional-mythos-hardened-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "from_node_id": "rule:coc7:sanity:optional-mythos-hardened",
+        "relation_id": "relation:coc7:sanity:optional-mythos-hardened-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-2",
+          "span-sanity-complete-source-page-167-block-42",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-178-block-158"
+        ],
+        "from_node_id": "rule:coc7:sanity:permanent-at-zero",
+        "relation_id": "relation:coc7:sanity:permanent-at-zero-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-2",
+          "span-sanity-complete-source-page-167-block-42",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-178-block-158"
+        ],
+        "from_node_id": "rule:coc7:sanity:permanent-at-zero",
+        "relation_id": "relation:coc7:sanity:permanent-at-zero-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-168-block-81",
+          "span-sanity-complete-source-page-168-block-82",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-170-block-112",
+          "span-sanity-complete-source-page-170-block-98",
+          "span-sanity-complete-source-page-171-block-114",
+          "span-sanity-complete-source-page-172-block-120"
+        ],
+        "from_node_id": "rule:coc7:sanity:phobia-and-mania",
+        "relation_id": "relation:coc7:sanity:phobia-and-mania-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-168-block-81",
+          "span-sanity-complete-source-page-168-block-82",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-170-block-112",
+          "span-sanity-complete-source-page-170-block-98",
+          "span-sanity-complete-source-page-171-block-114",
+          "span-sanity-complete-source-page-172-block-120"
+        ],
+        "from_node_id": "rule:coc7:sanity:phobia-and-mania",
+        "relation_id": "relation:coc7:sanity:phobia-and-mania-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-170-block-100",
+          "span-sanity-complete-source-page-173-block-129",
+          "span-sanity-complete-source-page-174-block-132"
+        ],
+        "from_node_id": "rule:coc7:sanity:reality-check",
+        "relation_id": "relation:coc7:sanity:reality-check-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-170-block-100",
+          "span-sanity-complete-source-page-173-block-129",
+          "span-sanity-complete-source-page-174-block-132"
+        ],
+        "from_node_id": "rule:coc7:sanity:reality-check",
+        "relation_id": "relation:coc7:sanity:reality-check-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-2",
+          "span-sanity-complete-source-page-165-block-4",
+          "span-sanity-complete-source-page-165-block-5",
+          "span-sanity-complete-source-page-165-block-6",
+          "span-sanity-complete-source-page-166-block-21",
+          "span-sanity-complete-source-page-166-block-22",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-166-block-33",
+          "span-sanity-complete-source-page-166-block-34",
+          "span-sanity-complete-source-page-166-block-35",
+          "span-sanity-complete-source-page-166-block-36",
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-167-block-40",
+          "span-sanity-complete-source-page-167-block-41",
+          "span-sanity-complete-source-page-167-block-42",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-167-block-54",
+          "span-sanity-complete-source-page-168-block-60",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-168-block-70",
+          "span-sanity-complete-source-page-168-block-81",
+          "span-sanity-complete-source-page-168-block-82",
+          "span-sanity-complete-source-page-169-block-83",
+          "span-sanity-complete-source-page-169-block-84",
+          "span-sanity-complete-source-page-169-block-89",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-170-block-100",
+          "span-sanity-complete-source-page-170-block-104",
+          "span-sanity-complete-source-page-170-block-105",
+          "span-sanity-complete-source-page-170-block-108",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-170-block-112",
+          "span-sanity-complete-source-page-170-block-98",
+          "span-sanity-complete-source-page-171-block-114",
+          "span-sanity-complete-source-page-172-block-120",
+          "span-sanity-complete-source-page-173-block-129",
+          "span-sanity-complete-source-page-174-block-132",
+          "span-sanity-complete-source-page-174-block-134",
+          "span-sanity-complete-source-page-174-block-135",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-175-block-140",
+          "span-sanity-complete-source-page-176-block-145",
+          "span-sanity-complete-source-page-176-block-146",
+          "span-sanity-complete-source-page-178-block-158",
+          "span-sanity-complete-source-page-178-block-159",
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-167",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "from_node_id": "capability:coc7:sanity-runtime",
+        "relation_id": "relation:coc7:sanity:runtime-implemented-by-subsystem",
+        "relation_kind": "implemented-by",
+        "to_node_id": "subsystem:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-2",
+          "span-sanity-complete-source-page-165-block-4",
+          "span-sanity-complete-source-page-165-block-5",
+          "span-sanity-complete-source-page-165-block-6",
+          "span-sanity-complete-source-page-166-block-21",
+          "span-sanity-complete-source-page-166-block-22",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-166-block-33",
+          "span-sanity-complete-source-page-166-block-34",
+          "span-sanity-complete-source-page-166-block-35",
+          "span-sanity-complete-source-page-166-block-36",
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-167-block-40",
+          "span-sanity-complete-source-page-167-block-41",
+          "span-sanity-complete-source-page-167-block-42",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-167-block-54",
+          "span-sanity-complete-source-page-168-block-60",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-168-block-70",
+          "span-sanity-complete-source-page-168-block-81",
+          "span-sanity-complete-source-page-168-block-82",
+          "span-sanity-complete-source-page-169-block-83",
+          "span-sanity-complete-source-page-169-block-84",
+          "span-sanity-complete-source-page-169-block-89",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-170-block-100",
+          "span-sanity-complete-source-page-170-block-104",
+          "span-sanity-complete-source-page-170-block-105",
+          "span-sanity-complete-source-page-170-block-108",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-170-block-112",
+          "span-sanity-complete-source-page-170-block-98",
+          "span-sanity-complete-source-page-171-block-114",
+          "span-sanity-complete-source-page-172-block-120",
+          "span-sanity-complete-source-page-173-block-129",
+          "span-sanity-complete-source-page-174-block-132",
+          "span-sanity-complete-source-page-174-block-134",
+          "span-sanity-complete-source-page-174-block-135",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-175-block-140",
+          "span-sanity-complete-source-page-176-block-145",
+          "span-sanity-complete-source-page-176-block-146",
+          "span-sanity-complete-source-page-178-block-158",
+          "span-sanity-complete-source-page-178-block-159",
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-167",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "from_node_id": "capability:coc7:sanity-runtime",
+        "relation_id": "relation:coc7:sanity:runtime-reads-manias",
+        "relation_kind": "reads-table",
+        "to_node_id": "data-table:coc7:manias"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-2",
+          "span-sanity-complete-source-page-165-block-4",
+          "span-sanity-complete-source-page-165-block-5",
+          "span-sanity-complete-source-page-165-block-6",
+          "span-sanity-complete-source-page-166-block-21",
+          "span-sanity-complete-source-page-166-block-22",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-166-block-33",
+          "span-sanity-complete-source-page-166-block-34",
+          "span-sanity-complete-source-page-166-block-35",
+          "span-sanity-complete-source-page-166-block-36",
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-167-block-40",
+          "span-sanity-complete-source-page-167-block-41",
+          "span-sanity-complete-source-page-167-block-42",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-167-block-54",
+          "span-sanity-complete-source-page-168-block-60",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-168-block-70",
+          "span-sanity-complete-source-page-168-block-81",
+          "span-sanity-complete-source-page-168-block-82",
+          "span-sanity-complete-source-page-169-block-83",
+          "span-sanity-complete-source-page-169-block-84",
+          "span-sanity-complete-source-page-169-block-89",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-170-block-100",
+          "span-sanity-complete-source-page-170-block-104",
+          "span-sanity-complete-source-page-170-block-105",
+          "span-sanity-complete-source-page-170-block-108",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-170-block-112",
+          "span-sanity-complete-source-page-170-block-98",
+          "span-sanity-complete-source-page-171-block-114",
+          "span-sanity-complete-source-page-172-block-120",
+          "span-sanity-complete-source-page-173-block-129",
+          "span-sanity-complete-source-page-174-block-132",
+          "span-sanity-complete-source-page-174-block-134",
+          "span-sanity-complete-source-page-174-block-135",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-175-block-140",
+          "span-sanity-complete-source-page-176-block-145",
+          "span-sanity-complete-source-page-176-block-146",
+          "span-sanity-complete-source-page-178-block-158",
+          "span-sanity-complete-source-page-178-block-159",
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-167",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "from_node_id": "capability:coc7:sanity-runtime",
+        "relation_id": "relation:coc7:sanity:runtime-reads-phobias",
+        "relation_kind": "reads-table",
+        "to_node_id": "data-table:coc7:phobias"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-2",
+          "span-sanity-complete-source-page-165-block-4",
+          "span-sanity-complete-source-page-165-block-5",
+          "span-sanity-complete-source-page-165-block-6",
+          "span-sanity-complete-source-page-166-block-21",
+          "span-sanity-complete-source-page-166-block-22",
+          "span-sanity-complete-source-page-166-block-23",
+          "span-sanity-complete-source-page-166-block-24",
+          "span-sanity-complete-source-page-166-block-25",
+          "span-sanity-complete-source-page-166-block-33",
+          "span-sanity-complete-source-page-166-block-34",
+          "span-sanity-complete-source-page-166-block-35",
+          "span-sanity-complete-source-page-166-block-36",
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-167-block-40",
+          "span-sanity-complete-source-page-167-block-41",
+          "span-sanity-complete-source-page-167-block-42",
+          "span-sanity-complete-source-page-167-block-43",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-167-block-54",
+          "span-sanity-complete-source-page-168-block-60",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-168-block-70",
+          "span-sanity-complete-source-page-168-block-81",
+          "span-sanity-complete-source-page-168-block-82",
+          "span-sanity-complete-source-page-169-block-83",
+          "span-sanity-complete-source-page-169-block-84",
+          "span-sanity-complete-source-page-169-block-89",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-170-block-100",
+          "span-sanity-complete-source-page-170-block-104",
+          "span-sanity-complete-source-page-170-block-105",
+          "span-sanity-complete-source-page-170-block-108",
+          "span-sanity-complete-source-page-170-block-111",
+          "span-sanity-complete-source-page-170-block-112",
+          "span-sanity-complete-source-page-170-block-98",
+          "span-sanity-complete-source-page-171-block-114",
+          "span-sanity-complete-source-page-172-block-120",
+          "span-sanity-complete-source-page-173-block-129",
+          "span-sanity-complete-source-page-174-block-132",
+          "span-sanity-complete-source-page-174-block-134",
+          "span-sanity-complete-source-page-174-block-135",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-175-block-140",
+          "span-sanity-complete-source-page-176-block-145",
+          "span-sanity-complete-source-page-176-block-146",
+          "span-sanity-complete-source-page-178-block-158",
+          "span-sanity-complete-source-page-178-block-159",
+          "span-sanity-complete-source-page-180-block-165",
+          "span-sanity-complete-source-page-180-block-166",
+          "span-sanity-complete-source-page-180-block-167",
+          "span-sanity-complete-source-page-180-block-168"
+        ],
+        "from_node_id": "capability:coc7:sanity-runtime",
+        "relation_id": "relation:coc7:sanity:runtime-reads-sanity",
+        "relation_kind": "reads-table",
+        "to_node_id": "data-table:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-5"
+        ],
+        "from_node_id": "rule:coc7:sanity:san-roll",
+        "relation_id": "relation:coc7:sanity:san-roll-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-17",
+          "span-sanity-complete-source-page-165-block-5"
+        ],
+        "from_node_id": "rule:coc7:sanity:san-roll",
+        "relation_id": "relation:coc7:sanity:san-roll-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-6",
+          "span-sanity-complete-source-page-178-block-159",
+          "span-sanity-complete-source-page-180-block-166"
+        ],
+        "from_node_id": "rule:coc7:sanity:sanity-increase",
+        "relation_id": "relation:coc7:sanity:sanity-increase-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-165-block-6",
+          "span-sanity-complete-source-page-178-block-159",
+          "span-sanity-complete-source-page-180-block-166"
+        ],
+        "from_node_id": "rule:coc7:sanity:sanity-increase",
+        "relation_id": "relation:coc7:sanity:sanity-increase-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-175-block-139"
+        ],
+        "from_node_id": "rule:coc7:sanity:temporary-recovery",
+        "relation_id": "relation:coc7:sanity:temporary-recovery-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-175-block-139"
+        ],
+        "from_node_id": "rule:coc7:sanity:temporary-recovery",
+        "relation_id": "relation:coc7:sanity:temporary-recovery-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-166-block-35",
+          "span-sanity-complete-source-page-166-block-36",
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-176-block-145"
+        ],
+        "from_node_id": "rule:coc7:sanity:temporary-threshold-and-int",
+        "relation_id": "relation:coc7:sanity:temporary-threshold-and-int-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-166-block-35",
+          "span-sanity-complete-source-page-166-block-36",
+          "span-sanity-complete-source-page-167-block-39",
+          "span-sanity-complete-source-page-167-block-49",
+          "span-sanity-complete-source-page-168-block-61",
+          "span-sanity-complete-source-page-169-block-91",
+          "span-sanity-complete-source-page-175-block-138",
+          "span-sanity-complete-source-page-175-block-139",
+          "span-sanity-complete-source-page-176-block-145"
+        ],
+        "from_node_id": "rule:coc7:sanity:temporary-threshold-and-int",
+        "relation_id": "relation:coc7:sanity:temporary-threshold-and-int-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-166-block-33",
+          "span-sanity-complete-source-page-169-block-89",
+          "span-sanity-complete-source-page-169-block-91"
+        ],
+        "from_node_id": "rule:coc7:sanity:underlying-repeat-bout",
+        "relation_id": "relation:coc7:sanity:underlying-repeat-bout-applies-to-resolve",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:sanity:resolve"
+      },
+      {
+        "evidence_span_ids": [
+          "span-sanity-complete-source-page-166-block-33",
+          "span-sanity-complete-source-page-169-block-89",
+          "span-sanity-complete-source-page-169-block-91"
+        ],
+        "from_node_id": "rule:coc7:sanity:underlying-repeat-bout",
+        "relation_id": "relation:coc7:sanity:underlying-repeat-bout-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:sanity"
+      }
+    ],
+    "ruleset_id": "coc7",
+    "ruleset_version": "1.0.0",
+    "schema_version": 1,
+    "section_id": "section-sanity-complete-source",
+    "shard_id": "shard:coc7:sanity:section-sanity-complete-source",
+    "source_language": "en"
+  },
+  "contract_id": "coc.rule-graph-accepted-evidence.v1",
+  "shard_id": "shard:coc7:sanity:section-sanity-complete-source"
+}

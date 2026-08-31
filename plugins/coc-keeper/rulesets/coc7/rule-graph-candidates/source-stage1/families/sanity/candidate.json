@@ -1,0 +1,1672 @@
+{
+  "contract_id": "coc.rule-graph-candidate.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "family_id": "sanity",
+  "section_id": "section-sanity-complete-source",
+  "source_language": "en",
+  "coverage": {
+    "sanity": "accepted"
+  },
+  "nodes": [
+    {
+      "node_id": "capability:coc7:sanity-runtime",
+      "node_kind": "capability",
+      "name": "Legacy sanity runtime capability",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity",
+        "resolver_capability": "sanity_runtime",
+        "adapter": "subsystem"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-2",
+        "span-sanity-complete-source-page-165-block-4",
+        "span-sanity-complete-source-page-165-block-5",
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-166-block-21",
+        "span-sanity-complete-source-page-166-block-22",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-166-block-35",
+        "span-sanity-complete-source-page-166-block-36",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-40",
+        "span-sanity-complete-source-page-167-block-41",
+        "span-sanity-complete-source-page-167-block-42",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-168-block-70",
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132",
+        "span-sanity-complete-source-page-174-block-134",
+        "span-sanity-complete-source-page-174-block-135",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-175-block-140",
+        "span-sanity-complete-source-page-176-block-145",
+        "span-sanity-complete-source-page-176-block-146",
+        "span-sanity-complete-source-page-178-block-158",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-167",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:manias",
+      "node_kind": "data-table",
+      "name": "manias.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "manias.json"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-2",
+        "span-sanity-complete-source-page-165-block-4",
+        "span-sanity-complete-source-page-165-block-5",
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-166-block-21",
+        "span-sanity-complete-source-page-166-block-22",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-166-block-35",
+        "span-sanity-complete-source-page-166-block-36",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-40",
+        "span-sanity-complete-source-page-167-block-41",
+        "span-sanity-complete-source-page-167-block-42",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-168-block-70",
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132",
+        "span-sanity-complete-source-page-174-block-134",
+        "span-sanity-complete-source-page-174-block-135",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-175-block-140",
+        "span-sanity-complete-source-page-176-block-145",
+        "span-sanity-complete-source-page-176-block-146",
+        "span-sanity-complete-source-page-178-block-158",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-167",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:phobias",
+      "node_kind": "data-table",
+      "name": "phobias.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "phobias.json"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-2",
+        "span-sanity-complete-source-page-165-block-4",
+        "span-sanity-complete-source-page-165-block-5",
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-166-block-21",
+        "span-sanity-complete-source-page-166-block-22",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-166-block-35",
+        "span-sanity-complete-source-page-166-block-36",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-40",
+        "span-sanity-complete-source-page-167-block-41",
+        "span-sanity-complete-source-page-167-block-42",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-168-block-70",
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132",
+        "span-sanity-complete-source-page-174-block-134",
+        "span-sanity-complete-source-page-174-block-135",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-175-block-140",
+        "span-sanity-complete-source-page-176-block-145",
+        "span-sanity-complete-source-page-176-block-146",
+        "span-sanity-complete-source-page-178-block-158",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-167",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:sanity",
+      "node_kind": "data-table",
+      "name": "sanity.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "sanity.json"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-2",
+        "span-sanity-complete-source-page-165-block-4",
+        "span-sanity-complete-source-page-165-block-5",
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-166-block-21",
+        "span-sanity-complete-source-page-166-block-22",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-166-block-35",
+        "span-sanity-complete-source-page-166-block-36",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-40",
+        "span-sanity-complete-source-page-167-block-41",
+        "span-sanity-complete-source-page-167-block-42",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-168-block-70",
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132",
+        "span-sanity-complete-source-page-174-block-134",
+        "span-sanity-complete-source-page-174-block-135",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-175-block-140",
+        "span-sanity-complete-source-page-176-block-145",
+        "span-sanity-complete-source-page-176-block-146",
+        "span-sanity-complete-source-page-178-block-158",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-167",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:sanity:resolve",
+      "node_kind": "decision",
+      "name": "Resolve one source-governed sanity action",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-2",
+        "span-sanity-complete-source-page-165-block-4",
+        "span-sanity-complete-source-page-165-block-5",
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-166-block-21",
+        "span-sanity-complete-source-page-166-block-22",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-166-block-35",
+        "span-sanity-complete-source-page-166-block-36",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-40",
+        "span-sanity-complete-source-page-167-block-41",
+        "span-sanity-complete-source-page-167-block-42",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-168-block-70",
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132",
+        "span-sanity-complete-source-page-174-block-134",
+        "span-sanity-complete-source-page-174-block-135",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-175-block-140",
+        "span-sanity-complete-source-page-176-block-145",
+        "span-sanity-complete-source-page-176-block-146",
+        "span-sanity-complete-source-page-178-block-158",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-167",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "node_id": "rule-family:coc7:sanity",
+      "node_kind": "rule-family",
+      "name": "Complete source-reviewed sanity family",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity",
+        "runtime_ownership": "legacy",
+        "legacy_surface": "visible"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-2",
+        "span-sanity-complete-source-page-165-block-4",
+        "span-sanity-complete-source-page-165-block-5",
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-166-block-21",
+        "span-sanity-complete-source-page-166-block-22",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-166-block-35",
+        "span-sanity-complete-source-page-166-block-36",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-40",
+        "span-sanity-complete-source-page-167-block-41",
+        "span-sanity-complete-source-page-167-block-42",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-168-block-70",
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132",
+        "span-sanity-complete-source-page-174-block-134",
+        "span-sanity-complete-source-page-174-block-135",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-175-block-140",
+        "span-sanity-complete-source-page-176-block-145",
+        "span-sanity-complete-source-page-176-block-146",
+        "span-sanity-complete-source-page-178-block-158",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-167",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:bout-real-time",
+      "node_kind": "rule",
+      "name": "A real-time bout lasts 1D10 combat rounds under Keeper control",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:bout-summary",
+      "node_kind": "rule",
+      "name": "An isolated or group-wide bout may be summarized over 1D10 hours and can be interrupted",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-175-block-139"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:failed-roll-involuntary-action",
+      "node_kind": "rule",
+      "name": "A failed SAN roll causes a Keeper-chosen momentary involuntary action",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-5"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:fumble-maximum-loss",
+      "node_kind": "rule",
+      "name": "A fumbled SAN roll loses the encounter maximum",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-5"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:getting-used-to-awfulness",
+      "node_kind": "rule",
+      "name": "Repeated exposure can cap SAN loss from one Mythos creature type",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-168-block-70"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:indefinite-daily-fraction",
+      "node_kind": "rule",
+      "name": "Losing one fifth of current SAN in one Keeper-defined day triggers indefinite insanity",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-4",
+        "span-sanity-complete-source-page-167-block-40",
+        "span-sanity-complete-source-page-167-block-41",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-140",
+        "span-sanity-complete-source-page-176-block-146"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:indefinite-treatment",
+      "node_kind": "rule",
+      "name": "Indefinite treatment is checked monthly or resolves at the Keeper's chapter boundary",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-175-block-140"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:max-san",
+      "node_kind": "rule",
+      "name": "Maximum Sanity is 99 minus current Cthulhu Mythos skill",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-166-block-21",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-174-block-134",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-180-block-167"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:mythos-insanity-gain",
+      "node_kind": "rule",
+      "name": "Mythos-induced insanity grants Cthulhu Mythos skill and lowers maximum SAN",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-166-block-22",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-174-block-135",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-167"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:optional-insane-insight",
+      "node_kind": "rule",
+      "name": "Optional insane insight may reveal a useful clue or action",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:optional-multiple-san-rolls",
+      "node_kind": "rule",
+      "name": "Optional simultaneous-monster handling may use one roll and the highest loss",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:optional-mythos-hardened",
+      "node_kind": "rule",
+      "name": "Optional Mythos hardening changes future Mythos SAN loss and personality",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:permanent-at-zero",
+      "node_kind": "rule",
+      "name": "SAN zero causes permanent insanity and ends player control",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-2",
+        "span-sanity-complete-source-page-167-block-42",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-178-block-158"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:phobia-and-mania",
+      "node_kind": "rule",
+      "name": "Phobia and mania exposure impose their stated penalties while insane",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:reality-check",
+      "node_kind": "rule",
+      "name": "A reality check can dispel delusion; failure loses one SAN and starts a bout",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:san-roll",
+      "node_kind": "rule",
+      "name": "A SAN roll compares 1D100 with current Sanity and selects success or failure loss",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-5"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:sanity-increase",
+      "node_kind": "rule",
+      "name": "Keeper awards, skill mastery, monthly psychotherapy, and self-help can raise current SAN within maximum",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-166"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:temporary-recovery",
+      "node_kind": "rule",
+      "name": "Temporary insanity ends after 1D10 hours or safe sleep",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-175-block-139"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:temporary-threshold-and-int",
+      "node_kind": "rule",
+      "name": "Five or more SAN from one source prompts INT; success triggers temporary insanity",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-166-block-35",
+        "span-sanity-complete-source-page-166-block-36",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-176-block-145"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:sanity:underlying-repeat-bout",
+      "node_kind": "rule",
+      "name": "Any further SAN loss during underlying insanity starts another bout",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91"
+      ]
+    },
+    {
+      "node_id": "subsystem:coc7:sanity",
+      "node_kind": "subsystem",
+      "name": "Canonical sanity subsystem",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "subsystem_kind": "sanity"
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-2",
+        "span-sanity-complete-source-page-165-block-4",
+        "span-sanity-complete-source-page-165-block-5",
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-166-block-21",
+        "span-sanity-complete-source-page-166-block-22",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-166-block-35",
+        "span-sanity-complete-source-page-166-block-36",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-40",
+        "span-sanity-complete-source-page-167-block-41",
+        "span-sanity-complete-source-page-167-block-42",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-168-block-70",
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132",
+        "span-sanity-complete-source-page-174-block-134",
+        "span-sanity-complete-source-page-174-block-135",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-175-block-140",
+        "span-sanity-complete-source-page-176-block-145",
+        "span-sanity-complete-source-page-176-block-146",
+        "span-sanity-complete-source-page-178-block-158",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-167",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "relation:coc7:sanity:bout-real-time-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:bout-real-time",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:bout-real-time-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:bout-real-time",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:bout-summary-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:bout-summary",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-175-block-139"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:bout-summary-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:bout-summary",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-175-block-139"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:decision-invokes-runtime",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:sanity:resolve",
+      "to_node_id": "capability:coc7:sanity-runtime",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-2",
+        "span-sanity-complete-source-page-165-block-4",
+        "span-sanity-complete-source-page-165-block-5",
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-166-block-21",
+        "span-sanity-complete-source-page-166-block-22",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-166-block-35",
+        "span-sanity-complete-source-page-166-block-36",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-40",
+        "span-sanity-complete-source-page-167-block-41",
+        "span-sanity-complete-source-page-167-block-42",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-168-block-70",
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132",
+        "span-sanity-complete-source-page-174-block-134",
+        "span-sanity-complete-source-page-174-block-135",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-175-block-140",
+        "span-sanity-complete-source-page-176-block-145",
+        "span-sanity-complete-source-page-176-block-146",
+        "span-sanity-complete-source-page-178-block-158",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-167",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:failed-roll-involuntary-action-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:failed-roll-involuntary-action",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-5"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:failed-roll-involuntary-action-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:failed-roll-involuntary-action",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-5"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:fumble-maximum-loss-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:fumble-maximum-loss",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-5"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:fumble-maximum-loss-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:fumble-maximum-loss",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-5"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:getting-used-to-awfulness-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:getting-used-to-awfulness",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-168-block-70"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:getting-used-to-awfulness-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:getting-used-to-awfulness",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-168-block-70"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:indefinite-daily-fraction-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:indefinite-daily-fraction",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-4",
+        "span-sanity-complete-source-page-167-block-40",
+        "span-sanity-complete-source-page-167-block-41",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-140",
+        "span-sanity-complete-source-page-176-block-146"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:indefinite-daily-fraction-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:indefinite-daily-fraction",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-4",
+        "span-sanity-complete-source-page-167-block-40",
+        "span-sanity-complete-source-page-167-block-41",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-140",
+        "span-sanity-complete-source-page-176-block-146"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:indefinite-treatment-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:indefinite-treatment",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-175-block-140"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:indefinite-treatment-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:indefinite-treatment",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-175-block-140"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:max-san-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:max-san",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-166-block-21",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-174-block-134",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-180-block-167"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:max-san-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:max-san",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-166-block-21",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-174-block-134",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-180-block-167"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:mythos-insanity-gain-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:mythos-insanity-gain",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-166-block-22",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-174-block-135",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-167"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:mythos-insanity-gain-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:mythos-insanity-gain",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-166-block-22",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-174-block-135",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-167"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:optional-insane-insight-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:optional-insane-insight",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:optional-insane-insight-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:optional-insane-insight",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:optional-multiple-san-rolls-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:optional-multiple-san-rolls",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:optional-multiple-san-rolls-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:optional-multiple-san-rolls",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:optional-mythos-hardened-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:optional-mythos-hardened",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:optional-mythos-hardened-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:optional-mythos-hardened",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:permanent-at-zero-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:permanent-at-zero",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-2",
+        "span-sanity-complete-source-page-167-block-42",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-178-block-158"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:permanent-at-zero-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:permanent-at-zero",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-2",
+        "span-sanity-complete-source-page-167-block-42",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-178-block-158"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:phobia-and-mania-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:phobia-and-mania",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:phobia-and-mania-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:phobia-and-mania",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:reality-check-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:reality-check",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:reality-check-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:reality-check",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:runtime-implemented-by-subsystem",
+      "relation_kind": "implemented-by",
+      "from_node_id": "capability:coc7:sanity-runtime",
+      "to_node_id": "subsystem:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-2",
+        "span-sanity-complete-source-page-165-block-4",
+        "span-sanity-complete-source-page-165-block-5",
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-166-block-21",
+        "span-sanity-complete-source-page-166-block-22",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-166-block-35",
+        "span-sanity-complete-source-page-166-block-36",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-40",
+        "span-sanity-complete-source-page-167-block-41",
+        "span-sanity-complete-source-page-167-block-42",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-168-block-70",
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132",
+        "span-sanity-complete-source-page-174-block-134",
+        "span-sanity-complete-source-page-174-block-135",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-175-block-140",
+        "span-sanity-complete-source-page-176-block-145",
+        "span-sanity-complete-source-page-176-block-146",
+        "span-sanity-complete-source-page-178-block-158",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-167",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:runtime-reads-manias",
+      "relation_kind": "reads-table",
+      "from_node_id": "capability:coc7:sanity-runtime",
+      "to_node_id": "data-table:coc7:manias",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-2",
+        "span-sanity-complete-source-page-165-block-4",
+        "span-sanity-complete-source-page-165-block-5",
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-166-block-21",
+        "span-sanity-complete-source-page-166-block-22",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-166-block-35",
+        "span-sanity-complete-source-page-166-block-36",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-40",
+        "span-sanity-complete-source-page-167-block-41",
+        "span-sanity-complete-source-page-167-block-42",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-168-block-70",
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132",
+        "span-sanity-complete-source-page-174-block-134",
+        "span-sanity-complete-source-page-174-block-135",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-175-block-140",
+        "span-sanity-complete-source-page-176-block-145",
+        "span-sanity-complete-source-page-176-block-146",
+        "span-sanity-complete-source-page-178-block-158",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-167",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:runtime-reads-phobias",
+      "relation_kind": "reads-table",
+      "from_node_id": "capability:coc7:sanity-runtime",
+      "to_node_id": "data-table:coc7:phobias",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-2",
+        "span-sanity-complete-source-page-165-block-4",
+        "span-sanity-complete-source-page-165-block-5",
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-166-block-21",
+        "span-sanity-complete-source-page-166-block-22",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-166-block-35",
+        "span-sanity-complete-source-page-166-block-36",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-40",
+        "span-sanity-complete-source-page-167-block-41",
+        "span-sanity-complete-source-page-167-block-42",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-168-block-70",
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132",
+        "span-sanity-complete-source-page-174-block-134",
+        "span-sanity-complete-source-page-174-block-135",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-175-block-140",
+        "span-sanity-complete-source-page-176-block-145",
+        "span-sanity-complete-source-page-176-block-146",
+        "span-sanity-complete-source-page-178-block-158",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-167",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:runtime-reads-sanity",
+      "relation_kind": "reads-table",
+      "from_node_id": "capability:coc7:sanity-runtime",
+      "to_node_id": "data-table:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-2",
+        "span-sanity-complete-source-page-165-block-4",
+        "span-sanity-complete-source-page-165-block-5",
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-166-block-21",
+        "span-sanity-complete-source-page-166-block-22",
+        "span-sanity-complete-source-page-166-block-23",
+        "span-sanity-complete-source-page-166-block-24",
+        "span-sanity-complete-source-page-166-block-25",
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-166-block-35",
+        "span-sanity-complete-source-page-166-block-36",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-40",
+        "span-sanity-complete-source-page-167-block-41",
+        "span-sanity-complete-source-page-167-block-42",
+        "span-sanity-complete-source-page-167-block-43",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-168-block-70",
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132",
+        "span-sanity-complete-source-page-174-block-134",
+        "span-sanity-complete-source-page-174-block-135",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-175-block-140",
+        "span-sanity-complete-source-page-176-block-145",
+        "span-sanity-complete-source-page-176-block-146",
+        "span-sanity-complete-source-page-178-block-158",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-167",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:san-roll-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:san-roll",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-5"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:san-roll-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:san-roll",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-17",
+        "span-sanity-complete-source-page-165-block-5"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:sanity-increase-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:sanity-increase",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-166"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:sanity-increase-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:sanity-increase",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-166"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:temporary-recovery-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:temporary-recovery",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-175-block-139"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:temporary-recovery-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:temporary-recovery",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-175-block-139"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:temporary-threshold-and-int-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:temporary-threshold-and-int",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-166-block-35",
+        "span-sanity-complete-source-page-166-block-36",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-176-block-145"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:temporary-threshold-and-int-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:temporary-threshold-and-int",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-166-block-35",
+        "span-sanity-complete-source-page-166-block-36",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-49",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-175-block-138",
+        "span-sanity-complete-source-page-175-block-139",
+        "span-sanity-complete-source-page-176-block-145"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:underlying-repeat-bout-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:sanity:underlying-repeat-bout",
+      "to_node_id": "decision:coc7:sanity:resolve",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:underlying-repeat-bout-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:sanity:underlying-repeat-bout",
+      "to_node_id": "rule-family:coc7:sanity",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91"
+      ]
+    }
+  ]
+}

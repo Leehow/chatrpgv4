@@ -125,3 +125,55 @@ def test_combat_family_regenerates_deterministically_when_source_is_available():
     assert gen.canonical_bytes(built["candidate"]) == gen.canonical_bytes(candidate)
     assert gen.canonical_bytes(built["envelope"]) == gen.canonical_bytes(envelope)
     assert gen.canonical_bytes(built["review"]) == gen.canonical_bytes(review)
+
+
+def test_sanity_is_source_accepted_with_one_precise_runtime_blocker():
+    candidate, envelope, review = _family("sanity")
+    shard = envelope["accepted_shard"]
+    assert candidate["coverage"] == {"sanity": "accepted"}
+    assert shard["coverage"] == {"sanity": "accepted"}
+    assert review["coverage"] == "accepted"
+    assert review["unresolved_applicable_rules"] == []
+    assert review["accepted_shard_digest"] == shard["receipt"]["shard_sha256"]
+    assert review["accepted_shard_digest"] == (
+        "bfa283ef774a31892f81c0a5da131b8ae0bb3193367c29151cac09c0e83a41ba"
+    )
+    assert review["reviewer_identity"] == (
+        "codex-worker-sanity-source-review-20260831"
+    )
+    assert review["source"]["file_sha256"] == gen.FILE_SHA256
+    assert review["source"]["bundle_sha256"] == (
+        gen.FAMILY_CONFIG["sanity"]["bundle_sha256"]
+    )
+    assert review["source"]["pdf_indices"] == [*range(165, 181)]
+    expected = {
+        f"rule:coc7:sanity:{slug}" for slug, _name, _group in gen.RULES["sanity"]
+    }
+    assert len(expected) == 20
+    assert {row["rule_id"] for row in review["applicability_ledger"]} == expected
+    assert all(row["status"] == "accepted" for row in review["applicability_ledger"])
+    assert {node["node_id"] for node in candidate["nodes"] if node["node_kind"] == "rule"} == expected
+    assert not any(node["node_kind"] == "exception" for node in candidate["nodes"])
+    assert all(node.get("evidence_span_ids") for node in candidate["nodes"])
+    assert {node["properties"]["table_name"] for node in candidate["nodes"]
+            if node["node_kind"] == "data-table"} == {
+                "sanity.json", "phobias.json", "manias.json",
+            }
+    assert review["runtime_integration_blockers"] == [{
+        "code": "runtime_schedule_differs_from_source",
+        "runtime_claim": "weekly Psychoanalysis treatment trigger",
+        "source_rule": "indefinite treatment checks occur after each month",
+        "source_pdf_indices": [175, 178],
+        "disposition": "excluded-from-source-shard-runtime-policy",
+    }]
+
+
+def test_sanity_family_regenerates_deterministically_when_source_is_available():
+    raw = os.environ.get(gen.BUNDLE_ROOT_ENV)
+    if not raw:
+        pytest.skip(f"set {gen.BUNDLE_ROOT_ENV} for source regeneration")
+    built = gen.build_family(Path(raw).expanduser().resolve(), "sanity")
+    candidate, envelope, review = _family("sanity")
+    assert gen.canonical_bytes(built["candidate"]) == gen.canonical_bytes(candidate)
+    assert gen.canonical_bytes(built["envelope"]) == gen.canonical_bytes(envelope)
+    assert gen.canonical_bytes(built["review"]) == gen.canonical_bytes(review)
