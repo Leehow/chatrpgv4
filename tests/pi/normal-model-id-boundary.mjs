@@ -1780,7 +1780,31 @@ assertModelSafeContent(
   routeOperation("rules.sanity_check", {
     ok: true,
     tool: "rules.sanity_check",
-    data: { san_loss: 1 },
+    data: {
+      source: "目睹床自行移动",
+      check: {
+        skill: "SAN",
+        roll: 42,
+        outcome: "regular",
+        trigger_id: "bed-moves",
+        san_loss: 1,
+      },
+      san_before: 60,
+      san_after: 59,
+      san_loss: 1,
+      trigger_id: "bed-moves",
+      session_roll_ids: [
+        "toolbox-live-san-000001",
+        "toolbox-live-san-000002",
+      ],
+      check_roll_id: "toolbox-live-san-000001",
+      loss_roll_id: "toolbox-live-san-000002",
+      session_events: [{
+        event_id: "se1",
+        event_type: "sanity",
+        summary: "SAN 60->59 (lost 1).",
+      }],
+    },
   });
   await executeTool("coc_rules_sanity_check", {
     campaign,
@@ -1794,6 +1818,18 @@ assertModelSafeContent(
     call.operation === "rules.sanity_check"
   )).at(-1);
   assert.match(flatCall.arguments.decision_id, /^pi-rules-sanity_check:bed-moves:/);
+  const flatVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(flatVisible.ok, true, JSON.stringify(flatVisible));
+  assert.match(flatVisible.data.check_roll_id, /^roll:/);
+  assert.match(flatVisible.data.loss_roll_id, /^roll:/);
+  assert.deepEqual(
+    flatVisible.data.session_roll_ids.sort(),
+    [flatVisible.data.check_roll_id, flatVisible.data.loss_roll_id].sort(),
+  );
+  assert.equal(flatVisible.data.san_before, 60);
+  assert.equal(flatVisible.data.san_after, 59);
+  assert.equal(flatVisible.data.session_events[0].summary, "SAN 60->59 (lost 1).");
+  assert.ok(!("event_id" in flatVisible.data.session_events[0]));
 
   const sanityTool = tools.get("coc_sanity_execute");
   assert.equal(

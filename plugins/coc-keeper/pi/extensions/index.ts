@@ -5091,7 +5091,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           walkCanonicalRows(child, visit);
         }
       };
-      if (operation === "sanity.execute" || operation === "combat.resolve") {
+      if (
+        operation === "rules.sanity_check"
+        || operation === "sanity.execute"
+        || operation === "combat.resolve"
+      ) {
         walkCanonicalRows(data, (row) => {
           registerRoll(row.roll_id, [
             row.skill,
@@ -5099,6 +5103,25 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             row.roll_role,
             row.event_type,
           ]);
+          if (operation !== "rules.sanity_check") return;
+          const check = objectOrNull(data.check);
+          for (const [field, role] of [
+            ["check_roll_id", "san-check"],
+            ["int_roll_id", "int-check"],
+            ["bout_duration_roll_id", "bout-duration"],
+            ["bout_table_roll_id", "bout-table"],
+            ["bout_rounds_roll_id", "bout-rounds"],
+            ["mania_roll_id", "mania"],
+            ["loss_roll_id", "san-loss"],
+          ] as const) {
+            registerRoll(row[field], [data.source, check?.skill, role]);
+          }
+          const sessionRollIds = Array.isArray(row.session_roll_ids)
+            ? row.session_roll_ids
+            : [];
+          sessionRollIds.forEach((rollId, index) => {
+            registerRoll(rollId, [data.source, "san-session-roll", index + 1]);
+          });
         });
       }
       if (operation === "mechanics.ensure" || operation === "combat.resolve") {
