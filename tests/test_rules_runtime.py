@@ -162,6 +162,21 @@ def _dying_state(ws) -> None:
     _write_json(state_path, state)
 
 
+def _stabilized_dying_state(ws) -> None:
+    inv = ws["investigator_id"]
+    state_path = (
+        ws["campaign_dir"] / "save" / "investigator-state" / f"{inv}.json"
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update({
+        "current_hp": 1,
+        "conditions": [
+            "major_wound", "unconscious", "dying", "stabilized",
+        ],
+    })
+    _write_json(state_path, state)
+
+
 def _shadow_rows(path: Path) -> list[dict]:
     if not path.is_file():
         return []
@@ -1749,6 +1764,19 @@ def test_coc7_adapter_owns_healing_host_binding_and_executor_shape(tmp_path: Pat
     }
 
 
+def test_coc7_adapter_registers_settlement_state_effect_domains() -> None:
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    decision_refs = adapter.settle_schema()["decision_ref"]["enum"]
+    assert decision_refs
+    for decision_ref in decision_refs:
+        assert coc_rulesets.rule_graph_state_effect_domains(
+            "coc7", decision_ref,
+        ) == ("hp", "condition")
+    assert coc_rulesets.rule_graph_state_effect_domains(
+        "coc7", "decision:coc7:unknown:not-registered",
+    ) == ()
+
+
 def test_runtime_settle_exclusion_scopes_are_no_candidate(tmp_path: Path):
     graph, manifest = _build_fixture_graph(tmp_path)
     promo = manifest.setdefault("family_promotion_eligibility", {}).setdefault(
@@ -2620,7 +2648,7 @@ def test_finalize_projector_discovers_graph_healing_hp_receipt(
         settled["data"]["current_hp"]
     )
     assert len(_rolls(ws)) == 1
-    rows = coc_turn_finalization._project_state_deltas([{
+    window = [{
         "ok": True,
         "tool": "rules.settle",
         "args": {
@@ -2629,5 +2657,85 @@ def test_finalize_projector_discovers_graph_healing_hp_receipt(
             "decision_ref": decision_ref,
         },
         "data": settled["data"],
-    }])
+    }]
+    rows = coc_turn_finalization._project_state_deltas(window)
     assert any(row.get("resource") == "HP" for row in rows)
+    proof_violations = coc_turn_finalization._state_delta_proof_violations(
+        window, rows,
+    )
+    assert proof_violations == [], {
+        "writer_domains": sorted(
+            coc_turn_finalization.coc_state_effect_authority.writer_domains(
+                "rules.settle", window[0],
+            )
+        ),
+        "receipt_hp": settled["data"]["player_state_receipt"].get("hp"),
+        "event_hp": {
+            key: settled["data"]["event"].get(key)
+            for key in ("hp_before", "hp_after")
+        },
+        "top_current_hp": settled["data"].get("current_hp"),
+        "result_current_hp": settled["data"]["settlement"]["result"].get(
+            "current_hp"
+        ),
+    }
+
+
+def test_finalize_projector_proves_graph_dying_hour_hp_and_condition(
+    tmp_path: Path, _frozen_clocks,
+):
+    ws = _fresh_workspace(tmp_path, "finalize-dying-hour")
+    _stabilized_dying_state(ws)
+    decision_ref = "decision:coc7:healing:dying-hour-clock"
+    context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "healing",
+        "selected_affordance_ids": [decision_ref],
+    })
+    assert context["ok"] is True, context
+    settled = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": decision_ref,
+        "semantic_inputs": {},
+        "decision_id": "finalize-dying-hour-failure",
+        "seed": 5,
+    })
+    assert settled["ok"] is True, settled
+    assert settled["data"]["event"]["deteriorated"] is True
+    assert settled["data"]["player_state_receipt"]["hp"] == {
+        "before": 1,
+        "after": 0,
+    }
+    assert "stabilized" in settled["data"]["player_state_receipt"][
+        "conditions_before"
+    ]
+    assert "stabilized" not in settled["data"]["player_state_receipt"][
+        "conditions_after"
+    ]
+    window = [{
+        "ok": True,
+        "tool": "rules.settle",
+        "args": {
+            "decision_id": "finalize-dying-hour-failure",
+            "investigator": ws["investigator_id"],
+            "decision_ref": decision_ref,
+        },
+        "data": settled["data"],
+    }]
+    rows = coc_turn_finalization._project_state_deltas(window)
+    assert any(
+        row.get("effect_kind") == "scalar"
+        and row.get("resource") == "HP"
+        and row.get("before") == 1
+        and row.get("after") == 0
+        for row in rows
+    )
+    assert any(
+        row.get("effect_kind") == "condition"
+        and row.get("condition") == "stabilized"
+        and row.get("action") == "removed"
+        for row in rows
+    )
+    assert coc_turn_finalization._state_delta_proof_violations(
+        window, rows,
+    ) == []

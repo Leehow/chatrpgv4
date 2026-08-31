@@ -97,6 +97,16 @@ operation-surface, fact augmentation, and host-binding details. Rule-family
 decision IDs and composed choreography belong in this package adapter, never
 in the generic `coc_rules_runtime.py` dispatch path.
 
+A package whose graph settlement can mutate player-visible actor state exposes
+`state_effect_domains(decision_ref) -> tuple[str, ...]` on that adapter. Each
+returned token is either a resource key declared by this package's `resources`
+registry or the kernel domain `condition`; unknown decisions return the empty
+tuple. The shared finalizer/exporter treats this package declaration as the
+write-capability boundary, then independently verifies the exact semantic
+decision namespace, actor identity, original (non-replay) call, and matching
+top-level/nested state receipt before accepting any delta. Receipt fields never
+grant their own domains, and the generic kernel contains no family-name map.
+
 `rule-graph-manifest.json` carries the machine-owned identity fields:
 
 - `contract_id` — the rule-graph build manifest contract id

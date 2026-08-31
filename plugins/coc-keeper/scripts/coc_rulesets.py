@@ -464,3 +464,30 @@ def get_rule_graph_adapter(ruleset_id: str) -> Any | None:
         ) from exc
     _RULE_GRAPH_ADAPTER_CACHE[ruleset_id] = adapter
     return adapter
+
+
+def rule_graph_state_effect_domains(
+    ruleset_id: str,
+    decision_ref: str,
+) -> tuple[str, ...]:
+    """Trusted package declaration for one graph settlement's state domains."""
+    adapter = get_rule_graph_adapter(ruleset_id)
+    provider = getattr(adapter, "state_effect_domains", None)
+    if not callable(provider):
+        return ()
+    raw = provider(decision_ref)
+    if not isinstance(raw, (list, tuple, frozenset)):
+        return ()
+    declared_resources = {
+        resource.get("key")
+        for resource in ruleset_resources(ruleset_id)
+        if isinstance(resource.get("key"), str)
+    }
+    allowed = declared_resources | {"condition"}
+    domains = tuple(raw)
+    if (
+        any(not isinstance(domain, str) or domain not in allowed for domain in domains)
+        or len(set(domains)) != len(domains)
+    ):
+        return ()
+    return domains

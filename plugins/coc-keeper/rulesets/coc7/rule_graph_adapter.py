@@ -72,6 +72,15 @@ _BUILD_SCALE_REF = LOOKUP_CONTEXT_DECISION_REFS[2]
 _CASH_ASSETS_REF = LOOKUP_CONTEXT_DECISION_REFS[3]
 _SANITY_SESSION_EXCEPTION_REF = "exception:coc7:sanity:session-engine-uncompiled"
 _DAMAGE_KINDS = frozenset({"damage", "heal"})
+_HEALING_SETTLE_DECISION_REFS = (
+    "decision:coc7:healing:dying-hour-clock",
+    "decision:coc7:healing:dying-round-clock",
+    "decision:coc7:healing:first-aid-ordinary",
+    "decision:coc7:healing:first-aid-stabilization",
+    "decision:coc7:healing:medicine-ordinary",
+    "decision:coc7:healing:medicine-stabilization",
+    "decision:coc7:healing:weekly-major-wound-recovery",
+)
 
 
 def _observation_inference_ceiling(data: Mapping[str, Any]) -> str | None:
@@ -201,15 +210,7 @@ class Coc7RuleGraphAdapter:
             "decision_ref": {
                 "type": "string",
                 "required": True,
-                "enum": [
-                    "decision:coc7:healing:dying-hour-clock",
-                    "decision:coc7:healing:dying-round-clock",
-                    "decision:coc7:healing:first-aid-ordinary",
-                    "decision:coc7:healing:first-aid-stabilization",
-                    "decision:coc7:healing:medicine-ordinary",
-                    "decision:coc7:healing:medicine-stabilization",
-                    "decision:coc7:healing:weekly-major-wound-recovery",
-                ],
+                "enum": list(_HEALING_SETTLE_DECISION_REFS),
                 "desc": "semantic decision ref from a machine-projected card",
             },
             "semantic_inputs": {
@@ -232,6 +233,13 @@ class Coc7RuleGraphAdapter:
                 "desc": "idempotency key",
             },
         }
+
+    @staticmethod
+    def state_effect_domains(decision_ref: str) -> tuple[str, ...]:
+        """Package-owned authority for graph settlement state receipts."""
+        if decision_ref in _HEALING_SETTLE_DECISION_REFS:
+            return ("hp", "condition")
+        return ()
 
     @staticmethod
     def context_schema() -> dict[str, Any]:
