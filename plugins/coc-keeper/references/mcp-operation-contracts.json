@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:f387487203149c9cf0d33da367ae86cf2d25c85819a5502b5d4ffdaba360e921",
+  "content_sha256": "sha256:e9122475b5e1e0f7bd7fa238cefbe71e88662f49f013e56ce79014c32577f6be",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -346,13 +346,12 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "subsystem",
+        "kp_surface": "none",
         "phases": [
-          "live_turn",
-          "pending_finalization"
+          "live_turn"
         ]
       },
       "summary": "Read the canonical combat snapshot, initiative cursor, and pending defense choice."
@@ -396,10 +395,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "subsystem",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -414,6 +413,18 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "action_kind": {
+            "description": "explicit structured combat action; omitted only for legacy attack/pending-defense calls",
+            "enum": [
+              "attack",
+              "defend",
+              "aim",
+              "reload",
+              "maneuver",
+              "flee"
+            ],
+            "type": "string"
+          },
           "affordance_id": {
             "description": "current-scene affordance whose rules_operation is combat_engagement",
             "type": "string"
@@ -422,12 +433,26 @@
             "description": "Campaign id. Required for campaign-bound operations.",
             "type": "string"
           },
+          "combat_revision": {
+            "description": "host-bound current CombatSession revision; stale values fail closed",
+            "type": "integer"
+          },
           "decision_id": {
             "description": "idempotency key",
             "type": "string"
           },
           "defense_kind": {
             "description": "structured reaction: dodge (ties defend) | fight_back (ties attack) | dive_for_cover | none",
+            "type": "string"
+          },
+          "goal": {
+            "description": "one rulebook maneuver goal; valid only for action_kind=maneuver",
+            "enum": [
+              "disarm",
+              "ongoing_disadvantage",
+              "escape",
+              "push"
+            ],
             "type": "string"
           },
           "investigator": {
@@ -464,10 +489,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "subsystem",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -512,12 +537,12 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "audit",
+        "audience": "keeper",
         "contract": "none",
         "discovery": "surface",
-        "kp_surface": "none",
+        "kp_surface": "rules",
         "phases": [
-          "ending"
+          "live_turn"
         ]
       },
       "summary": "Replay or complete deterministic post-ending development bookkeeping through the canonical development engine."
@@ -997,7 +1022,7 @@
         "audience": "keeper",
         "contract": "rules",
         "discovery": "exact",
-        "kp_surface": "subsystem",
+        "kp_surface": "rules",
         "phases": [
           "live_turn"
         ]
@@ -1056,7 +1081,7 @@
         "audience": "keeper",
         "contract": "rules",
         "discovery": "exact",
-        "kp_surface": "subsystem",
+        "kp_surface": "rules",
         "phases": [
           "live_turn"
         ]
@@ -3315,7 +3340,15 @@
           "family": {
             "description": "source-accepted compiled family",
             "enum": [
-              "healing"
+              "healing",
+              "core-check",
+              "push-luck",
+              "social",
+              "psychology",
+              "combat",
+              "sanity",
+              "magic",
+              "development"
             ],
             "type": "string"
           },
@@ -3568,10 +3601,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -3695,10 +3728,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -3787,10 +3820,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -3846,10 +3879,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -4070,10 +4103,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -4217,10 +4250,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -4252,7 +4285,35 @@
               "decision:coc7:healing:first-aid-stabilization",
               "decision:coc7:healing:medicine-ordinary",
               "decision:coc7:healing:medicine-stabilization",
-              "decision:coc7:healing:weekly-major-wound-recovery"
+              "decision:coc7:healing:weekly-major-wound-recovery",
+              "decision:coc7:core-check:ordinary-check",
+              "decision:coc7:core-check:combined-check",
+              "decision:coc7:core-check:opposed-check",
+              "decision:coc7:push-luck:pushed-roll",
+              "decision:coc7:push-luck:luck-spend",
+              "decision:coc7:push-luck:luck-roll",
+              "decision:coc7:social:adjudicate-difficulty",
+              "decision:coc7:psychology:observe-concealed",
+              "decision:coc7:psychology:realize-player-safe",
+              "decision:coc7:combat:attack",
+              "decision:coc7:combat:defend",
+              "decision:coc7:combat:aim",
+              "decision:coc7:combat:reload",
+              "decision:coc7:combat:maneuver",
+              "decision:coc7:combat:flee",
+              "decision:coc7:combat:end",
+              "decision:coc7:sanity:check",
+              "decision:coc7:sanity:bout-tick",
+              "decision:coc7:sanity:bout-end",
+              "decision:coc7:sanity:reality-check",
+              "decision:coc7:sanity:gain-current-san",
+              "decision:coc7:sanity:insane-insight",
+              "decision:coc7:sanity:apply-treatment",
+              "decision:coc7:sanity:recover-temporary",
+              "decision:coc7:magic:cast-spell",
+              "decision:coc7:magic:learn-spell",
+              "decision:coc7:development:end-session",
+              "decision:coc7:development:settle-ending"
             ],
             "type": "string"
           },
@@ -4268,22 +4329,197 @@
             "additionalProperties": false,
             "description": "Keeper-semantic inputs; host-locked fields are forbidden",
             "properties": {
+              "actor_check_ref": {
+                "type": "string"
+              },
+              "approach": {
+                "enum": [
+                  "charm",
+                  "fast_talk",
+                  "intimidate",
+                  "persuade"
+                ],
+                "type": "string"
+              },
               "assistant_rescuer_ref": {
+                "type": "string"
+              },
+              "bonus": {
+                "type": "integer"
+              },
+              "candidate_ref": {
                 "type": "string"
               },
               "changed_method": {
                 "type": "string"
               },
+              "characteristic": {
+                "type": "string"
+              },
+              "combined_mode": {
+                "enum": [
+                  "any",
+                  "all"
+                ],
+                "type": "string"
+              },
+              "combined_target_refs": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "commitment_ref": {
+                "type": "string"
+              },
               "complete_rest": {
                 "type": "boolean"
+              },
+              "defense_kind": {
+                "enum": [
+                  "dodge",
+                  "fight_back",
+                  "dive_for_cover",
+                  "none"
+                ],
+                "type": "string"
+              },
+              "described_action": {
+                "type": "string"
+              },
+              "difficulty": {
+                "enum": [
+                  "regular",
+                  "hard",
+                  "extreme"
+                ],
+                "type": "string"
+              },
+              "difficulty_basis": {
+                "type": "string"
+              },
+              "external_behavior": {
+                "type": "string"
               },
               "failure_consequence": {
                 "type": "string"
               },
+              "feasibility": {
+                "enum": [
+                  "automatic",
+                  "roll",
+                  "conditional",
+                  "impossible"
+                ],
+                "type": "string"
+              },
+              "gain_source": {
+                "type": "string"
+              },
+              "goal": {
+                "type": "string"
+              },
+              "insight": {
+                "type": "string"
+              },
+              "interrupted": {
+                "type": "boolean"
+              },
+              "involuntary_kind": {
+                "type": "string"
+              },
+              "involuntary_summary": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "loss_failure": {
+                "type": "string"
+              },
+              "loss_success": {
+                "type": "string"
+              },
+              "luck_spend_max": {
+                "type": "integer"
+              },
+              "method_changed": {
+                "type": "string"
+              },
+              "motive_direction": {
+                "enum": [
+                  "support",
+                  "neutral",
+                  "oppose"
+                ],
+                "type": "string"
+              },
+              "motive_intensity": {
+                "type": "integer"
+              },
+              "opponent_check_ref": {
+                "type": "string"
+              },
+              "outcome": {
+                "type": "string"
+              },
+              "penalty": {
+                "type": "integer"
+              },
+              "player_confirmed_risk": {
+                "type": "boolean"
+              },
+              "points": {
+                "type": "integer"
+              },
               "poor_environment": {
                 "type": "boolean"
               },
+              "pushed": {
+                "type": "boolean"
+              },
+              "question": {
+                "type": "string"
+              },
+              "request_reality_check": {
+                "type": "boolean"
+              },
               "rescuer_ref": {
+                "type": "string"
+              },
+              "skill": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "spell": {
+                "type": "string"
+              },
+              "stakes": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "supporting_action": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "target_ref": {
+                "type": "string"
+              },
+              "trigger_ref": {
+                "type": "string"
+              },
+              "weapon_effect_refs": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "weapon_ref": {
                 "type": "string"
               }
             },
@@ -4462,10 +4698,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -4563,13 +4799,12 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "subsystem",
+        "kp_surface": "none",
         "phases": [
-          "live_turn",
-          "pending_finalization"
+          "live_turn"
         ]
       },
       "summary": "Read the full persisted SanitySession snapshot and unresolved subsystem choices."
@@ -4577,7 +4812,7 @@
     "sanity.execute": {
       "access": "mutation",
       "canonical_operation": "sanity.execute",
-      "description": "Execute one exact sanity_check/bout command through the existing full SanitySession subsystem. Canonical operation `sanity.execute`; the result envelope is authoritative.",
+      "description": "Execute one exact sanity check, bout, reality check, SAN gain, insanity insight, or due recovery/treatment command through the existing full SanitySession/time subsystem. Canonical operation `sanity.execute`; the result envelope is authoritative.",
       "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
@@ -4588,7 +4823,7 @@
           },
           "command": {
             "additionalProperties": true,
-            "description": "exact sanity_check, bout_tick, or bout_end command",
+            "description": "exact sanity_check, bout_tick, bout_end, reality_check, gain_current_san, insane_insight, apply_psychoanalysis_treatment, or recover_temporary_insanity command",
             "type": "object"
           },
           "decision_id": {
@@ -4614,15 +4849,15 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "subsystem",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
       },
-      "summary": "Execute one exact sanity_check/bout command through the existing full SanitySession subsystem."
+      "summary": "Execute one exact sanity check, bout, reality check, SAN gain, insanity insight, or due recovery/treatment command through the existing full SanitySession/time subsystem."
     },
     "scene.context": {
       "access": "query",
@@ -6828,7 +7063,7 @@
         "audience": "keeper",
         "contract": "state",
         "discovery": "surface",
-        "kp_surface": "state",
+        "kp_surface": "rules",
         "phases": [
           "live_turn"
         ]
