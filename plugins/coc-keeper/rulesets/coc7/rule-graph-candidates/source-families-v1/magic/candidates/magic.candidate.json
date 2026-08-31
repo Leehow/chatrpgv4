@@ -6,7 +6,7 @@
   "section_id": "section-magic-source-and-runtime-gaps",
   "source_language": "en",
   "coverage": {
-    "magic": "partial"
+    "magic": "accepted"
   },
   "nodes": [
     {
@@ -430,82 +430,6 @@
         "span-magic-source-and-runtime-gaps-page-309-block-210",
         "span-magic-source-and-runtime-gaps-page-310-block-211",
         "span-magic-source-and-runtime-gaps-page-311-block-214"
-      ]
-    },
-    {
-      "node_id": "exception:coc7:magic:runtime-pushed-failure",
-      "node_kind": "exception",
-      "name": "Runtime marks a failed pushed casting unsuccessful although the source says the spell still works",
-      "authority": "deterministic",
-      "audience": "host-internal",
-      "visibility": "keeper-only",
-      "hard_gate": false,
-      "properties": {
-        "family_id": "magic"
-      },
-      "evidence_span_ids": [
-        "span-magic-source-and-runtime-gaps-page-189-block-22"
-      ]
-    },
-    {
-      "node_id": "exception:coc7:magic:runtime-disruption-cost",
-      "node_kind": "exception",
-      "name": "Runtime interruption charges MP but zero SAN, while the source requires both costs",
-      "authority": "deterministic",
-      "audience": "host-internal",
-      "visibility": "keeper-only",
-      "hard_gate": false,
-      "properties": {
-        "family_id": "magic"
-      },
-      "evidence_span_ids": [
-        "span-magic-source-and-runtime-gaps-page-190-block-26"
-      ]
-    },
-    {
-      "node_id": "exception:coc7:magic:runtime-side-effect-table",
-      "node_kind": "exception",
-      "name": "Runtime push side-effect text differs materially from both source 1D8 tables",
-      "authority": "deterministic",
-      "audience": "host-internal",
-      "visibility": "keeper-only",
-      "hard_gate": false,
-      "properties": {
-        "family_id": "magic"
-      },
-      "evidence_span_ids": [
-        "span-magic-source-and-runtime-gaps-page-189-block-24"
-      ]
-    },
-    {
-      "node_id": "exception:coc7:magic:runtime-entity-learning",
-      "node_kind": "exception",
-      "name": "Runtime applies Hard INT to entity teaching; the source specifies a successful INT roll",
-      "authority": "deterministic",
-      "audience": "host-internal",
-      "visibility": "keeper-only",
-      "hard_gate": false,
-      "properties": {
-        "family_id": "magic"
-      },
-      "evidence_span_ids": [
-        "span-magic-source-and-runtime-gaps-page-188-block-20"
-      ]
-    },
-    {
-      "node_id": "exception:coc7:magic:runtime-spell-source-gap",
-      "node_kind": "exception",
-      "name": "Ten spells.json entries have no occurrence in the 465-page source; their cited printed pages are Chapter 13/14, not Grimoire",
-      "authority": "deterministic",
-      "audience": "host-internal",
-      "visibility": "keeper-only",
-      "hard_gate": false,
-      "properties": {
-        "family_id": "magic"
-      },
-      "evidence_span_ids": [
-        "span-magic-source-and-runtime-gaps-page-277-block-120",
-        "span-magic-source-and-runtime-gaps-page-287-block-144"
       ]
     },
     {
@@ -1578,52 +1502,6 @@
         "span-magic-source-and-runtime-gaps-page-309-block-210",
         "span-magic-source-and-runtime-gaps-page-310-block-211",
         "span-magic-source-and-runtime-gaps-page-311-block-214"
-      ]
-    },
-    {
-      "relation_id": "relation:coc7:magic:runtime-pushed-failure:applies-to-family",
-      "relation_kind": "applies-to",
-      "from_node_id": "exception:coc7:magic:runtime-pushed-failure",
-      "to_node_id": "rule-family:coc7:magic",
-      "evidence_span_ids": [
-        "span-magic-source-and-runtime-gaps-page-189-block-22"
-      ]
-    },
-    {
-      "relation_id": "relation:coc7:magic:runtime-disruption-cost:applies-to-family",
-      "relation_kind": "applies-to",
-      "from_node_id": "exception:coc7:magic:runtime-disruption-cost",
-      "to_node_id": "rule-family:coc7:magic",
-      "evidence_span_ids": [
-        "span-magic-source-and-runtime-gaps-page-190-block-26"
-      ]
-    },
-    {
-      "relation_id": "relation:coc7:magic:runtime-side-effect-table:applies-to-family",
-      "relation_kind": "applies-to",
-      "from_node_id": "exception:coc7:magic:runtime-side-effect-table",
-      "to_node_id": "rule-family:coc7:magic",
-      "evidence_span_ids": [
-        "span-magic-source-and-runtime-gaps-page-189-block-24"
-      ]
-    },
-    {
-      "relation_id": "relation:coc7:magic:runtime-entity-learning:applies-to-family",
-      "relation_kind": "applies-to",
-      "from_node_id": "exception:coc7:magic:runtime-entity-learning",
-      "to_node_id": "rule-family:coc7:magic",
-      "evidence_span_ids": [
-        "span-magic-source-and-runtime-gaps-page-188-block-20"
-      ]
-    },
-    {
-      "relation_id": "relation:coc7:magic:runtime-spell-source-gap:applies-to-family",
-      "relation_kind": "applies-to",
-      "from_node_id": "exception:coc7:magic:runtime-spell-source-gap",
-      "to_node_id": "rule-family:coc7:magic",
-      "evidence_span_ids": [
-        "span-magic-source-and-runtime-gaps-page-277-block-120",
-        "span-magic-source-and-runtime-gaps-page-287-block-144"
       ]
     },
     {

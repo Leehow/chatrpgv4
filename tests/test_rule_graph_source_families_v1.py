@@ -108,31 +108,24 @@ def test_chase_regenerates_byte_identically_from_external_bundle(tmp_path: Path)
     assert actual == expected
 
 
-def test_magic_has_accepted_partial_shard_and_precise_terminal_blockers():
+def test_magic_has_complete_accepted_shard_after_source_correction():
     root = TREE / "magic"
     candidate = _read(root / "candidates" / "magic.candidate.json")
     provenance = _read(root / "provenance" / "magic.provenance.json")
     shard = _read(root / "accepted" / "magic.accepted-shard.json")
-    assert candidate["coverage"] == {"magic": "partial"}
-    assert shard["coverage"] == {"magic": "partial"}
+    assert candidate["coverage"] == {"magic": "accepted"}
+    assert shard["coverage"] == {"magic": "accepted"}
     assert provenance["reviewer_identity"] == "codex-reviewer-magic-source-20260831"
-    assert provenance["review_status"] == "revision-required"
+    assert provenance["review_status"] == "accepted"
     assert len(provenance["accepted_shard_digest"]) == 64
     assert shard["receipt"]["shard_sha256"] == provenance["accepted_shard_digest"]
-    assert len(provenance["unresolved_applicable_rules"]) == 10
-    assert {row["code"] for row in provenance["blockers"]} == {
-        "rulebook-source-missing", "source-runtime-semantic-mismatch",
-    }
+    assert provenance["unresolved_applicable_rules"] == []
+    assert provenance["blockers"] == []
     node_ids = {node["node_id"] for node in candidate["nodes"]}
-    for token in (
-        "runtime-pushed-failure", "runtime-disruption-cost",
-        "runtime-side-effect-table", "runtime-entity-learning",
-        "runtime-spell-source-gap",
-    ):
-        assert f"exception:coc7:magic:{token}" in node_ids
+    assert not any(node_id.startswith("exception:coc7:magic:") for node_id in node_ids)
 
 
-def test_magic_blocked_spell_names_are_absent_from_exact_source_corpus():
+def test_removed_magic_spell_names_are_absent_from_exact_source_and_catalog():
     raw = os.environ.get(gen.BUNDLE_ROOT_ENV)
     if not raw:
         pytest.skip(f"set {gen.BUNDLE_ROOT_ENV}")
@@ -142,9 +135,16 @@ def test_magic_blocked_spell_names_are_absent_from_exact_source_corpus():
         for name in gen.SPECS["magic"]["bundles"]
         for page in _read(root / name / "normalized-source.json")["pages"]
     ).casefold()
-    provenance = _read(TREE / "magic/provenance/magic.provenance.json")
-    for spell in provenance["unresolved_applicable_rules"]:
+    removed = (
+        "Mantle of Cthulhu", "Resurrection of Me", "Seal of Nyarlathotep",
+        "See Invisible", "Steal Mind", "Summon Hellfire", "Swim Like a Fish",
+        "Touch of Death", "True Seeing", "Walk the Path",
+    )
+    catalog = _read(ROOT / "plugins/coc-keeper/rulesets/coc7/rules-json/spells.json")
+    names = {row["name"] for row in catalog["spells"]}
+    for spell in removed:
         assert spell.casefold() not in text
+        assert spell not in names
     assert "chapter thirteen" in text
     assert "chapter fourteen" in text
 

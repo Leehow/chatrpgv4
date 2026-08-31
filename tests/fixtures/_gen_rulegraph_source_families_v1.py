@@ -90,7 +90,7 @@ SPECS: dict[str, dict[str, Any]] = {
     "magic": {
         "section": "section-magic-source-and-runtime-gaps",
         "bundles": ["magic-core-v2", "magic-grimoire-a-v2", "magic-grimoire-b-v2"],
-        "coverage": "partial",
+        "coverage": "accepted",
         "reviewer": "codex-reviewer-magic-source-20260831",
         "tables": ["spells.json"],
         "capabilities": ["magic.learn", "magic.cast"],
@@ -104,30 +104,9 @@ SPECS: dict[str, dict[str, Any]] = {
             ("disruption", "A significantly disrupted casting fails but still pays SAN and MP costs", ["Disrupted Spell Casting"]),
             ("grimoire-catalog", "Chapter 12 defines spell costs, casting times, effects, variations, and deeper versions", ["Spells", "Making Alterations"]),
         ],
-        "exceptions": [
-            ("runtime-pushed-failure", "Runtime marks a failed pushed casting unsuccessful although the source says the spell still works", ["spell still works normally"]),
-            ("runtime-disruption-cost", "Runtime interruption charges MP but zero SAN, while the source requires both costs", ["must still pay the Sanity"]),
-            ("runtime-side-effect-table", "Runtime push side-effect text differs materially from both source 1D8 tables", ["less powerful spells", "more powerful spells"]),
-            ("runtime-entity-learning", "Runtime applies Hard INT to entity teaching; the source specifies a successful INT roll", ["successful INT roll to retain"]),
-            ("runtime-spell-source-gap", "Ten spells.json entries have no occurrence in the 465-page source; their cited printed pages are Chapter 13/14, not Grimoire", ["Chapter Thirteen", "Chapter Fourteen"]),
-        ],
-        "unresolved": [
-            "Mantle of Cthulhu", "Resurrection of Me", "Seal of Nyarlathotep",
-            "See Invisible", "Steal Mind", "Summon Hellfire", "Swim Like a Fish",
-            "Touch of Death", "True Seeing", "Walk the Path",
-        ],
-        "blockers": [
-            {
-                "code": "rulebook-source-missing",
-                "pdf_indices": [281, 282, 283, 284, 285, 286, 287, 289, 290, 291, 292, 293, 294, 295, 296, 297],
-                "message": "The runtime-only spell names are absent from the entire corpus; their claimed printed pages 270-286 map to Chapter 13 Artifacts and Chapter 14 Monsters.",
-            },
-            {
-                "code": "source-runtime-semantic-mismatch",
-                "pdf_indices": [187, 188, 189, 190],
-                "message": "Pushed-failure success, disruption costs, entity learning, and side-effect tables disagree with the current magic runtime.",
-            },
-        ],
+        "exceptions": [],
+        "unresolved": [],
+        "blockers": [],
     },
 }
 
