@@ -3086,6 +3086,7 @@ export function bindRetainedTypedToolArguments(
         action: candidate.action,
         terminal_command_ids: [candidate.command_id],
         decision_id: candidate.decision_id,
+        request_index: 1,
       },
     };
   }

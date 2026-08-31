@@ -2215,6 +2215,7 @@ assertModelSafeContent(
       action: "tick",
       terminal_command_ids: [tickCommandId],
       decision_id: `resume-${tickDigest.slice(0, 32)}`,
+      request_index: 1,
     },
   });
 
@@ -2248,8 +2249,20 @@ assertModelSafeContent(
   )).at(-1);
   assert.equal(endCall.arguments.decision_id, `resume-${endDigest.slice(0, 32)}`);
   assert.equal(endCall.arguments.command.command_id, endCommandId);
-  assert.equal(endCall.arguments.command.kind, "bout_end");
-  assert.equal(endCall.arguments.command.payload.revision, 1);
+  assert.deepEqual(endCall.arguments.command, {
+    command_id: endCommandId,
+    kind: "bout_end",
+    phase: "resolve",
+    payload: {
+      choice_id: boutChoiceId,
+      responder: "keeper",
+      revision: 1,
+      action: "end",
+      terminal_command_ids: [endCommandId],
+      decision_id: `resume-${endDigest.slice(0, 32)}`,
+      request_index: 1,
+    },
+  });
 
   const callsAfterEnd = clientCalls.filter((call) => (
     call.operation === "sanity.execute"
