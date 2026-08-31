@@ -218,10 +218,25 @@ def test_social_adjudicate_leverage_cap_and_conditional(campaign_ws):
     assert host["strategic_adjustment"] == -1
     assert host["final_difficulty"] == "hard"
 
+    # Keeper Rulebook PDF index 104 / printed p.93: a strong opposition may
+    # raise Regular by two levels; that is still an Extreme roll, not a
+    # conditional/no-roll result.
+    strong_but_possible = _adjudicate(
+        campaign_ws,
+        "adj-strong-but-possible",
+        npc_defense_value=30,
+        motive={"direction": "oppose", "intensity": 2, "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"]},
+    )
+    assert strong_but_possible["data"]["final_difficulty"] == "extreme"
+    assert strong_but_possible["data"]["feasibility"] == "roll"
+    assert "roll_operation" in strong_but_possible["data"]
+
+    # PDF index 208 / printed p.197: Hard plus two opposition levels exceeds
+    # Extreme and becomes impossible until the investigator changes the case.
     conditional = _adjudicate(
         campaign_ws,
         "adj-conditional",
-        npc_defense_value=30,
+        npc_defense_value=55,
         motive={"direction": "oppose", "intensity": 2, "evidence_refs": [f"npc_agenda:{campaign_ws['npc_id']}"]},
     )
     assert conditional["data"]["feasibility"] == "conditional"

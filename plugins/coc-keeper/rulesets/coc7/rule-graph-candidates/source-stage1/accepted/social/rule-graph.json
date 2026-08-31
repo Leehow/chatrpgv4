@@ -1,0 +1,1377 @@
+{
+  "contract_id": "coc.rule-graph.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "source_language": "en",
+  "nodes": [
+    {
+      "node_id": "capability:coc7:social-difficulty",
+      "node_kind": "capability",
+      "name": "social_difficulty",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "resolver_capability": "social_difficulty",
+        "adapter": "resolver"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:social-skill-names",
+      "node_kind": "capability",
+      "name": "social_skill_names",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "resolver_capability": "social_skill_names",
+        "adapter": "resolver"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:social:ruleset-coc7",
+      "node_kind": "condition",
+      "name": "Campaign is using the coc7 ruleset",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "expression": {
+          "op": "eq",
+          "path": "campaign.ruleset_id",
+          "value": "coc7"
+        }
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:skill-descriptions",
+      "node_kind": "data-table",
+      "name": "skill-descriptions.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "skill-descriptions.json"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:social:adjudicate-difficulty",
+      "node_kind": "decision",
+      "name": "Adjudicate one possible social goal from described conduct, approach, higher-of defense, motive, and one-level support",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "implementation": {
+          "adapter": "resolver",
+          "kind": "social_difficulty",
+          "phase": "resolve",
+          "payload_constants": {},
+          "payload_slots": [
+            {
+              "name": "described_action",
+              "ownership": "player-source"
+            },
+            {
+              "name": "approach",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "goal",
+              "ownership": "player-source"
+            },
+            {
+              "name": "npc_defense",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "motive_direction",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "motive_intensity",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "motive_evidence",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "supporting_action",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "feasibility",
+              "ownership": "keeper-semantic"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "effect:coc7:social:pc-refusal-penalty",
+      "node_kind": "effect",
+      "name": "One non-stacking penalty die held by the coercer against the refusing investigator for one later chosen roll",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "effect_kind": "one-use-penalty-die"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:approach",
+      "node_kind": "input-slot",
+      "name": "Social approach chosen by the Keeper from the described method",
+      "authority": "keeper-semantic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "enum",
+        "path": "intent.method"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:described-action",
+      "node_kind": "input-slot",
+      "name": "Player-described conduct (what the investigator is doing and saying)",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "player-source",
+        "value_type": "string",
+        "path": "intent.method"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:feasibility",
+      "node_kind": "input-slot",
+      "name": "Story-grounded automatic, rollable, conditional, or impossible disposition",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "enum",
+        "path": "feasibility"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:goal",
+      "node_kind": "input-slot",
+      "name": "Player-defined goal of the social attempt",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "player-source",
+        "value_type": "string",
+        "path": "intent.method"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:motive-direction",
+      "node_kind": "input-slot",
+      "name": "NPC inclination toward the exact player goal",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "enum",
+        "path": "motive.direction"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:motive-intensity",
+      "node_kind": "input-slot",
+      "name": "Source-grounded opposition adjustment of zero, one, or two levels",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "motive.intensity"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:npc-defense",
+      "node_kind": "input-slot",
+      "name": "Host-selected opposing skill level",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "host-locked",
+        "value_type": "int",
+        "path": "actor.sheet.social_defense"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:supporting-action",
+      "node_kind": "input-slot",
+      "name": "One substantive argument, bribe, threat, or other source-grounded support for the case",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "object",
+        "path": "supporting_action"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "pending-choice:coc7:social:pc-refusal",
+      "node_kind": "pending-choice",
+      "name": "The player remains free to refuse the successful social request",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule-family:coc7:social",
+      "node_kind": "rule-family",
+      "name": "Social interaction",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:approach-selection",
+      "node_kind": "rule",
+      "name": "Player describes conduct; the Keeper then chooses Charm, Fast Talk, Intimidate, or Persuade",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:charm-scope",
+      "node_kind": "rule",
+      "name": "Charm uses warmth, attraction, flattery, or seduction and cannot compel behavior completely contrary to the target's normal behavior",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:extreme-ceiling",
+      "node_kind": "rule",
+      "name": "Extreme is the lowest rollable chance; rare circumstances may make the present goal impossible and allow no roll",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:fast-talk-temporary",
+      "node_kind": "rule",
+      "name": "Fast Talk is quick deception or misdirection; its effect is temporary, though a higher success may last longer",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:feasibility",
+      "node_kind": "rule",
+      "name": "Roleplay first and roll only for a genuine possible conflict; story position, approach, and the NPC's weakness determine whether the goal is automatic, rollable, or presently impossible",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:intimidate-scope",
+      "node_kind": "rule",
+      "name": "Intimidate uses force, threats, or psychological pressure; a credible powerful threat may support the case and a pushed failure may carry out the threat",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:motive-and-support",
+      "node_kind": "rule",
+      "name": "Positive inclination grants agreement without a roll; neutrality leaves difficulty unchanged; strong opposition raises one or two levels; a substantive supporting case lowers one level",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:opposing-difficulty",
+      "node_kind": "rule",
+      "name": "Base difficulty uses the higher of the matching interpersonal skill or Psychology: below 50 Regular, 50-89 Hard, 90+ Extreme",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:pc-agency-and-penalty",
+      "node_kind": "rule",
+      "name": "A successful social skill never compels another player's investigator; refusal lets the coercer hold one penalty die for one later roll of the coercer's choice, not indefinitely and never stacking per pair",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:persuade-duration",
+      "node_kind": "rule",
+      "name": "Persuade uses reasoned argument and normally takes at least half an hour; depending on the goal and time invested its effect may persist",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:player-goal",
+      "node_kind": "rule",
+      "name": "The player's intention defines the goal of the social attempt",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "relation:coc7:social:adjudicate-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "condition:coc7:social:ruleset-coc7",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:adjudicate-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "capability:coc7:social-difficulty",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:adjudicate-reads-names",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "capability:coc7:social-skill-names",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:approach-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:approach-selection",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:ceiling-applies",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:social:extreme-ceiling",
+      "to_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:ceiling-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:extreme-ceiling",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:charm-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:charm-scope",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:fast-talk-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:fast-talk-temporary",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:feasibility-applies",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:social:feasibility",
+      "to_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:feasibility-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:feasibility",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:goal-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:player-goal",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:intimidate-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:intimidate-scope",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:ladder-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:opposing-difficulty",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:motive-support-applies",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:social:motive-and-support",
+      "to_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:motive-support-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:motive-and-support",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:pc-agency-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:pc-agency-and-penalty",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:pc-refusal-emits",
+      "relation_kind": "emits",
+      "from_node_id": "pending-choice:coc7:social:pc-refusal",
+      "to_node_id": "effect:coc7:social:pc-refusal-penalty",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:pc-refusal-offered",
+      "relation_kind": "offers-choice",
+      "from_node_id": "rule:coc7:social:pc-agency-and-penalty",
+      "to_node_id": "pending-choice:coc7:social:pc-refusal",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:persuade-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:persuade-duration",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:reads-skill-descriptions",
+      "relation_kind": "reads-table",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "data-table:coc7:skill-descriptions",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-approach",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:approach",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-described-action",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:described-action",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-feasibility",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:feasibility",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-goal",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:goal",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-motive-direction",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:motive-direction",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-motive-intensity",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:motive-intensity",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-npc-defense",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:npc-defense",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-support",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:supporting-action",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    }
+  ],
+  "coverage": {
+    "chase": "unresolved",
+    "combat": "unresolved",
+    "core-check": "unresolved",
+    "development": "unresolved",
+    "healing": "unresolved",
+    "magic": "unresolved",
+    "psychology": "unresolved",
+    "push-luck": "unresolved",
+    "sanity": "unresolved",
+    "social": "accepted"
+  },
+  "family_runtime_ownership": {
+    "chase": "legacy",
+    "combat": "legacy",
+    "core-check": "legacy",
+    "development": "legacy",
+    "healing": "legacy",
+    "magic": "legacy",
+    "psychology": "legacy",
+    "push-luck": "legacy",
+    "sanity": "legacy",
+    "social": "legacy"
+  },
+  "legacy_surface_lifecycle": {
+    "chase": "visible",
+    "combat": "visible",
+    "core-check": "visible",
+    "development": "visible",
+    "healing": "visible",
+    "magic": "visible",
+    "psychology": "visible",
+    "push-luck": "visible",
+    "sanity": "visible",
+    "social": "visible"
+  }
+}

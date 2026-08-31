@@ -238,8 +238,6 @@ def social_difficulty(
     if direction == "support" and intensity > 0:
         # pdf 104 / printed 93 block 85: positively inclined NPCs agree without a roll.
         feasibility = "automatic"
-    elif direction == "oppose" and intensity == 2 and leverage_adj == 0:
-        feasibility = "conditional"
     elif final > 2:
         feasibility = "conditional"
     elif final < 0:

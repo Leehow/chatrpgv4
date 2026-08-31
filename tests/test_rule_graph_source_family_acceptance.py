@@ -170,7 +170,70 @@ def test_core_check_source_acceptance_regenerates_byte_identically():
         assert acceptor._bytes(result[key]) == (expected / name).read_bytes(), name
 
 
-@pytest.mark.parametrize("family", ["core-check", "push-luck"])
+def test_social_is_source_accepted_with_full_motive_and_agency_semantics():
+    graph = _accepted("social", "rule-graph.json")
+    manifest = _accepted("social", "rule-graph-manifest.json")
+    shard = _accepted("social", "accepted-shard.json")
+    provenance = _accepted("social", "provenance.json")
+    nodes = {row["node_id"]: row for row in graph["nodes"]}
+
+    assert graph["coverage"]["social"] == "accepted"
+    assert manifest["family_coverage"]["social"] == "accepted"
+    assert manifest["review_status"] == "accepted"
+    assert manifest["reviewer_identity"] == (
+        "codex-rule-families-core-social-source-review-20260831:social"
+    )
+    assert manifest["graph_content_digest"] == acceptor.rg._json_digest(graph)
+    assert manifest["shards"] == [{
+        "shard_id": shard["shard_id"],
+        "shard_digest": acceptor.rg._json_digest(shard),
+    }]
+    assert {row["pdf_index"] for row in provenance["pages"]} == {
+        70, 71, 75, 77, 82, 84, 104, 208,
+    }
+    for required in (
+        "rule:coc7:social:opposing-difficulty",
+        "rule:coc7:social:feasibility",
+        "rule:coc7:social:motive-and-support",
+        "rule:coc7:social:extreme-ceiling",
+        "rule:coc7:social:pc-agency-and-penalty",
+        "effect:coc7:social:pc-refusal-penalty",
+        "pending-choice:coc7:social:pc-refusal",
+        "rule:coc7:social:charm-scope",
+        "rule:coc7:social:fast-talk-temporary",
+        "rule:coc7:social:intimidate-scope",
+        "rule:coc7:social:persuade-duration",
+    ):
+        assert required in nodes
+    assert "higher of" in nodes[
+        "rule:coc7:social:opposing-difficulty"
+    ]["name"].casefold()
+    assert all("uncompiled" not in row["node_id"] for row in graph["nodes"])
+    assert all("uncompiled" not in row["name"].casefold() for row in graph["nodes"])
+
+
+def test_social_source_acceptance_regenerates_byte_identically():
+    raw = os.environ.get(acceptor.BUNDLE_ROOT_ENV)
+    if not raw:
+        pytest.skip(f"set {acceptor.BUNDLE_ROOT_ENV} for source regeneration")
+    result = acceptor.accept_family(
+        Path(raw).expanduser().resolve(),
+        "social",
+        list(acceptor.FAMILIES["social"]["pages"]),
+        acceptor.FAMILIES["social"]["factory"],
+    )
+    expected = TREE / "accepted" / "social"
+    for key, name in (
+        ("candidate", "candidate.json"),
+        ("accepted_shard", "accepted-shard.json"),
+        ("graph", "rule-graph.json"),
+        ("manifest", "rule-graph-manifest.json"),
+        ("provenance", "provenance.json"),
+    ):
+        assert acceptor._bytes(result[key]) == (expected / name).read_bytes(), name
+
+
+@pytest.mark.parametrize("family", ["core-check", "push-luck", "social"])
 def test_family_source_acceptance_does_not_edit_production_ownership(family):
     production = _read(
         ROOT / "plugins" / "coc-keeper" / "rulesets" / "coc7"

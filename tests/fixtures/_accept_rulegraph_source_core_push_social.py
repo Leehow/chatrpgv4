@@ -477,6 +477,237 @@ def core_check_candidate(packet: dict[str, Any]) -> dict[str, Any]:
     return candidate
 
 
+def social_candidate(packet: dict[str, Any]) -> dict[str, Any]:
+    base = _base_candidate("section-interpersonal-skills-source.candidate.json")
+    nodes, relations = _family_filter(
+        base,
+        "social",
+        set(),
+        excluded_node_ids={
+            "exception:coc7:social:pc-coercion-penalty-uncompiled",
+            "exception:coc7:social:higher-of-composition-uncompiled",
+            "rule:coc7:psychology:opposes-social",
+        },
+    )
+    evidence = _matching_spans(packet, (
+        "Charm (15%)",
+        "Interpersonal Skills: Disambiguation",
+        "When Used on Player Characters",
+        "Fast Talk (05%)",
+        "Intimidate (15%)",
+        "Persuade (10%)",
+        "Psychology can be used to oppose all forms of social interaction rolls",
+        "Charm, Fast Talk, Intimidate, and Persuade Skills: Difficulty Levels",
+        "Verbal Conflicts",
+    ))
+    for row in nodes:
+        row["evidence_span_ids"] = list(evidence)
+        if row["node_id"] == "rule:coc7:social:opposing-difficulty":
+            row["name"] = (
+                "Base difficulty uses the higher of the matching interpersonal "
+                "skill or Psychology: below 50 Regular, 50-89 Hard, 90+ Extreme"
+            )
+        if row["node_id"] == "decision:coc7:social:adjudicate-difficulty":
+            row["name"] = (
+                "Adjudicate one possible social goal from described conduct, "
+                "approach, higher-of defense, motive, and one-level support"
+            )
+            row["properties"]["implementation"]["payload_slots"] = [
+                {"name": "described_action", "ownership": "player-source"},
+                {"name": "approach", "ownership": "keeper-semantic"},
+                {"name": "goal", "ownership": "player-source"},
+                {"name": "npc_defense", "ownership": "host-locked"},
+                {"name": "motive_direction", "ownership": "keeper-semantic"},
+                {"name": "motive_intensity", "ownership": "keeper-semantic"},
+                {"name": "motive_evidence", "ownership": "host-locked"},
+                {"name": "supporting_action", "ownership": "keeper-semantic"},
+                {"name": "feasibility", "ownership": "keeper-semantic"},
+            ]
+    additions = [
+        _node(
+            "data-table:coc7:skill-descriptions",
+            "data-table",
+            "skill-descriptions.json",
+            audience="host-internal",
+            visibility="keeper-only",
+            properties={"table_name": "skill-descriptions.json"},
+            evidence=evidence,
+        ),
+        _node(
+            "rule:coc7:social:feasibility",
+            "rule",
+            "Roleplay first and roll only for a genuine possible conflict; story position, approach, and the NPC's weakness determine whether the goal is automatic, rollable, or presently impossible",
+            authority="mixed",
+            properties={"family_id": "social"},
+            evidence=evidence,
+        ),
+        _node(
+            "rule:coc7:social:motive-and-support",
+            "rule",
+            "Positive inclination grants agreement without a roll; neutrality leaves difficulty unchanged; strong opposition raises one or two levels; a substantive supporting case lowers one level",
+            authority="mixed",
+            properties={"family_id": "social"},
+            evidence=evidence,
+        ),
+        _node(
+            "rule:coc7:social:extreme-ceiling",
+            "rule",
+            "Extreme is the lowest rollable chance; rare circumstances may make the present goal impossible and allow no roll",
+            authority="mixed",
+            properties={"family_id": "social"},
+            evidence=evidence,
+        ),
+        _node(
+            "rule:coc7:social:pc-agency-and-penalty",
+            "rule",
+            "A successful social skill never compels another player's investigator; refusal lets the coercer hold one penalty die for one later roll of the coercer's choice, not indefinitely and never stacking per pair",
+            authority="mixed",
+            properties={"family_id": "social"},
+            evidence=evidence,
+        ),
+        _node(
+            "effect:coc7:social:pc-refusal-penalty",
+            "effect",
+            "One non-stacking penalty die held by the coercer against the refusing investigator for one later chosen roll",
+            audience="host-internal",
+            properties={
+                "family_id": "social",
+                "effect_kind": "one-use-penalty-die",
+            },
+            evidence=evidence,
+        ),
+        _node(
+            "pending-choice:coc7:social:pc-refusal",
+            "pending-choice",
+            "The player remains free to refuse the successful social request",
+            properties={"family_id": "social"},
+            evidence=evidence,
+        ),
+        _node(
+            "rule:coc7:social:charm-scope",
+            "rule",
+            "Charm uses warmth, attraction, flattery, or seduction and cannot compel behavior completely contrary to the target's normal behavior",
+            authority="mixed",
+            properties={"family_id": "social"},
+            evidence=evidence,
+        ),
+        _node(
+            "rule:coc7:social:fast-talk-temporary",
+            "rule",
+            "Fast Talk is quick deception or misdirection; its effect is temporary, though a higher success may last longer",
+            authority="mixed",
+            properties={"family_id": "social"},
+            evidence=evidence,
+        ),
+        _node(
+            "rule:coc7:social:intimidate-scope",
+            "rule",
+            "Intimidate uses force, threats, or psychological pressure; a credible powerful threat may support the case and a pushed failure may carry out the threat",
+            authority="mixed",
+            properties={"family_id": "social"},
+            evidence=evidence,
+        ),
+        _node(
+            "rule:coc7:social:persuade-duration",
+            "rule",
+            "Persuade uses reasoned argument and normally takes at least half an hour; depending on the goal and time invested its effect may persist",
+            authority="mixed",
+            properties={"family_id": "social"},
+            evidence=evidence,
+        ),
+        _node(
+            "input-slot:coc7:social:motive-direction",
+            "input-slot",
+            "NPC inclination toward the exact player goal",
+            visibility="keeper-only",
+            properties={
+                "family_id": "social",
+                "ownership": "keeper-semantic",
+                "value_type": "enum",
+                "path": "motive.direction",
+            },
+            evidence=evidence,
+        ),
+        _node(
+            "input-slot:coc7:social:motive-intensity",
+            "input-slot",
+            "Source-grounded opposition adjustment of zero, one, or two levels",
+            visibility="keeper-only",
+            properties={
+                "family_id": "social",
+                "ownership": "keeper-semantic",
+                "value_type": "scalar",
+                "path": "motive.intensity",
+            },
+            evidence=evidence,
+        ),
+        _node(
+            "input-slot:coc7:social:supporting-action",
+            "input-slot",
+            "One substantive argument, bribe, threat, or other source-grounded support for the case",
+            visibility="keeper-only",
+            properties={
+                "family_id": "social",
+                "ownership": "keeper-semantic",
+                "value_type": "object",
+                "path": "supporting_action",
+            },
+            evidence=evidence,
+        ),
+        _node(
+            "input-slot:coc7:social:feasibility",
+            "input-slot",
+            "Story-grounded automatic, rollable, conditional, or impossible disposition",
+            visibility="keeper-only",
+            properties={
+                "family_id": "social",
+                "ownership": "keeper-semantic",
+                "value_type": "enum",
+                "path": "feasibility",
+            },
+            evidence=evidence,
+        ),
+    ]
+    nodes.extend(additions)
+    family_id = "rule-family:coc7:social"
+    decision = "decision:coc7:social:adjudicate-difficulty"
+    relations.extend([
+        _relation("relation:coc7:social:feasibility-part-of", "part-of", "rule:coc7:social:feasibility", family_id, evidence),
+        _relation("relation:coc7:social:motive-support-part-of", "part-of", "rule:coc7:social:motive-and-support", family_id, evidence),
+        _relation("relation:coc7:social:ceiling-part-of", "part-of", "rule:coc7:social:extreme-ceiling", family_id, evidence),
+        _relation("relation:coc7:social:pc-agency-part-of", "part-of", "rule:coc7:social:pc-agency-and-penalty", family_id, evidence),
+        _relation("relation:coc7:social:charm-part-of", "part-of", "rule:coc7:social:charm-scope", family_id, evidence),
+        _relation("relation:coc7:social:fast-talk-part-of", "part-of", "rule:coc7:social:fast-talk-temporary", family_id, evidence),
+        _relation("relation:coc7:social:intimidate-part-of", "part-of", "rule:coc7:social:intimidate-scope", family_id, evidence),
+        _relation("relation:coc7:social:persuade-part-of", "part-of", "rule:coc7:social:persuade-duration", family_id, evidence),
+        _relation("relation:coc7:social:feasibility-applies", "applies-to", "rule:coc7:social:feasibility", decision, evidence),
+        _relation("relation:coc7:social:motive-support-applies", "applies-to", "rule:coc7:social:motive-and-support", decision, evidence),
+        _relation("relation:coc7:social:ceiling-applies", "applies-to", "rule:coc7:social:extreme-ceiling", decision, evidence),
+        _relation("relation:coc7:social:requires-motive-direction", "requires-input", decision, "input-slot:coc7:social:motive-direction", evidence),
+        _relation("relation:coc7:social:requires-motive-intensity", "requires-input", decision, "input-slot:coc7:social:motive-intensity", evidence),
+        _relation("relation:coc7:social:requires-support", "requires-input", decision, "input-slot:coc7:social:supporting-action", evidence),
+        _relation("relation:coc7:social:requires-feasibility", "requires-input", decision, "input-slot:coc7:social:feasibility", evidence),
+        _relation("relation:coc7:social:reads-skill-descriptions", "reads-table", decision, "data-table:coc7:skill-descriptions", evidence),
+        _relation("relation:coc7:social:pc-refusal-offered", "offers-choice", "rule:coc7:social:pc-agency-and-penalty", "pending-choice:coc7:social:pc-refusal", evidence),
+        _relation("relation:coc7:social:pc-refusal-emits", "emits", "pending-choice:coc7:social:pc-refusal", "effect:coc7:social:pc-refusal-penalty", evidence),
+    ])
+    candidate = {
+        "contract_id": rg.CANDIDATE_CONTRACT_ID,
+        "schema_version": 1,
+        "ruleset_id": "coc7",
+        "family_id": "social",
+        "section_id": packet["section_id"],
+        "source_language": "en",
+        "coverage": {"social": "accepted"},
+        "nodes": sorted(nodes, key=lambda row: row["node_id"]),
+        "relations": sorted(relations, key=lambda row: row["relation_id"]),
+    }
+    findings = rg._validate_candidate(candidate, packet)
+    if findings:
+        raise RuntimeError(findings)
+    return candidate
+
+
 def _provenance(packet: dict[str, Any], family: str, bundle: dict[str, Any]) -> dict[str, Any]:
     page_ids = sorted({
         int(span["source_ref"]["pdf_index"])
@@ -551,6 +782,10 @@ FAMILIES = {
     "push-luck": {
         "pages": [95, 96, 97, 100, 101, 110],
         "factory": push_luck_candidate,
+    },
+    "social": {
+        "pages": [70, 71, 75, 77, 82, 84, 104, 208],
+        "factory": social_candidate,
     },
 }
 

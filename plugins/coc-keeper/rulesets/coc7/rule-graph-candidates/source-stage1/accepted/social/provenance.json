@@ -1,0 +1,49 @@
+{
+  "reviewer_identity": "codex-rule-families-core-social-source-review-20260831:social",
+  "source_id": "pdf:coc7-keeper-rulebook-40th",
+  "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+  "bundle_id": "core-social-psychology-v2",
+  "bundle_sha256": "86e7060a49958f0f3a6ecaeb23e71c9bdb85d95e794d009fa0e63763af5c155b",
+  "pages": [
+    {
+      "pdf_index": 70,
+      "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada",
+      "review_state": "manual_accepted"
+    },
+    {
+      "pdf_index": 71,
+      "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635",
+      "review_state": "manual_accepted"
+    },
+    {
+      "pdf_index": 75,
+      "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0",
+      "review_state": "manual_accepted"
+    },
+    {
+      "pdf_index": 77,
+      "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52",
+      "review_state": "manual_accepted"
+    },
+    {
+      "pdf_index": 82,
+      "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496",
+      "review_state": "manual_accepted"
+    },
+    {
+      "pdf_index": 84,
+      "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3",
+      "review_state": "manual_accepted"
+    },
+    {
+      "pdf_index": 104,
+      "text_sha256": "51952cdb452ec8877308efddd06b40511d54efee4d8ac9091f40a3ff21d7d7b8",
+      "review_state": "manual_accepted"
+    },
+    {
+      "pdf_index": 208,
+      "text_sha256": "86d629b035364b45d93b2af4aae456fcd4d154a43e2b6987532ff9976883fc5b",
+      "review_state": "manual_accepted"
+    }
+  ]
+}
