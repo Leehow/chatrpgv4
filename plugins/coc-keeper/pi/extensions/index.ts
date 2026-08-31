@@ -5112,6 +5112,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             ["bout_table_roll_id", "bout-table"],
             ["bout_rounds_roll_id", "bout-rounds"],
             ["mania_roll_id", "mania"],
+            ["phobia_roll_id", "phobia"],
             ["loss_roll_id", "san-loss"],
           ] as const) {
             registerRoll(row[field], [data.source, check?.skill, role]);
