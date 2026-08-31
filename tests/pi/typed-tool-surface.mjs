@@ -191,7 +191,8 @@ test("rules.roll exposes one closed semantic combined-target mode", () => {
   assert.deepEqual(targets.items.required, ["label", "value"]);
   assert.equal(targets.items.properties.label.type, "string");
   assert.equal(targets.items.properties.value.type, "integer");
-  assert.equal(schema.properties.helper_count.minimum, 0);
+  assert.equal(schema.properties.helper_count, undefined);
+  assert.deepEqual(schema.properties.combined_mode.enum, ["any", "all"]);
   assert.ok(!(schema.required || []).includes("combined_targets"));
 });
 

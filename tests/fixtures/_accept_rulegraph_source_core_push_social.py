@@ -270,6 +270,213 @@ def push_luck_candidate(packet: dict[str, Any]) -> dict[str, Any]:
     return candidate
 
 
+def core_check_candidate(packet: dict[str, Any]) -> dict[str, Any]:
+    base = _base_candidate("section-checks-push-luck-source.candidate.json")
+    shared = {
+        "capability:coc7:check",
+        "data-table:coc7:percentile-check",
+        "data-table:coc7:success-levels",
+        "data-table:coc7:difficulty-levels",
+        "data-table:coc7:roll-modifiers",
+        "visibility-policy:coc7:core-check:public-roll",
+    }
+    nodes, relations = _family_filter(base, "core-check", shared)
+    evidence = _matching_spans(packet, (
+        "When to Roll Dice",
+        "Skill Roll: Determining the Difficulty Level",
+        "Rolling the Dice: Success or Failure",
+        "More Than One Player Rolling Dice for a Skill Roll?",
+        "Physical Human Limits",
+        "Fumbles and Criticals",
+        "Opposed Skill Rolls",
+        "A skill roll can yield one of six results",
+        "Comparing Results",
+        "Bonus Dice and Penalty Dice",
+        "Combined Skill Rolls",
+    ))
+    for row in nodes:
+        row["evidence_span_ids"] = list(evidence)
+    additions = [
+        _node(
+            "capability:coc7:opposed",
+            "capability",
+            "opposed",
+            audience="host-internal",
+            visibility="keeper-only",
+            properties={
+                "family_id": "core-check",
+                "resolver_capability": "opposed",
+                "adapter": "resolver",
+            },
+            evidence=evidence,
+        ),
+        _node(
+            "data-table:coc7:combat",
+            "data-table",
+            "combat.json",
+            audience="host-internal",
+            visibility="keeper-only",
+            properties={"table_name": "combat.json"},
+            evidence=evidence,
+        ),
+        _node(
+            "rule:coc7:core-check:goal-and-necessity",
+            "rule",
+            "Roll only for an uncertain consequential outcome; the player's intention defines one clear goal and the Keeper selects the fitting skill or characteristic",
+            authority="mixed",
+            properties={"family_id": "core-check"},
+            evidence=evidence,
+        ),
+        _node(
+            "rule:coc7:core-check:opposed",
+            "rule",
+            "Non-combat opposed rolls use one roll per side, compare success levels, break a tied successful level by higher skill or characteristic, and cannot be pushed",
+            properties={"family_id": "core-check"},
+            evidence=evidence,
+        ),
+        _node(
+            "rule:coc7:core-check:combined",
+            "rule",
+            "A combined skill roll uses one investigator's single D100 result against every named skill; the Keeper declares whether any or all named skills must succeed",
+            authority="mixed",
+            properties={"family_id": "core-check"},
+            evidence=evidence,
+        ),
+        _node(
+            "rule:coc7:core-check:multiple-investigators",
+            "rule",
+            "Multiple investigators use separate rolls or a situation-specific cooperation procedure; a repeated attempt at the same goal generally becomes a pushed roll",
+            authority="mixed",
+            properties={"family_id": "core-check"},
+            evidence=evidence,
+        ),
+        _node(
+            "rule:coc7:core-check:physical-human-limits",
+            "rule",
+            "An Extreme check cannot overcome opposition more than 100 plus the investigator's skill or characteristic; multiple investigators may reduce the opposing characteristic through the stated sequential procedure",
+            properties={"family_id": "core-check"},
+            evidence=evidence,
+        ),
+        _node(
+            "decision:coc7:core-check:opposed-check",
+            "decision",
+            "Settle one non-combat opposed check with one roll for each side",
+            authority="mixed",
+            properties={
+                "family_id": "core-check",
+                "implementation": {
+                    "adapter": "resolver",
+                    "kind": "opposed",
+                    "phase": "resolve",
+                    "payload_constants": {},
+                    "payload_slots": [
+                        {"name": "investigator_target", "ownership": "host-locked"},
+                        {"name": "opponent_value", "ownership": "host-locked"},
+                    ],
+                },
+            },
+            evidence=evidence,
+        ),
+        _node(
+            "decision:coc7:core-check:combined-check",
+            "decision",
+            "Settle one investigator's one D100 roll against multiple skills using the Keeper-declared any/all mode",
+            authority="mixed",
+            properties={
+                "family_id": "core-check",
+                "implementation": {
+                    "adapter": "resolver",
+                    "kind": "check",
+                    "phase": "resolve",
+                    "payload_constants": {},
+                    "payload_slots": [
+                        {"name": "combined_targets", "ownership": "host-locked"},
+                        {"name": "combined_mode", "ownership": "keeper-semantic"},
+                        {"name": "difficulty", "ownership": "keeper-semantic"},
+                        {"name": "goal", "ownership": "keeper-semantic"},
+                        {"name": "stakes", "ownership": "keeper-semantic"},
+                        {"name": "investigator_id", "ownership": "host-locked"},
+                    ],
+                },
+            },
+            evidence=evidence,
+        ),
+        _node(
+            "input-slot:coc7:core-check:combined-targets",
+            "input-slot",
+            "Authoritative named skill targets for the one investigator",
+            audience="host-internal",
+            visibility="keeper-only",
+            properties={
+                "family_id": "core-check",
+                "ownership": "host-locked",
+                "value_type": "object",
+                "path": "combined_targets",
+            },
+            evidence=evidence,
+        ),
+        _node(
+            "input-slot:coc7:core-check:combined-mode",
+            "input-slot",
+            "Keeper-declared any or all comparison mode",
+            visibility="keeper-only",
+            properties={
+                "family_id": "core-check",
+                "ownership": "keeper-semantic",
+                "value_type": "enum",
+                "path": "combined_mode",
+            },
+            evidence=evidence,
+        ),
+        _node(
+            "input-slot:coc7:core-check:opponent-value",
+            "input-slot",
+            "Authoritative opposing skill or characteristic value",
+            audience="host-internal",
+            visibility="keeper-only",
+            properties={
+                "family_id": "core-check",
+                "ownership": "host-locked",
+                "value_type": "scalar",
+                "path": "opponent_value",
+            },
+            evidence=evidence,
+        ),
+    ]
+    nodes.extend(additions)
+    family_id = "rule-family:coc7:core-check"
+    relations.extend([
+        _relation("relation:coc7:core-check:goal-part-of", "part-of", "rule:coc7:core-check:goal-and-necessity", family_id, evidence),
+        _relation("relation:coc7:core-check:opposed-part-of", "part-of", "rule:coc7:core-check:opposed", family_id, evidence),
+        _relation("relation:coc7:core-check:combined-part-of", "part-of", "rule:coc7:core-check:combined", family_id, evidence),
+        _relation("relation:coc7:core-check:multiple-part-of", "part-of", "rule:coc7:core-check:multiple-investigators", family_id, evidence),
+        _relation("relation:coc7:core-check:human-limits-part-of", "part-of", "rule:coc7:core-check:physical-human-limits", family_id, evidence),
+        _relation("relation:coc7:core-check:ordinary-invokes", "invokes", "decision:coc7:core-check:ordinary-check", "capability:coc7:check", evidence),
+        _relation("relation:coc7:core-check:opposed-invokes", "invokes", "decision:coc7:core-check:opposed-check", "capability:coc7:opposed", evidence),
+        _relation("relation:coc7:core-check:combined-invokes", "invokes", "decision:coc7:core-check:combined-check", "capability:coc7:check", evidence),
+        _relation("relation:coc7:core-check:combined-requires-targets", "requires-input", "decision:coc7:core-check:combined-check", "input-slot:coc7:core-check:combined-targets", evidence),
+        _relation("relation:coc7:core-check:combined-requires-mode", "requires-input", "decision:coc7:core-check:combined-check", "input-slot:coc7:core-check:combined-mode", evidence),
+        _relation("relation:coc7:core-check:opposed-requires-value", "requires-input", "decision:coc7:core-check:opposed-check", "input-slot:coc7:core-check:opponent-value", evidence),
+        _relation("relation:coc7:core-check:combined-reads-combat", "reads-table", "decision:coc7:core-check:combined-check", "data-table:coc7:combat", evidence),
+        _relation("relation:coc7:core-check:opposed-reads-combat", "reads-table", "decision:coc7:core-check:opposed-check", "data-table:coc7:combat", evidence),
+    ])
+    candidate = {
+        "contract_id": rg.CANDIDATE_CONTRACT_ID,
+        "schema_version": 1,
+        "ruleset_id": "coc7",
+        "family_id": "core-check",
+        "section_id": packet["section_id"],
+        "source_language": "en",
+        "coverage": {"core-check": "accepted"},
+        "nodes": sorted(nodes, key=lambda row: row["node_id"]),
+        "relations": sorted(relations, key=lambda row: row["relation_id"]),
+    }
+    findings = rg._validate_candidate(candidate, packet)
+    if findings:
+        raise RuntimeError(findings)
+    return candidate
+
+
 def _provenance(packet: dict[str, Any], family: str, bundle: dict[str, Any]) -> dict[str, Any]:
     page_ids = sorted({
         int(span["source_ref"]["pdf_index"])
@@ -337,6 +544,10 @@ def accept_family(
 
 
 FAMILIES = {
+    "core-check": {
+        "pages": [93, 94, 97, 99, 100, 101, 102, 103, 104],
+        "factory": core_check_candidate,
+    },
     "push-luck": {
         "pages": [95, 96, 97, 100, 101, 110],
         "factory": push_luck_candidate,

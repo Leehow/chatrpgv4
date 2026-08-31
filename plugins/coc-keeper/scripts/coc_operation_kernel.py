@@ -2257,7 +2257,7 @@ _PERCENTILE_INVOCATION_FIELDS = frozenset({
 
 _COMBINED_PERCENTILE_INVOCATION_FIELDS = frozenset({
     *_PERCENTILE_INVOCATION_FIELDS,
-    "combined_targets", "helper_count", "helper_bonus_dice",
+    "combined_targets", "combined_mode",
 })
 
 _COMBINED_TARGET_FIELDS = frozenset({"label", "value"})
@@ -2677,23 +2677,18 @@ def _combined_roll_evidence_is_consistent(
     payload: dict[str, Any],
 ) -> bool:
     targets = operation.get("combined_targets")
-    helper_count = operation.get("helper_count")
-    helper_bonus = operation.get("helper_bonus_dice")
+    comparison_mode = operation.get("combined_mode")
     roll = data.get("roll")
     required_level = operation.get("required_level")
     rule = coc_rules.combined_roll_rule()
     minimum = int(rule["minimum_compared_targets"])
-    bonus_cap = int(rule["teamwork"]["max_bonus_dice"])
     if (
         set(operation) != set(_COMBINED_PERCENTILE_INVOCATION_FIELDS)
         or not isinstance(targets, list)
         or len(targets) < minimum
         or len(targets) > 8
-        or not _is_exact_int(helper_count)
-        or helper_count < 0
-        or not _is_exact_int(helper_bonus)
-        or helper_bonus != min(helper_count, bonus_cap)
-        or operation.get("bonus") != helper_bonus
+        or comparison_mode not in {"any", "all"}
+        or operation.get("bonus") != 0
         or operation.get("penalty") != 0
         or operation.get("visibility") != "public"
         or operation.get("skill") is not None
@@ -2724,8 +2719,7 @@ def _combined_roll_evidence_is_consistent(
         normalized,
         roll=roll,
         required_level=str(required_level),
-        helper_count=helper_count,
-        helper_bonus_dice=helper_bonus,
+        comparison_mode=str(comparison_mode),
     )
     projection = coc_roll.build_player_projection(
         data,
@@ -2927,6 +2921,10 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
             or any(
                 data.get(key) != value
                 for key, value in (expected_result or {}).items()
+                if not (
+                    is_combined
+                    and key in {"success", "outcome", "achieved_level"}
+                )
             )
             or resolution.get("resolved_target") != data.get("target")
             or resolution.get("resolved_target") != record.get("target")
@@ -5158,8 +5156,7 @@ def _combined_roll_projection(
     *,
     roll: int,
     required_level: str,
-    helper_count: int,
-    helper_bonus_dice: int,
+    comparison_mode: str,
 ) -> dict[str, Any]:
     """Project many target verdicts from the existing one-roll settlement."""
     comparisons: list[dict[str, Any]] = []
@@ -5175,17 +5172,19 @@ def _combined_roll_projection(
             "outcome": str(settled["outcome"]),
             "success": bool(settled["success"]),
         })
+    if comparison_mode not in {"any", "all"}:
+        raise ToolError("invalid_param", "combined_mode must be any or all")
+    overall_success = (
+        any(row["success"] for row in comparisons)
+        if comparison_mode == "any"
+        else all(row["success"] for row in comparisons)
+    )
     return {
         "rule_ref": "core.combined_roll",
         "roll_count": 1,
-        "comparison_mode": "any",
+        "comparison_mode": comparison_mode,
         "targets": comparisons,
-        "helper_count": helper_count,
-        "helper_bonus_dice": helper_bonus_dice,
-        "helper_bonus_cap": int(
-            coc_rules.combined_roll_rule()["teamwork"]["max_bonus_dice"]
-        ),
-        "overall_success": any(row["success"] for row in comparisons),
+        "overall_success": overall_success,
         "development_tick_eligible": False,
         "push_eligible": False,
         "luck_spend_eligible": False,
@@ -5348,6 +5347,11 @@ def _normalize_percentile_invocation(
         "social_adjudication_ref": social_adjudication_ref,
     }
     if "combined_targets" in args:
+        if "helper_count" in args:
+            raise ToolError(
+                "invalid_param",
+                "helper_count is not part of source-backed combined skill rolls",
+            )
         if any(
             args.get(field) not in (None, "")
             for field in ("skill", "characteristic", "target", "npc_id", "social_adjudication_ref")
@@ -5360,34 +5364,29 @@ def _normalize_percentile_invocation(
         if bonus != 0 or penalty != 0:
             raise ToolError(
                 "invalid_param",
-                "combined rolls derive bonus dice only from helper_count; "
-                "do not also pass bonus or penalty",
+                "combined rolls use one unmodified D100; do not pass bonus or penalty",
             )
         if visibility != "public":
             raise ToolError(
                 "invalid_param", "combined rolls must keep their one receipt public"
             )
         targets = _normalize_combined_targets(args.get("combined_targets"))
-        helper_count = args.get("helper_count", 0)
-        if not _is_exact_int(helper_count) or helper_count < 0:
+        comparison_mode = args.get("combined_mode")
+        if comparison_mode not in {"any", "all"}:
             raise ToolError(
-                "invalid_param", "helper_count must be a non-negative integer"
+                "invalid_param",
+                "combined_mode=any|all is required with combined_targets",
             )
-        rule = coc_rules.combined_roll_rule()
-        helper_bonus = min(
-            int(helper_count), int(rule["teamwork"]["max_bonus_dice"])
-        )
         operation.update({
             "explicit_target": max(int(row["value"]) for row in targets),
-            "bonus": helper_bonus,
+            "bonus": 0,
             "penalty": 0,
             "combined_targets": targets,
-            "helper_count": int(helper_count),
-            "helper_bonus_dice": helper_bonus,
+            "combined_mode": comparison_mode,
         })
-    elif "helper_count" in args:
+    elif "helper_count" in args or "combined_mode" in args:
         raise ToolError(
-            "invalid_param", "helper_count is valid only with combined_targets"
+            "invalid_param", "combined-only arguments require combined_targets"
         )
     if (
         isinstance(frozen_operation, dict)
@@ -6205,14 +6204,12 @@ def _roll_common(
             combined_targets,
             roll=int(result["roll"]),
             required_level=difficulty,
-            helper_count=int(operation["helper_count"]),
-            helper_bonus_dice=int(operation["helper_bonus_dice"]),
+            comparison_mode=str(operation["combined_mode"]),
         )
-        if result["combined_roll"]["overall_success"] != bool(result["success"]):
-            raise ToolError(
-                "invalid_ruleset",
-                "combined roll aggregate contradicts the one canonical die result",
-            )
+        result["success"] = bool(result["combined_roll"]["overall_success"])
+        if not result["success"]:
+            result["outcome"] = "failure"
+            result["achieved_level"] = "failure"
     if operation.get("reason"):
         result["reason"] = str(operation["reason"])
     if operation.get("npc_id"):

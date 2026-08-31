@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:1177cc46574795bfd0dfa5936a0aed1bf37067a1fd44ecfe971ebcc550ee62bd",
+  "content_sha256": "sha256:bc484335f316376d77f48caee669c081484025cc6b63f8532f116c903ffdf9ef",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -3910,7 +3910,7 @@
     "rules.roll": {
       "access": "mutation",
       "canonical_operation": "rules.roll",
-      "description": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Optional combined_targets performs one public D100 roll against two or more semantic target labels and succeeds when any target succeeds; helper_count grants at most two bonus dice. Combined rolls cannot be Pushed, adjusted with Luck, or earn development ticks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose. Canonical operation `rules.roll`; the result envelope is authoritative.",
+      "description": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Optional combined_targets performs one public D100 roll for one investigator against two or more semantic target labels and succeeds when any target succeeds. Combined rolls cannot be Pushed, adjusted with Luck, or earn development ticks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose. Canonical operation `rules.roll`; the result envelope is authoritative.",
       "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
@@ -3925,6 +3925,14 @@
           },
           "characteristic": {
             "description": "characteristic (STR/CON/.../SAN/LUCK) instead of a skill",
+            "type": "string"
+          },
+          "combined_mode": {
+            "description": "required with combined_targets: whether any named target or every named target must succeed",
+            "enum": [
+              "any",
+              "all"
+            ],
             "type": "string"
           },
           "combined_targets": {
@@ -3985,11 +3993,6 @@
           "goal": {
             "description": "the concrete fictional objective this one check may settle",
             "type": "string"
-          },
-          "helper_count": {
-            "description": "helpers contributing to combined_targets; one bonus die each, capped at two",
-            "minimum": 0,
-            "type": "integer"
           },
           "investigator": {
             "description": "investigator id (optional when party has one member)",
@@ -4075,7 +4078,7 @@
           "live_turn"
         ]
       },
-      "summary": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Optional combined_targets performs one public D100 roll against two or more semantic target labels and succeeds when any target succeeds; helper_count grants at most two bonus dice. Combined rolls cannot be Pushed, adjusted with Luck, or earn development ticks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose."
+      "summary": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Optional combined_targets performs one public D100 roll for one investigator against two or more semantic target labels and succeeds when any target succeeds. Combined rolls cannot be Pushed, adjusted with Luck, or earn development ticks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose."
     },
     "rules.roll_dice": {
       "access": "mutation",

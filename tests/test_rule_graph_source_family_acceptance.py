@@ -104,13 +104,80 @@ def test_push_luck_source_acceptance_regenerates_byte_identically(tmp_path):
         assert acceptor._bytes(result[key]) == (expected / name).read_bytes(), name
 
 
-def test_family_source_acceptance_does_not_edit_production_ownership():
+def test_core_check_is_source_accepted_with_corrected_combined_rule():
+    graph = _accepted("core-check", "rule-graph.json")
+    manifest = _accepted("core-check", "rule-graph-manifest.json")
+    shard = _accepted("core-check", "accepted-shard.json")
+    provenance = _accepted("core-check", "provenance.json")
+    nodes = {row["node_id"]: row for row in graph["nodes"]}
+
+    assert graph["coverage"]["core-check"] == "accepted"
+    assert manifest["family_coverage"]["core-check"] == "accepted"
+    assert manifest["review_status"] == "accepted"
+    assert manifest["reviewer_identity"] == (
+        "codex-rule-families-core-social-source-review-20260831:core-check"
+    )
+    assert manifest["graph_content_digest"] == acceptor.rg._json_digest(graph)
+    assert manifest["shards"] == [{
+        "shard_id": shard["shard_id"],
+        "shard_digest": acceptor.rg._json_digest(shard),
+    }]
+    assert manifest["family_promotion_eligibility"]["core-check"] == {
+        "promotion_eligible": False,
+        "runtime_ownership": "legacy",
+    }
+    assert {row["pdf_index"] for row in provenance["pages"]} == {
+        93, 94, 97, 99, 100, 101, 102, 103, 104,
+    }
+    for required in (
+        "decision:coc7:core-check:ordinary-check",
+        "decision:coc7:core-check:opposed-check",
+        "decision:coc7:core-check:combined-check",
+        "rule:coc7:core-check:multiple-investigators",
+        "rule:coc7:core-check:physical-human-limits",
+        "input-slot:coc7:core-check:combined-mode",
+    ):
+        assert required in nodes
+    assert all("uncompiled" not in row["node_id"] for row in graph["nodes"])
+    combined_table = json.loads(
+        (
+            ROOT / "plugins" / "coc-keeper" / "rulesets" / "coc7"
+            / "rules-json" / "combat.json"
+        ).read_text(encoding="utf-8")
+    )["combined_roll"]
+    assert "teamwork" not in combined_table
+    assert "one investigator" in combined_table["source_note"]
+
+
+def test_core_check_source_acceptance_regenerates_byte_identically():
+    raw = os.environ.get(acceptor.BUNDLE_ROOT_ENV)
+    if not raw:
+        pytest.skip(f"set {acceptor.BUNDLE_ROOT_ENV} for source regeneration")
+    result = acceptor.accept_family(
+        Path(raw).expanduser().resolve(),
+        "core-check",
+        list(acceptor.FAMILIES["core-check"]["pages"]),
+        acceptor.FAMILIES["core-check"]["factory"],
+    )
+    expected = TREE / "accepted" / "core-check"
+    for key, name in (
+        ("candidate", "candidate.json"),
+        ("accepted_shard", "accepted-shard.json"),
+        ("graph", "rule-graph.json"),
+        ("manifest", "rule-graph-manifest.json"),
+        ("provenance", "provenance.json"),
+    ):
+        assert acceptor._bytes(result[key]) == (expected / name).read_bytes(), name
+
+
+@pytest.mark.parametrize("family", ["core-check", "push-luck"])
+def test_family_source_acceptance_does_not_edit_production_ownership(family):
     production = _read(
         ROOT / "plugins" / "coc-keeper" / "rulesets" / "coc7"
         / "rule-graph-manifest.json"
     )
-    assert production["family_coverage"]["push-luck"] == "unresolved"
-    assert production["family_promotion_eligibility"]["push-luck"] == {
+    assert production["family_coverage"][family] == "unresolved"
+    assert production["family_promotion_eligibility"][family] == {
         "promotion_eligible": False,
         "runtime_ownership": "legacy",
     }

@@ -125,17 +125,11 @@ def chase_rule() -> dict[str, Any]:
 
 def combined_roll_rule() -> dict[str, Any]:
     table = load_rule_table("combat")["combined_roll"]
-    teamwork = table.get("teamwork", {})
     return {
         "roll_count": int(table["roll_count"]),
         "minimum_compared_targets": int(table["minimum_compared_targets"]),
         "requires_compared_targets": bool(table["requires_compared_targets"]),
         "success_if_roll_lte_any_target": bool(table["success_if_roll_lte_any_target"]),
-        "teamwork": {
-            "lead_uses_highest_skill": bool(teamwork.get("lead_uses_highest_skill", False)),
-            "helpers_grant_bonus_die_per_helper": bool(teamwork.get("helpers_grant_bonus_die_per_helper", False)),
-            "max_bonus_dice": int(teamwork.get("max_bonus_dice", 0)),
-        },
     }
 
 

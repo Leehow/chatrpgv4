@@ -1649,7 +1649,7 @@ def register_operations(registry) -> None:
 )(_tool_rules_build_scale)
     registry.tool(
     "rules.roll",
-    "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Optional combined_targets performs one public D100 roll against two or more semantic target labels and succeeds when any target succeeds; helper_count grants at most two bonus dice. Combined rolls cannot be Pushed, adjusted with Luck, or earn development ticks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose.",
+    "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Optional combined_targets performs one public D100 roll for one investigator against two or more semantic target labels and succeeds when any target succeeds. Combined rolls cannot be Pushed, adjusted with Luck, or earn development ticks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose.",
     {
         "investigator": {"type": "string", "desc": "investigator id (optional when party has one member)"},
         "skill": {"type": "string", "desc": "skill name on the sheet (e.g. 'Library Use')"},
@@ -1670,7 +1670,7 @@ def register_operations(registry) -> None:
                 "additionalProperties": False,
             },
         },
-        "helper_count": {"type": "integer", "minimum": 0, "desc": "helpers contributing to combined_targets; one bonus die each, capped at two"},
+        "combined_mode": {"type": "string", "enum": ["any", "all"], "desc": "required with combined_targets: whether any named target or every named target must succeed"},
         "difficulty": {"type": "string", "required": True, "enum": ["regular", "hard", "extreme"], "desc": "required success level: regular | hard | extreme; never inferred or defaulted"},
         "goal": {"type": "string", "required": True, "desc": "the concrete fictional objective this one check may settle"},
         "stakes": {"type": "object", "required": True, "desc": "exactly {on_success, on_failure}, both non-empty player-action consequences", "properties": {"on_success": {"type": "string"}, "on_failure": {"type": "string"}}, "required_fields": ["on_success", "on_failure"]},
