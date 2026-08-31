@@ -117,6 +117,7 @@
     "actor.conditions.major_wound",
     "actor.conditions.dead",
     "actor.recovery.major_wound_week_due",
+    "development.settlement.pending",
     "subsystem.kind",
     "subsystem.snapshot.active",
     "scene.id",

@@ -111,9 +111,10 @@ EXECUTABLE_SPECS: dict[str, list[dict[str, Any]]] = {
         {
             "token": "end-session",
             "operation": "state.end_session",
-            "slots": [("summary", "player-source"), ("kind", "keeper-semantic"),
+            "slots": [("summary", "optional-semantic"), ("kind", "optional-semantic"),
                       ("investigator", "host-locked"), ("decision_id", "host-locked")],
-            "condition": {"op": "eq", "path": "campaign.ruleset_id", "value": "coc7"},
+            "optional_slots": {"summary", "kind", "investigator"},
+            "condition": None,
             "effects": [("ending-recorded", None), ("development-settled", None)],
         },
         {
@@ -121,7 +122,10 @@ EXECUTABLE_SPECS: dict[str, list[dict[str, Any]]] = {
             "operation": "development.settle",
             "slots": [("ending_id", "host-locked"), ("investigator", "host-locked"),
                       ("decision_id", "host-locked")],
-            "condition": {"op": "eq", "path": "subsystem.kind", "value": "development"},
+            "condition": {
+                "op": "eq", "path": "development.settlement.pending", "value": True,
+            },
+            "hard_gate": True,
             "effects": [("skill-improvement", None), ("luck-recovery", "luck"),
                         ("san-reward", "san")],
         },
@@ -284,25 +288,31 @@ def _add_executable_graph(
                 "phase": "resolve",
                 "payload_constants": {},
                 "payload_slots": [
-                    {"name": name, "ownership": ownership}
+                    {
+                        "name": name,
+                        "ownership": ownership,
+                        **({"optional": True} if name in spec.get("optional_slots", set()) else {}),
+                    }
                     for name, ownership in spec["slots"]
                 ],
             },
         )
         nodes.append(decision)
-        condition = _node(
-            family, "condition", f"{token}-applicable",
-            f"Applicability for {operation}", all_spans,
-            expression=spec["condition"],
-        )
-        nodes.append(condition)
-        relations.append({
-            "relation_id": f"relation:coc7:{family}:{token}:available-when",
-            "relation_kind": "available-when",
-            "from_node_id": decision["node_id"],
-            "to_node_id": condition["node_id"],
-            "evidence_span_ids": all_spans,
-        })
+        if spec.get("condition") is not None:
+            condition = _node(
+                family, "condition", f"{token}-applicable",
+                f"Applicability for {operation}", all_spans,
+                expression=spec["condition"],
+            )
+            condition["hard_gate"] = bool(spec.get("hard_gate", False))
+            nodes.append(condition)
+            relations.append({
+                "relation_id": f"relation:coc7:{family}:{token}:available-when",
+                "relation_kind": "available-when",
+                "from_node_id": decision["node_id"],
+                "to_node_id": condition["node_id"],
+                "evidence_span_ids": all_spans,
+            })
         capability_id = capability_ids[operation]
         relations.append({
             "relation_id": f"relation:coc7:{family}:{token}:invokes",
@@ -322,7 +332,7 @@ def _add_executable_graph(
                     family, "input-slot", name.replace('_', '-'),
                     f"Typed operation input {name}", all_spans,
                     ownership=ownership,
-                    value_type="semantic" if ownership in {"keeper-semantic", "player-source"} else "canonical",
+                    value_type="semantic" if ownership in {"keeper-semantic", "player-source", "optional-semantic"} else "canonical",
                     path=f"typed.{name}",
                 )
                 nodes.append(slot)

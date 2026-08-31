@@ -89,12 +89,44 @@ def test_development_source_review_is_complete_and_independent():
         "implementation"
     ]["kind"] == "development.settle"
     relations = candidate["relations"]
+    end_slots = {
+        row["name"]: row
+        for row in decisions["decision:coc7:development:end-session"]["properties"][
+            "implementation"
+        ]["payload_slots"]
+    }
+    assert end_slots["summary"] == {
+        "name": "summary", "ownership": "optional-semantic", "optional": True,
+    }
+    assert end_slots["kind"] == {
+        "name": "kind", "ownership": "optional-semantic", "optional": True,
+    }
+    assert end_slots["investigator"] == {
+        "name": "investigator", "ownership": "host-locked", "optional": True,
+    }
+    assert not any(
+        row["relation_kind"] == "available-when"
+        and row["from_node_id"] == "decision:coc7:development:end-session"
+        for row in relations
+    )
+    settle_condition_ref = next(
+        row["to_node_id"] for row in relations
+        if row["relation_kind"] == "available-when"
+        and row["from_node_id"] == "decision:coc7:development:settle-ending"
+    )
+    settle_condition = next(
+        row for row in candidate["nodes"] if row["node_id"] == settle_condition_ref
+    )
+    assert settle_condition["hard_gate"] is True
+    assert settle_condition["properties"]["expression"] == {
+        "op": "eq", "path": "development.settlement.pending", "value": True,
+    }
     for decision_id in decisions:
         kinds = {
             row["relation_kind"] for row in relations
             if row["from_node_id"] == decision_id
         }
-        assert {"available-when", "invokes", "emits", "locks-input"} <= kinds
+        assert {"invokes", "emits", "locks-input"} <= kinds
     _assert_executable_slots_are_runtime_consumable(candidate, "development")
 
 
