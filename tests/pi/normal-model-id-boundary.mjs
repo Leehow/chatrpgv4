@@ -321,6 +321,56 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
   }
 }
 
+// Magic receipts expose public spell/check semantics while runtime-generated
+// operation and scheduled-completion identities stay host-only.
+{
+  const cases = [
+    ["magic.cast", {
+      ok: true,
+      tool: "magic.cast",
+      data: {
+        receipt: {
+          kind: "magic.cast",
+          operation_id: "op-magic-cast-134364244112",
+          result: { spell: "Cloud Memory", success: true },
+        },
+      },
+    }],
+    ["magic.learn", {
+      ok: true,
+      tool: "magic.learn",
+      data: {
+        receipt: {
+          kind: "magic.learn",
+          operation_id: "op-magic-learn-134364244112",
+          result: {
+            spell: "Cloud Memory",
+            learned: true,
+            completion_trigger_id: "trigger-magic-learn-cloud-memory-1",
+          },
+        },
+      },
+    }],
+  ];
+  for (const [operation, envelope] of cases) {
+    const diagnostics = { unmapped: [] };
+    const projected = projectModelVisibleCanonicalResult(
+      operation,
+      envelope,
+      emptySemanticProjectionView(),
+      diagnostics,
+    );
+    assert.deepEqual(diagnostics.unmapped, [], `${operation} magic identity projection`);
+    assert.equal(projected.data.receipt.operation_id, undefined);
+    assert.equal(
+      projected.data.receipt.result.completion_trigger_id,
+      undefined,
+    );
+    assert.equal(projected.data.receipt.result.spell, "Cloud Memory");
+    assertModelSafeContent(`${operation} magic identity projection`, projected);
+  }
+}
+
 // R11 SAN output keeps player-facing numbers/events while routing every roll
 // identity through the existing semantic roll registry. Internal event,
 // command, bout, and decision ids remain host-only.

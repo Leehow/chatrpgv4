@@ -1518,9 +1518,9 @@ def test_delivery_replay_contract_projects_typed_keeper_context():
     server = _load_server()
     archive = archive_mod.load_and_validate(ARCHIVE_PATH, server.toolbox)
 
-    # module.context extends the canonical registry; replay itself adds no
-    # second operation beyond that current 145-operation surface.
-    assert archive["operation_count"] == 145
+    # module.context and the ruleset-bound magic pair extend the canonical
+    # registry; replay itself adds no additional operation.
+    assert archive["operation_count"] == 147
     assert "session.delivery_text" in archive["operations"]
     contract = archive["operations"]["session.delivery_text"]
 
