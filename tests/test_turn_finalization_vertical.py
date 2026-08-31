@@ -1046,37 +1046,28 @@ def test_pushed_failure_rejects_prose_time_and_flag_without_bound_effect(
             "decision_id": "flag-only",
         },
     )
-    call(
+    blocked = coc_toolbox.run_tool(
         "state.journal",
+        workspace,
+        "exceptional-missing",
         {"summary": "The attempt fumbled.", "player_text": "我孤注一掷地继续搜索。", "decision_id": "missing-effect-journal"},
     )
-    context = call("turn.output_context")["data"]
-    turn_id = context["turn_id"]
-    first_manifest_revision = context["manifest_revision"]
-    assert context["missing_substantive_effects"] == [{
+    assert blocked["ok"] is False, blocked
+    assert blocked["error"]["code"] == "substantive_exceptional_effect_required"
+    assert blocked["error"]["details"]["journal_committed"] is False
+    assert blocked["error"]["details"]["missing_substantive_effects"] == [{
         "obligation_id": f"roll:{pushed['data']['roll_id']}",
         "source_roll_id": pushed["data"]["roll_id"],
         "required_direction": "cost",
     }]
-    result = coc_toolbox.run_tool(
-        "turn.finalize",
-        workspace,
-        "exceptional-missing",
-        {"draft": "失败带来了麻烦。", "coverage": [], "mechanics_placements": [], "revision": 1, "decision_id": "must-fail"},
-    )
-    assert result["ok"] is False
-    assert result["error"]["code"] == "substantive_exceptional_effect_required"
-
-    # A poisoned turn is isolated: it cannot absorb a later journal, but the
-    # source-bound exceptional consequence may still repair this same turn.
-    blocked = coc_toolbox.run_tool(
+    retry = coc_toolbox.run_tool(
         "state.journal",
         workspace,
         "exceptional-missing",
         {"summary": "must not become another turn", "player_text": "我试图开始另一轮行动。", "decision_id": "blocked-journal"},
     )
-    assert blocked["ok"] is False
-    assert blocked["error"]["code"] == "turn_finalization_pending"
+    assert retry["ok"] is False
+    assert retry["error"]["code"] == "substantive_exceptional_effect_required"
 
     applied = call(
         "state.exceptional_effect",
@@ -1098,10 +1089,14 @@ def test_pushed_failure_rejects_prose_time_and_flag_without_bound_effect(
             "decision_id": "repair-pushed-failure",
         },
     )
+    call(
+        "state.journal",
+        {"summary": "The attempt fumbled.", "player_text": "我孤注一掷地继续搜索。", "decision_id": "missing-effect-journal"},
+    )
     repaired = call("turn.output_context")["data"]
-    assert repaired["turn_id"] == turn_id
-    assert repaired["manifest_revision"] > first_manifest_revision
-    assert repaired["repair_call_count"] == 1
+    turn_id = repaired["turn_id"]
+    assert repaired["manifest_revision"] >= 1
+    assert repaired["repair_call_count"] == 0
     assert repaired["missing_substantive_effects"] == []
 
     setup = "托马斯把补造的证人索引递到管理员面前。"
