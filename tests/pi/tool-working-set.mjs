@@ -678,3 +678,32 @@ test("graph healing cards activate the single rules.settle operation", () => {
   const baseline = workingSet.projectToolWorkingSet(snapshot());
   assert.equal(projected.activeToolNames.length, baseline.activeToolNames.length + 1);
 });
+
+test("pending authored SAN trigger activates the flat authoritative surface", () => {
+  assert.deepEqual(
+    workingSet.affordancesFromSanityTriggerProjection({
+      pending_san_triggers: [{
+        trigger_id: "see-corbitt-body",
+        status: "resolved",
+      }],
+    }),
+    [],
+  );
+  const hints = workingSet.affordancesFromSanityTriggerProjection({
+    pending_san_triggers: [{
+      trigger_id: "see-corbitt-body",
+      source: "seeing Walter Corbitt's animated corpse",
+      san_loss_success: 1,
+      san_loss_fail_expr: "1D8",
+      status: "pending",
+    }],
+  });
+  assert.deepEqual(hints, [{ operation: "rules.sanity_check", source: "scene" }]);
+
+  const source = snapshot({ affordances: { operations: hints } });
+  const projected = workingSet.projectToolWorkingSet(source);
+  assert.equal(projected.ok, true, projected.error?.message);
+  assert.ok(projected.activeOperationNames.includes("rules.sanity_check"));
+  assert.ok(!projected.activeOperationNames.includes("sanity.execute"));
+  assert.ok(projected.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET);
+});

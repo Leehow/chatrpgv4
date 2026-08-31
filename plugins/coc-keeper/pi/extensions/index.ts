@@ -236,6 +236,7 @@ import {
 import type { SemanticIdentityHandleResolver } from "../lib/tool-contract-projection.ts";
 import {
   affordancesFromHealingCardProjection,
+  affordancesFromSanityTriggerProjection,
   loadToolNamespace,
   projectToolWorkingSet,
   type LoadedExactOperation,
@@ -4787,6 +4788,55 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       canonicalProgress.playerTurnEpoch
     }:revision-${revision}`
   );
+  const bindSanityHostArguments = (
+    operation: string,
+    modelArguments: JsonObject,
+  ): JsonObject => {
+    if (operation === "rules.sanity_check") {
+      const triggerId = typeof modelArguments.trigger_id === "string"
+        && modelArguments.trigger_id.trim()
+        ? modelArguments.trigger_id.trim()
+        : "sanity-check";
+      return {
+        ...modelArguments,
+        decision_id: semanticDecisionId(`rules.sanity_check:${triggerId}`),
+      };
+    }
+    if (operation !== "sanity.execute") return modelArguments;
+    const command = objectOrNull(modelArguments.command) ?? {};
+    const payload = objectOrNull(command.payload) ?? {};
+    const kind = typeof command.kind === "string" && command.kind.trim()
+      ? command.kind.trim()
+      : "sanity_check";
+    const semanticScope = (
+      typeof payload.trigger_id === "string" && payload.trigger_id.trim()
+        ? payload.trigger_id.trim()
+        : typeof payload.choice_id === "string" && payload.choice_id.trim()
+          ? payload.choice_id.trim()
+          : kind
+    );
+    const decisionId = semanticDecisionId(
+      `sanity.execute:${kind}:${semanticScope}`,
+    );
+    return {
+      ...modelArguments,
+      decision_id: decisionId,
+      command: {
+        command_id: decisionId,
+        kind,
+        phase: "resolve",
+        payload: {
+          ...payload,
+          decision_id: decisionId,
+          ...(
+            kind === "bout_tick" || kind === "bout_end"
+              ? { terminal_command_ids: [decisionId] }
+              : {}
+          ),
+        },
+      },
+    };
+  };
   const operationCardRevision = (
     value: unknown,
     operation: string,
@@ -6496,7 +6546,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         projection: data,
       };
       retainedSceneAffordanceOperations = [
-        ...new Set(explicitAffordanceOperations),
+        ...new Set([
+          ...explicitAffordanceOperations,
+          ...affordancesFromSanityTriggerProjection(data).map(
+            (affordance) => affordance.operation,
+          ),
+        ]),
       ].sort();
       armTypedBinding(sceneMoveCardFromFacts(facts), () => {
         const current = currentSceneBindingFacts;
@@ -9318,6 +9373,40 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         // investigator handles are ignored before validation/restoration.
         params = {};
       }
+      const rawTypedCommand = objectOrNull(params.command);
+      const rawTypedPayload = objectOrNull(rawTypedCommand?.payload);
+      if (
+        typedDefinition.operation === "sanity.execute"
+        && (
+          Object.hasOwn(params, "decision_id")
+          || Object.hasOwn(rawTypedCommand ?? {}, "command_id")
+          || Object.hasOwn(rawTypedCommand ?? {}, "phase")
+          || Object.hasOwn(rawTypedPayload ?? {}, "decision_id")
+          || Object.hasOwn(rawTypedPayload ?? {}, "terminal_command_ids")
+        )
+      ) {
+        return hostFailureResult(hostBindingFailure(
+          typedDefinition.operation,
+          new ToolContractProjectionError(
+            "forged_host_argument",
+            "sanity.execute command identity is host-owned",
+            { operation: typedDefinition.operation },
+          ),
+        ));
+      }
+      if (
+        typedDefinition.operation === "rules.sanity_check"
+        && Object.hasOwn(params, "decision_id")
+      ) {
+        return hostFailureResult(hostBindingFailure(
+          typedDefinition.operation,
+          new ToolContractProjectionError(
+            "forged_host_argument",
+            "rules.sanity_check decision_id is host-owned",
+            { operation: typedDefinition.operation, fields: ["decision_id"] },
+          ),
+        ));
+      }
       // Raw model-identity validation runs BEFORE any host injection or
       // restoration: host-attached identity reaches arguments only after
       // this gate, by provenance. Model-authored `pi-*` values are always
@@ -9335,6 +9424,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           warnings: [],
           hints: [],
         });
+      }
+      if (
+        typedDefinition.operation === "rules.sanity_check"
+        || typedDefinition.operation === "sanity.execute"
+      ) {
+        params = bindSanityHostArguments(typedDefinition.operation, params);
       }
       if (
         typedDefinition.operation === "session.resume"
@@ -9879,6 +9974,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             ...hostBoundAfterRestore,
           },
         };
+        if (
+          typedDefinition === undefined
+          && (
+            restoredOperation === "rules.sanity_check"
+            || restoredOperation === "sanity.execute"
+          )
+        ) {
+          params = {
+            ...params,
+            arguments: bindSanityHostArguments(
+              restoredOperation,
+              objectOrNull(params.arguments) ?? {},
+            ),
+          };
+        }
       }
     }
     params = openingContinuationGate.bindHandoutReplayRequest(params);

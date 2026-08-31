@@ -1665,6 +1665,90 @@ assertModelSafeContent(
   "evidence.table_opening content",
   JSON.parse(modelContents.at(-1).text),
 );
+// SAN typed tools expose only semantic cause/loss/trigger data. Host-owned
+// idempotency and subsystem command identity never reach the model schema.
+{
+  const flatTool = tools.get("coc_rules_sanity_check");
+  assert.equal(
+    Object.hasOwn(flatTool.parameters.properties, "decision_id"),
+    false,
+  );
+  routeOperation("rules.sanity_check", {
+    ok: true,
+    tool: "rules.sanity_check",
+    data: { san_loss: 1 },
+  });
+  await executeTool("coc_rules_sanity_check", {
+    campaign,
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    source: "目睹床自行移动",
+    trigger_id: "bed-moves",
+    loss_success: "1",
+    loss_failure: "1D4",
+  });
+  const flatCall = clientCalls.filter((call) => (
+    call.operation === "rules.sanity_check"
+  )).at(-1);
+  assert.match(flatCall.arguments.decision_id, /^pi-rules-sanity_check:bed-moves:/);
+
+  const sanityTool = tools.get("coc_sanity_execute");
+  assert.equal(
+    Object.hasOwn(sanityTool.parameters.properties, "decision_id"),
+    false,
+  );
+  const sanityCommand = sanityTool.parameters.properties.command;
+  assert.ok(Array.isArray(sanityCommand.oneOf));
+  const checkBranch = sanityCommand.oneOf.find((branch) => (
+    branch.properties?.payload?.properties?.san_loss_fail_expr
+  ));
+  assert.ok(checkBranch);
+  assert.equal(Object.hasOwn(checkBranch.properties, "command_id"), false);
+  assert.equal(Object.hasOwn(checkBranch.properties, "phase"), false);
+  assert.equal(Object.hasOwn(checkBranch.properties, "kind"), false);
+  assert.equal(
+    Object.hasOwn(checkBranch.properties.payload.properties, "decision_id"),
+    false,
+  );
+
+  routeOperation("sanity.execute", {
+    ok: true,
+    tool: "sanity.execute",
+    data: {
+      schema_version: 1,
+      authority: "deterministic_subsystem",
+      results: [],
+    },
+  });
+  await executeTool("coc_sanity_execute", {
+    campaign,
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    command: {
+      payload: {
+        source: "目睹床自行移动",
+        trigger_id: "bed-moves",
+        san_loss_success: 1,
+        san_loss_fail_expr: "1D4",
+      },
+    },
+  });
+  const sanityCall = clientCalls.filter((call) => (
+    call.operation === "sanity.execute"
+  )).at(-1);
+  assert.match(
+    sanityCall.arguments.decision_id,
+    /^pi-sanity-execute:sanity_check:bed-moves:/,
+  );
+  assert.equal(
+    sanityCall.arguments.command.command_id,
+    sanityCall.arguments.decision_id,
+  );
+  assert.equal(sanityCall.arguments.command.kind, "sanity_check");
+  assert.equal(sanityCall.arguments.command.phase, "resolve");
+  assert.equal(
+    sanityCall.arguments.command.payload.decision_id,
+    sanityCall.arguments.decision_id,
+  );
+}
 
 // 2c) Canonical mutation success must survive the model projection. These
 // fields already belong to the closed semantic grammar; an incomplete
