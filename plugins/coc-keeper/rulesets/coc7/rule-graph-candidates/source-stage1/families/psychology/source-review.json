@@ -1,0 +1,65 @@
+{
+  "contract_id": "coc.rule-family-source-review.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "family_id": "psychology",
+  "reviewer_identity": "codex-worker-psychology-source-review-20260831",
+  "review_status": "accepted",
+  "source": {
+    "source_id": "pdf:coc7-keeper-rulebook-40th",
+    "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+    "bundle_sha256": "df4cceb1c29cdc530a43ef8b51122d85c20be2fb43a7fcfd0bbb6191ae1f1ae0",
+    "pdf_indices": [
+      83,
+      84,
+      215
+    ]
+  },
+  "accepted_shard_id": "shard:coc7:psychology:section-psychology-complete-source",
+  "accepted_shard_digest": "6499014cfac0a26f1eaaa308fb80c38521e4df0355398d40e0731b241d28f527",
+  "coverage": "accepted",
+  "unresolved_applicable_rules": [],
+  "applicability_ledger": [
+    {
+      "rule_id": "rule:coc7:psychology:base-chance-ten",
+      "status": "accepted",
+      "source_group": "skill"
+    },
+    {
+      "rule_id": "rule:coc7:psychology:study-motives-character",
+      "status": "accepted",
+      "source_group": "skill"
+    },
+    {
+      "rule_id": "rule:coc7:psychology:concealed-keeper-roll",
+      "status": "accepted",
+      "source_group": "concealed"
+    },
+    {
+      "rule_id": "rule:coc7:psychology:social-opposition",
+      "status": "accepted",
+      "source_group": "opposition"
+    },
+    {
+      "rule_id": "rule:coc7:psychology:social-difficulty-bands",
+      "status": "accepted",
+      "source_group": "difficulty"
+    },
+    {
+      "rule_id": "rule:coc7:psychology:disguise-opposition",
+      "status": "accepted",
+      "source_group": "disguise"
+    },
+    {
+      "rule_id": "rule:coc7:psychology:success-reveals-truth",
+      "status": "accepted",
+      "source_group": "truth"
+    },
+    {
+      "rule_id": "rule:coc7:psychology:failure-reliability-unknown",
+      "status": "accepted",
+      "source_group": "uncertain"
+    }
+  ],
+  "runtime_integration_blockers": []
+}

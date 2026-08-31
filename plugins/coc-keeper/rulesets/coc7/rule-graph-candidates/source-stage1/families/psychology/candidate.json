@@ -1,0 +1,400 @@
+{
+  "contract_id": "coc.rule-graph-candidate.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "family_id": "psychology",
+  "section_id": "section-psychology-complete-source",
+  "source_language": "en",
+  "coverage": {
+    "psychology": "accepted"
+  },
+  "nodes": [
+    {
+      "node_id": "capability:coc7:psychology-runtime",
+      "node_kind": "capability",
+      "name": "Legacy psychology runtime capability",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "psychology",
+        "resolver_capability": "psychology_runtime",
+        "adapter": "subsystem"
+      },
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-215-block-56",
+        "span-psychology-complete-source-page-83-block-21",
+        "span-psychology-complete-source-page-83-block-22",
+        "span-psychology-complete-source-page-84-block-24",
+        "span-psychology-complete-source-page-84-block-25",
+        "span-psychology-complete-source-page-84-block-26"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:psychology:resolve",
+      "node_kind": "decision",
+      "name": "Resolve one source-governed psychology action",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "psychology"
+      },
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-215-block-56",
+        "span-psychology-complete-source-page-83-block-21",
+        "span-psychology-complete-source-page-83-block-22",
+        "span-psychology-complete-source-page-84-block-24",
+        "span-psychology-complete-source-page-84-block-25",
+        "span-psychology-complete-source-page-84-block-26"
+      ]
+    },
+    {
+      "node_id": "rule-family:coc7:psychology",
+      "node_kind": "rule-family",
+      "name": "Complete source-reviewed psychology family",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "psychology",
+        "runtime_ownership": "legacy",
+        "legacy_surface": "visible"
+      },
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-215-block-56",
+        "span-psychology-complete-source-page-83-block-21",
+        "span-psychology-complete-source-page-83-block-22",
+        "span-psychology-complete-source-page-84-block-24",
+        "span-psychology-complete-source-page-84-block-25",
+        "span-psychology-complete-source-page-84-block-26"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:psychology:base-chance-ten",
+      "node_kind": "rule",
+      "name": "Psychology has a base chance of ten percent",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "psychology"
+      },
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-83-block-21",
+        "span-psychology-complete-source-page-83-block-22"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:psychology:concealed-keeper-roll",
+      "node_kind": "rule",
+      "name": "The Keeper may roll Psychology concealed and announce only gained information",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "psychology"
+      },
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-83-block-22"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:psychology:disguise-opposition",
+      "node_kind": "rule",
+      "name": "Psychology can oppose Disguise",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "psychology"
+      },
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-84-block-24"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:psychology:failure-reliability-unknown",
+      "node_kind": "rule",
+      "name": "After failure information may be true or false and its reliability stays unknown",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "psychology"
+      },
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-215-block-56"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:psychology:social-difficulty-bands",
+      "node_kind": "rule",
+      "name": "Opposing social skill below 50 is Regular and 50 through 89 is Hard",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "psychology"
+      },
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-84-block-25",
+        "span-psychology-complete-source-page-84-block-26"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:psychology:social-opposition",
+      "node_kind": "rule",
+      "name": "Psychology opposes Charm, Fast Talk, Intimidate, and Persuade",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "psychology"
+      },
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-84-block-24"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:psychology:study-motives-character",
+      "node_kind": "rule",
+      "name": "Psychology studies a person to infer motives and character",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "psychology"
+      },
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-83-block-21",
+        "span-psychology-complete-source-page-83-block-22"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:psychology:success-reveals-truth",
+      "node_kind": "rule",
+      "name": "A successful Psychology roll reveals the truth",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "psychology"
+      },
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-215-block-56"
+      ]
+    },
+    {
+      "node_id": "subsystem:coc7:psychology",
+      "node_kind": "subsystem",
+      "name": "Canonical psychology subsystem",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "subsystem_kind": "psychology"
+      },
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-215-block-56",
+        "span-psychology-complete-source-page-83-block-21",
+        "span-psychology-complete-source-page-83-block-22",
+        "span-psychology-complete-source-page-84-block-24",
+        "span-psychology-complete-source-page-84-block-25",
+        "span-psychology-complete-source-page-84-block-26"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "relation:coc7:psychology:base-chance-ten-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:psychology:base-chance-ten",
+      "to_node_id": "decision:coc7:psychology:resolve",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-83-block-21",
+        "span-psychology-complete-source-page-83-block-22"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:base-chance-ten-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:psychology:base-chance-ten",
+      "to_node_id": "rule-family:coc7:psychology",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-83-block-21",
+        "span-psychology-complete-source-page-83-block-22"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:concealed-keeper-roll-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:psychology:concealed-keeper-roll",
+      "to_node_id": "decision:coc7:psychology:resolve",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-83-block-22"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:concealed-keeper-roll-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:psychology:concealed-keeper-roll",
+      "to_node_id": "rule-family:coc7:psychology",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-83-block-22"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:decision-invokes-runtime",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:psychology:resolve",
+      "to_node_id": "capability:coc7:psychology-runtime",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-215-block-56",
+        "span-psychology-complete-source-page-83-block-21",
+        "span-psychology-complete-source-page-83-block-22",
+        "span-psychology-complete-source-page-84-block-24",
+        "span-psychology-complete-source-page-84-block-25",
+        "span-psychology-complete-source-page-84-block-26"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:disguise-opposition-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:psychology:disguise-opposition",
+      "to_node_id": "decision:coc7:psychology:resolve",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-84-block-24"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:disguise-opposition-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:psychology:disguise-opposition",
+      "to_node_id": "rule-family:coc7:psychology",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-84-block-24"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:failure-reliability-unknown-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:psychology:failure-reliability-unknown",
+      "to_node_id": "decision:coc7:psychology:resolve",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-215-block-56"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:failure-reliability-unknown-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:psychology:failure-reliability-unknown",
+      "to_node_id": "rule-family:coc7:psychology",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-215-block-56"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:runtime-implemented-by-subsystem",
+      "relation_kind": "implemented-by",
+      "from_node_id": "capability:coc7:psychology-runtime",
+      "to_node_id": "subsystem:coc7:psychology",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-215-block-56",
+        "span-psychology-complete-source-page-83-block-21",
+        "span-psychology-complete-source-page-83-block-22",
+        "span-psychology-complete-source-page-84-block-24",
+        "span-psychology-complete-source-page-84-block-25",
+        "span-psychology-complete-source-page-84-block-26"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:social-difficulty-bands-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:psychology:social-difficulty-bands",
+      "to_node_id": "decision:coc7:psychology:resolve",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-84-block-25",
+        "span-psychology-complete-source-page-84-block-26"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:social-difficulty-bands-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:psychology:social-difficulty-bands",
+      "to_node_id": "rule-family:coc7:psychology",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-84-block-25",
+        "span-psychology-complete-source-page-84-block-26"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:social-opposition-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:psychology:social-opposition",
+      "to_node_id": "decision:coc7:psychology:resolve",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-84-block-24"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:social-opposition-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:psychology:social-opposition",
+      "to_node_id": "rule-family:coc7:psychology",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-84-block-24"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:study-motives-character-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:psychology:study-motives-character",
+      "to_node_id": "decision:coc7:psychology:resolve",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-83-block-21",
+        "span-psychology-complete-source-page-83-block-22"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:study-motives-character-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:psychology:study-motives-character",
+      "to_node_id": "rule-family:coc7:psychology",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-83-block-21",
+        "span-psychology-complete-source-page-83-block-22"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:success-reveals-truth-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:psychology:success-reveals-truth",
+      "to_node_id": "decision:coc7:psychology:resolve",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-215-block-56"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:psychology:success-reveals-truth-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:psychology:success-reveals-truth",
+      "to_node_id": "rule-family:coc7:psychology",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-215-block-56"
+      ]
+    }
+  ]
+}
