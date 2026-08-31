@@ -30,11 +30,11 @@
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "3261a8dfe641f85cf16638d1b6e87ec68b09436d00e61967f6d82f99b00bc488",
+  "graph_content_digest": "1f5b425f6424118c6245c2353f5b1ca59d8c8032136bb2fddd72188449c3ee80",
   "shards": [
     {
       "shard_id": "shard:coc7:chase:section-chase-complete-source",
-      "shard_digest": "785e28c88568242f94a3f19ed55cab4dc213f750cc85896da59a1a64e00cf7ce"
+      "shard_digest": "7c4db176f95005c7ea34648def8168dfcb6e4a1e9feb98698bd7e3eda787d1af"
     },
     {
       "shard_id": "shard:coc7:combat:section-combat-complete-source",
@@ -46,7 +46,7 @@
     },
     {
       "shard_id": "shard:coc7:development:section-development-phase-source",
-      "shard_digest": "ada0e9992bf224cdc03254e2073f399fd4eb8dc4ce2b5d6a851c5d7176a1cc1d"
+      "shard_digest": "fff9c8bc9c400a24278c1a0b53a4870955a77e09c5190aa9851d30a722ffa16b"
     },
     {
       "shard_id": "shard:coc7:healing:section-wounds-and-healing",
@@ -54,7 +54,7 @@
     },
     {
       "shard_id": "shard:coc7:magic:section-magic-source-and-runtime-gaps",
-      "shard_digest": "325d75653fcf2af2bf6766f57dd8254d16753a722e010a3d2aae730296560834"
+      "shard_digest": "ea328ea3e3fd260e35c0012c8094c591673177b20ff010464d1c6397491cbd7f"
     },
     {
       "shard_id": "shard:coc7:psychology:section-psychology-complete-source",
@@ -119,8 +119,8 @@
       "runtime_ownership": "graph"
     },
     "sanity": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "social": {
       "promotion_eligible": true,

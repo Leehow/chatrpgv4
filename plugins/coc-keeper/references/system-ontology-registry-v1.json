@@ -189,12 +189,68 @@
       "locator": "campaign.ruleset_id"
     },
     {
+      "ref_id": "ref:live-state:chase-conflict-receipt-ready",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:chase-conflict-receipt-ready",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "chase.conflict.receipt-ready"
+    },
+    {
+      "ref_id": "ref:live-state:chase-pending-kind",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:chase-pending-kind",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "chase.pending.kind"
+    },
+    {
+      "ref_id": "ref:live-state:chase-session-active",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:chase-session-active",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "chase.session.active"
+    },
+    {
+      "ref_id": "ref:live-state:chase-session-inactive",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:chase-session-inactive",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "chase.session.inactive"
+    },
+    {
+      "ref_id": "ref:live-state:development-settlement-pending",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:development-settlement-pending",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "development.settlement.pending"
+    },
+    {
       "ref_id": "ref:live-state:intent-pushed",
       "graph_id": "graph:live-state:campaign",
       "semantic_id": "fact:live-state:intent-pushed",
       "reference_kind": "registered-condition-path",
       "node_kind": "live-state-fact",
       "locator": "intent.pushed"
+    },
+    {
+      "ref_id": "ref:live-state:magic-learn-source-available",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:magic-learn-source-available",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "magic.learn.source-available"
+    },
+    {
+      "ref_id": "ref:live-state:magic-spell-known",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:magic-spell-known",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "magic.spell.known"
     },
     {
       "ref_id": "ref:live-state:major-wound-week-due",
@@ -259,14 +315,6 @@
       "reference_kind": "registered-condition-path",
       "node_kind": "live-state-fact",
       "locator": "sanity.treatment.due"
-    },
-    {
-      "ref_id": "ref:live-state:subsystem-kind",
-      "graph_id": "graph:live-state:campaign",
-      "semantic_id": "fact:live-state:subsystem-kind",
-      "reference_kind": "registered-condition-path",
-      "node_kind": "live-state-fact",
-      "locator": "subsystem.kind"
     },
     {
       "ref_id": "ref:live-state:time-minutes-since-injury",
@@ -888,10 +936,16 @@
   ],
   "relations": [
     {
-      "relation_id": "relation:system:relation-coc7-chase-barrier-available-when:requires:subsystem-kind",
+      "relation_id": "relation:system:relation-coc7-chase-barrier-available-when:requires:chase-pending-kind",
       "relation_kind": "requires-live-state-fact",
       "from_ref": "ref:rule:coc7:decision-coc7-chase-barrier",
-      "to_ref": "ref:live-state:subsystem-kind"
+      "to_ref": "ref:live-state:chase-pending-kind"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-barrier-available-when:requires:chase-session-active",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-barrier",
+      "to_ref": "ref:live-state:chase-session-active"
     },
     {
       "relation_id": "relation:system:relation-coc7-chase-barrier-emits-barrier-resolved",
@@ -900,10 +954,22 @@
       "to_ref": "ref:rule:coc7:effect-coc7-chase-barrier-barrier-resolved"
     },
     {
-      "relation_id": "relation:system:relation-coc7-chase-conflict-available-when:requires:subsystem-kind",
+      "relation_id": "relation:system:relation-coc7-chase-conflict-available-when:requires:chase-conflict-receipt-ready",
       "relation_kind": "requires-live-state-fact",
       "from_ref": "ref:rule:coc7:decision-coc7-chase-conflict",
-      "to_ref": "ref:live-state:subsystem-kind"
+      "to_ref": "ref:live-state:chase-conflict-receipt-ready"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-conflict-available-when:requires:chase-pending-kind",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-conflict",
+      "to_ref": "ref:live-state:chase-pending-kind"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-conflict-available-when:requires:chase-session-active",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-conflict",
+      "to_ref": "ref:live-state:chase-session-active"
     },
     {
       "relation_id": "relation:system:relation-coc7-chase-conflict-emits-conflict-resolved",
@@ -912,10 +978,16 @@
       "to_ref": "ref:rule:coc7:effect-coc7-chase-conflict-conflict-resolved"
     },
     {
-      "relation_id": "relation:system:relation-coc7-chase-end-available-when:requires:subsystem-kind",
+      "relation_id": "relation:system:relation-coc7-chase-end-available-when:requires:chase-pending-kind",
       "relation_kind": "requires-live-state-fact",
       "from_ref": "ref:rule:coc7:decision-coc7-chase-end",
-      "to_ref": "ref:live-state:subsystem-kind"
+      "to_ref": "ref:live-state:chase-pending-kind"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-end-available-when:requires:chase-session-active",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-end",
+      "to_ref": "ref:live-state:chase-session-active"
     },
     {
       "relation_id": "relation:system:relation-coc7-chase-end-emits-chase-ended",
@@ -924,10 +996,16 @@
       "to_ref": "ref:rule:coc7:effect-coc7-chase-end-chase-ended"
     },
     {
-      "relation_id": "relation:system:relation-coc7-chase-hazard-available-when:requires:subsystem-kind",
+      "relation_id": "relation:system:relation-coc7-chase-hazard-available-when:requires:chase-pending-kind",
       "relation_kind": "requires-live-state-fact",
       "from_ref": "ref:rule:coc7:decision-coc7-chase-hazard",
-      "to_ref": "ref:live-state:subsystem-kind"
+      "to_ref": "ref:live-state:chase-pending-kind"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-hazard-available-when:requires:chase-session-active",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-hazard",
+      "to_ref": "ref:live-state:chase-session-active"
     },
     {
       "relation_id": "relation:system:relation-coc7-chase-hazard-emits-hazard-resolved",
@@ -936,10 +1014,16 @@
       "to_ref": "ref:rule:coc7:effect-coc7-chase-hazard-hazard-resolved"
     },
     {
-      "relation_id": "relation:system:relation-coc7-chase-move-available-when:requires:subsystem-kind",
+      "relation_id": "relation:system:relation-coc7-chase-move-available-when:requires:chase-pending-kind",
       "relation_kind": "requires-live-state-fact",
       "from_ref": "ref:rule:coc7:decision-coc7-chase-move",
-      "to_ref": "ref:live-state:subsystem-kind"
+      "to_ref": "ref:live-state:chase-pending-kind"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-move-available-when:requires:chase-session-active",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-move",
+      "to_ref": "ref:live-state:chase-session-active"
     },
     {
       "relation_id": "relation:system:relation-coc7-chase-move-emits-position-changed",
@@ -948,10 +1032,10 @@
       "to_ref": "ref:rule:coc7:effect-coc7-chase-move-position-changed"
     },
     {
-      "relation_id": "relation:system:relation-coc7-chase-start-available-when:requires:subsystem-kind",
+      "relation_id": "relation:system:relation-coc7-chase-start-available-when:requires:chase-session-inactive",
       "relation_kind": "requires-live-state-fact",
       "from_ref": "ref:rule:coc7:decision-coc7-chase-start",
-      "to_ref": "ref:live-state:subsystem-kind"
+      "to_ref": "ref:live-state:chase-session-inactive"
     },
     {
       "relation_id": "relation:system:relation-coc7-chase-start-emits-chase-started",
@@ -1014,12 +1098,6 @@
       "to_ref": "ref:execution:coc7:check"
     },
     {
-      "relation_id": "relation:system:relation-coc7-development-end-session-available-when:requires:campaign-ruleset-id",
-      "relation_kind": "requires-live-state-fact",
-      "from_ref": "ref:rule:coc7:decision-coc7-development-end-session",
-      "to_ref": "ref:live-state:campaign-ruleset-id"
-    },
-    {
       "relation_id": "relation:system:relation-coc7-development-end-session-emits-development-settled",
       "relation_kind": "may-emit-effect",
       "from_ref": "ref:rule:coc7:decision-coc7-development-end-session",
@@ -1032,10 +1110,10 @@
       "to_ref": "ref:rule:coc7:effect-coc7-development-end-session-ending-recorded"
     },
     {
-      "relation_id": "relation:system:relation-coc7-development-settle-ending-available-when:requires:subsystem-kind",
+      "relation_id": "relation:system:relation-coc7-development-settle-ending-available-when:requires:development-settlement-pending",
       "relation_kind": "requires-live-state-fact",
       "from_ref": "ref:rule:coc7:decision-coc7-development-settle-ending",
-      "to_ref": "ref:live-state:subsystem-kind"
+      "to_ref": "ref:live-state:development-settlement-pending"
     },
     {
       "relation_id": "relation:system:relation-coc7-development-settle-ending-emits-luck-recovery",
@@ -1230,10 +1308,10 @@
       "to_ref": "ref:execution:coc7:weekly-recovery"
     },
     {
-      "relation_id": "relation:system:relation-coc7-magic-cast-spell-available-when:requires:campaign-ruleset-id",
+      "relation_id": "relation:system:relation-coc7-magic-cast-spell-available-when:requires:magic-spell-known",
       "relation_kind": "requires-live-state-fact",
       "from_ref": "ref:rule:coc7:decision-coc7-magic-cast-spell",
-      "to_ref": "ref:live-state:campaign-ruleset-id"
+      "to_ref": "ref:live-state:magic-spell-known"
     },
     {
       "relation_id": "relation:system:relation-coc7-magic-cast-spell-emits-hp-overspill",
@@ -1260,10 +1338,10 @@
       "to_ref": "ref:rule:coc7:effect-coc7-magic-cast-spell-spell-cast"
     },
     {
-      "relation_id": "relation:system:relation-coc7-magic-learn-spell-available-when:requires:campaign-ruleset-id",
+      "relation_id": "relation:system:relation-coc7-magic-learn-spell-available-when:requires:magic-learn-source-available",
       "relation_kind": "requires-live-state-fact",
       "from_ref": "ref:rule:coc7:decision-coc7-magic-learn-spell",
-      "to_ref": "ref:live-state:campaign-ruleset-id"
+      "to_ref": "ref:live-state:magic-learn-source-available"
     },
     {
       "relation_id": "relation:system:relation-coc7-magic-learn-spell-emits-entity-san-cost",
