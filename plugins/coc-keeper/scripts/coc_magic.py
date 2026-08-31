@@ -11,15 +11,14 @@ Rulebook basis (7e 40th Anniversary, Chapter 9 pp.176-179):
 - First cast by an investigator: Hard POW roll (spells.json -> casting).
 - NPC / monster caster: auto-success (no roll).
 - Subsequent casts by the same investigator: auto-success (no roll).
-- Pushed cast: MP cost multiplied by 1D6, overspill to HP 1-for-1.
-  On a *failed* pushed cast the spell does not work: SAN cost is also
-  multiplied by 1D6 and a 1D8 side-effect is rolled on the minor/major
+- Failed pushed cast: spell works, all costs are multiplied by 1D6,
+  overspill goes to HP 1-for-1, and a 1D8 side-effect is rolled on the minor/major
   table (Keeper Rulebook pp.178-179). Tier selection uses a structured
   ``push_tier`` / ``power_tier`` field on the spell when present; otherwise
   ``resolved mp_cost >= 10`` selects the major table (heuristic documented
   here because spells.json has no per-spell tier field).
-- Interrupted cast: spell auto-fails, committed base MP is lost, no
-  side-effect table and no SAN multiplier.
+- Interrupted cast: spell auto-fails, committed base MP and SAN are lost, and
+  there is no pushed side-effect table or multiplier.
 - Learning a spell: Hard INT roll (pushable). From a tome takes 2D6 weeks;
   from a person takes 1D8 days; from an entity uses a SAN floor
   (``from_entity_min_sanity_cost``, default 1D6) with no study delay.
@@ -79,6 +78,8 @@ def casting_rules() -> dict[str, Any]:
         "mp_overspill_to_hp_one_for_one": True,
         "subsequent_casts_no_roll": True,
         "npcs_no_casting_roll": True,
+        "failed_pushed_cast_works": True,
+        "disrupted_cast_pays_mp_and_sanity": True,
     }
 
 
@@ -90,6 +91,7 @@ def learning_rules() -> dict[str, Any]:
         "from_tome_weeks": "2D6",
         "from_person_days": "1D8",
         "from_entity_min_sanity_cost": "1D6",
+        "from_entity_roll": "Regular INT",
     }
 
 
@@ -270,11 +272,11 @@ def cast_spell(
             this function will deduct + record overspill inline.
         is_first_cast: True the first time this investigator casts this spell.
         is_npc: True when an NPC/monster is casting (auto-success, no roll).
-        pushed: True when the caster pushes the cast (MP cost x1D6). A failed
-            pushed cast also multiplies SAN by 1D6 and rolls a side-effect.
+        pushed: True when the caster pushes the cast. A failed pushed cast
+            still works, multiplies all costs by 1D6, and rolls a side-effect.
         interrupted: True when casting is interrupted mid-ritual — the spell
-            auto-fails, committed base MP is lost, no side-effect table and
-            no SAN multiplier (p.178).
+            auto-fails, committed base MP and SAN are lost, and no pushed
+            side-effect table or multiplier applies (p.179).
         rng: deterministic RNG (tests pass a seeded Random).
         mp_pool: optional coc_mp.MPool to debit. When None, MP/HP are adjusted
             against caster_state in place.
@@ -302,6 +304,8 @@ def cast_spell(
             casting=casting,
             mp_pool=mp_pool,
         )
+        san_lost = _resolve_sanity_cost(san_cost_expr, rng)
+        _apply_san_loss(caster_state, san_lost)
         return {
             "spell": spell_name,
             "success": False,
@@ -312,7 +316,7 @@ def cast_spell(
             "roll_result": None,
             "mp_spent": base_mp,
             "hp_damage": hp_damage,
-            "san_lost": 0,
+            "san_lost": san_lost,
             "pow_spent": 0,
             "base_mp_cost": base_mp,
             "side_effect": None,
@@ -352,7 +356,8 @@ def cast_spell(
     base_mp = _resolve_mp_cost(mp_cost_expr, rng)
     mp_spent = base_mp
     push_multiplier = 1
-    if pushed:
+    pushed_failed = pushed and not success
+    if pushed_failed:
         push_multiplier = max(
             1, _roll_dice(str(casting.get("push_mp_multiplier", "1D6")), rng)
         )
@@ -371,18 +376,17 @@ def cast_spell(
     pow_spent = 0
     side_effect: dict[str, Any] | None = None
 
-    if success:
-        san_lost = _resolve_sanity_cost(san_cost_expr, rng)
+    if success or pushed_failed:
+        san_lost = _resolve_sanity_cost(san_cost_expr, rng) * push_multiplier
         _apply_san_loss(caster_state, san_lost)
-        pow_spent = _resolve_pow_cost(spell, rng)
+        pow_spent = _resolve_pow_cost(spell, rng) * push_multiplier
         _apply_pow_cost(caster_state, pow_spent)
-    elif pushed:
-        # Failed pushed cast (pp.178-179): SAN ×1D6 + 1D8 side-effect table.
-        base_san = _resolve_sanity_cost(san_cost_expr, rng)
-        san_lost = base_san * push_multiplier
-        _apply_san_loss(caster_state, san_lost)
+    if pushed_failed:
+        # Source p.178: failed pushed casting still works, with multiplied
+        # costs and a minor/major 1D8 consequence.
         tier = _push_tier_for_spell(spell, base_mp)
         side_effect = _roll_push_side_effect(tier, rng)
+        success = True
 
     return {
         "spell": spell_name,
@@ -448,9 +452,8 @@ def learn_spell(
     spell = coc_rules.spell_by_name(spell_name)
 
     int_value = int(learner_state.get("int", 0))
-    roll_result = coc_roll.percentile_check(
-        int_value, difficulty="hard", rng=rng
-    )
+    difficulty = "regular" if source == "entity" else "hard"
+    roll_result = coc_roll.percentile_check(int_value, difficulty=difficulty, rng=rng)
     outcome = roll_result.get("outcome")
     learned = outcome in ("regular", "hard", "extreme", "critical")
 
