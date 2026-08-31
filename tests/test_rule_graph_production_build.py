@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "tests/fixtures/_build_rulegraph_production.py"
 PACKAGE = ROOT / "plugins/coc-keeper/rulesets/coc7"
 ONTOLOGY = ROOT / "plugins/coc-keeper/references/system-ontology-registry-v1.json"
+ARCHIVE = ROOT / "plugins/coc-keeper/references/mcp-operation-contracts.json"
 
 
 def _load(path: Path):
@@ -101,3 +102,12 @@ def test_ontology_contains_only_resolvable_cross_layer_instances():
     for kind in ("director", "text"):
         row = next(item for item in registry["coverage"] if item["graph_kind"] == kind)
         assert row["composition_status"] == "not-applicable"
+
+
+def test_canonical_rules_roll_summary_requires_any_or_all_mode():
+    archive = _load(ARCHIVE)
+    operation = archive["operations"]["rules.roll"]
+    for field in ("summary", "description"):
+        text = operation[field]
+        assert "must choose any or all" in text
+        assert "succeeds when any target succeeds" not in text
