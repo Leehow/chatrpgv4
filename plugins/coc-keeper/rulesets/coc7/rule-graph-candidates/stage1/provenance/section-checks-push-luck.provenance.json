@@ -62,8 +62,8 @@
     {
       "source_id": "rules-json:coc7:spells",
       "file": "plugins/coc-keeper/rulesets/coc7/rules-json/spells.json",
-      "file_sha256": "b327f0cc8bff987c6239b491ff88e8ff399b90ac9da8f6956062f25802f633d7",
-      "bundle_manifest_sha256": "33d95ac8e99aabffda481c5992468885463e1a7c91c7a163524714d34f9805a9",
+      "file_sha256": "0d83987e0a518fb82796a5f508564794e2b468374c2727b3917ef4c5d957995e",
+      "bundle_manifest_sha256": "25e4bcafae9732c17fa50e3823288e38d2a486b9ef2c75e34b438bab50b7b6f9",
       "pages": 1
     },
     {
@@ -74,7 +74,7 @@
       "pages": 1
     }
   ],
-  "span_count": 22,
+  "span_count": 20,
   "node_count": 50,
   "relation_count": 31
 }

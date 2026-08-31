@@ -197,8 +197,6 @@
         "span-checks-push-luck-page-0-block-17",
         "span-checks-push-luck-page-0-block-18",
         "span-checks-push-luck-page-0-block-19",
-        "span-checks-push-luck-page-0-block-20",
-        "span-checks-push-luck-page-0-block-21",
         "span-checks-push-luck-page-0-block-9"
       ]
     },
@@ -214,7 +212,7 @@
         "table_name": "success-levels.json"
       },
       "evidence_span_ids": [
-        "span-checks-push-luck-page-0-block-22"
+        "span-checks-push-luck-page-0-block-20"
       ]
     },
     {
@@ -289,7 +287,7 @@
         "family_id": "core-check"
       },
       "evidence_span_ids": [
-        "span-checks-push-luck-page-0-block-22"
+        "span-checks-push-luck-page-0-block-20"
       ]
     },
     {
@@ -429,7 +427,7 @@
         "family_id": "core-check"
       },
       "evidence_span_ids": [
-        "span-checks-push-luck-page-0-block-22",
+        "span-checks-push-luck-page-0-block-20",
         "span-checks-push-luck-page-0-block-3",
         "span-checks-push-luck-page-0-block-6",
         "span-checks-push-luck-page-0-block-8"
