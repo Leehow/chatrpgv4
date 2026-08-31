@@ -404,6 +404,193 @@ def _psychology_executable(
     return nodes, relations
 
 
+def _combat_executable(
+    groups: Mapping[str, list[str]], all_spans: list[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    family = "combat"
+    context_cap = "capability:coc7:combat-context"
+    resolve_cap = "capability:coc7:combat-resolve"
+    end_cap = "capability:coc7:combat-end"
+    subsystem = "subsystem:coc7:combat-session"
+    decisions = {
+        "context": (context_cap, "context", "context", []),
+        "attack": (resolve_cap, "combat.resolve", "resolve", [
+            ("candidate_ref", "keeper-semantic"),
+            ("weapon_ref", "optional-semantic"),
+            ("weapon_effect_refs", "optional-semantic"),
+            ("luck_spend_max", "optional-semantic"),
+            ("investigator_id", "host-locked"),
+            ("target_npc_id", "host-locked"),
+            ("affordance_id", "host-locked"),
+            ("weapon_id", "host-locked"),
+            ("weapon_effect_ids", "host-locked"),
+            ("combat_revision", "host-locked"),
+        ]),
+        "defend": (resolve_cap, "combat.resolve", "resolve-defense", [
+            ("defense_kind", "player-source"),
+            ("luck_spend_max", "optional-semantic"),
+            ("investigator_id", "host-locked"),
+            ("pending_attack_ref", "host-locked"),
+            ("attack_command_id", "host-locked"),
+            ("target_actor_id", "host-locked"),
+            ("combat_revision", "host-locked"),
+        ]),
+        "maneuver": (resolve_cap, "combat.resolve", "resolve-maneuver", [
+            ("candidate_ref", "keeper-semantic"),
+            ("goal", "keeper-semantic"),
+            ("investigator_id", "host-locked"),
+            ("target_npc_id", "host-locked"),
+            ("affordance_id", "host-locked"),
+            ("combat_revision", "host-locked"),
+        ]),
+        "aim": (resolve_cap, "combat.resolve", "resolve-aim", [
+            ("weapon_ref", "optional-semantic"),
+            ("investigator_id", "host-locked"),
+            ("weapon_id", "host-locked"),
+            ("combat_revision", "host-locked"),
+        ]),
+        "reload": (resolve_cap, "combat.resolve", "resolve-reload", [
+            ("weapon_ref", "optional-semantic"),
+            ("investigator_id", "host-locked"),
+            ("weapon_id", "host-locked"),
+            ("combat_revision", "host-locked"),
+        ]),
+        "flee": (resolve_cap, "combat.resolve", "resolve-flee", [
+            ("candidate_ref", "optional-semantic"),
+            ("investigator_id", "host-locked"),
+            ("affordance_id", "host-locked"),
+            ("combat_revision", "host-locked"),
+        ]),
+        "end": (end_cap, "combat.end", "end", [
+            ("investigator_id", "host-locked"),
+            ("combat_outcome", "host-locked"),
+            ("combat_revision", "host-locked"),
+        ]),
+    }
+    nodes: list[dict[str, Any]] = [
+        node(
+            family, subsystem, "subsystem", "Existing CombatSession subsystem",
+            all_spans, properties={"subsystem_kind": "combat"},
+        ),
+    ]
+    for cap_id, operation in (
+        (context_cap, "combat.context"),
+        (resolve_cap, "combat.resolve"),
+        (end_cap, "combat.end"),
+    ):
+        nodes.append(node(
+            family, cap_id, "capability", f"Existing typed operation {operation}",
+            all_spans, properties={
+                "family_id": family,
+                "resolver_capability": operation,
+                "adapter": "subsystem",
+            },
+        ))
+    relations: list[dict[str, Any]] = []
+    slot_nodes: dict[str, dict[str, Any]] = {}
+    for slug, (capability, kind, phase, slots) in decisions.items():
+        decision_ref = f"decision:coc7:combat:{slug}"
+        nodes.append(node(
+            family, decision_ref, "decision",
+            f"Combat {slug} through the existing typed subsystem operation",
+            all_spans, authority="mixed", audience="keeper", visibility="public",
+            properties={
+                "family_id": family,
+                "implementation": {
+                    "adapter": "subsystem",
+                    "kind": kind,
+                    "phase": phase,
+                    "payload_constants": {},
+                    "payload_slots": [
+                        {"name": name, "ownership": ownership}
+                        for name, ownership in slots
+                    ],
+                },
+            },
+        ))
+        relations.append(relation(
+            family, f"{slug}-invokes", "invokes", decision_ref, capability,
+            all_spans,
+        ))
+        for name, ownership in slots:
+            suffix = name.replace("_", "-")
+            slot_id = f"input-slot:coc7:combat:{suffix}"
+            if slot_id not in slot_nodes:
+                value_type = (
+                    "int" if name in {"luck_spend_max", "combat_revision"}
+                    else "array" if name.endswith("_refs") or name.endswith("_ids")
+                    else "string"
+                )
+                slot_nodes[slot_id] = node(
+                    family, slot_id, "input-slot", suffix.replace("-", " "),
+                    all_spans, properties={
+                        "family_id": family,
+                        "ownership": ownership,
+                        "value_type": value_type,
+                        "path": "receipt.last_outcome" if ownership == "host-locked" else "intent.method",
+                    },
+                )
+            relations.append(relation(
+                family, f"{slug}-{suffix}",
+                "locks-input" if ownership == "host-locked" else "requires-input",
+                decision_ref, slot_id, all_spans,
+            ))
+    nodes.extend(slot_nodes.values())
+    for cap_id, suffix in (
+        (context_cap, "context"), (resolve_cap, "resolve"), (end_cap, "end"),
+    ):
+        relations.append(relation(
+            family, f"{suffix}-implemented-by-session", "implemented-by",
+            cap_id, subsystem, all_spans,
+        ))
+    pending = "pending-choice:coc7:combat:defense"
+    nodes.append(node(
+        family, pending, "pending-choice", "Player chooses a legal defense",
+        sorted(set(groups["melee"] + groups["modifiers"])),
+        properties={"family_id": family},
+    ))
+    relations.extend([
+        relation(family, "attack-offers-defense", "offers-choice",
+                 "decision:coc7:combat:attack", pending, groups["melee"]),
+        relation(family, "maneuver-offers-defense", "offers-choice",
+                 "decision:coc7:combat:maneuver", pending, groups["maneuver"]),
+        relation(family, "attack-continues-defense", "continues-as",
+                 "decision:coc7:combat:attack", "decision:coc7:combat:defend", groups["melee"]),
+        relation(family, "defend-continues-attack", "continues-as",
+                 "decision:coc7:combat:defend", "decision:coc7:combat:attack", groups["round"]),
+        relation(family, "defend-continues-end", "continues-as",
+                 "decision:coc7:combat:defend", "decision:coc7:combat:end", groups["round"]),
+    ])
+    group_decisions = {
+        "round": ("context", "attack", "defend", "maneuver", "aim", "reload", "flee", "end"),
+        "melee": ("attack", "defend"),
+        "damage": ("attack",),
+        "no-push": ("attack", "defend", "maneuver"),
+        "maneuver": ("maneuver",),
+        "surprise": ("attack",),
+        "outnumbered": ("attack", "defend"),
+        "ranged": ("attack", "flee"),
+        "firearms": ("attack", "aim", "reload"),
+        "modifiers": ("attack", "defend", "aim", "reload"),
+        "automatic": ("attack",),
+        "malfunction": ("attack",),
+        "weapons": ("attack", "aim", "reload"),
+        "special": ("attack",),
+    }
+    for slug, _name, group in RULES[family]:
+        rule_id = f"rule:coc7:combat:{slug}"
+        relations.append(relation(
+            family, f"{slug}-invokes-resolve", "invokes", rule_id,
+            resolve_cap, groups[group],
+        ))
+        for decision_slug in group_decisions[group]:
+            relations.append(relation(
+                family, f"{slug}-applies-{decision_slug}", "applies-to",
+                rule_id, f"decision:coc7:combat:{decision_slug}", groups[group],
+            ))
+    return nodes, relations
+
+
 def build_candidate(packet: Mapping[str, Any], family: str) -> dict[str, Any]:
     groups = {
         key: spans_for(packet, phrases)
@@ -444,6 +631,13 @@ def build_candidate(packet: Mapping[str, Any], family: str) -> dict[str, Any]:
         nodes.extend(executable_nodes)
         relations.extend(executable_relations)
         capability_id = "capability:coc7:psychology-check-contract"
+    elif family == "combat":
+        executable_nodes, executable_relations = _combat_executable(
+            groups, all_spans,
+        )
+        nodes.extend(executable_nodes)
+        relations.extend(executable_relations)
+        capability_id = "capability:coc7:combat-resolve"
     else:
         subsystem_id = f"subsystem:coc7:{family}"
         capability_id = f"capability:coc7:{family}-runtime"
@@ -568,7 +762,7 @@ def build_family(bundle_root: Path, family: str) -> dict[str, Any]:
         "applicability_ledger": ledger,
         "runtime_integration_blockers": runtime_blockers(family),
     }
-    if family == "psychology":
+    if family in {"psychology", "combat"}:
         review["executable_decisions"] = sorted(
             node["node_id"] for node in candidate["nodes"]
             if node["node_kind"] == "decision"

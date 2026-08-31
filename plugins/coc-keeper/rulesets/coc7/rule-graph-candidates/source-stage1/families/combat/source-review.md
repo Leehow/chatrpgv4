@@ -23,7 +23,21 @@ scope with 22 page-backed combat rules and contains no unresolved exception
 nodes. Transport receipts, log schema, and campaign persistence are runtime
 contracts rather than rulebook claims and are not asserted here.
 
+The executable graph now names the exact existing typed subsystem phases:
+
+- `combat.context` for the canonical CombatSession snapshot;
+- `combat.resolve` decisions for attack, defense, maneuver, aim, reload, and
+  flee;
+- `combat.end` for the mechanically concluded outcome.
+
+Semantic inputs select candidate/weapon/effect handles, maneuver goals, legal
+defense, and optional Luck precommit. Investigator/target identity, authored
+affordance, owned weapon/effects, pending attack/command, combat revision, and
+the concluded outcome are host-locked. Attack/maneuver offer the structured
+defense pending choice and continue to the defense decision. No combat
+algorithm or generic `combat_runtime` capability is copied into the shard.
+
 Accepted shard: `shard:coc7:combat:section-combat-complete-source`.
 
 Accepted shard digest:
-`ba380a1cf826825ac859b07de605718ff123a749baa086f30ddbbd5b7802696d`.
+`a4d583bad2dd9c0d4d5d4b500e908fa82d49ef578026d69b956dd93c46917e00`.

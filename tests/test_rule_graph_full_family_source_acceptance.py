@@ -150,7 +150,7 @@ def test_combat_is_source_accepted_for_the_full_chapter_and_weapon_rules():
     assert review["runtime_integration_blockers"] == []
     assert review["accepted_shard_digest"] == shard["receipt"]["shard_sha256"]
     assert review["accepted_shard_digest"] == (
-        "ba380a1cf826825ac859b07de605718ff123a749baa086f30ddbbd5b7802696d"
+        "a4d583bad2dd9c0d4d5d4b500e908fa82d49ef578026d69b956dd93c46917e00"
     )
     assert review["reviewer_identity"] == (
         "codex-worker-combat-source-review-20260831"
@@ -171,6 +171,81 @@ def test_combat_is_source_accepted_for_the_full_chapter_and_weapon_rules():
     assert all(node.get("evidence_span_ids") for node in candidate["nodes"])
     assert {node["properties"]["table_name"] for node in candidate["nodes"]
             if node["node_kind"] == "data-table"} == {"combat.json", "weapons.json"}
+    decisions = {
+        node["node_id"]: node for node in candidate["nodes"]
+        if node["node_kind"] == "decision"
+    }
+    assert set(decisions) == {
+        f"decision:coc7:combat:{suffix}" for suffix in (
+            "context", "attack", "defend", "maneuver", "aim", "reload",
+            "flee", "end",
+        )
+    }
+    assert review["executable_decisions"] == sorted(decisions)
+    assert review["unresolved_executable_rules"] == []
+    capabilities = {
+        node["node_id"]: (
+            node["properties"]["resolver_capability"],
+            node["properties"]["adapter"],
+        )
+        for node in candidate["nodes"] if node["node_kind"] == "capability"
+    }
+    assert capabilities == {
+        "capability:coc7:combat-context": ("combat.context", "subsystem"),
+        "capability:coc7:combat-resolve": ("combat.resolve", "subsystem"),
+        "capability:coc7:combat-end": ("combat.end", "subsystem"),
+    }
+    assert "combat_runtime" not in json.dumps(candidate)
+    relations = candidate["relations"]
+    for decision_ref in decisions:
+        assert len([
+            row for row in relations
+            if row["from_node_id"] == decision_ref
+            and row["relation_kind"] == "invokes"
+        ]) == 1
+    assert all(
+        any(
+            row["from_node_id"] == rule_id
+            and row["to_node_id"] == "capability:coc7:combat-resolve"
+            and row["relation_kind"] == "invokes"
+            for row in relations
+        )
+        for rule_id in expected
+    )
+    assert any(
+        row["from_node_id"] == "decision:coc7:combat:attack"
+        and row["to_node_id"] == "pending-choice:coc7:combat:defense"
+        and row["relation_kind"] == "offers-choice"
+        for row in relations
+    )
+    attack_slots = {
+        row["name"]: row["ownership"] for row in decisions[
+            "decision:coc7:combat:attack"
+        ]["properties"]["implementation"]["payload_slots"]
+    }
+    assert attack_slots["candidate_ref"] == "keeper-semantic"
+    for field in (
+        "investigator_id", "target_npc_id", "affordance_id", "weapon_id",
+        "weapon_effect_ids", "combat_revision",
+    ):
+        assert attack_slots[field] == "host-locked"
+    defend_slots = {
+        row["name"]: row["ownership"] for row in decisions[
+            "decision:coc7:combat:defend"
+        ]["properties"]["implementation"]["payload_slots"]
+    }
+    assert defend_slots["defense_kind"] == "player-source"
+    assert defend_slots["pending_attack_ref"] == "host-locked"
+    end_slots = {
+        row["name"]: row["ownership"] for row in decisions[
+            "decision:coc7:combat:end"
+        ]["properties"]["implementation"]["payload_slots"]
+    }
+    assert end_slots == {
+        "investigator_id": "host-locked",
+        "combat_outcome": "host-locked",
+        "combat_revision": "host-locked",
+    }
 
 
 def test_combat_family_regenerates_deterministically_when_source_is_available():

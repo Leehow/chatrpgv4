@@ -37,7 +37,7 @@
     ]
   },
   "accepted_shard_id": "shard:coc7:combat:section-combat-complete-source",
-  "accepted_shard_digest": "ba380a1cf826825ac859b07de605718ff123a749baa086f30ddbbd5b7802696d",
+  "accepted_shard_digest": "a4d583bad2dd9c0d4d5d4b500e908fa82d49ef578026d69b956dd93c46917e00",
   "coverage": "accepted",
   "unresolved_applicable_rules": [],
   "applicability_ledger": [
@@ -152,5 +152,16 @@
       "source_group": "special"
     }
   ],
-  "runtime_integration_blockers": []
+  "runtime_integration_blockers": [],
+  "executable_decisions": [
+    "decision:coc7:combat:aim",
+    "decision:coc7:combat:attack",
+    "decision:coc7:combat:context",
+    "decision:coc7:combat:defend",
+    "decision:coc7:combat:end",
+    "decision:coc7:combat:flee",
+    "decision:coc7:combat:maneuver",
+    "decision:coc7:combat:reload"
+  ],
+  "unresolved_executable_rules": []
 }
