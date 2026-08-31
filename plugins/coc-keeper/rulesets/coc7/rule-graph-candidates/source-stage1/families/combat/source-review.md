@@ -2,7 +2,7 @@
 
 Verdict: **ACCEPTED** for the complete applicable Combat family.
 
-Reviewer: `codex-worker-combat-source-review-20260831` (independent of the
+Reviewer: `codex-worker-combat-end-slot-review-20260831-v2` (independent of the
 source-stage1 producer).
 
 Source identity:
@@ -32,12 +32,14 @@ The executable graph now names the exact existing typed subsystem phases:
 
 Semantic inputs select candidate/weapon/effect handles, maneuver goals, legal
 defense, and optional Luck precommit. Investigator/target identity, authored
-affordance, owned weapon/effects, pending attack/command, combat revision, and
-the concluded outcome are host-locked. Attack/maneuver offer the structured
+affordance, owned weapon/effects, pending attack/command, and combat revision
+are host-locked. The typed `combat.end` outcome is a required Keeper-semantic
+`outcome` input; the obsolete host-only `combat_outcome` alias is removed.
+Attack/maneuver offer the structured
 defense pending choice and continue to the defense decision. No combat
 algorithm or generic `combat_runtime` capability is copied into the shard.
 
 Accepted shard: `shard:coc7:combat:section-combat-complete-source`.
 
 Accepted shard digest:
-`a4d583bad2dd9c0d4d5d4b500e908fa82d49ef578026d69b956dd93c46917e00`.
+`f69ec2c1b3f167a93ccce336bb1aee2605cdd9a284379360c2e5c7174d8700bf`.

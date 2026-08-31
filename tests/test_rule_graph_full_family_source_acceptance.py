@@ -176,10 +176,10 @@ def test_combat_is_source_accepted_for_the_full_chapter_and_weapon_rules():
     assert review["runtime_integration_blockers"] == []
     assert review["accepted_shard_digest"] == shard["receipt"]["shard_sha256"]
     assert review["accepted_shard_digest"] == (
-        "a4d583bad2dd9c0d4d5d4b500e908fa82d49ef578026d69b956dd93c46917e00"
+        "f69ec2c1b3f167a93ccce336bb1aee2605cdd9a284379360c2e5c7174d8700bf"
     )
     assert review["reviewer_identity"] == (
-        "codex-worker-combat-source-review-20260831"
+        "codex-worker-combat-end-slot-review-20260831-v2"
     )
     assert review["source"]["file_sha256"] == gen.FILE_SHA256
     assert review["source"]["bundle_sha256"] == (
@@ -224,11 +224,13 @@ def test_combat_is_source_accepted_for_the_full_chapter_and_weapon_rules():
     assert "combat_runtime" not in json.dumps(candidate)
     relations = candidate["relations"]
     for decision_ref in decisions:
-        assert len([
+        invoked = [
             row for row in relations
             if row["from_node_id"] == decision_ref
             and row["relation_kind"] == "invokes"
-        ]) == 1
+        ]
+        assert len(invoked) == 1
+        assert invoked[0]["to_node_id"] in capabilities
     assert all(
         any(
             row["from_node_id"] == rule_id
@@ -269,9 +271,29 @@ def test_combat_is_source_accepted_for_the_full_chapter_and_weapon_rules():
     }
     assert end_slots == {
         "investigator_id": "host-locked",
-        "combat_outcome": "host-locked",
+        "outcome": "keeper-semantic",
         "combat_revision": "host-locked",
     }
+    outcome_slot = next(
+        node for node in candidate["nodes"]
+        if node["node_id"] == "input-slot:coc7:combat:outcome"
+    )
+    assert outcome_slot["properties"] == {
+        "family_id": "combat",
+        "ownership": "keeper-semantic",
+        "value_type": "string",
+        "path": "intent.method",
+    }
+    assert any(
+        row["relation_kind"] == "requires-input"
+        and row["from_node_id"] == "decision:coc7:combat:end"
+        and row["to_node_id"] == "input-slot:coc7:combat:outcome"
+        for row in relations
+    )
+    assert not any(
+        node["node_id"] == "input-slot:coc7:combat:combat-outcome"
+        for node in candidate["nodes"]
+    )
 
 
 def test_combat_family_regenerates_deterministically_when_source_is_available():

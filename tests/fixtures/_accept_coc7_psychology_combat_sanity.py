@@ -45,7 +45,7 @@ FAMILY_CONFIG: dict[str, dict[str, Any]] = {
         "bundle_sha256": "5e1a929b0b37f9782fcfb67a24c94846d6e12612f84b3523f9d01cd97413c8eb",
         "pages": [*range(113, 131), *range(412, 418)],
         "section_id": "section-combat-complete-source",
-        "reviewer_identity": "codex-worker-combat-source-review-20260831",
+        "reviewer_identity": "codex-worker-combat-end-slot-review-20260831-v2",
     },
     "sanity": {
         "bundle": "sanity-full-v1",
@@ -470,7 +470,7 @@ def _combat_executable(
         ]),
         "end": (end_cap, "combat.end", "end", [
             ("investigator_id", "host-locked"),
-            ("combat_outcome", "host-locked"),
+            ("outcome", "keeper-semantic"),
             ("combat_revision", "host-locked"),
         ]),
     }

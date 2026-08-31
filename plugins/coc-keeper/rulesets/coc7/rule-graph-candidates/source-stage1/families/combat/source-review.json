@@ -3,7 +3,7 @@
   "schema_version": 1,
   "ruleset_id": "coc7",
   "family_id": "combat",
-  "reviewer_identity": "codex-worker-combat-source-review-20260831",
+  "reviewer_identity": "codex-worker-combat-end-slot-review-20260831-v2",
   "review_status": "accepted",
   "source": {
     "source_id": "pdf:coc7-keeper-rulebook-40th",
@@ -37,7 +37,7 @@
     ]
   },
   "accepted_shard_id": "shard:coc7:combat:section-combat-complete-source",
-  "accepted_shard_digest": "a4d583bad2dd9c0d4d5d4b500e908fa82d49ef578026d69b956dd93c46917e00",
+  "accepted_shard_digest": "f69ec2c1b3f167a93ccce336bb1aee2605cdd9a284379360c2e5c7174d8700bf",
   "coverage": "accepted",
   "unresolved_applicable_rules": [],
   "applicability_ledger": [
