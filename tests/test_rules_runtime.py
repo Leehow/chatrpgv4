@@ -2736,6 +2736,96 @@ def test_development_pending_fact_and_adapter_recovery_binding(
     assert execution["ending_id"] == "ending:canonical"
 
 
+def test_magic_grounding_uses_known_spell_and_exact_source_records():
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = SimpleNamespace(
+        inv_state=lambda _investigator: {
+            "magic": {"learned_spells": ["Contact Ghoul"]},
+        },
+        npc_agendas={"npcs": [{
+            "npc_id": "professor-ward",
+            "magic_source_kind": "person",
+            "spells": ["Contact Ghoul"],
+        }]},
+    )
+    cast = kernel._canonical_magic_binding(
+        ctx,
+        investigator_id="investigator-one",
+        decision_ref="decision:coc7:magic:cast-spell",
+        semantic_inputs={"spell": "Contact Ghoul"},
+    )
+    assert cast["known_spell_ref"].startswith(
+        "learned-spell:investigator-one:contact-ghoul"
+    )
+    learned = kernel._canonical_magic_binding(
+        ctx,
+        investigator_id="investigator-one",
+        decision_ref="decision:coc7:magic:learn-spell",
+        semantic_inputs={
+            "spell": "Contact Ghoul",
+            "source": "person",
+            "source_ref": "person:professor-ward",
+        },
+    )
+    assert learned == {"investigator": "investigator-one", "is_npc": False}
+    with pytest.raises(kernel.ToolError) as missing:
+        kernel._canonical_magic_binding(
+            ctx,
+            investigator_id="investigator-one",
+            decision_ref="decision:coc7:magic:learn-spell",
+            semantic_inputs={
+                "spell": "Call Azathoth",
+                "source": "person",
+                "source_ref": "person:professor-ward",
+            },
+        )
+    assert missing.value.code == "magic_source_invalid"
+
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    facts = adapter.augment_facts(
+        SimpleNamespace(),
+        {"semantic_inputs": {
+            "spell": "Contact Ghoul",
+            "source": "person",
+            "source_ref": "person:professor-ward",
+        }},
+        {
+            "magic.known_spells": ["Contact Ghoul"],
+            "magic.learn.sources": {
+                "person:professor-ward": ["Contact Ghoul"],
+            },
+        },
+    )
+    assert facts["magic.spell.known"] is True
+    assert facts["magic.learn.source-available"] is True
+    package = Path.cwd() / "plugins" / "coc-keeper" / "rulesets" / "coc7"
+    graph = json.loads((package / "rule-graph.json").read_text(encoding="utf-8"))
+    manifest = json.loads((package / "rule-graph-manifest.json").read_text(encoding="utf-8"))
+    graph["family_runtime_ownership"]["magic"] = "graph"
+    graph["legacy_surface_lifecycle"]["magic"] = "hidden"
+    manifest["family_promotion_eligibility"]["magic"].update({
+        "promotion_eligible": True, "runtime_ownership": "graph",
+    })
+    runtime = coc_rules_runtime.RulesRuntime(
+        graph, ruleset_id="coc7", graph_manifest=manifest,
+        package_manifest={"rule_families": [{
+            "family_id": "magic", "runtime_owner": "graph", "legacy_surface": "hidden",
+        }]},
+        facts_provider=lambda: {
+            "campaign.ruleset_id": "coc7",
+            "magic.known_spells": ["Contact Ghoul"],
+            "magic.learn.sources": {"person:professor-ward": ["Contact Ghoul"]},
+        },
+        resolver_index=adapter.host_capability_index(), ruleset_adapter=adapter,
+    )
+    cast_cards = runtime.context({"family": "magic", "semantic_inputs": {"spell": "Contact Ghoul"}})
+    assert {row["decision_ref"].rsplit(":", 1)[-1] for row in cast_cards["cards"] if row["applicability"] == "applicable"} == {"cast-spell"}
+    learn_cards = runtime.context({"family": "magic", "semantic_inputs": {
+        "spell": "Contact Ghoul", "source": "person", "source_ref": "person:professor-ward",
+    }})
+    assert {row["decision_ref"].rsplit(":", 1)[-1] for row in learn_cards["cards"] if row["applicability"] == "applicable"} == {"cast-spell", "learn-spell"}
+
+
 @pytest.mark.parametrize(("pending", "expected"), [
     (False, {"end-session"}),
     (True, {"end-session", "settle-ending"}),

@@ -325,10 +325,7 @@ class Coc7RuleGraphAdapter:
         }:
             return []
         if family == "magic":
-            return [
-                "Magic requires canonical known-spell/source grounding and hard "
-                "applicability gates before legacy tools can be hidden"
-            ]
+            return []
         if family == "chase": return []
         if family == "development":
             return []
@@ -432,6 +429,7 @@ class Coc7RuleGraphAdapter:
                     "pushed": {"type": "boolean"},
                     "interrupted": {"type": "boolean"},
                     "source": {"type": "string"},
+                    "source_ref": {"type": "string"},
                     "summary": {"type": "string"},
                     "kind": {"type": "string"},
                     "pursuer_refs": {"type": "array", "items": {"type": "string"}},
@@ -479,6 +477,10 @@ class Coc7RuleGraphAdapter:
                 "type": "array",
                 "items": {"type": "string"},
                 "desc": "optional semantic decision refs to narrow the card set",
+            },
+            "semantic_inputs": {
+                "type": "object",
+                "desc": "structured candidate semantics used to evaluate exact applicability",
             },
         }
 
@@ -596,6 +598,24 @@ class Coc7RuleGraphAdapter:
             if isinstance(outcome, str) and outcome:
                 augmented["receipt.last_outcome"] = outcome
             augmented["intent.pushed"] = bool(source_receipt.get("pushed", False))
+        spell = str(semantic.get("spell") or "").strip()
+        known = {
+            str(value) for value in augmented.get("magic.known_spells") or []
+        }
+        augmented["magic.spell.known"] = bool(spell and spell in known)
+        source_ref = str(semantic.get("source_ref") or "").strip()
+        source_kind = str(semantic.get("source") or "").strip()
+        sources = augmented.get("magic.learn.sources")
+        source_spells = (
+            sources.get(source_ref)
+            if isinstance(sources, Mapping)
+            and isinstance(sources.get(source_ref), list)
+            else []
+        )
+        augmented["magic.learn.source-available"] = bool(
+            spell and source_ref.startswith(source_kind + ":")
+            and spell in {str(value) for value in source_spells}
+        )
         return augmented
 
     @staticmethod
@@ -1121,6 +1141,7 @@ class Coc7RuleGraphAdapter:
                 })
             else:
                 out["source"] = payload.get("source")
+                out["source_ref"] = payload.get("source_ref")
         elif capability == "state.end_session":
             out.update({
                 "summary": payload.get("summary"),

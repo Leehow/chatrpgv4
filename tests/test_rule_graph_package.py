@@ -154,7 +154,7 @@ def test_composed_settlement_dispatch_is_owned_by_coc7_package():
     assert adapter.promotion_blockers("psychology") == []
     assert adapter.promotion_blockers("combat") == []
     assert adapter.promotion_blockers("sanity") == []
-    assert adapter.promotion_blockers("magic")
+    assert adapter.promotion_blockers("magic") == []
     assert adapter.promotion_blockers("development") == []
     assert adapter.promotion_blockers("chase") == []
     current = adapter.operation_policy_overrides(ruleset)
@@ -171,8 +171,8 @@ def test_composed_settlement_dispatch_is_owned_by_coc7_package():
     assert current["rules.sanity_check"]["audience"] == "host"
     assert current["sanity.context"]["audience"] == "host"
     assert current["sanity.execute"]["audience"] == "host"
-    assert "magic.cast" not in current
-    assert "magic.learn" not in current
+    assert current["magic.cast"]["audience"] == "host"
+    assert current["magic.learn"]["audience"] == "host"
     assert current["state.end_session"]["audience"] == "host"
     assert current["development.settle"]["audience"] == "host"
     assert current["chase.context"]["audience"] == "host"
