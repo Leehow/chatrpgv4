@@ -55,6 +55,90 @@ test("registered catalog projects host-owned fields out of model schemas", () =>
   );
 });
 
+test("sanity bout binding exposes only semantic action and restores the exact resume command", () => {
+  const operation = "sanity.execute";
+  const tickDigest = "0ad0dfd394769e2e5abed7eda566a527932fd812519efdd019320700357fc014";
+  const binding = {
+    schema_version: 1,
+    operation,
+    binding_revision: "sanity-bout:current-investigator:choice-revision-3",
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-allan-ward",
+    decision_id: `resume-${tickDigest.slice(0, 32)}`,
+    investigator: "allan-ward",
+    bout_id: "allan-ward:bout:1",
+    choice_id: "pi-sanity-execute:opaque:bout",
+    source_command_id: "pi-sanity-execute:opaque",
+    choice_revision: 3,
+    candidates: [{
+      action: "tick",
+      kind: "bout_tick",
+      decision_id: `resume-${tickDigest.slice(0, 32)}`,
+      command_id: `resume:${tickDigest}:confirm`,
+    }],
+  };
+  const schema = typed.projectBoundTypedToolParameters(
+    operation,
+    catalog.byOperation.get(operation).parameters,
+    binding,
+    independentCurrent(binding),
+  );
+  assert.deepEqual(schema.properties.command.oneOf.map((branch) => (
+    branch.properties.action.const
+  )), ["tick"]);
+  assert.deepEqual(schema.properties.command.oneOf.map((branch) => (
+    branch.required
+  )), [["action"]]);
+  const modelCommandSchema = JSON.stringify(schema.properties.command);
+  for (const opaque of [
+    binding.choice_id,
+    binding.source_command_id,
+    binding.bout_id,
+    tickDigest,
+  ]) assert.ok(!modelCommandSchema.includes(opaque), opaque);
+
+  const tick = typed.bindRetainedTypedToolArguments(
+    operation,
+    { investigator: "current-investigator", command: { action: "tick" } },
+    binding,
+    independentCurrent(binding),
+  );
+  assert.deepEqual(tick.command, {
+    command_id: `resume:${tickDigest}:confirm`,
+    kind: "bout_tick",
+    phase: "resolve",
+    payload: {
+      choice_id: binding.choice_id,
+      responder: "keeper",
+      revision: 3,
+      action: "tick",
+      terminal_command_ids: [`resume:${tickDigest}:confirm`],
+      decision_id: `resume-${tickDigest.slice(0, 32)}`,
+    },
+  });
+  assert.equal(tick.decision_id, `resume-${tickDigest.slice(0, 32)}`);
+  assert.deepEqual(
+    typed.bindRetainedTypedToolArguments(
+      operation,
+      { investigator: "current-investigator", command: { action: "tick" } },
+      binding,
+      independentCurrent(binding),
+    ),
+    tick,
+    "same retained choice/action must replay byte-identically",
+  );
+
+  const advanced = structuredClone(binding);
+  advanced.choice_revision = 4;
+  advanced.binding_revision = "sanity-bout:current-investigator:choice-revision-4";
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    operation,
+    { investigator: "current-investigator", command: { action: "tick" } },
+    binding,
+    advanced,
+  ), "binding_context_stale");
+});
+
 test("state.journal binding hides transport/player identity but preserves KP semantics", () => {
   const revision = "turn:allan-ward:17:acting";
   const binding = {

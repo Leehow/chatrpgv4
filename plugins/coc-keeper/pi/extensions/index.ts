@@ -222,6 +222,8 @@ import {
   wrapTypedToolInvokeParams,
   type CurrentTypedToolHostContext,
   type ChaseActionCandidate,
+  type SanityBoutActionCandidate,
+  type SanityBoutBindingCard,
   type ReviewedAgencyBinding,
   type ReviewedCoverageBindingFacts,
   type SemanticEntityFacts,
@@ -4384,10 +4386,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       firstImpressionRef?: string;
     }>;
   };
+  type SanityBoutBindingFacts = StructuredBindingScope & {
+    root: string;
+    campaign: string;
+    investigatorId: string;
+    boutId: string;
+    choiceId: string;
+    sourceCommandId: string;
+    choiceRevision: number;
+    actions: Array<"tick" | "end">;
+  };
   let currentSceneBindingFacts: SceneBindingFacts | null = null;
   let retainedSceneAffordanceOperations: string[] = [];
   let currentCombatBindingFacts: CombatBindingFacts | null = null;
   let currentChaseBindingFacts: ChaseBindingFacts | null = null;
+  let currentSanityBoutBindingFacts: SanityBoutBindingFacts | null = null;
   let currentNpcInteractionBindingFacts: NpcInteractionBindingFacts | null = null;
   let lastHealingCardProjection: {
     playerTurnEpoch: number;
@@ -4468,10 +4481,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       "evidence.table_opening",
       "state.record_npc_engagement",
       "chase.execute",
+      "sanity.execute",
       "rules.social_adjudicate",
       "rules.psychology_observe",
     ]) clearTypedBinding(operation);
     currentChaseBindingFacts = null;
+    currentSanityBoutBindingFacts = null;
   };
   const armTypedBinding = (
     binding: TypedToolBindingCard,
@@ -4838,6 +4853,31 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     if (operation !== "sanity.execute") return modelArguments;
     const command = objectOrNull(modelArguments.command) ?? {};
+    const semanticBoutAction = command.action === "tick"
+      || command.action === "end";
+    const boutBinding = retainedTypedBindings.get("sanity.execute");
+    if (boutBinding?.operation === "sanity.execute") {
+      if (!semanticBoutAction) {
+        throw new ToolContractProjectionError(
+          "semantic_candidate_stale",
+          "an active sanity bout accepts only the current semantic tick/end action",
+          { operation, candidate_field: "command.action" },
+        );
+      }
+      return bindRetainedTypedToolArguments(
+        operation,
+        modelArguments,
+        boutBinding,
+        currentTypedBindingFactories.get(operation)?.() ?? null,
+      ) as JsonObject;
+    }
+    if (semanticBoutAction) {
+      throw new ToolContractProjectionError(
+        "binding_context_missing",
+        "call sanity.context to bind the current active bout before choosing tick/end",
+        { operation },
+      );
+    }
     const payload = objectOrNull(command.payload) ?? {};
     const kind = typeof command.kind === "string" && command.kind.trim()
       ? command.kind.trim()
@@ -5696,6 +5736,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
     }
 
+    if (operation === "sanity.context" || operation === "sanity.execute") {
+      armSanityBoutBindingFromCanonical(operation, campaignId, params, data);
+    }
+
     if (operation === "state.journal" && typeof data.turn_id === "string") {
       const retainedAnchor = currentOpenTurnAnchor;
       if (
@@ -6436,6 +6480,174 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ? cache.revision.trim()
       : digest;
     return digest && revision ? { revision, digest } : null;
+  };
+  const sanityResumeIds = (
+    choiceId: string,
+    revision: number,
+    action: "tick" | "end",
+  ): { decisionId: string; commandId: string } => {
+    // Byte-identical to coc_subsystem_executor._resume_ids: Python
+    // json.dumps(sort_keys=True,separators=(",",":")) orders these keys as
+    // action, choice_id, revision. The opaque digest remains host-only.
+    const material = JSON.stringify({
+      action,
+      choice_id: choiceId,
+      revision,
+    });
+    const digest = createHash("sha256").update(material).digest("hex");
+    return {
+      decisionId: `resume-${digest.slice(0, 32)}`,
+      commandId: `resume:${digest}:confirm`,
+    };
+  };
+  const sanityBoutCardFromFacts = (
+    facts: SanityBoutBindingFacts,
+  ): SanityBoutBindingCard => {
+    const candidates: SanityBoutActionCandidate[] = facts.actions.map((action) => {
+      const ids = sanityResumeIds(
+        facts.choiceId,
+        facts.choiceRevision,
+        action,
+      );
+      return {
+        action,
+        kind: action === "tick" ? "bout_tick" : "bout_end",
+        decision_id: ids.decisionId,
+        command_id: ids.commandId,
+      };
+    });
+    return {
+      schema_version: 1,
+      operation: "sanity.execute",
+      binding_revision: (
+        `sanity-bout:player-epoch-${facts.playerTurnEpoch}`
+        + `:choice-revision-${facts.choiceRevision}`
+      ),
+      root: facts.root,
+      campaign: facts.campaign,
+      decision_id: candidates[0].decision_id,
+      investigator: facts.investigatorId,
+      bout_id: facts.boutId,
+      choice_id: facts.choiceId,
+      source_command_id: facts.sourceCommandId,
+      choice_revision: facts.choiceRevision,
+      candidates,
+    };
+  };
+  const clearSanityBoutBinding = (): void => {
+    currentSanityBoutBindingFacts = null;
+    clearTypedBinding("sanity.execute");
+  };
+  const armSanityBoutBindingFromCanonical = (
+    operation: string,
+    campaignId: string,
+    params: JsonObject,
+    data: JsonObject,
+  ): void => {
+    const snapshot = objectOrNull(data.snapshot);
+    const pendingValues = operation === "sanity.context"
+      ? (Array.isArray(data.pending_choices) ? data.pending_choices : [])
+      : (Array.isArray(data.results) ? data.results : []).flatMap((value) => {
+        const row = objectOrNull(value);
+        const pendingChoice = objectOrNull(row?.pending_choice);
+        return pendingChoice === null ? [] : [pendingChoice];
+      });
+    const pending = pendingValues.map((row) => objectOrNull(row)).filter(
+      (row): row is JsonObject => row !== null,
+    ).filter((row) => (
+      row.kind === "bout_keeper_action"
+      && row.responder === "keeper"
+    ));
+    const existing = currentSanityBoutBindingFacts;
+    const contextBase = operation === "sanity.context" ? {
+      root: typeof params.root === "string" && params.root
+        ? params.root
+        : currentWorkspaceRoot,
+      investigatorId: typeof data.investigator_id === "string"
+        ? data.investigator_id.trim()
+        : typeof snapshot?.investigator_id === "string"
+          ? snapshot.investigator_id.trim()
+          : "",
+      boutId: typeof snapshot?.active_bout_id === "string"
+        ? snapshot.active_bout_id.trim()
+        : "",
+    } : existing?.campaign === campaignId && bindingScopeMatches(existing)
+      ? {
+          root: existing.root,
+          investigatorId: existing.investigatorId,
+          boutId: existing.boutId,
+        }
+      : null;
+    if (
+      !campaignId
+      || pending.length !== 1
+      || contextBase === null
+      || (
+        operation === "sanity.context"
+        && (
+          data.active !== true
+          || snapshot?.bout_active !== true
+        )
+      )
+    ) {
+      clearSanityBoutBinding();
+      return;
+    }
+    const choice = pending[0];
+    const choiceId = typeof choice.choice_id === "string"
+      ? choice.choice_id.trim()
+      : "";
+    const sourceCommandId = typeof choice.command_id === "string"
+      ? choice.command_id.trim()
+      : "";
+    const choiceRevision = Number(choice.revision);
+    const options = Array.isArray(choice.options) ? choice.options : [];
+    const optionActions = new Set(options.flatMap((value) => {
+      const option = objectOrNull(value);
+      return option?.action === "tick" || option?.action === "end"
+        ? [option.action]
+        : [];
+    }));
+    const actions = (["tick", "end"] as const).filter((action) => (
+      optionActions.has(action)
+    ));
+    if (
+      !contextBase.root
+      || !choiceId
+      || !sourceCommandId
+      || !Number.isInteger(choiceRevision)
+      || choiceRevision < 0
+      || !contextBase.boutId
+      || !contextBase.investigatorId
+      || actions.length === 0
+    ) {
+      clearSanityBoutBinding();
+      return;
+    }
+    const facts: SanityBoutBindingFacts = {
+      sessionEpoch,
+      playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+      stage: canonicalProgress.stage,
+      phase: resolveAclPhase(campaignId),
+      root: contextBase.root,
+      campaign: campaignId,
+      investigatorId: contextBase.investigatorId,
+      boutId: contextBase.boutId,
+      choiceId,
+      sourceCommandId,
+      choiceRevision,
+      actions: [...actions],
+    };
+    currentSanityBoutBindingFacts = facts;
+    armTypedBinding(sanityBoutCardFromFacts(facts), () => {
+      const current = currentSanityBoutBindingFacts;
+      if (
+        current === null
+        || current.campaign !== campaignId
+        || !bindingScopeMatches(current)
+      ) return null;
+      return sanityBoutCardFromFacts(current);
+    });
   };
   const rearmSocialPsychologyBindings = (): void => {
     const scene = currentSceneBindingFacts;
@@ -9830,7 +10042,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         typedDefinition.operation === "rules.sanity_check"
         || typedDefinition.operation === "sanity.execute"
       ) {
-        params = bindSanityHostArguments(typedDefinition.operation, params);
+        try {
+          params = bindSanityHostArguments(typedDefinition.operation, params);
+        } catch (error) {
+          if (!(error instanceof ToolContractProjectionError)) throw error;
+          return hostFailureResult(hostBindingFailure(typedDefinition.operation, error));
+        }
       }
       if (
         typedDefinition.operation === "session.resume"
@@ -9945,7 +10162,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         && binding !== undefined
         && draftShapeRecoveryCards.has(binding.campaign)
       ) ? binding.campaign : null;
-      if (armedRecoveryCampaign === null && binding !== undefined) {
+      if (
+        armedRecoveryCampaign === null
+        && binding !== undefined
+        && typedDefinition.operation !== "sanity.execute"
+      ) {
         try {
           params = bindRetainedTypedToolArguments(
             typedDefinition.operation,
@@ -10352,6 +10573,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           }
         }
         if (
+          typedDefinition?.operation === "sanity.execute"
+          && retainedTypedBindings.get("sanity.execute")?.operation
+            === "sanity.execute"
+        ) {
+          // The semantic action has already been compiled through the exact
+          // retained/current bout binding. Keep its hash-derived executor
+          // command out of model-identity restoration; only the semantic
+          // investigator handle still crosses that boundary.
+          semanticArgs = { ...restoredArgs };
+          for (const field of ["decision_id", "command"]) {
+            if (Object.hasOwn(semanticArgs, field)) {
+              hostBoundAfterRestore[field] = semanticArgs[field];
+              delete semanticArgs[field];
+            }
+          }
+        }
+        if (
           reviewedFinalizeBinding?.operation === "turn.finalize"
           && reviewedFinalizeBinding.reviewed_agency_binding !== undefined
           && !armedDraftShapeRecovery
@@ -10399,13 +10637,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             || restoredOperation === "sanity.execute"
           )
         ) {
-          params = {
-            ...params,
-            arguments: bindSanityHostArguments(
-              restoredOperation,
-              objectOrNull(params.arguments) ?? {},
-            ),
-          };
+          try {
+            params = {
+              ...params,
+              arguments: bindSanityHostArguments(
+                restoredOperation,
+                objectOrNull(params.arguments) ?? {},
+              ),
+            };
+          } catch (error) {
+            if (!(error instanceof ToolContractProjectionError)) throw error;
+            return hostFailureResult(hostBindingFailure(restoredOperation, error));
+          }
         }
       }
     }

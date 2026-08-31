@@ -239,6 +239,30 @@ export type ChaseExecuteBindingCard = {
   candidates: readonly ChaseActionCandidate[];
 };
 
+export type SanityBoutActionCandidate = {
+  action: "tick" | "end";
+  kind: "bout_tick" | "bout_end";
+  /** Exact executor identities are host-only and never enter model schemas. */
+  decision_id: string;
+  command_id: string;
+};
+
+export type SanityBoutBindingCard = {
+  schema_version: 1;
+  operation: "sanity.execute";
+  binding_revision: string;
+  root: string;
+  campaign: string;
+  /** Binding-card identity; the selected candidate supplies the command decision. */
+  decision_id: string;
+  investigator: string;
+  bout_id: string;
+  choice_id: string;
+  source_command_id: string;
+  choice_revision: number;
+  candidates: readonly SanityBoutActionCandidate[];
+};
+
 export type TableOpeningBindingCard = {
   schema_version: 1;
   operation: "evidence.table_opening";
@@ -316,6 +340,7 @@ export type TypedToolBindingCard =
   | AdvanceTimeBindingCard
   | CombatResolveBindingCard
   | ChaseExecuteBindingCard
+  | SanityBoutBindingCard
   | TableOpeningBindingCard
   | NpcEngagementBindingCard
   | NpcReactionRunBindingCard
@@ -1858,6 +1883,54 @@ function validateBindingShape(binding: TypedToolBindingCard): void {
     requirePositiveRevision(binding.chase_revision, "chase_revision");
     nonEmptyString(binding.chase_digest, "chase_digest");
     validateChaseCandidates(binding.candidates);
+  } else if (binding.operation === "sanity.execute") {
+    nonEmptyString(binding.investigator, "investigator");
+    nonEmptyString(binding.bout_id, "bout_id");
+    nonEmptyString(binding.choice_id, "choice_id");
+    nonEmptyString(binding.source_command_id, "source_command_id");
+    if (
+      !Number.isInteger(binding.choice_revision)
+      || binding.choice_revision < 0
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "sanity bout choice_revision must be a non-negative integer",
+        { field: "choice_revision" },
+      );
+    }
+    if (
+      !Array.isArray(binding.candidates)
+      || binding.candidates.length === 0
+      || binding.candidates.length > 2
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "sanity bout binding requires one or two current semantic actions",
+        { field: "candidates" },
+      );
+    }
+    const actions = new Set<string>();
+    for (const [index, candidate] of binding.candidates.entries()) {
+      const expectedKind = candidate.action === "tick"
+        ? "bout_tick"
+        : candidate.action === "end"
+          ? "bout_end"
+          : null;
+      if (
+        expectedKind === null
+        || candidate.kind !== expectedKind
+        || actions.has(candidate.action)
+      ) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          "sanity bout candidates must be unique matching tick/end actions",
+          { field: `candidates[${index}]` },
+        );
+      }
+      nonEmptyString(candidate.decision_id, `candidates[${index}].decision_id`);
+      nonEmptyString(candidate.command_id, `candidates[${index}].command_id`);
+      actions.add(candidate.action);
+    }
   } else if (
     binding.operation === "evidence.table_opening"
   ) {
@@ -2080,6 +2153,13 @@ function bindingValues(binding: TypedToolBindingCard): Record<string, unknown> {
       investigator: binding.investigator,
     };
   }
+  if (binding.operation === "sanity.execute") {
+    return {
+      root: binding.root,
+      campaign: binding.campaign,
+      decision_id: binding.decision_id,
+    };
+  }
   if (
     binding.operation === "rules.social_adjudicate"
     || binding.operation === "rules.psychology_observe"
@@ -2207,6 +2287,36 @@ function projectChaseCommandSchema(
       "Choose only the semantic actor and action. "
       + "The host binds the canonical command identity, kind, phase, current "
       + "revision, actor identity, and action identity from chase.context."
+    ),
+  };
+}
+
+function projectSanityBoutCommandSchema(
+  schema: JsonSchema,
+  binding: SanityBoutBindingCard,
+): void {
+  if (!isPlainObject(schema.properties)) return;
+  schema.properties.command = {
+    oneOf: binding.candidates.map((candidate) => ({
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: {
+          type: "string",
+          const: candidate.action,
+          description: (
+            candidate.action === "tick"
+              ? "Advance the current Keeper-controlled bout by one round."
+              : "End the current Keeper-controlled bout now."
+          ),
+        },
+      },
+      required: ["action"],
+    })),
+    description: (
+      "Choose only the semantic action for the current active bout. The host "
+      + "binds the exact pending choice, revision, command, bout, and "
+      + "idempotency identities from authoritative sanity state."
     ),
   };
 }
@@ -2444,6 +2554,9 @@ export function projectBoundTypedToolParameters(
   }
   if (valid.operation === "chase.execute") {
     projectChaseCommandSchema(cloned, valid);
+  }
+  if (valid.operation === "sanity.execute") {
+    projectSanityBoutCommandSchema(cloned, valid);
   }
   if (
     (valid.operation === "rules.social_adjudicate"
@@ -2936,6 +3049,46 @@ export function bindRetainedTypedToolArguments(
       },
     };
   }
+  if (valid.operation === "sanity.execute") {
+    const command = isPlainObject(modelInput.command)
+      ? modelInput.command
+      : null;
+    if (
+      command === null
+      || !exactObjectKeys(command, ["action"])
+      || (command.action !== "tick" && command.action !== "end")
+    ) {
+      throw new ToolContractProjectionError(
+        "semantic_candidate_stale",
+        "sanity bout command must select exactly one current tick/end action",
+        { operation, candidate_field: "command.action" },
+      );
+    }
+    const candidate = valid.candidates.find((row) => (
+      row.action === command.action
+    ));
+    if (candidate === undefined) {
+      throw new ToolContractProjectionError(
+        "semantic_candidate_stale",
+        "selected sanity bout action is absent or stale in the current choice",
+        { operation, candidate_field: "command.action" },
+      );
+    }
+    result.decision_id = candidate.decision_id;
+    result.command = {
+      command_id: candidate.command_id,
+      kind: candidate.kind,
+      phase: "resolve",
+      payload: {
+        choice_id: valid.choice_id,
+        responder: "keeper",
+        revision: valid.choice_revision,
+        action: candidate.action,
+        terminal_command_ids: [candidate.command_id],
+        decision_id: candidate.decision_id,
+      },
+    };
+  }
   return result;
 }
 
@@ -3019,23 +3172,13 @@ export function projectPiTypedToolParameters(
       },
       required: ["source", "san_loss_fail_expr"],
     };
-    const boutBranch = (kind: "bout_tick" | "bout_end", action: "tick" | "end") => ({
+    const boutBranch = (action: "tick" | "end") => ({
       type: "object",
       additionalProperties: false,
       properties: {
-        kind: { type: "string", const: kind },
-        payload: {
-          type: "object",
-          additionalProperties: true,
-          properties: {
-            responder: { type: "string", const: "keeper" },
-            revision: { type: "integer", minimum: 0 },
-            action: { type: "string", const: action },
-          },
-          required: ["choice_id", "responder", "revision", "action"],
-        },
+        action: { type: "string", const: action },
       },
-      required: ["kind", "payload"],
+      required: ["action"],
     });
     cloned.properties.command = {
       description: (
@@ -3050,8 +3193,8 @@ export function projectPiTypedToolParameters(
           properties: { payload: sanityPayload },
           required: ["payload"],
         },
-        boutBranch("bout_tick", "tick"),
-        boutBranch("bout_end", "end"),
+        boutBranch("tick"),
+        boutBranch("end"),
       ],
     };
     overlayClosedIdentityGrammarDescriptions(cloned);
