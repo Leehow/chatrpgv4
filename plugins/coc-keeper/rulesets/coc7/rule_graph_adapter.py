@@ -319,6 +319,20 @@ class Coc7RuleGraphAdapter:
             "sanity",
         }:
             return []
+        if family == "magic":
+            return [
+                "Magic requires canonical known-spell/source grounding and hard "
+                "applicability gates before legacy tools can be hidden"
+            ]
+        if family == "chase":
+            return [
+                "Chase requires active/pending/revision/conflict receipt gates and "
+                "a canonical chase-start participant/location binding"
+            ]
+        if family == "development":
+            return [
+                "Development awaits the accepted ending/session applicability graph"
+            ]
         candidate_families = {
             decision_ref.split(":", 3)[2]
             for decision_ref in _SETTLEMENT_METHOD_BY_DECISION
