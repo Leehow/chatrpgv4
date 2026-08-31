@@ -171,10 +171,10 @@ def test_composed_settlement_dispatch_is_owned_by_coc7_package():
     assert current["rules.sanity_check"]["audience"] == "host"
     assert current["sanity.context"]["audience"] == "host"
     assert current["sanity.execute"]["audience"] == "host"
-    assert current["magic.cast"]["audience"] == "keeper"
-    assert current["magic.learn"]["audience"] == "keeper"
-    assert current["state.end_session"]["audience"] == "keeper"
-    assert current["development.settle"]["audience"] == "keeper"
+    assert "magic.cast" not in current
+    assert "magic.learn" not in current
+    assert "state.end_session" not in current
+    assert "development.settle" not in current
     assert current["rules.settle"]["audience"] == "keeper"
 
     shadowed = json.loads(json.dumps(ruleset))

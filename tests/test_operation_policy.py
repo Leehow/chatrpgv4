@@ -289,7 +289,8 @@ def test_describe_and_list_carry_policy_without_changing_access():
     assert described["policy"]["audience"] == "keeper"
     listed = {entry["name"]: entry for entry in coc_toolbox.list_tools()}
     assert listed["rules.roll"]["access"] == "mutation"
-    assert listed["rules.roll"]["policy"]["kp_surface"] == "rules"
+    assert listed["rules.roll"]["policy"]["kp_surface"] == "none"
+    assert listed["rules.settle"]["policy"]["kp_surface"] == "rules"
     assert listed["setup.inspect"]["policy"]["audience"] == "setup"
 
 
@@ -345,9 +346,10 @@ def test_check_and_resource_delta_are_host_internal_not_keeper_visible():
         policy = coc_toolbox.operation_policy(name)
         assert policy["audience"] == "host"
         assert policy["kp_surface"] == "none"
-    assert "rules.roll" in live_rules
-    assert "rules.push" in live_rules
-    assert "rules.luck_spend" in live_rules
+    assert "rules.roll" not in live_rules
+    assert "rules.push" not in live_rules
+    assert "rules.luck_spend" not in live_rules
+    assert "rules.settle" in live_rules
 
 
 def test_rules_context_is_keeper_context_not_ordinary_rules_surface():

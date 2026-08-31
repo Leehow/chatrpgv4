@@ -508,7 +508,9 @@ class Coc7RuleGraphAdapter:
         overrides: dict[str, dict[str, Any]] = {}
         any_graph_visible = False
         for family, legacy_operations in legacy_by_family.items():
-            owner, surface = ownership.get(family, ("legacy", "visible"))
+            if family not in ownership:
+                continue
+            owner, surface = ownership[family]
             graph_visible = owner == "graph" and surface in {"hidden", "removed"}
             any_graph_visible = any_graph_visible or graph_visible
             for operation in legacy_operations:
