@@ -23,6 +23,7 @@ const {
 const ROLE_ENV = "COC_PI_SESSION_ROLE";
 const CAMPAIGN_ENV = "PI_COC_CAMPAIGN_ID";
 const PROFILE_ENV = "COC_PI_ACCEPTANCE_PROFILE";
+const STARTUP_RESUME_CUSTOM_TYPE = "coc-startup-resume-required";
 
 // This harness drives the root KP extension surface directly. A worker-shell
 // PI_SUBAGENT_CHILD=1 would silence applyKpActiveTools/setActiveTools and
@@ -74,7 +75,11 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
       hostFaults.beforeAppendEntry?.(type, value);
       appended.push({ type, value });
     },
-    sendMessage(message, options) { sent.push({ message, options }); return true; },
+    sendMessage(message, options) {
+      hostFaults.beforeSendMessage?.(message, options);
+      sent.push({ message, options });
+      return true;
+    },
     setActiveTools(names) {
       hostFaults.beforeSetActiveTools?.(names);
       active.push([...names]);
@@ -90,7 +95,7 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
   const clientCalls = [];
   main.default(pi, {
     coordinatorEnabled: () => false,
-    startupCampaignId: () => null,
+    startupCampaignId: () => hostFaults.startupCampaignId ?? null,
     ...(compiler === undefined ? {} : { createStateClaimCompiler: () => compiler }),
     createClient: () => ({
       async callTool(name, params) {
@@ -164,6 +169,89 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
     hideRead() { hideRead = true; },
   };
 }
+
+const startupResumeSuccessMessage = (campaignId) => ({
+  role: "toolResult",
+  toolCallId: "startup-resume-call",
+  toolName: "coc_session_resume",
+  content: [{
+    type: "text",
+    text: JSON.stringify({
+      ok: true,
+      tool: "session.resume",
+      data: { schema_version: 1, campaign_id: campaignId, mode: "awaiting_player" },
+    }),
+  }],
+  isError: false,
+});
+
+const thinkingOnlyFinal = () => ({
+  role: "assistant",
+  stopReason: "stop",
+  content: [{ type: "thinking", thinking: "resume succeeded; prepare play" }],
+});
+
+const startupFollowUps = (h) => h.sent.filter((row) => (
+  row.message?.customType === STARTUP_RESUME_CUSTOM_TYPE
+  && row.options?.deliverAs === "followUp"
+));
+
+test("startup resume thinking-only terminal delivers one bounded hidden follow-up", async () => {
+  const campaignId = "startup-empty-recovery";
+  const h = makeHarness(
+    (_name, params) => ({ ok: true, tool: params.operation, data: {} }),
+    undefined,
+    { startupCampaignId: campaignId },
+  );
+  await h.start();
+  await h.emit("message_start", {
+    role: "user", content: [{ type: "text", text: "开始游戏。" }],
+  });
+  await h.emit("message_end", startupResumeSuccessMessage(campaignId));
+  await h.emit("message_end", thinkingOnlyFinal());
+  const delivered = startupFollowUps(h);
+  assert.equal(delivered.length, 1);
+  assert.deepEqual(delivered[0].options, {
+    triggerTurn: true,
+    deliverAs: "followUp",
+  });
+  assert.match(delivered[0].message.content, /session\.resume/u);
+  await h.emit("message_end", thinkingOnlyFinal());
+  assert.equal(startupFollowUps(h).length, 1);
+});
+
+test("failed startup empty follow-up delivery remains retryable exactly once", async () => {
+  const campaignId = "startup-empty-retry";
+  let failures = 1;
+  const h = makeHarness(
+    (_name, params) => ({ ok: true, tool: params.operation, data: {} }),
+    undefined,
+    {
+      startupCampaignId: campaignId,
+      beforeSendMessage(message, options) {
+        if (
+          message?.customType === STARTUP_RESUME_CUSTOM_TYPE
+          && options?.deliverAs === "followUp"
+          && failures > 0
+        ) {
+          failures -= 1;
+          throw new Error("injected startup follow-up delivery failure");
+        }
+      },
+    },
+  );
+  await h.start();
+  await h.emit("message_start", {
+    role: "user", content: [{ type: "text", text: "开始游戏。" }],
+  });
+  await h.emit("message_end", startupResumeSuccessMessage(campaignId));
+  await h.emit("message_end", thinkingOnlyFinal());
+  assert.equal(startupFollowUps(h).length, 0);
+  await h.emit("message_end", thinkingOnlyFinal());
+  assert.equal(startupFollowUps(h).length, 1);
+  await h.emit("message_end", thinkingOnlyFinal());
+  assert.equal(startupFollowUps(h).length, 1);
+});
 
 test("/system opens one hidden bounded recovery scope and restores normal tools", async () => {
   await withPlayHarness(async (h) => {
