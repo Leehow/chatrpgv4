@@ -46,7 +46,7 @@ def test_push_luck_is_independently_source_accepted_without_promotion():
     assert manifest["family_coverage"]["push-luck"] == "accepted"
     assert manifest["review_status"] == "accepted"
     assert manifest["reviewer_identity"] == (
-        "codex-rule-families-core-social-source-review-20260831:push-luck"
+        "codex-execgraph-core-push-social-review-20260831:push-luck-v2"
     )
     assert manifest["graph_content_digest"] == acceptor.rg._json_digest(graph)
     assert manifest["shards"] == [{
@@ -81,6 +81,40 @@ def test_push_luck_acceptance_has_no_unresolved_applicable_rule_marker():
         "decision:coc7:push-luck:luck-roll",
     ):
         assert required in nodes
+
+
+def test_push_luck_executable_decisions_require_durable_receipt_and_grant():
+    graph = _accepted("push-luck", "rule-graph.json")
+    nodes = {row["node_id"]: row for row in graph["nodes"]}
+    relations = {row["relation_id"]: row for row in graph["relations"]}
+
+    for ref in (
+        "decision:coc7:push-luck:pushed-roll",
+        "decision:coc7:push-luck:luck-spend",
+    ):
+        impl = nodes[ref]["properties"]["implementation"]
+        slots = {row["name"]: row["ownership"] for row in impl["payload_slots"]}
+        assert impl["phase"] == "resolve"
+        assert slots["canonical_roll_receipt"] == "host-locked"
+        assert slots["continuation_grant"] == "host-locked"
+
+    assert nodes["condition:coc7:push-luck:original-failed"]["hard_gate"] is True
+    assert nodes["condition:coc7:push-luck:not-already-pushed"]["hard_gate"] is True
+    assert nodes["condition:coc7:push-luck:receipt-luck-adjustable"]["hard_gate"] is True
+    assert nodes["subsystem:coc7:canonical-roll-ledger"]["properties"] == {
+        "subsystem_kind": "canonical-roll-receipt-ledger"
+    }
+    for relation_id in (
+        "relation:coc7:push-luck:push-locks-receipt",
+        "relation:coc7:push-luck:push-locks-grant",
+        "relation:coc7:push-luck:spend-locks-receipt",
+        "relation:coc7:push-luck:spend-locks-grant",
+    ):
+        assert relations[relation_id]["relation_kind"] == "locks-input"
+    assert relations["relation:coc7:push-luck:grant-requires-ledger"]["relation_kind"] == "requires-fact"
+    blob = json.dumps(graph, sort_keys=True).casefold()
+    assert "process-local" not in blob
+    assert "_session_accepted" not in blob
 
 
 def test_push_luck_source_acceptance_regenerates_byte_identically(tmp_path):

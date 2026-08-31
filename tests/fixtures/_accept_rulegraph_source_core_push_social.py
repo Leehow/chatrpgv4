@@ -32,6 +32,7 @@ PDF_SHA256 = "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
 REVIEWER_ROOT = "codex-rule-families-core-social-source-review-20260831"
 EXECUTABLE_REVIEWERS = {
     "core-check": "codex-execgraph-core-push-social-review-20260831:core-check-v2",
+    "push-luck": "codex-execgraph-core-push-social-review-20260831:push-luck-v2",
 }
 
 
@@ -196,6 +197,20 @@ def push_luck_candidate(packet: dict[str, Any]) -> dict[str, Any]:
     ))
     for row in nodes:
         row["evidence_span_ids"] = list(evidence)
+        if row["node_id"] in {
+            "condition:coc7:push-luck:original-failed",
+            "condition:coc7:push-luck:not-already-pushed",
+        }:
+            row["hard_gate"] = True
+        if row["node_id"] in {
+            "decision:coc7:push-luck:pushed-roll",
+            "decision:coc7:push-luck:luck-spend",
+        }:
+            slots = row["properties"]["implementation"]["payload_slots"]
+            slots.extend([
+                {"name": "canonical_roll_receipt", "ownership": "host-locked"},
+                {"name": "continuation_grant", "ownership": "host-locked"},
+            ])
 
     additions = [
         _node(
@@ -235,6 +250,69 @@ def push_luck_candidate(packet: dict[str, Any]) -> dict[str, Any]:
             evidence=evidence,
         ),
         _node(
+            "rule:coc7:push-luck:canonical-continuation-hydration",
+            "rule",
+            "Push and Luck decisions hydrate the original canonical persisted roll receipt and a machine-issued continuation grant; caller-supplied or ephemeral receipt identity cannot authorize execution",
+            properties={"family_id": "push-luck"},
+            evidence=evidence,
+        ),
+        _node(
+            "condition:coc7:push-luck:receipt-luck-adjustable",
+            "condition",
+            "The canonical source receipt has an adjustable non-critical, non-fumble skill or characteristic outcome",
+            audience="host-internal",
+            visibility="keeper-only",
+            hard_gate=True,
+            properties={
+                "family_id": "push-luck",
+                "expression": {
+                    "op": "any",
+                    "of": [
+                        {"op": "eq", "path": "receipt.last_outcome", "value": value}
+                        for value in ("failure", "regular", "hard", "extreme")
+                    ],
+                },
+            },
+            evidence=evidence,
+        ),
+        _node(
+            "subsystem:coc7:canonical-roll-ledger",
+            "subsystem",
+            "Canonical persisted roll receipt and continuation-grant ledger",
+            audience="host-internal",
+            visibility="keeper-only",
+            properties={"subsystem_kind": "canonical-roll-receipt-ledger"},
+            evidence=evidence,
+        ),
+        _node(
+            "input-slot:coc7:push-luck:canonical-roll-receipt",
+            "input-slot",
+            "Canonical persisted source roll receipt hydrated by the host",
+            audience="host-internal",
+            visibility="keeper-only",
+            properties={
+                "family_id": "push-luck",
+                "ownership": "host-locked",
+                "value_type": "object",
+                "path": "canonical_roll_receipt",
+            },
+            evidence=evidence,
+        ),
+        _node(
+            "input-slot:coc7:push-luck:continuation-grant",
+            "input-slot",
+            "Machine-issued persistent continuation grant bound to the source receipt and actor",
+            audience="host-internal",
+            visibility="keeper-only",
+            properties={
+                "family_id": "push-luck",
+                "ownership": "host-locked",
+                "value_type": "object",
+                "path": "continuation_grant",
+            },
+            evidence=evidence,
+        ),
+        _node(
             "visibility-policy:coc7:push-luck:public-roll",
             "visibility-policy",
             "Push and Luck continuations preserve the visibility of their authoritative roll evidence",
@@ -251,6 +329,8 @@ def push_luck_candidate(packet: dict[str, Any]) -> dict[str, Any]:
         _relation("relation:coc7:push-luck:goal-time-part-of", "part-of", "rule:coc7:push-luck:goal-time-difficulty", family_id, evidence),
         _relation("relation:coc7:push-luck:luck-limits-part-of", "part-of", "rule:coc7:push-luck:luck-spend-limits", family_id, evidence),
         _relation("relation:coc7:push-luck:luck-recovery-part-of", "part-of", "rule:coc7:push-luck:luck-recovery", family_id, evidence),
+        _relation("relation:coc7:push-luck:hydration-part-of", "part-of", "rule:coc7:push-luck:canonical-continuation-hydration", family_id, evidence),
+        _relation("relation:coc7:push-luck:hydration-invokes-push", "invokes", "rule:coc7:push-luck:canonical-continuation-hydration", "capability:coc7:push-policy", evidence),
         _relation("relation:coc7:push-luck:fumble-forbids-push", "forbids", "exception:coc7:push-luck:fumble-final", "decision:coc7:push-luck:pushed-roll", evidence),
         _relation("relation:coc7:push-luck:scope-applies-push", "applies-to", "rule:coc7:push-luck:eligible-scope", "decision:coc7:push-luck:pushed-roll", evidence),
         _relation("relation:coc7:push-luck:goal-time-applies-push", "applies-to", "rule:coc7:push-luck:goal-time-difficulty", "decision:coc7:push-luck:pushed-roll", evidence),
@@ -259,6 +339,13 @@ def push_luck_candidate(packet: dict[str, Any]) -> dict[str, Any]:
         _relation("relation:coc7:push-luck:spend-invokes", "invokes", "decision:coc7:push-luck:luck-spend", "capability:coc7:luck-spend", evidence),
         _relation("relation:coc7:push-luck:original-failed-available", "available-when", "decision:coc7:push-luck:pushed-roll", "condition:coc7:push-luck:original-failed", evidence),
         _relation("relation:coc7:push-luck:not-pushed-available", "available-when", "decision:coc7:push-luck:pushed-roll", "condition:coc7:push-luck:not-already-pushed", evidence),
+        _relation("relation:coc7:push-luck:spend-receipt-available", "available-when", "decision:coc7:push-luck:luck-spend", "condition:coc7:push-luck:receipt-luck-adjustable", evidence),
+        _relation("relation:coc7:push-luck:spend-not-pushed-available", "available-when", "decision:coc7:push-luck:luck-spend", "condition:coc7:push-luck:not-already-pushed", evidence),
+        _relation("relation:coc7:push-luck:push-locks-receipt", "locks-input", "decision:coc7:push-luck:pushed-roll", "input-slot:coc7:push-luck:canonical-roll-receipt", evidence),
+        _relation("relation:coc7:push-luck:push-locks-grant", "locks-input", "decision:coc7:push-luck:pushed-roll", "input-slot:coc7:push-luck:continuation-grant", evidence),
+        _relation("relation:coc7:push-luck:spend-locks-receipt", "locks-input", "decision:coc7:push-luck:luck-spend", "input-slot:coc7:push-luck:canonical-roll-receipt", evidence),
+        _relation("relation:coc7:push-luck:spend-locks-grant", "locks-input", "decision:coc7:push-luck:luck-spend", "input-slot:coc7:push-luck:continuation-grant", evidence),
+        _relation("relation:coc7:push-luck:grant-requires-ledger", "requires-fact", "input-slot:coc7:push-luck:continuation-grant", "subsystem:coc7:canonical-roll-ledger", evidence),
     ])
     candidate = {
         "contract_id": rg.CANDIDATE_CONTRACT_ID,

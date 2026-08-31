@@ -10,11 +10,11 @@
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "8639622fd5783a3764fd89bb68a156809a73e84f67c8f6e33f2cdbd6c4cbe8f5",
+  "graph_content_digest": "70f94e3e57ced25ef6e75c9306762ebe47cc84ae1b967562f1edf6c8e681d51d",
   "shards": [
     {
       "shard_id": "shard:coc7:push-luck:section-push-luck-source-accepted",
-      "shard_digest": "45461185335b290b40219142580ed8eae76945eb9c8644fb7f7021fe06e974e6"
+      "shard_digest": "60ced25cf756f2b96a58eb111d0e9b83c84c10717b51134904a138be55c7401c"
     }
   ],
   "family_coverage": {
@@ -84,7 +84,7 @@
     "push_policy"
   ],
   "compiler_identity": "coc.rule-graph-compiler.v1",
-  "reviewer_identity": "codex-rule-families-core-social-source-review-20260831:push-luck",
+  "reviewer_identity": "codex-execgraph-core-push-social-review-20260831:push-luck-v2",
   "review_status": "accepted",
   "findings": [
     {

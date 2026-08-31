@@ -72,7 +72,7 @@
       "authority": "deterministic",
       "audience": "host-internal",
       "visibility": "keeper-only",
-      "hard_gate": false,
+      "hard_gate": true,
       "properties": {
         "expression": {
           "op": "neq",
@@ -103,7 +103,7 @@
       "authority": "deterministic",
       "audience": "host-internal",
       "visibility": "keeper-only",
-      "hard_gate": false,
+      "hard_gate": true,
       "properties": {
         "expression": {
           "op": "eq",
@@ -111,6 +111,57 @@
           "value": "failure"
         },
         "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:push-luck:receipt-luck-adjustable",
+      "node_kind": "condition",
+      "name": "The canonical source receipt has an adjustable non-critical, non-fumble skill or characteristic outcome",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": true,
+      "properties": {
+        "family_id": "push-luck",
+        "expression": {
+          "op": "any",
+          "of": [
+            {
+              "op": "eq",
+              "path": "receipt.last_outcome",
+              "value": "failure"
+            },
+            {
+              "op": "eq",
+              "path": "receipt.last_outcome",
+              "value": "regular"
+            },
+            {
+              "op": "eq",
+              "path": "receipt.last_outcome",
+              "value": "hard"
+            },
+            {
+              "op": "eq",
+              "path": "receipt.last_outcome",
+              "value": "extreme"
+            }
+          ]
+        }
       },
       "evidence_span_ids": [
         "span-push-luck-source-accepted-page-100-block-47",
@@ -425,6 +476,14 @@
             {
               "name": "original_check_decision_id",
               "ownership": "host-locked"
+            },
+            {
+              "name": "canonical_roll_receipt",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "continuation_grant",
+              "ownership": "host-locked"
             }
           ]
         },
@@ -500,6 +559,14 @@
             },
             {
               "name": "skill",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "canonical_roll_receipt",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "continuation_grant",
               "ownership": "host-locked"
             }
           ]
@@ -611,6 +678,64 @@
       "hard_gate": false,
       "properties": {
         "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:push-luck:canonical-roll-receipt",
+      "node_kind": "input-slot",
+      "name": "Canonical persisted source roll receipt hydrated by the host",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "push-luck",
+        "ownership": "host-locked",
+        "value_type": "object",
+        "path": "canonical_roll_receipt"
+      },
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:push-luck:continuation-grant",
+      "node_kind": "input-slot",
+      "name": "Machine-issued persistent continuation grant bound to the source receipt and actor",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "push-luck",
+        "ownership": "host-locked",
+        "value_type": "object",
+        "path": "continuation_grant"
       },
       "evidence_span_ids": [
         "span-push-luck-source-accepted-page-100-block-47",
@@ -908,6 +1033,32 @@
       ]
     },
     {
+      "node_id": "rule:coc7:push-luck:canonical-continuation-hydration",
+      "node_kind": "rule",
+      "name": "Push and Luck decisions hydrate the original canonical persisted roll receipt and a machine-issued continuation grant; caller-supplied or ephemeral receipt identity cannot authorize execution",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
       "node_id": "rule:coc7:push-luck:consequences-locked",
       "node_kind": "rule",
       "name": "Keeper states the failure consequence and the player changes approach before the push is confirmed",
@@ -1099,6 +1250,32 @@
       "hard_gate": false,
       "properties": {
         "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
+      "node_id": "subsystem:coc7:canonical-roll-ledger",
+      "node_kind": "subsystem",
+      "name": "Canonical persisted roll receipt and continuation-grant ledger",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "subsystem_kind": "canonical-roll-receipt-ledger"
       },
       "evidence_span_ids": [
         "span-push-luck-source-accepted-page-100-block-47",
@@ -1315,6 +1492,66 @@
       "relation_id": "relation:coc7:push-luck:goal-time-part-of",
       "relation_kind": "part-of",
       "from_node_id": "rule:coc7:push-luck:goal-time-difficulty",
+      "to_node_id": "rule-family:coc7:push-luck",
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:grant-requires-ledger",
+      "relation_kind": "requires-fact",
+      "from_node_id": "input-slot:coc7:push-luck:continuation-grant",
+      "to_node_id": "subsystem:coc7:canonical-roll-ledger",
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:hydration-invokes-push",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:push-luck:canonical-continuation-hydration",
+      "to_node_id": "capability:coc7:push-policy",
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:hydration-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:push-luck:canonical-continuation-hydration",
       "to_node_id": "rule-family:coc7:push-luck",
       "evidence_span_ids": [
         "span-push-luck-source-accepted-page-100-block-47",
@@ -1596,6 +1833,46 @@
       ]
     },
     {
+      "relation_id": "relation:coc7:push-luck:push-locks-grant",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:push-luck:pushed-roll",
+      "to_node_id": "input-slot:coc7:push-luck:continuation-grant",
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:push-locks-receipt",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:push-luck:pushed-roll",
+      "to_node_id": "input-slot:coc7:push-luck:canonical-roll-receipt",
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
       "relation_id": "relation:coc7:push-luck:requires-consequence",
       "relation_kind": "requires-input",
       "from_node_id": "decision:coc7:push-luck:pushed-roll",
@@ -1692,6 +1969,86 @@
       "relation_kind": "invokes",
       "from_node_id": "decision:coc7:push-luck:luck-spend",
       "to_node_id": "capability:coc7:luck-spend",
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:spend-locks-grant",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:push-luck:luck-spend",
+      "to_node_id": "input-slot:coc7:push-luck:continuation-grant",
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:spend-locks-receipt",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:push-luck:luck-spend",
+      "to_node_id": "input-slot:coc7:push-luck:canonical-roll-receipt",
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:spend-not-pushed-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:push-luck:luck-spend",
+      "to_node_id": "condition:coc7:push-luck:not-already-pushed",
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:spend-receipt-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:push-luck:luck-spend",
+      "to_node_id": "condition:coc7:push-luck:receipt-luck-adjustable",
       "evidence_span_ids": [
         "span-push-luck-source-accepted-page-100-block-47",
         "span-push-luck-source-accepted-page-101-block-58",
