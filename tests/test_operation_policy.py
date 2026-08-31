@@ -352,17 +352,17 @@ def test_check_and_resource_delta_are_host_internal_not_keeper_visible():
     assert "rules.settle" in live_rules
 
 
-def test_rules_context_is_keeper_context_not_ordinary_rules_surface():
+def test_rules_context_is_keeper_visible_on_the_normal_rules_surface():
     policy = coc_toolbox.operation_policy("rules.context")
     assert policy["audience"] == "keeper"
-    assert policy["kp_surface"] == "context"
+    assert policy["kp_surface"] == "rules"
     assert policy["phases"] == ["live_turn"]
-    assert policy["discovery"] == "exact"
-    assert "rules.context" not in coc_toolbox.query_operations(
-        audience="keeper", kp_surface="context", phase="live_turn",
+    assert policy["discovery"] == "surface"
+    assert "rules.context" in coc_toolbox.query_operations(
+        audience="keeper", kp_surface="rules", phase="live_turn",
         discovery="surface",
     )
-    assert "rules.context" not in coc_toolbox.query_operations(kp_surface="rules")
+    assert "rules.context" not in coc_toolbox.query_operations(kp_surface="context")
 
 
 def test_rules_settle_schema_has_no_model_controlled_rng_seed():

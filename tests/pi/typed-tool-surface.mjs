@@ -128,8 +128,8 @@ test("live play hides legacy Psychology while preserving its host schema", () =>
   const play = domain.activeToolsForPhase("live_turn", "play");
   const psychology = hostProjectedTool("rules.psychology_observe");
   assert.ok(!play.includes("coc_rules_psychology_observe"));
-  assert.ok(catalog.byOperation.has("rules.context"));
-  assert.ok(catalog.byOperation.has("rules.settle"));
+  assert.ok(play.includes("coc_rules_context"));
+  assert.ok(play.includes("coc_rules_settle"));
   assert.match(psychology.description, /Keeper-concealed Psychology observation/);
   assert.match(psychology.description, /settle once per explicit observer\/NPC\/conversation\/revision window/i);
   assert.match(psychology.description, /player-safe realization/);
@@ -230,8 +230,8 @@ test("utility-level explicit null preserves legacy wrappers while typed roles hi
     assert.ok(!setup.includes(wrapper), `setup must hide ${wrapper}`);
   }
   assert.ok(!play.includes("coc_rules_roll"));
-  assert.ok(catalog.byOperation.has("rules.context"));
-  assert.ok(catalog.byOperation.has("rules.settle"));
+  assert.ok(play.includes("coc_rules_context"));
+  assert.ok(play.includes("coc_rules_settle"));
   assert.ok(play.includes("coc_npc_reaction"));
   assert.ok(play.includes("coc_turn_finalize"));
   assert.ok(play.includes("coc_state_journal"));
@@ -452,8 +452,8 @@ test("table_opening and open_turn_recovery keep typed closure, not generic wrapp
   assert.ok(opening.includes("coc_session_resume"));
   assert.ok(!live.includes("coc_rules_roll"));
   assert.ok(!live.includes("coc_rules_social_adjudicate"));
-  assert.ok(catalog.byOperation.has("rules.context"));
-  assert.ok(catalog.byOperation.has("rules.settle"));
+  assert.ok(live.includes("coc_rules_context"));
+  assert.ok(live.includes("coc_rules_settle"));
   assert.ok(recovery.includes("coc_session_resume"));
   assert.ok(recovery.includes("coc_turn_finalize"));
   assert.ok(recovery.includes("coc_state_journal"));

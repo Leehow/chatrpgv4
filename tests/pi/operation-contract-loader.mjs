@@ -75,7 +75,8 @@ test("policy filters are pure and do not invent operations", () => {
   assert.ok(!setup.includes("rules.roll"));
   assert.equal(policyMod.OPERATION_POLICY["magic.cast"].discovery, "exact");
   assert.equal(policyMod.OPERATION_POLICY["magic.learn"].kp_surface, "none");
-  assert.equal(policyMod.OPERATION_POLICY["rules.context"].kp_surface, "context");
+  assert.equal(policyMod.OPERATION_POLICY["rules.context"].kp_surface, "rules");
+  assert.equal(policyMod.OPERATION_POLICY["rules.context"].discovery, "surface");
   assert.equal(policyMod.OPERATION_POLICY["rules.settle"].kp_surface, "rules");
 });
 

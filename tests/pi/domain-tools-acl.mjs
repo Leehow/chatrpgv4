@@ -801,7 +801,7 @@ const openTurnAuthorization = {
 for (const [operation, toolName] of [
   ["scene.context", "coc_context"],
   ["actions.list", "coc_context"],
-  ["rules.context", "coc_context"],
+  ["rules.context", "coc_rules"],
   ["rules.settle", "coc_rules"],
 ]) {
   const allowed = mod.evaluateExecuteAcl({
@@ -896,7 +896,7 @@ const graphHealingLegacy = [
   "rules.weekly_recovery",
 ];
 const rulesOps = mod.domainToolSchema("coc_rules").properties.operation.enum;
-assert.ok(!rulesOps.includes("rules.context"));
+assert.ok(rulesOps.includes("rules.context"));
 assert.ok(rulesOps.includes("rules.settle"));
 for (const operation of graphHealingLegacy) {
   assert.ok(!rulesOps.includes(operation), operation);
@@ -914,10 +914,15 @@ const settleAllowed = mod.evaluateExecuteAcl({
 });
 assert.equal(settleAllowed.ok, true);
 assert.equal(mod.evaluateExecuteAcl({
-  toolName: "coc_context",
+  toolName: "coc_rules",
   operation: "rules.context",
   phase: "live_turn",
 }).ok, true);
+assert.equal(mod.evaluateExecuteAcl({
+  toolName: "coc_context",
+  operation: "rules.context",
+  phase: "live_turn",
+}).ok, false);
 assert.ok(!mod.domainToolSchema("coc_context").properties.operation.enum.includes(
   "rules.context",
 ));

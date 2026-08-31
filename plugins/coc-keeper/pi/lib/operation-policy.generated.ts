@@ -706,9 +706,9 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     "advisory": true,
     "audience": "keeper",
     "contract": "none",
-    "discovery": "exact",
+    "discovery": "surface",
     "execution_class": "parallel_read",
-    "kp_surface": "context",
+    "kp_surface": "rules",
     "phases": [
       "live_turn"
     ]
@@ -1827,6 +1827,7 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "rules.build_scale",
     "rules.cash_assets",
     "rules.catalog_search",
+    "rules.context",
     "rules.damage",
     "rules.roll_dice",
     "rules.settle",

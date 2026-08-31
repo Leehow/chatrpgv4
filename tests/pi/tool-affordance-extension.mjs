@@ -1358,7 +1358,7 @@ const healingSceneData = (card = PRODUCTION_HEALING_DECISION_CARD) => ({
   recovery: { healing: healingCardBlock(card) },
 });
 
-test("RuleDecisionCard survives resume, scene, exact context, and typed settle", async () => {
+test("RuleDecisionCard survives resume, scene, baseline context, and typed settle", async () => {
   const forwarded = [];
   const resumeEnvelope = {
     ok: true,
@@ -1413,21 +1413,24 @@ test("RuleDecisionCard survives resume, scene, exact context, and typed settle",
       1,
       JSON.stringify(h.active.at(-1)),
     );
+    assert.equal(
+      h.active.at(-1).filter((name) => name === "coc_rules_context").length,
+      1,
+      JSON.stringify(h.active.at(-1)),
+    );
     for (const legacy of [
-      "coc_rules_first_aid", "coc_rules_dying_check",
-      "coc_rules_medicine", "coc_rules_weekly_recovery",
+      "coc_rules_roll", "coc_rules_opposed", "coc_rules_push", "coc_rules_luck_spend",
+      "coc_rules_social_adjudicate", "coc_rules_psychology_observe",
+      "coc_rules_first_aid", "coc_rules_dying_check", "coc_rules_medicine",
+      "coc_rules_weekly_recovery", "coc_combat_context", "coc_combat_resolve",
+      "coc_combat_end", "coc_chase_context", "coc_chase_execute",
+      "coc_rules_sanity_check", "coc_sanity_context", "coc_sanity_execute",
+      "coc_magic_cast", "coc_magic_learn", "coc_development_settle",
+      "coc_state_end_session",
     ]) {
       assert.equal(h.active.at(-1).includes(legacy), false, legacy);
     }
 
-    const loaded = JSON.parse((await h.tools.get("coc_discover").execute(
-      "load-rule-context",
-      { operation: "rules.context" },
-      undefined,
-      undefined,
-      h.ctx,
-    )).content[0].text);
-    assert.equal(loaded.ok, true, JSON.stringify(loaded));
     const exactContext = await h.tools.get("coc_rules_context").execute(
       "ruledecision-exact-context",
       {

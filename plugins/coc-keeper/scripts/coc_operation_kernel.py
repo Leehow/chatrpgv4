@@ -7113,7 +7113,7 @@ def _project_healing_decision_cards(
 
 
 def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
-    """Exact-discovery ``rules.context``. Grants stay host-internal."""
+    """Keeper-visible ``rules.context``. Grants stay host-internal."""
     family = str(args.get("family") or "healing").strip() or "healing"
     investigator_id: str | None = None
     try:

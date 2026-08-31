@@ -48,7 +48,7 @@ def test_mcp_archive_and_generated_policy_are_deterministic():
         assert name not in projection["operations_by_surface"]["rules"]
     assert "rules.settle" in projection["operations_by_surface"]["rules"]
     assert "rules.context" not in projection["operations_by_surface"]["context"]
-    assert "rules.context" not in projection["operations_by_surface"]["rules"]
+    assert "rules.context" in projection["operations_by_surface"]["rules"]
     regenerated = module.archive_to_canonical_bytes(archive)
     again = module.archive_to_canonical_bytes(module.build_archive(coc_toolbox))
     assert regenerated == again

@@ -1935,7 +1935,7 @@ def register_operations(registry) -> None:
 )(_tool_rules_settle)
     registry.tool(
     "rules.context",
-    "Exact-discovery RuleGraph context for one compiled family. Absent from ordinary play working sets; load only by exact operation name. Cards are affordances, never action gates.",
+    "Keeper-visible RuleGraph context for one compiled family. Read the current semantic decision cards before rules.settle; cards are affordances, never action gates.",
     rule_context_schema,
     access="query",
     read_domains=("party", "mechanics"),

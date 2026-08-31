@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:97180e8c5e8a5968dc1daa37434444eb27df91a4a75cf80dcfd2fbee9130f5fe",
+  "content_sha256": "sha256:3917db63e82accdfeb257a7541fb42279879d71422188b269ce39a4598b22bc5",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -3327,7 +3327,7 @@
     "rules.context": {
       "access": "query",
       "canonical_operation": "rules.context",
-      "description": "Exact-discovery RuleGraph context for one compiled family. Absent from ordinary play working sets; load only by exact operation name. Cards are affordances, never action gates. Canonical operation `rules.context`; the result envelope is authoritative.",
+      "description": "Keeper-visible RuleGraph context for one compiled family. Read the current semantic decision cards before rules.settle; cards are affordances, never action gates. Canonical operation `rules.context`; the result envelope is authoritative.",
       "execution_class": "parallel_read",
       "inputSchema": {
         "additionalProperties": false,
@@ -3383,13 +3383,13 @@
         "advisory": true,
         "audience": "keeper",
         "contract": "none",
-        "discovery": "exact",
-        "kp_surface": "context",
+        "discovery": "surface",
+        "kp_surface": "rules",
         "phases": [
           "live_turn"
         ]
       },
-      "summary": "Exact-discovery RuleGraph context for one compiled family. Absent from ordinary play working sets; load only by exact operation name. Cards are affordances, never action gates."
+      "summary": "Keeper-visible RuleGraph context for one compiled family. Read the current semantic decision cards before rules.settle; cards are affordances, never action gates."
     },
     "rules.damage": {
       "access": "mutation",

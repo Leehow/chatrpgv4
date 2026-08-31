@@ -229,7 +229,8 @@ const STAGE_CAPABILITIES: Readonly<Record<TurnProgressStage, StageCapability>> =
 const PLAY_ACTING_BASELINE = [
   "scene.context",
   "actions.list",
-  "rules.roll",
+  "rules.context",
+  "rules.settle",
   "npc.query",
   "state.journal",
 ] as const;

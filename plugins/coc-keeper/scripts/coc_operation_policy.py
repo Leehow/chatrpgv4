@@ -530,14 +530,14 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
         "kp_surface": "context",
     },
     "rules.context": {
-        # Exact-discovery only (spec §8.3): absent from ordinary acting
-        # baselines; loadable only by exact operation name. Keep it a
-        # keeper context read so execute-time ACL can allow an exact load.
+        # RuleGraph applicability is a normal Keeper read. Keep it beside
+        # rules.settle so the model can inspect a current card before settling
+        # instead of falling back to hidden legacy operations.
         "contract": "none",
         "advisory": True,
-        "kp_surface": "context",
+        "kp_surface": "rules",
         "phases": ("live_turn",),
-        "discovery": "exact",
+        "discovery": "surface",
     },
     # R5: low-level package primitives leave the Keeper working set.
     # Live Keepers use rules.roll for ordinary checks; graph effects invoke
