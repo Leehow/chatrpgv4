@@ -19,11 +19,21 @@ unknown reliability after failure.
 The derivative candidate's `disguise-uncompiled` and
 `truth-mapping-uncompiled` exception claims were not retained. Both behaviors
 are directly stated by the cited pages and are represented as accepted rules.
-Runtime-only window identity, persistence, and transport details are outside
-the rulebook claim and are not asserted by this shard.
+The executable graph now separates the existing typed phases:
+
+- `observe-concealed` invokes `psychology_check_contract` in `settle` phase;
+- `realize-player-safe` invokes `psychology_policy` in `realize` phase and is
+  linked to the existing player-safe projection capability.
+
+Question and external behavior remain semantic inputs. Investigator/NPC,
+conversation window, observation revision/scope, grounded fact references,
+inference ceiling, and the frozen observation receipt are explicitly
+host-locked. The observe decision continues directly to the realization
+decision; no process-local identity or generic `psychology_runtime` placeholder
+is represented by the accepted shard.
 
 Accepted shard:
 `shard:coc7:psychology:section-psychology-complete-source`.
 
 Accepted shard digest:
-`6499014cfac0a26f1eaaa308fb80c38521e4df0355398d40e0731b241d28f527`.
+`3fb296962f7e86ef33126d7359ffbeb9d1e2c6cabeebe1d776d669f87ff37b2c`.

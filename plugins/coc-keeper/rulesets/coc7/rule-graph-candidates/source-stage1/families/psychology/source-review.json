@@ -16,7 +16,7 @@
     ]
   },
   "accepted_shard_id": "shard:coc7:psychology:section-psychology-complete-source",
-  "accepted_shard_digest": "6499014cfac0a26f1eaaa308fb80c38521e4df0355398d40e0731b241d28f527",
+  "accepted_shard_digest": "3fb296962f7e86ef33126d7359ffbeb9d1e2c6cabeebe1d776d669f87ff37b2c",
   "coverage": "accepted",
   "unresolved_applicable_rules": [],
   "applicability_ledger": [
@@ -61,5 +61,10 @@
       "source_group": "uncertain"
     }
   ],
-  "runtime_integration_blockers": []
+  "runtime_integration_blockers": [],
+  "executable_decisions": [
+    "decision:coc7:psychology:observe-concealed",
+    "decision:coc7:psychology:realize-player-safe"
+  ],
+  "unresolved_executable_rules": []
 }

@@ -252,6 +252,158 @@ def prepare(bundle_root: Path, family: str) -> tuple[dict[str, Any], dict[str, A
     return result["shard"], normalized
 
 
+def _psychology_executable(
+    groups: Mapping[str, list[str]], all_spans: list[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    family = "psychology"
+    observe = "decision:coc7:psychology:observe-concealed"
+    realize = "decision:coc7:psychology:realize-player-safe"
+    check_cap = "capability:coc7:psychology-check-contract"
+    policy_cap = "capability:coc7:psychology-policy"
+    projection_cap = "capability:coc7:psychology-realization-public-projection"
+    nodes: list[dict[str, Any]] = [
+        node(
+            family, check_cap, "capability",
+            "Existing resolver Psychology observation contract", all_spans,
+            properties={
+                "family_id": family,
+                "resolver_capability": "psychology_check_contract",
+                "adapter": "resolver",
+            },
+        ),
+        node(
+            family, policy_cap, "capability",
+            "Existing resolver Psychology outcome policy", all_spans,
+            properties={
+                "family_id": family,
+                "resolver_capability": "psychology_policy",
+                "adapter": "resolver",
+            },
+        ),
+        node(
+            family, projection_cap, "capability",
+            "Existing player-safe Psychology realization projection", all_spans,
+            properties={
+                "family_id": family,
+                "resolver_capability": "psychology_realization_public_projection",
+                "adapter": "resolver",
+            },
+        ),
+        node(
+            family, observe, "decision",
+            "Settle one Keeper-concealed Psychology observation window",
+            all_spans, authority="mixed", audience="keeper",
+            visibility="concealed-result",
+            properties={
+                "family_id": family,
+                "implementation": {
+                    "adapter": "resolver",
+                    "kind": "psychology_check_contract",
+                    "phase": "settle",
+                    "payload_constants": {},
+                    "payload_slots": [
+                        {"name": "question", "ownership": "player-source"},
+                        {"name": "investigator_id", "ownership": "host-locked"},
+                        {"name": "npc_id", "ownership": "host-locked"},
+                        {"name": "observer_skill", "ownership": "host-locked"},
+                        {"name": "target_opposing_social", "ownership": "host-locked"},
+                        {"name": "conversation_window_id", "ownership": "host-locked"},
+                        {"name": "observation_revision", "ownership": "host-locked"},
+                        {"name": "observer_scope", "ownership": "host-locked"},
+                        {"name": "observable_fact_refs", "ownership": "host-locked"},
+                    ],
+                },
+            },
+        ),
+        node(
+            family, realize, "decision",
+            "Realize one frozen Psychology observation as player-safe behavior",
+            all_spans, authority="mixed", audience="keeper", visibility="public",
+            properties={
+                "family_id": family,
+                "implementation": {
+                    "adapter": "resolver",
+                    "kind": "psychology_policy",
+                    "phase": "realize",
+                    "payload_constants": {},
+                    "payload_slots": [
+                        {"name": "external_behavior", "ownership": "keeper-semantic"},
+                        {"name": "inference_ceiling", "ownership": "host-locked"},
+                        {"name": "observation_receipt_ref", "ownership": "host-locked"},
+                    ],
+                },
+            },
+        ),
+        node(
+            family, "visibility-policy:coc7:psychology:concealed-observe",
+            "visibility-policy", "Observation die and outcome remain Keeper-concealed",
+            groups["concealed"], properties={"policy": "concealed-result"},
+        ),
+        node(
+            family, "visibility-policy:coc7:psychology:player-safe-realize",
+            "visibility-policy", "Only external behavior is player-visible",
+            sorted(set(groups["truth"] + groups["uncertain"])),
+            properties={"policy": "public"},
+        ),
+    ]
+    slot_specs = (
+        ("question", "player-source", "string", "intent.method", observe),
+        ("investigator-id", "host-locked", "string", "actor.id", observe),
+        ("npc-id", "host-locked", "string", "actor.id", observe),
+        ("observer-skill", "host-locked", "int", "actor.sheet.psychology", observe),
+        ("target-opposing-social", "host-locked", "int", "actor.sheet.opposing_social", observe),
+        ("conversation-window-id", "host-locked", "string", "receipt.last_outcome", observe),
+        ("observation-revision", "host-locked", "int", "receipt.last_outcome", observe),
+        ("observer-scope", "host-locked", "string", "receipt.last_outcome", observe),
+        ("observable-fact-refs", "host-locked", "object", "receipt.last_outcome", observe),
+        ("external-behavior", "keeper-semantic", "string", "intent.method", realize),
+        ("inference-ceiling", "host-locked", "string", "receipt.last_outcome", realize),
+        ("observation-receipt-ref", "host-locked", "string", "receipt.last_outcome", realize),
+    )
+    relations: list[dict[str, Any]] = [
+        relation(family, "observe-invokes-contract", "invokes", observe, check_cap, all_spans),
+        relation(family, "realize-invokes-policy", "invokes", realize, policy_cap, all_spans),
+        relation(family, "policy-implemented-by-public-projection", "implemented-by", policy_cap, projection_cap, all_spans),
+        relation(family, "observe-continues-as-realize", "continues-as", observe, realize, all_spans),
+        relation(
+            family, "concealed-policy-applies-observe", "applies-to",
+            "visibility-policy:coc7:psychology:concealed-observe", observe,
+            groups["concealed"],
+        ),
+        relation(
+            family, "public-policy-applies-realize", "applies-to",
+            "visibility-policy:coc7:psychology:player-safe-realize", realize,
+            sorted(set(groups["truth"] + groups["uncertain"])),
+        ),
+    ]
+    for slug, ownership, value_type, path, decision_ref in slot_specs:
+        slot_id = f"input-slot:coc7:psychology:{slug}"
+        nodes.append(node(
+            family, slot_id, "input-slot", slug.replace("-", " "), all_spans,
+            properties={
+                "family_id": family,
+                "ownership": ownership,
+                "value_type": value_type,
+                "path": path,
+            },
+        ))
+        relations.append(relation(
+            family, f"{decision_ref.rsplit(':', 1)[-1]}-{slug}",
+            "locks-input" if ownership == "host-locked" else "requires-input",
+            decision_ref, slot_id, all_spans,
+        ))
+    observe_groups = {"skill", "concealed", "opposition", "difficulty", "disguise"}
+    for slug, _name, group in RULES[family]:
+        rule_id = f"rule:coc7:{family}:{slug}"
+        capability = check_cap if group in observe_groups else policy_cap
+        decision_ref = observe if group in observe_groups else realize
+        relations.extend([
+            relation(family, f"{slug}-invokes-capability", "invokes", rule_id, capability, groups[group]),
+            relation(family, f"{slug}-applies-to-decision", "applies-to", rule_id, decision_ref, groups[group]),
+        ])
+    return nodes, relations
+
+
 def build_candidate(packet: Mapping[str, Any], family: str) -> dict[str, Any]:
     groups = {
         key: spans_for(packet, phrases)
@@ -285,54 +437,47 @@ def build_candidate(packet: Mapping[str, Any], family: str) -> dict[str, Any]:
             groups[group],
         ))
 
-    subsystem_id = f"subsystem:coc7:{family}"
-    capability_id = f"capability:coc7:{family}-runtime"
-    decision_id = f"decision:coc7:{family}:resolve"
-    nodes.extend([
-        node(
-            family,
-            subsystem_id,
-            "subsystem",
-            f"Canonical {family} subsystem",
-            all_spans,
-            properties={"subsystem_kind": family},
-        ),
-        node(
-            family,
-            capability_id,
-            "capability",
-            f"Legacy {family} runtime capability",
-            all_spans,
-            properties={
-                "family_id": family,
-                "resolver_capability": f"{family}_runtime",
-                "adapter": "subsystem",
-            },
-        ),
-        node(
-            family,
-            decision_id,
-            "decision",
-            f"Resolve one source-governed {family} action",
-            all_spans,
-            authority="mixed",
-            audience="keeper",
-            visibility="public",
-        ),
-    ])
-    relations.extend([
-        relation(family, "decision-invokes-runtime", "invokes", decision_id, capability_id, all_spans),
-        relation(family, "runtime-implemented-by-subsystem", "implemented-by", capability_id, subsystem_id, all_spans),
-    ])
-    for slug, _name, group in RULES[family]:
-        relations.append(relation(
-            family,
-            f"{slug}-applies-to-resolve",
-            "applies-to",
-            f"rule:coc7:{family}:{slug}",
-            decision_id,
-            groups[group],
-        ))
+    if family == "psychology":
+        executable_nodes, executable_relations = _psychology_executable(
+            groups, all_spans,
+        )
+        nodes.extend(executable_nodes)
+        relations.extend(executable_relations)
+        capability_id = "capability:coc7:psychology-check-contract"
+    else:
+        subsystem_id = f"subsystem:coc7:{family}"
+        capability_id = f"capability:coc7:{family}-runtime"
+        decision_id = f"decision:coc7:{family}:resolve"
+        nodes.extend([
+            node(
+                family, subsystem_id, "subsystem",
+                f"Canonical {family} subsystem", all_spans,
+                properties={"subsystem_kind": family},
+            ),
+            node(
+                family, capability_id, "capability",
+                f"Legacy {family} runtime capability", all_spans,
+                properties={
+                    "family_id": family,
+                    "resolver_capability": f"{family}_runtime",
+                    "adapter": "subsystem",
+                },
+            ),
+            node(
+                family, decision_id, "decision",
+                f"Resolve one source-governed {family} action", all_spans,
+                authority="mixed", audience="keeper", visibility="public",
+            ),
+        ])
+        relations.extend([
+            relation(family, "decision-invokes-runtime", "invokes", decision_id, capability_id, all_spans),
+            relation(family, "runtime-implemented-by-subsystem", "implemented-by", capability_id, subsystem_id, all_spans),
+        ])
+        for slug, _name, group in RULES[family]:
+            relations.append(relation(
+                family, f"{slug}-applies-to-resolve", "applies-to",
+                f"rule:coc7:{family}:{slug}", decision_id, groups[group],
+            ))
 
     table_specs = {
         "psychology": (),
@@ -423,6 +568,12 @@ def build_family(bundle_root: Path, family: str) -> dict[str, Any]:
         "applicability_ledger": ledger,
         "runtime_integration_blockers": runtime_blockers(family),
     }
+    if family == "psychology":
+        review["executable_decisions"] = sorted(
+            node["node_id"] for node in candidate["nodes"]
+            if node["node_kind"] == "decision"
+        )
+        review["unresolved_executable_rules"] = []
     return {"candidate": candidate, "envelope": envelope, "review": review}
 
 

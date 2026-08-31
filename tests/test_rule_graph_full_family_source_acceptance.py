@@ -51,7 +51,9 @@ def test_psychology_is_source_accepted_with_complete_applicability_ledger():
     assert review["unresolved_applicable_rules"] == []
     assert review["runtime_integration_blockers"] == []
     assert review["accepted_shard_digest"] == shard["receipt"]["shard_sha256"]
-    assert len(review["accepted_shard_digest"]) == 64
+    assert review["accepted_shard_digest"] == (
+        "3fb296962f7e86ef33126d7359ffbeb9d1e2c6cabeebe1d776d669f87ff37b2c"
+    )
     assert review["reviewer_identity"] == (
         "codex-worker-psychology-source-review-20260831"
     )
@@ -70,6 +72,61 @@ def test_psychology_is_source_accepted_with_complete_applicability_ledger():
     assert {node["node_id"] for node in candidate["nodes"] if node["node_kind"] == "rule"} == expected
     assert not any(node["node_kind"] == "exception" for node in candidate["nodes"])
     assert all(node.get("evidence_span_ids") for node in candidate["nodes"])
+    decisions = {
+        node["node_id"]: node for node in candidate["nodes"]
+        if node["node_kind"] == "decision"
+    }
+    assert set(decisions) == {
+        "decision:coc7:psychology:observe-concealed",
+        "decision:coc7:psychology:realize-player-safe",
+    }
+    assert review["executable_decisions"] == sorted(decisions)
+    assert review["unresolved_executable_rules"] == []
+    assert decisions["decision:coc7:psychology:observe-concealed"]["properties"][
+        "implementation"
+    ]["phase"] == "settle"
+    assert decisions["decision:coc7:psychology:realize-player-safe"]["properties"][
+        "implementation"
+    ]["phase"] == "realize"
+    capabilities = {
+        node["node_id"]: node["properties"]["resolver_capability"]
+        for node in candidate["nodes"] if node["node_kind"] == "capability"
+    }
+    assert capabilities == {
+        "capability:coc7:psychology-check-contract": "psychology_check_contract",
+        "capability:coc7:psychology-policy": "psychology_policy",
+        "capability:coc7:psychology-realization-public-projection": (
+            "psychology_realization_public_projection"
+        ),
+    }
+    assert "psychology_runtime" not in json.dumps(candidate)
+    relations = candidate["relations"]
+    for decision_ref in decisions:
+        assert len([
+            row for row in relations
+            if row["from_node_id"] == decision_ref
+            and row["relation_kind"] == "invokes"
+        ]) == 1
+    assert any(
+        row["relation_kind"] == "continues-as"
+        and row["from_node_id"] == "decision:coc7:psychology:observe-concealed"
+        and row["to_node_id"] == "decision:coc7:psychology:realize-player-safe"
+        for row in relations
+    )
+    realize_locked = {
+        row["name"] for row in decisions[
+            "decision:coc7:psychology:realize-player-safe"
+        ]["properties"]["implementation"]["payload_slots"]
+        if row["ownership"] == "host-locked"
+    }
+    assert realize_locked == {"inference_ceiling", "observation_receipt_ref"}
+    assert all(
+        any(
+            row["from_node_id"] == rule_id and row["relation_kind"] == "invokes"
+            for row in relations
+        )
+        for rule_id in expected
+    )
 
 
 def test_psychology_family_regenerates_deterministically_when_source_is_available():
