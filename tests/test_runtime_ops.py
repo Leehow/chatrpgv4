@@ -1769,6 +1769,63 @@ def test_development_settle_applies_structured_scenario_san_reward(tmp_path):
     assert reward_event["conclusion_id"] == "corbitt-destroyed"
 
 
+def test_development_settle_applies_white_war_mission_san_reward(tmp_path):
+    """The White War's 1D3 conclusion reward uses the canonical ending path."""
+    character = _workspace(tmp_path)
+    campaign = tmp_path / ".coc" / "campaigns" / "camp"
+    module_rules = ops.coc_rules.module_rules("the-white-war")["rules"]
+    reward_rule = module_rules["conclusion_sanity_rewards"]
+    assert reward_rule["mission_completed_reward"] == "1D3 SAN"
+
+    scene_id = "white-war-mission-conclusion"
+    scenario = campaign / "scenario"
+    scenario.mkdir(parents=True, exist_ok=True)
+    (scenario / "story-graph.json").write_text(json.dumps({
+        "scenes": [{
+            "scene_id": scene_id,
+            "conclusion_contract": {
+                "conclusion_id": "white-war-mission-completed",
+                "requires_combat_outcome": "investigators_win",
+                "session_ending": True,
+                "sanity_reward": {
+                    "die": "1D3",
+                    "rule_ref": reward_rule["source_rule_id"],
+                },
+            },
+        }],
+    }), encoding="utf-8")
+    _seed_structured_combat_conclusion(campaign, scene_id=scene_id)
+    _persist_current_ending(campaign, {
+        "event_type": "session_ending",
+        "scene_id": scene_id,
+        "kind": "conclusion",
+        "decision_id": "white-war-structured-ending",
+        "ts": "2026-07-15T00:00:00Z",
+    })
+
+    receipt = ops.execute_operation(
+        tmp_path,
+        campaign_id="camp",
+        investigator_id="inv",
+        character_path=character,
+        operation={"schema_version": 1, "kind": "development.settle", "payload": {}},
+        rng_seed=13,
+    )
+
+    assert receipt["result"]["scenario_san_reward_expr"] == "1D3"
+    reward = receipt["result"]["scenario_san_reward"]
+    assert reward["expression"] == "1D3"
+    assert 1 <= reward["total"] <= 3
+    reward_event = next(
+        row for row in _read_jsonl(campaign / "logs" / "events.jsonl")
+        if row.get("event_type") == "reward"
+    )
+    assert reward_event["rule_ref"] == (
+        "module.white_war.conclusion_sanity_rewards"
+    )
+    assert reward_event["conclusion_id"] == "white-war-mission-completed"
+
+
 def test_same_structured_conclusion_reward_is_consumed_once_across_endings(
     tmp_path,
 ):
