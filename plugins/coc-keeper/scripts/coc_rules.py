@@ -129,7 +129,7 @@ def combined_roll_rule() -> dict[str, Any]:
         "roll_count": int(table["roll_count"]),
         "minimum_compared_targets": int(table["minimum_compared_targets"]),
         "requires_compared_targets": bool(table["requires_compared_targets"]),
-        "success_if_roll_lte_any_target": bool(table["success_if_roll_lte_any_target"]),
+        "comparison_modes": [str(value) for value in table["comparison_modes"]],
     }
 
 

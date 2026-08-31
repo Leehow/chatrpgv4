@@ -5,7 +5,7 @@
     "roll_count": 1,
     "minimum_compared_targets": 2,
     "requires_compared_targets": true,
-    "success_if_roll_lte_any_target": true,
+    "comparison_modes": ["any", "all"],
     "source_note": "Keeper Rulebook p.92: one investigator makes one D100 roll and compares it with two or more named skills; the Keeper declares whether all or any named skills must succeed. Generic multi-investigator help uses separate-roll or situation-specific procedures and does not grant helper bonus dice here."
   },
   "opposed_roll": {

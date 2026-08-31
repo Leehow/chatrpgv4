@@ -149,12 +149,12 @@
       "id": "core.combined_roll",
       "category": "roll_procedure",
       "source_table": "combat.json",
-      "source_note": "Combined checks use one roll compared against more than one relevant target.",
+      "source_note": "Combined checks use one investigator's one roll compared against more than one relevant skill; the Keeper declares whether any or all named skills must succeed.",
       "numeric": {
         "roll_count": 1,
         "single_roll": true,
         "minimum_compared_targets": 2,
-        "success_if_roll_lte_any_target": true
+        "comparison_modes": ["any", "all"]
       }
     },
     {

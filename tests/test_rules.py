@@ -101,7 +101,7 @@ def test_combined_roll_rule_uses_structured_table():
         "roll_count": 1,
         "minimum_compared_targets": 2,
         "requires_compared_targets": True,
-        "success_if_roll_lte_any_target": True,
+        "comparison_modes": ["any", "all"],
     }
 
 
