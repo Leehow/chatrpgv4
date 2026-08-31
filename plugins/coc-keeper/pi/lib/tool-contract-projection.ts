@@ -3182,6 +3182,10 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["entity_id", "price_id", "ruleset_id"],
     [],
   )],
+  ["rules.skill_describe", declaredIdentityTable(
+    ["catalog_skill_ids"],
+    [],
+  )],
   ["rules.context", declaredIdentityTable(
     RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS,
     [],
@@ -3486,6 +3490,45 @@ function projectDiscoveredIdentityField(
   const identityNamed = DISCOVERY_IDENTITY_NAME.test(field)
     || DISCOVERY_INFRA_NAME.test(field);
   if (!identityNamed) return null;
+  // rules.skill_describe uses the canonical skill names themselves as its
+  // catalog identities (for example "Library Use" and
+  // "Firearms (Rifle/Shotgun)"). They are meaning-bearing rule vocabulary,
+  // not generic slug-shaped entity ids, so validate them against the opaque
+  // identity boundary without forcing the generic slug grammar.
+  if (
+    operation === "rules.skill_describe"
+    && field === "catalog_skill_ids"
+  ) {
+    if (!Array.isArray(value)) {
+      diagnostics?.unmapped.push({
+        field,
+        parentField,
+        domain: "skill_catalog",
+        path: fieldPath,
+      });
+      return { action: "drop" };
+    }
+    const members: string[] = [];
+    for (const entry of value) {
+      const safe = typeof entry === "string"
+        && entry.length > 0
+        && entry.length <= 160
+        && entry === entry.trim()
+        && !RAW_REJECTED_PREFIXES.some((prefix) => entry.startsWith(prefix))
+        && !violatesSemanticIdentityGrammar(entry);
+      if (safe) {
+        members.push(entry);
+      } else {
+        diagnostics?.unmapped.push({
+          field,
+          parentField,
+          domain: "skill_catalog",
+          path: fieldPath,
+        });
+      }
+    }
+    return { action: "keep", value: members };
+  }
   // Closed field classification: an identity/integrity-bearing path that is
   // neither operation-local nor part of the shared model-authored grammar is
   // unknown STRING evidence — it fails closed regardless of value shape. A
