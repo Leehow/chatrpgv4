@@ -57,7 +57,9 @@ turn, player input, journal row, or recovery tool scope. Ordinary
 
 Constraints:
 
-- 1–4 semantic lane ids; duplicates and opaque ids fail closed.
+- 1–20 semantic lane ids; duplicates and opaque ids fail closed. Explicit
+  `concurrency` is 1–`min(20, lane count)`; when omitted it remains
+  `min(2, lane count)`.
 - Profiles are `production`, the narrow graph-only
   `rules-director-single-draft` profile, or `rules-all-single-draft`. The last
   profile keeps the full production play skills and working set while

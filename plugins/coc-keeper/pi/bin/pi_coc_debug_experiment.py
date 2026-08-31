@@ -72,6 +72,8 @@ _POST_FINALIZATION_ALLOWED_PATHS = (
     _POST_FINALIZATION_AUDIT_PATHS | _POST_FINALIZATION_OVERLAY_PATHS
 )
 _MAX_POST_FINALIZATION_OVERLAY_BYTES = 64 * 1024 * 1024
+_MAX_LANES = 20
+_MAX_CONCURRENCY = 20
 
 
 class DebugExperimentError(Exception):
@@ -124,9 +126,10 @@ def _normalize_run_spec(raw: Any) -> dict[str, Any]:
     )
     player_input = _nonempty_text(spec.get("player_input"), label="player_input")
     raw_lanes = spec.get("lanes")
-    if not isinstance(raw_lanes, list) or not 1 <= len(raw_lanes) <= 4:
+    if not isinstance(raw_lanes, list) or not 1 <= len(raw_lanes) <= _MAX_LANES:
         raise DebugExperimentError(
-            "debug_request_invalid", "lanes must contain between 1 and 4 cases",
+            "debug_request_invalid",
+            f"lanes must contain between 1 and {_MAX_LANES} cases",
         )
     lanes: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -158,12 +161,13 @@ def _normalize_run_spec(raw: Any) -> dict[str, Any]:
     if (
         not isinstance(concurrency, int)
         or isinstance(concurrency, bool)
-        or not 1 <= concurrency <= 4
+        or not 1 <= concurrency <= _MAX_CONCURRENCY
         or concurrency > len(lanes)
     ):
         raise DebugExperimentError(
             "debug_request_invalid",
-            "concurrency must be an integer from 1 to min(4, lane count)",
+            "concurrency must be an integer from 1 to "
+            f"min({_MAX_CONCURRENCY}, lane count)",
         )
     raw_record = spec.get("record", list(_DEFAULT_RECORD))
     if not isinstance(raw_record, list) or any(not isinstance(row, str) for row in raw_record):
