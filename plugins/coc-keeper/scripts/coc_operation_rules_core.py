@@ -1303,6 +1303,22 @@ def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
         from coc_operation_kernel_runtime import _tool_sanity_execute
         return _tool_sanity_execute(active_ctx, active_args)
 
+    def magic_cast(active_ctx: Ctx, active_args: dict[str, Any]):
+        from coc_operation_kernel_runtime import _tool_magic_cast
+        return _tool_magic_cast(active_ctx, active_args)
+
+    def magic_learn(active_ctx: Ctx, active_args: dict[str, Any]):
+        from coc_operation_kernel_runtime import _tool_magic_learn
+        return _tool_magic_learn(active_ctx, active_args)
+
+    def end_session(active_ctx: Ctx, active_args: dict[str, Any]):
+        from coc_operation_kernel_runtime import _tool_state_end_session
+        return _tool_state_end_session(active_ctx, active_args)
+
+    def development_settle(active_ctx: Ctx, active_args: dict[str, Any]):
+        from coc_operation_kernel_runtime import _tool_development_settle
+        return _tool_development_settle(active_ctx, active_args)
+
     return dispatch_rules_settle(
         ctx,
         args,
@@ -1327,6 +1343,10 @@ def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
             "sanity.context": sanity_execute,
             "time.recover_temporary_insanity": sanity_execute,
             "time.apply_psychoanalysis_treatment": sanity_execute,
+            "magic.cast": magic_cast,
+            "magic.learn": magic_learn,
+            "state.end_session": end_session,
+            "development.settle": development_settle,
         },
     )
 

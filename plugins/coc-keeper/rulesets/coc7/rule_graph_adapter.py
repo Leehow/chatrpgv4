@@ -119,6 +119,14 @@ _SANITY_SETTLE_DECISION_REFS = (
     "decision:coc7:sanity:apply-treatment",
     "decision:coc7:sanity:recover-temporary",
 )
+_MAGIC_SETTLE_DECISION_REFS = (
+    "decision:coc7:magic:cast-spell",
+    "decision:coc7:magic:learn-spell",
+)
+_DEVELOPMENT_SETTLE_DECISION_REFS = (
+    "decision:coc7:development:end-session",
+    "decision:coc7:development:settle-ending",
+)
 _GROUP_ONE_SETTLE_DECISION_REFS = (
     *_HEALING_SETTLE_DECISION_REFS,
     *_CORE_SETTLE_DECISION_REFS,
@@ -127,6 +135,8 @@ _GROUP_ONE_SETTLE_DECISION_REFS = (
     *_PSYCHOLOGY_SETTLE_DECISION_REFS,
     *_COMBAT_SETTLE_DECISION_REFS,
     *_SANITY_SETTLE_DECISION_REFS,
+    *_MAGIC_SETTLE_DECISION_REFS,
+    *_DEVELOPMENT_SETTLE_DECISION_REFS,
 )
 
 
@@ -405,6 +415,12 @@ class Coc7RuleGraphAdapter:
                     "gain_source": {"type": "string"},
                     "insight": {"type": "string"},
                     "outcome": {"type": "string"},
+                    "spell": {"type": "string"},
+                    "pushed": {"type": "boolean"},
+                    "interrupted": {"type": "boolean"},
+                    "source": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "kind": {"type": "string"},
                 },
             },
             "decision_id": {
@@ -438,6 +454,7 @@ class Coc7RuleGraphAdapter:
                     "healing", "core-check", "push-luck", "social", "psychology",
                     "combat",
                     "sanity",
+                    "magic", "development",
                 ],
                 "desc": "source-accepted compiled family",
             },
@@ -471,6 +488,8 @@ class Coc7RuleGraphAdapter:
             "psychology": ("rules.psychology_observe",),
             "combat": ("combat.context", "combat.resolve", "combat.end"),
             "sanity": ("rules.sanity_check", "sanity.context", "sanity.execute"),
+            "magic": ("magic.cast", "magic.learn"),
+            "development": ("state.end_session", "development.settle"),
         }
         overrides: dict[str, dict[str, Any]] = {}
         any_graph_visible = False
@@ -520,6 +539,10 @@ class Coc7RuleGraphAdapter:
             "sanity.session.reality_check": {"adapter": "sanity.execute"},
             "time.recover_temporary_insanity": {"adapter": "sanity.execute"},
             "time.apply_psychoanalysis_treatment": {"adapter": "sanity.execute"},
+            "magic.cast": {"adapter": "typed_operation"},
+            "magic.learn": {"adapter": "typed_operation"},
+            "state.end_session": {"adapter": "typed_operation"},
+            "development.settle": {"adapter": "typed_operation"},
         }
 
     @staticmethod
@@ -716,6 +739,17 @@ class Coc7RuleGraphAdapter:
                 binding = (
                     selected.get("_host_sanity_binding")
                     if isinstance(selected.get("_host_sanity_binding"), Mapping)
+                    else {}
+                )
+                for key, value in binding.items():
+                    if value is not None:
+                        locked[str(key)] = _thaw(value)
+            elif decision_ref in (
+                *_MAGIC_SETTLE_DECISION_REFS, *_DEVELOPMENT_SETTLE_DECISION_REFS,
+            ):
+                binding = (
+                    selected.get("_host_family_binding")
+                    if isinstance(selected.get("_host_family_binding"), Mapping)
                     else {}
                 )
                 for key, value in binding.items():
@@ -1048,6 +1082,26 @@ class Coc7RuleGraphAdapter:
                 "phase": phase,
                 "payload": command_payload,
             }
+        elif capability in {"magic.cast", "magic.learn"}:
+            out.update({
+                "spell": payload.get("spell"),
+            })
+            if capability == "magic.cast":
+                out.update({
+                    "pushed": payload.get("pushed") is True,
+                    "interrupted": payload.get("interrupted") is True,
+                    "is_npc": payload.get("is_npc") is True,
+                })
+            else:
+                out["source"] = payload.get("source")
+        elif capability == "state.end_session":
+            out.update({
+                "summary": payload.get("summary"),
+                "kind": payload.get("kind"),
+            })
+        elif capability == "development.settle":
+            if payload.get("ending_id") is not None:
+                out["ending_id"] = payload.get("ending_id")
         else:
             raise tool_error(
                 "unsupported_ruleset_operation",

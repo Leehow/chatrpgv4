@@ -7468,6 +7468,22 @@ def dispatch_rules_settle(
             investigator_id=investigator_id,
             semantic_inputs=semantic_inputs,
         )
+    if family == "magic":
+        selected["_host_family_binding"] = {
+            "investigator": investigator_id,
+            "is_npc": False,
+        }
+    if family == "development":
+        binding: dict[str, Any] = {"investigator": investigator_id}
+        if decision_ref.endswith(":settle-ending"):
+            ending = coc_development.structured_ending_evidence(ctx.campaign_dir)
+            if not isinstance(ending, Mapping):
+                raise ToolError(
+                    "settlement_unavailable",
+                    "development.settle requires a persisted ending receipt",
+                )
+            binding["ending_id"] = ending.get("ending_id")
+        selected["_host_family_binding"] = binding
     ruleset_adapter = getattr(runtime, "_ruleset_adapter", None)
     if ruleset_adapter is None:
         raise ToolError(
