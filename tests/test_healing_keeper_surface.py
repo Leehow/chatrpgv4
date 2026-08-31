@@ -39,7 +39,7 @@ def test_mcp_archive_and_generated_policy_are_deterministic():
     spec.loader.exec_module(module)
     archive = module.build_archive(coc_toolbox)
     projection = module.build_policy_projection(coc_toolbox)
-    assert archive["operation_count"] == 145
+    assert archive["operation_count"] == 147
     assert "rules.settle" in archive["operations"]
     assert "rules.context" in archive["operations"]
     for name in HEALING_LEGACY_OPERATIONS:
