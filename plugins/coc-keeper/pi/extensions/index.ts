@@ -4358,6 +4358,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       | {
         candidate_id: string;
         invocation_mode: "pending_defense";
+        allowed_defenses: Array<"dodge" | "fight_back" | "dive_for_cover" | "none">;
       }
     >;
   };
@@ -7088,12 +7089,34 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         : identity.revision;
     const candidates: CombatBindingFacts["candidates"] = [];
     if (pendingDefense !== null) {
+      const allowedDefenseValues = Array.isArray(pendingDefense.allowed_defenses)
+        ? pendingDefense.allowed_defenses
+        : [];
+      const allowedDefenseKinds = allowedDefenseValues.filter((value): value is (
+        "dodge" | "fight_back" | "dive_for_cover" | "none"
+      ) => (
+        value === "dodge"
+        || value === "fight_back"
+        || value === "dive_for_cover"
+        || value === "none"
+      ));
+      if (
+        allowedDefenseKinds.length === 0
+        || allowedDefenseKinds.length !== allowedDefenseValues.length
+        || new Set(allowedDefenseKinds).size !== allowedDefenseKinds.length
+      ) {
+        currentCombatBindingFacts = null;
+        clearTypedBinding("combat.resolve");
+        applyKpActiveTools();
+        return;
+      }
       const combatId = typeof combatValue?.combat_id === "string"
         ? combatValue.combat_id.trim()
         : "current";
       candidates.push({
         candidate_id: `defend-pending:${combatId}:revision-${combatRevision}`,
         invocation_mode: "pending_defense",
+        allowed_defenses: allowedDefenseKinds,
       });
     } else {
       const scene = currentSceneBindingFacts;

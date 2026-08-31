@@ -1758,16 +1758,51 @@ test("scene context directly binds a single combat target without combat context
     assert.equal(discovered.ok, true, JSON.stringify(discovered));
     for (const field of [
       "root", "campaign", "decision_id", "candidate_id", "target_npc_id",
+      "defense_kind",
     ]) {
       assert.equal(Object.hasOwn(
         discovered.data.operation_card.parameters.properties,
         field,
       ), false, field);
     }
+    assert.ok(discovered.data.operation_card.parameters.required.includes("action_kind"));
+    assert.ok(discovered.data.operation_card.parameters.required.includes("weapon_id"));
+
+    const callsBeforeMismatch = forwarded.filter(
+      (params) => params.operation === "combat.resolve",
+    ).length;
+    for (const [callId, modelArguments] of [
+      ["reject-defense-as-attack", {
+        investigator: "current-investigator",
+        defense_kind: "dodge",
+      }],
+      ["reject-maneuver-as-attack", {
+        investigator: "current-investigator",
+        action_kind: "maneuver",
+        weapon_id: "unarmed",
+      }],
+    ]) {
+      const rejected = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
+        callId,
+        modelArguments,
+        undefined,
+        undefined,
+        h.ctx,
+      )).content[0].text);
+      assert.equal(rejected.ok, false, JSON.stringify(rejected));
+      assert.equal(rejected.error.code, "semantic_candidate_stale");
+    }
+    assert.equal(forwarded.filter(
+      (params) => params.operation === "combat.resolve",
+    ).length, callsBeforeMismatch, "semantic mismatches never reach canonical combat");
 
     const resolved = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
       "direct-combat-resolve",
-      { investigator: "current-investigator" },
+      {
+        investigator: "current-investigator",
+        action_kind: "attack",
+        weapon_id: "unarmed",
+      },
       undefined,
       undefined,
       h.ctx,
@@ -1779,6 +1814,8 @@ test("scene context directly binds a single combat target without combat context
     assert.equal(combatCall.campaign, "tool-affordance-campaign");
     assert.equal(combatCall.arguments.investigator, "thomas-hayes");
     assert.equal(combatCall.arguments.target_npc_id, "walter-corbitt");
+    assert.equal(combatCall.arguments.weapon_id, "unarmed");
+    assert.equal(Object.hasOwn(combatCall.arguments, "action_kind"), false);
     assert.match(combatCall.arguments.decision_id, /^pi-combat-resolve:/u);
   }, (_name, params) => {
     forwarded.push(structuredClone(params));
@@ -1808,7 +1845,10 @@ test("scene combat choices are explicit and combat context replaces them authori
     cache: { revision: "combat-context:pending-defense" },
     data: {
       active: true,
-      pending_defense: { defender: "thomas-hayes" },
+      pending_defense: {
+        defender: "thomas-hayes",
+        allowed_defenses: ["dodge", "fight_back"],
+      },
       combat: { value: { combat_id: "corbitt", revision: 3 } },
     },
   };
@@ -1842,9 +1882,17 @@ test("scene combat choices are explicit and combat context replaces them authori
       defenseDiscovery.data.operation_card.parameters.properties,
       "candidate_id",
     ), false, "one pending defense replaces the earlier ambiguous attack choices");
+    assert.deepEqual(
+      defenseDiscovery.data.operation_card.parameters.properties.defense_kind.enum,
+      ["dodge", "fight_back"],
+    );
+    assert.equal(Object.hasOwn(
+      defenseDiscovery.data.operation_card.parameters.properties,
+      "weapon_id",
+    ), false);
     const defense = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
       "resolve-pending-defense",
-      { investigator: "current-investigator" },
+      { investigator: "current-investigator", defense_kind: "dodge" },
       undefined,
       undefined,
       h.ctx,
@@ -1855,6 +1903,7 @@ test("scene combat choices are explicit and combat context replaces them authori
     );
     assert.equal(Object.hasOwn(defenseCall.arguments, "target_npc_id"), false);
     assert.equal(Object.hasOwn(defenseCall.arguments, "affordance_id"), false);
+    assert.equal(defenseCall.arguments.defense_kind, "dodge");
     assert.match(defenseCall.arguments.decision_id, /^pi-combat-resolve:/u);
 
     await invokeCompat(h, "rearm-ambiguous-scene", "scene.context");
@@ -1928,13 +1977,14 @@ test("resume-projected combat tool rebinds before a stale tool object executes",
 
     await h.emit("message_start", {
       role: "user",
-      content: [{ type: "text", text: "我迎向科比特，准备闪避。" }],
+      content: [{ type: "text", text: "我迎向科比特，用拳头攻击。" }],
     });
     const resolved = JSON.parse((await resumeProjectedTool.execute(
       "stale-resume-projected-combat",
       {
         candidate_id: "attack:npc-walter-corbitt",
-        defense_kind: "dodge",
+        action_kind: "attack",
+        weapon_id: "unarmed",
         investigator: "current-investigator",
       },
       undefined,
@@ -1946,6 +1996,7 @@ test("resume-projected combat tool rebinds before a stale tool object executes",
       (params) => params.operation === "combat.resolve",
     );
     assert.equal(combatCall.arguments.target_npc_id, "npc-walter-corbitt");
+    assert.equal(combatCall.arguments.weapon_id, "unarmed");
     assert.equal(Object.hasOwn(combatCall.arguments, "candidate_id"), false);
     assert.match(
       combatCall.arguments.decision_id,
@@ -2009,7 +2060,11 @@ test("campaign-bound typed semantic calls use the active campaign before restora
 
     const combat = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
       "typed-active-campaign-combat",
-      { investigator: "current-investigator" },
+      {
+        investigator: "current-investigator",
+        action_kind: "attack",
+        weapon_id: "unarmed",
+      },
       undefined,
       undefined,
       h.ctx,
@@ -2726,7 +2781,11 @@ test("scene, precise-clock, and combat cards bind discovered production tools an
       ), false, field);
     }
     const combat = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
-      "combat-bound", { candidate_id: "attack:walter-corbitt" },
+      "combat-bound", {
+        candidate_id: "attack:walter-corbitt",
+        action_kind: "attack",
+        weapon_id: "unarmed",
+      },
       undefined, undefined, h.ctx,
     )).content[0].text);
     assert.equal(combat.ok, true);

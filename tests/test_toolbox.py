@@ -4315,6 +4315,25 @@ def test_combat_tool_persists_reloadable_session_and_public_rolls(campaign_ws):
     before_rolls = len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"))
     first = _run(campaign_ws, "combat.resolve", args)
     assert first["ok"] is True, first
+    investigator_turn = next(
+        event["turn"]
+        for event in first["data"]["events"]
+        if event.get("event_type") == "combat_turn_resolved"
+        and (event.get("turn") or {}).get("actor_id")
+        == campaign_ws["investigator_id"]
+    )
+    assert investigator_turn["resolution_hint"] == "opposed_melee"
+    assert any(
+        row.get("skill") == "Fighting (Brawl)"
+        for event in first["data"]["events"]
+        if event.get("event_type") == "combat_turn_resolved"
+        for row in event.get("roll_evidence", [])
+        if row.get("actor_id") == campaign_ws["investigator_id"]
+    )
+    assert all(
+        row["change"] == 0 and row["after"] == row["before"]
+        for row in first["data"]["player_state_receipt"]["loaded_ammunition"]
+    )
     repeated = _run(campaign_ws, "combat.resolve", {**args, "seed": 999})
     assert repeated["ok"] is True
     assert repeated["data"] == first["data"]
@@ -4577,6 +4596,13 @@ def test_combat_tool_routes_owned_firearm_without_illegal_melee_defense(campaign
     assert attack_events
     assert attack_events[0]["turn"]["resolution_hint"] == "firearm_attack"
     assert attack_events[0]["turn"]["defense_kind"] == "none"
+    revolver_ammo = next(
+        row
+        for row in resolved["data"]["player_state_receipt"]["loaded_ammunition"]
+        if row["weapon_id"] == "revolver_38_or_9mm"
+    )
+    assert revolver_ammo["change"] == -1
+    assert revolver_ammo["after"] == revolver_ammo["before"] - 1
 
 def test_combat_resolve_maps_inventory_rifle_item_id_to_sheet_skill(campaign_ws):
     investigator_id = campaign_ws["investigator_id"]
@@ -4801,6 +4827,7 @@ def test_floating_knife_roll_keeps_authored_pow_semantics(campaign_ws):
     pending = declared["data"]["pending_defense"]
     assert pending["actor_id"] == "walter-corbitt"
     assert pending["weapon_id"] == "floating-knife"
+    assert pending["allowed_defenses"] == ["dodge", "fight_back"]
 
     resolved = _run(
         campaign_ws,
