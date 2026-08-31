@@ -4820,7 +4820,7 @@ function projectSceneContextData(
 }
 
 function chaseSemanticHandle(
-  prefix: "actor" | "location",
+  prefix: "actor" | "location" | "chase",
   value: unknown,
   diagnostics: ProjectionIdentityDiagnostics | null,
   path: string,
@@ -5006,6 +5006,65 @@ function projectChaseContextData(
       model_command_fields: ["actor", "action"],
     },
   };
+}
+
+/**
+ * Chase mutation disposition: canonical join/path identities remain in
+ * host-only details, while the settled event and its mechanical changes stay
+ * visible to the Keeper.
+ */
+function projectChaseExecuteData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const results = (Array.isArray(data.results) ? data.results : []).map((raw) => {
+    if (!isPlainObject(raw)) return raw;
+    const events = (Array.isArray(raw.events) ? raw.events : []).map((event) => {
+      if (!isPlainObject(event)) return event;
+      const {
+        chase_id: chaseId,
+        source_command_id: _sourceCommandId,
+        ...substance
+      } = event;
+      if (typeof chaseId !== "string") return substance;
+      const slug = chaseId.startsWith("chase-")
+        ? chaseId.slice("chase-".length)
+        : chaseId;
+      const chase = chaseSemanticHandle(
+        "chase",
+        slug,
+        diagnostics,
+        "results.events.chase_id",
+      );
+      return chase === null ? substance : { ...substance, chase };
+    });
+    return {
+      ...(typeof raw.kind === "string" ? { kind: raw.kind } : {}),
+      ...(typeof raw.status === "string" ? { status: raw.status } : {}),
+      events,
+      ...(Object.hasOwn(raw, "pending_choice")
+        ? { pending_choice: raw.pending_choice }
+        : {}),
+    };
+  });
+  return sanitizeEnvelopeBranch(
+    {
+      ...(Object.hasOwn(data, "schema_version")
+        ? { schema_version: data.schema_version }
+        : {}),
+      ...(typeof data.authority === "string"
+        ? { authority: data.authority }
+        : {}),
+      ...(typeof data.investigator_id === "string"
+        ? { investigator: CURRENT_INVESTIGATOR_HANDLE }
+        : {}),
+      results,
+    },
+    semanticIds,
+    diagnostics,
+    "chase.execute",
+  ) as Record<string, unknown>;
 }
 
 /** Exact-discovery RuleGraph cards share the scene card projection contract. */
@@ -5286,6 +5345,8 @@ export function projectModelVisibleCanonicalResult(
       projected.data = projectSceneContextData(data, semanticIds, diagnostics);
     } else if (operation === "chase.context") {
       projected.data = projectChaseContextData(data, diagnostics);
+    } else if (operation === "chase.execute") {
+      projected.data = projectChaseExecuteData(data, semanticIds, diagnostics);
     } else if (operation === "rules.context") {
       projected.data = projectRulesContextData(data, semanticIds, diagnostics);
     } else if (operation === "npc.reaction") {

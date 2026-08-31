@@ -1038,6 +1038,24 @@ test("active chase context projects semantic move choices and host-binds execute
       h.ctx,
     )).content[0].text);
     assert.equal(executed.ok, true, JSON.stringify(executed));
+    assert.deepEqual(executed.data.results, [{
+      kind: "chase_move",
+      status: "completed",
+      events: [{
+        type: "advance",
+        position_before: 0,
+        new_position: 1,
+        location_label: "corridor",
+        actions_spent: 1,
+        event_type: "chase_moved",
+        chase: "chase:office-corridor",
+        revision: 2,
+      }],
+      pending_choice: null,
+    }]);
+    for (const forbidden of ["command_id", "source_command_id", "state_refs"]) {
+      assert.equal(JSON.stringify(executed).includes(`\"${forbidden}\"`), false);
+    }
     const call = forwarded.findLast((params) => (
       params.operation === "chase.execute"
     ));
@@ -1058,6 +1076,38 @@ test("active chase context projects semantic move choices and host-binds execute
     if (params.operation === "scene.context") return sceneEnvelope;
     if (params.operation === "chase.context") {
       return structuredClone(ACTIVE_CHASE_CONTEXT);
+    }
+    if (params.operation === "chase.execute") {
+      return {
+        ok: true,
+        tool: "chase.execute",
+        data: {
+          schema_version: 1,
+          authority: "deterministic_subsystem",
+          investigator_id: "thomas-hayes",
+          results: [{
+            command_id: "move-chase-office-corridor-revision-1",
+            kind: "chase_move",
+            status: "completed",
+            events: [{
+              type: "advance",
+              position_before: 0,
+              new_position: 1,
+              location_label: "corridor",
+              actions_spent: 1,
+              event_type: "chase_moved",
+              chase_id: "chase-office-corridor",
+              revision: 2,
+              source_command_id: "move-chase-office-corridor-revision-1",
+            }],
+            pending_choice: null,
+            state_refs: [
+              "save/chase.json",
+              "save/investigator-state/thomas-hayes.json#current_hp",
+            ],
+          }],
+        },
+      };
     }
     return { ok: true, tool: params.operation, data: { accepted: true } };
   });
