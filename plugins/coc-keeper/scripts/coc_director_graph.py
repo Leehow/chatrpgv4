@@ -784,20 +784,16 @@ def vocabulary_shard() -> dict[str, Any]:
             "node_kind": "storylet",
             "plane": "vocabulary",
             "name": row.get("title") or storylet_id,
-            "properties": {
-                "legacy_key": storylet_id, "payload": row, "ordinal": ordinal,
-            },
+            "properties": {"legacy_key": storylet_id, "ordinal": ordinal},
         })
 
-    for ordinal, (category, row) in enumerate(time_costs["categories"].items()):
+    for ordinal, category in enumerate(time_costs["categories"]):
         nodes.append({
             "node_id": f"time-cost-category:{_slug(category)}",
             "node_kind": "time-cost-category",
             "plane": "vocabulary",
             "name": category,
-            "properties": {
-                "legacy_key": category, "payload": row, "ordinal": ordinal,
-            },
+            "properties": {"legacy_key": category, "ordinal": ordinal},
         })
 
     relations: list[dict[str, Any]] = []

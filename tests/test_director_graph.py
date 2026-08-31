@@ -677,3 +677,28 @@ def test_sweep_states_its_limits():
         "a sweep where nothing changes a decision would mean the matrix is "
         "not exercising the doctrine at all"
     )
+
+
+def test_vocabulary_nodes_never_copy_the_body_they_name():
+    """no_body_copy_law.
+
+    storylet-library.json and time-costs.json stay the owning sources, and
+    coc_storylets / coc_time keep reading them. Embedding their records here
+    would create two copies of one semantics with no retirement owner — the
+    exact pattern this refactor exists to remove.
+    """
+    graph = _graph()
+    allowed = _contract()["node_property_keys"]
+    for node in graph["nodes"]:
+        if node["node_kind"] not in {"storylet", "time-cost-category"}:
+            continue
+        assert set(node["properties"]) == set(allowed[node["node_kind"]])
+        assert "payload" not in node["properties"], node["node_id"]
+
+
+def test_owning_json_sources_still_have_their_real_consumers():
+    """The graph names records; it does not replace their owners."""
+    storylets = (SCRIPTS / "coc_storylets.py").read_text(encoding="utf-8")
+    assert "storylet-library.json" in storylets
+    time_module = (SCRIPTS / "coc_time.py").read_text(encoding="utf-8")
+    assert "time-costs.json" in time_module

@@ -405,6 +405,12 @@ Corrections this specification needed:
    the first 199 segment counts, a 5-segment clock among them. It is stored as
    `[2, 3]`.
 5. **DebugExperiment is the wrong instrument for D5**, as recorded in §8.
+6. **Vocabulary nodes must not copy the record body they name.** D1 first
+   embedded the full storylet and time-cost payloads, which made the artifact
+   464KB and created a second copy of two package tables whose real consumers
+   (`coc_storylets`, `coc_time`) still read the originals — the very pattern
+   §1 lists as hollow delivery. The nodes now carry identity and order only;
+   the artifact is 170KB and a `no_body_copy_law` test keeps it that way.
 
 Cross-graph finding, recorded and not repaired: the Director selects the dying
 clock on a `"stabilized"` condition tag while the RuleGraph conditions key on
