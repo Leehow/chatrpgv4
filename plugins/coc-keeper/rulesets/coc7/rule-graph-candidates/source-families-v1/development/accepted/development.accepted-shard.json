@@ -1,0 +1,664 @@
+{
+  "contract_id": "coc.rule-graph-shard.v1",
+  "schema_version": 1,
+  "shard_id": "shard:coc7:development:section-development-phase-source",
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "family_id": "development",
+  "section_id": "section-development-phase-source",
+  "source_language": "en",
+  "coverage": {
+    "development": "accepted"
+  },
+  "nodes": [
+    {
+      "node_id": "rule-family:coc7:development",
+      "node_kind": "rule-family",
+      "name": "Complete source review for development",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development",
+        "runtime_ownership": "legacy",
+        "legacy_surface": "visible"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1",
+        "span-development-phase-source-page-105-block-2",
+        "span-development-phase-source-page-106-block-3",
+        "span-development-phase-source-page-106-block-4",
+        "span-development-phase-source-page-106-block-5",
+        "span-development-phase-source-page-110-block-6",
+        "span-development-phase-source-page-110-block-7",
+        "span-development-phase-source-page-180-block-10",
+        "span-development-phase-source-page-180-block-11",
+        "span-development-phase-source-page-180-block-8",
+        "span-development-phase-source-page-180-block-9"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:development:phase-timing",
+      "node_kind": "rule",
+      "name": "Development occurs at a scenario/chapter end or a suitable narrative pause",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:development:skill-ticks",
+      "node_kind": "rule",
+      "name": "A successful skill use earns one check; bonus-die-only successes and opposed losers do not",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:development:one-check-per-skill",
+      "node_kind": "rule",
+      "name": "Each checked skill receives at most one improvement roll per development phase",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-2"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:development:tick-exclusions",
+      "node_kind": "rule",
+      "name": "Cthulhu Mythos and Credit Rating never receive improvement checks",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:development:improvement",
+      "node_kind": "rule",
+      "name": "Roll 1D100; above current skill or above 95 gains 1D10 and may exceed 100",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:development:mastery-san-reward",
+      "node_kind": "rule",
+      "name": "A skill attaining 90 or more during development grants 2D6 current SAN",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-2"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:development:luck-spend-exclusion",
+      "node_kind": "rule",
+      "name": "A roll altered by Luck earns no skill improvement check",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-110-block-6"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:development:luck-recovery",
+      "node_kind": "rule",
+      "name": "After each session, D100 above current Luck gains 1D10, capped at 99",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-110-block-6"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:development:other-activities",
+      "node_kind": "rule",
+      "name": "Development may include self-help, finance review, backstory changes, and awfulness-limit decay",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-106-block-3",
+        "span-development-phase-source-page-106-block-4"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:development:awfulness-decay",
+      "node_kind": "rule",
+      "name": "Each development phase reduces per-creature habituation totals by one",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-180-block-11"
+      ]
+    },
+    {
+      "node_id": "exception:coc7:development:external-development-activities",
+      "node_kind": "exception",
+      "name": "Self-help, employment/Credit Rating, and free-form backstory changes are source rules outside the deterministic development.settle adapter",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-106-block-3"
+      ]
+    },
+    {
+      "node_id": "subsystem:coc7:development:runtime",
+      "node_kind": "subsystem",
+      "name": "Existing development runtime subsystem",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "subsystem_kind": "development"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1",
+        "span-development-phase-source-page-105-block-2",
+        "span-development-phase-source-page-106-block-3",
+        "span-development-phase-source-page-106-block-4",
+        "span-development-phase-source-page-106-block-5",
+        "span-development-phase-source-page-110-block-6",
+        "span-development-phase-source-page-110-block-7",
+        "span-development-phase-source-page-180-block-10",
+        "span-development-phase-source-page-180-block-11",
+        "span-development-phase-source-page-180-block-8",
+        "span-development-phase-source-page-180-block-9"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:development:development-settle",
+      "node_kind": "capability",
+      "name": "development.settle",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "resolver_capability": "development.settle",
+        "adapter": "subsystem-command",
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1",
+        "span-development-phase-source-page-105-block-2",
+        "span-development-phase-source-page-106-block-3",
+        "span-development-phase-source-page-106-block-4",
+        "span-development-phase-source-page-106-block-5",
+        "span-development-phase-source-page-110-block-6",
+        "span-development-phase-source-page-110-block-7",
+        "span-development-phase-source-page-180-block-10",
+        "span-development-phase-source-page-180-block-11",
+        "span-development-phase-source-page-180-block-8",
+        "span-development-phase-source-page-180-block-9"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:development:state-end-session",
+      "node_kind": "capability",
+      "name": "state.end_session",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "resolver_capability": "state.end_session",
+        "adapter": "subsystem-command",
+        "family_id": "development"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1",
+        "span-development-phase-source-page-105-block-2",
+        "span-development-phase-source-page-106-block-3",
+        "span-development-phase-source-page-106-block-4",
+        "span-development-phase-source-page-106-block-5",
+        "span-development-phase-source-page-110-block-6",
+        "span-development-phase-source-page-110-block-7",
+        "span-development-phase-source-page-180-block-10",
+        "span-development-phase-source-page-180-block-11",
+        "span-development-phase-source-page-180-block-8",
+        "span-development-phase-source-page-180-block-9"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:development:table-1",
+      "node_kind": "data-table",
+      "name": "development.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "development.json"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1",
+        "span-development-phase-source-page-105-block-2",
+        "span-development-phase-source-page-106-block-3",
+        "span-development-phase-source-page-106-block-4",
+        "span-development-phase-source-page-106-block-5",
+        "span-development-phase-source-page-110-block-6",
+        "span-development-phase-source-page-110-block-7",
+        "span-development-phase-source-page-180-block-10",
+        "span-development-phase-source-page-180-block-11",
+        "span-development-phase-source-page-180-block-8",
+        "span-development-phase-source-page-180-block-9"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:development:table-2",
+      "node_kind": "data-table",
+      "name": "luck.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "luck.json"
+      },
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1",
+        "span-development-phase-source-page-105-block-2",
+        "span-development-phase-source-page-106-block-3",
+        "span-development-phase-source-page-106-block-4",
+        "span-development-phase-source-page-106-block-5",
+        "span-development-phase-source-page-110-block-6",
+        "span-development-phase-source-page-110-block-7",
+        "span-development-phase-source-page-180-block-10",
+        "span-development-phase-source-page-180-block-11",
+        "span-development-phase-source-page-180-block-8",
+        "span-development-phase-source-page-180-block-9"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "relation:coc7:development:phase-timing:part-of-family",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:development:phase-timing",
+      "to_node_id": "rule-family:coc7:development",
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:skill-ticks:part-of-family",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:development:skill-ticks",
+      "to_node_id": "rule-family:coc7:development",
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:one-check-per-skill:part-of-family",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:development:one-check-per-skill",
+      "to_node_id": "rule-family:coc7:development",
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-2"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:tick-exclusions:part-of-family",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:development:tick-exclusions",
+      "to_node_id": "rule-family:coc7:development",
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:improvement:part-of-family",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:development:improvement",
+      "to_node_id": "rule-family:coc7:development",
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:mastery-san-reward:part-of-family",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:development:mastery-san-reward",
+      "to_node_id": "rule-family:coc7:development",
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-2"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:luck-spend-exclusion:part-of-family",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:development:luck-spend-exclusion",
+      "to_node_id": "rule-family:coc7:development",
+      "evidence_span_ids": [
+        "span-development-phase-source-page-110-block-6"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:luck-recovery:part-of-family",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:development:luck-recovery",
+      "to_node_id": "rule-family:coc7:development",
+      "evidence_span_ids": [
+        "span-development-phase-source-page-110-block-6"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:other-activities:part-of-family",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:development:other-activities",
+      "to_node_id": "rule-family:coc7:development",
+      "evidence_span_ids": [
+        "span-development-phase-source-page-106-block-3",
+        "span-development-phase-source-page-106-block-4"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:awfulness-decay:part-of-family",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:development:awfulness-decay",
+      "to_node_id": "rule-family:coc7:development",
+      "evidence_span_ids": [
+        "span-development-phase-source-page-180-block-11"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:external-development-activities:applies-to-family",
+      "relation_kind": "applies-to",
+      "from_node_id": "exception:coc7:development:external-development-activities",
+      "to_node_id": "rule-family:coc7:development",
+      "evidence_span_ids": [
+        "span-development-phase-source-page-106-block-3"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:family-implemented-by-subsystem",
+      "relation_kind": "implemented-by",
+      "from_node_id": "rule-family:coc7:development",
+      "to_node_id": "subsystem:coc7:development:runtime",
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1",
+        "span-development-phase-source-page-105-block-2",
+        "span-development-phase-source-page-106-block-3",
+        "span-development-phase-source-page-106-block-4",
+        "span-development-phase-source-page-106-block-5",
+        "span-development-phase-source-page-110-block-6",
+        "span-development-phase-source-page-110-block-7",
+        "span-development-phase-source-page-180-block-10",
+        "span-development-phase-source-page-180-block-11",
+        "span-development-phase-source-page-180-block-8",
+        "span-development-phase-source-page-180-block-9"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:subsystem-invokes-1",
+      "relation_kind": "invokes",
+      "from_node_id": "subsystem:coc7:development:runtime",
+      "to_node_id": "capability:coc7:development:development-settle",
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1",
+        "span-development-phase-source-page-105-block-2",
+        "span-development-phase-source-page-106-block-3",
+        "span-development-phase-source-page-106-block-4",
+        "span-development-phase-source-page-106-block-5",
+        "span-development-phase-source-page-110-block-6",
+        "span-development-phase-source-page-110-block-7",
+        "span-development-phase-source-page-180-block-10",
+        "span-development-phase-source-page-180-block-11",
+        "span-development-phase-source-page-180-block-8",
+        "span-development-phase-source-page-180-block-9"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:subsystem-invokes-2",
+      "relation_kind": "invokes",
+      "from_node_id": "subsystem:coc7:development:runtime",
+      "to_node_id": "capability:coc7:development:state-end-session",
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1",
+        "span-development-phase-source-page-105-block-2",
+        "span-development-phase-source-page-106-block-3",
+        "span-development-phase-source-page-106-block-4",
+        "span-development-phase-source-page-106-block-5",
+        "span-development-phase-source-page-110-block-6",
+        "span-development-phase-source-page-110-block-7",
+        "span-development-phase-source-page-180-block-10",
+        "span-development-phase-source-page-180-block-11",
+        "span-development-phase-source-page-180-block-8",
+        "span-development-phase-source-page-180-block-9"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:subsystem-reads-table-1",
+      "relation_kind": "reads-table",
+      "from_node_id": "subsystem:coc7:development:runtime",
+      "to_node_id": "data-table:coc7:development:table-1",
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1",
+        "span-development-phase-source-page-105-block-2",
+        "span-development-phase-source-page-106-block-3",
+        "span-development-phase-source-page-106-block-4",
+        "span-development-phase-source-page-106-block-5",
+        "span-development-phase-source-page-110-block-6",
+        "span-development-phase-source-page-110-block-7",
+        "span-development-phase-source-page-180-block-10",
+        "span-development-phase-source-page-180-block-11",
+        "span-development-phase-source-page-180-block-8",
+        "span-development-phase-source-page-180-block-9"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:development:subsystem-reads-table-2",
+      "relation_kind": "reads-table",
+      "from_node_id": "subsystem:coc7:development:runtime",
+      "to_node_id": "data-table:coc7:development:table-2",
+      "evidence_span_ids": [
+        "span-development-phase-source-page-105-block-1",
+        "span-development-phase-source-page-105-block-2",
+        "span-development-phase-source-page-106-block-3",
+        "span-development-phase-source-page-106-block-4",
+        "span-development-phase-source-page-106-block-5",
+        "span-development-phase-source-page-110-block-6",
+        "span-development-phase-source-page-110-block-7",
+        "span-development-phase-source-page-180-block-10",
+        "span-development-phase-source-page-180-block-11",
+        "span-development-phase-source-page-180-block-8",
+        "span-development-phase-source-page-180-block-9"
+      ]
+    }
+  ],
+  "evidence_span_ids": [
+    "span-development-phase-source-page-105-block-1",
+    "span-development-phase-source-page-105-block-2",
+    "span-development-phase-source-page-106-block-3",
+    "span-development-phase-source-page-106-block-4",
+    "span-development-phase-source-page-106-block-5",
+    "span-development-phase-source-page-110-block-6",
+    "span-development-phase-source-page-110-block-7",
+    "span-development-phase-source-page-180-block-10",
+    "span-development-phase-source-page-180-block-11",
+    "span-development-phase-source-page-180-block-8",
+    "span-development-phase-source-page-180-block-9"
+  ],
+  "evidence_binding": {
+    "contract_id": "coc.rule-graph-evidence.v1",
+    "schema_version": 1,
+    "section_id": "section-development-phase-source",
+    "spans": [
+      {
+        "span_id": "span-development-phase-source-page-105-block-1",
+        "source_ref": {
+          "source_id": "pdf:a860499cf34b40cac385f51b",
+          "pdf_index": 105,
+          "grep_anchor": "CALL OF CTHULHU\n\"I'm beginning to lose my patience with you\"\nRewards of Experience:\nIf the player rolls higher than the current skill number,\nor the result is o",
+          "text_sha256": "4d9d3aa9a75a127e7f1028e1b1f93a8ae1367f07bb0c4cc8972bbc8115caadda"
+        }
+      },
+      {
+        "span_id": "span-development-phase-source-page-105-block-2",
+        "source_ref": {
+          "source_id": "pdf:a860499cf34b40cac385f51b",
+          "pdf_index": 105,
+          "grep_anchor": "low for\nA game has finished after a couple of sessions of play,\nan investigator development phase.\nand Harvey has checks against several skills. Harvey's\nOnce a",
+          "text_sha256": "4d9d3aa9a75a127e7f1028e1b1f93a8ae1367f07bb0c4cc8972bbc8115caadda"
+        }
+      },
+      {
+        "span_id": "span-development-phase-source-page-106-block-3",
+        "source_ref": {
+          "source_id": "pdf:a860499cf34b40cac385f51b",
+          "pdf_index": 106,
+          "grep_anchor": "CHAPTER 5: GAME SYSTEM\nDay-to-Day Expenses\nCecil has a Sword skill of 85%. Having success-\nand Generål Living Standards\nfully employed the skill in play, a chec",
+          "text_sha256": "cd191025eaacb32946261971f5bf846a3f604252e7a4691bd6eea30b213cef24"
+        }
+      },
+      {
+        "span_id": "span-development-phase-source-page-106-block-4",
+        "source_ref": {
+          "source_id": "pdf:a860499cf34b40cac385f51b",
+          "pdf_index": 106,
+          "grep_anchor": "and whether an investigator has exceeded their\n(see Investigator Development Phase: Employ-\nspending level. As always, the Keeper is the arbiter of such\nment an",
+          "text_sha256": "cd191025eaacb32946261971f5bf846a3f604252e7a4691bd6eea30b213cef24"
+        }
+      },
+      {
+        "span_id": "span-development-phase-source-page-106-block-5",
+        "source_ref": {
+          "source_id": "pdf:a860499cf34b40cac385f51b",
+          "pdf_index": 106,
+          "grep_anchor": "ed.\nonly by the player. Guidance on using, losing, and replacing a\nkey connection can be found under Self-help (see page 167).\nSpending Beyond\nCredit Rating and",
+          "text_sha256": "cd191025eaacb32946261971f5bf846a3f604252e7a4691bd6eea30b213cef24"
+        }
+      },
+      {
+        "span_id": "span-development-phase-source-page-110-block-6",
+        "source_ref": {
+          "source_id": "pdf:a860499cf34b40cac385f51b",
+          "pdf_index": 110,
+          "grep_anchor": "CHAPTER 5: GAME SYSTEM\nOptional Rules\nSpending Luck\nAfter the player has made a skill roll (using a skill or\ncharacteristic), Luck points may be spent to alter ",
+          "text_sha256": "021ab93b1939e3583cd56ea6c7b3fb320744c3baa95e9d651f367ed1d52bd400"
+        }
+      },
+      {
+        "span_id": "span-development-phase-source-page-110-block-7",
+        "source_ref": {
+          "source_id": "pdf:a860499cf34b40cac385f51b",
+          "pdf_index": 110,
+          "grep_anchor": "n in the game. There are no resets and the starting\nvalue can be exceeded in play.\nThe Keeper rolls an Extreme success for a Dark\nYoung to trample Harvey into t",
+          "text_sha256": "021ab93b1939e3583cd56ea6c7b3fb320744c3baa95e9d651f367ed1d52bd400"
+        }
+      },
+      {
+        "span_id": "span-development-phase-source-page-180-block-8",
+        "source_ref": {
+          "source_id": "pdf:a860499cf34b40cac385f51b",
+          "pdf_index": 180,
+          "grep_anchor": "CHAPTER 8:SANITY\nbias, manias, wounds or anything to do with the Cthulhu\nMythos. This may be done during downtime between ad-\nHarvey has lost a total of 6 Sanit",
+          "text_sha256": "27a6016dea7580859fece80bf47653c595a3c8d5e14e68534539556b26ecd0de"
+        }
+      },
+      {
+        "span_id": "span-development-phase-source-page-180-block-9",
+        "source_ref": {
+          "source_id": "pdf:a860499cf34b40cac385f51b",
+          "pdf_index": 180,
+          "grep_anchor": "tion that might\nentry that is especially important to them: this is their \"key\nbenefit the investigator(s) immediately or at some later\nconnection\". If the play",
+          "text_sha256": "27a6016dea7580859fece80bf47653c595a3c8d5e14e68534539556b26ecd0de"
+        }
+      },
+      {
+        "span_id": "span-development-phase-source-page-180-block-10",
+        "source_ref": {
+          "source_id": "pdf:a860499cf34b40cac385f51b",
+          "pdf_index": 180,
+          "grep_anchor": " the truth. From\nNote: Current Sanity points can never increase above an\nthat point onward, all Sanity point loss is halved. Once this\ninvestigator's maximum Sa",
+          "text_sha256": "27a6016dea7580859fece80bf47653c595a3c8d5e14e68534539556b26ecd0de"
+        }
+      },
+      {
+        "span_id": "span-development-phase-source-page-180-block-11",
+        "source_ref": {
+          "source_id": "pdf:a860499cf34b40cac385f51b",
+          "pdf_index": 180,
+          "grep_anchor": "\nlife has returned to some form of normalcy, the sense ofhorror\npoint loss once for each monster. She rolls 1D6 once\ncan rise up anew. A player should keep trac",
+          "text_sha256": "27a6016dea7580859fece80bf47653c595a3c8d5e14e68534539556b26ecd0de"
+        }
+      }
+    ]
+  },
+  "receipt": {
+    "contract_id": "coc.rule-graph-review-receipt.v1",
+    "schema_version": 1,
+    "ruleset_id": "coc7",
+    "family_id": "development",
+    "section_id": "section-development-phase-source",
+    "shard_id": "shard:coc7:development:section-development-phase-source",
+    "candidate_sha256": "c6b55f86ce480c6371ec6949cce0f2caa6df6981d733eff8b6bbb72887e94a1c",
+    "packet_sha256": "0cf02fe52329ab4129b70c46c356befdf919aab0e26e2e80d26c45d6fcb16391",
+    "shard_sha256": "3daf802c3feff64ec5d582774b82a99060c5820c031b6a113d468dccade2a41d"
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "contract_id": "coc.rule-graph-family-source-review.v1",
+  "schema_version": 1,
+  "family_id": "development",
+  "section_id": "section-development-phase-source",
+  "reviewer_identity": "codex-reviewer-development-source-20260831",
+  "review_status": "accepted",
+  "coverage": {
+    "development": "accepted"
+  },
+  "unresolved_applicable_rules": [],
+  "blockers": [],
+  "visual_review": {
+    "pdf_file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+    "contact_sheet": null
+  },
+  "source_bundles": [
+    {
+      "bundle_id": "development-rules-v1",
+      "bundle_sha256": "1be4b51e085085fbd724c357e81e5089426b60724a8a1410f553a2833e19ad41",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+      "pages": [
+        {
+          "pdf_index": 105,
+          "text_sha256": "4d9d3aa9a75a127e7f1028e1b1f93a8ae1367f07bb0c4cc8972bbc8115caadda",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.995515
+        },
+        {
+          "pdf_index": 106,
+          "text_sha256": "cd191025eaacb32946261971f5bf846a3f604252e7a4691bd6eea30b213cef24",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.992542
+        },
+        {
+          "pdf_index": 110,
+          "text_sha256": "021ab93b1939e3583cd56ea6c7b3fb320744c3baa95e9d651f367ed1d52bd400",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.9961
+        },
+        {
+          "pdf_index": 180,
+          "text_sha256": "27a6016dea7580859fece80bf47653c595a3c8d5e14e68534539556b26ecd0de",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.997696
+        }
+      ]
+    }
+  ],
+  "accepted_shard_digest": "3daf802c3feff64ec5d582774b82a99060c5820c031b6a113d468dccade2a41d"
+}
