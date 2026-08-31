@@ -2145,6 +2145,7 @@ def test_rewrite_required_returns_excerpt_only_span_repairs(
     )
     resume = _run(campaign_ws, "turn.output_context")
     assert resume["ok"] is True, resume
+    assert "accepted_review_evidence" not in resume["data"]
     operation = resume["data"]["agency_review_operation"]
     assert operation["prefilled_arguments"]["revision"] == 2
     assert operation["span_repairs"]["spans"] == repairs["spans"]
@@ -2189,6 +2190,61 @@ def test_pending_draft_receipt_is_exact_idempotent_and_keeper_only(
     refreshed = _run(campaign_ws, "turn.output_context")
     assert refreshed["ok"] is True, refreshed
     assert refreshed["data"]["frozen_narration_draft"]["draft_text"] == draft
+    accepted = refreshed["data"]["accepted_review_evidence"]
+    assert accepted["schema_version"] == 1
+    assert accepted["contract_id"] == "coc.accepted-review-evidence.v2"
+    assert accepted["visibility"] == "host_only"
+    assert accepted["review_id"] == first["data"]["review_id"]
+    assert accepted["turn_id"] == context["turn_id"]
+    assert accepted["source_digest"] == context["source_digest"]
+    assert accepted["revision"] == 1
+    assert accepted["draft_sha256"] == _digest(draft)
+    assert accepted["review_digest"] == first["data"]["review_digest"]
+    assert (
+        accepted["pending_draft_receipt_digest"]
+        == refreshed["data"]["frozen_narration_draft"]["receipt_digest"]
+    )
+    assert accepted["contract_projection_sha256"] == refreshed["data"][
+        "contract_projection_sha256"
+    ]
+    assert accepted["verification"] == {
+        "agency_gate": "clear",
+        "state_authority_gate": "clear",
+    }
+    assert accepted["state_authority_review"] == kwargs[
+        "state_authority_review"
+    ]
+    assert accepted["player_input_source_ref"] == refreshed["data"][
+        "contract_projection"
+    ]["player_input"]["source_ref"]
+    assert accepted["agency_authority"] == refreshed["data"][
+        "contract_projection"
+    ]["agency_authority"]
+    assert accepted["control_overrides"] == refreshed["data"][
+        "contract_projection"
+    ]["control_overrides"]
+    coverage_facts = accepted["coverage_binding_facts"]
+    assert coverage_facts["contract_id"] == (
+        "coc.reviewed-coverage-binding-facts.v1"
+    )
+    assert coverage_facts["settlement_snapshot_id"] == refreshed["data"][
+        "settlement_snapshot_id"
+    ]
+    assert coverage_facts["mechanics_bundle_sha256"] == refreshed["data"][
+        "mechanics_bundle_sha256"
+    ]
+    assert coverage_facts["obligations"] == refreshed["data"]["obligations"]
+    assert coverage_facts["public_check_source_ids"] == [
+        row["roll_id"]
+        for row in refreshed["data"]["mechanics_bundle"]["public_check"]
+    ]
+    assert coverage_facts["state_delta_source_ids"] == [
+        row["effect_id"]
+        for row in refreshed["data"]["mechanics_bundle"]["state_delta"]
+    ]
+    evidence_payload = dict(accepted)
+    evidence_digest = evidence_payload.pop("evidence_sha256")
+    assert evidence_digest == _digest(evidence_payload)
     assert refreshed["data"]["pending_narration_draft_status"] == {
         "schema_version": 1,
         "secrecy": "keeper_only",

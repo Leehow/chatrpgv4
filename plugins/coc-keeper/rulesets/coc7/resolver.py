@@ -19,11 +19,15 @@ rather than rewriting them"). No arithmetic is reimplemented here:
   exactly as the toolbox ``rules.sanity_check`` handler did inline.
 - ``damage`` resolves integer/dice amounts and HP clamp arithmetic exactly
   as the toolbox ``rules.damage`` handler did inline; ``resource_delta``
-  mirrors the same pool clamps for direct callers.
+  mirrors the same pool clamps for direct callers. ``damage_state_effect``
+  projects an already-settled positive loss into CoC7's wound ledger without
+  doing campaign I/O.
 - ``roll_dice`` / ``luck_spend`` delegate to ``coc_roll.roll_expression`` /
   ``coc_roll.spend_luck``; ``cash_assets`` / ``build_scale`` delegate to the
   ``coc_rules`` lookups; ``skill_describe`` reads this package's own
   ``rules-json/skill-descriptions.json``.
+- ``skill_base`` exposes only era-legal flat integer bases from this package's
+  canonical ``rules-json/skills.json``; actor-derived values remain unresolved.
 - ``first_aid`` / ``medicine`` / ``weekly_recovery`` / ``dying_check`` build
   the canonical healing-chain command requests this package owns; the
   toolbox submits them to the shared subsystem executor unchanged (the
@@ -40,6 +44,7 @@ import importlib.util
 import json
 import random
 import sys
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -71,11 +76,60 @@ def _load_sibling(name: str, filename: str):
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
 coc_sanity = _load_sibling("coc_sanity", "coc_sanity.py")
+coc_healing = _load_sibling("coc_healing", "coc_healing.py")
 
 # Pool resources declared in manifest.json.
 _RESOURCE_KEYS = frozenset({"hp", "san", "mp", "luck"})
 
 _DIRECTIONS = frozenset({"loss", "gain"})
+
+
+def skill_base(skill_name: str, *, era: str | None = None) -> int | None:
+    """Return one flat catalog base suitable for a missing sheet skill.
+
+    Characteristic-derived and variable bases deliberately stay unresolved:
+    callers must not guess the actor-specific value. Modern-only skills are
+    unavailable outside the canonical modern era. Unknown skills also fail
+    closed with ``None``.
+    """
+    if not isinstance(skill_name, str) or not skill_name:
+        return None
+    try:
+        spec = coc_rules.skill_by_name(skill_name)
+    except (KeyError, OSError, json.JSONDecodeError):
+        return None
+    if spec.get("modern_only") is True:
+        era_key = str(era or "").strip().casefold()
+        if era_key != "modern":
+            return None
+    base = spec.get("base_chance")
+    if (
+        isinstance(base, bool)
+        or not isinstance(base, int)
+        or not 0 <= base <= 100
+    ):
+        return None
+    return base
+
+
+def damage_state_effect(
+    *,
+    actor_state: dict[str, Any],
+    event: dict[str, Any],
+) -> dict[str, Any]:
+    """Project settled HP damage into CoC7's healing-domain wound ledger."""
+    state = deepcopy(actor_state)
+    coc_healing.establish_damage_wound(
+        state,
+        decision_id=str(event["decision_id"]),
+        occurred_elapsed_minutes=int(event["occurred_elapsed_minutes"]),
+        source_damage_roll_id=(
+            str(event["source_event_id"])
+            if event.get("source_event_id") is not None
+            else None
+        ),
+    )
+    return state
 
 _SOCIAL_APPROACH_SKILLS = {
     "charm": "Charm",
@@ -729,6 +783,8 @@ def first_aid(
     pushed: bool = False,
     changed_method: str | None = None,
     failure_consequence: str | None = None,
+    assistant_skill_value: int | None = None,
+    assistant_rescuer_id: str | None = None,
 ) -> dict[str, Any]:
     """Build this package's canonical First Aid stabilize request.
 
@@ -746,6 +802,13 @@ def first_aid(
     if pushed:
         request["changed_method"] = changed_method
         request["failure_consequence"] = failure_consequence
+    if (assistant_skill_value is None) != (assistant_rescuer_id is None):
+        raise ValueError(
+            "assistant First Aid requires both skill value and rescuer id"
+        )
+    if assistant_skill_value is not None:
+        request["assistant_skill_value"] = assistant_skill_value
+        request["assistant_rescuer_id"] = assistant_rescuer_id
     return request
 
 
@@ -946,7 +1009,8 @@ def public_api_index() -> dict[str, dict[str, Any]]:
             "aliases": [],
             "signature": (
                 "first_aid(decision_id, skill_value, rescuer_id, pushed=False, "
-                "changed_method=None, failure_consequence=None)"
+                "changed_method=None, failure_consequence=None, "
+                "assistant_skill_value=None, assistant_rescuer_id=None)"
             ),
             "returns": "canonical stabilize request for the subsystem executor",
         },

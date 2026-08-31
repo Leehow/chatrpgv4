@@ -116,6 +116,7 @@
     "actor.conditions.unconscious",
     "actor.conditions.major_wound",
     "actor.conditions.dead",
+    "actor.recovery.major_wound_week_due",
     "subsystem.kind",
     "subsystem.snapshot.active",
     "scene.id",

@@ -6,15 +6,15 @@
   "source_bundles": [
     {
       "source_id": "pdf:coc7-keeper-rulebook-40th",
-      "bundle_sha256": "47615458fbd8a68cb093f10d54862b9870a16146c6b41bee17e4f720da0193fa",
+      "bundle_sha256": "96f09b55e1e9cbe65139e2bbe0498079a063b18140a93b1d94740d15fc25d2d5",
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "22acc88d3bb609a349d9316e64b0226daa14bf9427c993f5ee2fc3e7f390e0e1",
+  "graph_content_digest": "73bf0e31da1d510322180982c86e86e739cee481651ed41b51820d8023a536aa",
   "shards": [
     {
       "shard_id": "shard:coc7:healing:section-wounds-and-healing",
-      "shard_digest": "17a094feb9f4f1016464a0212f5ff0610c70359fe1ca1f83f39c8ee864c68425"
+      "shard_digest": "8908a5e9874464082b73f90bb6386b8008d4c28a30ae14822817f349e4da827b"
     }
   ],
   "family_coverage": {
@@ -47,20 +47,8 @@
       "runtime_ownership": "legacy"
     },
     "healing": {
-      "promotion_eligible": false,
-      "runtime_ownership": "shadow",
-      "shadow_exclusions": [
-        {
-          "exclusion_id": "first-aid-one-hour-eligibility-enforcement",
-          "exception_ref": "exception:coc7:healing:first-aid-window-uncompiled",
-          "decision_ref": "decision:coc7:healing:first-aid-ordinary"
-        },
-        {
-          "exclusion_id": "dual-rescuer-either-success-composition",
-          "exception_ref": "exception:coc7:healing:first-aid-teamwork-uncompiled",
-          "decision_ref": "decision:coc7:healing:first-aid-ordinary"
-        }
-      ]
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "magic": {
       "promotion_eligible": false,
@@ -91,23 +79,13 @@
     "weekly_recovery"
   ],
   "compiler_identity": "coc.rule-graph-compiler.v1",
-  "reviewer_identity": "r2-candidate-review",
+  "reviewer_identity": "codex-main-healing-source-review-20260830",
   "review_status": "accepted",
   "findings": [
     {
       "code": "source_vs_derivative_mismatch",
       "path": "/computed_thresholds/ceiling-half-major-wound-threshold",
       "message": "source (hp_max + 1) // 2 vs derivative hp_max // 2"
-    },
-    {
-      "code": "executor_capability_gap",
-      "path": "/family_promotion_eligibility/healing/shadow_exclusions/first-aid-one-hour-eligibility-enforcement",
-      "message": "first-aid-one-hour-eligibility-enforcement is source-complete via exception:coc7:healing:first-aid-window-uncompiled and is excluded from shadow comparison"
-    },
-    {
-      "code": "executor_capability_gap",
-      "path": "/family_promotion_eligibility/healing/shadow_exclusions/dual-rescuer-either-success-composition",
-      "message": "dual-rescuer-either-success-composition is source-complete via exception:coc7:healing:first-aid-teamwork-uncompiled and is excluded from shadow comparison"
     }
   ]
 }

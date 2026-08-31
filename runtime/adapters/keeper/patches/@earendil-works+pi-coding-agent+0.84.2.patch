@@ -1,3 +1,54 @@
+diff --git a/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js b/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js
+index 4bcf0d4..d91d398 100644
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js
+@@ -268,6 +268,7 @@ export class AgentSession {
+                 details: hookResult?.details,
+                 isError: hookResult?.isError ?? isError,
+                 usage: hookResult?.usage,
++                replan: hookResult?.replan,
+             };
+         };
+     }
+diff --git a/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/runner.js b/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/runner.js
+index 418865a..17be7a6 100644
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/runner.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/runner.js
+@@ -675,6 +675,10 @@ export class ExtensionRunner {
+                         currentEvent.usage = handlerResult.usage;
+                         modified = true;
+                     }
++                    if (handlerResult.replan !== undefined) {
++                        currentEvent.replan = handlerResult.replan;
++                        modified = true;
++                    }
+                 }
+                 catch (err) {
+                     const message = err instanceof Error ? err.message : String(err);
+@@ -696,6 +700,7 @@ export class ExtensionRunner {
+             details: currentEvent.details,
+             isError: currentEvent.isError,
+             usage: currentEvent.usage,
++            replan: currentEvent.replan,
+         };
+     }
+     async emitToolCall(event) {
+diff --git a/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts b/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts
+index 556623b..24b45ea 100644
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts
+@@ -798,6 +798,11 @@ export interface ToolResultEventResult {
+     details?: unknown;
+     isError?: boolean;
+     usage?: Usage;
++    /**
++     * Ask a sequential agent-core tool batch to defer its remaining calls and
++     * continue after the next-turn context/tool refresh.
++     */
++    replan?: boolean;
+ }
+ export interface MessageEndEventResult {
+     /** Replace the finalized message. The replacement must keep the original message role. */
 diff --git a/node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js b/node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js
 index 69923d6..de1ecb2 100644
 --- a/node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js

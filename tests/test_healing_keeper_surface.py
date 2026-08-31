@@ -1,38 +1,21 @@
-"""Healing Keeper surface while RuleGraph remains shadow-owned."""
+"""Healing Keeper surface after RuleGraph graph/hidden cutover."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from test_operation_policy import HEALING_LEGACY_OPERATIONS, coc_toolbox
 from toolbox_test_support import _run, campaign_ws  # noqa: F401
 
 
-def test_shadow_healing_ops_remain_keeper_visible_and_callable(campaign_ws):
+def test_graph_healing_hides_legacy_ops_and_exposes_settle(campaign_ws):
     for name in HEALING_LEGACY_OPERATIONS:
         assert name in coc_toolbox.TOOLS
-        assert coc_toolbox.operation_policy(name)["kp_surface"] == "rules"
-    investigator_id = campaign_ws["investigator_id"]
-    state_path = (
-        campaign_ws["campaign_dir"]
-        / "save"
-        / "investigator-state"
-        / f"{investigator_id}.json"
-    )
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    state.update({
-        "current_hp": max(1, int(state.get("current_hp") or 1) - 1),
-        "conditions": list(state.get("conditions") or []),
-    })
-    state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
-    result = _run(campaign_ws, "rules.first_aid", {
-        "investigator": investigator_id,
-        "skill_value": 99,
-        "rescuer_id": investigator_id,
-        "decision_id": "host-internal-first-aid-1",
-        "seed": 7,
-    })
-    assert result["ok"] is True, result
+        policy = coc_toolbox.operation_policy(name)
+        assert policy["audience"] == "host"
+        assert policy["kp_surface"] == "none"
+    settle = coc_toolbox.operation_policy("rules.settle")
+    assert settle["audience"] == "keeper"
+    assert settle["kp_surface"] == "rules"
 
 
 def test_rules_settle_denies_non_healing_families(campaign_ws):
@@ -56,14 +39,14 @@ def test_mcp_archive_and_generated_policy_are_deterministic():
     spec.loader.exec_module(module)
     archive = module.build_archive(coc_toolbox)
     projection = module.build_policy_projection(coc_toolbox)
-    assert archive["operation_count"] == 145
+    assert archive["operation_count"] == 147
     assert "rules.settle" in archive["operations"]
     assert "rules.context" in archive["operations"]
     for name in HEALING_LEGACY_OPERATIONS:
         assert name in archive["operations"]
-        assert archive["operations"][name]["policy"]["kp_surface"] == "rules"
-        assert name in projection["operations_by_surface"]["rules"]
-    assert "rules.settle" not in projection["operations_by_surface"]["rules"]
+        assert archive["operations"][name]["policy"]["kp_surface"] == "none"
+        assert name not in projection["operations_by_surface"]["rules"]
+    assert "rules.settle" in projection["operations_by_surface"]["rules"]
     assert "rules.context" not in projection["operations_by_surface"]["context"]
     assert "rules.context" not in projection["operations_by_surface"]["rules"]
     regenerated = module.archive_to_canonical_bytes(archive)

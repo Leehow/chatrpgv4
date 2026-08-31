@@ -88,6 +88,13 @@ LAUNCH = EVIDENCE / "rpc-launch.json"
 HEARTBEAT_STALE_SECONDS = 6.0
 # How long a turn may wait for a terminal before liveness is rechecked.
 DIAGNOSTIC_POLL_SECONDS = 5.0
+# Rules/director acceptance keeps the ordinary player prose path, but bounds
+# the complete controller turn (provider, tools, and hidden follow-ups) by one
+# absolute wall clock that progress events never reset.
+RULES_DIRECTOR_PROFILE = "rules-director"
+RULES_DIRECTOR_DEFAULT_BUDGET_SECONDS = 180
+TURN_ABSOLUTE_BUDGET_EXIT_CODE = 6
+TURN_BUDGET_ABORT_DRAIN_SECONDS = 2.0
 # After envelope+exit 42, keep collecting so late reader/EPIPE/non-JSON
 # or a non-42 exit cannot arrive after the window was frozen.
 HANDOFF_DRAIN_SECONDS = 1.5
@@ -132,6 +139,8 @@ def text_from(content: object) -> str:
 # plus claimed settled-output only.
 EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE = "coc-empty-terminal-recovery"
 SETTLED_OUTPUT_RECOVERY_CUSTOM_TYPE = "coc-settled-output-recovery"
+TURN_PROCESSING_FAULT_CUSTOM_TYPE = "coc-turn-processing-fault"
+SETTLED_OUTPUT_RECOVERY_EXHAUSTED = "settled_output_recovery_exhausted"
 SETUP_HANDOFF_CUSTOM_TYPE = "coc_setup_handoff"
 COC_SETUP_HANDOFF_EXIT_CODE = 42
 SESSION_ROLE_ENV = "COC_PI_SESSION_ROLE"
@@ -168,31 +177,79 @@ def _entry_custom_type(entry: object) -> str | None:
     return custom if isinstance(custom, str) else None
 
 
-def _recovery_marker_counts(rows: list[dict]) -> dict[str, int]:
-    empty = 0
-    settled_total = 0
-    settled_claimed = 0
+def _current_identified_recovery(rows: list[dict]) -> tuple[int, str] | None:
+    """Latest recovery epoch/status, treating repeat rows as transitions."""
+    current = None
     for row in rows:
         if row.get("type") != "entry_appended":
             continue
         entry = row.get("entry")
         custom = _entry_custom_type(entry)
+        data = entry.get("data") if isinstance(entry, dict) else None
+        epoch = data.get("player_turn_epoch") if isinstance(data, dict) else None
+        if (
+            not isinstance(epoch, int)
+            or isinstance(epoch, bool)
+            or epoch <= 0
+        ):
+            continue
+        if custom == EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE:
+            current = (epoch, "scheduled")
+        elif custom == SETTLED_OUTPUT_RECOVERY_CUSTOM_TYPE:
+            status = data.get("status")
+            if status in {"claimed", "exhausted"}:
+                current = (epoch, status)
+    return current
+
+
+def _recovery_marker_counts(rows: list[dict]) -> dict[str, int]:
+    empty = 0
+    settled_total = 0
+    settled_claimed = 0
+    legacy_in_flight = 0
+    for row in rows:
+        if row.get("type") != "entry_appended":
+            continue
+        entry = row.get("entry")
+        custom = _entry_custom_type(entry)
+        data = entry.get("data") if isinstance(entry, dict) else None
+        epoch = data.get("player_turn_epoch") if isinstance(data, dict) else None
+        identified_epoch = (
+            epoch if isinstance(epoch, int) and not isinstance(epoch, bool) and epoch > 0
+            else None
+        )
         if custom == EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE:
             empty += 1
+            if identified_epoch is None:
+                legacy_in_flight += 1
             continue
         if custom != SETTLED_OUTPUT_RECOVERY_CUSTOM_TYPE:
             continue
         settled_total += 1
-        data = entry.get("data") if isinstance(entry, dict) else None
         status = data.get("status") if isinstance(data, dict) else None
         if status == "claimed":
             settled_claimed += 1
+            if identified_epoch is None:
+                legacy_in_flight += 1
+    identified_state = _current_identified_recovery(rows)
+    if identified_state is not None:
+        # Identified markers are transitions of one recovery state per player
+        # epoch, not a historical count of concurrent follow-ups. Only the last
+        # observed epoch/status can still be in flight; older epochs and repeat
+        # ``claimed`` rows never increase the wait target.
+        _current_epoch, current_status = identified_state
+        in_flight = 1 if current_status in {"scheduled", "claimed"} else 0
+    else:
+        # Legacy fixtures predate player_turn_epoch. Preserve their count-based
+        # behavior so a classic settled-then-recovered sequence still waits for
+        # its second settle.
+        in_flight = legacy_in_flight
     return {
         "empty_terminal": empty,
         "settled_output": settled_total,
         "settled_output_claimed": settled_claimed,
         "recovery_markers": empty + settled_total,
-        "in_flight": empty + settled_claimed,
+        "in_flight": in_flight,
     }
 
 
@@ -597,9 +654,11 @@ def _prompt_turn_complete(
     clean exclusive exit 42, after the full window is reliable. Envelope
     or exit 42 alone does not complete. Ordinary play and unproven/legacy
     sessions ignore lookalike events and still require ``agent_settled``.
-    In-flight recovery
-    markers (empty-terminal plus claimed settled-output; exhausted
-    settled-output does not count) mean a hidden follow-up is in flight until
+    Identified recovery markers are state transitions for one player epoch;
+    repeat claims and older epochs are never summed as concurrent follow-ups.
+    Legacy markers without an epoch keep their historical count semantics.
+    A terminal settled-output exhaustion followed by ``agent_settled`` ends the
+    wait immediately. Otherwise an in-flight recovery remains open until
     either:
 
     - more ``agent_settled`` events than in-flight markers (the swallowed
@@ -621,6 +680,26 @@ def _prompt_turn_complete(
     ]
     if not settle_indices:
         return False
+    identified_state = _current_identified_recovery(rows)
+    if identified_state is not None and identified_state[1] == "exhausted":
+        current_epoch = identified_state[0]
+        terminal_fault_indices = []
+        for index, row in enumerate(rows):
+            if row.get("type") != "entry_appended":
+                continue
+            entry = row.get("entry")
+            if _entry_custom_type(entry) != TURN_PROCESSING_FAULT_CUSTOM_TYPE:
+                continue
+            data = entry.get("data") if isinstance(entry, dict) else None
+            if (
+                isinstance(data, dict)
+                and data.get("status") == "terminal"
+                and data.get("code") == SETTLED_OUTPUT_RECOVERY_EXHAUSTED
+                and data.get("player_turn_epoch") == current_epoch
+            ):
+                terminal_fault_indices.append(index)
+        if terminal_fault_indices:
+            return any(index > terminal_fault_indices[-1] for index in settle_indices)
     markers = _in_flight_recovery_markers(rows)
     if markers == 0:
         return True
@@ -737,6 +816,64 @@ def _print_driver_tail() -> None:
         print(line, file=sys.stderr)
 
 
+def _tool_identity(row: dict) -> str:
+    value = row.get("toolCallId") or row.get("tool_call_id")
+    return str(value) if isinstance(value, str) and value else "unidentified-tool-call"
+
+
+def _tool_name(row: dict) -> str:
+    args = row.get("args")
+    operation = args.get("operation") if isinstance(args, dict) else None
+    if isinstance(operation, str) and operation:
+        return operation
+    value = row.get("toolName") or row.get("tool")
+    return str(value) if isinstance(value, str) and value else "unknown"
+
+
+def _turn_timeout_diagnosis(rows: list[dict]) -> dict:
+    """Bounded metadata-only diagnosis for an absolute acceptance timeout."""
+    provider = None
+    active_tools: dict[str, dict[str, str]] = {}
+    last_tool_terminal = None
+    for row in rows:
+        message = row.get("message")
+        if (
+            isinstance(message, dict)
+            and message.get("role") == "assistant"
+            and (
+                isinstance(message.get("provider"), str)
+                or isinstance(message.get("model"), str)
+            )
+        ):
+            provider = {
+                "provider": str(message.get("provider") or ""),
+                "model": str(message.get("model") or ""),
+            }
+        if row.get("type") == "tool_execution_start":
+            identity = _tool_identity(row)
+            active_tools[identity] = {
+                "tool_call_id": identity,
+                "tool": _tool_name(row),
+            }
+        elif row.get("type") == "tool_execution_end":
+            identity = _tool_identity(row)
+            active_tools.pop(identity, None)
+            last_tool_terminal = {
+                "tool_call_id": identity,
+                "tool": _tool_name(row),
+                "is_error": row.get("isError") is True,
+            }
+    return {
+        "provider": provider,
+        "active_tools": sorted(
+            active_tools.values(), key=lambda item: item["tool_call_id"],
+        ),
+        "last_tool_terminal": last_tool_terminal,
+        "last_event_type": str(rows[-1].get("type") or "unknown") if rows else None,
+        "event_count": len(rows),
+    }
+
+
 def _finish_prompt_submit(
     payload: dict,
     timeout: int,
@@ -746,6 +883,8 @@ def _finish_prompt_submit(
     session_role: str | None,
     exit_code: int | None = None,
     death_message: str | None = None,
+    profile: str | None = None,
+    absolute_budget_timeout: dict | None = None,
 ) -> int:
     """Persist the turn record, print evidence, then return the submit code."""
     settle_class = "not_applicable"
@@ -766,6 +905,10 @@ def _finish_prompt_submit(
         "settled_output_recovery_markers": marker_counts["settled_output"],
         "events": rows,
     }
+    if profile is not None:
+        record["profile"] = profile
+    if absolute_budget_timeout is not None:
+        record["absolute_budget_timeout"] = absolute_budget_timeout
     out = EVIDENCE / f"turn-{payload['id']}.json"
     out.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     for row in rows:
@@ -785,6 +928,12 @@ def _finish_prompt_submit(
         print(death_message, file=sys.stderr)
         _print_driver_tail()
         return 3 if exit_code is None else exit_code
+    if absolute_budget_timeout is not None:
+        print(json.dumps({
+            "type": "driver_turn_fault",
+            **absolute_budget_timeout,
+        }, ensure_ascii=False), file=sys.stderr)
+        return TURN_ABSOLUTE_BUDGET_EXIT_CODE
     if not record["settled"]:
         return 2
     if record["settle_class"] == "setup_handoff":
@@ -812,7 +961,7 @@ def _finish_prompt_submit(
     return 0
 
 
-def submit(payload: dict, timeout: int) -> int:
+def submit(payload: dict, timeout: int, *, profile: str | None = None) -> int:
     if not FIFO.exists() or not PID.exists():
         raise SystemExit("RPC daemon is not running; run start first")
     pi_pid = _daemon_pid()
@@ -905,6 +1054,7 @@ def submit(payload: dict, timeout: int) -> int:
                         "campaign state is durable — restart the daemon and "
                         "continue through session.resume"
                     ),
+                    profile=profile,
                 )
             healthy_now, diagnosis_now = _driver_alive()
             if not healthy_now:
@@ -920,14 +1070,70 @@ def submit(payload: dict, timeout: int) -> int:
                     death_message=(
                         f"RPC driver died during the turn: {diagnosis_now}"
                     ),
+                    profile=profile,
                 )
     rows = collect_after(before) if not completed else rows
+    absolute_budget_timeout = None
+    if (
+        not completed
+        and payload["type"] != "set_model"
+        and profile == RULES_DIRECTOR_PROFILE
+    ):
+        diagnosis = _turn_timeout_diagnosis(rows)
+        abort_payload = command_payload("abort")
+        started_abort_settles = sum(
+            1 for row in rows if row.get("type") == "agent_settled"
+        )
+        absolute_budget_timeout = {
+            "code": "turn_absolute_budget_exceeded",
+            "profile": profile,
+            "budget_seconds": timeout,
+            "abort_sent": True,
+            "abort_response_observed": False,
+            "agent_settled_observed": False,
+            "diagnosis": diagnosis,
+        }
+        try:
+            descriptor = os.open(FIFO, os.O_WRONLY | os.O_NONBLOCK)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as f:
+                f.write(json.dumps(abort_payload, ensure_ascii=False) + "\n")
+                f.flush()
+        except OSError as exc:
+            absolute_budget_timeout["abort_sent"] = False
+            absolute_budget_timeout["abort_error"] = type(exc).__name__
+        drain_deadline = time.monotonic() + TURN_BUDGET_ABORT_DRAIN_SECONDS
+        while time.monotonic() < drain_deadline:
+            rows = collect_after(before)
+            absolute_budget_timeout["abort_response_observed"] = any(
+                row.get("type") == "response"
+                and row.get("command") == "abort"
+                and row.get("id") == abort_payload["id"]
+                for row in rows
+            )
+            absolute_budget_timeout["agent_settled_observed"] = sum(
+                1 for row in rows if row.get("type") == "agent_settled"
+            ) > started_abort_settles
+            if (
+                absolute_budget_timeout["abort_response_observed"]
+                and absolute_budget_timeout["agent_settled_observed"]
+            ):
+                break
+            time.sleep(0.05)
+        append(EVENTS, {
+            "type": "driver_turn_budget_exceeded",
+            "at": time.time(),
+            **absolute_budget_timeout,
+            "abort_request_id": abort_payload["id"],
+        })
+        rows = collect_after(before)
     return _finish_prompt_submit(
         payload,
         timeout,
         rows,
         completed=completed,
         session_role=session_role,
+        profile=profile,
+        absolute_budget_timeout=absolute_budget_timeout,
     )
 
 
@@ -1101,14 +1307,26 @@ def main() -> int:
     sub.add_parser("start")
     sub.add_parser("serve")
     model = sub.add_parser("set-model"); model.add_argument("provider_model")
-    turn = sub.add_parser("turn"); turn.add_argument("message"); turn.add_argument("--timeout", type=int, default=900)
+    turn = sub.add_parser("turn")
+    turn.add_argument("message")
+    turn.add_argument("--timeout", type=int)
+    turn.add_argument("--profile", choices=[RULES_DIRECTOR_PROFILE])
     observe_p = sub.add_parser("observe"); observe_p.add_argument("seconds", type=int)
     sub.add_parser("stop")
     args = p.parse_args()
     if args.cmd == "start": return start()
     if args.cmd == "serve": return serve()
     if args.cmd == "set-model": return submit(command_payload("set_model", args.provider_model), 60)
-    if args.cmd == "turn": return submit(command_payload("prompt", args.message), args.timeout)
+    if args.cmd == "turn":
+        timeout = args.timeout
+        if timeout is None:
+            timeout = (
+                RULES_DIRECTOR_DEFAULT_BUDGET_SECONDS
+                if args.profile == RULES_DIRECTOR_PROFILE else 900
+            )
+        return submit(
+            command_payload("prompt", args.message), timeout, profile=args.profile,
+        )
     if args.cmd == "observe": return observe(args.seconds)
     return stop()
 

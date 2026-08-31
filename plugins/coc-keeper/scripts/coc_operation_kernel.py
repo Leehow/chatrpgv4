@@ -2255,6 +2255,13 @@ _PERCENTILE_INVOCATION_FIELDS = frozenset({
     "npc_id", "visibility", "social_adjudication_ref",
 })
 
+_COMBINED_PERCENTILE_INVOCATION_FIELDS = frozenset({
+    *_PERCENTILE_INVOCATION_FIELDS,
+    "combined_targets", "helper_count", "helper_bonus_dice",
+})
+
+_COMBINED_TARGET_FIELDS = frozenset({"label", "value"})
+
 _LEGACY_PERCENTILE_INVOCATION_FIELD_SETS = (
     frozenset(_PERCENTILE_INVOCATION_FIELDS - {"social_adjudication_ref"}),
     frozenset(_PERCENTILE_INVOCATION_FIELDS - {"npc_id"}),
@@ -2391,6 +2398,9 @@ def _roll_receipt_needs_side_effect(receipt: dict[str, Any]) -> bool:
         return False
     data = receipt.get("data") or {}
     operation = receipt.get("operation") or {}
+    if operation.get("combined_targets") is not None:
+        # Combined-roll participants never earn development ticks (p.94).
+        return False
     skill = str(data.get("skill") or "")
     return bool(
         data.get("outcome") in {"regular", "hard", "extreme", "critical"}
@@ -2659,6 +2669,89 @@ def _dice_evidence_is_consistent(
         )
     )
 
+def _combined_roll_evidence_is_consistent(
+    operation: dict[str, Any],
+    resolution: dict[str, Any],
+    data: dict[str, Any],
+    record: dict[str, Any],
+    payload: dict[str, Any],
+) -> bool:
+    targets = operation.get("combined_targets")
+    helper_count = operation.get("helper_count")
+    helper_bonus = operation.get("helper_bonus_dice")
+    roll = data.get("roll")
+    required_level = operation.get("required_level")
+    rule = coc_rules.combined_roll_rule()
+    minimum = int(rule["minimum_compared_targets"])
+    bonus_cap = int(rule["teamwork"]["max_bonus_dice"])
+    if (
+        set(operation) != set(_COMBINED_PERCENTILE_INVOCATION_FIELDS)
+        or not isinstance(targets, list)
+        or len(targets) < minimum
+        or len(targets) > 8
+        or not _is_exact_int(helper_count)
+        or helper_count < 0
+        or not _is_exact_int(helper_bonus)
+        or helper_bonus != min(helper_count, bonus_cap)
+        or operation.get("bonus") != helper_bonus
+        or operation.get("penalty") != 0
+        or operation.get("visibility") != "public"
+        or operation.get("skill") is not None
+        or operation.get("characteristic") is not None
+        or operation.get("npc_id") is not None
+        or operation.get("social_adjudication_ref") is not None
+        or not _is_exact_int(roll)
+        or required_level not in {"regular", "hard", "extreme"}
+    ):
+        return False
+    try:
+        normalized = _normalize_combined_targets(targets)
+    except ToolError:
+        return False
+    if normalized != targets:
+        return False
+    highest = max(row["value"] for row in normalized)
+    label = _combined_roll_label(normalized)
+    if (
+        operation.get("explicit_target") != highest
+        or resolution.get("resolved_target") != highest
+        or resolution.get("resolved_label") != label
+        or resolution.get("target_source") != "combined_targets"
+        or resolution.get("original_check_ref") is not None
+    ):
+        return False
+    combined = _combined_roll_projection(
+        normalized,
+        roll=roll,
+        required_level=str(required_level),
+        helper_count=helper_count,
+        helper_bonus_dice=helper_bonus,
+    )
+    projection = coc_roll.build_player_projection(
+        data,
+        include_target=True,
+        extra={
+            "roll_id": data.get("roll_id"),
+            "combined_roll": combined,
+            "improvement_tick_eligible": False,
+        },
+    )
+    return bool(
+        data.get("kind") == "combined_skill_check"
+        and record.get("kind") == "combined_skill_check"
+        and payload.get("kind") == "combined_skill_check"
+        and data.get("combined_roll") == combined
+        and record.get("combined_roll") == combined
+        and payload.get("combined_roll") == combined
+        and data.get("improvement_tick_eligible") is False
+        and record.get("improvement_tick_eligible") is False
+        and payload.get("improvement_tick_eligible") is False
+        and data.get("player_projection") == projection
+        and record.get("player_projection") == projection
+        and payload.get("player_projection") == projection
+        and combined["overall_success"] is data.get("success")
+    )
+
 def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
     tool_name = str(receipt["tool"])
     operation = receipt["operation"]
@@ -2672,6 +2765,7 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
             operation, resolution, data, record, payload
         )
     else:
+        is_combined = operation.get("combined_targets") is not None
         selector_skill = operation.get("skill")
         selector_characteristic = operation.get("characteristic")
         explicit_target = operation.get("explicit_target")
@@ -2746,6 +2840,7 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
         invalid = bool(
             frozenset(operation) not in {
                 _PERCENTILE_INVOCATION_FIELDS,
+                _COMBINED_PERCENTILE_INVOCATION_FIELDS,
                 *_LEGACY_PERCENTILE_INVOCATION_FIELD_SETS,
             }
             or set(resolution) != set(_PERCENTILE_RESOLUTION_FIELDS)
@@ -2820,7 +2915,9 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
             or not label
             or not _is_exact_int(resolution.get("resolved_target"))
             or expected_result is None
-            or target_source not in {"explicit", "state", "sheet", "rulebook_base"}
+            or target_source not in {
+                "explicit", "state", "sheet", "rulebook_base", "combined_targets"
+            }
             or resolution.get("investigator_id") != data.get("investigator_id")
             or resolution.get("investigator_id") != record.get("actor")
             or resolution.get("investigator_id") != payload.get("investigator_id")
@@ -2845,8 +2942,15 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
                 explicit_target is not None
                 and explicit_target != resolution.get("resolved_target")
             )
-            or (explicit_target is not None and target_source != "explicit")
-            or (explicit_target is None and target_source == "explicit")
+            or (
+                explicit_target is not None
+                and not is_combined
+                and target_source != "explicit"
+            )
+            or (
+                explicit_target is None
+                and target_source in {"explicit", "combined_targets"}
+            )
             or (
                 selector_skill is not None
                 and selector_skill.casefold() != label.casefold()
@@ -2971,6 +3075,12 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
                         )
                         for container in (data, record, payload)
                     )
+                )
+            )
+            or (
+                is_combined
+                and not _combined_roll_evidence_is_consistent(
+                    operation, resolution, data, record, payload
                 )
             )
         )
@@ -4974,6 +5084,113 @@ def _resolve_target_value(
         return value, canonical, "rulebook_base"
     raise ToolError("unknown_skill", f"skill not on sheet: {skill}")
 
+def _combined_target_uses_dedicated_surface(label: str) -> str | None:
+    """Name a rules.roll surface that one combined target may not replace."""
+    if _matches_canonical_skill_identity(label, "Psychology"):
+        return "rules.psychology_observe"
+    compact = _compact_skill_fold(label)
+    if compact in {"dodge", "闪避", "fighting", "firearms"}:
+        return "combat.resolve"
+    for canonical in _skill_catalog():
+        if not canonical.startswith(("Fighting (", "Firearms (")):
+            continue
+        if _matches_canonical_skill_identity(label, canonical):
+            return "combat.resolve"
+    return None
+
+def _normalize_combined_targets(value: Any) -> list[dict[str, Any]]:
+    """Validate model-authored semantic labels and numeric target values."""
+    rule = coc_rules.combined_roll_rule()
+    minimum = int(rule["minimum_compared_targets"])
+    if not isinstance(value, list) or len(value) < minimum:
+        raise ToolError(
+            "invalid_param",
+            f"combined_targets must contain at least {minimum} target objects",
+        )
+    if len(value) > 8:
+        raise ToolError("invalid_param", "combined_targets supports at most 8 targets")
+    normalized: list[dict[str, Any]] = []
+    labels: set[str] = set()
+    for index, raw in enumerate(value):
+        if not isinstance(raw, dict) or set(raw) != set(_COMBINED_TARGET_FIELDS):
+            raise ToolError(
+                "invalid_param",
+                f"combined_targets[{index}] must be exactly {{label, value}}",
+            )
+        label = raw.get("label")
+        target = raw.get("value")
+        if (
+            not isinstance(label, str)
+            or not label.strip()
+            or len(label.strip()) > 120
+        ):
+            raise ToolError(
+                "invalid_param",
+                f"combined_targets[{index}].label must be a non-empty semantic label",
+            )
+        label = label.strip()
+        folded = _compact_skill_fold(label)
+        if folded in labels:
+            raise ToolError(
+                "invalid_param", "combined_targets labels must be unique"
+            )
+        labels.add(folded)
+        if not _is_exact_int(target) or not 1 <= target <= 100:
+            raise ToolError(
+                "invalid_param",
+                f"combined_targets[{index}].value must be an integer from 1 to 100",
+            )
+        dedicated = _combined_target_uses_dedicated_surface(label)
+        if dedicated is not None:
+            raise ToolError(
+                "invalid_param",
+                f"combined target {label!r} must use {dedicated}; rules.roll "
+                "combined mode is non-combat and non-Psychology",
+            )
+        normalized.append({"label": label, "value": int(target)})
+    return normalized
+
+def _combined_roll_label(targets: list[dict[str, Any]]) -> str:
+    return "Combined: " + " / ".join(str(row["label"]) for row in targets)
+
+def _combined_roll_projection(
+    targets: list[dict[str, Any]],
+    *,
+    roll: int,
+    required_level: str,
+    helper_count: int,
+    helper_bonus_dice: int,
+) -> dict[str, Any]:
+    """Project many target verdicts from the existing one-roll settlement."""
+    comparisons: list[dict[str, Any]] = []
+    for target in targets:
+        settled = coc_roll.resolve_percentile_roll(
+            roll, int(target["value"]), required_level
+        )
+        comparisons.append({
+            "label": str(target["label"]),
+            "value": int(target["value"]),
+            "required_target": int(settled["required_target"]),
+            "achieved_level": str(settled["achieved_level"]),
+            "outcome": str(settled["outcome"]),
+            "success": bool(settled["success"]),
+        })
+    return {
+        "rule_ref": "core.combined_roll",
+        "roll_count": 1,
+        "comparison_mode": "any",
+        "targets": comparisons,
+        "helper_count": helper_count,
+        "helper_bonus_dice": helper_bonus_dice,
+        "helper_bonus_cap": int(
+            coc_rules.combined_roll_rule()["teamwork"]["max_bonus_dice"]
+        ),
+        "overall_success": any(row["success"] for row in comparisons),
+        "development_tick_eligible": False,
+        "push_eligible": False,
+        "luck_spend_eligible": False,
+    }
+
 def _normalize_percentile_invocation(
     args: dict[str, Any],
     *,
@@ -5130,6 +5347,48 @@ def _normalize_percentile_invocation(
         "visibility": visibility,
         "social_adjudication_ref": social_adjudication_ref,
     }
+    if "combined_targets" in args:
+        if any(
+            args.get(field) not in (None, "")
+            for field in ("skill", "characteristic", "target", "npc_id", "social_adjudication_ref")
+        ):
+            raise ToolError(
+                "invalid_param",
+                "combined_targets cannot be mixed with skill, characteristic, target, "
+                "npc_id, or social_adjudication_ref",
+            )
+        if bonus != 0 or penalty != 0:
+            raise ToolError(
+                "invalid_param",
+                "combined rolls derive bonus dice only from helper_count; "
+                "do not also pass bonus or penalty",
+            )
+        if visibility != "public":
+            raise ToolError(
+                "invalid_param", "combined rolls must keep their one receipt public"
+            )
+        targets = _normalize_combined_targets(args.get("combined_targets"))
+        helper_count = args.get("helper_count", 0)
+        if not _is_exact_int(helper_count) or helper_count < 0:
+            raise ToolError(
+                "invalid_param", "helper_count must be a non-negative integer"
+            )
+        rule = coc_rules.combined_roll_rule()
+        helper_bonus = min(
+            int(helper_count), int(rule["teamwork"]["max_bonus_dice"])
+        )
+        operation.update({
+            "explicit_target": max(int(row["value"]) for row in targets),
+            "bonus": helper_bonus,
+            "penalty": 0,
+            "combined_targets": targets,
+            "helper_count": int(helper_count),
+            "helper_bonus_dice": helper_bonus,
+        })
+    elif "helper_count" in args:
+        raise ToolError(
+            "invalid_param", "helper_count is valid only with combined_targets"
+        )
     if (
         isinstance(frozen_operation, dict)
         and "npc_id" not in frozen_operation
@@ -5163,6 +5422,12 @@ def _compile_new_percentile_invocation(
             tool_name="rules.roll",
             decision_id=original_check_decision_id,
         )
+        if original.get("operation", {}).get("combined_targets") is not None:
+            raise ToolError(
+                "invalid_push",
+                "combined skill rolls cannot be pushed; settle a new fictional "
+                "approach through its appropriate canonical rule instead",
+            )
         existing_pushes = (
             document.get("receipts", {}).get("rules.push") or {}
         )
@@ -5227,19 +5492,25 @@ def _compile_new_percentile_invocation(
     investigator_id = _resolve_investigator(
         ctx, {"investigator": operation["investigator"]}
     )
+    combined_targets = operation.get("combined_targets")
     if isinstance(operation.get("skill"), str) and operation.get("skill"):
         operation["skill"] = _canonical_skill_selector(
             ctx, investigator_id, str(operation["skill"])
         )
-    normalized = {
-        "investigator": operation["investigator"],
-        "skill": operation["skill"],
-        "characteristic": operation["characteristic"],
-        "target": operation["explicit_target"],
-    }
-    target, label, target_source = _resolve_target_value(
-        ctx, investigator_id, normalized
-    )
+    if isinstance(combined_targets, list):
+        target = int(operation["explicit_target"])
+        label = _combined_roll_label(combined_targets)
+        target_source = "combined_targets"
+    else:
+        normalized = {
+            "investigator": operation["investigator"],
+            "skill": operation["skill"],
+            "characteristic": operation["characteristic"],
+            "target": operation["explicit_target"],
+        }
+        target, label, target_source = _resolve_target_value(
+            ctx, investigator_id, normalized
+        )
     resolution = {
         "investigator_id": investigator_id,
         "resolved_label": label,
@@ -5695,6 +5966,12 @@ def _open_attempt_opportunities_from_document(
     for decision_id, receipt in (roll_receipts or {}).items():
         if not isinstance(receipt, dict):
             continue
+        operation = receipt.get("operation")
+        if (
+            isinstance(operation, dict)
+            and operation.get("combined_targets") is not None
+        ):
+            continue
         data = receipt.get("data") if isinstance(receipt.get("data"), dict) else {}
         context = data.get("resolution_context")
         if not isinstance(context, dict):
@@ -5919,6 +6196,23 @@ def _roll_common(
     result["goal"] = str(operation["goal"])
     result["stakes"] = deepcopy(operation["stakes"])
     result["difficulty_basis"] = str(operation["difficulty_basis"])
+    combined_targets = operation.get("combined_targets")
+    is_combined = isinstance(combined_targets, list)
+    if is_combined:
+        result["kind"] = "combined_skill_check"
+        result["improvement_tick_eligible"] = False
+        result["combined_roll"] = _combined_roll_projection(
+            combined_targets,
+            roll=int(result["roll"]),
+            required_level=difficulty,
+            helper_count=int(operation["helper_count"]),
+            helper_bonus_dice=int(operation["helper_bonus_dice"]),
+        )
+        if result["combined_roll"]["overall_success"] != bool(result["success"]):
+            raise ToolError(
+                "invalid_ruleset",
+                "combined roll aggregate contradicts the one canonical die result",
+            )
     if operation.get("reason"):
         result["reason"] = str(operation["reason"])
     if operation.get("npc_id"):
@@ -5949,6 +6243,12 @@ def _roll_common(
         consequence = {"summary": str(operation["failure_consequence"])}
         result["failure_consequence"] = consequence
         result["announced_consequence"] = consequence
+    if pushed:
+        result["pushed_roll_protocol"] = {
+            "failure_consequence_source": "keeper",
+            "keeper_foreshadowed_failure": True,
+            "player_confirmation_recorded": True,
+        }
     if operation.get("fumble_consequence"):
         result["fumble_consequence"] = {
             "summary": str(operation["fumble_consequence"])
@@ -6012,7 +6312,7 @@ def _roll_common(
         hints.append(
             "fumble: before state.journal apply a source-bound cost with state.exceptional_effect and realize its causal complication"
         )
-    if outcome == "failure" and not pushed:
+    if outcome == "failure" and not pushed and not is_combined:
         hints.append(
             "failed: the player may push this roll with a changed method and an announced consequence (rules.push)"
         )
@@ -6046,7 +6346,7 @@ def _roll_common(
             f"{active_modifier['effect_id']}; call state.exceptional_effect "
             "action=consume with this roll_id before state.journal"
         )
-    if outcome == "failure" and not pushed:
+    if outcome == "failure" and not pushed and not is_combined:
         result["operation_opportunities"] = [
             _push_operation_opportunity(
                 ctx,
@@ -6055,14 +6355,31 @@ def _roll_common(
         ]
     roll_record = ctx.prepare_roll({
         "event_type": "roll",
-        "kind": "pushed_skill_check" if pushed else "skill_check",
+        "kind": (
+            "pushed_skill_check"
+            if pushed
+            else "combined_skill_check" if is_combined else "skill_check"
+        ),
         "actor": investigator_id,
         "visibility": str(operation.get("visibility") or "public"),
         "payload": dict(result),
         **result,
     })
     result["roll_id"] = roll_record["roll_id"]
-    if outcome == "failure" and not pushed:
+    if is_combined:
+        projection = coc_roll.build_player_projection(
+            result,
+            include_target=True,
+            extra={
+                "roll_id": result["roll_id"],
+                "combined_roll": deepcopy(result["combined_roll"]),
+                "improvement_tick_eligible": False,
+            },
+        )
+        result["player_projection"] = projection
+        roll_record["player_projection"] = deepcopy(projection)
+        roll_record["payload"]["player_projection"] = deepcopy(projection)
+    if outcome == "failure" and not pushed and not is_combined:
         result["operation_opportunities"][0]["source"]["roll_id"] = result[
             "roll_id"
         ]
@@ -6326,21 +6643,6 @@ def _family_id_from_decision_ref(decision_ref: str) -> str:
     if len(parts) >= 3 and parts[0] in {"decision", "exception"}:
         return parts[2]
     return "healing"
-
-
-def _sheet_skill_value(sheet: Mapping[str, Any] | None, skill_name: str) -> int | None:
-    if not isinstance(sheet, Mapping):
-        return None
-    skills = sheet.get("skills") if isinstance(sheet.get("skills"), dict) else {}
-    raw = skills.get(skill_name)
-    if isinstance(raw, dict):
-        raw = raw.get("value")
-    if isinstance(raw, bool) or raw is None:
-        return None
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return None
 
 
 def _safe_sheet(ctx: Ctx, investigator_id: str) -> dict[str, Any] | None:
@@ -6671,13 +6973,18 @@ def dispatch_rules_settle(
             "rules_graph_unavailable",
             "graph settlement requires the active ruleset adapter",
         )
+    active_resolver = _rules_resolver(ctx, None)
     runtime._host_locked_provider = ruleset_adapter.host_locked_provider(
         ctx,
         args,
         selected,
         resolve_investigator=_resolve_investigator,
         safe_sheet=_safe_sheet,
-        skill_value=_sheet_skill_value,
+        skill_value=lambda sheet, skill_name: (
+            coc_rulesets.resolve_actor_skill_value(
+                active_resolver, sheet, skill_name,
+            )
+        ),
     )
     grant = runtime.latest_grant_covering(decision_ref)
     if grant is None:
@@ -11358,10 +11665,20 @@ def _project_storylet_candidate(move: dict[str, Any]) -> dict[str, Any]:
         field: deepcopy(move[field]) for field in fields if field in move
     }
 
+def _pi_rules_director_single_draft_profile() -> bool:
+    return (
+        str(os.environ.get("COC_PI_SESSION_ROLE") or "").strip().casefold()
+        == "play"
+        and os.environ.get("COC_PI_ACCEPTANCE_PROFILE")
+        in {"rules-all-single-draft", "rules-director-single-draft"}
+    )
+
+
 def _pi_play_agency_review_required() -> bool:
     return (
         str(os.environ.get("COC_PI_SESSION_ROLE") or "").strip().casefold()
         == "play"
+        and not _pi_rules_director_single_draft_profile()
     )
 
 def _tool_evidence_record_adoption(ctx: Ctx, args: dict[str, Any]):
@@ -12203,6 +12520,7 @@ OPERATION_RUNTIME_EXPORTS = (
     '_pi_opening_setup_operation_allowed',
     '_pi_opening_source_contract_error_gate',
     '_pi_play_agency_review_required',
+    '_pi_rules_director_single_draft_profile',
     '_pi_source_coordinator_dispatch',
     '_plan_receipt_owned_tail',
     '_plan_roll_materialization',

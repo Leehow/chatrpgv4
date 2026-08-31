@@ -158,6 +158,7 @@ const DENIED_KEY_NAMES = new Set([
   "manifest_revision",
   "archive_revision",
   "revision_token",
+  "source_receipt_id",
 ]);
 // Advisory identity fields are allowed ONLY with the semantic handle values.
 const HANDLE_ALLOWED_KEYS = new Map([
@@ -247,6 +248,233 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
   assertModelSafeContent(`family ${family}`, projected, deniedKeys);
 }
 
+// Production-shaped long-tail rule/subsystem envelopes use explicit closed
+// identity dispositions. Internal command/provenance ids stay host-only;
+// authored semantic ids remain visible without weakening the generic boundary.
+{
+  const cases = [
+    ["rules.catalog_search", {
+      ok: true,
+      tool: "rules.catalog_search",
+      data: {
+        ruleset_id: "coc7",
+        candidates: [{ entity_id: "knife_medium", price_id: "eq.1920s.knife-medium" }],
+      },
+    }],
+    ["mechanics.ensure", {
+      ok: true,
+      tool: "mechanics.ensure",
+      data: {
+        subject_id: "npc-walter-corbitt",
+        monster_ref: "Walter Corbitt",
+        affordance_id: "strike-with-his-dagger",
+        mechanics_revision_ref: {
+          stable_id: "npc:walter-corbitt:mechanics",
+          content_sha256: "f".repeat(64),
+        },
+      },
+    }],
+    ["sanity.execute", {
+      ok: true,
+      tool: "sanity.execute",
+      data: {
+        results: [{
+          command_id: "sanity-see-corbitt-body-v1",
+          events: [{ san_trigger_id: "see-corbitt-body", event_id: "se1" }],
+          state_refs: ["save/sanity.json#state"],
+        }],
+      },
+    }],
+    ["combat.resolve", {
+      ok: true,
+      tool: "combat.resolve",
+      data: {
+        events: [{
+          attack_command_id: "combat-corbitt-attack-1",
+          actor_id: "thomas-hayes",
+          target_actor_id: "walter-corbitt",
+          rule_ref: "module.haunting.corbitt-own-dagger",
+        }],
+      },
+    }],
+    ["turn.output_context", {
+      ok: true,
+      tool: "turn.output_context",
+      data: {
+        source_decision_id: "exceptional-push-failure-v1",
+        obligations: [],
+        required_obligation_ids: [],
+        mechanics_summary: { public_check: [], state_delta: [], exceptional_effect: [], concealed_consequence: [] },
+      },
+    }],
+  ];
+  for (const [operation, envelope] of cases) {
+    const diagnostics = { unmapped: [] };
+    const projected = projectModelVisibleCanonicalResult(
+      operation,
+      envelope,
+      emptySemanticProjectionView(),
+      diagnostics,
+    );
+    assert.deepEqual(diagnostics.unmapped, [], `${operation} production identity projection`);
+    assertModelSafeContent(`${operation} production identity projection`, projected);
+  }
+}
+
+// Magic receipts expose public spell/check semantics while runtime-generated
+// operation and scheduled-completion identities stay host-only.
+{
+  const cases = [
+    ["magic.cast", {
+      ok: true,
+      tool: "magic.cast",
+      data: {
+        receipt: {
+          kind: "magic.cast",
+          operation_id: "op-magic-cast-134364244112",
+          result: { spell: "Cloud Memory", success: true },
+        },
+      },
+    }],
+    ["magic.learn", {
+      ok: true,
+      tool: "magic.learn",
+      data: {
+        receipt: {
+          kind: "magic.learn",
+          operation_id: "op-magic-learn-134364244112",
+          result: {
+            spell: "Cloud Memory",
+            learned: true,
+            completion_trigger_id: "trigger-magic-learn-cloud-memory-1",
+          },
+        },
+      },
+    }],
+  ];
+  for (const [operation, envelope] of cases) {
+    const diagnostics = { unmapped: [] };
+    const projected = projectModelVisibleCanonicalResult(
+      operation,
+      envelope,
+      emptySemanticProjectionView(),
+      diagnostics,
+    );
+    assert.deepEqual(diagnostics.unmapped, [], `${operation} magic identity projection`);
+    assert.equal(projected.data.receipt.operation_id, undefined);
+    assert.equal(
+      projected.data.receipt.result.completion_trigger_id,
+      undefined,
+    );
+    assert.equal(projected.data.receipt.result.spell, "Cloud Memory");
+    assertModelSafeContent(`${operation} magic identity projection`, projected);
+  }
+}
+
+// R11 SAN output keeps player-facing numbers/events while routing every roll
+// identity through the existing semantic roll registry. Internal event,
+// command, bout, and decision ids remain host-only.
+{
+  const rollView = {
+    ...emptySemanticProjectionView(),
+    rolls: new Map([
+      ["toolbox-campaign-000001", "roll:san-check"],
+      ["toolbox-campaign-000002", "roll:int-check"],
+      ["toolbox-campaign-000003", "roll:bout-duration"],
+      ["toolbox-campaign-000004", "roll:bout-table"],
+      ["toolbox-campaign-000005", "roll:bout-rounds"],
+      ["toolbox-campaign-000006", "roll:san-loss"],
+      ["pi-sanity-command", "roll:san-command-check"],
+    ]),
+  };
+  const flatDiagnostics = { unmapped: [] };
+  const flat = projectModelVisibleCanonicalResult(
+    "rules.sanity_check",
+    {
+      ok: true,
+      tool: "rules.sanity_check",
+      data: {
+        investigator_id: "thomas-hayes",
+        check: {
+          skill: "SAN",
+          target: 55,
+          roll: 89,
+          outcome: "failure",
+          trigger_id: "trigger:see-corbitt-body",
+          san_loss: 5,
+        },
+        san_before: 55,
+        san_after: 50,
+        trigger_id: "trigger:see-corbitt-body",
+        active_bout_id: "thomas-hayes:bout:1",
+        session_roll_ids: [
+          "toolbox-campaign-000001",
+          "toolbox-campaign-000002",
+        ],
+        session_events: [{
+          event_id: "se1",
+          event_type: "bout_of_madness",
+          bout_id: "thomas-hayes:bout:1",
+          trigger_id: "trigger:see-corbitt-body",
+          summary: "The investigator flees in panic.",
+        }],
+        check_roll_id: "toolbox-campaign-000001",
+        int_roll_id: "toolbox-campaign-000002",
+        bout_duration_roll_id: "toolbox-campaign-000003",
+        bout_table_roll_id: "toolbox-campaign-000004",
+        bout_rounds_roll_id: "toolbox-campaign-000005",
+        loss_roll_id: "toolbox-campaign-000006",
+      },
+    },
+    rollView,
+    flatDiagnostics,
+  );
+  assert.deepEqual(flatDiagnostics.unmapped, []);
+  assert.equal(flat.data.san_before, 55);
+  assert.equal(flat.data.san_after, 50);
+  assert.equal(flat.data.check.trigger_id, "trigger:see-corbitt-body");
+  assert.deepEqual(flat.data.session_roll_ids, ["roll:san-check", "roll:int-check"]);
+  assert.equal(flat.data.check_roll_id, "roll:san-check");
+  assert.equal(flat.data.loss_roll_id, "roll:san-loss");
+  assert.equal(flat.data.session_events[0].summary, "The investigator flees in panic.");
+  assert.ok(!("event_id" in flat.data.session_events[0]));
+  assert.ok(!("bout_id" in flat.data.session_events[0]));
+  assert.ok(!("active_bout_id" in flat.data));
+
+  const subsystemDiagnostics = { unmapped: [] };
+  const subsystem = projectModelVisibleCanonicalResult(
+    "sanity.execute",
+    {
+      ok: true,
+      tool: "sanity.execute",
+      data: {
+        results: [{
+          command_id: "pi-sanity-command",
+          events: [{
+            roll_id: "pi-sanity-command",
+            decision_id: "pi-sanity-command",
+            event_id: "se2",
+            rule_ref: "rule:coc7:sanity-check",
+            san_trigger_id: "trigger:see-corbitt-body",
+            roll: 32,
+            san_loss: 1,
+            san_before: 54,
+            san_after: 53,
+          }],
+        }],
+      },
+    },
+    rollView,
+    subsystemDiagnostics,
+  );
+  assert.deepEqual(subsystemDiagnostics.unmapped, []);
+  assert.equal(subsystem.data.results[0].events[0].roll_id, "roll:san-command-check");
+  assert.equal(subsystem.data.results[0].events[0].rule_ref, "rule:coc7:sanity-check");
+  assert.equal(subsystem.data.results[0].events[0].san_loss, 1);
+  assert.ok(!("decision_id" in subsystem.data.results[0].events[0]));
+  assert.ok(!("event_id" in subsystem.data.results[0].events[0]));
+}
+
 // state.journal continuation memory uses item_id as the semantic identity of
 // a do-not-repeat note. It is not an inventory item and must not be routed
 // through the item registry merely because the leaf field shares that name.
@@ -300,6 +528,42 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
     emptySemanticProjectionView(),
   );
   assert.deepEqual(out.data.journal_context, envelope.data.journal_context);
+}
+
+{
+  const envelope = structuredClone(FAMILIES.turn_output_context);
+  const hostExactExcerpt = "直到指节的皮裂开，血顺着拳面往下淌。";
+  envelope.data.accepted_review_evidence = {
+    schema_version: 1,
+    contract_id: "coc.accepted-review-evidence.v2",
+    visibility: "host_only",
+    review_id: "narration-review-v1:host-only",
+    turn_id: envelope.data.turn_id,
+    source_digest: envelope.data.source_digest,
+    revision: 1,
+    draft_sha256: `sha256:${"1".repeat(64)}`,
+    review_digest: `sha256:${"2".repeat(64)}`,
+    pending_draft_receipt_digest: `sha256:${"3".repeat(64)}`,
+    contract_projection_sha256: envelope.data.contract_projection_sha256,
+    verification: { agency_gate: "clear", state_authority_gate: "clear" },
+    state_authority_review: {
+      disposition: "claims_listed",
+      reason: "host only",
+      claims: [{ exact_excerpt: hostExactExcerpt }],
+    },
+    player_input_source_ref: "player_input:host-only",
+    agency_authority: { pc_subject_refs: ["pc:host-only"] },
+    control_overrides: [],
+    evidence_sha256: `sha256:${"4".repeat(64)}`,
+  };
+  const out = projectModelVisibleCanonicalResult(
+    "turn.output_context",
+    envelope,
+    emptySemanticProjectionView(),
+  );
+  assert.equal(Object.hasOwn(out.data, "accepted_review_evidence"), false);
+  assert.equal(JSON.stringify(out).includes(hostExactExcerpt), false);
+  assert.equal(JSON.stringify(out).includes("narration-review-v1:host-only"), false);
 }
 
 // Opening substance survives: exact opening text and time anchor.
@@ -419,8 +683,64 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
   // fields; no canonical prose (and therefore no opaque tokens) is relayed.
   assert.deepEqual(out.hints, [
     "findings are advisory; the KP decides whether and how to revise them",
-    "bind every authorized PC proposition as an agency_claim in turn.finalize",
+    "after a clear Pi review, select reviewed_span + claim_type + authority "
+      + "from the refreshed finalize binding; the host attaches the frozen "
+      + "draft and exact agency evidence",
   ]);
+}
+
+// A successful narration review may echo the Keeper's nested semantic claim
+// identities. The composed claim id remains meaningful, while the canonical
+// current-PC ref is projected back to the one copy-safe model handle.
+{
+  const envelope = structuredClone(FAMILIES.narration_review);
+  envelope.data.state_authority_review = {
+    disposition: "claims_listed",
+    reason: "草稿声明了已经由状态工具落地的钥匙交接。",
+    claims: [{
+      claim_id: "claim-keys-handoff",
+      subject_ref: "pc:inv-x6a217e22-e0532209",
+      claim_kind: "item",
+      exact_excerpt: "钥匙现在在你手里。",
+      source_effect_id: null,
+      reason: "钥匙已经由权威物品写入落地。",
+    }],
+  };
+  const diagnostics = { unmapped: [] };
+  const out = projectModelVisibleCanonicalResult(
+    "narration.review",
+    envelope,
+    emptySemanticProjectionView(),
+    diagnostics,
+  );
+  assert.deepEqual(diagnostics.unmapped, []);
+  assert.equal(
+    out.data.state_authority_review.claims[0].claim_id,
+    "claim-keys-handoff",
+  );
+  assert.equal(
+    out.data.state_authority_review.claims[0].subject_ref,
+    CURRENT_PC_SUBJECT_HANDLE,
+  );
+  assertModelSafeContent("narration.review nested claim content", out);
+
+  const opaqueClaim = structuredClone(envelope);
+  opaqueClaim.data.state_authority_review.claims[0].claim_id =
+    "claim-7c9e6679-7425-40de-944b-e07fc1f90ae7";
+  const opaqueDiagnostics = { unmapped: [] };
+  const opaqueOut = projectModelVisibleCanonicalResult(
+    "narration.review",
+    opaqueClaim,
+    emptySemanticProjectionView(),
+    opaqueDiagnostics,
+  );
+  assert.equal(
+    opaqueOut.data.state_authority_review.claims[0].claim_id,
+    undefined,
+  );
+  assert.ok(
+    opaqueDiagnostics.unmapped.some((entry) => entry.field === "claim_id"),
+  );
 }
 
 // turn.finalize semantic view: rendered text + semantic status only.
@@ -1060,6 +1380,12 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
     }],
   }).ok, true);
   assert.equal(raw({
+    coverage: [{
+      obligation_id: "roll:con",
+      realization: "fictional_beat",
+    }],
+  }).ok, true, "host-minted characteristic handles must pass raw grammar");
+  assert.equal(raw({
     agency_claims: [{ claim_id: "claim-wall-listen-cupboard" }],
   }).ok, true);
   assert.equal(raw({ subject_ref: CURRENT_PC_SUBJECT_HANDLE }).ok, true);
@@ -1197,21 +1523,39 @@ const tools = new Map();
 const handlers = new Map();
 const clientCalls = [];
 const modelContents = [];
-const stubCompilerInfer = async (input) => ({
-  result: {
-    schema_version: 1,
-    contract_id: "coc.pi-state-claim-compiler-result.v1",
-    disposition: "no_claims_detected",
-    reason: "每一段草稿都已复核。",
-    claims: [],
-    paragraph_coverage: draftParagraphs(input.draft_text).map((text, paragraph_index) => ({
-      paragraph_index,
-      paragraph_sha256: canonicalDigest(text),
-      claim_indices: [],
-    })),
-  },
-  responseModel: { provider: "offline", id: "offline", api: "openai-responses" },
-});
+const stubCompilerInfer = async (input) => {
+  const candidateClaims = Array.isArray(input.candidate_claims)
+    ? input.candidate_claims
+    : [];
+  const compiledClaims = candidateClaims.map((claim) => ({
+    subject_ref: claim.subject_ref,
+    claim_kind: claim.claim_kind,
+    exact_excerpt: claim.exact_excerpt,
+    matched_review_claim_id: claim.claim_id,
+    reason: "The exact draft claim matches the Keeper's semantic declaration.",
+  }));
+  return {
+    result: {
+      schema_version: 1,
+      contract_id: "coc.pi-state-claim-compiler-result.v1",
+      disposition: compiledClaims.length > 0
+        ? "claims_detected"
+        : "no_claims_detected",
+      reason: "每一段草稿都已复核。",
+      claims: compiledClaims,
+      paragraph_coverage: draftParagraphs(input.draft_text).map(
+        (text, paragraph_index) => ({
+          paragraph_index,
+          paragraph_sha256: canonicalDigest(text),
+          claim_indices: compiledClaims.flatMap((claim, index) =>
+            text.includes(claim.exact_excerpt) ? [index] : []
+          ),
+        }),
+      ),
+    },
+    responseModel: { provider: "offline", id: "offline", api: "openai-responses" },
+  };
+};
 
 // Host-initiated canonical probes (capabilities, memory.extraction_status)
 // interleave with KP transports, so the fake client routes by operation.
@@ -1237,6 +1581,15 @@ routeOperation("*", { ok: true, data: {} });
 // stay private. A generic session.resume walk previously diagnosed every
 // nested field as undeclared and failed the whole resume.
 const populatedSceneResume = structuredClone(FAMILIES.session_resume);
+populatedSceneResume.data.semantic_capsule = {
+  ...(populatedSceneResume.data.semantic_capsule ?? {}),
+  recent_summaries: [{
+    turn_number: 1,
+    summary: "调查员进入科比特地下藏身处。",
+    source_ref: "memory/session-summaries.jsonl#turn-1",
+    summary_sha256: `sha256:${"7".repeat(64)}`,
+  }],
+};
 populatedSceneResume.data.scene_context = {
   ...populatedSceneResume.data.scene_context,
   active_scene_id: "commission-briefing",
@@ -1404,6 +1757,24 @@ assert.equal(
   "newspaper-morgue",
 );
 assert.equal(
+  resumeVisible.data.semantic_capsule.recent_summaries[0].summary,
+  "调查员进入科比特地下藏身处。",
+);
+assert.equal(
+  Object.hasOwn(
+    resumeVisible.data.semantic_capsule.recent_summaries[0],
+    "source_ref",
+  ),
+  false,
+);
+assert.equal(
+  Object.hasOwn(
+    resumeVisible.data.semantic_capsule.recent_summaries[0],
+    "summary_sha256",
+  ),
+  false,
+);
+assert.equal(
   resumeVisible.data.scene_context.nearby_routes.destinations[0]
     .open_routes[0].affordance_id,
   "persuade-arty",
@@ -1448,6 +1819,646 @@ assertModelSafeContent(
   "evidence.table_opening content",
   JSON.parse(modelContents.at(-1).text),
 );
+// An oversized combat.end result is intentionally reduced by the canonical
+// wire to an identity-only replay card. Its projection digest remains
+// host-only, while the replay operation must survive the FIRST response so
+// the model does not repeat an already-authoritative combat mutation.
+{
+  const combatProjectionDigest = `sha256:${"9".repeat(64)}`;
+  const combatEndCanonical = {
+    ok: true,
+    tool: "combat.end",
+    wire: {
+      schema_version: 1,
+      profile: "keeper_hot_v1",
+      canonical_operation: "combat.end",
+      max_inline_bytes: 16384,
+      full_result_bytes: 50656,
+      full_result_sha256: `sha256:${"8".repeat(64)}`,
+      contract_archive_sha256: `sha256:${"7".repeat(64)}`,
+      payload_projected: true,
+      identity_only: true,
+      measured_inline_bytes: 1068,
+    },
+    data: {
+      projection_sha256: combatProjectionDigest,
+      replay_operation: {
+        operation: "combat.end",
+        invoke_via: "coc_invoke",
+        prefilled_arguments: {},
+        missing_arguments: [],
+        authority: "advisory",
+        hard_gate: false,
+        contract_ref: "combat.end@4646cc703297402e",
+        discovery_required: false,
+      },
+    },
+    warnings: [
+      "The canonical result exceeded the bounded coding-host projection.",
+    ],
+    hints: [],
+  };
+  routeOperation("combat.end", combatEndCanonical);
+  const callsBefore = clientCalls.filter(
+    (call) => call.operation === "combat.end",
+  ).length;
+  const combatEndResult = await executeTool("coc_invoke", {
+    operation: "combat.end",
+    root: testRoot,
+    campaign,
+    arguments: {
+      outcome: "investigator escaped the confrontation",
+      decision_id: "combat-end-corbitt-escape-v1",
+    },
+  });
+  const combatEndVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(combatEndVisible.ok, true, JSON.stringify(combatEndVisible));
+  assert.equal(combatEndVisible.data.projection_sha256, undefined);
+  assert.equal(
+    combatEndVisible.data.replay_operation.operation,
+    "combat.end",
+  );
+  assert.equal(
+    clientCalls.filter((call) => call.operation === "combat.end").length,
+    callsBefore + 1,
+    "the first authoritative combat.end result must remain usable",
+  );
+  assert.ok(!modelContents.at(-1).text.includes(combatProjectionDigest));
+  assert.deepEqual(combatEndResult.details, combatEndCanonical);
+  assertModelSafeContent("combat.end identity-only content", combatEndVisible);
+}
+// Random dice and opposed checks are authoritative rolls too. Their exact
+// toolbox ids are registered before projection, so the first successful call
+// remains ok:true and exposes only stable semantic roll handles. A model must
+// never be pushed into retrying an already-settled opposed check because its
+// result identity was undeclared.
+{
+  const randomCanonicalId = "toolbox-live-rules-000101";
+  routeOperation("rules.roll_dice", {
+    ok: true,
+    tool: "rules.roll_dice",
+    data: {
+      expression: "1D6+1",
+      count: 1,
+      sides: 6,
+      modifier: 1,
+      rolls: [4],
+      total: 5,
+      reason: "随机伤害量",
+      roll_id: randomCanonicalId,
+    },
+  });
+  const randomResult = await executeTool("coc_rules_roll_dice", {
+    campaign,
+    decision_id: "roll-random-damage-v1",
+    expression: "1D6+1",
+    reason: "随机伤害量",
+  });
+  const randomVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(randomVisible.ok, true, JSON.stringify(randomVisible));
+  assert.match(randomVisible.data.roll_id, /^roll:/);
+  assert.ok(!modelContents.at(-1).text.includes(randomCanonicalId));
+  assert.equal(randomResult.details.data.roll_id, randomCanonicalId);
+  assertModelSafeContent("rules.roll_dice content", randomVisible);
+
+  const investigatorRollId = "toolbox-live-rules-000102";
+  const opponentRollId = "toolbox-live-rules-000103";
+  routeOperation("rules.opposed", {
+    ok: true,
+    tool: "rules.opposed",
+    data: {
+      investigator_id: "inv-x6a217e22-e0532209",
+      skill: "Stealth",
+      target_source: "sheet",
+      investigator_roll: {
+        target: 40,
+        roll: 31,
+        achieved_level: "regular",
+        passed: true,
+      },
+      opponent_label: "守卫侦查",
+      opponent_roll: {
+        target: 55,
+        roll: 72,
+        achieved_level: "failure",
+        passed: false,
+      },
+      winner: "investigator",
+      investigator_roll_id: investigatorRollId,
+      opponent_roll_id: opponentRollId,
+    },
+  });
+  const opposedCallsBefore = clientCalls.filter(
+    (call) => call.operation === "rules.opposed",
+  ).length;
+  const opposedResult = await executeTool("coc_rules_opposed", {
+    campaign,
+    contest_kind: "noncombat",
+    decision_id: "roll-stealth-vs-guard-v1",
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    skill: "Stealth",
+    opponent_value: 55,
+    opponent_label: "守卫侦查",
+    reason: "潜行避开守卫",
+  });
+  const opposedVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(opposedVisible.ok, true, JSON.stringify(opposedVisible));
+  assert.match(opposedVisible.data.investigator_roll_id, /^roll:/);
+  assert.match(opposedVisible.data.opponent_roll_id, /^roll:/);
+  assert.notEqual(
+    opposedVisible.data.investigator_roll_id,
+    opposedVisible.data.opponent_roll_id,
+  );
+  assert.equal(
+    clientCalls.filter((call) => call.operation === "rules.opposed").length,
+    opposedCallsBefore + 1,
+    "one canonical opposed settlement must yield one usable model result",
+  );
+  assert.ok(!modelContents.at(-1).text.includes(investigatorRollId));
+  assert.ok(!modelContents.at(-1).text.includes(opponentRollId));
+  assert.equal(
+    opposedResult.details.data.investigator_roll_id,
+    investigatorRollId,
+  );
+  assertModelSafeContent("rules.opposed content", opposedVisible);
+}
+// SAN typed tools expose only semantic cause/loss/trigger data. Host-owned
+// idempotency and subsystem command identity never reach the model schema.
+{
+  const flatTool = tools.get("coc_rules_sanity_check");
+  assert.equal(
+    Object.hasOwn(flatTool.parameters.properties, "decision_id"),
+    false,
+  );
+  routeOperation("rules.sanity_check", {
+    ok: true,
+    tool: "rules.sanity_check",
+    data: {
+      source: "目睹床自行移动",
+      check: {
+        skill: "SAN",
+        roll: 42,
+        outcome: "regular",
+        trigger_id: "bed-moves",
+        san_loss: 1,
+      },
+      san_before: 60,
+      san_after: 59,
+      san_loss: 1,
+      trigger_id: "bed-moves",
+      session_roll_ids: [
+        "toolbox-live-san-000001",
+        "toolbox-live-san-000002",
+        "toolbox-live-san-000003",
+      ],
+      check_roll_id: "toolbox-live-san-000001",
+      loss_roll_id: "toolbox-live-san-000002",
+      phobia_roll_id: "toolbox-live-san-000003",
+      session_events: [{
+        event_id: "se1",
+        event_type: "sanity",
+        summary: "SAN 60->59 (lost 1).",
+      }],
+    },
+  });
+  await executeTool("coc_rules_sanity_check", {
+    campaign,
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    source: "目睹床自行移动",
+    trigger_id: "bed-moves",
+    loss_success: "1",
+    loss_failure: "1D4",
+  });
+  const flatCall = clientCalls.filter((call) => (
+    call.operation === "rules.sanity_check"
+  )).at(-1);
+  assert.match(flatCall.arguments.decision_id, /^pi-rules-sanity_check:bed-moves:/);
+  const flatVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(flatVisible.ok, true, JSON.stringify(flatVisible));
+  assert.match(flatVisible.data.check_roll_id, /^roll:/);
+  assert.match(flatVisible.data.loss_roll_id, /^roll:/);
+  assert.match(flatVisible.data.phobia_roll_id, /^roll:/);
+  assert.deepEqual(
+    flatVisible.data.session_roll_ids.sort(),
+    [
+      flatVisible.data.check_roll_id,
+      flatVisible.data.loss_roll_id,
+      flatVisible.data.phobia_roll_id,
+    ].sort(),
+  );
+  assert.equal(flatVisible.data.san_before, 60);
+  assert.equal(flatVisible.data.san_after, 59);
+  assert.equal(flatVisible.data.session_events[0].summary, "SAN 60->59 (lost 1).");
+  assert.ok(!("event_id" in flatVisible.data.session_events[0]));
+
+  const sanityTool = tools.get("coc_sanity_execute");
+  assert.equal(
+    Object.hasOwn(sanityTool.parameters.properties, "decision_id"),
+    false,
+  );
+  const sanityCommand = sanityTool.parameters.properties.command;
+  assert.ok(Array.isArray(sanityCommand.oneOf));
+  const checkBranch = sanityCommand.oneOf.find((branch) => (
+    branch.properties?.payload?.properties?.san_loss_fail_expr
+  ));
+  assert.ok(checkBranch);
+  assert.equal(Object.hasOwn(checkBranch.properties, "command_id"), false);
+  assert.equal(Object.hasOwn(checkBranch.properties, "phase"), false);
+  assert.equal(Object.hasOwn(checkBranch.properties, "kind"), false);
+  assert.equal(
+    Object.hasOwn(checkBranch.properties.payload.properties, "decision_id"),
+    false,
+  );
+
+  routeOperation("sanity.execute", {
+    ok: true,
+    tool: "sanity.execute",
+    data: {
+      schema_version: 1,
+      authority: "deterministic_subsystem",
+      results: [],
+    },
+  });
+  await executeTool("coc_sanity_execute", {
+    campaign,
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    command: {
+      payload: {
+        source: "目睹床自行移动",
+        trigger_id: "bed-moves",
+        san_loss_success: 1,
+        san_loss_fail_expr: "1D4",
+      },
+    },
+  });
+  const sanityCall = clientCalls.filter((call) => (
+    call.operation === "sanity.execute"
+  )).at(-1);
+  assert.match(
+    sanityCall.arguments.decision_id,
+    /^pi-sanity-execute:sanity_check:bed-moves:/,
+  );
+  assert.equal(
+    sanityCall.arguments.command.command_id,
+    sanityCall.arguments.decision_id,
+  );
+  assert.equal(sanityCall.arguments.command.kind, "sanity_check");
+  assert.equal(sanityCall.arguments.command.phase, "resolve");
+  assert.equal(
+    sanityCall.arguments.command.payload.decision_id,
+    sanityCall.arguments.decision_id,
+  );
+
+  const boutChoiceId = "pi-sanity:opaque:bout";
+  const boutSourceCommandId = "pi-sanity:opaque";
+  const boutId = "inv-x6a217e22-e0532209:bout:1";
+  routeOperation("sanity.context", {
+    ok: true,
+    tool: "sanity.context",
+    data: {
+      investigator_id: "inv-x6a217e22-e0532209",
+      active: true,
+      snapshot: {
+        investigator_id: "inv-x6a217e22-e0532209",
+        bout_active: true,
+        active_bout_id: boutId,
+        bout_rounds_remaining: 2,
+      },
+      pending_choices: [{
+        choice_id: boutChoiceId,
+        command_id: boutSourceCommandId,
+        kind: "bout_keeper_action",
+        responder: "keeper",
+        revision: 0,
+        prompt: "Advance or end the active Keeper-controlled bout?",
+        options: [
+          { action: "tick", label: "Advance Keeper-controlled round" },
+          { action: "end", label: "End the bout now" },
+        ],
+      }],
+    },
+  });
+  await executeTool("coc_sanity_context", {
+    campaign,
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+  });
+  const boutVisible = JSON.parse(modelContents.at(-1).text);
+  assertModelSafeContent("sanity.context active bout", boutVisible);
+  assert.ok(!JSON.stringify(boutVisible).includes(boutChoiceId));
+  assert.ok(!JSON.stringify(boutVisible).includes(boutSourceCommandId));
+  assert.ok(!JSON.stringify(boutVisible).includes(boutId));
+
+  const armedSanityCommand = tools.get("coc_sanity_execute")
+    .parameters.properties.command;
+  assert.deepEqual(
+    tools.get("coc_sanity_execute").parameters.properties.investigator.enum,
+    [CURRENT_INVESTIGATOR_HANDLE],
+  );
+  assert.deepEqual(armedSanityCommand.oneOf.map((branch) => (
+    branch.properties.action.const
+  )), ["tick", "end"]);
+  assert.ok(!JSON.stringify(armedSanityCommand).includes(boutChoiceId));
+
+  const tickDigest = "543a58c34816235b79c8897f511511e22f1d338dc5d105514fb43c7764d9803b";
+  const tickCommandId = `resume:${tickDigest}:confirm`;
+  routeOperation("sanity.execute", {
+    ok: true,
+    tool: "sanity.execute",
+    data: {
+      investigator_id: "inv-x6a217e22-e0532209",
+      results: [{
+        command_id: tickCommandId,
+        kind: "bout_tick",
+        status: "pending_choice",
+        events: [{
+          event_id: "san-bout-tick-event-1",
+          event_type: "bout_tick",
+          bout_id: boutId,
+          remaining_rounds: 1,
+        }],
+        pending_choice: {
+          choice_id: boutChoiceId,
+          command_id: tickCommandId,
+          kind: "bout_keeper_action",
+          responder: "keeper",
+          revision: 1,
+          prompt: "Advance or end the active Keeper-controlled bout?",
+          options: [
+            { action: "tick", label: "Advance Keeper-controlled round" },
+            { action: "end", label: "End the bout now" },
+          ],
+        },
+      }],
+    },
+  });
+  const tickResult = await executeTool("coc_sanity_execute", {
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    command: { action: "tick" },
+  });
+  assert.equal(
+    JSON.parse(modelContents.at(-1).text).ok,
+    true,
+    JSON.stringify(tickResult.details),
+  );
+  const tickCall = clientCalls.filter((call) => (
+    call.operation === "sanity.execute"
+  )).at(-1);
+  assert.equal(tickCall.arguments.decision_id, `resume-${tickDigest.slice(0, 32)}`);
+  assert.deepEqual(tickCall.arguments.command, {
+    command_id: tickCommandId,
+    kind: "bout_tick",
+    phase: "resolve",
+    payload: {
+      choice_id: boutChoiceId,
+      responder: "keeper",
+      revision: 0,
+      action: "tick",
+      terminal_command_ids: [tickCommandId],
+      decision_id: `resume-${tickDigest.slice(0, 32)}`,
+      request_index: 1,
+    },
+  });
+
+  const endDigest = "749835543e9df9f2abc8d6d5e785e06249494a89312566fd9e43e9ef7e6dc87f";
+  const endCommandId = `resume:${endDigest}:confirm`;
+  routeOperation("sanity.execute", {
+    ok: true,
+    tool: "sanity.execute",
+    data: {
+      investigator_id: "inv-x6a217e22-e0532209",
+      results: [{
+        command_id: endCommandId,
+        kind: "bout_end",
+        status: "completed",
+        events: [{ event_type: "bout_ended", bout_id: boutId }],
+        pending_choice: null,
+      }],
+    },
+  });
+  const endResult = await executeTool("coc_sanity_execute", {
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    command: { action: "end" },
+  });
+  assert.equal(
+    JSON.parse(modelContents.at(-1).text).ok,
+    true,
+    JSON.stringify(endResult.details),
+  );
+  const endCall = clientCalls.filter((call) => (
+    call.operation === "sanity.execute"
+  )).at(-1);
+  assert.equal(endCall.arguments.decision_id, `resume-${endDigest.slice(0, 32)}`);
+  assert.equal(endCall.arguments.command.command_id, endCommandId);
+  assert.deepEqual(endCall.arguments.command, {
+    command_id: endCommandId,
+    kind: "bout_end",
+    phase: "resolve",
+    payload: {
+      choice_id: boutChoiceId,
+      responder: "keeper",
+      revision: 1,
+      action: "end",
+      terminal_command_ids: [endCommandId],
+      decision_id: `resume-${endDigest.slice(0, 32)}`,
+      request_index: 1,
+    },
+  });
+
+  const callsAfterEnd = clientCalls.filter((call) => (
+    call.operation === "sanity.execute"
+  )).length;
+  const staleEnd = await executeTool("coc_sanity_execute", {
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    command: { action: "end" },
+  });
+  const staleVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(staleVisible.ok, false);
+  assert.equal(staleVisible.error.code, "binding_context_missing");
+  assert.equal(staleEnd.isError, true);
+  assert.equal(
+    clientCalls.filter((call) => call.operation === "sanity.execute").length,
+    callsAfterEnd,
+    "a consumed/stale semantic choice must not reach canonical transport",
+  );
+}
+
+// 2c) Canonical mutation success must survive the model projection. These
+// fields already belong to the closed semantic grammar; an incomplete
+// per-operation output table must not turn the authoritative ok:true result
+// into semantic_identity_unavailable and invite a duplicate write.
+{
+  const canonicalCashGrant = {
+    ok: true,
+    tool: "state.cash_grant",
+    data: {
+      decision_id: "cash-knott-advance-accept-v1",
+      op: "grant",
+      amount: "20.00",
+      currency: "USD",
+      source: "npc:steven-knott-commission-advance",
+      reason: "Knott cash advance on accepting the commission",
+      localized_reason: "诺特支付的首日调查预付金",
+      balance_before: "0.00",
+      balance_after: "20.00",
+      recorded_at: "1920-10-12T10:00:00-04:00",
+      game_time: {
+        calendar_mode: "gregorian",
+        civil_segment_id: "civil-start",
+        day_phase: "morning",
+        display: "1920-10-12 10:00",
+        elapsed_minutes: 0,
+      },
+      changed: true,
+      investigator_id: "inv-x6a217e22-e0532209",
+    },
+    warnings: [],
+    hints: [],
+  };
+  routeOperation("state.cash_grant", canonicalCashGrant);
+  const cashResult = await executeTool("coc_invoke", {
+    operation: "state.cash_grant",
+    root: testRoot,
+    campaign,
+    arguments: {
+      amount: 20,
+      currency: "USD",
+      source: "npc:steven-knott-commission-advance",
+      reason: "Knott cash advance on accepting the commission",
+      localized_reason: "诺特支付的首日调查预付金",
+      decision_id: "cash-knott-advance-accept-v1",
+    },
+  });
+  const cashVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(
+    cashVisible.ok,
+    true,
+    `successful cash mutation must remain visible: ${JSON.stringify({
+      visible: cashVisible,
+      diagnostics: cashResult.details?.semantic_identity_diagnostics,
+    })}`,
+  );
+  assert.equal(cashVisible.data.decision_id, "cash-knott-advance-accept-v1");
+  assert.equal(cashVisible.data.game_time.civil_segment_id, "civil-start");
+  assert.equal(cashVisible.data.balance_after, "20.00");
+  assertModelSafeContent("state.cash_grant content", cashVisible);
+
+  const opaqueCashGrant = structuredClone(canonicalCashGrant);
+  opaqueCashGrant.data.decision_id =
+    "cash-7c9e6679-7425-40de-944b-e07fc1f90ae7";
+  routeOperation("state.cash_grant", opaqueCashGrant);
+  const opaqueCashResult = await executeTool("coc_invoke", {
+    operation: "state.cash_grant",
+    root: testRoot,
+    campaign,
+    arguments: {
+      amount: 20,
+      currency: "USD",
+      source: "npc:steven-knott-commission-advance",
+      reason: "opaque output identity probe",
+      localized_reason: "不透明输出身份探针",
+      decision_id: "cash-knott-advance-probe-v2",
+    },
+  });
+  const opaqueCashVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(opaqueCashVisible.ok, false);
+  assert.equal(
+    opaqueCashVisible.error.code,
+    "semantic_identity_unavailable",
+    "a classified field still rejects an opaque canonical value",
+  );
+  assert.ok(!modelContents.at(-1).text.includes("7c9e6679"));
+  assert.deepEqual(
+    opaqueCashResult.details.canonical,
+    opaqueCashGrant,
+    "the rejected exact mutation envelope stays host-only",
+  );
+
+  const misplacedEntityGrant = structuredClone(canonicalCashGrant);
+  misplacedEntityGrant.data.scene_id = "commission-briefing";
+  routeOperation("state.cash_grant", misplacedEntityGrant);
+  const misplacedResult = await executeTool("coc_invoke", {
+    operation: "state.cash_grant",
+    root: testRoot,
+    campaign,
+    arguments: {
+      amount: 20,
+      currency: "USD",
+      source: "npc:steven-knott-commission-advance",
+      reason: "operation-local echoed identity probe",
+      localized_reason: "操作局部实体身份探针",
+      decision_id: "cash-knott-advance-probe-v3",
+    },
+  });
+  const misplacedVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(misplacedVisible.ok, false);
+  assert.equal(misplacedVisible.error.code, "semantic_identity_unavailable");
+  assert.ok(!modelContents.at(-1).text.includes("commission-briefing"));
+  assert.ok(
+    misplacedResult.details.semantic_identity_diagnostics.some((entry) =>
+      entry.field === "scene_id" && entry.domain === "undeclared"
+    ),
+    "echoed entity fields remain operation-local rather than globally open",
+  );
+}
+
+// 2d) Nested model-authored semantic identities use the same systemic output
+// classifier. An acquisition receipt's decision_id must stay meaningful and
+// visible after a successful item mutation; it is not operation-local syntax.
+{
+  const canonicalItemGrant = {
+    ok: true,
+    tool: "state.item_grant",
+    data: {
+      investigator_id: "inv-x6a217e22-e0532209",
+      kind: "gear",
+      item_id: "corbitt-house-keys",
+      label: "科比特宅钥匙",
+      changed: true,
+      present_before: false,
+      present_after: true,
+      items: [{
+        item_id: "corbitt-house-keys",
+        kind: "gear",
+        label: "科比特宅钥匙",
+        note: "史蒂文·诺特当面交托",
+        acquired: {
+          tool: "state.item_grant",
+          decision_id: "item-corbitt-house-keys-v1",
+          ts: "1920-10-12T10:00:00-04:00",
+        },
+      }],
+    },
+    warnings: [],
+    hints: [],
+  };
+  routeOperation("state.item_grant", canonicalItemGrant);
+  const itemResult = await executeTool("coc_invoke", {
+    operation: "state.item_grant",
+    root: testRoot,
+    campaign,
+    arguments: {
+      kind: "gear",
+      label: "科比特宅钥匙",
+      note: "史蒂文·诺特当面交托",
+      decision_id: "item-corbitt-house-keys-v1",
+    },
+  });
+  const itemVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(
+    itemVisible.ok,
+    true,
+    `successful item mutation must remain visible: ${JSON.stringify({
+      visible: itemVisible,
+      diagnostics: itemResult.details?.semantic_identity_diagnostics,
+    })}`,
+  );
+  assert.equal(
+    itemVisible.data.items.at(-1).acquired.decision_id,
+    "item-corbitt-house-keys-v1",
+  );
+  assert.match(itemVisible.data.item_id, /^item:/);
+  assertModelSafeContent("state.item_grant nested receipt content", itemVisible);
+}
 
 
 // 1b) Campaign-10 regression — commission briefing route affordance
@@ -1582,7 +2593,269 @@ assert.equal(
     .investigator,
   "inv-x6a217e22-e0532209",
 );
-assertModelSafeContent("rules.roll content", JSON.parse(modelContents.at(-1).text));
+const rulesRollVisible = JSON.parse(modelContents.at(-1).text);
+assert.equal(
+  rulesRollVisible.data.roll_id,
+  "roll:inspect-exterior-stone-street-t1",
+  "public rolls the model may reference retain their registry-backed handle",
+);
+assertModelSafeContent("rules.roll content", rulesRollVisible);
+
+// 4a) A damage expression mints its canonical roll id inside the successful
+// mutation result, after the model's pre-call roll view was established. The
+// model needs the authoritative dice/HP facts, not that machine identity: a
+// missing immediate handle must never turn ok:true into an apparent failure
+// that invites the mutation to be retried.
+{
+  const canonicalDamage = {
+    ok: true,
+    tool: "rules.damage",
+    wire: {
+      schema_version: 1,
+      profile: "keeper_hot_v1",
+      canonical_operation: "rules.damage",
+      full_result_sha256: `sha256:${"a".repeat(64)}`,
+      contract_archive_sha256: `sha256:${"b".repeat(64)}`,
+      payload_projected: false,
+    },
+    data: {
+      investigator_id: "inv-x6a217e22-e0532209",
+      kind: "damage",
+      amount: 2,
+      roll_detail: {
+        expression: "1D3",
+        count: 1,
+        sides: 3,
+        modifier: 0,
+        rolls: [2],
+        total: 2,
+      },
+      hp_before: 12,
+      hp_after: 10,
+      max_hp: 12,
+      conditions_before: [],
+      conditions_after: [],
+      conditions: [],
+      source: "strike the desk corner until the knuckles bleed",
+      roll_id: "toolbox-rulegraph-healing-e2e-xai-20260830-03-000002",
+    },
+    warnings: [],
+    hints: [],
+  };
+  routeOperation("rules.damage", canonicalDamage);
+  const damageResult = await executeTool("coc_rules_damage", {
+    root: testRoot,
+    campaign,
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    kind: "damage",
+    amount: "1D3",
+    source: "strike the desk corner until the knuckles bleed",
+    decision_id: "roll-knuckles-desk-corner-v1",
+  });
+  const damageVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(
+    damageVisible.ok,
+    true,
+    `successful damage must remain visible: ${JSON.stringify({
+      visible: damageVisible,
+      diagnostics: damageResult.details?.semantic_identity_diagnostics,
+    })}`,
+  );
+  assert.equal(damageVisible.data.investigator_id, CURRENT_INVESTIGATOR_HANDLE);
+  assert.equal(damageVisible.data.amount, 2);
+  assert.deepEqual(damageVisible.data.roll_detail, {
+    expression: "1D3",
+    count: 1,
+    sides: 3,
+    modifier: 0,
+    rolls: [2],
+    total: 2,
+  });
+  assert.equal(damageVisible.data.hp_before, 12);
+  assert.equal(damageVisible.data.hp_after, 10);
+  assert.equal(damageVisible.data.roll_id, undefined);
+  assert.ok(
+    !modelContents.at(-1).text.includes(canonicalDamage.data.roll_id),
+    "the newly minted canonical damage roll id stays out of model content",
+  );
+  assert.deepEqual(
+    damageResult.details,
+    canonicalDamage,
+    "the exact successful damage envelope and roll identity stay host-only",
+  );
+  assert.equal(
+    clientCalls.filter((call) => call.operation === "rules.damage").length,
+    1,
+    "a successful damage mutation reaches canonical transport exactly once",
+  );
+  assertModelSafeContent("rules.damage content", damageVisible);
+}
+
+// The graph settlement surface returns the same class of newly minted roll
+// evidence nested inside an existing canonical result envelope. Keep its
+// public dice/actor/HP facts while command, roll, state-path, and digest
+// identity remain host-owned; no RuleGraph or healing implementation fixture
+// is involved in this projection-only regression.
+{
+  const graphCommandId = "healing:graph-first-aid-v1-first-aid";
+  const graphRollId = `${graphCommandId}:roll:primary`;
+  const graphEvent = {
+    event_type: "first_aid",
+    outcome: "extreme",
+    hp_before: 5,
+    hp_after: 6,
+    hp_gained: 1,
+    caregiver_id: "doctor-one",
+    rule_ref: "core.combat.first_aid",
+    skill: "First Aid",
+    source_command_id: graphCommandId,
+    treatment_scope: {
+      day_id: "day-0",
+      wound_id: "wound-desk-corner",
+    },
+  };
+  const graphRoll = {
+    actor_id: "thomas-hayes",
+    decision_id: "roll-healing-graph-first-aid-v1",
+    dice: { expression: "1D100", raw: [8], total: 8 },
+    event_type: "combat_rescue_roll",
+    outcome: "extreme",
+    passed: true,
+    roll: 8,
+    roll_id: graphRollId,
+    roll_role: "percentile_check",
+    skill: "First Aid",
+    source_command_id: graphCommandId,
+    target: 80,
+  };
+  const canonicalGraphSettle = {
+    ok: true,
+    tool: "rules.settle",
+    wire: {
+      schema_version: 1,
+      profile: "keeper_hot_v1",
+      canonical_operation: "rules.settle",
+      full_result_sha256: `sha256:${"c".repeat(64)}`,
+      contract_archive_sha256: `sha256:${"d".repeat(64)}`,
+      payload_projected: false,
+    },
+    data: {
+      decision_ref: "decision:coc7:healing:first-aid-ordinary",
+      family: "healing",
+      status: "settled",
+      rule_refs: ["rule:coc7:healing:first-aid"],
+      investigator_id: "thomas-hayes",
+      event: graphEvent,
+      player_state_receipt: {
+        schema_version: 1,
+        investigator_id: "thomas-hayes",
+        hp: { before: 5, after: 6 },
+        conditions_before: ["major_wound"],
+        conditions_after: [],
+      },
+      current_hp: 6,
+      conditions: [],
+      settlement: {
+        existing_result_envelope: true,
+        result: {
+          investigator_id: "thomas-hayes",
+          event: graphEvent,
+          events: [graphEvent, graphRoll],
+          player_state_receipt: {
+            schema_version: 1,
+            investigator_id: "thomas-hayes",
+            hp: { before: 5, after: 6 },
+            conditions_before: ["major_wound"],
+            conditions_after: [],
+          },
+          current_hp: 6,
+          conditions: [],
+          rescuer_id: "thomas-hayes",
+          results: [{
+            command_id: graphCommandId,
+            events: [graphEvent, graphRoll],
+            kind: "stabilize",
+            pending_choice: null,
+            state_refs: [
+              "save/investigator-state/thomas-hayes.json#current_hp",
+              `logs/rolls.jsonl#${graphRollId}`,
+            ],
+            status: "completed",
+          }],
+        },
+      },
+      next_decisions: [{
+        decision_ref: "decision:coc7:healing:medicine-stabilization",
+        capability_ref: "capability:coc7:medicine",
+        rule_refs: ["rule:coc7:healing:medicine"],
+      }],
+      authority: "canonical-resolver-state-receipts",
+      request_digest: `sha256:${"e".repeat(64)}`,
+    },
+    warnings: [],
+    hints: [],
+  };
+  routeOperation("rules.settle", canonicalGraphSettle);
+  const settleResult = await executeTool("coc_rules_settle", {
+    root: testRoot,
+    campaign,
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    decision_ref: "decision:coc7:healing:first-aid-ordinary",
+    semantic_inputs: { rescuer_ref: "npc:doctor-one" },
+    decision_id: "roll-healing-graph-first-aid-v1",
+  });
+  const settleVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(
+    settleVisible.ok,
+    true,
+    `successful graph settlement must remain visible: ${JSON.stringify({
+      visible: settleVisible,
+      diagnostics: settleResult.details?.semantic_identity_diagnostics,
+    })}`,
+  );
+  assert.equal(settleVisible.data.status, "settled");
+  assert.equal(settleVisible.data.current_hp, 6);
+  assert.equal(settleVisible.data.player_state_receipt.hp.before, 5);
+  assert.equal(settleVisible.data.player_state_receipt.hp.after, 6);
+  assert.equal(settleVisible.data.event.rule_ref, "core.combat.first_aid");
+  assert.equal(settleVisible.data.event.caregiver_id, "doctor-one");
+  assert.deepEqual(
+    settleVisible.data.rule_refs,
+    ["rule:coc7:healing:first-aid"],
+  );
+  assert.equal(
+    settleVisible.data.next_decisions[0].capability_ref,
+    "capability:coc7:medicine",
+  );
+  assert.equal(settleVisible.data.settlement.result.events[1].dice.total, 8);
+  assert.equal(settleVisible.data.settlement.result.events[1].roll_id, undefined);
+  assert.equal(settleVisible.data.settlement.result.events[1].actor_id, "thomas-hayes");
+  assert.equal(
+    settleVisible.data.settlement.result.events[1].source_command_id,
+    undefined,
+  );
+  assert.equal(
+    settleVisible.data.settlement.result.results[0].command_id,
+    undefined,
+  );
+  assert.equal(
+    settleVisible.data.settlement.result.results[0].state_refs,
+    undefined,
+  );
+  assert.equal(settleVisible.data.request_digest, undefined);
+  assert.ok(!modelContents.at(-1).text.includes(graphRollId));
+  assert.deepEqual(
+    settleResult.details,
+    canonicalGraphSettle,
+    "the exact graph settlement and minted roll evidence stay host-only",
+  );
+  assert.equal(
+    clientCalls.filter((call) => call.operation === "rules.settle").length,
+    1,
+    "a successful graph settlement reaches canonical transport exactly once",
+  );
+  assertModelSafeContent("rules.settle content", settleVisible);
+}
 
 // 4b) Exceptional effect bound to the observed roll handle: the source roll
 // handle restores to the canonical roll id, and the canonical effect id is
@@ -2397,6 +3670,323 @@ assert.equal(journalResult.details.data.turn_id,
   "turn-v1-8e3599cdcb794cd5b993b59c077d126f",
   "exact canonical journal identity stays host-internal");
 
+// 5b) Production-shaped pending finalization: a fresh host observes the
+// exact canonical output_context before projection. First-impression
+// obligations, a nested HP state delta, and an NPC context effect all need
+// semantic aliases in one pass; receipt/digest identities remain host-only.
+// This is the real live-2/live-3 failure class that previously turned an
+// authoritative ok:true result into semantic_identity_unavailable and left
+// the model guessing finalize arguments.
+{
+  const firstImpressionReceipt =
+    "npc-first-impression-v2:e8cacaee8831cedf422612cac4e5cf6e219270e9";
+  const firstImpressionRoll =
+    "npc-first-impression-roll-v2:6c859213e858b4faa7a441da1e2bc4777a9c55de";
+  const hpEffect =
+    "turn-effect-v1:3a2f127eb04b7b718385ed5a19eed6c8a4100021";
+  const secondHpEffect =
+    "turn-effect-v1:bf8d33d7f5a948c198d8c5f6bb6d91a4";
+  const pendingModifierEffect =
+    "exceptional-effect-v1:73bf92c9e1f04a7aa8f1c70c09d8a1b2";
+  const contextEffect = `context:${firstImpressionReceipt}`;
+  const productionContext = structuredClone(FAMILIES.turn_output_context);
+  productionContext.data.obligations = [
+    {
+      obligation_id: `first-impression:${firstImpressionReceipt}`,
+      source_kind: "first_impression",
+      source_id: firstImpressionReceipt,
+      npc_display_name: "史蒂文·诺特",
+      visibility: "context_effect",
+      skill: null,
+      goal: "realize the NPC's first observable response",
+      outcome: null,
+      required_level: null,
+      achieved_level: null,
+      passed: null,
+      surplus_levels: null,
+      exceptional_required: false,
+      substantive_effect_required: false,
+      substantive_effect_direction: null,
+      substantive_effect_ids: [],
+      substantive_effect_status: "not_required",
+    },
+    {
+      obligation_id: `roll:${firstImpressionRoll}`,
+      source_kind: "check",
+      source_id: firstImpressionRoll,
+      npc_display_name: "史蒂文·诺特",
+      visibility: "public",
+      skill: "First Impression",
+      goal: "keeper_toolbox",
+      outcome: "extreme",
+      required_level: "regular",
+      achieved_level: "extreme",
+      passed: true,
+      surplus_levels: 2,
+      exceptional_required: false,
+      substantive_effect_required: false,
+      substantive_effect_direction: null,
+      substantive_effect_ids: [],
+      substantive_effect_status: "not_required",
+    },
+  ];
+  productionContext.data.required_obligation_ids = [
+    `first-impression:${firstImpressionReceipt}`,
+    `roll:${firstImpressionRoll}`,
+  ];
+  productionContext.data.source_roll_ids = [firstImpressionRoll];
+  productionContext.data.mechanics_summary = {
+    journal_decision_id: "pi-state-journal:player-epoch-2:revision-1",
+    public_check: [{
+      roll_id: firstImpressionRoll,
+      kind: "npc_first_impression",
+      skill: "First Impression",
+      display_skill: "初印象",
+      roll: 2,
+      base_target: 50,
+      required_level: "regular",
+      required_target: 50,
+      achieved_level: "extreme",
+      passed: true,
+      success: true,
+      surplus_levels: 2,
+      outcome: "extreme",
+      visibility: "public",
+    }],
+    state_delta: [{
+      schema_version: 1,
+      category: "state_delta",
+      effect_id: hpEffect,
+      effect_kind: "scalar",
+      resource: "HP",
+      investigator_id: "inv-x6a217e22-e0532209",
+      before: 12,
+      delta: -1,
+      after: 11,
+      source_decision_id: "roll-damage-right-knuckles-desk-v1",
+    }, {
+      schema_version: 1,
+      category: "state_delta",
+      effect_id: secondHpEffect,
+      effect_kind: "scalar",
+      resource: "HP",
+      investigator_id: "inv-x6a217e22-e0532209",
+      before: 11,
+      delta: -1,
+      after: 10,
+      source_decision_id: "roll-damage-right-knuckles-desk-second-v1",
+    }],
+    exceptional_effect: [],
+    concealed_consequence: [],
+  };
+  productionContext.data.npc_performance_constraints = [{
+    schema_version: 2,
+    category: "context_effect",
+    effect_id: contextEffect,
+    source_receipt_id: firstImpressionReceipt,
+    source_roll_id: firstImpressionRoll,
+    effect_kind: "npc_first_impression",
+    contract_version: "public-roll-v2",
+    investigator_id: "inv-x6a217e22-e0532209",
+    npc_id: "npc-steven-knott",
+    npc_display_name: "史蒂文·诺特",
+    reaction_tier: "strongly_favorable",
+    achieved_level: "extreme",
+    observable_manner: "诺特盯住你破裂流血的右拳，把文件夹推近了一点。",
+    causal_explanation: "极难成功使他把这理解成不易退缩的信号。",
+    boundary_preserved: "他仍不会泄露尚未发现的秘密。",
+    opportunity_or_friction: "他更愿意把佣金条件讲清楚。",
+  }];
+  productionContext.data.candidate_factors = [];
+  productionContext.data.pending_modifier_consumptions = [{
+    effect_id: pendingModifierEffect,
+    roll_id: firstImpressionRoll,
+    effect_kind: "bonus_die",
+    required_dice: 1,
+    investigator_id: "inv-x6a217e22-e0532209",
+    skill: "First Impression",
+  }];
+  productionContext.data.finalize_operation.coverage_contract.obligation_ids = [
+    `first-impression:${firstImpressionReceipt}`,
+    `roll:${firstImpressionRoll}`,
+  ];
+  routeOperation("turn.output_context", productionContext);
+  const productionResult = await executeTool(
+    "coc_turn_output_context",
+    { root: testRoot, campaign },
+  );
+  const productionVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(
+    productionVisible.ok,
+    true,
+    `production-shaped output_context must stay usable: ${JSON.stringify({
+      visible: productionVisible,
+      diagnostics: productionResult.details?.semantic_identity_diagnostics,
+    })}`,
+  );
+  assertModelSafeContent("production-shaped output_context", productionVisible);
+  assert.equal(productionVisible.data.required_obligation_ids.length, 2);
+  assert.ok(
+    productionVisible.data.required_obligation_ids.every((id) =>
+      typeof id === "string" && id.startsWith("roll:")
+    ),
+  );
+  assert.match(
+    productionVisible.data.mechanics_summary.public_check[0].roll_id,
+    /^roll:/,
+  );
+  assert.match(
+    productionVisible.data.mechanics_summary.state_delta[0].effect_id,
+    /^effect:/,
+  );
+  const visibleHpEffects = productionVisible.data.mechanics_summary
+    .state_delta.map((row) => row.effect_id);
+  assert.deepEqual(
+    visibleHpEffects,
+    ["effect:hp-scalar-state-delta", "effect:hp-scalar-state-delta-2"],
+    "short-resource same-kind effects receive meaningful distinct handles",
+  );
+  for (const alias of visibleHpEffects) {
+    assert.equal(
+      validateRawModelIdentityPayload({ source_effect_id: alias }).ok,
+      true,
+      `host-issued effect alias must satisfy the raw grammar: ${alias}`,
+    );
+  }
+  assert.match(
+    productionVisible.data.npc_performance_constraints[0].effect_id,
+    /^effect:/,
+  );
+  assert.match(
+    productionVisible.data.npc_performance_constraints[0].source_roll_id,
+    /^roll:/,
+  );
+  assert.match(
+    productionVisible.data.pending_modifier_consumptions[0].effect_id,
+    /^effect:/,
+  );
+  assert.match(
+    productionVisible.data.pending_modifier_consumptions[0].roll_id,
+    /^roll:/,
+  );
+  assert.equal(
+    productionVisible.data.npc_performance_constraints[0].source_receipt_id,
+    undefined,
+    "machine receipt identity stays host-owned",
+  );
+  assert.equal(
+    productionResult.details.data.npc_performance_constraints[0]
+      .source_receipt_id,
+    firstImpressionReceipt,
+    "the exact receipt remains available to host consumers",
+  );
+  assert.equal(
+    productionResult.details.data.mechanics_summary.state_delta[0].effect_id,
+    hpEffect,
+    "the exact state-effect identity remains available to host consumers",
+  );
+  assert.deepEqual(
+    productionVisible.data.agency_review_operation.missing_model_arguments,
+    ["draft_text", "findings", "state_authority_review"],
+  );
+  assert.deepEqual(
+    productionVisible.data.agency_review_operation
+      .host_bound_auto_attached_arguments,
+    ["decision_id", "revision", "source_digest", "turn_id"],
+  );
+  assert.deepEqual(
+    productionVisible.data.finalize_operation.missing_model_arguments,
+    ["draft", "coverage", "agency_claims"],
+  );
+  assert.deepEqual(
+    productionVisible.data.finalize_operation.host_bound_auto_attached_arguments,
+    ["decision_id", "narration_review_id", "revision"],
+  );
+  assert.deepEqual(
+    productionVisible.data.finalize_operation.coverage_contract.obligation_ids,
+    productionVisible.data.required_obligation_ids,
+    "the finalize descriptor reuses the exact semantic obligation aliases",
+  );
+  routeOperation("turn.output_context", productionContext);
+  await executeTool("coc_turn_output_context", { root: testRoot, campaign });
+  const replayVisible = JSON.parse(modelContents.at(-1).text);
+  assert.deepEqual(
+    replayVisible.data.required_obligation_ids,
+    productionVisible.data.required_obligation_ids,
+    "unchanged pending-turn observation reuses stable semantic aliases",
+  );
+  assert.deepEqual(
+    replayVisible.data.mechanics_summary.state_delta.map((row) => row.effect_id),
+    visibleHpEffects,
+    "multiple same-kind effect aliases stay stable across replay",
+  );
+  const visibleHpEffect = productionVisible.data.mechanics_summary
+    .state_delta[0].effect_id;
+  const productionDraft = "你的右拳指节裂开，鲜血沿着手背滴下。";
+  const reviewCallsBeforeRoundTrip = clientCalls.filter(
+    (call) => call.operation === "narration.review",
+  ).length;
+  routeOperation("narration.review", FAMILIES.narration_review);
+  const productionReviewResult = await executeTool("coc_narration_review", {
+    draft_text: productionDraft,
+    findings: [],
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    state_authority_review: {
+      disposition: "claims_listed",
+      reason: "草稿准确陈述了本回合已经落地的生命值变化。",
+      claims: [{
+        claim_id: "claim-right-knuckles-hp-loss",
+        subject_ref: CURRENT_PC_SUBJECT_HANDLE,
+        claim_kind: "scalar",
+        exact_excerpt: "右拳指节裂开",
+        source_effect_id: visibleHpEffect,
+        reason: "绑定冻结的 HP 状态变化。",
+      }],
+    },
+  });
+  const productionReviewVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(
+    productionReviewVisible.ok,
+    true,
+    `host-issued effect alias must round-trip through review: ${JSON.stringify(
+      productionReviewVisible,
+    )}`,
+  );
+  assert.equal(
+    clientCalls.filter((call) => call.operation === "narration.review").length,
+    reviewCallsBeforeRoundTrip + 1,
+    "grammar-safe review reaches canonical transport exactly once",
+  );
+  const productionReviewTransport = clientCalls.filter(
+    (call) => call.operation === "narration.review",
+  ).at(-1);
+  assert.equal(
+    productionReviewTransport.arguments.state_authority_review.claims[0]
+      .source_effect_id,
+    hpEffect,
+    "the semantic effect alias restores the exact canonical state effect",
+  );
+  assert.equal(
+    productionReviewTransport.arguments.state_authority_review.claims[0]
+      .subject_ref,
+    "pc:inv-x6a217e22-e0532209",
+  );
+  assert.equal(
+    productionReviewTransport.arguments.state_claim_compilation.result
+      .claims[0].matched_review_claim_id,
+    "claim-right-knuckles-hp-loss",
+    "the host compiler and Keeper review agree on the exact grounded claim",
+  );
+  assert.equal(
+    productionReviewResult.details.data.review_id,
+    FAMILIES.narration_review.data.review_id,
+    "the exact review receipt remains host-only after semantic round-trip",
+  );
+  // The existing normal review/finalize vertical below proves these two
+  // descriptors restore their host-only turn/digest/review/decision identity.
+  routeOperation("turn.output_context", FAMILIES.turn_output_context);
+}
+
 // 6) turn.output_context — semantic obligations/draft instructions only.
 routeOperation("turn.output_context", FAMILIES.turn_output_context);
 await executeTool("coc_turn_output_context", { root: testRoot, campaign });
@@ -2499,11 +4089,14 @@ assert.ok(
   );
   // Restore the authoritative envelope for the settle steps that follow.
   routeOperation("turn.output_context", FAMILIES.turn_output_context);
+  await executeTool("coc_turn_output_context", { root: testRoot, campaign });
 }
 
 // 7) narration.review — host binds exact identity; content is guidance only.
 const draftText = "石街的夜很静。考夫特的住处门前无人应门，窗子里也没有灯。\n\n屋子仍黑着。";
-routeOperation("narration.review", FAMILIES.narration_review);
+const acceptedReview = structuredClone(FAMILIES.narration_review);
+acceptedReview.data.draft_sha256 = canonicalDigest(draftText);
+routeOperation("narration.review", acceptedReview);
 await executeTool("coc_narration_review", {
   draft_text: draftText,
   findings: [],
@@ -2514,9 +4107,9 @@ await executeTool("coc_narration_review", {
     reason: "草稿未声称现金、物品、资源、状态或明确的时间推进数值。",
   },
 });
-const reviewTransport = clientCalls.find(
+const reviewTransport = clientCalls.filter(
   (call) => call.operation === "narration.review",
-);
+).at(-1);
 assert.ok(reviewTransport, "narration.review must reach transport");
 assert.equal(reviewTransport.arguments.turn_id,
   "turn-v1-8e3599cdcb794cd5b993b59c077d126f",
@@ -2537,43 +4130,62 @@ const reviewVisible = JSON.parse(modelContents.at(-1).text);
 assertModelSafeContent("narration.review content", reviewVisible);
 assert.equal(reviewVisible.data.recommendation, "no_revision_suggested");
 assert.ok(!("review_id" in reviewVisible.data));
+assert.equal(
+  reviewVisible.data.finalize_agency_binding.mode,
+  "semantic_reviewed_spans",
+);
+assert.equal(
+  JSON.stringify(reviewVisible.data.finalize_agency_binding)
+    .includes("考夫特的住处门前无人应门"),
+  false,
+  "review binding exposes semantic ordinals, never frozen exact excerpts",
+);
+assert.equal(
+  JSON.stringify(reviewVisible.data.finalize_agency_binding)
+    .includes("exact_excerpt"),
+  false,
+  "same-session coverage binding never asks the model to transcribe excerpts",
+);
+assert.deepEqual(
+  reviewVisible.data.finalize_agency_binding.coverage_obligations.map(
+    (row) => row.obligation,
+  ).sort(),
+  ["roll:inspect-exterior-stone-street-t1", "roll:listen"].sort(),
+);
 
-// 8) turn.finalize — semantic handles restored; receipt stays details-only.
+// 8) turn.finalize — reviewed agency spans and all exact host evidence are
+// restored; receipt stays details-only.
 routeOperation("turn.finalize", FAMILIES.turn_finalize);
 const finalizeDelivered = await executeTool("coc_turn_finalize", {
-  draft: "石街的夜很静。考夫特的住处门前无人应门，窗子里也没有灯。\n\n屋子仍黑着。",
   coverage: [
     {
       // The semantic roll handle presented in output_context content.
-      obligation_id: "roll:inspect-exterior-stone-street-t1",
+      obligation_ref: "roll:inspect-exterior-stone-street-t1",
+      reviewed_span: "reviewed-sentence:paragraph-2:1",
       realization: "fictional_beat",
       action_realization: "程远举灯查看门窗与墙根。",
       response: "夜色里看不清任何确定痕迹。",
       causal_explanation: "侦查未通过，无法确认脚印或撬痕。",
       persona_fit: "他以工匠般的耐心近距离查看。",
       player_input_handling: "specific_preserved",
-      exact_excerpt: "屋子仍黑着。",
       exceptional_beat: null,
     },
     {
-      obligation_id: "roll:listen",
+      obligation_ref: "roll:listen",
+      reviewed_span: "reviewed-sentence:paragraph-2:1",
       realization: "fictional_beat",
       action_realization: "他把耳朵贴上门板。",
       response: "门后没有可辨认的声响。",
       causal_explanation: "聆听未通过，听不出屋内动静。",
       persona_fit: "他贴得近且耐心。",
       player_input_handling: "specific_preserved",
-      exact_excerpt: "屋子仍黑着。",
       exceptional_beat: null,
     },
   ],
   agency_claims: [{
-    claim_id: "agency-inspect",
+    reviewed_span: "reviewed-sentence:paragraph-1:2",
     claim_type: "voluntary_action",
-    exact_excerpt: "考夫特的住处门前无人应门",
-    override_id: null,
-    source_ref: CURRENT_PLAYER_INPUT_SOURCE_HANDLE,
-    subject_ref: CURRENT_PC_SUBJECT_HANDLE,
+    authority: "current-player-input",
   }],
   advisory_uptake: {
     advice_id: CURRENT_ADVICE_HANDLE,
@@ -2588,6 +4200,12 @@ const finalizeTransport = clientCalls.find(
   (call) => call.operation === "turn.finalize",
 );
 assert.ok(finalizeTransport, "turn.finalize must reach transport");
+assert.equal(finalizeTransport.arguments.draft, draftText);
+assert.equal(
+  finalizeTransport.arguments.agency_claims[0].exact_excerpt,
+  "考夫特的住处门前无人应门，窗子里也没有灯。",
+  "host restores the exact accepted-review sentence",
+);
 assert.equal(
   finalizeTransport.arguments.agency_claims[0].subject_ref,
   "pc:inv-x6a217e22-e0532209",
@@ -2623,6 +4241,17 @@ assert.deepEqual(
     "roll:toolbox-king-shreds-recovery-live-01-000004",
   ],
   "semantic roll handles restore the exact kind-prefixed Python obligation ids",
+);
+assert.ok(
+  finalizeTransport.arguments.coverage.every(
+    (row) => row.exact_excerpt === "屋子仍黑着。",
+  ),
+  "host restores exact reviewed consequence spans for every obligation",
+);
+assert.equal(
+  Object.hasOwn(finalizeTransport.arguments, "mechanics_placements"),
+  false,
+  "accepted-review placement stays host-owned through canonical safe default",
 );
 
 // 8b) Unknown semantic roll handles fail closed with zero transport.
@@ -2808,8 +4437,8 @@ assert.ok(
   "the A-campaign investigator may only ever ride A-campaign transports",
 );
 
-// 11c) Omitted campaign: without a current invocation campaign there is no
-// authorized identity — the handle fails closed with zero transport.
+// 11c) Typed model calls omit the transport campaign by construction. The
+// active canonical campaign scopes semantic restoration before transport.
 const omittedCampaignRoll = await executeTool("coc_rules_roll", {
   root: testRoot,
   investigator: CURRENT_INVESTIGATOR_HANDLE,
@@ -2819,17 +4448,13 @@ const omittedCampaignRoll = await executeTool("coc_rules_roll", {
   goal: "缺少当前战役的聆听",
   decision_id: "roll-listen-omitted-campaign",
 });
-assert.equal(omittedCampaignRoll.isError, true);
-assert.equal(JSON.parse(modelContents.at(-1).text).error.code,
-  "semantic_entity_binding_missing");
-assert.equal(
-  clientCalls.filter(
-    (call) => call.operation === "rules.roll"
-      && call.arguments.decision_id === "roll-listen-omitted-campaign",
-  ).length,
-  0,
-  "missing-campaign handle use must never transport",
+assert.equal(JSON.parse(modelContents.at(-1).text).ok, true);
+const activeCampaignRoll = clientCalls.find(
+  (call) => call.operation === "rules.roll"
+    && call.arguments.decision_id === "roll-listen-omitted-campaign",
 );
+assert.equal(activeCampaignRoll.campaign, campaign);
+assert.equal(activeCampaignRoll.arguments.investigator, "inv-x6a217e22-e0532209");
 
 // 12) Campaign switch rebinds: the retained identity is campaign-tagged, so
 // the handle restores the NEW campaign's investigator and never leaks the old.

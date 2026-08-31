@@ -649,13 +649,22 @@ def _keeper_response(choice: dict, action: str = "tick") -> dict:
     }
 
 
-def _execute(module, campaign: Path, character: Path, commands: list[dict], rng):
+def _execute(
+    module,
+    campaign: Path,
+    character: Path,
+    commands: list[dict],
+    rng,
+    *,
+    damage_state_effect=None,
+):
     return module.execute_commands(
         campaign,
         character,
         "inv1",
         commands,
         rng=rng,
+        damage_state_effect=damage_state_effect,
     )
 
 
@@ -742,6 +751,12 @@ def test_authored_hazard_and_damaged_tome_are_transactional_exact_replays(tmp_pa
     assert damage_amount["target_actor_id"] == "inv1"
     assert not executor.AMOUNT_FORBIDDEN_FIELDS.intersection(damage_amount)
     after_hazard = json.loads(inv_path.read_text())
+    assert after_hazard["wound_ledger"] == [{
+        "wound_id": "wound-chapel-floor",
+        "source_damage_roll_id": "chapel-floor:damage",
+        "occurred_elapsed_minutes": 0,
+        "status": "active",
+    }]
     roll_lines = (campaign / "logs" / "rolls.jsonl").read_text().splitlines()
     replay_rng = random.Random(999)
     rng_before = replay_rng.getstate()
@@ -772,6 +787,74 @@ def test_authored_hazard_and_damaged_tome_are_transactional_exact_replays(tmp_pa
     assert json.loads(time_path.read_text()) == time_after
     assert (campaign / "logs" / "rolls.jsonl").read_text() == rolls_after
     assert (campaign / "logs" / "time.jsonl").read_text() == time_log_after
+
+
+def test_authored_hazard_damage_hook_failure_rolls_back_before_retry(tmp_path):
+    executor = _executor("coc_subsystem_executor_damage_hook_rollback")
+    resolver = _load(
+        "coc7_resolver_damage_hook_rollback",
+        Path("plugins/coc-keeper/rulesets/coc7/resolver.py"),
+    )
+    campaign, character = _campaign_and_character(tmp_path)
+    sheet = json.loads(character.read_text())
+    sheet["characteristics"]["LUCK"] = 1
+    sheet["derived"]["HP"] = 12
+    sheet["skills"]["Jump"] = 1
+    character.write_text(json.dumps(sheet))
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 12, "hp_max": 12, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    command = _command("cellar-drop", "environmental_hazard", payload={
+        "decision_id": "cellar-drop",
+        "roll_id": "cellar-drop",
+        "luck_skill": "Luck",
+        "jump_skill": "Jump",
+        "damage_expr": "1D6",
+        "source": "cellar drop",
+        "rule_ref": "module.test.cellar",
+    })
+    state_before = inv_path.read_bytes()
+    rolls_path = campaign / "logs" / "rolls.jsonl"
+    rolls_before = rolls_path.read_bytes()
+    rng = random.Random(2)
+    rng_before = rng.getstate()
+
+    def fail_hook(_actor_state, _event):
+        raise RuntimeError("injected package damage hook failure")
+
+    with pytest.raises(executor.SubsystemExecutorError) as failure:
+        _execute(
+            executor,
+            campaign,
+            character,
+            [command],
+            rng,
+            damage_state_effect=fail_hook,
+        )
+    assert failure.value.code == "subsystem_transaction_failed"
+    assert inv_path.read_bytes() == state_before
+    assert rolls_path.read_bytes() == rolls_before
+    assert rng.getstate() == rng_before
+
+    recovered = _execute(
+        executor,
+        campaign,
+        character,
+        [command],
+        random.Random(2),
+        damage_state_effect=lambda actor_state, event: resolver.damage_state_effect(
+            actor_state=actor_state,
+            event=event,
+        ),
+    )[0]
+    assert recovered["status"] == "completed"
+    assert json.loads(inv_path.read_text())["wound_ledger"] == [{
+        "wound_id": "wound-cellar-drop",
+        "source_damage_roll_id": "cellar-drop:damage",
+        "occurred_elapsed_minutes": 0,
+        "status": "active",
+    }]
 
 
 def test_authored_tome_failure_rolls_back_time_state_logs_and_rng(tmp_path, monkeypatch):
@@ -1315,6 +1398,52 @@ def test_dying_tick_and_stabilize_use_structured_healing_rules(tmp_path):
     final_state = json.loads(state_path.read_text(encoding="utf-8"))
     assert "stabilized" in final_state["conditions"]
     assert "dead" not in final_state["conditions"]
+
+
+def test_two_rescuer_first_aid_emits_two_rolls_and_one_state_change(tmp_path):
+    executor = _executor("coc_subsystem_executor_first_aid_teamwork")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update({"current_hp": 5, "max_hp": 10, "conditions": []})
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    command = _command("team-aid", "stabilize", payload={
+        "decision_id": "team-aid",
+        "method": "first_aid",
+        "skill_value": 1,
+        "rescuer_id": "rescuer-primary",
+        "assistant_skill_value": 99,
+        "assistant_rescuer_id": "rescuer-assistant",
+    })
+
+    result = _execute(
+        executor, campaign, character, [command], random.Random(2),
+    )[0]
+
+    primary = result["events"][0]
+    assert primary["teamwork"] is True
+    assert primary["hp_gained"] == 1
+    evidence = [
+        row for row in result["events"]
+        if row.get("roll_role") == "percentile_check"
+    ]
+    assert [row["roll_id"] for row in evidence] == [
+        "team-aid:roll:primary",
+        "team-aid:roll:assistant",
+    ]
+    assert [row["actor_id"] for row in evidence] == [
+        "rescuer-primary",
+        "rescuer-assistant",
+    ]
+    assert [row["target"] for row in evidence] == [1, 99]
+    final_state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert final_state["current_hp"] == 6
+
+    replay = _execute(
+        executor, campaign, character, [command], random.Random(999),
+    )[0]
+    assert replay == result
+    assert json.loads(state_path.read_text(encoding="utf-8"))["current_hp"] == 6
 
 
 def test_deteriorated_stabilization_reopens_first_aid_window_and_migrates_legacy_usage(
@@ -3707,7 +3836,7 @@ def test_structured_sanity_fields_are_forwarded_and_new_session_events_are_captu
     command["payload"].update({
         "san_loss_fail_expr": "1",
         "alone": True,
-        "involuntary_kind": "flee",
+        "involuntary_kind": "freeze",
         "involuntary_summary": "retreat to the marked safe doorway",
         "module_bout_override": {"force_mode": "summary"},
         "creature_type": "deep-one",
@@ -3727,7 +3856,7 @@ def test_structured_sanity_fields_are_forwarded_and_new_session_events_are_captu
     assert "involuntary_action" in event_types
     sanity = json.loads((campaign / "save" / "sanity.json").read_text())
     assert sanity["involuntary_actions"][-1] == {
-        "kind": "flee",
+        "kind": "freeze",
         "summary": "retreat to the marked safe doorway",
         "source": "structured-test-source",
         "rule_ref": "core.sanity.failure_involuntary_action",
@@ -3735,6 +3864,15 @@ def test_structured_sanity_fields_are_forwarded_and_new_session_events_are_captu
     assert sanity["awfulness_caps"]["deep-one"] == 1
     assert event_types.count("sanity") == 1
     assert event_types.count("involuntary_action") == 1
+    check_event = next(
+        event for event in result["events"] if event.get("kind") == "sanity_check"
+    )
+    assert check_event["involuntary_action"] == {
+        "kind": "freeze",
+        "summary": "retreat to the marked safe doorway",
+        "source": "structured-test-source",
+        "rule_ref": "core.sanity.failure_involuntary_action",
+    }
     roll_rows = [
         json.loads(line)
         for line in (campaign / "logs" / "rolls.jsonl").read_text().splitlines()
@@ -3742,6 +3880,12 @@ def test_structured_sanity_fields_are_forwarded_and_new_session_events_are_captu
     assert len(roll_rows) == 1
     assert roll_rows[0]["payload"].get("roll_id") == "san-forwarding"
     assert roll_rows[0]["payload"].get("event_type") is None
+    assert roll_rows[0]["payload"]["involuntary_action"] == {
+        "kind": "freeze",
+        "summary": "retreat to the marked safe doorway",
+        "source": "structured-test-source",
+        "rule_ref": "core.sanity.failure_involuntary_action",
+    }
 
 
 def test_forced_summary_bout_finishes_without_keeper_pending_choice(tmp_path):

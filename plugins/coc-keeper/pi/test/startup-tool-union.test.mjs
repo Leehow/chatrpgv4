@@ -37,23 +37,23 @@ test("phase activation keeps the restricted skill-doc read active and unrestrict
   }
 });
 
-test("pending non-resume stays phase_forbidden while schema unions projected tools", async () => {
+test("pending non-resume requires recovery binding while schema unions projected tools", async () => {
   const mod = await loadDomain();
   assert.equal(mod.evaluateExecuteAcl({
     toolName: "coc_rules",
     operation: "rules.roll",
     phase: "recovery",
-  }).code, "phase_forbidden");
+  }).code, "recovery_authorization_required");
   assert.equal(mod.evaluateExecuteAcl({
     toolName: "coc_turn",
     operation: "state.journal",
     phase: "recovery",
-  }).ok, true);
+  }).code, "recovery_authorization_required");
   assert.equal(mod.evaluateExecuteAcl({
     toolName: "coc_turn",
     operation: "turn.finalize",
     phase: "recovery",
-  }).ok, true);
+  }).code, "recovery_authorization_required");
   assert.equal(mod.evaluateExecuteAcl({
     toolName: "coc_setup",
     operation: "session.resume",

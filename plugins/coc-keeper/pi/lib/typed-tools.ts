@@ -35,10 +35,12 @@ export {
   CURRENT_INVESTIGATOR_HANDLE,
   CURRENT_PC_SUBJECT_HANDLE,
   CURRENT_PLAYER_INPUT_SOURCE_HANDLE,
+  deriveChaseActionCandidates,
   deriveSemanticEntityFacts,
   emptySemanticEntityFacts,
   ToolContractProjectionError,
   bindRetainedTypedToolArguments,
+  retainedTypedToolHostArguments,
   isPiSchemaFailure,
   projectBoundTypedToolParameters,
   projectModelCallArguments,
@@ -59,6 +61,9 @@ export {
   DECISION_ID_FIELD_DESCRIPTION,
   CLOSED_IDENTITY_GRAMMAR_TABLE_HEADING,
   CLOSED_IDENTITY_GRAMMAR_WRONG_FRAME,
+  REVIEWED_AGENCY_CLAIM_TYPES,
+  buildReviewedAgencyBinding,
+  buildReviewedCoverageBindingFacts,
   closedIdentityGrammarSpec,
   closedIdentityGrammarCatalog,
   MODEL_FACING_SUFFIX_DECISION_ID_FIELDS,
@@ -66,8 +71,16 @@ export {
   type AdvanceTimeBindingCard,
   type CombatResolveBindingCard,
   type CombatTargetCandidate,
+  type ChaseActionCandidate,
+  type ChaseExecuteBindingCard,
+  type SanityBoutActionCandidate,
+  type SanityBoutBindingCard,
   type CurrentTypedToolHostContext,
   type NarrationReviewBindingCard,
+  type ReviewedAgencyBinding,
+  type ReviewedAgencyBindingSource,
+  type ReviewedAgencyClaimType,
+  type ReviewedCoverageBindingFacts,
   type PiAllowedNextAction,
   type PiFailureClass,
   type PiFailureRecovery,
@@ -430,6 +443,22 @@ export function validateGenericInvokeAgainstRegisteredSchema(
   );
   return errors.length === 0
     ? { ok: true, arguments: decodedArguments }
+    : { ok: false, errors };
+}
+
+/** Validate one already-selected operation's raw model arguments against the
+ * exact projected schema currently registered for that operation. */
+export function validateProjectedModelArguments(
+  argumentsValue: unknown,
+  schema: JsonSchema,
+): { ok: true; arguments: Record<string, unknown> } | { ok: false; errors: string[] } {
+  if (!isPlainObject(argumentsValue)) {
+    return { ok: false, errors: ["arguments must encode a plain object"] };
+  }
+  const errors: string[] = [];
+  validateAgainstProjectedSchema(argumentsValue, schema, "", errors);
+  return errors.length === 0
+    ? { ok: true, arguments: argumentsValue }
     : { ok: false, errors };
 }
 

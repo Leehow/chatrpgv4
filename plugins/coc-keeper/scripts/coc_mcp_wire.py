@@ -13,6 +13,7 @@ from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
+import re
 from typing import Any, Callable
 
 
@@ -21,6 +22,10 @@ PROFILE_ID = "keeper_hot_v1"
 # Grok's documented default is 20,000 bytes.  Budget the complete envelope,
 # not only ``data``, and retain headroom for the host's MCP wrapper.
 MAX_INLINE_BYTES = 16 * 1024
+# ``wire.measured_inline_bytes`` is attached after projection. Reserve enough
+# space while fitting hot schemas so that final accounting cannot push an
+# otherwise valid packet back over the hard wire ceiling.
+FINAL_MEASUREMENT_RESERVE_BYTES = 64
 SOURCE_MATERIAL_MENTION_LIMIT = 6
 SOURCE_MATERIAL_SCENE_REF_LIMIT = 8
 SOURCE_MATERIAL_MENTION_REF_LIMIT = 4
@@ -31,6 +36,52 @@ SOURCE_MATERIAL_NOTE_BYTE_LIMIT = 640
 SOURCE_MATERIAL_POLICY_BYTE_LIMIT = 512
 SOURCE_MATERIAL_LABEL_BYTE_LIMIT = 128
 SOURCE_IDENTIFIER_MAX_CHARS = 128
+RULE_DECISION_CARD_LIMIT = 8
+RULE_DECISION_INPUT_LIMIT = 16
+RULE_DECISION_REF_LIMIT = 16
+RULE_DECISION_LABEL_BYTE_LIMIT = 512
+RULE_DECISION_CARD_FIELDS = frozenset({
+    "schema_version",
+    "decision_ref",
+    "family",
+    "label",
+    "applicability",
+    "required_inputs",
+    "locked_inputs",
+    "rule_refs",
+    "source_refs",
+    "capability_ref",
+    "effect_refs",
+    "possible_continuations",
+    "authority",
+})
+RULE_DECISION_BLOCK_FIELDS = frozenset({
+    "schema_version",
+    "family",
+    "investigator_id",
+    "status",
+    "cards",
+    "authority",
+})
+RULE_DECISION_INPUT_FIELDS = frozenset({"name", "owner", "type"})
+RULE_DECISION_INPUT_OWNERS = frozenset({
+    "keeper-semantic", "player-source", "optional-semantic",
+})
+RULE_DECISION_INPUT_TYPES = frozenset({
+    "actor-ref", "boolean", "bool", "integer", "int", "number", "scalar",
+    "string",
+})
+RULE_DECISION_AUTHORITY_FIELDS = frozenset({
+    "selection", "execution", "hard_gate",
+})
+RULE_DECISION_BLOCK_AUTHORITY_FIELDS = frozenset({
+    "hard_gate", "role", "note",
+})
+_OPAQUE_UUID = re.compile(
+    r"(?i)(?:^|[:._-])[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
+    r"[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:$|[:._-])"
+)
+_OPAQUE_HEX = re.compile(r"(?i)(?:^|[:._-])[0-9a-f]{16,}(?:$|[:._-])")
 _SOURCE_IDENTIFIER_FIRST = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )
@@ -95,6 +146,14 @@ def transport_bytes(value: Any) -> int:
     return len(json.dumps(value, ensure_ascii=False).encode("utf-8"))
 
 
+def _exceeds_inline_budget(value: Any, *, reserve_bytes: int = 0) -> bool:
+    """Return whether ``value`` plus bounded final metadata exceeds the wire."""
+    return (
+        transport_bytes(value) + max(0, reserve_bytes)
+        > MAX_INLINE_BYTES
+    )
+
+
 def canonical_digest(value: Any) -> str:
     payload = json.dumps(
         value,
@@ -123,6 +182,7 @@ def _fit_hot_argument_schemas(
     result: dict[str, Any],
     *,
     omit_order: tuple[str, ...],
+    reserve_bytes: int = 0,
 ) -> None:
     """Prefer structural hot schemas over another discovery round trip."""
     wire = result.setdefault("wire", {})
@@ -146,7 +206,7 @@ def _fit_hot_argument_schemas(
 
     omitted: list[str] = []
     for operation in omit_order:
-        if transport_bytes(result) <= MAX_INLINE_BYTES:
+        if not _exceeds_inline_budget(result, reserve_bytes=reserve_bytes):
             break
         card = hot.get(operation)
         if isinstance(card, dict) and card.pop("arguments_schema", None) is not None:
@@ -1071,6 +1131,237 @@ def _compact_source_material(value: Any) -> dict[str, Any] | None:
     }
 
 
+def _model_semantic_identifier(value: Any) -> bool:
+    """Meaning-bearing ASCII identity; rejects entropy/path/integrity tokens."""
+    return (
+        _is_source_identifier(value)
+        and isinstance(value, str)
+        and not value.startswith(("sha256:", "card-grant:", "receipt:"))
+        and _OPAQUE_UUID.search(value) is None
+        and _OPAQUE_HEX.search(value) is None
+    )
+
+
+def _semantic_prefixed_ref(value: Any, prefix: str) -> bool:
+    return (
+        _model_semantic_identifier(value)
+        and isinstance(value, str)
+        and value.startswith(prefix)
+        and len(value) > len(prefix)
+    )
+
+
+def _closed_rule_decision_ref_list(
+    value: Any,
+    *,
+    prefix: str,
+) -> list[str] | None:
+    if (
+        not isinstance(value, list)
+        or len(value) > RULE_DECISION_REF_LIMIT
+        or any(not _semantic_prefixed_ref(ref, prefix) for ref in value)
+        or len(set(value)) != len(value)
+    ):
+        return None
+    return list(value)
+
+
+def _closed_rule_source_refs(value: Any) -> list[str] | None:
+    if (
+        not isinstance(value, list)
+        or not value
+        or len(value) > RULE_DECISION_REF_LIMIT
+        or len(set(value)) != len(value)
+    ):
+        return None
+    prefixes = ("span-", "source:", "pdf:", "module:", "handout:")
+    if any(
+        not _model_semantic_identifier(ref)
+        or not isinstance(ref, str)
+        or not any(ref.startswith(prefix) for prefix in prefixes)
+        for ref in value
+    ):
+        return None
+    return list(value)
+
+
+def _closed_rule_required_inputs(value: Any) -> list[dict[str, str]] | None:
+    if not isinstance(value, list) or len(value) > RULE_DECISION_INPUT_LIMIT:
+        return None
+    rows: list[dict[str, str]] = []
+    names: set[str] = set()
+    for raw in value:
+        if (
+            not isinstance(raw, dict)
+            or set(raw) != RULE_DECISION_INPUT_FIELDS
+            or not _model_semantic_identifier(raw.get("name"))
+            or raw.get("owner") not in RULE_DECISION_INPUT_OWNERS
+            or raw.get("type") not in RULE_DECISION_INPUT_TYPES
+            or raw["name"] in names
+        ):
+            return None
+        names.add(raw["name"])
+        rows.append({
+            "name": raw["name"],
+            "owner": raw["owner"],
+            "type": raw["type"],
+        })
+    return rows
+
+
+def _closed_rule_locked_inputs(value: Any) -> list[str] | None:
+    if (
+        not isinstance(value, list)
+        or len(value) > RULE_DECISION_INPUT_LIMIT
+        or any(not _model_semantic_identifier(name) for name in value)
+        or len(set(value)) != len(value)
+    ):
+        return None
+    return list(value)
+
+
+def _closed_rule_card_authority(value: Any) -> dict[str, Any] | None:
+    if (
+        not isinstance(value, dict)
+        or set(value) != RULE_DECISION_AUTHORITY_FIELDS
+        or value.get("selection") != "keeper-semantic"
+        or value.get("execution") != "current-ruleset-adapter"
+        or not isinstance(value.get("hard_gate"), bool)
+    ):
+        return None
+    return {
+        "selection": value["selection"],
+        "execution": value["execution"],
+        "hard_gate": value["hard_gate"],
+    }
+
+
+def _compact_rule_decision_card(
+    value: Any,
+    *,
+    family: str,
+) -> dict[str, Any] | None:
+    """Project one source-bound model-safe RuleDecisionCard.
+
+    Card grants, canonical actor identity, paths, hashes, and arbitrary extra
+    fields stay out of the MCP wire. Invalid identity-bearing cards drop as a
+    whole so a partial card can never authorize settlement.
+    """
+    if (
+        not isinstance(value, dict)
+        or set(value) != RULE_DECISION_CARD_FIELDS
+        or value.get("schema_version") != 1
+        or value.get("family") != family
+        or not isinstance(value.get("label"), str)
+        or not value["label"].strip()
+    ):
+        return None
+    decision_ref = value.get("decision_ref")
+    capability_ref = value.get("capability_ref")
+    if (
+        not _semantic_prefixed_ref(decision_ref, "decision:")
+        or not _semantic_prefixed_ref(capability_ref, "capability:")
+        or value.get("applicability") != "applicable"
+    ):
+        return None
+    required_inputs = _closed_rule_required_inputs(value.get("required_inputs"))
+    locked_inputs = _closed_rule_locked_inputs(value.get("locked_inputs"))
+    rule_refs = _closed_rule_decision_ref_list(
+        value.get("rule_refs"), prefix="rule:",
+    )
+    source_refs = _closed_rule_source_refs(value.get("source_refs"))
+    effect_refs = _closed_rule_decision_ref_list(
+        value.get("effect_refs"), prefix="effect:",
+    )
+    continuations = _closed_rule_decision_ref_list(
+        value.get("possible_continuations"), prefix="decision:",
+    )
+    authority = _closed_rule_card_authority(value.get("authority"))
+    if (
+        required_inputs is None
+        or locked_inputs is None
+        or rule_refs is None
+        or not rule_refs
+        or source_refs is None
+        or effect_refs is None
+        or continuations is None
+        or authority is None
+    ):
+        return None
+    label, _trimmed = _bounded_source_text_bytes(
+        value.get("label"), RULE_DECISION_LABEL_BYTE_LIMIT,
+    )
+    if label is None:
+        return None
+    return {
+        "schema_version": 1,
+        "decision_ref": decision_ref,
+        "family": family,
+        "label": label,
+        "applicability": "applicable",
+        "required_inputs": required_inputs,
+        "locked_inputs": locked_inputs,
+        "rule_refs": rule_refs,
+        "source_refs": source_refs,
+        "capability_ref": capability_ref,
+        "effect_refs": effect_refs,
+        "possible_continuations": continuations,
+        "authority": authority,
+    }
+
+
+def _closed_rule_block_authority(value: Any) -> dict[str, Any] | None:
+    if (
+        not isinstance(value, dict)
+        or set(value) != RULE_DECISION_BLOCK_AUTHORITY_FIELDS
+        or value.get("hard_gate") is not False
+        or value.get("role") != "affordance"
+        or not isinstance(value.get("note"), str)
+        or not value["note"].strip()
+    ):
+        return None
+    return {"hard_gate": False, "role": "affordance"}
+
+
+def _compact_rule_decision_card_block(value: Any) -> dict[str, Any] | None:
+    if (
+        not isinstance(value, dict)
+        or set(value) != RULE_DECISION_BLOCK_FIELDS
+        or value.get("schema_version") != 1
+        or not _model_semantic_identifier(value.get("family"))
+        or value.get("status") != "ok"
+        or not isinstance(value.get("investigator_id"), str)
+        or not value["investigator_id"]
+        or not isinstance(value.get("cards"), list)
+        or not value["cards"]
+    ):
+        return None
+    family = value["family"]
+    authority = _closed_rule_block_authority(value.get("authority"))
+    if authority is None:
+        return None
+    cards = [
+        projected
+        for raw in value["cards"][:RULE_DECISION_CARD_LIMIT]
+        if (
+            projected := _compact_rule_decision_card(raw, family=family)
+        ) is not None
+    ]
+    if not cards:
+        return None
+    return {
+        "schema_version": 1,
+        "family": family,
+        "status": "ok",
+        "cards": cards,
+        "settle_operation": _operation_card(
+            "rules.settle",
+            missing=["decision_ref", "semantic_inputs", "decision_id"],
+        ),
+        "authority": authority,
+    }
+
+
 def _compact_scene(
     value: Any,
     *,
@@ -1128,6 +1419,14 @@ def _compact_scene(
         projected["progressive"] = _project_source_work_lifecycle(
             value["progressive"]
         )
+    rule_decision_cards = _compact_rule_decision_card_block(
+        value.get("rule_decision_cards")
+    )
+    if rule_decision_cards is not None:
+        # One main card block is sufficient for both ordinary scene context and
+        # recovery. The canonical duplicate under recovery.healing remains in
+        # the full result/cache but is not repeated across the bounded wire.
+        projected["rule_decision_cards"] = rule_decision_cards
     if tight:
         projected["npcs_present"] = [
             _compact_npc(row)
@@ -1818,6 +2117,7 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
             "contract_projection_sha256",
             "contract_projection",
             "frozen_narration_draft",
+            "accepted_review_evidence",
             "pending_narration_draft_status",
             "npc_performance_constraints",
             "candidate_factors",
@@ -1849,6 +2149,10 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
     if "agency_review_operation" in value:
         projected["agency_review_operation"] = deepcopy(agency_review_operation)
     source_finalize_operation = value.get("finalize_operation")
+    source_finalize_invoke_via = (
+        source_finalize_operation.get("invoke_via")
+        if isinstance(source_finalize_operation, dict) else None
+    )
     source_finalize_prefilled = (
         source_finalize_operation.get("prefilled_arguments")
         if isinstance(source_finalize_operation, dict) else None
@@ -1883,7 +2187,10 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
         prefilled=prefilled,
         missing=missing,
     )
-    if agency_review_required:
+    if (
+        agency_review_required
+        or source_finalize_invoke_via == "coc_turn_finalize"
+    ):
         finalize_operation["invoke_via"] = "coc_turn_finalize"
     finalize_operation["argument_contract"] = {
         "required_arguments": [
@@ -1959,6 +2266,8 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
         # status itself is wrong, not merely draftless.
         and not (status_name == "available" and not has_source_draft)
     )
+    if not draft_kept:
+        projected.pop("accepted_review_evidence", None)
     if not cards_survive:
         projected.pop("agency_review_operation", None)
         projected.pop("finalize_operation", None)
@@ -2148,6 +2457,7 @@ def _project_resume(data: Any, *, tight: bool) -> Any:
                 # turn recovery. The Pi host needs this exact player-safe
                 # projection to release one terminal output after restart.
                 "ending_output",
+                "open_turn_anchor",
             ),
         ),
         "delivery": _compact_delivery(data.get("delivery"), tight=tight),
@@ -2320,6 +2630,12 @@ def _project_scene_recovery_index(scene: Any) -> dict[str, Any] | None:
     source_material = scene.get("source_material")
     if isinstance(source_material, dict):
         scene_index["source_material"] = deepcopy(source_material)
+    rule_decision_cards = scene.get("rule_decision_cards")
+    if isinstance(rule_decision_cards, dict):
+        # This is the one actionable RuleGraph surface. Keep it ahead of the
+        # identity-only fallback; recovery.healing is the same canonical card
+        # set and is deliberately not duplicated on the bounded wire.
+        scene_index["rule_decision_cards"] = deepcopy(rule_decision_cards)
     if isinstance(scene.get("exit_operation_template"), dict):
         scene_index["exit_operation_template"] = deepcopy(
             scene["exit_operation_template"]
@@ -2464,6 +2780,7 @@ def _project_resume_recovery_index(data: Any) -> Any:
                 "compiled_archive_recovery",
                 "working_set_manifest",
                 "ending_output",
+                "open_turn_anchor",
             ),
         ),
         "delivery": deepcopy(base.get("delivery")),
@@ -3245,9 +3562,16 @@ def project_envelope(
         _fit_hot_argument_schemas(
             result,
             omit_order=("state.journal", "turn.output_context"),
+            reserve_bytes=FINAL_MEASUREMENT_RESERVE_BYTES,
         )
 
-    if transport_bytes(result) > MAX_INLINE_BYTES and operation == "session.resume":
+    if (
+        _exceeds_inline_budget(
+            result,
+            reserve_bytes=FINAL_MEASUREMENT_RESERVE_BYTES,
+        )
+        and operation == "session.resume"
+    ):
         result["data"] = _decorate_cards(
             _project_resume_recovery_index(data),
             contract_digest=contract_digest,
@@ -3260,6 +3584,7 @@ def project_envelope(
                 "turn.output_context",
                 "actions.advise",
             ),
+            reserve_bytes=FINAL_MEASUREMENT_RESERVE_BYTES,
         )
         result["wire"]["payload_projected"] = True
         result["wire"]["recovery_index_projection"] = True

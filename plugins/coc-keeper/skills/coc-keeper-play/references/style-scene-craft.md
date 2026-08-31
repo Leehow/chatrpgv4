@@ -197,7 +197,7 @@ same signature image every turn. `narration.brief` returns a per-turn length
 are short by design; only climaxes, bouts of madness, and endings earn the
 long form. `narration.review` records semantic findings and a deterministic
 over-length note for audit; it binds the exact turn/source/revision/draft but
-does not block delivery. `turn.finalize.agency_claims` may bind exact excerpts
-to player-authored sources or active frozen control overrides; that validates
-only declared bindings. An empty claim list is never proof that the prose
-contains no agency violation.
+does not block delivery. Canonical `turn.finalize.agency_claims` retain exact
+bindings. After a clear Pi review, select its semantic reviewed spans and
+authorities; the host restores exact excerpts and sources. An empty claim list
+is never proof that the prose contains no agency violation.

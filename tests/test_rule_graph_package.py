@@ -97,10 +97,12 @@ def test_packaged_coc7_rule_graph_conforms_to_r1_contract():
     assert graph["ruleset_version"] == manifest["ruleset_version"] == "1.0.0"
     assert graph["coverage"]["healing"] == "accepted"
     assert manifest["family_coverage"]["healing"] == "accepted"
-    assert graph["family_runtime_ownership"]["healing"] == "shadow"
-    assert graph["legacy_surface_lifecycle"]["healing"] == "visible"
+    assert graph["family_runtime_ownership"]["healing"] == "graph"
+    assert graph["legacy_surface_lifecycle"]["healing"] == "hidden"
     assert manifest["compiler_identity"] == CONTRACT["compiler_identity"]
-    assert manifest["reviewer_identity"] == "r2-candidate-review"
+    assert manifest["reviewer_identity"] == (
+        "codex-main-healing-source-review-20260830"
+    )
     assert manifest["review_status"] == "accepted"
     medicine = next(
         node for node in graph["nodes"]
@@ -108,6 +110,7 @@ def test_packaged_coc7_rule_graph_conforms_to_r1_contract():
     )
     assert "Keeper judgment" not in medicine["name"]
     assert "host-derived" in medicine["name"]
+    assert medicine["hard_gate"] is True
     ruleset = json.loads(PACKAGE_RULESET.read_text(encoding="utf-8"))
     assert ruleset["entry_points"]["rule_graph"] == "rule-graph.json"
     assert ruleset["entry_points"]["rule_graph_manifest"] == "rule-graph-manifest.json"
@@ -116,8 +119,8 @@ def test_packaged_coc7_rule_graph_conforms_to_r1_contract():
     )
     assert healing == {
         "family_id": "healing",
-        "runtime_owner": "shadow",
-        "legacy_surface": "visible",
+        "runtime_owner": "graph",
+        "legacy_surface": "hidden",
     }
 
 
@@ -149,50 +152,34 @@ def test_composed_settlement_dispatch_is_owned_by_coc7_package():
     assert adapter.promotion_blockers("healing") == []
     assert adapter.promotion_blockers("social")
     current = adapter.operation_policy_overrides(ruleset)
-    assert current["rules.first_aid"]["audience"] == "keeper"
-    assert current["rules.settle"]["audience"] == "host"
+    assert current["rules.first_aid"]["audience"] == "host"
+    assert current["rules.settle"]["audience"] == "keeper"
 
-    promoted = json.loads(json.dumps(ruleset))
-    promoted["rule_families"][0].update({
-        "runtime_owner": "graph",
-        "legacy_surface": "hidden",
+    shadowed = json.loads(json.dumps(ruleset))
+    shadowed["rule_families"][0].update({
+        "runtime_owner": "shadow",
+        "legacy_surface": "visible",
     })
-    switched = adapter.operation_policy_overrides(promoted)
-    assert switched["rules.first_aid"]["audience"] == "host"
-    assert switched["rules.settle"]["audience"] == "keeper"
+    switched = adapter.operation_policy_overrides(shadowed)
+    assert switched["rules.first_aid"]["audience"] == "keeper"
+    assert switched["rules.settle"]["audience"] == "host"
 
 
-def test_packaged_healing_shadow_exclusions_are_machine_readable():
+def test_packaged_healing_has_no_remaining_promotion_exclusions():
     manifest = _load_package_manifest()
     promo = manifest["family_promotion_eligibility"]["healing"]
-    assert promo["promotion_eligible"] is False
-    assert promo["runtime_ownership"] == "shadow"
-    exclusions = promo["shadow_exclusions"]
-    by_id = {row["exclusion_id"]: row for row in exclusions}
-    assert set(by_id) == {
-        "first-aid-one-hour-eligibility-enforcement",
-        "dual-rescuer-either-success-composition",
+    assert promo == {
+        "promotion_eligible": True,
+        "runtime_ownership": "graph",
     }
-    assert by_id["first-aid-one-hour-eligibility-enforcement"]["exception_ref"] == (
-        "exception:coc7:healing:first-aid-window-uncompiled"
-    )
-    assert by_id["dual-rescuer-either-success-composition"]["exception_ref"] == (
-        "exception:coc7:healing:first-aid-teamwork-uncompiled"
-    )
     graph = _load_package_graph()
     node_ids = {node["node_id"] for node in graph["nodes"]}
-    for row in exclusions:
-        assert row["exception_ref"] in node_ids
-        assert row["decision_ref"] in node_ids
-    gap_paths = {
-        finding["path"] for finding in manifest["findings"]
-        if finding["code"] == "executor_capability_gap"
-    }
-    for exclusion_id in by_id:
-        assert (
-            "/family_promotion_eligibility/healing/shadow_exclusions/"
-            + exclusion_id
-        ) in gap_paths
+    assert "exception:coc7:healing:first-aid-window-uncompiled" not in node_ids
+    assert "exception:coc7:healing:first-aid-teamwork-uncompiled" not in node_ids
+    assert not any(
+        finding["code"] == "executor_capability_gap"
+        for finding in manifest["findings"]
+    )
 
 
 def test_source_evidence_opt_in_unset_skips_with_opt_in_reason(monkeypatch):

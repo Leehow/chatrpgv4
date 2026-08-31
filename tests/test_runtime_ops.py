@@ -380,6 +380,14 @@ def _cast_operation() -> dict:
     }
 
 
+def _learn_operation() -> dict:
+    return {
+        "schema_version": 1,
+        "kind": "magic.learn",
+        "payload": {"spell": "Cloud Memory", "source": "tome"},
+    }
+
+
 def _path_images(paths: list[Path]) -> dict[Path, bytes | None]:
     return {
         path: path.read_bytes() if path.is_file() else None
@@ -595,6 +603,93 @@ def test_plugin_and_pi_sdk_entries_return_same_magic_receipt(tmp_path):
         )
         assert saved["magic"]["cast_spells"] == ["Cloud Memory"]
         assert len((campaign / "logs" / "rolls.jsonl").read_text().splitlines()) == 1
+
+
+def test_toolbox_magic_cast_reuses_runtime_semantics_and_decision(tmp_path):
+    direct_root = tmp_path / "direct"
+    toolbox_root = tmp_path / "toolbox"
+    direct_character = _workspace(direct_root)
+    _workspace(toolbox_root)
+
+    direct = ops.execute_operation(
+        direct_root,
+        campaign_id="camp",
+        investigator_id="inv",
+        character_path=direct_character,
+        operation=_cast_operation(),
+        rng_seed=1,
+    )
+    args = {
+        **_cast_operation()["payload"],
+        "decision_id": "magic-cast:cloud-memory:attempt-1",
+        "seed": 1,
+    }
+    first = toolbox.run_tool("magic.cast", toolbox_root, "camp", args)
+    replay = toolbox.run_tool("magic.cast", toolbox_root, "camp", args)
+
+    assert first["ok"] is True
+    assert first["data"]["receipt"] == direct
+    assert replay["ok"] is True
+    assert replay["data"] == first["data"]
+    campaign = toolbox_root / ".coc" / "campaigns" / "camp"
+    assert len((campaign / "logs" / "events.jsonl").read_text().splitlines()) == 1
+    assert len((campaign / "logs" / "rolls.jsonl").read_text().splitlines()) == 1
+
+
+def test_toolbox_magic_cast_rejects_unknown_spell_without_resource_cost(tmp_path):
+    _workspace(tmp_path)
+    state_path = (
+        tmp_path / ".coc" / "campaigns" / "camp" / "save"
+        / "investigator-state" / "inv.json"
+    )
+    before = json.loads(state_path.read_text(encoding="utf-8"))
+    result = toolbox.run_tool("magic.cast", tmp_path, "camp", {
+        "spell": "Definitely Not A Canonical Spell",
+        "decision_id": "magic-cast:unknown-spell:attempt-1",
+        "seed": 1,
+    })
+
+    assert result["ok"] is False
+    assert result["error"]["code"] == "invalid_param"
+    after = json.loads(state_path.read_text(encoding="utf-8"))
+    assert after.get("current_mp") == before.get("current_mp")
+    assert after.get("current_san") == before.get("current_san")
+
+
+def test_toolbox_magic_learn_reuses_runtime_semantics_and_decision(tmp_path):
+    direct_root = tmp_path / "direct"
+    toolbox_root = tmp_path / "toolbox"
+    direct_character = _workspace(direct_root)
+    _workspace(toolbox_root)
+    direct = ops.execute_operation(
+        direct_root,
+        campaign_id="camp",
+        investigator_id="inv",
+        character_path=direct_character,
+        operation=_learn_operation(),
+        rng_seed=1,
+    )
+    args = {
+        **_learn_operation()["payload"],
+        "decision_id": "magic-learn:cloud-memory:attempt-1",
+        "seed": 1,
+    }
+    first = toolbox.run_tool("magic.learn", toolbox_root, "camp", args)
+    replay = toolbox.run_tool("magic.learn", toolbox_root, "camp", args)
+
+    assert first["ok"] is True
+    toolbox_receipt = first["data"]["receipt"]
+    assert toolbox_receipt["kind"] == direct["kind"]
+    assert toolbox_receipt["operation_id"] == direct["operation_id"]
+    toolbox_result = dict(toolbox_receipt["result"])
+    direct_result = dict(direct["result"])
+    assert bool(toolbox_result.pop("completion_trigger_id", None)) is True
+    assert bool(direct_result.pop("completion_trigger_id", None)) is True
+    assert toolbox_result == direct_result
+    assert replay["data"] == first["data"]
+    campaign = toolbox_root / ".coc" / "campaigns" / "camp"
+    assert len((campaign / "logs" / "events.jsonl").read_text().splitlines()) == 1
+    assert len((campaign / "logs" / "rolls.jsonl").read_text().splitlines()) == 1
 
 
 def test_runtime_operation_rejects_host_specific_extra_fields(tmp_path):
@@ -1672,6 +1767,63 @@ def test_development_settle_applies_structured_scenario_san_reward(tmp_path):
     assert reward_event["source"] == "conclusion_rewards"
     assert reward_event["roll_id"] == reward_roll["payload"]["roll_id"]
     assert reward_event["conclusion_id"] == "corbitt-destroyed"
+
+
+def test_development_settle_applies_white_war_mission_san_reward(tmp_path):
+    """The White War's 1D3 conclusion reward uses the canonical ending path."""
+    character = _workspace(tmp_path)
+    campaign = tmp_path / ".coc" / "campaigns" / "camp"
+    module_rules = ops.coc_rules.module_rules("the-white-war")["rules"]
+    reward_rule = module_rules["conclusion_sanity_rewards"]
+    assert reward_rule["mission_completed_reward"] == "1D3 SAN"
+
+    scene_id = "white-war-mission-conclusion"
+    scenario = campaign / "scenario"
+    scenario.mkdir(parents=True, exist_ok=True)
+    (scenario / "story-graph.json").write_text(json.dumps({
+        "scenes": [{
+            "scene_id": scene_id,
+            "conclusion_contract": {
+                "conclusion_id": "white-war-mission-completed",
+                "requires_combat_outcome": "investigators_win",
+                "session_ending": True,
+                "sanity_reward": {
+                    "die": "1D3",
+                    "rule_ref": reward_rule["source_rule_id"],
+                },
+            },
+        }],
+    }), encoding="utf-8")
+    _seed_structured_combat_conclusion(campaign, scene_id=scene_id)
+    _persist_current_ending(campaign, {
+        "event_type": "session_ending",
+        "scene_id": scene_id,
+        "kind": "conclusion",
+        "decision_id": "white-war-structured-ending",
+        "ts": "2026-07-15T00:00:00Z",
+    })
+
+    receipt = ops.execute_operation(
+        tmp_path,
+        campaign_id="camp",
+        investigator_id="inv",
+        character_path=character,
+        operation={"schema_version": 1, "kind": "development.settle", "payload": {}},
+        rng_seed=13,
+    )
+
+    assert receipt["result"]["scenario_san_reward_expr"] == "1D3"
+    reward = receipt["result"]["scenario_san_reward"]
+    assert reward["expression"] == "1D3"
+    assert 1 <= reward["total"] <= 3
+    reward_event = next(
+        row for row in _read_jsonl(campaign / "logs" / "events.jsonl")
+        if row.get("event_type") == "reward"
+    )
+    assert reward_event["rule_ref"] == (
+        "module.white_war.conclusion_sanity_rewards"
+    )
+    assert reward_event["conclusion_id"] == "white-war-mission-completed"
 
 
 def test_same_structured_conclusion_reward_is_consumed_once_across_endings(

@@ -33,7 +33,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -1242,6 +1242,148 @@ def apply_healing_shadow_package(
             findings.append(row)
     manifest["findings"] = findings
     return graph, manifest
+
+
+def apply_healing_graph_package(
+    graph: dict[str, Any],
+    manifest: dict[str, Any],
+    *,
+    source_bundle_identity: Mapping[str, Any],
+    reviewer_identity: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Package an independently reviewed healing shard as graph-owned.
+
+    The caller owns source review and promotion evidence.  This helper only
+    performs the deterministic, atomic ownership overlay after those gates:
+    one graph-owned family, hidden legacy Keeper surface, exact source-bundle
+    identity, and a graph digest recomputed from the resulting artifact.
+    """
+    required_source_keys = {"source_id", "bundle_sha256", "file_sha256"}
+    if set(source_bundle_identity) != required_source_keys:
+        raise ValueError(
+            "source_bundle_identity must contain source_id, bundle_sha256, "
+            "and file_sha256"
+        )
+    if not isinstance(reviewer_identity, str) or not reviewer_identity.strip():
+        raise ValueError("reviewer_identity must be a non-empty string")
+
+    graph = copy.deepcopy(graph)
+    manifest = copy.deepcopy(manifest)
+    family = "healing"
+    _attach_healing_effect_composition(graph)
+    graph.setdefault("family_runtime_ownership", {})[family] = "graph"
+    graph.setdefault("legacy_surface_lifecycle", {})[family] = "hidden"
+    manifest["graph_content_digest"] = _json_digest(graph)
+    manifest.setdefault("family_promotion_eligibility", {})[family] = {
+        "promotion_eligible": True,
+        "runtime_ownership": "graph",
+    }
+    manifest["source_bundles"] = [copy.deepcopy(dict(source_bundle_identity))]
+    manifest["reviewer_identity"] = reviewer_identity.strip()
+    manifest["review_status"] = "accepted"
+    manifest["findings"] = [
+        copy.deepcopy(row)
+        for row in manifest.get("findings") or []
+        if not (
+            isinstance(row, Mapping)
+            and row.get("code") == "executor_capability_gap"
+            and str(row.get("path") or "").startswith(
+                "/family_promotion_eligibility/healing/"
+            )
+        )
+    ]
+    return graph, manifest
+
+
+def _attach_healing_effect_composition(graph: dict[str, Any]) -> None:
+    """Attach source-backed Effect identities without changing shard evidence.
+
+    The accepted healing shard remains the source-review input recorded by the
+    manifest.  Graph-owned packaging adds the typed Effect projection needed
+    by cross-graph composition, just as it adds runtime ownership.  Effect
+    evidence is inherited from the exact source-reviewed RuleDecision; no
+    resolver behavior or copied implementation body is introduced here.
+    """
+    specs = (
+        (
+            "decision:coc7:healing:first-aid-stabilization",
+            "effect:coc7:healing:first-aid-stabilization",
+            "First Aid restores one hit point or supplies the temporary hit point that stabilizes dying",
+            "first-aid-hp-or-temporary-stabilization",
+            "relation:coc7:healing:fa-stab-emits",
+        ),
+        (
+            "decision:coc7:healing:medicine-stabilization",
+            "effect:coc7:healing:medicine-stabilization",
+            "Medicine restores hit points or completes stabilization of a First-Aid-stabilized dying character",
+            "medicine-hp-or-dying-stabilization",
+            "relation:coc7:healing:med-stab-emits",
+        ),
+        (
+            "decision:coc7:healing:weekly-major-wound-recovery",
+            "effect:coc7:healing:weekly-hp-recovery",
+            "Weekly major-wound recovery may restore hit points according to the settled recovery roll",
+            "weekly-major-wound-hp-recovery",
+            "relation:coc7:healing:weekly-emits",
+        ),
+    )
+    nodes = graph.get("nodes")
+    relations = graph.get("relations")
+    if not isinstance(nodes, list) or not isinstance(relations, list):
+        raise ValueError("healing graph must contain node and relation arrays")
+    nodes_by_id = {
+        str(node.get("node_id")): node
+        for node in nodes
+        if isinstance(node, dict) and isinstance(node.get("node_id"), str)
+    }
+    relations_by_id = {
+        str(row.get("relation_id")): row
+        for row in relations
+        if isinstance(row, dict) and isinstance(row.get("relation_id"), str)
+    }
+    for decision_id, effect_id, name, effect_kind, relation_id in specs:
+        decision = nodes_by_id.get(decision_id)
+        if not isinstance(decision, dict) or decision.get("node_kind") != "decision":
+            raise ValueError(f"healing effect source decision is missing: {decision_id}")
+        evidence = sorted(set(decision.get("evidence_span_ids") or []))
+        desired_node = {
+            "node_id": effect_id,
+            "node_kind": "effect",
+            "name": name,
+            "authority": "deterministic",
+            "audience": "host-internal",
+            "visibility": "public",
+            "hard_gate": False,
+            "properties": {
+                "family_id": "healing",
+                "effect_kind": effect_kind,
+                "resource_key": "hp",
+            },
+            "evidence_span_ids": evidence,
+        }
+        existing_node = nodes_by_id.get(effect_id)
+        if existing_node is not None and existing_node != desired_node:
+            raise ValueError(f"healing effect identity conflicts: {effect_id}")
+        if existing_node is None:
+            nodes.append(desired_node)
+            nodes_by_id[effect_id] = desired_node
+        desired_relation = {
+            "relation_id": relation_id,
+            "relation_kind": "emits",
+            "from_node_id": decision_id,
+            "to_node_id": effect_id,
+            "evidence_span_ids": evidence,
+        }
+        existing_relation = relations_by_id.get(relation_id)
+        if existing_relation is not None and existing_relation != desired_relation:
+            raise ValueError(f"healing effect relation conflicts: {relation_id}")
+        if existing_relation is None:
+            relations.append(desired_relation)
+            relations_by_id[relation_id] = desired_relation
+    graph["nodes"] = sorted(nodes, key=lambda row: str(row.get("node_id") or ""))
+    graph["relations"] = sorted(
+        relations, key=lambda row: str(row.get("relation_id") or "")
+    )
 
 
 def _source_vs_derivative_findings() -> list[dict[str, Any]]:

@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 import coc_operation_policy
+import coc_rulesets
 
 
 PLAYER_STATE_EFFECT_KINDS = frozenset({
@@ -103,6 +104,8 @@ def operation_is_advisory(name: str, spec: dict[str, Any]) -> bool:
 
 
 def writer_domains(tool: str, call: dict[str, Any] | None = None) -> frozenset[str]:
+    if tool == "rules.settle":
+        return _rules_settle_writer_domains(call or {})
     domains = PLAYER_STATE_WRITER_DOMAINS.get(tool)
     if domains is None:
         return frozenset()
@@ -119,6 +122,113 @@ def writer_domains(tool: str, call: dict[str, Any] | None = None) -> frozenset[s
     if canonical and canonical in domains:
         return frozenset({canonical})
     return frozenset({raw})
+
+
+def _rules_settle_writer_domains(call: dict[str, Any]) -> frozenset[str]:
+    """Derive write domains from one exact canonical graph settlement."""
+    args = _args(call)
+    data = _data(call)
+    family = data.get("family")
+    decision_ref = data.get("decision_ref")
+    decision_identity = _semantic_decision_identity(decision_ref)
+    if (
+        not _exact_nonempty_text(family)
+        or decision_identity is None
+        or decision_identity[1] != family
+        or args.get("decision_ref") != decision_ref
+        or data.get("status") != "settled"
+        or data.get("authority") != "canonical-resolver-state-receipts"
+    ):
+        return frozenset()
+    try:
+        trusted_domains = coc_rulesets.rule_graph_state_effect_domains(
+            decision_identity[0], decision_ref,
+        )
+    except (OSError, ValueError):
+        return frozenset()
+    if not trusted_domains:
+        return frozenset()
+    receipt = _player_state_receipt(data)
+    event = data.get("event") if isinstance(data.get("event"), dict) else None
+    settlement = (
+        data.get("settlement")
+        if isinstance(data.get("settlement"), dict)
+        else {}
+    )
+    result = (
+        settlement.get("result")
+        if isinstance(settlement.get("result"), dict)
+        else None
+    )
+    if (
+        receipt is None
+        or event is None
+        or result is None
+        or not _exact_nonempty_text(event.get("event_type"))
+        or settlement.get("existing_result_envelope") is not True
+        or not _strict_value_equal(result.get("player_state_receipt"), receipt)
+        or not _strict_value_equal(result.get("event"), event)
+    ):
+        return frozenset()
+    investigator_id = str(receipt.get("investigator_id") or "").strip()
+    if not _valid_investigator_id(investigator_id):
+        return frozenset()
+    required_investigator_ids = (
+        data.get("investigator_id"),
+        result.get("investigator_id"),
+    )
+    if any(candidate != investigator_id for candidate in required_investigator_ids):
+        return frozenset()
+    for key in ("investigator", "investigator_id"):
+        if key in args and args.get(key) != investigator_id:
+            return frozenset()
+    for key in ("patient_id", "investigator_id"):
+        if key in event and event.get(key) != investigator_id:
+            return frozenset()
+
+    domains: set[str] = set()
+    for resource in trusted_domains:
+        if resource == "condition":
+            continue
+        values = receipt.get(resource)
+        if not isinstance(values, dict):
+            continue
+        before = values.get("before")
+        after = values.get("after")
+        if not (
+            _exact_int(before)
+            and _exact_int(after)
+            and before != after
+            and _optional_exact_int_equals(event.get(f"{resource}_before"), before)
+            and _optional_exact_int_equals(event.get(f"{resource}_after"), after)
+            and _optional_exact_int_equals(
+                event.get(f"{resource}_gained"), after - before,
+            )
+            and _exact_int(data.get(f"current_{resource}"))
+            and data.get(f"current_{resource}") == after
+            and _exact_int(result.get(f"current_{resource}"))
+            and result.get(f"current_{resource}") == after
+        ):
+            continue
+        domains.add(resource)
+
+    if "condition" in trusted_domains:
+        conditions_before = _closed_condition_values(
+            receipt.get("conditions_before")
+        )
+        conditions_after = _closed_condition_values(
+            receipt.get("conditions_after")
+        )
+        if (
+            conditions_before is None
+            or conditions_after is None
+            or data.get("conditions") != list(conditions_after)
+            or result.get("conditions") != list(conditions_after)
+        ):
+            return frozenset()
+        if set(conditions_before) != set(conditions_after):
+            domains.add("condition")
+    return frozenset(domains)
 
 
 def receipt_proves_effect(
@@ -391,9 +501,11 @@ def _condition_lists(data: dict[str, Any]) -> tuple[set[str] | None, set[str] | 
     if not isinstance(raw_before, list) or not isinstance(raw_after, list):
         raw_before = data.get("conditions_before")
         raw_after = data.get("conditions_after")
-    if not isinstance(raw_before, list) or not isinstance(raw_after, list):
+    before = _closed_condition_values(raw_before)
+    after = _closed_condition_values(raw_after)
+    if before is None or after is None:
         return None, None
-    return {str(value) for value in raw_before}, {str(value) for value in raw_after}
+    return set(before), set(after)
 
 
 def _ammo_matches(data: dict[str, Any], effect: dict[str, Any]) -> bool:
@@ -482,6 +594,61 @@ def _valid_investigator_id(value: str) -> bool:
     )
 
 
+def _exact_nonempty_text(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(value)
+        and value == value.strip()
+        and value.isprintable()
+    )
+
+
+def _strict_value_equal(left: Any, right: Any) -> bool:
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return (
+            left.keys() == right.keys()
+            and all(_strict_value_equal(left[key], right[key]) for key in left)
+        )
+    if isinstance(left, list):
+        return (
+            len(left) == len(right)
+            and all(
+                _strict_value_equal(left_item, right_item)
+                for left_item, right_item in zip(left, right)
+            )
+        )
+    return left == right
+
+
+def _semantic_decision_identity(value: Any) -> tuple[str, str] | None:
+    if not isinstance(value, str):
+        return None
+    parts = value.split(":", 3)
+    if len(parts) != 4 or parts[0] != "decision":
+        return None
+    ruleset_id, family, local_id = parts[1:]
+    if not all(
+        _exact_nonempty_text(part)
+        and part.isascii()
+        and all(character.isalnum() or character in "._-" for character in part)
+        for part in (ruleset_id, family, local_id)
+    ):
+        return None
+    return ruleset_id, family
+
+
+def _closed_condition_values(value: Any) -> tuple[str, ...] | None:
+    if not isinstance(value, list):
+        return None
+    if any(not _exact_nonempty_text(item) for item in value):
+        return None
+    if len(set(value)) != len(value):
+        return None
+    return tuple(value)
+
+
 def _scalar_resource_key(value: Any) -> str:
     return _SCALAR_RESOURCE_KEYS.get(str(value or "").strip(), "")
 
@@ -496,7 +663,17 @@ def _effect_scalar_resource(effect: dict[str, Any]) -> str:
 def _pair_equals(before: Any, after: Any, expected_before: Any, expected_after: Any) -> bool:
     if before is None or after is None:
         return False
-    return before == expected_before and after == expected_after and before != after
+    return (
+        type(before) is type(expected_before)
+        and type(after) is type(expected_after)
+        and before == expected_before
+        and after == expected_after
+        and before != after
+    )
+
+
+def _optional_exact_int_equals(value: Any, expected: int) -> bool:
+    return value is None or (_exact_int(value) and value == expected)
 
 
 def _delta_agrees(effect: dict[str, Any], before: Any, after: Any) -> bool:
@@ -504,8 +681,10 @@ def _delta_agrees(effect: dict[str, Any], before: Any, after: Any) -> bool:
         return True
     expected = after - before
     for key in ("delta", "change"):
-        if key in effect and effect.get(key) != expected:
-            return False
+        if key in effect:
+            value = effect.get(key)
+            if not _exact_int(value) or value != expected:
+                return False
     return True
 
 

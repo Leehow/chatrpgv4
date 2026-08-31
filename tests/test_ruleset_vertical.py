@@ -46,6 +46,37 @@ def test_spark_fixture_conforms() -> None:
     assert ruleset_conformance.validate_package(FIXTURE_RULESETS / "spark") == []
 
 
+def test_ruleset_without_damage_state_hook_is_an_opaque_noop() -> None:
+    class ResolverWithoutHook:
+        pass
+
+    actor_state = {
+        "schema_version": 1,
+        "actor_id": "nova",
+        "resources": {"energy": 9},
+        "decisions": {},
+    }
+    event = {
+        "schema_version": 1,
+        "actor_id": "nova",
+        "decision_id": "damage-falling-crate-v1",
+        "amount": 2,
+        "before": 9,
+        "after": 7,
+        "maximum": 9,
+        "occurred_elapsed_minutes": 12,
+        "source_event_id": None,
+    }
+
+    projected = coc_rulesets.apply_damage_state_effect(
+        ResolverWithoutHook(), actor_state, event
+    )
+
+    assert projected == actor_state
+    assert projected is not actor_state
+    assert "wound_ledger" not in projected
+
+
 def test_spark_rules_execute_through_real_toolbox_cli(tmp_path: Path) -> None:
     plugin = tmp_path / "external-plugin"
     shutil.copytree(ROOT / "plugins" / "coc-keeper", plugin)

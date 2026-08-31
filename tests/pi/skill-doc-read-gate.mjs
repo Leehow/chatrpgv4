@@ -19,6 +19,7 @@ const modUrl = pathToFileURL(
   path.join(root, "plugins/coc-keeper/pi/lib/skill-doc-read.ts"),
 ).href;
 const ENV = "COC_PI_SESSION_ROLE";
+const PROFILE_ENV = "COC_PI_ACCEPTANCE_PROFILE";
 
 async function loadMod() {
   return import(`${modUrl}?t=${Date.now()}-${Math.random()}`);
@@ -45,6 +46,18 @@ const PLAY_STYLE_REFERENCE = path.join(
 );
 const SETUP_ONLY_SKILL_MD = path.join(
   root, "plugins/coc-keeper/rulesets/coc7/skills/coc-character/SKILL.md",
+);
+const MAIN_SKILL_MD = path.join(
+  root, "plugins/coc-keeper/skills/coc-main/SKILL.md",
+);
+const DIRECTOR_SKILL_MD = path.join(
+  root, "plugins/coc-keeper/skills/coc-story-director/SKILL.md",
+);
+const RULES_SKILL_MD = path.join(
+  root, "plugins/coc-keeper/rulesets/coc7/skills/coc-rules-engine/SKILL.md",
+);
+const COMBAT_SKILL_MD = path.join(
+  root, "plugins/coc-keeper/rulesets/coc7/skills/coc-combat/SKILL.md",
 );
 const EXPORT_SCRIPT = path.join(
   root, "plugins/coc-keeper/skills/coc-export-battle-report/scripts/export_battle_report.py",
@@ -83,6 +96,29 @@ test("setup-only skill document is denied under the play role", async () => {
       /access denied/,
     );
   });
+});
+
+test("rules-director profile exposes only its focused play skill roots", async () => {
+  const prior = process.env[PROFILE_ENV];
+  process.env[PROFILE_ENV] = "rules-director-single-draft";
+  try {
+    await withRole("play", async () => {
+      for (const allowed of [PLAY_SKILL_MD, DIRECTOR_SKILL_MD, RULES_SKILL_MD]) {
+        const out = await readWithRole("play", { path: allowed });
+        assert.ok(out.content[0].text.length > 0, allowed);
+      }
+      for (const denied of [MAIN_SKILL_MD, COMBAT_SKILL_MD]) {
+        await assert.rejects(
+          () => readWithRole("play", { path: denied }),
+          /access denied/,
+          denied,
+        );
+      }
+    });
+  } finally {
+    if (prior === undefined) delete process.env[PROFILE_ENV];
+    else process.env[PROFILE_ENV] = prior;
+  }
 });
 
 test("arbitrary repository and campaign paths are denied", async () => {

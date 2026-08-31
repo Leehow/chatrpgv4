@@ -97,6 +97,16 @@ operation-surface, fact augmentation, and host-binding details. Rule-family
 decision IDs and composed choreography belong in this package adapter, never
 in the generic `coc_rules_runtime.py` dispatch path.
 
+A package whose graph settlement can mutate player-visible actor state exposes
+`state_effect_domains(decision_ref) -> tuple[str, ...]` on that adapter. Each
+returned token is either a resource key declared by this package's `resources`
+registry or the kernel domain `condition`; unknown decisions return the empty
+tuple. The shared finalizer/exporter treats this package declaration as the
+write-capability boundary, then independently verifies the exact semantic
+decision namespace, actor identity, original (non-replay) call, and matching
+top-level/nested state receipt before accepting any delta. Receipt fields never
+grant their own domains, and the generic kernel contains no family-name map.
+
 `rule-graph-manifest.json` carries the machine-owned identity fields:
 
 - `contract_id` — the rule-graph build manifest contract id
@@ -239,6 +249,19 @@ the active campaign's resolver through the kernel registry
   concealed-observation inference ceiling and fumble policy. The kernel owns
   one-window identity, concealed persistence, and player-safe realization
   binding.
+- Optional `damage_state_effect(actor_state, event)` — package-owned,
+  side-effect-free projection from one already-settled positive damage event
+  into the package's opaque actor state. The event contains only semantic
+  actor/decision identity, numeric before/after/maximum/amount values,
+  authoritative elapsed time, and an optional host-owned source-event id. The
+  hook returns the replacement actor-state object and performs no I/O. Absence
+  is an exact no-op; generic kernel and subsystem code never know package
+  fields such as wounds, injuries, or treatment ledgers.
+- Optional `skill_base(skill_name, *, era=None)` — package-owned lookup for a
+  flat integer catalog base when a complete actor sheet omits that skill. The
+  kernel always prefers an explicit canonical sheet value and validates the
+  returned integer; unknown, era-disabled, variable, and characteristic-derived
+  bases return `None` so the calling operation fails closed rather than guessing.
 - Optional subsystem session types (combat/chase/sanity equivalents) behind
   the same context/execute/end tool pattern the kernel already exposes.
 

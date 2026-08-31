@@ -5,9 +5,10 @@ The generic RulesRuntime owns graph validation, applicability, grants, plan
 compilation, and the single executor call. This package-owned adapter owns the
 few composed CoC 7e candidate flows that need more than that generic call.
 
-All families listed here remain legacy/shadow in the production package. The
-adapter is exercised by candidate tests only until source coverage, durable
-replay, and live Pi-Coc promotion gates are independently accepted.
+Healing is graph-owned in the production package; the remaining composed
+families stay candidate-only until their own source and promotion gates pass.
+This adapter keeps CoC-specific host binding and command shape out of the
+generic RulesRuntime in both cases.
 """
 from __future__ import annotations
 
@@ -71,6 +72,15 @@ _BUILD_SCALE_REF = LOOKUP_CONTEXT_DECISION_REFS[2]
 _CASH_ASSETS_REF = LOOKUP_CONTEXT_DECISION_REFS[3]
 _SANITY_SESSION_EXCEPTION_REF = "exception:coc7:sanity:session-engine-uncompiled"
 _DAMAGE_KINDS = frozenset({"damage", "heal"})
+_HEALING_SETTLE_DECISION_REFS = (
+    "decision:coc7:healing:dying-hour-clock",
+    "decision:coc7:healing:dying-round-clock",
+    "decision:coc7:healing:first-aid-ordinary",
+    "decision:coc7:healing:first-aid-stabilization",
+    "decision:coc7:healing:medicine-ordinary",
+    "decision:coc7:healing:medicine-stabilization",
+    "decision:coc7:healing:weekly-major-wound-recovery",
+)
 
 
 def _observation_inference_ceiling(data: Mapping[str, Any]) -> str | None:
@@ -200,15 +210,7 @@ class Coc7RuleGraphAdapter:
             "decision_ref": {
                 "type": "string",
                 "required": True,
-                "enum": [
-                    "decision:coc7:healing:dying-hour-clock",
-                    "decision:coc7:healing:dying-round-clock",
-                    "decision:coc7:healing:first-aid-ordinary",
-                    "decision:coc7:healing:first-aid-stabilization",
-                    "decision:coc7:healing:medicine-ordinary",
-                    "decision:coc7:healing:medicine-stabilization",
-                    "decision:coc7:healing:weekly-major-wound-recovery",
-                ],
+                "enum": list(_HEALING_SETTLE_DECISION_REFS),
                 "desc": "semantic decision ref from a machine-projected card",
             },
             "semantic_inputs": {
@@ -231,6 +233,13 @@ class Coc7RuleGraphAdapter:
                 "desc": "idempotency key",
             },
         }
+
+    @staticmethod
+    def state_effect_domains(decision_ref: str) -> tuple[str, ...]:
+        """Package-owned authority for graph settlement state receipts."""
+        if decision_ref in _HEALING_SETTLE_DECISION_REFS:
+            return ("hp", "condition")
+        return ()
 
     @staticmethod
     def context_schema() -> dict[str, Any]:
@@ -350,6 +359,16 @@ class Coc7RuleGraphAdapter:
                     semantic.get("changed_method")
                     or semantic.get("failure_consequence")
                 )
+                assistant_id = semantic.get("assistant_rescuer_ref")
+                if isinstance(assistant_id, str) and assistant_id.strip():
+                    assistant_id = assistant_id.strip()
+                    assistant_sheet = safe_sheet(ctx, assistant_id)
+                    assistant_value = skill_value(
+                        assistant_sheet, "First Aid",
+                    )
+                    if assistant_value is not None:
+                        locked["assistant_skill_value"] = assistant_value
+                        locked["assistant_rescuer_id"] = assistant_id
             elif "medicine" in decision_ref:
                 sheet = safe_sheet(ctx, rescuer_id) or safe_sheet(
                     ctx, investigator_id,
@@ -394,6 +413,10 @@ class Coc7RuleGraphAdapter:
             "investigator": investigator_id,
             "decision_id": str(args["decision_id"]),
         }
+        if args.get("seed") is not None:
+            # Host/test transport only. The model-visible rules.settle schema
+            # deliberately omits RNG control.
+            out["seed"] = args["seed"]
         capability = (plan.get("capability") or {}).get("resolver_capability")
         if capability == "first_aid":
             if "skill_value" not in payload:
@@ -413,6 +436,18 @@ class Coc7RuleGraphAdapter:
             for key in ("changed_method", "failure_consequence"):
                 if semantic.get(key):
                     out[key] = semantic[key]
+            assistant_ref = semantic.get("assistant_rescuer_ref")
+            if isinstance(assistant_ref, str) and assistant_ref.strip():
+                if (
+                    payload.get("assistant_skill_value") is None
+                    or not isinstance(payload.get("assistant_rescuer_id"), str)
+                ):
+                    raise tool_error(
+                        "missing_param",
+                        "host-locked assistant First Aid skill could not be resolved",
+                    )
+                out["assistant_skill_value"] = payload["assistant_skill_value"]
+                out["assistant_rescuer_id"] = payload["assistant_rescuer_id"]
         elif capability == "medicine":
             if "skill_value" not in payload:
                 raise tool_error(

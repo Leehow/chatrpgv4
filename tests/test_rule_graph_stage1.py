@@ -6,8 +6,9 @@ only a revision-required draft from immutable committed inputs.  Independent
 accept/build (``tests/fixtures/_accept_r7_stage1.py``) consumes those reviewed
 candidates via the canonical ``accept()``/``build()`` APIs, binds both
 independent reviews, and writes ``accepted/rule-graph.json`` plus
-``accepted/rule-graph-manifest.json``.  Production artifacts stay the
-committed pre-stage1 bytes.
+``accepted/rule-graph-manifest.json``.  Production may independently promote
+source-accepted families; this derivative stage-1 package must remain disjoint
+and must not silently enter production.
 
 Floors asserted here:
 
@@ -16,15 +17,16 @@ Floors asserted here:
 - Deterministic review build: ``review_status="revision-required"``, reviewer
   identity derived from the independent reviews, real graph/shard digests,
   and both committed review evidence paths bound as contract findings.
-- Healing byte preservation: production graph and manifest stay byte-identical
-  to the pre-stage1 baselines; candidates and the accepted graph never
+- Healing ownership preservation: production contains only the independently
+  source-promoted healing graph; candidates and the accepted graph never
   redeclare healing-owned ``resource:coc7:hp``.
 - Unsupported claims absent from candidates (and therefore from the accepted
   graph): higher-of social composition, PC-coercion penalty, psychology truth
   mapping, generic HP/MP/Luck delta.
 - Per-file source identities preserved through accept/build.
-- Ownership unchanged: healing shadow/visible, every other family legacy/visible.
-  Nothing integrated into production; nothing deleted.
+- Ownership isolation: production healing is graph/hidden, while every stage-1
+  candidate family stays unresolved and legacy/visible in production.
+  Nothing from this candidate package is integrated or deleted.
 """
 from __future__ import annotations
 
@@ -90,37 +92,45 @@ def draft_manifest() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Healing byte preservation / production untouched
+# Healing production ownership / stage-1 isolation
 # ---------------------------------------------------------------------------
 
 
-def test_production_graph_is_byte_identical_to_pre_stage1_baseline():
-    assert _sha256(GRAPH) == _sha256(BASELINE_GRAPH)
-    assert GRAPH.read_bytes() == BASELINE_GRAPH.read_bytes()
-    assert _load(GRAPH) == _load(BASELINE_GRAPH)
-
-
-def test_production_manifest_is_byte_identical_to_pre_stage1_baseline():
-    assert _sha256(MANIFEST) == _sha256(BASELINE_MANIFEST)
-    assert MANIFEST.read_bytes() == BASELINE_MANIFEST.read_bytes()
-    assert _load(MANIFEST) == _load(BASELINE_MANIFEST)
-
-
-def test_healing_owned_nodes_are_byte_identical_in_production():
+def test_production_graph_contains_only_source_promoted_healing_nodes():
     prod = _load(GRAPH)
-    base = _load(BASELINE_GRAPH)
-    prod_by_id = {node["node_id"]: node for node in prod["nodes"]}
-    base_by_id = {node["node_id"]: node for node in base["nodes"]}
-    for node_id in HEALING_OWNED_IDS:
-        assert prod_by_id[node_id] == base_by_id[node_id], node_id
-    assert prod["relations"] == base["relations"]
-    prod_manifest = _load(MANIFEST)
-    base_manifest = _load(BASELINE_MANIFEST)
-    assert prod_manifest["findings"] == base_manifest["findings"]
-    assert (
-        prod_manifest["family_promotion_eligibility"]["healing"]
-        == base_manifest["family_promotion_eligibility"]["healing"]
+    assert prod["family_runtime_ownership"]["healing"] == "graph"
+    assert prod["legacy_surface_lifecycle"]["healing"] == "hidden"
+    assert all(
+        node["properties"].get("family_id") == "healing"
+        or node["node_id"] in {
+            "resource:coc7:hp",
+            "subsystem:coc7:healing",
+        }
+        for node in prod["nodes"]
     )
+
+
+def test_production_manifest_keeps_stage1_candidate_families_unresolved():
+    manifest = _load(MANIFEST)
+    for family in STAGE1_PARTIAL:
+        assert manifest["family_coverage"][family] == "unresolved", family
+        assert manifest["family_promotion_eligibility"][family] == {
+            "promotion_eligible": False,
+            "runtime_ownership": "legacy",
+        }, family
+
+
+def test_healing_owned_nodes_are_source_promoted_in_production():
+    prod = _load(GRAPH)
+    prod_by_id = {node["node_id"]: node for node in prod["nodes"]}
+    for node_id in HEALING_OWNED_IDS:
+        assert node_id in prod_by_id, node_id
+    prod_manifest = _load(MANIFEST)
+    assert prod_manifest["family_coverage"]["healing"] == "accepted"
+    assert prod_manifest["family_promotion_eligibility"]["healing"] == {
+        "promotion_eligible": True,
+        "runtime_ownership": "graph",
+    }
     assert any(
         row["shard_id"] == "shard:coc7:healing:section-wounds-and-healing"
         for row in prod_manifest["shards"]
@@ -615,8 +625,13 @@ def test_accepted_graph_does_not_redeclare_healing_hp(accepted_package):
 
 def test_accepted_package_is_not_production_integration(accepted_package):
     graph, manifest = accepted_package
-    assert GRAPH.read_bytes() == BASELINE_GRAPH.read_bytes()
-    assert MANIFEST.read_bytes() == BASELINE_MANIFEST.read_bytes()
     assert (ACCEPTED / "rule-graph.json").read_bytes() != GRAPH.read_bytes()
     assert (ACCEPTED / "rule-graph-manifest.json").read_bytes() != MANIFEST.read_bytes()
+    production = _load(GRAPH)
+    production_manifest = _load(MANIFEST)
+    production_ids = {node["node_id"] for node in production["nodes"]}
+    accepted_ids = {node["node_id"] for node in graph["nodes"]}
+    assert production_ids.isdisjoint(accepted_ids)
+    for family in STAGE1_PARTIAL:
+        assert production_manifest["family_coverage"][family] == "unresolved"
     assert graph["coverage"] == manifest["family_coverage"]

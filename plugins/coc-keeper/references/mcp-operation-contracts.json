@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:061f48dde9d3bc222debecaff432641150240bd6a3b75eeb2e48a7f7b3c77b4c",
+  "content_sha256": "sha256:1177cc46574795bfd0dfa5936a0aed1bf37067a1fd44ecfe971ebcc550ee62bd",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 145,
+  "operation_count": 147,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -939,6 +939,129 @@
         ]
       },
       "summary": "Read the campaign's committed state history at one timeline turn from the rebuildable history projection. Strict read-only; semantic timeline/turn selectors only, never a commit hash."
+    },
+    "magic.cast": {
+      "access": "mutation",
+      "canonical_operation": "magic.cast",
+      "description": "Cast one canonical CoC7 spell through the existing magic runtime; spell names come from rules.catalog_search. Canonical operation `magic.cast`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "semantic idempotency key supplied and retained by the host",
+            "type": "string"
+          },
+          "interrupted": {
+            "default": false,
+            "description": "whether casting was interrupted",
+            "type": "boolean"
+          },
+          "investigator": {
+            "description": "investigator id; defaults to the sole linked party member",
+            "type": "string"
+          },
+          "is_npc": {
+            "default": false,
+            "description": "whether the caster is an NPC",
+            "type": "boolean"
+          },
+          "pushed": {
+            "default": false,
+            "description": "whether this is a pushed first-cast attempt",
+            "type": "boolean"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "spell": {
+            "description": "exact canonical spell name returned by rules.catalog_search",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "spell",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "discovery": "exact",
+        "kp_surface": "subsystem",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Cast one canonical CoC7 spell through the existing magic runtime; spell names come from rules.catalog_search."
+    },
+    "magic.learn": {
+      "access": "mutation",
+      "canonical_operation": "magic.learn",
+      "description": "Learn one canonical CoC7 spell through the existing magic runtime; spell names come from rules.catalog_search. Canonical operation `magic.learn`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "semantic idempotency key supplied and retained by the host",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id; defaults to the sole linked party member",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source": {
+            "default": "tome",
+            "description": "learning source",
+            "enum": [
+              "tome",
+              "person",
+              "entity"
+            ],
+            "type": "string"
+          },
+          "spell": {
+            "description": "exact canonical spell name returned by rules.catalog_search",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "spell",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "discovery": "exact",
+        "kp_surface": "subsystem",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Learn one canonical CoC7 spell through the existing magic runtime; spell names come from rules.catalog_search."
     },
     "mechanics.ensure": {
       "access": "mutation",
@@ -3326,10 +3449,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -3391,10 +3514,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -3498,10 +3621,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -3787,7 +3910,7 @@
     "rules.roll": {
       "access": "mutation",
       "canonical_operation": "rules.roll",
-      "description": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose. Canonical operation `rules.roll`; the result envelope is authoritative.",
+      "description": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Optional combined_targets performs one public D100 roll against two or more semantic target labels and succeeds when any target succeeds; helper_count grants at most two bonus dice. Combined rolls cannot be Pushed, adjusted with Luck, or earn development ticks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose. Canonical operation `rules.roll`; the result envelope is authoritative.",
       "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
@@ -3803,6 +3926,34 @@
           "characteristic": {
             "description": "characteristic (STR/CON/.../SAN/LUCK) instead of a skill",
             "type": "string"
+          },
+          "combined_targets": {
+            "description": "optional combined-skill mode: two or more unique semantic {label, value} targets; mutually exclusive with skill, characteristic, target, Psychology, and combat actions",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "description": "meaning-bearing skill or characteristic label",
+                  "maxLength": 120,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "value": {
+                  "description": "authoritative percentile target from the sheet or current context",
+                  "maximum": 100,
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "label",
+                "value"
+              ],
+              "type": "object"
+            },
+            "maxItems": 8,
+            "minItems": 2,
+            "type": "array"
           },
           "decision_id": {
             "description": "idempotency key",
@@ -3834,6 +3985,11 @@
           "goal": {
             "description": "the concrete fictional objective this one check may settle",
             "type": "string"
+          },
+          "helper_count": {
+            "description": "helpers contributing to combined_targets; one bonus die each, capped at two",
+            "minimum": 0,
+            "type": "integer"
           },
           "investigator": {
             "description": "investigator id (optional when party has one member)",
@@ -3919,7 +4075,7 @@
           "live_turn"
         ]
       },
-      "summary": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose."
+      "summary": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Optional combined_targets performs one public D100 roll against two or more semantic target labels and succeeds when any target succeeds; helper_count grants at most two bonus dice. Combined rolls cannot be Pushed, adjusted with Luck, or earn development ticks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose."
     },
     "rules.roll_dice": {
       "access": "mutation",
@@ -4000,6 +4156,31 @@
             "description": "investigator id",
             "type": "string"
           },
+          "involuntary_action": {
+            "additionalProperties": true,
+            "description": "Keeper-chosen contingency for a failed SAN roll; persisted only when the check fails",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "jump_in_fright",
+                  "cry_out",
+                  "involuntary_movement",
+                  "involuntary_combat_action",
+                  "freeze"
+                ],
+                "type": "string"
+              },
+              "summary": {
+                "description": "non-empty player-visible realization in the campaign play language",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "summary"
+            ],
+            "type": "object"
+          },
           "loss_failure": {
             "description": "loss on failure (int or dice, e.g. '1D6')",
             "type": "string"
@@ -4025,6 +4206,7 @@
           "campaign",
           "source",
           "loss_failure",
+          "involuntary_action",
           "decision_id"
         ],
         "type": "object"
@@ -4116,10 +4298,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "host",
+        "audience": "keeper",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "none",
+        "kp_surface": "rules",
         "phases": [
           "live_turn"
         ]
@@ -4339,10 +4521,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]

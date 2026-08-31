@@ -2,6 +2,7 @@ import importlib.util
 import hashlib
 import json
 import os
+from copy import deepcopy
 from pathlib import Path
 import subprocess
 import re
@@ -1517,9 +1518,9 @@ def test_delivery_replay_contract_projects_typed_keeper_context():
     server = _load_server()
     archive = archive_mod.load_and_validate(ARCHIVE_PATH, server.toolbox)
 
-    # module.context extends the canonical registry; replay itself adds no
-    # second operation beyond that current 145-operation surface.
-    assert archive["operation_count"] == 145
+    # module.context and the ruleset-bound magic pair extend the canonical
+    # registry; replay itself adds no additional operation.
+    assert archive["operation_count"] == 147
     assert "session.delivery_text" in archive["operations"]
     contract = archive["operations"]["session.delivery_text"]
 
@@ -1983,6 +1984,32 @@ def test_coc_discover_operation_and_domain(monkeypatch):
     }
     assert advance_time["missing_arguments"] == [
         "minutes", "reason", "decision_id",
+    ]
+
+    magic_cast = server._call_tool(
+        "coc_discover", {"operation": "magic.cast"}
+    )["data"]
+    assert magic_cast["canonical_operation"] == "magic.cast"
+    assert magic_cast["operation"]["inputSchema"]["required"] == [
+        "campaign", "spell", "decision_id",
+    ]
+    assert set(
+        magic_cast["operation"]["inputSchema"]["properties"]
+    ) == {
+        "root", "campaign", "investigator", "spell", "pushed",
+        "interrupted", "is_npc", "decision_id",
+    }
+    assert set(magic_cast["invoke_card"]["arguments_schema"]["properties"]) == {
+        "investigator", "spell", "pushed", "interrupted", "is_npc",
+        "decision_id",
+    }
+
+    magic_learn = server._call_tool(
+        "coc_discover", {"operation": "magic.learn"}
+    )["data"]
+    assert magic_learn["canonical_operation"] == "magic.learn"
+    assert magic_learn["invoke_card"]["missing_arguments"] == [
+        "spell", "decision_id",
     ]
 
     opening = server._call_tool(
@@ -3746,6 +3773,442 @@ def test_mcp_wire_combat_resolve_preserves_receipt_and_next_step_under_budget():
     }
 
 
+def _healing_rule_decision_card() -> dict:
+    return {
+        "schema_version": 1,
+        "decision_ref": "decision:coc7:healing:first-aid-ordinary",
+        "family": "healing",
+        "label": "Administer First Aid to a non-dying injured character",
+        "applicability": "applicable",
+        "required_inputs": [
+            {
+                "name": "assistant_rescuer_ref",
+                "owner": "optional-semantic",
+                "type": "string",
+            },
+            {
+                "name": "rescuer_ref",
+                "owner": "optional-semantic",
+                "type": "string",
+            }
+        ],
+        "locked_inputs": [
+            "assistant_rescuer_id",
+            "assistant_skill_value",
+            "first_aid_pushed",
+            "first_aid_skill",
+            "pushed",
+            "rescuer_id",
+            "skill_value",
+        ],
+        "rule_refs": ["rule:coc7:healing:first-aid"],
+        "source_refs": [
+            "span-wounds-and-healing-page-131-block-18",
+            "span-wounds-and-healing-page-131-block-24",
+        ],
+        "capability_ref": "capability:coc7:first-aid",
+        "effect_refs": [],
+        "possible_continuations": [],
+        "authority": {
+            "selection": "keeper-semantic",
+            "execution": "current-ruleset-adapter",
+            "hard_gate": False,
+        },
+    }
+
+
+def _production_healing_rule_decision_card() -> dict:
+    return _healing_rule_decision_card()
+
+
+def _healing_rule_decision_block(cards: list[dict] | None = None) -> dict:
+    return {
+        "schema_version": 1,
+        "family": "healing",
+        "investigator_id": "opaque-canonical-investigator-id",
+        "status": "ok",
+        "cards": cards or [_healing_rule_decision_card()],
+        "authority": {
+            "hard_gate": False,
+            "role": "affordance",
+            "note": "advisory healing affordances",
+        },
+    }
+
+
+def _project_scene_rule_cards(server, card_block: dict) -> dict:
+    return server.wire_projection.project_envelope(
+        "scene.context",
+        {
+            "ok": True,
+            "tool": "scene.context",
+            "data": {
+                "campaign_id": "scene-rule-card-closed-wire",
+                "active_scene_id": "infirmary",
+                "scene": {"scene_type": "investigation"},
+                "npcs_present": [],
+                "clues_here": [],
+                "action_routes": [],
+                "exits": [],
+                "party": ["investigator-one"],
+                "rule_decision_cards": card_block,
+                "recovery": {"healing": deepcopy(card_block)},
+            },
+            "warnings": [],
+            "hints": [],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+
+
+def test_mcp_wire_drops_malformed_rule_cards_without_settle_operation():
+    server = _load_server()
+    invalid_cards = []
+
+    invalid_authority_selection = _production_healing_rule_decision_card()
+    invalid_authority_selection["authority"]["selection"] = "sha256:" + "a" * 64
+    invalid_cards.append(invalid_authority_selection)
+
+    invalid_authority_execution = _production_healing_rule_decision_card()
+    invalid_authority_execution["authority"]["execution"] = {
+        "adapter": "nested-object-is-not-an-enum",
+    }
+    invalid_cards.append(invalid_authority_execution)
+
+    invalid_authority_gate = _production_healing_rule_decision_card()
+    invalid_authority_gate["authority"]["hard_gate"] = "false"
+    invalid_cards.append(invalid_authority_gate)
+
+    empty_rule_refs = _production_healing_rule_decision_card()
+    empty_rule_refs["rule_refs"] = []
+    invalid_cards.append(empty_rule_refs)
+
+    empty_source_refs = _production_healing_rule_decision_card()
+    empty_source_refs["source_refs"] = []
+    invalid_cards.append(empty_source_refs)
+
+    opaque_decision = _production_healing_rule_decision_card()
+    opaque_decision["decision_ref"] = (
+        "decision:7c9e6679-7425-40de-944b-e07fc1f90ae7"
+    )
+    invalid_cards.append(opaque_decision)
+
+    invalid_schema = _production_healing_rule_decision_card()
+    invalid_schema["schema_version"] = "1"
+    invalid_cards.append(invalid_schema)
+
+    invalid_input_owner = _production_healing_rule_decision_card()
+    invalid_input_owner["required_inputs"][0]["owner"] = "host-locked"
+    invalid_cards.append(invalid_input_owner)
+
+    invalid_input_type = _production_healing_rule_decision_card()
+    invalid_input_type["required_inputs"][0]["type"] = "pickle"
+    invalid_cards.append(invalid_input_type)
+
+    invalid_locked_input = _production_healing_rule_decision_card()
+    invalid_locked_input["locked_inputs"].append("/private/skill-value")
+    invalid_cards.append(invalid_locked_input)
+
+    invalid_rule_namespace = _production_healing_rule_decision_card()
+    invalid_rule_namespace["rule_refs"] = ["effect:coc7:healing:not-a-rule"]
+    invalid_cards.append(invalid_rule_namespace)
+
+    invalid_source_ref = _production_healing_rule_decision_card()
+    invalid_source_ref["source_refs"] = ["/private/rulebook/page-131"]
+    invalid_cards.append(invalid_source_ref)
+
+    for field, value in (
+        ("card_grant", {"grant_id": "card-grant:opaque"}),
+        ("canonical_path", "/private/rule-graph.json"),
+        ("integrity_digest", "sha256:" + "b" * 64),
+    ):
+        card = _production_healing_rule_decision_card()
+        card[field] = value
+        invalid_cards.append(card)
+
+    for invalid_card in invalid_cards:
+        projected = _project_scene_rule_cards(
+            server,
+            _healing_rule_decision_block([invalid_card]),
+        )
+        assert "rule_decision_cards" not in projected["data"], invalid_card
+        assert "rules.settle" not in json.dumps(projected["data"]), invalid_card
+
+    malformed_block = _healing_rule_decision_block([
+        _production_healing_rule_decision_card(),
+    ])
+    malformed_block["authority"]["hard_gate"] = "false"
+    projected = _project_scene_rule_cards(server, malformed_block)
+    assert "rule_decision_cards" not in projected["data"]
+    assert "rules.settle" not in json.dumps(projected["data"])
+
+
+def test_mcp_wire_scene_context_preserves_one_bounded_rule_decision_card_block():
+    server = _load_server()
+    invalid_card = _healing_rule_decision_card()
+    invalid_card["decision_ref"] = "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+    card_block = _healing_rule_decision_block([
+        _healing_rule_decision_card(), invalid_card,
+    ])
+    projected = server.wire_projection.project_envelope(
+        "scene.context",
+        {
+            "ok": True,
+            "tool": "scene.context",
+            "data": {
+                "campaign_id": "scene-rule-card-wire",
+                "active_scene_id": "infirmary",
+                "scene": {"scene_type": "investigation"},
+                "npcs_present": [],
+                "clues_here": [],
+                "action_routes": [],
+                "exits": [],
+                "party": ["investigator-one"],
+                "rule_decision_cards": card_block,
+                "recovery": {"healing": deepcopy(card_block)},
+            },
+            "warnings": [],
+            "hints": [],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+
+    assert projected["wire"]["payload_projected"] is True
+    assert server.wire_projection.transport_bytes(projected) <= (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    block = projected["data"]["rule_decision_cards"]
+    assert block["family"] == "healing"
+    assert block["status"] == "ok"
+    assert block["settle_operation"]["operation"] == "rules.settle"
+    assert block["settle_operation"]["contract_ref"].startswith(
+        "rules.settle@"
+    )
+    assert block["settle_operation"]["missing_arguments"] == [
+        "decision_ref", "semantic_inputs", "decision_id",
+    ]
+    expected_card = _healing_rule_decision_card()
+    assert block["cards"] == [expected_card]
+    assert "investigator_id" not in block
+    dumped = json.dumps(block)
+    assert "card_grant" not in dumped
+    assert "/private/rule-graph.json" not in dumped
+    assert "sha256:" not in dumped
+    assert "opaque-rule-card-receipt" not in dumped
+    assert "7c9e6679-7425-40de-944b-e07fc1f90ae7" not in dumped
+    assert "recovery" not in projected["data"]
+
+
+def test_mcp_wire_rule_card_closed_schema_is_ruleset_neutral():
+    server = _load_server()
+    card = _production_healing_rule_decision_card()
+    card.update({
+        "decision_ref": "decision:spark:restoration:stabilize-reactor",
+        "family": "restoration",
+        "label": "Stabilize the damaged reactor",
+        "rule_refs": ["rule:spark:restoration:reactor-stability"],
+        "source_refs": ["source:spark:core-manual:reactor-stability"],
+        "capability_ref": "capability:spark:stabilize-reactor",
+    })
+    block = _healing_rule_decision_block([card])
+    block["family"] = "restoration"
+
+    projected = _project_scene_rule_cards(server, block)
+
+    visible = projected["data"]["rule_decision_cards"]
+    assert visible["family"] == "restoration"
+    assert visible["cards"] == [card]
+    assert visible["settle_operation"]["operation"] == "rules.settle"
+
+
+def test_mcp_wire_scene_recovery_index_keeps_at_most_eight_rule_cards():
+    server = _load_server()
+    cards = []
+    for index in range(12):
+        card = _healing_rule_decision_card()
+        card["decision_ref"] = f"decision:coc7:healing:fixture-{index}"
+        cards.append(card)
+    card_block = _healing_rule_decision_block(cards)
+    scene_data = {
+        "campaign_id": "scene-rule-card-oversize",
+        "active_scene_id": "crowded-infirmary",
+        "scene": {"scene_id": "crowded-infirmary", "scene_type": "social"},
+        "npcs_present": [
+            {
+                "npc_id": f"npc-{index}",
+                "name": f"NPC {index}",
+                "agenda": "retain this long authored agenda " * 40,
+                "voice": "measured " * 30,
+                "relationship_to_investigators": "unknown",
+            }
+            for index in range(20)
+        ],
+        "clues_here": [],
+        "action_routes": [],
+        "exits": [],
+        "party": ["investigator-one"],
+        "rule_decision_cards": card_block,
+        "recovery": {"healing": deepcopy(card_block)},
+    }
+    assert server.wire_projection.transport_bytes(
+        server.wire_projection._compact_scene(scene_data, tight=True)
+    ) > server.wire_projection.MAX_INLINE_BYTES
+
+    projected = server.wire_projection.project_envelope(
+        "scene.context",
+        {
+            "ok": True,
+            "tool": "scene.context",
+            "data": scene_data,
+            "warnings": [],
+            "hints": [],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+
+    assert projected["wire"]["scene_recovery_index_projection"] is True
+    assert server.wire_projection.transport_bytes(projected) <= (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    block = projected["data"]["rule_decision_cards"]
+    assert [card["decision_ref"] for card in block["cards"]] == [
+        f"decision:coc7:healing:fixture-{index}" for index in range(8)
+    ]
+    assert block["settle_operation"]["operation"] == "rules.settle"
+    assert "recovery" not in projected["data"]
+
+
+def test_mcp_wire_tight_and_resume_drop_invalid_rule_card_blocks():
+    server = _load_server()
+    invalid_card = _production_healing_rule_decision_card()
+    invalid_card["source_refs"] = []
+    invalid_block = _healing_rule_decision_block([invalid_card])
+    oversized_scene = {
+        "campaign_id": "scene-invalid-rule-card-oversize",
+        "active_scene_id": "crowded-infirmary",
+        "scene": {"scene_id": "crowded-infirmary", "scene_type": "social"},
+        "npcs_present": [
+            {
+                "npc_id": f"npc-{index}",
+                "name": f"NPC {index}",
+                "agenda": "retain this long authored agenda " * 40,
+                "voice": "measured " * 30,
+                "relationship_to_investigators": "unknown",
+            }
+            for index in range(20)
+        ],
+        "clues_here": [],
+        "action_routes": [],
+        "exits": [],
+        "party": ["investigator-one"],
+        "rule_decision_cards": invalid_block,
+        "recovery": {"healing": deepcopy(invalid_block)},
+    }
+    tight = server.wire_projection.project_envelope(
+        "scene.context",
+        {
+            "ok": True,
+            "tool": "scene.context",
+            "data": oversized_scene,
+            "warnings": [],
+            "hints": [],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+    assert tight["wire"]["scene_recovery_index_projection"] is True
+    assert "rule_decision_cards" not in tight["data"]
+    assert "rules.settle" not in json.dumps(tight["data"])
+
+    malformed_block_authority = _healing_rule_decision_block([
+        _production_healing_rule_decision_card(),
+    ])
+    malformed_block_authority["authority"]["role"] = "sha256:" + "c" * 64
+    resumed = server.wire_projection.project_envelope(
+        "session.resume",
+        {
+            "ok": True,
+            "tool": "session.resume",
+            "data": {
+                "schema_version": 1,
+                "campaign_id": "resume-invalid-rule-card-wire",
+                "mode": "awaiting_player",
+                "next_operations": [],
+                "scene_context": {
+                    "campaign_id": "resume-invalid-rule-card-wire",
+                    "active_scene_id": "infirmary",
+                    "scene": {"scene_type": "investigation"},
+                    "npcs_present": [],
+                    "clues_here": [],
+                    "action_routes": [],
+                    "exits": [],
+                    "party": ["investigator-one"],
+                    "rule_decision_cards": malformed_block_authority,
+                    "recovery": {
+                        "healing": deepcopy(malformed_block_authority),
+                    },
+                },
+            },
+            "warnings": [],
+            "hints": [],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+    scene = resumed["data"]["scene_context"]
+    assert "rule_decision_cards" not in scene
+    assert "rules.settle" not in json.dumps(scene)
+
+
+def test_mcp_wire_session_resume_preserves_scene_rule_decision_cards():
+    server = _load_server()
+    card_block = _healing_rule_decision_block()
+    projected = server.wire_projection.project_envelope(
+        "session.resume",
+        {
+            "ok": True,
+            "tool": "session.resume",
+            "data": {
+                "schema_version": 1,
+                "campaign_id": "resume-rule-card-wire",
+                "mode": "awaiting_player",
+                "next_operations": [],
+                "scene_context": {
+                    "campaign_id": "resume-rule-card-wire",
+                    "active_scene_id": "infirmary",
+                    "scene": {"scene_type": "investigation"},
+                    "npcs_present": [],
+                    "clues_here": [],
+                    "action_routes": [],
+                    "exits": [],
+                    "party": ["investigator-one"],
+                    "rule_decision_cards": card_block,
+                    "recovery": {"healing": deepcopy(card_block)},
+                },
+            },
+            "warnings": [],
+            "hints": [],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+
+    assert server.wire_projection.transport_bytes(projected) <= (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    scene = projected["data"]["scene_context"]
+    assert scene["rule_decision_cards"]["cards"][0]["decision_ref"] == (
+        "decision:coc7:healing:first-aid-ordinary"
+    )
+    assert scene["rule_decision_cards"]["settle_operation"]["operation"] == (
+        "rules.settle"
+    )
+    assert "recovery" not in scene
+
+
 def test_mcp_wire_scene_context_preserves_exact_optional_route_travel_minutes():
     server = _load_server()
     projected = server.wire_projection.project_envelope(
@@ -4675,6 +5138,23 @@ def test_mcp_wire_resume_inlines_small_hot_argument_contracts():
 
 def test_mcp_wire_open_turn_recovery_reuses_action_advice_hot_contract():
     server = _load_server()
+    anchor_body = {
+        "schema_version": 1,
+        "kind": "coc_open_turn_anchor",
+        "timeline_id": "timeline-main",
+        "prior_finalized_turn": 1,
+        "prior_finalized_source_digest": "sha256:" + "b" * 64,
+        "next_turn_ordinal": 2,
+    }
+    anchor = {
+        **anchor_body,
+        "anchor_digest": "sha256:" + hashlib.sha256(json.dumps(
+            anchor_body,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")).hexdigest(),
+    }
     projected = server.wire_projection.project_envelope(
         "session.resume",
         {
@@ -4691,6 +5171,7 @@ def test_mcp_wire_open_turn_recovery_reuses_action_advice_hot_contract():
                     },
                 },
                 "next_operations": ["continue_open_turn"],
+                "open_turn_anchor": anchor,
             },
             "warnings": [],
             "hints": [],
@@ -4699,6 +5180,7 @@ def test_mcp_wire_open_turn_recovery_reuses_action_advice_hot_contract():
         argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
     )
     hot = projected["data"]["ordinary_turn_operations"]
+    assert projected["data"]["open_turn_anchor"] == anchor
     assert set(hot) == {
         "turn_sequence", "actions.advise", "state.journal", "turn.output_context",
     }
@@ -5542,6 +6024,59 @@ def test_mcp_wire_finalize_card_matches_archive_and_never_prefills_semantics():
     assert server.wire_projection.transport_bytes(projected) <= (
         server.wire_projection.MAX_INLINE_BYTES
     )
+
+
+def test_mcp_wire_single_draft_profile_preserves_typed_finalize_surface():
+    server = _load_server()
+    projected = server.wire_projection.project_envelope(
+        "turn.output_context",
+        {
+            "ok": True,
+            "tool": "turn.output_context",
+            "data": {
+                "schema_version": 1,
+                "turn_id": "turn-single-draft-wire",
+                "journal_decision_id": "journal-single-draft-wire",
+                "source_digest": "sha256:single-draft-wire",
+                "settlement_snapshot_id": "turn-settlement-v1:single-draft-wire",
+                "mechanics_bundle_sha256": "sha256:mechanics-single-draft-wire",
+                "obligations": [],
+                "required_obligation_ids": [],
+                "contract_projection": {
+                    "agency_review_required": False,
+                },
+                "pending_narration_draft_status": {
+                    "schema_version": 1,
+                    "secrecy": "keeper_only",
+                    "status": "not_submitted",
+                    "actionable": True,
+                },
+                "finalize_operation": {
+                    "operation": "turn.finalize",
+                    "invoke_via": "coc_turn_finalize",
+                    "prefilled_arguments": {
+                        "decision_id": "journal-single-draft-wire:finalize",
+                        "revision": 1,
+                        "coverage": [],
+                    },
+                    "missing_arguments": ["draft"],
+                },
+            },
+            "warnings": [],
+            "hints": [],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+    )
+    card = projected["data"]["finalize_operation"]
+    assert card["operation"] == "turn.finalize"
+    assert card["invoke_via"] == "coc_turn_finalize"
+    assert card["missing_arguments"] == ["draft"]
+    assert card["prefilled_arguments"] == {
+        "decision_id": "journal-single-draft-wire:finalize",
+        "revision": 1,
+        "coverage": [],
+    }
+    assert "agency_review_operation" not in projected["data"]
 
 
 def test_mcp_wire_tight_output_context_preserves_explicit_review_mode():

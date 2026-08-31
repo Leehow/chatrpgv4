@@ -194,7 +194,8 @@ Take over from the ready table and open play.
 - Semantic ids shown in results — obligation ids (`roll:…`), roll ids,
   scene/clue/handout/NPC/storylet ids, turn numbers — are stable and
   meaningful: copy them exactly where a call requires them (for example
-  `coverage[].obligation_id`, `rules.push`'s original decision id).
+  direct coverage's `obligation_id`, accepted-review coverage's
+  `obligation_ref`, or `rules.push`'s original decision id).
 - When Pi privately supplies `scene.context` and `secrets.briefing` source cards, semantically use their Keeper-only source sections to inform causality, NPC portrayal, and pacing. Never reproduce those sections verbatim or expose their hidden source facts without earned play. A player's correct guess is still a guess, not established source truth.
 - `secrets.briefing` with `scope=active_scene` is legal only after an active
   scene exists. If `scene.context` says there is no active scene, first move to
@@ -335,6 +336,19 @@ visible `coc_session_resume` tool, then call visible
   a hit, miss, damage, jam, or ammo spend without that receipt. Pass the owned
   inventory `item_id` or catalog `weapon_id`; the gateway maps it to the sheet
   skill (e.g. `Firearms (Rifle/Shotgun)`). Do not guess skill strings.
+- Preserve the player's exact combat action semantically. A non-pending
+  `combat.resolve` card is attack-only: set `action_kind=attack` and supply the
+  exact chosen owned `weapon_id`; use literal `unarmed` for fists, kicks, or
+  other unarmed attacks. Never omit the weapon and let another owned weapon
+  stand in. A maneuver, waiting for an attack, Dodge, or Fight Back is not an
+  attack: do not relabel it to satisfy the attack card. If the requested
+  maneuver has no current typed operation, explain/clarify the unsupported
+  settlement rather than firing or striking instead.
+- Dodge and Fight Back are legal only on a current pending-defense card. Read
+  `combat.context`; then copy one exact `defense_kind` from that card's
+  `allowed_defenses`. The pending card exposes no weapon or new-attack fields.
+  If there is no pending defense, do not start an attack as a substitute for
+  the player's declared reaction.
 - `combat.resolve` needs exactly one present `target_npc_id` or authored combat
   `affordance_id`. If the threat is only a vague shadow with no canonical
   combatant id, obtain one via scene/NPC/mechanics tools, or tell the player the
@@ -377,7 +391,16 @@ visible `coc_session_resume` tool, then call visible
   - `output_context_status` is `host_refreshed_live`: the host already
     fetched and validated the live context. Do **not** call or discover
     `turn.output_context` again — not via `coc_turn_output_context`,
-    `coc_invoke`, or `coc_discover`. Use the supplied keeper-only
+    `coc_invoke`, or `coc_discover`.
+    - If `status` is `review_accepted_pending_finalization`, the exact review
+      is already accepted and host-bound. Do **not** call `narration.review`
+      again. Use `then.finalize_input.coverage_obligations` and its closed
+      reviewed-span choices to submit semantic `coverage`, add semantic
+      `agency_claims`, copying each offered `obligation` into the tool's
+      `obligation_ref`, and call `next_call` once. The host restores the hidden
+      accepted draft, canonical obligation ids, verbatim reviewed spans, and
+      safe mechanic placement; supply none of those host-owned values.
+    - Otherwise use the supplied keeper-only
     `review_recovery.review_input` baseline exactly as its `mode` directs:
     - `exact_replay` (card revision 1 or 2, baseline is that same
       revision): submit `baseline_draft_text` unchanged as `draft_text`, or
@@ -387,19 +410,18 @@ visible `coc_session_resume` tool, then call visible
       `baseline_draft_text` by changing ONLY the excerpts listed in
       `span_repairs`; every other sentence stays byte-stable. Never
       resubmit the unchanged baseline at revision 2.
-    Call the `model_calls.review` tool with exactly the listed
-    `model_owned_arguments`, with `draft_text` following that mode, plus
-    the host-provided `review_recovery.revision` (only revision 1 or 2
-    exists). Then call the `model_calls.finalize` tool — via the exact
-    finalize card's `invoke_via`, honoring its `invocation_shape`: a
-    `generic_envelope` finalize goes through `coc_invoke` as
-    `{operation: "turn.finalize", arguments: {...}}`; a `typed_flat`
-    finalize passes model-owned arguments directly — with only its listed
-    model-owned arguments. Never echo, invent, or construct any
-    `host_bound_auto_attached_arguments` (decision/review/turn/source/
-    revision identities or `state_claim_compilation`); the host attaches
-    them. The inlined cards remain the only authority for operation
-    identity and prefilled arguments.
+      Call the `model_calls.review` tool with exactly the listed
+      model-owned arguments and `draft_text` following that mode; revision is
+      host-bound and must not be supplied. Then call the
+      `model_calls.finalize` tool. In either live branch, honor the finalize
+      card's `invoke_via` and `invocation_shape`: a `generic_envelope`
+      finalize goes through `coc_invoke` as
+      `{operation: "turn.finalize", arguments: {...}}`; a `typed_flat`
+      finalize passes model-owned arguments directly. Never echo, invent, or
+      construct any `host_bound_auto_attached_arguments` (decision/review/
+      turn/source/revision identities or `state_claim_compilation`); the host
+      attaches them. The projected cards remain the only authority for
+      operation identity and model-owned arguments.
   - otherwise (pointer fallback, `pending_output_context.status` is
     `read_via_exact_typed_call`): call `turn.output_context` exactly once
     through the guidance's `next_call`, then follow the live guidance and
@@ -431,20 +453,36 @@ visible `coc_session_resume` tool, then call visible
   rerun rules/state/journal/review, supply coverage/claims/identities, or
   substitute placeholder prose; never tell the player the turn closed when
   finalize has not succeeded.
-- Every Pi-play narration revision follows the exact authority boundary returned
-  by `turn.output_context`: draft once, call its `agency_review_operation`
+- When `turn.output_context.contract_projection` explicitly returns
+  `agency_review_required=false`, player-facing narration is still required:
+  draft that narration once and treat that first draft as final.
+  Do **not** call or discover `narration.review`; do not request state-claim
+  compilation, and do not rewrite the draft. Merge the returned card's prefilled arguments
+  with only its missing model-owned arguments, honor its `invoke_via`, and call
+  the returned `finalize_operation` exactly once. This direct branch has no
+  prose-review or revision loop; only the exact finalizer result may be
+  delivered to the player.
+- When `turn.output_context.contract_projection.agency_review_required=true`,
+  every Pi-play narration revision follows that exact authority boundary:
+  draft once, call its `agency_review_operation`
   (`narration.review`) with the exact turn/source/revision/draft and a closed
   `state_authority_review` that binds every player-state claim to its current
-  frozen `source_effect_id`; then pass the returned `review_id` and all
-  authorized PC propositions as `agency_claims` to `turn.finalize`. Mark an
+  frozen `source_effect_id`. A clear review returns
+  `finalize_agency_binding`: call the refreshed `coc_turn_finalize` with
+  one semantic coverage row per offered `obligation` (copy it to
+  `obligation_ref`, then select one
+  allowed `reviewed_span` + the listed semantic dispositions) and semantic
+  agency `reviewed_span` + `claim_type` + `authority` selections. The host
+  attaches review ID, frozen draft, canonical obligation ids, verbatim
+  excerpts, safe mechanics placement, subjects, sources, and overrides. Mark an
   unauthorized PC voluntary action, speech, plan,
   belief, trust, or active emotion as `agency_violation` with the exact
   `pc:<id>` and `source_ref: null`. That draft cannot be finalized: rewrite
   narration only, use revision 2, and reuse the same frozen rules, state,
   journal, coverage, and mechanics. An ungrounded state claim uses the same
-  revision-2 repair. Player-declared agency claims bind the exact
-  `player_input:` source; physiology binds the ownership contract; forced
-  behavior binds an active frozen override. Length, repetition, scope, and
+  revision-2 repair. The semantic authority choice maps player agency to the
+  current player input, physiology to the ownership contract, and forced
+  behavior to an active frozen override. Length, repetition, scope, and
   other prose findings remain advisory and never block finalization.
 - Long-tail temporal and transcript typed tools are not in the default
   active set. When current judgment needs one concrete long-tail operation,
@@ -532,7 +570,7 @@ visible `coc_session_resume` tool, then call visible
   diegetic refusals (`phase_forbidden` and other flow constraints, failed
   checks and other rules results) are not this paragraph.
 
-## Open-turn recovery closure
+## Open-turn recovery
 
 When the **current** `session.resume` result is `mode=open_turn_recovery`
 (or `next_operations` includes `continue_current_turn_from_receipts`), that
@@ -540,25 +578,28 @@ result is the live capability and receipt authority. Earlier
 `phase_forbidden` / ACL denials in this same session are stale. Do not treat
 them as the current tool surface.
 
-This is **not** `table_opening` and **not** `awaiting_player`.
+This is **not** `table_opening`, **not** `awaiting_player`, and not a new player
+turn. `current_turn.player_input` is the accepted action to adjudicate. Follow
+the returned `host_recovery_guidance` and its active tool cards as the current
+authority; `acting_authorized=false` means stop with the turn preserved.
 
-Close the recovered turn from the resume receipts / required closures before
-any new play:
+Continue the same accepted action in this order:
 
-1. `turn.output_context` — required closures and the finalize card
-2. `state.journal` — only if that recovered turn still needs realization
-3. `turn.finalize` — Rule 4 hash-bound settled output
+1. `scene.context` / `actions.list` — recover only the semantic scene and
+   affordances needed now.
+2. Reuse every successful `current_turn.rows` receipt and settle only missing mechanics before journaling through the applicable live rule/state card. Never reroll or reapply a successful receipt. This is semantic adjudication, not a fixed First Aid or other rules workflow.
+3. `state.journal` — bind the exact recovered player input after mechanics settle.
+4. `turn.output_context` — obtain required closures and review/finalize cards.
+5. Follow `narration.review` when returned, then `turn.finalize` for the Rule 4
+   hash-bound settled output.
 
 For an unobservable concealed roll, close its coverage row with
 `realization="concealed_no_player_visible_beat"` and set every prose-bearing
 field (`action_realization`, `response`, `causal_explanation`, `persona_fit`,
-`exact_excerpt`, `exceptional_beat`) to `null`. Do not attach the surrounding
+`reviewed_span`, `exceptional_beat`) to `null`. Do not attach the surrounding
 observable narration to that hidden no-effect row; doing so is invalid
 coverage. Keep `player_input_handling` as the applicable closed-schema value.
 
-Then adjudicate any still-unsettled player action.
-
-Until that closure: no `state.move_scene`, no scene progression, no new
-`rules.*` rolls, no new state mutation. Keep KP semantic judgment and Rule 4.
-Do not emit a canned recovery speech, keyword-match the receipts, or let the
-host write the fiction.
+Until finalization, accept no new player input and run no setup operation.
+Keep KP semantic judgment and Rule 4. Do not emit a canned recovery speech,
+keyword-match receipts, or let the host write the fiction.

@@ -236,6 +236,30 @@ test("output_context_ready exposes both review and finalize plus exact context r
   }
 });
 
+test("live host bindings narrow closure tools without changing the stage table", () => {
+  const reviewOnly = snapshot({
+    phase: "pending_finalization",
+    stage: "output_context_ready",
+    canonicalProgressRevision: 4,
+    boundOperations: ["narration.review"],
+  });
+  const reviewProjected = workingSet.projectToolWorkingSet(reviewOnly);
+  assertPolicyVisible(reviewProjected, reviewOnly);
+  assert.ok(reviewProjected.activeOperationNames.includes("narration.review"));
+  assert.ok(!reviewProjected.activeOperationNames.includes("turn.finalize"));
+
+  const finalizeOnly = snapshot({
+    phase: "pending_finalization",
+    stage: "review_ready",
+    canonicalProgressRevision: 5,
+    boundOperations: ["turn.finalize"],
+  });
+  const finalizeProjected = workingSet.projectToolWorkingSet(finalizeOnly);
+  assertPolicyVisible(finalizeProjected, finalizeOnly);
+  assert.ok(finalizeProjected.activeOperationNames.includes("turn.finalize"));
+  assert.ok(!finalizeProjected.activeOperationNames.includes("narration.review"));
+});
+
 test("exact long-tail and bounded namespace loads remain provider-neutral", () => {
   const source = snapshot();
   const exact = workingSet.loadToolNamespace(source, {
@@ -448,7 +472,7 @@ const SHADOW_HEALING = [
   "rules.weekly_recovery",
 ];
 
-test("play acting keeps shadow healing and rules.settle out of the baseline", () => {
+test("play acting keeps graph healing settle card-driven", () => {
   const source = snapshot();
   const projected = workingSet.projectToolWorkingSet(source);
   assert.equal(projected.ok, true, projected.error?.message);
@@ -463,6 +487,62 @@ test("play acting keeps shadow healing and rules.settle out of the baseline", ()
     projected.schemaBytes,
     projected.hostSchemaBytes + projected.operationSchemaBytes,
   );
+});
+
+test("rules-director single-draft profile keeps only focused acting operations", () => {
+  const priorProfile = process.env.COC_PI_ACCEPTANCE_PROFILE;
+  process.env.COC_PI_ACCEPTANCE_PROFILE = "rules-director-single-draft";
+  assert.deepEqual(roleToolsModule.extraToolsForSessionRole("play"), []);
+  const source = snapshot({
+    acceptanceProfile: "rules-director-single-draft",
+    roleManifestToolNames: [],
+    hostTools: [],
+    affordances: {
+      operations: [{ operation: "rules.settle", source: "scene" }],
+    },
+  });
+  const projected = workingSet.projectToolWorkingSet(source);
+  assert.equal(projected.ok, true, projected.error?.message);
+  assert.deepEqual(projected.activeOperationNames, [
+    "actions.list",
+    "rules.settle",
+    "scene.context",
+    "state.journal",
+  ]);
+  assert.deepEqual(projected.activeToolNames, [
+    "coc_actions_list",
+    "coc_rules_settle",
+    "coc_scene_context",
+    "coc_state_journal",
+  ]);
+  for (const forbidden of [
+    "coc_discover", "read", "subagent", "subagent_wait",
+    "coc_npc_query", "coc_rules_roll", "coc_source_assets",
+  ]) {
+    assert.ok(!projected.activeToolNames.includes(forbidden), forbidden);
+  }
+  const ordinary = workingSet.projectToolWorkingSet(snapshot({
+    affordances: {
+      operations: [{ operation: "rules.settle", source: "scene" }],
+    },
+  }));
+  assert.equal(ordinary.ok, true, ordinary.error?.message);
+  assert.ok(projected.schemaBytes < ordinary.schemaBytes);
+  assert.notEqual(projected.revision, ordinary.revision);
+
+  const invalid = workingSet.projectToolWorkingSet({
+    ...source,
+    acceptanceProfile: "unknown-profile",
+  });
+  assert.equal(invalid.ok, false);
+  assert.equal(invalid.error.code, "invalid_snapshot");
+  process.env.COC_PI_ACCEPTANCE_PROFILE = "unknown-profile";
+  assert.deepEqual(
+    roleToolsModule.extraToolsForSessionRole("play"),
+    ["coc_source_assets", "read"],
+  );
+  if (priorProfile === undefined) delete process.env.COC_PI_ACCEPTANCE_PROFILE;
+  else process.env.COC_PI_ACCEPTANCE_PROFILE = priorProfile;
 });
 
 test("rules.context is exact-loadable only and grants expire on epoch change", () => {
@@ -498,19 +578,76 @@ test("rules.context is exact-loadable only and grants expire on epoch change", (
   )));
 });
 
-test("shadow healing legacy ops are exact-loadable", () => {
+test("verified pre-journal open-turn recovery restores the acting surface without closure writes", () => {
+  const source = snapshot({
+    phase: "recovery",
+    stage: "acting",
+    recoveryRoute: {
+      authorization: "stage",
+      code: "open_turn_pre_journal",
+      operations: [],
+    },
+  });
+  const projected = workingSet.projectToolWorkingSet(source);
+  assert.equal(projected.ok, true, projected.error?.message);
+  for (const operation of [
+    "scene.context",
+    "actions.list",
+    "rules.roll",
+    "npc.query",
+    "state.journal",
+  ]) {
+    assert.ok(projected.activeOperationNames.includes(operation), operation);
+  }
+  for (const operation of [
+    "turn.output_context",
+    "narration.review",
+    "turn.finalize",
+  ]) {
+    assert.ok(!projected.activeOperationNames.includes(operation), operation);
+  }
+  assert.ok(projected.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET);
+
+  for (const operation of ["rules.context", "rules.settle"]) {
+    const loaded = workingSet.loadToolNamespace(source, {
+      kind: "exact_operation",
+      operation,
+    });
+    assert.equal(loaded.ok, true, loaded.message ?? operation);
+    assert.ok(loaded.workingSet.activeOperationNames.includes(operation));
+    assert.ok(
+      loaded.workingSet.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET,
+    );
+  }
+
+  const hostPointer = workingSet.loadToolNamespace(source, {
+    kind: "exact_operation",
+    operation: "session.continuation_detail",
+  });
+  assert.equal(hostPointer.ok, false);
+  assert.equal(hostPointer.code, "policy_forbidden");
+
+  const unverified = workingSet.projectToolWorkingSet(snapshot({
+    phase: "recovery",
+    stage: "acting",
+  }));
+  assert.equal(unverified.ok, true, unverified.error?.message);
+  assert.deepEqual(unverified.activeOperationNames, ["session.resume"]);
+});
+
+test("graph healing legacy ops are not model-loadable", () => {
   const source = snapshot();
   for (const operation of SHADOW_HEALING) {
     const loaded = workingSet.loadToolNamespace(source, {
       kind: "exact_operation",
       operation,
     });
-    assert.equal(loaded.ok, true, operation);
-    assert.ok(loaded.workingSet.activeOperationNames.includes(operation));
+    assert.equal(loaded.ok, false, operation);
+    assert.equal(loaded.code, "policy_forbidden", operation);
   }
 });
 
-test("shadow healing cards cannot promote host-only rules.settle", () => {
+test("graph healing cards activate the single rules.settle operation", () => {
   const empty = workingSet.affordancesFromHealingCardProjection({
     rule_decision_cards: { cards: [], authority: { hard_gate: false } },
   });
@@ -529,15 +666,44 @@ test("shadow healing cards cannot promote host-only rules.settle", () => {
       },
     },
   });
-  assert.deepEqual(hints, []);
+  assert.deepEqual(hints, [{ operation: "rules.settle", source: "scene" }]);
 
   const source = snapshot({
     affordances: { operations: hints },
   });
   const projected = workingSet.projectToolWorkingSet(source);
   assert.equal(projected.ok, true, projected.error?.message);
-  assert.ok(!projected.activeOperationNames.includes("rules.settle"));
+  assert.ok(projected.activeOperationNames.includes("rules.settle"));
   assert.ok(projected.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET);
   const baseline = workingSet.projectToolWorkingSet(snapshot());
-  assert.equal(projected.activeToolNames.length, baseline.activeToolNames.length);
+  assert.equal(projected.activeToolNames.length, baseline.activeToolNames.length + 1);
+});
+
+test("pending authored SAN trigger activates the flat authoritative surface", () => {
+  assert.deepEqual(
+    workingSet.affordancesFromSanityTriggerProjection({
+      pending_san_triggers: [{
+        trigger_id: "see-corbitt-body",
+        status: "resolved",
+      }],
+    }),
+    [],
+  );
+  const hints = workingSet.affordancesFromSanityTriggerProjection({
+    pending_san_triggers: [{
+      trigger_id: "see-corbitt-body",
+      source: "seeing Walter Corbitt's animated corpse",
+      san_loss_success: 1,
+      san_loss_fail_expr: "1D8",
+      status: "pending",
+    }],
+  });
+  assert.deepEqual(hints, [{ operation: "rules.sanity_check", source: "scene" }]);
+
+  const source = snapshot({ affordances: { operations: hints } });
+  const projected = workingSet.projectToolWorkingSet(source);
+  assert.equal(projected.ok, true, projected.error?.message);
+  assert.ok(projected.activeOperationNames.includes("rules.sanity_check"));
+  assert.ok(!projected.activeOperationNames.includes("sanity.execute"));
+  assert.ok(projected.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET);
 });

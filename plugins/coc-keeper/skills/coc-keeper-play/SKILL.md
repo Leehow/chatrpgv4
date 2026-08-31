@@ -83,7 +83,7 @@ episodes, active assertions, and open hooks as your temporal baseline — never
 rescan files or replay full history to rebuild memory context.
 
 - `pending_finalization`: repair only the returned `pending_output_context` blocker, then finalize; never reroll, replay mutation, accept another action, or redraft deterministic mechanics.
-- `open_turn_recovery`: continue successful `current_turn.rows` in order, reuse returned identities/opportunities, and settle only missing work; do not reroll, rediscover, or ask the player to restate intent.
+- `open_turn_recovery`: treat `current_turn.player_input` and the returned recovery cards as the same accepted player turn. Recover semantic scene/action context, reuse successful rows, settle only missing mechanics, then journal → output context → review/finalize. Accept no new player input and never ask the player to restate intent. Full order: `references/turn-tooling-and-typed-ops.md`.
 - `awaiting_player`: interpret the message from recovered scene, public tail, threads, decisions, and style commitments.
 - `delivery.status=unconfirmed`: if the last reply is absent from the player's screen, replay `delivery.exact_text`, or externalized `session.delivery_text`, byte-for-byte; do not call rules/state/finalization again or regenerate prose. When the player semantically reports the latest finalized output missing or asks for its exact replay, invoke typed `session.delivery_text` with `mode:"replay"`: the host reattaches machine-owned delivery identity and delivers the exact text. During replay you never paraphrase, journal, reroll, mutate state, call any narration review or turn finalization operation, or emit additional prose. Detail: `references/turn-tooling-and-typed-ops.md`.
 - `host_input` is unclassified transport evidence. Decide its meaning semantically; never promote it automatically into an investigator action.
@@ -221,19 +221,23 @@ output evidence boundary, not a replacement prose engine:
    delivery acknowledgement closes repair. Never rerun rules, state writes,
    journal, coverage, or mechanics for that prose-only replacement.
 
-   `agency_claims` are structured source bindings, not a prose classifier:
-   cite an exact excerpt for each submitted claim. Voluntary investigator
-   action, speech, plan, belief, trust, or active emotion must bind the exact
-   current `player_input:<journal decision_id>`; forced behavior must bind an
-   active frozen override by stable `override_id`, subject, rule source, and
-   expiry. An empty claim list does **not** prove absence of agency violations.
+   `agency_claims` are structured source bindings, not a prose classifier.
+   Canonical receipts retain exact excerpts and sources. After a clear Pi
+   review, use its `finalize_agency_binding`: submit only
+   `reviewed_span` + `claim_type` + `authority` selections (or `[]`). The host
+   reattaches the accepted draft, exact excerpt, current PC/player input,
+   physiology contract, or active override. Never relay those frozen bytes or
+   machine identities through the model. An empty claim list does **not**
+   prove absence of agency violations.
    In Pi play, `turn.output_context.agency_review_operation` is required for
    every pending narration revision. Call `narration.review` on the exact
    turn/source/revision/draft. Its closed `state_authority_review` semantically
    declares every player-state change claimed by the draft: each claim cites an
    exact excerpt and the matching current frozen `source_effect_id`; use null
-   only to audit an ungrounded claim that must be removed. Then bind the review
-   ID and all authorized PC propositions in `turn.finalize.agency_claims`.
+   only to audit an ungrounded claim that must be removed. A clear Pi review
+   refreshes `coc_turn_finalize`; pass coverage plus the semantic agency
+   selections from its binding card. The host owns review ID, draft, and exact
+   claim evidence.
    `agency_violation` is the sole hard *narrative finding*; an ungrounded state
    claim is separately blocked by Rule 2 state authority. Either rejection uses
    the same prose-only revision 2 and frozen settlement. Length, repetition,

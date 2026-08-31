@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""R2b tests: RulesRuntime + shadow comparator for the healing family.
+"""RulesRuntime shadow and promoted execution tests for the healing family.
 
 These exercise the deep in-process RulesRuntime module
 (``plugins/coc-keeper/scripts/coc_rules_runtime.py``) and the shadow
-comparator wired into the EXISTING legacy healing path:
+comparator used by candidate graphs plus the packaged graph-owned healing path:
 
 - the fixture RuleGraph is built in test setup through the R1 compiler
   (prepare -> accept -> build) from the same bounded healing fixture the R1
@@ -14,12 +14,12 @@ comparator wired into the EXISTING legacy healing path:
   artifact (rolls log, receipts, ledger, state, working-set revisions, all
   logs) must be byte-identical; the ONLY permitted difference is the
   host-internal shadow log (which lives outside the campaign tree);
-- the comparator records an explicit difference finding per mandatory §14.1
+- the candidate comparator records an explicit difference finding per mandatory §14.1
   axis: capability, phase, semantic inputs, locked inputs, and — where the
   legacy normalized command genuinely lacks data — an explicit
   ``unresolved_legacy`` finding for rule refs, resource effects, visibility,
   and pending-choice semantics (never a silent match);
-- a graph/legacy mismatch records exact semantic differences and the legacy
+- a candidate graph/legacy mismatch records exact semantic differences and the legacy
   path still executes once;
 - a missing/unloadable graph skips the comparison with a host-internal log
   entry and leaves the legacy path untouched;
@@ -158,6 +158,21 @@ def _dying_state(ws) -> None:
     state.update({
         "current_hp": 0,
         "conditions": ["major_wound", "unconscious", "dying"],
+    })
+    _write_json(state_path, state)
+
+
+def _stabilized_dying_state(ws) -> None:
+    inv = ws["investigator_id"]
+    state_path = (
+        ws["campaign_dir"] / "save" / "investigator-state" / f"{inv}.json"
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update({
+        "current_hp": 1,
+        "conditions": [
+            "major_wound", "unconscious", "dying", "stabilized",
+        ],
     })
     _write_json(state_path, state)
 
@@ -1342,10 +1357,10 @@ def test_load_ruleset_graph_rejects_ownership_mismatch(tmp_path: Path):
     assert loaded["ok"] is False
     assert loaded["reason"] == "ownership_mismatch"
     assert any("runtime_owner disagrees" in item for item in loaded["findings"])
-    assert loaded.get("graph_claimed") is False
+    assert loaded.get("graph_claimed") is True
 
 
-def test_load_packaged_coc7_healing_graph_honors_shadow_exclusions():
+def test_load_packaged_coc7_healing_graph_is_promoted_without_exclusions():
     """Integration: discover the real packaged coc7 graph by explicit root."""
     loaded = coc_rules_runtime.load_ruleset_graph(
         "coc7", rulesets_root_path=coc_rules_runtime.rulesets_root(),
@@ -1362,18 +1377,16 @@ def test_load_packaged_coc7_healing_graph_honors_shadow_exclusions():
     status = runtime.context(None)
     by_family = {row["family"]: row for row in status["family_status"]}
     assert by_family["healing"]["coverage"] == "accepted"
-    assert by_family["healing"]["runtime_owner"] == "shadow"
-    assert by_family["healing"]["legacy_surface"] == "visible"
+    assert by_family["healing"]["runtime_owner"] == "graph"
+    assert by_family["healing"]["legacy_surface"] == "hidden"
     promo = graph_manifest["family_promotion_eligibility"]["healing"]
-    by_id = {row["exclusion_id"]: row for row in promo["shadow_exclusions"]}
-    assert set(by_id) == {
-        "first-aid-one-hour-eligibility-enforcement",
-        "dual-rescuer-either-success-composition",
+    assert promo == {
+        "promotion_eligible": True,
+        "runtime_ownership": "graph",
     }
     node_ids = {node["node_id"] for node in graph["nodes"]}
-    for row in by_id.values():
-        assert row["exception_ref"] in node_ids
-        assert row["decision_ref"] in node_ids
+    assert "exception:coc7:healing:first-aid-window-uncompiled" not in node_ids
+    assert "exception:coc7:healing:first-aid-teamwork-uncompiled" not in node_ids
 
 
 # --------------------------------------------------------------------------- #
@@ -1415,6 +1428,291 @@ def _set_sheet_skill(ws, skill: str, value: int) -> None:
     path.write_text(json.dumps(sheet, indent=2) + "\n", encoding="utf-8")
 
 
+def _add_rescuer_sheet(
+    ws, rescuer_id: str, *, first_aid: int | None,
+) -> None:
+    source = (
+        ws["workspace"] / ".coc" / "investigators"
+        / ws["investigator_id"] / "character.json"
+    )
+    sheet = json.loads(source.read_text(encoding="utf-8"))
+    sheet["id"] = rescuer_id
+    skills = sheet.setdefault("skills", {})
+    if first_aid is None:
+        skills.pop("First Aid", None)
+    else:
+        skills["First Aid"] = first_aid
+    target = (
+        ws["workspace"] / ".coc" / "investigators"
+        / rescuer_id / "character.json"
+    )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(sheet, indent=2) + "\n", encoding="utf-8")
+
+
+def test_packaged_graph_settle_uses_catalog_base_when_quick_start_sheet_omits_first_aid(
+    tmp_path: Path,
+):
+    ws = _fresh_workspace(tmp_path, "graph-catalog-first-aid")
+    sheet_path = (
+        ws["workspace"] / ".coc" / "investigators"
+        / ws["investigator_id"] / "character.json"
+    )
+    sheet = json.loads(sheet_path.read_text(encoding="utf-8"))
+    assert "First Aid" not in sheet["skills"]
+    time_state = json.loads(
+        (ws["campaign_dir"] / "save" / "time-state.json")
+        .read_text(encoding="utf-8")
+    )
+    elapsed = int(time_state["clock"]["elapsed_minutes"])
+    _wounded_state(ws, hp=5, occurred_elapsed=elapsed)
+
+    context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "healing",
+        "selected_affordance_ids": [_ORDINARY_FIRST_AID],
+    })
+    assert context["ok"] is True, context
+    smuggled = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": _ORDINARY_FIRST_AID,
+        "semantic_inputs": {"skill_value": 99},
+        "decision_id": "healing:catalog-base:smuggled-first-aid",
+    })
+    assert smuggled["ok"] is False, smuggled
+    assert smuggled["error"]["code"] == "locked_input_override"
+    assert _rolls(ws) == []
+    args = {
+        "investigator": ws["investigator_id"],
+        "decision_ref": _ORDINARY_FIRST_AID,
+        "semantic_inputs": {"rescuer_ref": ws["investigator_id"]},
+        "decision_id": "healing:catalog-base:first-aid",
+        "seed": 2,
+    }
+    settled = _run(ws, "rules.settle", args)
+
+    assert settled["ok"] is True, settled
+    rolls = _rolls(ws)
+    assert len(rolls) == 1
+    assert rolls[0]["payload"]["target"] == 30
+    projected = json.dumps(settled["data"])
+    assert "skill_value" not in projected
+    assert "characteristics" not in projected
+    assert '"skills"' not in projected
+
+    replay = _run(ws, "rules.settle", args)
+    assert replay["ok"] is True, replay
+    assert replay["data"] == settled["data"]
+    assert len(_rolls(ws)) == 1
+
+
+def test_packaged_graph_settle_uses_catalog_base_for_missing_assistant_skill(
+    tmp_path: Path,
+):
+    ws = _fresh_workspace(tmp_path, "graph-catalog-assistant")
+    _set_sheet_skill(ws, "First Aid", 1)
+    _add_rescuer_sheet(ws, "rescuer-assistant", first_aid=None)
+    time_state = json.loads(
+        (ws["campaign_dir"] / "save" / "time-state.json")
+        .read_text(encoding="utf-8")
+    )
+    _wounded_state(
+        ws,
+        hp=5,
+        occurred_elapsed=int(time_state["clock"]["elapsed_minutes"]),
+    )
+    context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "healing",
+        "selected_affordance_ids": [_ORDINARY_FIRST_AID],
+    })
+    assert context["ok"] is True, context
+
+    settled = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": _ORDINARY_FIRST_AID,
+        "semantic_inputs": {
+            "rescuer_ref": ws["investigator_id"],
+            "assistant_rescuer_ref": "rescuer-assistant",
+        },
+        "decision_id": "healing:catalog-base:assistant-first-aid",
+        "seed": 2,
+    })
+
+    assert settled["ok"] is True, settled
+    assert settled["data"]["event"]["teamwork"] is True
+    rolls = _rolls(ws)
+    assert [row["payload"]["target"] for row in rolls] == [1, 30]
+    assert [row["payload"]["actor_id"] for row in rolls] == [
+        ws["investigator_id"], "rescuer-assistant",
+    ]
+
+
+def test_packaged_graph_settle_uses_catalog_base_when_sheet_omits_medicine(
+    tmp_path: Path,
+):
+    ws = _fresh_workspace(tmp_path, "graph-catalog-medicine")
+    time_state = json.loads(
+        (ws["campaign_dir"] / "save" / "time-state.json")
+        .read_text(encoding="utf-8")
+    )
+    _wounded_state(
+        ws,
+        hp=5,
+        occurred_elapsed=int(time_state["clock"]["elapsed_minutes"]),
+    )
+    decision_ref = "decision:coc7:healing:medicine-ordinary"
+    context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "healing",
+        "selected_affordance_ids": [decision_ref],
+    })
+    assert context["ok"] is True, context
+
+    settled = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": decision_ref,
+        "semantic_inputs": {"rescuer_ref": ws["investigator_id"]},
+        "decision_id": "healing:catalog-base:medicine",
+        "seed": 2,
+    })
+
+    assert settled["ok"] is True, settled
+    rolls = _rolls(ws)
+    assert len(rolls) == 1
+    assert rolls[0]["payload"]["target"] == 1
+
+
+def test_packaged_graph_settle_uses_catalog_base_for_weekly_caregiver(
+    tmp_path: Path,
+):
+    ws = _fresh_workspace(tmp_path, "graph-catalog-weekly-caregiver")
+    state_path = (
+        ws["campaign_dir"] / "save" / "investigator-state"
+        / f"{ws['investigator_id']}.json"
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update({
+        "current_hp": 2,
+        "conditions": ["major_wound"],
+        "wound_ledger": [{
+            "wound_id": "wound-catalog-weekly",
+            "source_damage_roll_id": "damage-catalog-weekly",
+            "occurred_elapsed_minutes": 0,
+            "status": "active",
+        }],
+    })
+    _write_json(state_path, state)
+    advanced = _run(ws, "state.advance_time", {
+        "minutes": 7 * 24 * 60,
+        "reason": "one full week of rest",
+        "decision_id": "healing:catalog-base:advance-week",
+    })
+    assert advanced["ok"] is True, advanced
+    decision_ref = "decision:coc7:healing:weekly-major-wound-recovery"
+    context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "healing",
+        "selected_affordance_ids": [decision_ref],
+    })
+    assert context["ok"] is True, context
+
+    settled = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": decision_ref,
+        "semantic_inputs": {
+            "complete_rest": True,
+            "poor_environment": False,
+        },
+        "decision_id": "healing:catalog-base:weekly-caregiver",
+        "seed": 5,
+    })
+
+    assert settled["ok"] is True, settled
+    rolls = _rolls(ws)
+    care_roll = next(
+        row for row in rolls if row["payload"].get("skill") == "Medicine"
+    )
+    assert care_roll["payload"]["target"] == 1
+    assert care_roll["payload"]["actor_id"] == ws["investigator_id"]
+
+
+def test_ruleset_skill_value_prefers_explicit_and_fails_closed_for_nonflat_base():
+    resolver = coc_rulesets.get_resolver({"ruleset_id": "coc7"})
+    sheet = {
+        "era": "1920s",
+        "characteristics": {"DEX": 60},
+        "skills": {"First Aid": {"value": 77}},
+    }
+    resolve = coc_rulesets.resolve_actor_skill_value
+
+    assert resolve(resolver, sheet, "First Aid") == 77
+    sheet["skills"].pop("First Aid")
+    assert resolve(resolver, sheet, "First Aid") == 30
+    assert resolve(resolver, sheet, "Medicine") == 1
+    assert resolve(resolver, sheet, "Unknown Skill") is None
+    assert resolve(resolver, sheet, "Dodge") is None
+    assert resolve(resolver, sheet, "Computer Use") is None
+    sheet["skills"]["First Aid"] = None
+    assert resolve(resolver, sheet, "First Aid") is None
+
+
+def test_packaged_graph_settle_executes_two_rescuer_first_aid_once(
+    tmp_path: Path,
+):
+    ws = _fresh_workspace(tmp_path, "graph-teamwork")
+    _set_sheet_skill(ws, "First Aid", 1)
+    _add_rescuer_sheet(ws, "rescuer-assistant", first_aid=99)
+    time_state = json.loads(
+        (ws["campaign_dir"] / "save" / "time-state.json")
+        .read_text(encoding="utf-8")
+    )
+    elapsed = int(time_state["clock"]["elapsed_minutes"])
+    _wounded_state(ws, hp=5, occurred_elapsed=elapsed)
+
+    context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "healing",
+        "selected_affordance_ids": [_ORDINARY_FIRST_AID],
+    })
+    assert context["ok"] is True, context
+    assert [
+        row["decision_ref"] for row in context["data"]["cards"]
+    ] == [_ORDINARY_FIRST_AID]
+
+    args = {
+        "investigator": ws["investigator_id"],
+        "decision_ref": _ORDINARY_FIRST_AID,
+        "semantic_inputs": {
+            "rescuer_ref": ws["investigator_id"],
+            "assistant_rescuer_ref": "rescuer-assistant",
+        },
+        "decision_id": "healing:graph-teamwork:first-aid",
+        "seed": 2,
+    }
+    settled = _run(ws, "rules.settle", args)
+    assert settled["ok"] is True, settled
+    assert settled["data"]["family"] == "healing"
+    assert settled["data"]["status"] == "settled"
+    assert settled["data"]["event"]["teamwork"] is True
+    assert settled["data"]["player_state_receipt"]["hp"] == {
+        "before": 5,
+        "after": 6,
+    }
+    rolls = _rolls(ws)
+    assert len(rolls) == 2
+    assert [row["payload"]["actor_id"] for row in rolls] == [
+        ws["investigator_id"], "rescuer-assistant",
+    ]
+    assert [row["payload"]["dice"]["total"] for row in rolls] == [8, 12]
+
+    replay = _run(ws, "rules.settle", args)
+    assert replay["ok"] is True, replay
+    assert replay["data"] == settled["data"]
+    assert len(_rolls(ws)) == 2
+    assert _inv_state(ws)["current_hp"] == 6
+
+
 def test_coc7_adapter_owns_healing_host_binding_and_executor_shape(tmp_path: Path):
     ws = _fresh_workspace(tmp_path, "adapter-host-binding")
     _set_sheet_skill(ws, "First Aid", 77)
@@ -1434,7 +1732,11 @@ def test_coc7_adapter_owns_healing_host_binding_and_executor_shape(tmp_path: Pat
         selected,
         resolve_investigator=kernel._resolve_investigator,
         safe_sheet=kernel._safe_sheet,
-        skill_value=kernel._sheet_skill_value,
+        skill_value=lambda sheet, skill_name: (
+            coc_rulesets.resolve_actor_skill_value(
+                kernel._rules_resolver(ctx, None), sheet, skill_name,
+            )
+        ),
     )
     locked = provider("decision:coc7:healing:first-aid-stabilization")
     assert locked == {
@@ -1460,6 +1762,19 @@ def test_coc7_adapter_owns_healing_host_binding_and_executor_shape(tmp_path: Pat
         "rescuer_id": ws["investigator_id"],
         "pushed": False,
     }
+
+
+def test_coc7_adapter_registers_settlement_state_effect_domains() -> None:
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    decision_refs = adapter.settle_schema()["decision_ref"]["enum"]
+    assert decision_refs
+    for decision_ref in decision_refs:
+        assert coc_rulesets.rule_graph_state_effect_domains(
+            "coc7", decision_ref,
+        ) == ("hp", "condition")
+    assert coc_rulesets.rule_graph_state_effect_domains(
+        "coc7", "decision:coc7:unknown:not-registered",
+    ) == ()
 
 
 def test_runtime_settle_exclusion_scopes_are_no_candidate(tmp_path: Path):
@@ -1498,8 +1813,7 @@ def test_runtime_settle_exclusion_scopes_are_no_candidate(tmp_path: Path):
         assert result["failure"]["code"] == "no_candidate_in_compiled_scope"
 
 
-_WINDOW_EXCEPTION = "exception:coc7:healing:first-aid-window-uncompiled"
-_TEAMWORK_EXCEPTION = "exception:coc7:healing:first-aid-teamwork-uncompiled"
+_TEST_EXCEPTION = "exception:coc7:healing:test-unevaluable-window"
 _ORDINARY_FIRST_AID = "decision:coc7:healing:first-aid-ordinary"
 
 
@@ -1516,8 +1830,37 @@ def _packaged_runtime(facts):
         graph_manifest=loaded["graph_manifest"],
         package_manifest=package,
         facts_provider=lambda: facts,
-        projection_audience="host-internal",
+        projection_audience="keeper",
     )
+
+
+def test_packaged_healing_cards_carry_rule_and_source_refs():
+    runtime = _packaged_runtime(coc_rules_runtime.facts_from_state(
+        {
+            "current_hp": 5,
+            "conditions": ["major_wound"],
+            "wound_ledger": [{
+                "wound_id": "wound-production-card",
+                "source_damage_roll_id": "roll-production-card",
+                "occurred_elapsed_minutes": 0,
+                "status": "active",
+            }],
+        },
+        {"derived": {"HP": 12}},
+        elapsed_minutes=30,
+    ))
+    cards = runtime.context({"family": "healing", "kind": "procedure"})[
+        "cards"
+    ]
+    ordinary = next(
+        card for card in cards
+        if card["decision_ref"]
+        == "decision:coc7:healing:first-aid-ordinary"
+    )
+    assert ordinary["rule_refs"]
+    assert ordinary["source_refs"]
+    assert all(ref.startswith("rule:coc7:healing:") for ref in ordinary["rule_refs"])
+    assert all(ref.startswith("span-") for ref in ordinary["source_refs"])
 
 
 def _wounded_state(ws, *, hp=5, occurred_elapsed=0):
@@ -1539,45 +1882,48 @@ def _wounded_state(ws, *, hp=5, occurred_elapsed=0):
     _write_json(state_path, state)
 
 
-def test_first_aid_after_one_hour_surfaces_window_exception(tmp_path: Path):
-    facts = coc_rules_runtime.facts_from_state(
-        {
-            "current_hp": 5,
-            "conditions": ["major_wound"],
-            "wound_ledger": [{
-                "wound_id": "wound-window",
-                "source_damage_roll_id": "damage-window",
-                "occurred_elapsed_minutes": 0,
-                "status": "active",
-            }],
-        },
+def test_first_aid_one_hour_window_is_a_hard_applicability_gate(tmp_path: Path):
+    state = {
+        "current_hp": 5,
+        "conditions": ["major_wound"],
+        "wound_ledger": [{
+            "wound_id": "wound-window",
+            "source_damage_roll_id": "damage-window",
+            "occurred_elapsed_minutes": 0,
+            "status": "active",
+        }],
+    }
+    at_limit = coc_rules_runtime.facts_from_state(
+        state,
+        {"derived": {"HP": 12}},
+        elapsed_minutes=60,
+    )
+    within = _packaged_runtime(at_limit).context({"family": "healing"})
+    assert _ORDINARY_FIRST_AID in {
+        row["decision_ref"] for row in within["cards"]
+    }
+
+    after_limit = coc_rules_runtime.facts_from_state(
+        state,
         {"derived": {"HP": 12}},
         elapsed_minutes=61,
     )
-    assert facts["time.minutes_since_injury"] == 61
-    runtime = _packaged_runtime(facts)
-    projected = runtime.context({"family": "healing"})
-    card = next(
-        row for row in projected["cards"]
-        if row["decision_ref"] == _ORDINARY_FIRST_AID
+    assert after_limit["time.minutes_since_injury"] == 61
+    projected = _packaged_runtime(after_limit).context({"family": "healing"})
+    assert _ORDINARY_FIRST_AID not in {
+        row["decision_ref"] for row in projected["cards"]
+    }
+    unknown_time = coc_rules_runtime.facts_from_state(
+        {
+            "current_hp": 5,
+            "conditions": ["major_wound"],
+        },
+        {"derived": {"HP": 12}},
     )
-    assert _WINDOW_EXCEPTION in card["active_exceptions"]
-    calls: list[str] = []
-
-    def executor(plan, decision_id, selected):
-        calls.append(decision_id)
-        raise AssertionError("excluded situation must not execute")
-
-    result = runtime.settle(
-        {"decision_ref": _ORDINARY_FIRST_AID, "semantic_inputs": {}},
-        "excl-window-1",
-        executor=executor,
-    )
-    assert result["status"] == "no_candidate_in_compiled_scope"
-    assert _WINDOW_EXCEPTION in result["active_exceptions"]
-    assert _TEAMWORK_EXCEPTION in result["active_exceptions"]
-    assert result["unevaluated_exceptions"]
-    assert calls == []
+    unknown = _packaged_runtime(unknown_time).context({"family": "healing"})
+    assert _ORDINARY_FIRST_AID not in {
+        row["decision_ref"] for row in unknown["cards"]
+    }
 
     ws = _fresh_workspace(tmp_path, "window")
     time_state = json.loads(
@@ -1596,7 +1942,9 @@ def test_first_aid_after_one_hour_surfaces_window_exception(tmp_path: Path):
         "family": "healing",
     })
     assert context["ok"] is True, context
-    assert context["data"]["cards"] == []
+    assert _ORDINARY_FIRST_AID not in {
+        row["decision_ref"] for row in context["data"]["cards"]
+    }
     settled = _run(ws, "rules.settle", {
         "investigator": ws["investigator_id"],
         "decision_ref": _ORDINARY_FIRST_AID,
@@ -1605,14 +1953,67 @@ def test_first_aid_after_one_hour_surfaces_window_exception(tmp_path: Path):
         "seed": 7,
     })
     assert settled["ok"] is False, settled
-    assert settled["error"]["code"] == "no_candidate_in_compiled_scope"
-    details = settled["error"].get("details") or {}
-    assert details["runtime_owner"] == "shadow"
+    assert settled["error"]["code"] == "rule_decision_stale"
     assert _rolls(ws) == []
     assert _inv_state(ws)["current_hp"] == 5
 
 
-def test_dual_rescuer_surfaces_teamwork_exception(tmp_path: Path):
+def test_graph_owned_failed_first_aid_can_be_pushed_with_changed_method(
+    tmp_path: Path, _frozen_clocks,
+):
+    ws = _fresh_workspace(tmp_path, "graph-pushed-first-aid")
+    _dying_state(ws)
+    decision_ref = "decision:coc7:healing:first-aid-stabilization"
+
+    context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "healing",
+        "selected_affordance_ids": [decision_ref],
+    })
+    assert context["ok"] is True, context
+    first = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": decision_ref,
+        "semantic_inputs": {"rescuer_ref": ws["investigator_id"]},
+        "decision_id": "graph-first-aid-initial-failure",
+        "seed": 7,
+    })
+    assert first["ok"] is True, first
+    assert first["data"]["settlement"]["result"]["event"]["outcome"] == "failure"
+    assert _inv_state(ws)["current_hp"] == 0
+
+    refreshed = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "healing",
+        "selected_affordance_ids": [decision_ref],
+    })
+    assert refreshed["ok"] is True, refreshed
+    card = refreshed["data"]["cards"][0]
+    assert {
+        row["name"] for row in card["required_inputs"]
+    } >= {"changed_method", "failure_consequence"}
+
+    pushed = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": decision_ref,
+        "semantic_inputs": {
+            "rescuer_ref": ws["investigator_id"],
+            "changed_method": "use a pressure dressing and reopen the airway",
+            "failure_consequence": "the dying clock resumes immediately",
+        },
+        "decision_id": "graph-first-aid-pushed-success",
+        "seed": 1,
+    })
+    assert pushed["ok"] is True, pushed
+    event = pushed["data"]["settlement"]["result"]["event"]
+    assert event["pushed"] is True
+    assert event["outcome"] in {"success", "regular", "hard", "extreme", "critical"}
+    state = _inv_state(ws)
+    assert state["current_hp"] == 1
+    assert "stabilized" in state["conditions"]
+
+
+def test_dual_rescuer_is_a_compiled_optional_semantic_input():
     facts = coc_rules_runtime.facts_from_state(
         {
             "current_hp": 5,
@@ -1634,45 +2035,12 @@ def test_dual_rescuer_surfaces_teamwork_exception(tmp_path: Path):
         row for row in projected["cards"]
         if row["decision_ref"] == _ORDINARY_FIRST_AID
     )
-    assert _TEAMWORK_EXCEPTION in card["active_exceptions"]
-    calls: list[str] = []
-
-    def executor(plan, decision_id, selected):
-        calls.append(decision_id)
-        raise AssertionError("excluded situation must not execute")
-
-    result = runtime.settle(
-        {
-            "decision_ref": _ORDINARY_FIRST_AID,
-            "semantic_inputs": {"assistant_rescuer_ref": "npc-second-hands"},
-        },
-        "excl-team-1",
-        executor=executor,
+    assistant = next(
+        row for row in card["required_inputs"]
+        if row["name"] == "assistant_rescuer_ref"
     )
-    assert result["status"] == "no_candidate_in_compiled_scope"
-    assert _TEAMWORK_EXCEPTION in result["active_exceptions"]
-    assert calls == []
-
-    ws = _fresh_workspace(tmp_path, "teamwork")
-    time_state = json.loads(
-        (ws["campaign_dir"] / "save" / "time-state.json").read_text(encoding="utf-8")
-    )
-    elapsed = int(time_state["clock"]["elapsed_minutes"])
-    _wounded_state(ws, occurred_elapsed=elapsed)
-    before_hp = _inv_state(ws)["current_hp"]
-    settled = _run(ws, "rules.settle", {
-        "investigator": ws["investigator_id"],
-        "decision_ref": _ORDINARY_FIRST_AID,
-        "semantic_inputs": {"assistant_rescuer_ref": "npc-second-hands"},
-        "decision_id": "settle-team-1",
-        "seed": 7,
-    })
-    assert settled["ok"] is False, settled
-    assert settled["error"]["code"] == "no_candidate_in_compiled_scope"
-    details = settled["error"].get("details") or {}
-    assert details["runtime_owner"] == "shadow"
-    assert _rolls(ws) == []
-    assert _inv_state(ws)["current_hp"] == before_hp
+    assert assistant["owner"] == "optional-semantic"
+    assert not card.get("active_exceptions")
 
 
 _MISSING_EXPRESSION = object()
@@ -1702,26 +2070,44 @@ def _runtime_with_window_expression(expression, facts):
     )
     assert loaded["ok"] is True, loaded
     graph = copy.deepcopy(loaded["graph"])
-    touched = False
-    for node in graph["nodes"]:
-        if node.get("node_id") != _WINDOW_EXCEPTION:
-            continue
-        props = node.setdefault("properties", {})
-        if expression is _MISSING_EXPRESSION:
-            props.pop("expression", None)
-        else:
-            props["expression"] = expression
-        touched = True
-    assert touched, "window exception node missing from packaged graph"
+    properties = {"family_id": "healing"}
+    if expression is not _MISSING_EXPRESSION:
+        properties["expression"] = expression
+    graph["nodes"].append({
+        "node_id": _TEST_EXCEPTION,
+        "node_kind": "exception",
+        "name": "Synthetic unevaluable exception for runtime audit tests",
+        "authority": "deterministic",
+        "audience": "host-internal",
+        "visibility": "keeper-only",
+        "hard_gate": True,
+        "properties": properties,
+        "evidence_span_ids": [],
+    })
+    graph["relations"].append({
+        "relation_id": "relation:coc7:healing:test-unevaluable-applies",
+        "relation_kind": "applies-to",
+        "from_node_id": _TEST_EXCEPTION,
+        "to_node_id": _ORDINARY_FIRST_AID,
+        "evidence_span_ids": [],
+    })
+    graph_manifest = copy.deepcopy(loaded["graph_manifest"])
+    graph_manifest["family_promotion_eligibility"]["healing"][
+        "shadow_exclusions"
+    ] = [{
+        "exclusion_id": "test-unevaluable-window",
+        "exception_ref": _TEST_EXCEPTION,
+        "decision_ref": _ORDINARY_FIRST_AID,
+    }]
     package = coc_rules_runtime._load_manifest_cached(
         "coc7", coc_rules_runtime.rulesets_root(),
     )
     return coc_rules_runtime.RulesRuntime(
         graph, ruleset_id="coc7",
-        graph_manifest=loaded["graph_manifest"],
+        graph_manifest=graph_manifest,
         package_manifest=package,
         facts_provider=lambda: facts,
-        projection_audience="host-internal",
+        projection_audience="keeper",
     )
 
 
@@ -1749,10 +2135,10 @@ def test_unevaluable_exception_condition_is_surfaced(expression, reason):
         row for row in projected["cards"]
         if row["decision_ref"] == _ORDINARY_FIRST_AID
     )
-    assert _WINDOW_EXCEPTION in card["active_exceptions"]
+    assert _TEST_EXCEPTION in card["active_exceptions"]
     markers = card["unevaluated_exceptions"]
     assert any(
-        item.get("exception_ref") == _WINDOW_EXCEPTION
+        item.get("exception_ref") == _TEST_EXCEPTION
         and item.get("evaluation") == "unevaluated"
         and item.get("reason") == reason
         for item in markers
@@ -1760,7 +2146,7 @@ def test_unevaluable_exception_condition_is_surfaced(expression, reason):
     findings = projected.get("findings") or []
     assert any(
         item.get("code") == "exception_condition_unevaluated"
-        and item.get("exception_ref") == _WINDOW_EXCEPTION
+        and item.get("exception_ref") == _TEST_EXCEPTION
         and item.get("reason") == reason
         for item in findings
     )
@@ -1776,7 +2162,7 @@ def test_unevaluable_exception_condition_is_surfaced(expression, reason):
         executor=executor,
     )
     assert result["status"] == "no_candidate_in_compiled_scope"
-    assert _WINDOW_EXCEPTION in result["active_exceptions"]
+    assert _TEST_EXCEPTION in result["active_exceptions"]
     assert any(
         item.get("reason") == reason
         for item in (result.get("unevaluated_exceptions") or [])
@@ -1796,24 +2182,17 @@ def test_public_context_omits_host_internal_cards_and_audit_keeps_findings(
         "coc7", rulesets_root_path=coc_rules_runtime.rulesets_root(),
     )
     assert loaded["ok"] is True, loaded
-    graph = copy.deepcopy(loaded["graph"])
-    for node in graph["nodes"]:
-        if node.get("node_id") != _WINDOW_EXCEPTION:
-            continue
-        node.setdefault("properties", {})["expression"] = {
-            "op": "regex",
-            "path": "time.minutes_since_injury",
-            "value": ".*",
-        }
-        break
-    else:
-        raise AssertionError("window exception node missing from packaged graph")
+    internal_runtime = _runtime_with_window_expression(
+        {"op": "regex", "path": "time.minutes_since_injury", "value": ".*"},
+        _wounded_facts(elapsed=0),
+    )
+    graph = copy.deepcopy(internal_runtime._graph)
 
     def fake_load(ruleset_id, **kwargs):
         return {
             "ok": True,
             "graph": graph,
-            "graph_manifest": loaded["graph_manifest"],
+            "graph_manifest": internal_runtime._graph_manifest,
             "content_digest": loaded.get("content_digest"),
             "source": "package",
         }
@@ -1835,23 +2214,22 @@ def test_public_context_omits_host_internal_cards_and_audit_keeps_findings(
     public = context["data"]
     assert "findings" not in public
     assert "exception_condition_unevaluated" not in json.dumps(public)
-    assert public["cards"] == []
+    ordinary_public = next(
+        row for row in public["cards"]
+        if row["decision_ref"] == _ORDINARY_FIRST_AID
+    )
+    assert "active_exceptions" not in ordinary_public
+    assert "unevaluated_exceptions" not in ordinary_public
 
     package = coc_rules_runtime._load_manifest_cached(
         "coc7", coc_rules_runtime.rulesets_root(),
     )
-    internal = coc_rules_runtime.RulesRuntime(
-        graph, ruleset_id="coc7",
-        graph_manifest=loaded["graph_manifest"],
-        package_manifest=package,
-        facts_provider=lambda: _wounded_facts(elapsed=0),
-        projection_audience="host-internal",
-    ).context({"family": "healing"})
+    internal = internal_runtime.context({"family": "healing"})
     card = next(
         row for row in internal["cards"]
         if row["decision_ref"] == _ORDINARY_FIRST_AID
     )
-    assert _WINDOW_EXCEPTION in (card.get("active_exceptions") or [])
+    assert _TEST_EXCEPTION in (card.get("active_exceptions") or [])
     coc_rules_runtime.record_host_internal_findings(
         internal.get("findings") or [],
         campaign_id=ws["campaign_id"],
@@ -1870,7 +2248,7 @@ def test_public_context_omits_host_internal_cards_and_audit_keeps_findings(
     ]
     assert any(
         item.get("code") == "exception_condition_unevaluated"
-        and item.get("exception_ref") == _WINDOW_EXCEPTION
+        and item.get("exception_ref") == _TEST_EXCEPTION
         and item.get("reason") == "unknown_operator"
         for item in retained
     )
@@ -1890,17 +2268,7 @@ def test_public_context_omits_host_internal_cards_and_audit_keeps_findings(
     )
 
 
-def test_named_gap_dual_rescuer_context_intent_not_expressible(tmp_path: Path):
-    """Named gap dual-rescuer-context-intent.
-
-    rules.context / scene.context have no KP composition input for a second
-    rescuer (see coc_operation_rules_core.py rules.context schema;
-    _facts_provider_for reads investigator state + clock only).
-    Dual-rescuer intent exists only as
-    rules.settle.semantic_inputs.assistant_rescuer_ref. Live context()
-    therefore cannot attach the teamwork exception from scene composition.
-    This test walks the real toolbox path without a synthetic facts map.
-    """
+def test_dual_rescuer_choice_stays_optional_until_settlement(tmp_path: Path):
     ws = _fresh_workspace(tmp_path, "gap-team")
     time_state = json.loads(
         (ws["campaign_dir"] / "save" / "time-state.json").read_text(encoding="utf-8")
@@ -1912,7 +2280,16 @@ def test_named_gap_dual_rescuer_context_intent_not_expressible(tmp_path: Path):
         "family": "healing",
     })
     assert context["ok"] is True, context
-    assert context["data"]["cards"] == []
+    ordinary = next(
+        row for row in context["data"]["cards"]
+        if row.get("decision_ref") == _ORDINARY_FIRST_AID
+    )
+    assert any(
+        row.get("name") == "assistant_rescuer_ref"
+        and row.get("owner") == "optional-semantic"
+        for row in ordinary["required_inputs"]
+    )
+    assert "active_exceptions" not in ordinary
     assert "findings" not in context["data"]
     scene = _run(ws, "scene.context", {
         "investigator": ws["investigator_id"],
@@ -1921,27 +2298,14 @@ def test_named_gap_dual_rescuer_context_intent_not_expressible(tmp_path: Path):
     scene_cards = (
         (scene["data"].get("rule_decision_cards") or {}).get("cards") or []
     )
-    ordinary = next(
+    scene_ordinary = next(
         (
             row for row in scene_cards
             if row.get("decision_ref") == _ORDINARY_FIRST_AID
         ),
         None,
     )
-    if ordinary is not None:
-        assert _TEAMWORK_EXCEPTION not in (ordinary.get("active_exceptions") or [])
-    settled = _run(ws, "rules.settle", {
-        "investigator": ws["investigator_id"],
-        "decision_ref": _ORDINARY_FIRST_AID,
-        "semantic_inputs": {"assistant_rescuer_ref": "npc-second-hands"},
-        "decision_id": "settle-gap-team-1",
-        "seed": 7,
-    })
-    assert settled["ok"] is False, settled
-    assert settled["error"]["code"] == "no_candidate_in_compiled_scope"
-    details = settled["error"].get("details") or {}
-    assert details["runtime_owner"] == "shadow"
-    assert _rolls(ws) == []
+    assert scene_ordinary is not None
 
 
 def test_runtime_settle_executes_injected_adapter_when_graph_owned(tmp_path: Path):
@@ -1986,35 +2350,26 @@ def test_runtime_settle_graph_owned_without_executor_fails_closed(tmp_path: Path
     assert result["failure"]["code"] == "rules_graph_unavailable"
 
 
-def test_shadow_owned_healing_rejects_settle_and_keeps_legacy_owner(
+def test_graph_owned_healing_rejects_settle_without_current_card_grant(
     tmp_path: Path, _frozen_clocks,
 ):
-    ws = _fresh_workspace(tmp_path / "fixture", "shadow-owner")
+    ws = _fresh_workspace(tmp_path / "fixture", "graph-grant")
     _dying_state(ws)
     _set_sheet_skill(ws, "First Aid", 99)
     settled = _run(ws, "rules.settle", {
         "investigator": ws["investigator_id"],
         "decision_ref": "decision:coc7:healing:first-aid-stabilization",
         "semantic_inputs": {},
-        "decision_id": "shadow-settle-denied-1",
+        "decision_id": "graph-settle-without-grant-1",
     })
     assert settled["ok"] is False, settled
-    assert settled["error"]["code"] == "no_candidate_in_compiled_scope"
-    assert settled["error"]["details"]["runtime_owner"] == "shadow"
+    assert settled["error"]["code"] == "rule_decision_stale"
     assert _rolls(ws) == []
 
-    legacy = _run(ws, "rules.first_aid", {
-        "investigator": ws["investigator_id"],
-        "skill_value": 99,
-        "rescuer_id": ws["investigator_id"],
-        "decision_id": "shadow-legacy-first-aid-1",
-        "seed": 7,
-    })
-    assert legacy["ok"] is True, legacy
-    assert len(_rolls(ws)) == 1
 
-
-def test_shadow_legacy_replay_uses_one_canonical_result(tmp_path: Path, _frozen_clocks):
+def test_hidden_legacy_adapter_replay_uses_one_canonical_result(
+    tmp_path: Path, _frozen_clocks,
+):
     ws = _fresh_workspace(tmp_path, "replay")
     _dying_state(ws)
     _set_sheet_skill(ws, "First Aid", 99)
@@ -2039,7 +2394,7 @@ def test_shadow_legacy_replay_uses_one_canonical_result(tmp_path: Path, _frozen_
     assert len(_rolls(ws)) == 1
 
 
-def test_shadow_graph_absent_leaves_legacy_execution_available(
+def test_graph_owned_healing_fails_closed_when_graph_is_absent(
     tmp_path: Path, monkeypatch,
 ):
     ws = _fresh_workspace(tmp_path, "absent")
@@ -2050,19 +2405,20 @@ def test_shadow_graph_absent_leaves_legacy_execution_available(
         return {"ok": False, "reason": "graph_absent", "findings": ["test-absent"]}
 
     monkeypatch.setattr(coc_rules_runtime, "load_ruleset_graph", fake_load)
-    result = _run(ws, "rules.first_aid", {
+    result = _run(ws, "rules.settle", {
         "investigator": ws["investigator_id"],
-        "skill_value": 99,
-        "rescuer_id": ws["investigator_id"],
-        "decision_id": "absent-shadow-graph-1",
+        "decision_ref": "decision:coc7:healing:first-aid-stabilization",
+        "semantic_inputs": {},
+        "decision_id": "absent-graph-owned-1",
         "seed": 7,
     })
-    assert result["ok"] is True, result
-    assert _state_bytes(ws) != before
-    assert len(_rolls(ws)) == 1
+    assert result["ok"] is False, result
+    assert result["error"]["code"] == "rules_graph_unavailable"
+    assert _state_bytes(ws) == before
+    assert _rolls(ws) == []
 
 
-def test_scene_context_does_not_project_shadow_only_healing_cards(tmp_path: Path):
+def test_scene_context_projects_only_current_graph_healing_cards(tmp_path: Path):
     ws = _fresh_workspace(tmp_path, "cards")
     _dying_state(ws)
     context = _run(ws, "scene.context", {
@@ -2073,7 +2429,10 @@ def test_scene_context_does_not_project_shadow_only_healing_cards(tmp_path: Path
     assert cards_block["authority"]["hard_gate"] is False
     assert cards_block["authority"]["role"] == "affordance"
     refs = {card["decision_ref"] for card in cards_block["cards"]}
-    assert refs == set()
+    assert refs == {
+        "decision:coc7:healing:first-aid-stabilization",
+        "decision:coc7:healing:dying-round-clock",
+    }
     recovery = context["data"]["recovery"]["healing"]
     assert recovery["authority"]["hard_gate"] is False
     assert {card["decision_ref"] for card in recovery["cards"]} == refs
@@ -2081,6 +2440,226 @@ def test_scene_context_does_not_project_shadow_only_healing_cards(tmp_path: Path
     assert "card_grant" not in cards_block
     dumped = json.dumps(cards_block)
     assert "sha256" not in dumped
+
+
+def test_rules_damage_establishes_one_active_wound_and_projects_healing_cards(
+    tmp_path: Path,
+):
+    """A normal HP damage write must feed the next RuleGraph projection."""
+    ws = _fresh_workspace(tmp_path, "damage-wound-cards")
+    args = {
+        "investigator": ws["investigator_id"],
+        "amount": "1D3",
+        "kind": "damage",
+        "source": "struck a desk corner",
+        "decision_id": "damage-right-knuckles-desk-v1",
+        "seed": 3,
+    }
+
+    damaged = _run(ws, "rules.damage", args)
+    assert damaged["ok"] is True, damaged
+    replay = _run(ws, "rules.damage", args)
+    assert replay["ok"] is True, replay
+
+    wounds = _inv_state(ws).get("wound_ledger")
+    assert wounds == [{
+        "wound_id": "wound-damage-right-knuckles-desk-v1",
+        "source_damage_roll_id": damaged["data"]["roll_id"],
+        "occurred_elapsed_minutes": 0,
+        "status": "active",
+    }]
+    assert replay["data"] == damaged["data"]
+
+    context = _run(ws, "scene.context", {
+        "investigator": ws["investigator_id"],
+    })
+    assert context["ok"] is True, context
+    refs = {
+        row["decision_ref"]
+        for row in context["data"]["rule_decision_cards"]["cards"]
+    }
+    assert "decision:coc7:healing:first-aid-ordinary" in refs
+    assert "decision:coc7:healing:medicine-ordinary" in refs
+    by_ref = {
+        row["decision_ref"]: row
+        for row in context["data"]["rule_decision_cards"]["cards"]
+    }
+    ordinary = by_ref["decision:coc7:healing:first-aid-ordinary"]
+    assert ordinary["rule_refs"] == ["rule:coc7:healing:first-aid"]
+    assert ordinary["source_refs"] == [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24",
+    ]
+    projected = json.dumps(context["data"]["rule_decision_cards"])
+    assert damaged["data"]["roll_id"] not in projected
+    assert "source_damage_roll_id" not in projected
+    visible_context = json.dumps(context["data"])
+    assert "ruleset_damage_receipts" not in visible_context
+    assert "integrity_digest" not in visible_context
+
+
+@pytest.mark.parametrize(
+    ("kind", "amount", "decision_id"),
+    [
+        ("damage", "0", "damage-zero-v1"),
+        ("heal", "1", "heal-full-health-v1"),
+    ],
+)
+def test_rules_damage_does_not_fabricate_wounds_without_hp_loss(
+    tmp_path: Path,
+    kind: str,
+    amount: str,
+    decision_id: str,
+):
+    ws = _fresh_workspace(tmp_path, decision_id)
+    result = _run(ws, "rules.damage", {
+        "investigator": ws["investigator_id"],
+        "amount": amount,
+        "kind": kind,
+        "source": "no injury",
+        "decision_id": decision_id,
+    })
+    assert result["ok"] is True, result
+    assert "wound_ledger" not in _inv_state(ws)
+
+
+def test_rules_damage_unknown_investigator_cannot_create_wound_state(
+    tmp_path: Path,
+):
+    ws = _fresh_workspace(tmp_path, "damage-unknown-investigator")
+    valid_before = _state_bytes(ws)
+    unknown_id = "missing-investigator"
+    result = _run(ws, "rules.damage", {
+        "investigator": unknown_id,
+        "amount": "1",
+        "kind": "damage",
+        "source": "invalid target",
+        "decision_id": "damage-missing-investigator-v1",
+    })
+    assert result["ok"] is False, result
+    assert _state_bytes(ws) == valid_before
+    assert not (
+        ws["campaign_dir"] / "save" / "investigator-state" / f"{unknown_id}.json"
+    ).exists()
+
+
+@pytest.mark.parametrize("failure_stage", ["state", "roll", "event", "ledger"])
+def test_rules_damage_recovers_every_post_settlement_write_without_double_damage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+):
+    ws = _fresh_workspace(tmp_path, f"damage-recovery-{failure_stage}")
+    decision_id = f"damage-recovery-{failure_stage}-v1"
+    args = {
+        "investigator": ws["investigator_id"],
+        "amount": "1D3",
+        "kind": "damage",
+        "source": "falling crate",
+        "decision_id": decision_id,
+        "seed": 3,
+    }
+    before_state = _inv_state(ws)
+    before_state_bytes = _state_bytes(ws)
+    ctx_type = coc_toolbox.Ctx
+    method_name = {
+        "state": "save_inv_state",
+        "roll": "log_roll",
+        "event": "log_event",
+        "ledger": "ledger_record",
+    }[failure_stage]
+    original = getattr(ctx_type, method_name)
+    failed_once = False
+
+    def injected_failure(self, *call_args, **call_kwargs):
+        nonlocal failed_once
+        relevant = {
+            "state": lambda: True,
+            "roll": lambda: bool(
+                call_args
+                and isinstance(call_args[0], dict)
+                and call_args[0].get("kind") == "hp_damage"
+            ),
+            "event": lambda: bool(
+                call_args
+                and isinstance(call_args[0], dict)
+                and call_args[0].get("event_type") == "hp_change"
+            ),
+            "ledger": lambda: bool(
+                len(call_args) >= 2 and call_args[1] == "rules.damage"
+            ),
+        }[failure_stage]()
+        if relevant and not failed_once:
+            failed_once = True
+            raise OSError(f"injected {failure_stage} persistence failure")
+        return original(self, *call_args, **call_kwargs)
+
+    monkeypatch.setattr(ctx_type, method_name, injected_failure)
+    failed = _run(ws, "rules.damage", args)
+    assert failed["ok"] is False, failed
+    assert failed_once is True
+    assert any("exact same decision_id" in hint for hint in failed["hints"])
+
+    if failure_stage == "state":
+        assert _state_bytes(ws) == before_state_bytes
+        assert _rolls(ws) == []
+        assert not any(
+            row.get("event_type") == "hp_change"
+            for row in _read_jsonl(ws["campaign_dir"] / "logs" / "events.jsonl")
+        )
+    else:
+        frozen_state = _inv_state(ws)
+        assert decision_id in frozen_state["ruleset_damage_receipts"]
+        assert frozen_state["current_hp"] < before_state["current_hp"]
+
+    recovered = _run(ws, "rules.damage", args)
+    assert recovered["ok"] is True, recovered
+    assert recovered["data"]["hp_before"] == before_state["current_hp"]
+    assert _inv_state(ws)["current_hp"] == recovered["data"]["hp_after"]
+    assert len(_inv_state(ws)["wound_ledger"]) == 1
+    roll_id = recovered["data"]["roll_id"]
+    assert len([row for row in _rolls(ws) if row.get("roll_id") == roll_id]) == 1
+    hp_events = [
+        row
+        for row in _read_jsonl(ws["campaign_dir"] / "logs" / "events.jsonl")
+        if row.get("event_type") == "hp_change"
+        and row.get("decision_id") == decision_id
+    ]
+    assert len(hp_events) == 1
+    ledger = json.loads(
+        (ws["campaign_dir"] / "save" / "toolbox-ledger.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    entries = [
+        row
+        for row in ledger["entries"].values()
+        if row.get("tool") == "rules.damage"
+        and row.get("decision_id") == decision_id
+    ]
+    assert len(entries) == 1
+
+    replay = _run(ws, "rules.damage", args)
+    assert replay["ok"] is True, replay
+    assert replay["data"] == recovered["data"]
+    assert len(_inv_state(ws)["wound_ledger"]) == 1
+    assert len([row for row in _rolls(ws) if row.get("roll_id") == roll_id]) == 1
+    assert len([
+        row
+        for row in _read_jsonl(ws["campaign_dir"] / "logs" / "events.jsonl")
+        if row.get("event_id") == hp_events[0]["event_id"]
+    ]) == 1
+    replay_ledger = json.loads(
+        (ws["campaign_dir"] / "save" / "toolbox-ledger.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert len([
+        row
+        for row in replay_ledger["entries"].values()
+        if row.get("tool") == "rules.damage"
+        and row.get("decision_id") == decision_id
+    ]) == 1
 
 
 def test_scene_context_survives_missing_graph(tmp_path: Path, monkeypatch):
@@ -2099,16 +2678,23 @@ def test_scene_context_survives_missing_graph(tmp_path: Path, monkeypatch):
     assert cards_block["authority"]["hard_gate"] is False
 
 
-def test_finalize_projector_discovers_legacy_healing_hp_receipt(
+def test_finalize_projector_discovers_graph_healing_hp_receipt(
     tmp_path: Path, _frozen_clocks,
 ):
     ws = _fresh_workspace(tmp_path, "finalize-discover")
     _dying_state(ws)
     _set_sheet_skill(ws, "First Aid", 99)
-    settled = _run(ws, "rules.first_aid", {
+    decision_ref = "decision:coc7:healing:first-aid-stabilization"
+    context = _run(ws, "rules.context", {
         "investigator": ws["investigator_id"],
-        "skill_value": 99,
-        "rescuer_id": ws["investigator_id"],
+        "family": "healing",
+        "selected_affordance_ids": [decision_ref],
+    })
+    assert context["ok"] is True, context
+    settled = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": decision_ref,
+        "semantic_inputs": {"rescuer_ref": ws["investigator_id"]},
         "decision_id": "discover-aid-1",
         "seed": 7,
     })
@@ -2117,13 +2703,94 @@ def test_finalize_projector_discovers_legacy_healing_hp_receipt(
         settled["data"]["current_hp"]
     )
     assert len(_rolls(ws)) == 1
-    rows = coc_turn_finalization._project_state_deltas([{
+    window = [{
         "ok": True,
-        "tool": "rules.first_aid",
+        "tool": "rules.settle",
         "args": {
             "decision_id": "discover-aid-1",
             "investigator": ws["investigator_id"],
+            "decision_ref": decision_ref,
         },
         "data": settled["data"],
-    }])
+    }]
+    rows = coc_turn_finalization._project_state_deltas(window)
     assert any(row.get("resource") == "HP" for row in rows)
+    proof_violations = coc_turn_finalization._state_delta_proof_violations(
+        window, rows,
+    )
+    assert proof_violations == [], {
+        "writer_domains": sorted(
+            coc_turn_finalization.coc_state_effect_authority.writer_domains(
+                "rules.settle", window[0],
+            )
+        ),
+        "receipt_hp": settled["data"]["player_state_receipt"].get("hp"),
+        "event_hp": {
+            key: settled["data"]["event"].get(key)
+            for key in ("hp_before", "hp_after")
+        },
+        "top_current_hp": settled["data"].get("current_hp"),
+        "result_current_hp": settled["data"]["settlement"]["result"].get(
+            "current_hp"
+        ),
+    }
+
+
+def test_finalize_projector_proves_graph_dying_hour_hp_and_condition(
+    tmp_path: Path, _frozen_clocks,
+):
+    ws = _fresh_workspace(tmp_path, "finalize-dying-hour")
+    _stabilized_dying_state(ws)
+    decision_ref = "decision:coc7:healing:dying-hour-clock"
+    context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "healing",
+        "selected_affordance_ids": [decision_ref],
+    })
+    assert context["ok"] is True, context
+    settled = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": decision_ref,
+        "semantic_inputs": {},
+        "decision_id": "finalize-dying-hour-failure",
+        "seed": 5,
+    })
+    assert settled["ok"] is True, settled
+    assert settled["data"]["event"]["deteriorated"] is True
+    assert settled["data"]["player_state_receipt"]["hp"] == {
+        "before": 1,
+        "after": 0,
+    }
+    assert "stabilized" in settled["data"]["player_state_receipt"][
+        "conditions_before"
+    ]
+    assert "stabilized" not in settled["data"]["player_state_receipt"][
+        "conditions_after"
+    ]
+    window = [{
+        "ok": True,
+        "tool": "rules.settle",
+        "args": {
+            "decision_id": "finalize-dying-hour-failure",
+            "investigator": ws["investigator_id"],
+            "decision_ref": decision_ref,
+        },
+        "data": settled["data"],
+    }]
+    rows = coc_turn_finalization._project_state_deltas(window)
+    assert any(
+        row.get("effect_kind") == "scalar"
+        and row.get("resource") == "HP"
+        and row.get("before") == 1
+        and row.get("after") == 0
+        for row in rows
+    )
+    assert any(
+        row.get("effect_kind") == "condition"
+        and row.get("condition") == "stabilized"
+        and row.get("action") == "removed"
+        for row in rows
+    )
+    assert coc_turn_finalization._state_delta_proof_violations(
+        window, rows,
+    ) == []

@@ -21,6 +21,7 @@ from coc_operation_kernel_runtime import (
     _load_sibling,
     _now_iso,
     _pi_play_agency_review_required,
+    _pi_rules_director_single_draft_profile,
     _read_optional_json,
     _record_table_transcript_entry,
     _resolve_investigator,
@@ -96,6 +97,10 @@ _SPAN_REPAIRS_MAX_CLAIM_KIND_UTF8_BYTES = 128
 _SPAN_REPAIRS_MAX_REASON_UTF8_BYTES = 1024
 _SPAN_REPAIRS_MAX_INSTRUCTION_UTF8_BYTES = 512
 _SPAN_REPAIRS_MAX_AGGREGATE_EXCERPT_UTF8_BYTES = 4096
+_ACCEPTED_REVIEW_EVIDENCE_CONTRACT_ID = "coc.accepted-review-evidence.v2"
+_REVIEWED_COVERAGE_FACTS_CONTRACT_ID = (
+    "coc.reviewed-coverage-binding-facts.v1"
+)
 
 
 def _utf8_len(value: str) -> int:
@@ -1309,7 +1314,7 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
                 })
                 return data, [], [
                     "replayed existing clear review_id for this exact draft and KP review; host compiler was not required",
-                    "bind this review_id and every authorized PC proposition as an agency_claim in turn.finalize",
+                    "in Pi, use the refreshed finalize_agency_binding semantic spans; the host binds this review, frozen draft, exact agency excerpts, and canonical sources",
                 ]
         state_claim_compilation, compiler_gate = (
             coc_state_authority.normalize_compiler_receipt(
@@ -1410,7 +1415,7 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         and data["state_authority_gate"] != "rewrite_required"
     ):
         hints.append(
-            "bind this review_id and every authorized PC proposition as an agency_claim in turn.finalize"
+            "in Pi, use the refreshed finalize_agency_binding semantic spans; the host binds this review, frozen draft, exact agency excerpts, and canonical sources"
         )
     return data, [], hints
 
@@ -1467,6 +1472,152 @@ def _active_pending_review(
     if len(active) != 1:
         return None, "ambiguous_review"
     return active[0], "submitted"
+
+
+def _accepted_review_evidence(
+    ctx: Ctx,
+    *,
+    review: dict[str, Any],
+    frozen_draft: dict[str, Any],
+    settled: dict[str, Any],
+    contract_projection: dict[str, Any],
+    contract_projection_sha256: str,
+) -> dict[str, Any] | None:
+    """Close the exact accepted-review facts needed by a fresh Pi host.
+
+    This is host-only recovery evidence, not a second review engine.  Every
+    semantic judgment was already made by the canonical narration review;
+    this function only revalidates its current settlement binding and seals
+    the exact structured facts needed to rebuild the ordinary reviewed-agency
+    binding after a process restart.
+    """
+    if (
+        review.get("agency_gate") != "clear"
+        or review.get("state_authority_gate") != "clear"
+        or _review_has_agency_violation(review)
+        or review.get("turn_id") != settled.get("turn_id")
+        or review.get("source_digest") != settled.get("source_digest")
+        or review.get("review_id") != frozen_draft.get("review_id")
+        or review.get("revision") != frozen_draft.get("revision")
+        or review.get("draft_sha256") != frozen_draft.get("draft_sha256")
+        or review.get("review_digest") != frozen_draft.get("review_digest")
+        or contract_projection_sha256 != _canonical_digest(contract_projection)
+    ):
+        return None
+    draft = frozen_draft.get("draft_text")
+    revision = review.get("revision")
+    state_authority_review = review.get("state_authority_review")
+    player_input = contract_projection.get("player_input")
+    agency_authority = contract_projection.get("agency_authority")
+    control_overrides = contract_projection.get("control_overrides")
+    if (
+        not isinstance(draft, str)
+        or not draft.strip()
+        or isinstance(revision, bool)
+        or not isinstance(revision, int)
+        or revision < 1
+        or not isinstance(state_authority_review, dict)
+        or not isinstance(player_input, dict)
+        or not isinstance(player_input.get("source_ref"), str)
+        or not player_input["source_ref"].strip()
+        or not isinstance(agency_authority, dict)
+        or not isinstance(control_overrides, list)
+        or any(not isinstance(row, dict) for row in control_overrides)
+    ):
+        return None
+    if _recompute_state_authority_gate(
+        ctx,
+        row=review,
+        draft=draft,
+        settled=settled,
+        turn_id=str(settled["turn_id"]),
+        source_digest=str(settled["source_digest"]),
+        revision=revision,
+    ) != "clear":
+        return None
+    mechanics_bundle = settled.get("mechanics_bundle")
+    obligations = settled.get("obligations")
+    if (
+        not isinstance(mechanics_bundle, dict)
+        or not isinstance(obligations, list)
+        or len(obligations) > 64
+        or any(not isinstance(row, dict) for row in obligations)
+        or not isinstance(settled.get("settlement_snapshot_id"), str)
+        or not isinstance(settled.get("mechanics_bundle_sha256"), str)
+    ):
+        return None
+
+    def source_ids(rows: Any, field: str) -> list[str] | None:
+        if not isinstance(rows, list) or any(
+            not isinstance(row, dict)
+            or not isinstance(row.get(field), str)
+            or not row[field].strip()
+            for row in rows
+        ):
+            return None
+        values = sorted(str(row[field]).strip() for row in rows)
+        return values if len(values) == len(set(values)) else None
+
+    public_check_source_ids = source_ids(
+        mechanics_bundle.get("public_check"), "roll_id"
+    )
+    state_delta_source_ids = source_ids(
+        mechanics_bundle.get("state_delta"), "effect_id"
+    )
+    exceptional_effect_source_ids = source_ids(
+        mechanics_bundle.get("exceptional_effect"), "event_id"
+    )
+    obligation_source_ids = {
+        str(row.get("source_id") or "") for row in obligations
+    }
+    if (
+        public_check_source_ids is None
+        or state_delta_source_ids is None
+        or exceptional_effect_source_ids is None
+        or any(
+            source_id not in obligation_source_ids
+            for source_id in public_check_source_ids
+        )
+    ):
+        return None
+    coverage_binding_facts = {
+        "schema_version": 1,
+        "contract_id": _REVIEWED_COVERAGE_FACTS_CONTRACT_ID,
+        "settlement_snapshot_id": str(settled["settlement_snapshot_id"]),
+        "mechanics_bundle_sha256": str(
+            settled["mechanics_bundle_sha256"]
+        ),
+        "obligations": deepcopy(obligations),
+        "public_check_source_ids": public_check_source_ids,
+        "state_delta_source_ids": state_delta_source_ids,
+        "exceptional_effect_source_ids": exceptional_effect_source_ids,
+    }
+    payload = {
+        "schema_version": 1,
+        "contract_id": _ACCEPTED_REVIEW_EVIDENCE_CONTRACT_ID,
+        "visibility": "host_only",
+        "review_id": str(review["review_id"]),
+        "turn_id": str(review["turn_id"]),
+        "source_digest": str(review["source_digest"]),
+        "revision": revision,
+        "draft_sha256": str(review["draft_sha256"]),
+        "review_digest": str(review["review_digest"]),
+        "pending_draft_receipt_digest": str(
+            frozen_draft["receipt_digest"]
+        ),
+        "contract_projection_sha256": contract_projection_sha256,
+        "verification": {
+            "agency_gate": "clear",
+            "state_authority_gate": "clear",
+        },
+        "state_authority_review": deepcopy(state_authority_review),
+        "player_input_source_ref": str(player_input["source_ref"]),
+        "agency_authority": deepcopy(agency_authority),
+        "control_overrides": deepcopy(control_overrides),
+        "coverage_binding_facts": coverage_binding_facts,
+    }
+    payload["evidence_sha256"] = _canonical_digest(payload)
+    return payload
 
 
 def _tool_state_recover_pending_narration_draft(
@@ -1902,6 +2053,44 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
         )
     except coc_continuation.ContinuationError as exc:
         raise ToolError(exc.code, str(exc)) from exc
+    try:
+        settlement_blockers = (
+            coc_turn_finalization.prejournal_settlement_blockers(
+                ctx.campaign_dir
+            )
+        )
+    except coc_turn_finalization.TurnContractError as exc:
+        raise ToolError(exc.code, str(exc)) from exc
+    missing_effects = settlement_blockers["missing_substantive_effects"]
+    pending_modifiers = settlement_blockers["pending_modifier_consumptions"]
+    if missing_effects or pending_modifiers:
+        details = {
+            "journal_committed": False,
+            "missing_substantive_effects": missing_effects,
+            "pending_modifier_consumptions": pending_modifiers,
+        }
+        if missing_effects:
+            missing = ", ".join(
+                row["obligation_id"] for row in missing_effects
+            )
+            raise ToolError(
+                "substantive_exceptional_effect_required",
+                "state.journal refused before writing because a critical, "
+                "fumble, or pushed-failure outcome lacks a source-bound "
+                f"applied effect: {missing}",
+                details=details,
+            )
+        pending = ", ".join(
+            f"{row['effect_id']}->{row['roll_id']}"
+            for row in pending_modifiers
+        )
+        raise ToolError(
+            "exceptional_modifier_unconsumed",
+            "state.journal refused before writing because an applicable "
+            "one-shot exceptional modifier was not source-bound to its roll: "
+            + pending,
+            details=details,
+        )
     pacing["turn_number"] = next_turn_number
     warnings: list[str] = []
     # A later player message is not transport evidence for the preceding
@@ -2293,7 +2482,8 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
     data["drafting_injection_brief"] = _drafting_injection_brief(data)
     contract_projection = _turn_contract_projection(ctx, data)
     data["contract_projection"] = contract_projection
-    data["contract_projection_sha256"] = _canonical_digest(contract_projection)
+    contract_projection_sha256 = _canonical_digest(contract_projection)
+    data["contract_projection_sha256"] = contract_projection_sha256
     agency_review_required = contract_projection["agency_review_required"] is True
     agency_review_revision = (
         _pending_authority_review_revision(ctx, data)
@@ -2314,6 +2504,16 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
             )
             if frozen_draft is not None:
                 data["frozen_narration_draft"] = frozen_draft
+                accepted_review = _accepted_review_evidence(
+                    ctx,
+                    review=active_review,
+                    frozen_draft=frozen_draft,
+                    settled=data,
+                    contract_projection=contract_projection,
+                    contract_projection_sha256=contract_projection_sha256,
+                )
+                if accepted_review is not None:
+                    data["accepted_review_evidence"] = accepted_review
             else:
                 draft_contract_usable = False
         elif draft_status != "not_submitted":
@@ -2383,7 +2583,12 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
         data["finalize_operation"] = {
             "operation": "turn.finalize",
             "invoke_via": (
-                "coc_turn_finalize" if agency_review_required else "coc_invoke"
+                "coc_turn_finalize"
+                if (
+                    agency_review_required
+                    or _pi_rules_director_single_draft_profile()
+                )
+                else "coc_invoke"
             ),
             "prefilled_arguments": prefilled_arguments,
             "missing_arguments": missing_arguments,

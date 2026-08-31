@@ -18,6 +18,7 @@ per-id cache), never at module import time.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 import importlib.util
 import json
@@ -238,6 +239,129 @@ _REQUIRED_RESOLVER_ATTRS = ("check", "resource_delta", "public_api_index")
 _RESOLVER_CACHE: dict[str, ModuleType] = {}
 _RULE_GRAPH_ADAPTER_CACHE: dict[str, Any] = {}
 
+_DAMAGE_STATE_EFFECT_FIELDS = frozenset({
+    "schema_version",
+    "actor_id",
+    "decision_id",
+    "amount",
+    "before",
+    "after",
+    "maximum",
+    "occurred_elapsed_minutes",
+    "source_event_id",
+})
+
+
+def apply_damage_state_effect(
+    resolver: Any,
+    actor_state: dict[str, Any],
+    event: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply one optional package-owned consequence of settled damage.
+
+    The kernel supplies only a typed, ruleset-neutral damage event and treats
+    actor state as opaque. Packages without ``damage_state_effect`` receive an
+    exact deep-copied no-op. A package hook must remain pure: it returns the
+    replacement actor-state object and performs no campaign I/O.
+    """
+    if not isinstance(actor_state, dict):
+        raise ValueError("damage state effect requires an actor-state object")
+    if (
+        not isinstance(event, dict)
+        or set(event) != set(_DAMAGE_STATE_EFFECT_FIELDS)
+    ):
+        raise ValueError("damage state effect event does not match schema version 1")
+    exact_ints = (
+        event.get("amount"),
+        event.get("before"),
+        event.get("after"),
+        event.get("maximum"),
+        event.get("occurred_elapsed_minutes"),
+    )
+    if (
+        event.get("schema_version") != 1
+        or not isinstance(event.get("actor_id"), str)
+        or not event["actor_id"]
+        or not isinstance(event.get("decision_id"), str)
+        or not event["decision_id"]
+        or any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in exact_ints
+        )
+        or int(event["amount"]) <= 0
+        or not (
+            0
+            <= int(event["after"])
+            < int(event["before"])
+            <= int(event["maximum"])
+        )
+        or int(event["occurred_elapsed_minutes"]) < 0
+        or (
+            event.get("source_event_id") is not None
+            and (
+                not isinstance(event.get("source_event_id"), str)
+                or not event["source_event_id"]
+            )
+        )
+    ):
+        raise ValueError("damage state effect event is invalid")
+    hook = getattr(resolver, "damage_state_effect", None)
+    if hook is None:
+        return deepcopy(actor_state)
+    if not callable(hook):
+        raise ValueError("ruleset damage_state_effect must be callable")
+    projected = hook(
+        actor_state=deepcopy(actor_state),
+        event=deepcopy(event),
+    )
+    if not isinstance(projected, dict):
+        raise ValueError("ruleset damage_state_effect must return actor state")
+    return projected
+
+
+def resolve_actor_skill_value(
+    resolver: Any,
+    sheet: Mapping[str, Any] | None,
+    skill_name: str,
+) -> int | None:
+    """Resolve an actor skill without teaching the kernel any ruleset values.
+
+    A canonical sheet value wins. Only an omitted key may consult the active
+    package's optional ``skill_base`` hook; absent sheets, corrupt explicit
+    values, missing hooks, unknown skills, era-disabled skills, and non-flat
+    bases all fail closed with ``None``.
+    """
+    if not isinstance(sheet, Mapping) or not isinstance(skill_name, str):
+        return None
+    skills = sheet.get("skills")
+    if not isinstance(skills, Mapping):
+        return None
+    if skill_name in skills:
+        raw = skills[skill_name]
+        if isinstance(raw, Mapping):
+            raw = raw.get("value")
+        if isinstance(raw, bool) or raw is None:
+            return None
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return value if 0 <= value <= 100 else None
+    hook = getattr(resolver, "skill_base", None)
+    if not callable(hook):
+        return None
+    try:
+        value = hook(skill_name, era=sheet.get("era"))
+    except (OSError, TypeError, ValueError):
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 0 <= value <= 100
+    ):
+        return None
+    return value
+
 
 def get_resolver(campaign: dict[str, Any] | None = None) -> ModuleType:
     """Return the active campaign's ruleset resolver module (contract §4).
@@ -340,3 +464,30 @@ def get_rule_graph_adapter(ruleset_id: str) -> Any | None:
         ) from exc
     _RULE_GRAPH_ADAPTER_CACHE[ruleset_id] = adapter
     return adapter
+
+
+def rule_graph_state_effect_domains(
+    ruleset_id: str,
+    decision_ref: str,
+) -> tuple[str, ...]:
+    """Trusted package declaration for one graph settlement's state domains."""
+    adapter = get_rule_graph_adapter(ruleset_id)
+    provider = getattr(adapter, "state_effect_domains", None)
+    if not callable(provider):
+        return ()
+    raw = provider(decision_ref)
+    if not isinstance(raw, (list, tuple, frozenset)):
+        return ()
+    declared_resources = {
+        resource.get("key")
+        for resource in ruleset_resources(ruleset_id)
+        if isinstance(resource.get("key"), str)
+    }
+    allowed = declared_resources | {"condition"}
+    domains = tuple(raw)
+    if (
+        any(not isinstance(domain, str) or domain not in allowed for domain in domains)
+        or len(set(domains)) != len(domains)
+    ):
+        return ()
+    return domains

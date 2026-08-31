@@ -1,0 +1,259 @@
+{
+  "contract_id": "coc.system-ontology-registry.v1",
+  "schema_version": 1,
+  "registry_id": "registry:system-ontology:production",
+  "graphs": [
+    {
+      "graph_id": "graph:module:the-haunting",
+      "graph_kind": "module",
+      "authority_plane": "authored-source",
+      "availability": "production-artifact",
+      "ontology_contract": "coc.module-graph-contract.v3",
+      "artifact_path": "plugins/coc-keeper/references/starter-scenarios/the-haunting/module-graph.json"
+    },
+    {
+      "graph_id": "graph:rule:coc7",
+      "graph_kind": "rule",
+      "authority_plane": "rules-semantics",
+      "availability": "production-artifact",
+      "ontology_contract": "coc.rule-graph-contract.v1",
+      "artifact_path": "plugins/coc-keeper/rulesets/coc7/rule-graph.json"
+    },
+    {
+      "graph_id": "graph:live-state:campaign",
+      "graph_kind": "live-state",
+      "authority_plane": "canonical-state",
+      "availability": "runtime-registry",
+      "registry_path": "plugins/coc-keeper/references/rule-graph-contract-v1.json#/registered_condition_paths"
+    },
+    {
+      "graph_id": "graph:execution:coc7-resolver",
+      "graph_kind": "execution",
+      "authority_plane": "deterministic-execution",
+      "availability": "runtime-registry",
+      "registry_path": "plugins/coc-keeper/rulesets/coc7/resolver.py#public_api_index"
+    },
+    {
+      "graph_id": "graph:director:production",
+      "graph_kind": "director",
+      "authority_plane": "advisory",
+      "availability": "absent-production-artifact",
+      "reason": "The production has advisory Director code and receipts, but no source-controlled DirectorGraph machine artifact to reference."
+    },
+    {
+      "graph_id": "graph:text:production",
+      "graph_kind": "text",
+      "authority_plane": "presentation",
+      "availability": "absent-production-artifact",
+      "reason": "Finalization and output-context machinery exist, but there is no source-controlled TextGraph machine artifact to reference."
+    }
+  ],
+  "references": [
+    {
+      "ref_id": "ref:rule:coc7:first-aid-stabilization",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:healing:first-aid-stabilization",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:medicine-stabilization",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:healing:medicine-stabilization",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:weekly-major-wound-recovery",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:healing:weekly-major-wound-recovery",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:capability-first-aid",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "capability:coc7:first-aid",
+      "reference_kind": "artifact-node",
+      "node_kind": "capability"
+    },
+    {
+      "ref_id": "ref:rule:coc7:capability-medicine",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "capability:coc7:medicine",
+      "reference_kind": "artifact-node",
+      "node_kind": "capability"
+    },
+    {
+      "ref_id": "ref:rule:coc7:capability-weekly-recovery",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "capability:coc7:weekly-recovery",
+      "reference_kind": "artifact-node",
+      "node_kind": "capability"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-first-aid-stabilization",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:healing:first-aid-stabilization",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-medicine-stabilization",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:healing:medicine-stabilization",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-weekly-hp-recovery",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:healing:weekly-hp-recovery",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:live-state:actor-conditions-dying",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:actor-conditions-dying",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "actor.conditions.dying"
+    },
+    {
+      "ref_id": "ref:live-state:major-wound-week-due",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:major-wound-week-due",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "actor.recovery.major_wound_week_due"
+    },
+    {
+      "ref_id": "ref:execution:coc7:first-aid",
+      "graph_id": "graph:execution:coc7-resolver",
+      "semantic_id": "capability:coc7:first-aid",
+      "reference_kind": "resolver-capability",
+      "node_kind": "capability",
+      "locator": "first_aid",
+      "declaration_ref_id": "ref:rule:coc7:capability-first-aid"
+    },
+    {
+      "ref_id": "ref:execution:coc7:medicine",
+      "graph_id": "graph:execution:coc7-resolver",
+      "semantic_id": "capability:coc7:medicine",
+      "reference_kind": "resolver-capability",
+      "node_kind": "capability",
+      "locator": "medicine",
+      "declaration_ref_id": "ref:rule:coc7:capability-medicine"
+    },
+    {
+      "ref_id": "ref:execution:coc7:weekly-recovery",
+      "graph_id": "graph:execution:coc7-resolver",
+      "semantic_id": "capability:coc7:weekly-recovery",
+      "reference_kind": "resolver-capability",
+      "node_kind": "capability",
+      "locator": "weekly_recovery",
+      "declaration_ref_id": "ref:rule:coc7:capability-weekly-recovery"
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "relation:system:first-aid-requires-dying-fact",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:first-aid-stabilization",
+      "to_ref": "ref:live-state:actor-conditions-dying"
+    },
+    {
+      "relation_id": "relation:system:first-aid-invokes-capability",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:first-aid-stabilization",
+      "to_ref": "ref:execution:coc7:first-aid"
+    },
+    {
+      "relation_id": "relation:system:first-aid-may-emit-effect",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:first-aid-stabilization",
+      "to_ref": "ref:rule:coc7:effect-first-aid-stabilization"
+    },
+    {
+      "relation_id": "relation:system:medicine-requires-dying-fact",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:medicine-stabilization",
+      "to_ref": "ref:live-state:actor-conditions-dying"
+    },
+    {
+      "relation_id": "relation:system:medicine-invokes-capability",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:medicine-stabilization",
+      "to_ref": "ref:execution:coc7:medicine"
+    },
+    {
+      "relation_id": "relation:system:medicine-may-emit-effect",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:medicine-stabilization",
+      "to_ref": "ref:rule:coc7:effect-medicine-stabilization"
+    },
+    {
+      "relation_id": "relation:system:weekly-recovery-requires-due-fact",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:weekly-major-wound-recovery",
+      "to_ref": "ref:live-state:major-wound-week-due"
+    },
+    {
+      "relation_id": "relation:system:weekly-recovery-invokes-capability",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:weekly-major-wound-recovery",
+      "to_ref": "ref:execution:coc7:weekly-recovery"
+    },
+    {
+      "relation_id": "relation:system:weekly-recovery-may-emit-effect",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:weekly-major-wound-recovery",
+      "to_ref": "ref:rule:coc7:effect-weekly-hp-recovery"
+    }
+  ],
+  "coverage": [
+    {
+      "graph_kind": "module",
+      "status": "production-linked",
+      "composition_status": "no-proven-instance",
+      "graph_ids": ["graph:module:the-haunting"],
+      "reason": "The production The Haunting ModuleGraph is available, but its authored module.haunting.* rules have no matching Rule/Decision identity in the current production healing-only RuleGraph; no Module-to-Rule instance is claimed."
+    },
+    {
+      "graph_kind": "rule",
+      "status": "production-linked",
+      "composition_status": "instance-linked",
+      "graph_ids": ["graph:rule:coc7"],
+      "reason": "The production coc7 RuleGraph is linked without copying node bodies."
+    },
+    {
+      "graph_kind": "live-state",
+      "status": "runtime-registry-linked",
+      "composition_status": "instance-linked",
+      "graph_ids": ["graph:live-state:campaign"],
+      "reason": "Only registered RuleGraph condition paths are referenced; campaign state remains the mutation authority."
+    },
+    {
+      "graph_kind": "execution",
+      "status": "runtime-registry-linked",
+      "composition_status": "instance-linked",
+      "graph_ids": ["graph:execution:coc7-resolver"],
+      "reason": "Capability references resolve through the production coc7 resolver public_api_index."
+    },
+    {
+      "graph_kind": "director",
+      "status": "absent-production-artifact",
+      "composition_status": "not-applicable",
+      "graph_ids": ["graph:director:production"],
+      "reason": "No production DirectorGraph artifact exists, so no instance link is fabricated."
+    },
+    {
+      "graph_kind": "text",
+      "status": "absent-production-artifact",
+      "composition_status": "not-applicable",
+      "graph_ids": ["graph:text:production"],
+      "reason": "No production TextGraph artifact exists, so finalization remains an existing presentation runtime rather than a fabricated graph."
+    }
+  ]
+}

@@ -14,9 +14,13 @@ import {
   type JsonSchema,
 } from "./operation-contracts.ts";
 import {
+  buildReviewedCoverageBindingFacts,
   projectModelCallArguments,
   type ModelCallArgumentProjection,
+  type ReviewedAgencyBinding,
+  type ReviewedCoverageBindingFacts,
 } from "./tool-contract-projection.ts";
+import type { OpenTurnPlayerInputCard } from "./open-turn-player-input.ts";
 
 export const OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT =
   "coc.pi-open-turn-recovery-guidance.v1";
@@ -37,14 +41,14 @@ const NON_RECOVERY_RESUME_MODES = new Set([
 
 export const OPEN_TURN_RECOVERY_CLOSURE_SEQUENCE = [
   {
-    operation: "turn.output_context",
-    when: "always",
-    purpose: "required_closures_and_finalize_card",
+    operation: "state.journal",
+    when: "after_missing_mechanics_are_settled",
+    purpose: "bind_the_exact_recovered_player_input",
   },
   {
-    operation: "state.journal",
-    when: "if_unrealized",
-    purpose: "realize_recovered_turn",
+    operation: "turn.output_context",
+    when: "after_state_journal",
+    purpose: "required_closures_and_finalize_card",
   },
   {
     operation: "turn.finalize",
@@ -54,10 +58,22 @@ export const OPEN_TURN_RECOVERY_CLOSURE_SEQUENCE = [
 ] as const;
 
 export const OPEN_TURN_RECOVERY_FORBIDDEN_UNTIL_CLOSED = [
-  "state.move_scene",
-  "scene_progression",
-  "new_rules_rolls",
-  "new_state_mutation",
+  "new_player_input",
+  "setup_operations",
+  "turn.output_context_before_state.journal",
+  "narration.review_before_turn.output_context",
+  "turn.finalize_before_narration.review",
+] as const;
+
+export const OPEN_TURN_RECOVERY_ACTING_CAPABILITIES = [
+  {
+    operation: "scene.context",
+    purpose: "rehydrate_current_scene_and_applicable_rule_cards",
+  },
+  {
+    operation: "actions.list",
+    purpose: "recover_current_scene_action_affordances_if_needed",
+  },
 ] as const;
 
 function isPlainObject(value: unknown): value is JsonObject {
@@ -410,6 +426,179 @@ export function validateFrozenNarrationDraft(
   return deepCopyValue(value) as JsonObject;
 }
 
+const ACCEPTED_REVIEW_EVIDENCE_CONTRACT =
+  "coc.accepted-review-evidence.v2";
+const ACCEPTED_REVIEW_EVIDENCE_FIELDS = new Set([
+  "schema_version", "contract_id", "visibility", "review_id", "turn_id",
+  "source_digest", "revision", "draft_sha256", "review_digest",
+  "pending_draft_receipt_digest", "contract_projection_sha256",
+  "verification", "state_authority_review", "player_input_source_ref",
+  "agency_authority", "control_overrides", "coverage_binding_facts",
+  "evidence_sha256",
+]);
+const ACCEPTED_REVIEW_VERIFICATION_FIELDS = new Set([
+  "agency_gate", "state_authority_gate",
+]);
+const ACCEPTED_STATE_REVIEW_FIELDS = new Set([
+  "disposition", "reason", "claims",
+]);
+const ACCEPTED_STATE_CLAIM_FIELDS = new Set([
+  "claim_id", "subject_ref", "claim_kind", "exact_excerpt",
+  "source_effect_id", "reason",
+]);
+const ACCEPTED_STATE_CLAIM_KINDS = new Set([
+  "cash", "item", "purchase", "assets_liquidate", "scalar",
+  "loaded_ammunition", "condition", "time", "time_appearance", "rest",
+]);
+
+function hasExactFields(value: JsonObject, expected: ReadonlySet<string>): boolean {
+  const keys = Object.keys(value);
+  return keys.length === expected.size && keys.every((key) => expected.has(key));
+}
+
+function acceptedEvidenceDigestMatches(value: JsonObject): boolean {
+  const payload: JsonObject = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (key !== "evidence_sha256") payload[key] = entry;
+  }
+  return canonicalDigest(payload) === value.evidence_sha256;
+}
+
+function validAcceptedStateReview(
+  value: unknown,
+  draft: string,
+  pcSubjectRefs: readonly string[],
+): value is JsonObject {
+  if (!isPlainObject(value) || !hasExactFields(value, ACCEPTED_STATE_REVIEW_FIELDS)) {
+    return false;
+  }
+  const disposition = value.disposition;
+  const claims = value.claims;
+  if (
+    (disposition !== "no_player_state_change_claimed"
+      && disposition !== "claims_listed")
+    || !boundedString(value.reason, 4096)
+    || !Array.isArray(claims)
+    || claims.length > 64
+    || (disposition === "no_player_state_change_claimed" && claims.length !== 0)
+    || (disposition === "claims_listed" && claims.length === 0)
+  ) return false;
+  const seenClaims = new Set<string>();
+  const seenEffects = new Set<string>();
+  for (const raw of claims) {
+    if (!isPlainObject(raw) || !hasExactFields(raw, ACCEPTED_STATE_CLAIM_FIELDS)) {
+      return false;
+    }
+    if (
+      !boundedString(raw.claim_id, 256)
+      || seenClaims.has(raw.claim_id)
+      || !nonEmptyStringField(raw.subject_ref)
+      || !pcSubjectRefs.includes(raw.subject_ref)
+      || typeof raw.claim_kind !== "string"
+      || !ACCEPTED_STATE_CLAIM_KINDS.has(raw.claim_kind)
+      || !boundedString(raw.exact_excerpt, FROZEN_DRAFT_MAX_UTF8_BYTES)
+      || !draft.includes(raw.exact_excerpt)
+      || !boundedString(raw.source_effect_id, 512)
+      || seenEffects.has(raw.source_effect_id)
+      || !boundedString(raw.reason, 4096)
+    ) return false;
+    seenClaims.add(raw.claim_id);
+    seenEffects.add(raw.source_effect_id);
+  }
+  return true;
+}
+
+/**
+ * Validate the canonical host-only accepted-review bridge against three
+ * independent sources already present in the same live context: the frozen
+ * draft receipt, the current contract projection, and the output-context
+ * identity. A self-consistent mutation of the evidence block alone is never
+ * enough. The returned copy is safe for host-side binding only; model
+ * projection deliberately has no route for this field.
+ */
+function validateAcceptedReviewEvidence(
+  value: unknown,
+  binding: {
+    turnId: string;
+    sourceDigest: string;
+    revision: number;
+    frozenDraft: JsonObject;
+    contractProjection: JsonObject;
+    contractProjectionSha256: unknown;
+    coverageBindingFacts: ReviewedCoverageBindingFacts;
+  },
+): JsonObject | null {
+  if (!isPlainObject(value) || !hasExactFields(value, ACCEPTED_REVIEW_EVIDENCE_FIELDS)) {
+    return null;
+  }
+  const verification = isPlainObject(value.verification)
+    ? value.verification
+    : null;
+  const agencyAuthority = isPlainObject(value.agency_authority)
+    ? value.agency_authority
+    : null;
+  const canonicalAuthority = isPlainObject(
+    binding.contractProjection.agency_authority,
+  ) ? binding.contractProjection.agency_authority : null;
+  const playerInput = isPlainObject(binding.contractProjection.player_input)
+    ? binding.contractProjection.player_input
+    : null;
+  const canonicalOverrides = Array.isArray(
+    binding.contractProjection.control_overrides,
+  ) ? binding.contractProjection.control_overrides : null;
+  const pcSubjectRefs = agencyAuthority !== null
+    && Array.isArray(agencyAuthority.pc_subject_refs)
+    ? agencyAuthority.pc_subject_refs.filter(
+      (entry): entry is string => nonEmptyStringField(entry),
+    )
+    : [];
+  if (
+    value.schema_version !== 1
+    || value.contract_id !== ACCEPTED_REVIEW_EVIDENCE_CONTRACT
+    || value.visibility !== "host_only"
+    || value.review_id !== binding.frozenDraft.review_id
+    || value.turn_id !== binding.turnId
+    || value.source_digest !== binding.sourceDigest
+    || value.revision !== binding.revision
+    || value.revision !== binding.frozenDraft.revision
+    || value.draft_sha256 !== binding.frozenDraft.draft_sha256
+    || value.review_digest !== binding.frozenDraft.review_digest
+    || value.pending_draft_receipt_digest !== binding.frozenDraft.receipt_digest
+    || !sha256DigestField(value.draft_sha256)
+    || !sha256DigestField(value.review_digest)
+    || !sha256DigestField(value.pending_draft_receipt_digest)
+    || !sha256DigestField(value.contract_projection_sha256)
+    || !sha256DigestField(value.evidence_sha256)
+    || value.contract_projection_sha256 !== binding.contractProjectionSha256
+    || value.contract_projection_sha256
+      !== canonicalDigest(binding.contractProjection)
+    || verification === null
+    || !hasExactFields(verification, ACCEPTED_REVIEW_VERIFICATION_FIELDS)
+    || verification.agency_gate !== "clear"
+    || verification.state_authority_gate !== "clear"
+    || agencyAuthority === null
+    || canonicalAuthority === null
+    || pcSubjectRefs.length !== 1
+    || canonicalDigest(agencyAuthority) !== canonicalDigest(canonicalAuthority)
+    || !nonEmptyStringField(value.player_input_source_ref)
+    || playerInput === null
+    || value.player_input_source_ref !== playerInput.source_ref
+    || !Array.isArray(value.control_overrides)
+    || canonicalOverrides === null
+    || canonicalDigest(value.control_overrides) !== canonicalDigest(canonicalOverrides)
+    || canonicalDigest(value.coverage_binding_facts)
+      !== canonicalDigest(binding.coverageBindingFacts)
+    || typeof binding.frozenDraft.draft_text !== "string"
+    || !validAcceptedStateReview(
+      value.state_authority_review,
+      binding.frozenDraft.draft_text,
+      pcSubjectRefs,
+    )
+    || !acceptedEvidenceDigestMatches(value)
+  ) return null;
+  return deepCopyValue(value) as JsonObject;
+}
+
 /**
  * Actual typed input schemas for the two recovery model-call surfaces,
  * loaded once from the canonical MCP operation contract archive. The
@@ -482,6 +671,75 @@ function buildRecoveryModelCalls(
   }
 }
 
+function buildAcceptedReviewFinalizeModelCall(
+  finalizeCard: JsonObject,
+): ModelCallArgumentProjection | null {
+  const ordinary = buildRecoveryModelCalls(null, finalizeCard)?.finalize;
+  if (ordinary === undefined) return null;
+  const prefilled = isPlainObject(finalizeCard.prefilled_arguments)
+    ? finalizeCard.prefilled_arguments
+    : {};
+  const missing = Array.isArray(finalizeCard.missing_arguments)
+    ? finalizeCard.missing_arguments
+    : [];
+  if (
+    !Object.hasOwn(prefilled, "coverage")
+      && !missing.includes("coverage")
+    || !missing.includes("agency_claims")
+    || !missing.includes("draft")
+  ) return null;
+  return {
+    ...ordinary,
+    model_owned_required_arguments: ["coverage", "agency_claims"],
+    model_owned_optional_arguments: [],
+    host_bound_auto_attached_arguments: [
+      ...new Set([
+        ...ordinary.host_bound_auto_attached_arguments,
+        "draft",
+        "mechanics_placements",
+      ]),
+    ].sort(),
+  };
+}
+
+function projectAcceptedReviewBindingForModel(
+  binding: ReviewedAgencyBinding,
+): JsonObject {
+  return {
+    visibility: "keeper_only",
+    source: "turn.output_context.data.accepted_review_evidence",
+    mode: "accepted_review_semantic",
+    reviewed_spans: binding.spans.map((row) => row.reviewed_span),
+    authorities: binding.authorities.map((row) => ({
+      authority: row.authority,
+      claim_types: [...row.claim_types],
+    })),
+    coverage_obligations: binding.coverage_obligations.map((row) => ({
+      obligation: row.obligation_ref,
+      source_kind: row.source_kind,
+      visibility: row.visibility,
+      npc_display_name: row.npc_display_name,
+      skill: row.skill,
+      goal: row.goal,
+      outcome: row.outcome,
+      exceptional_required: row.exceptional_required,
+      allowed_reviewed_spans: [...row.allowed_reviewed_spans],
+      realization: row.realization,
+      placement_mode: row.placement_mode,
+    })),
+    mechanics_placement: deepCopyValue(binding.mechanics_placement),
+    model_arguments: ["coverage", "agency_claims"],
+    instruction: (
+      "Call turn.finalize with coverage and semantic agency_claims only. "
+      + "Copy each offered obligation into coverage.obligation_ref and choose "
+      + "its reviewed_span; then choose "
+      + "reviewed_span, claim_type, and authority for agency; the host "
+      + "restores the accepted draft, exact evidence, canonical obligation "
+      + "identity, and safe mechanics placement."
+    ),
+  };
+}
+
 /** Positive integer card revision bound to its slot operation. */
 function operationCardRevisionOf(card: JsonObject): number | null {
   const prefilled = isPlainObject(card.prefilled_arguments)
@@ -526,6 +784,11 @@ export type LiveOutputContextCards = {
    * baseline and the model MUST edit only the listed span-repair excerpts.
    */
   frozenDraftMode: FrozenDraftMode | null;
+  /**
+   * Closed canonical evidence that the frozen draft already passed the
+   * active review. Exact excerpts and authority facts remain host-only.
+   */
+  acceptedReviewEvidence: JsonObject | null;
 };
 
 export type PendingFinalizationHydration =
@@ -697,6 +960,37 @@ export function validateLiveOutputContext(
     && agencyReviewRequired
     && frozenDraft === null
   ) return null;
+  const hasAcceptedReviewEvidence = Object.hasOwn(
+    data,
+    "accepted_review_evidence",
+  );
+  let acceptedReviewEvidence: JsonObject | null = null;
+  if (hasAcceptedReviewEvidence) {
+    if (
+      !agencyReviewRequired
+      || frozenDraft === null
+      || frozenDraftMode !== "exact_replay"
+    ) return null;
+    let coverageBindingFacts: ReviewedCoverageBindingFacts;
+    try {
+      coverageBindingFacts = buildReviewedCoverageBindingFacts(data);
+    } catch {
+      return null;
+    }
+    acceptedReviewEvidence = validateAcceptedReviewEvidence(
+      data.accepted_review_evidence,
+      {
+        turnId,
+        sourceDigest,
+        revision: finalizeRevision,
+        frozenDraft,
+        contractProjection,
+        contractProjectionSha256: data.contract_projection_sha256,
+        coverageBindingFacts,
+      },
+    );
+    if (acceptedReviewEvidence === null) return null;
+  }
   const pendingContext = isPlainObject(resumeData)
     && isPlainObject((resumeData as JsonObject).pending_output_context)
     ? (resumeData as JsonObject).pending_output_context
@@ -730,6 +1024,7 @@ export function validateLiveOutputContext(
       : null,
     frozenDraft,
     frozenDraftMode,
+    acceptedReviewEvidence,
   };
 }
 
@@ -830,6 +1125,13 @@ export function applyPendingFinalizationRecoveryGuidance(
   invocation: { root: string; campaign: string },
   options?: {
     reviewRecoveryArmed?: boolean;
+    /**
+     * The host validated the exact frozen draft plus the canonical accepted-
+     * review evidence and rebuilt the normal semantic reviewed-agency binding.
+     * Presence suppresses review as an executable recovery step; null/absent
+     * keeps the existing review or pointer path fail-closed.
+     */
+    acceptedReviewBinding?: ReviewedAgencyBinding | null;
     revision?: number;
     /**
      * Host-owned live-context hydration outcome. `not_attempted` (or
@@ -957,17 +1259,51 @@ export function applyPendingFinalizationRecoveryGuidance(
     liveProjected = false;
     liveProjectionDropped = true;
   }
-  const nextFirstCard = liveProjected && reviewCard !== null
-    ? reviewCard
+  let acceptedReview = (
+    liveProjected
+    && options?.acceptedReviewBinding != null
+    && reviewCard !== null
+    && finalizeCard !== null
+    && liveFrozenDraft !== null
+    && liveFrozenDraftMode === "exact_replay"
+    && liveHydration.status === "success"
+    && liveHydration.cards.acceptedReviewEvidence !== null
+    && nonEmptyStringField(liveFrozenDraft.review_id)
+  );
+  // `modelCalls` was initially derived above to validate the complete live
+  // chain. Once the host proves the accepted review binding is armed, derive
+  // the actionable projection again without a review call: the review card
+  // remains host-only evidence, never another 154-second model action.
+  const actionableModelCalls = acceptedReview && finalizeCard !== null
+    ? (() => {
+        const finalize = buildAcceptedReviewFinalizeModelCall(finalizeCard);
+        return finalize === null ? null : { finalize };
+      })()
+    : modelCalls;
+  if (acceptedReview && actionableModelCalls === null) {
+    acceptedReview = false;
+    reviewCard = null;
+    finalizeCard = null;
+    liveRevision = null;
+    liveFrozenDraft = null;
+    liveFrozenDraftMode = null;
+    liveProjected = false;
+    liveProjectionDropped = true;
+  }
+  const actionableReviewCard = acceptedReview ? null : reviewCard;
+  const nextFirstCard = liveProjected && actionableReviewCard !== null
+    ? actionableReviewCard
     : liveProjected
       ? finalizeCard
       : null;
-  const guidance = {
+  const guidance: JsonObject = {
     schema_version: 1,
     contract_id: PENDING_FINALIZATION_RECOVERY_GUIDANCE_CONTRACT,
     audience: "keeper_only",
     mode: "pending_finalization",
-    status: "journaled_settled_pending_finalization",
+    status: acceptedReview
+      ? "review_accepted_pending_finalization"
+      : "journaled_settled_pending_finalization",
     ...(liveProjected
       ? {
           output_context_status: "host_refreshed_live",
@@ -990,7 +1326,15 @@ export function applyPendingFinalizationRecoveryGuidance(
               ? { authoritative_copy: "coc_turn_output_context" }
               : {}),
             instruction: liveProjected
-              ? (
+              ? acceptedReview
+                ? (
+                  "The host validated the live output context and armed "
+                  + "turn.finalize from the already accepted frozen review. "
+                  + "Call only the finalize tool named by next_call, supply "
+                  + "only its model-owned arguments, and never call "
+                  + "narration.review again or echo host-bound identity."
+                )
+                : (
                 "The host already ingested the validated live context through "
                 + "the canonical compiler and binding path. The exact cards "
                 + "inlined in review_recovery.card and then.card are the only "
@@ -1001,7 +1345,7 @@ export function applyPendingFinalizationRecoveryGuidance(
                 + "and never echo, invent, or construct "
                 + "host_bound_auto_attached_arguments; the host attaches "
                 + "them. Call review_recovery before then."
-              )
+                )
               : (
                 "The card fields inlined below are exact session.resume "
                 + "snapshots. The mandatory next_call coc_turn_output_context "
@@ -1013,15 +1357,15 @@ export function applyPendingFinalizationRecoveryGuidance(
           },
         }
       : {}),
-    ...(modelCalls !== null
+    ...(actionableModelCalls !== null
       ? {
           model_calls: {
             contract_source: "mcp_operation_contracts.inputSchema",
             audience: "keeper_only",
-            ...(modelCalls.review !== undefined
+            ...(actionableModelCalls.review !== undefined
               ? {
                   review: {
-                    ...modelCalls.review,
+                    ...actionableModelCalls.review,
                     instruction: (
                       "Supply exactly the model_owned_required_arguments (plus "
                       + "any model_owned_optional_arguments you semantically "
@@ -1044,7 +1388,7 @@ export function applyPendingFinalizationRecoveryGuidance(
                 }
               : {}),
             finalize: {
-              ...modelCalls.finalize,
+              ...actionableModelCalls.finalize,
               instruction: (
                 "After an accepted review, supply exactly the "
                 + "model_owned_required_arguments (plus any "
@@ -1052,7 +1396,7 @@ export function applyPendingFinalizationRecoveryGuidance(
                 + "any model-owned argument the then.card already prefills at "
                 + "its exact card value. Invoke through the projection's real "
                 + "surface: for invocation_shape generic_envelope call "
-                + modelCalls.finalize.invoke_via
+                + actionableModelCalls.finalize.invoke_via
                 + " with {operation: \"turn.finalize\", arguments: {"
                 + "...model-owned arguments...}}; for typed_flat pass the "
                 + "model-owned arguments directly to the typed tool. Never "
@@ -1074,11 +1418,6 @@ export function applyPendingFinalizationRecoveryGuidance(
       ...(reviewCard !== null ? { card: reviewCard } : {}),
       ...(liveProjected && reviewCard !== null && liveFrozenDraft !== null
         ? {
-            // The exact frozen draft appears exactly once in this clearly
-            // keeper-only review input as the immutable baseline for hash
-            // authority and comparison; the submitted draft_text remains a
-            // model-owned semantic input per review_input.mode. It is never
-            // player-visible before finalize.
             review_input: {
               visibility: "keeper_only",
               source: "turn.output_context.data.frozen_narration_draft",
@@ -1131,10 +1470,25 @@ export function applyPendingFinalizationRecoveryGuidance(
         ? { exact_card_path: "coc_turn_output_context.data.finalize_operation" }
         : {}),
       ...(finalizeCard !== null ? { card: finalizeCard } : {}),
+      ...(acceptedReview && liveFrozenDraft !== null
+        ? {
+            finalize_input: projectAcceptedReviewBindingForModel(
+              options!.acceptedReviewBinding!,
+            ),
+          }
+        : {}),
       instruction: (
-        "Use the returned finalize_operation prefilled_arguments exactly, "
-        + "supply only its missing_arguments, and do not construct, infer, "
-        + "or reuse turn.finalize arguments from prior transcript history."
+        acceptedReview
+          ? (
+            "Use the accepted-review semantic card and coverage, call "
+            + "turn.finalize once, and never repeat review; the host restores "
+            + "the accepted draft and exact evidence."
+          )
+          : (
+            "Use the returned finalize_operation prefilled_arguments exactly, "
+            + "supply only its missing_arguments, and do not construct, infer, "
+            + "or reuse turn.finalize arguments from prior transcript history."
+          )
       ),
     },
     after_success: "echo only the returned rendered_text exactly",
@@ -1146,6 +1500,21 @@ export function applyPendingFinalizationRecoveryGuidance(
       "accept_new_player_action_before_finalization",
     ],
   };
+  if (acceptedReview && reviewCard !== null && liveFrozenDraft !== null) {
+    guidance.accepted_review = {
+      status: "accepted",
+      // Exact host-only evidence. The session.resume model projector reduces
+      // this to status/instruction and never exposes the card or review id.
+      card: reviewCard,
+      review_id: liveFrozenDraft.review_id,
+      revision: liveFrozenDraft.revision,
+      instruction: (
+        "This frozen draft already has an accepted narration review. Do not "
+        + "call narration.review again; continue directly with next_call."
+      ),
+    };
+    delete guidance.review_recovery;
+  }
   return {
     attached: true,
     envelope: {
@@ -1208,7 +1577,79 @@ export function isOpenTurnRecoveryResume(value: unknown): boolean {
   return nextOperationsOf(data).includes("continue_current_turn_from_receipts");
 }
 
-export function buildOpenTurnRecoveryGuidance(data: JsonObject): JsonObject {
+function validOpenTurnPlayerInput(
+  value: unknown,
+): value is OpenTurnPlayerInputCard {
+  if (!isPlainObject(value)) return false;
+  return value.schema_version === 1
+    && value.kind === "accepted_player_input"
+    && value.audience === "keeper_only"
+    && typeof value.text === "string"
+    && value.text.trim().length > 0
+    && value.speaker === "player"
+    && value.intent_source === "external_player_message"
+    && Object.keys(value).every((key) => [
+      "schema_version",
+      "kind",
+      "audience",
+      "text",
+      "speaker",
+      "intent_source",
+    ].includes(key));
+}
+
+function semanticOpenTurnProjection(
+  value: unknown,
+  playerInput: OpenTurnPlayerInputCard | null,
+  zeroToolAccepted = false,
+): JsonObject | null {
+  if (!isPlainObject(value)) return null;
+  const meaningful = value.meaningful_row_count;
+  const rows = Array.isArray(value.rows) ? value.rows : [];
+  const preJournal = rows.every((candidate) => {
+    const row = isPlainObject(candidate) ? candidate : null;
+    return !(row?.tool === "state.journal" && row.ok === true);
+  });
+  const verifiedRows = Number.isSafeInteger(meaningful)
+    && Number(meaningful) > 0
+    && rows.length > 0
+    && typeof value.source_digest === "string"
+    && /^sha256:[0-9a-f]{64}$/u.test(value.source_digest)
+    && preJournal;
+  const verifiedZeroTool = zeroToolAccepted
+    && Number.isSafeInteger(meaningful)
+    && Number(meaningful) === 0
+    && rows.length === 0
+    && preJournal;
+  const verified = playerInput !== null && (verifiedRows || verifiedZeroTool);
+  const projectedRows = rows.flatMap((candidate) => {
+    if (!isPlainObject(candidate)) return [];
+    const projected: JsonObject = {};
+    for (const field of ["call_index", "tool", "ok", "receipt_summary"]) {
+      if (candidate[field] !== undefined) projected[field] = candidate[field];
+    }
+    return [projected];
+  });
+  return {
+    schema_version: 1,
+    ...(Number.isSafeInteger(value.meaningful_row_count)
+      ? { meaningful_row_count: value.meaningful_row_count }
+      : {}),
+    ...(Number.isSafeInteger(value.operational_row_count)
+      ? { operational_row_count: value.operational_row_count }
+      : {}),
+    rows: projectedRows,
+    ...(verified ? { player_input: playerInput } : {}),
+    recovery_status: verified
+      ? "accepted_player_input_ready_for_adjudication"
+      : "player_input_binding_unavailable",
+  };
+}
+
+export function buildOpenTurnRecoveryGuidance(
+  data: JsonObject,
+  actingAuthorized = false,
+): JsonObject {
   const nextOperations = nextOperationsOf(data);
   return {
     schema_version: 1,
@@ -1218,11 +1659,15 @@ export function buildOpenTurnRecoveryGuidance(data: JsonObject): JsonObject {
     next_operations: nextOperations.includes("continue_current_turn_from_receipts")
       ? nextOperations
       : ["continue_current_turn_from_receipts", ...nextOperations],
-    current_acl_supersedes_prior_denials: true,
-    closure_sequence: OPEN_TURN_RECOVERY_CLOSURE_SEQUENCE.map((row) => ({
-      ...row,
-    })),
-    after_closure: "adjudicate_unsettled_player_action",
+    current_acl_supersedes_prior_denials: actingAuthorized,
+    acting_authorized: actingAuthorized,
+    next_capabilities: actingAuthorized
+      ? OPEN_TURN_RECOVERY_ACTING_CAPABILITIES.map((row) => ({ ...row }))
+      : [],
+    closure_sequence: actingAuthorized
+      ? OPEN_TURN_RECOVERY_CLOSURE_SEQUENCE.map((row) => ({ ...row }))
+      : [],
+    after_settlement: "journal_then_build_output_context_review_and_finalize",
     forbidden_until_closed: [...OPEN_TURN_RECOVERY_FORBIDDEN_UNTIL_CLOSED],
     keep: ["kp_semantic_judgment", "rule4"],
     do_not: [
@@ -1233,7 +1678,14 @@ export function buildOpenTurnRecoveryGuidance(data: JsonObject): JsonObject {
   };
 }
 
-export function applyOpenTurnRecoveryGuidance(value: unknown): {
+export function applyOpenTurnRecoveryGuidance(
+  value: unknown,
+  options: {
+    expectedCampaign?: string;
+    playerInput?: OpenTurnPlayerInputCard | null;
+    zeroToolAccepted?: boolean;
+  } = {},
+): {
   attached: boolean;
   envelope: unknown;
   audit: JsonObject | null;
@@ -1242,9 +1694,23 @@ export function applyOpenTurnRecoveryGuidance(value: unknown): {
     return { attached: false, envelope: value, audit: null };
   }
   const data = isPlainObject(value.data) ? value.data : {};
-  const guidance = buildOpenTurnRecoveryGuidance(data);
+  const campaignMatches = options.expectedCampaign === undefined
+    || data.campaign_id === options.expectedCampaign;
+  const playerInput = validOpenTurnPlayerInput(options.playerInput)
+    ? options.playerInput
+    : null;
+  const currentTurn = semanticOpenTurnProjection(
+    data.current_turn,
+    campaignMatches ? playerInput : null,
+    options.zeroToolAccepted === true,
+  );
+  const actingAuthorized = campaignMatches
+    && currentTurn?.recovery_status
+      === "accepted_player_input_ready_for_adjudication";
+  const guidance = buildOpenTurnRecoveryGuidance(data, actingAuthorized);
   const rest = { ...data };
   delete rest.host_recovery_guidance;
+  if (currentTurn !== null) rest.current_turn = currentTurn;
   return {
     attached: true,
     envelope: {
@@ -1259,6 +1725,9 @@ export function applyOpenTurnRecoveryGuidance(value: unknown): {
       contract_id: OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT,
       campaign_id: typeof data.campaign_id === "string" ? data.campaign_id : null,
       mode: "open_turn_recovery",
+      acting_authorized: actingAuthorized,
+      player_input_status: currentTurn?.recovery_status
+        ?? "player_input_binding_unavailable",
     },
   };
 }

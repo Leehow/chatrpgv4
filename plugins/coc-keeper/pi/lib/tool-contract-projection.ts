@@ -33,6 +33,96 @@ export type NarrationReviewBindingCard = {
   state_claim_compilation: Record<string, unknown>;
 };
 
+export const REVIEWED_AGENCY_CLAIM_TYPES = [
+  "voluntary_action",
+  "voluntary_speech",
+  "voluntary_plan",
+  "voluntary_belief",
+  "voluntary_trust",
+  "voluntary_active_emotion",
+  "forced_behavior",
+  "involuntary_physiology",
+] as const;
+
+export type ReviewedAgencyClaimType = typeof REVIEWED_AGENCY_CLAIM_TYPES[number];
+
+export type ReviewedAgencySpan = {
+  /** Stable model-facing ordinal selected after an accepted review. */
+  reviewed_span: string;
+  /** Exact reviewed bytes; host-only and restored at invocation time. */
+  exact_excerpt: string;
+};
+
+export type ReviewedAgencyAuthority = {
+  /** Stable model-facing authority choice, never a canonical source id. */
+  authority: string;
+  claim_types: readonly ReviewedAgencyClaimType[];
+  /** Exact canonical evidence below stays host-only. */
+  subject_ref: string;
+  source_ref: string;
+  override_id: string | null;
+};
+
+export const REVIEWED_COVERAGE_FACTS_CONTRACT =
+  "coc.reviewed-coverage-binding-facts.v1";
+
+export type ReviewedCoverageBindingFacts = {
+  schema_version: 1;
+  contract_id: typeof REVIEWED_COVERAGE_FACTS_CONTRACT;
+  settlement_snapshot_id: string;
+  mechanics_bundle_sha256: string;
+  obligations: readonly Record<string, unknown>[];
+  public_check_source_ids: readonly string[];
+  state_delta_source_ids: readonly string[];
+  exceptional_effect_source_ids: readonly string[];
+};
+
+export type SemanticObligationRef = {
+  /** Exact canonical finalizer join key; host-only. */
+  obligation_id: string;
+  /** Stable meaning-bearing model selection minted by the identity registry. */
+  obligation_ref: string;
+};
+
+export type ReviewedCoverageObligation = {
+  obligation_ref: string;
+  /** Exact canonical finalizer join key; host-only. */
+  obligation_id: string;
+  source_kind: string;
+  visibility: string;
+  npc_display_name: string | null;
+  skill: string | null;
+  goal: string | null;
+  outcome: string | null;
+  exceptional_required: boolean;
+  allowed_reviewed_spans: readonly string[];
+  realization: "fictional_beat" | "concealed_no_player_visible_beat";
+  placement_mode:
+    | "host_safe_default_before_result"
+    | "canonical_repair_if_unsafe"
+    | "host_safe_default"
+    | "none";
+};
+
+export type ReviewedMechanicsPlacementBinding = {
+  mode: "host_safe_default";
+  public_check_count: number;
+  state_delta_count: number;
+  exceptional_effect_count: number;
+};
+
+export type ReviewedAgencyBinding = {
+  schema_version: 1;
+  review_id: string;
+  revision: number;
+  draft_sha256: string;
+  draft: string;
+  spans: readonly ReviewedAgencySpan[];
+  authorities: readonly ReviewedAgencyAuthority[];
+  coverage_obligations: readonly ReviewedCoverageObligation[];
+  mechanics_placement: ReviewedMechanicsPlacementBinding;
+};
+
 export type TurnFinalizeBindingCard = {
   schema_version: 1;
   operation: "turn.finalize";
@@ -43,8 +133,16 @@ export type TurnFinalizeBindingCard = {
   revision: number;
   turn_id: string;
   source_digest: string;
-  narration_review_id: string;
+  narration_review_id: string | null;
+  /** Test-only direct first-draft binding; production review path omits it. */
+  direct_single_draft?: true;
   repair_finalization_id?: string;
+  /**
+   * Present only after a clear accepted narration.review. The model selects
+   * reviewed spans and semantic authority; the host restores the frozen
+   * draft and the canonical exact agency_claims object.
+   */
+  reviewed_agency_binding?: ReviewedAgencyBinding;
 };
 
 export type SceneRouteCandidate = {
@@ -94,9 +192,16 @@ export type CombatTargetCandidate =
   | {
     candidate_id: string;
     invocation_mode: "pending_defense";
+    allowed_defenses: readonly CombatDefenseKind[];
     target_npc_id?: never;
     affordance_id?: never;
   };
+
+export type CombatDefenseKind =
+  | "dodge"
+  | "fight_back"
+  | "dive_for_cover"
+  | "none";
 
 export type CombatResolveBindingCard = {
   schema_version: 1;
@@ -108,6 +213,54 @@ export type CombatResolveBindingCard = {
   combat_revision: string;
   combat_digest: string;
   candidates: readonly CombatTargetCandidate[];
+};
+
+export type ChaseActionCandidate = {
+  actor_handle: string;
+  action_handle: string;
+  destination_handle: string;
+  /** Exact canonical command material below stays host-only. */
+  actor_id: string;
+  action_id: string;
+  kind: "chase_move";
+};
+
+export type ChaseExecuteBindingCard = {
+  schema_version: 1;
+  operation: "chase.execute";
+  binding_revision: string;
+  root: string;
+  campaign: string;
+  decision_id: string;
+  investigator: string;
+  chase_id: string;
+  chase_revision: number;
+  chase_digest: string;
+  candidates: readonly ChaseActionCandidate[];
+};
+
+export type SanityBoutActionCandidate = {
+  action: "tick" | "end";
+  kind: "bout_tick" | "bout_end";
+  /** Exact executor identities are host-only and never enter model schemas. */
+  decision_id: string;
+  command_id: string;
+};
+
+export type SanityBoutBindingCard = {
+  schema_version: 1;
+  operation: "sanity.execute";
+  binding_revision: string;
+  root: string;
+  campaign: string;
+  /** Binding-card identity; the selected candidate supplies the command decision. */
+  decision_id: string;
+  investigator: string;
+  bout_id: string;
+  choice_id: string;
+  source_command_id: string;
+  choice_revision: number;
+  candidates: readonly SanityBoutActionCandidate[];
 };
 
 export type TableOpeningBindingCard = {
@@ -146,6 +299,39 @@ export type NpcReactionRunBindingCard = {
   run_id?: string;
 };
 
+export type SocialInteractionCandidate = {
+  candidate_id: string;
+  investigator: string;
+  npc_id: string;
+  conversation_window_id: string;
+  first_impression_ref?: string;
+  validated_fact_refs: readonly string[];
+};
+
+export type SocialAdjudicationBindingCard = {
+  schema_version: 1;
+  operation: "rules.social_adjudicate";
+  binding_revision: string;
+  root: string;
+  campaign: string;
+  decision_id: string;
+  candidates: readonly SocialInteractionCandidate[];
+};
+
+export type PsychologyObserveBindingCard = {
+  schema_version: 1;
+  operation: "rules.psychology_observe";
+  binding_revision: string;
+  root: string;
+  campaign: string;
+  decision_id: string;
+  realize_decision_id: string;
+  candidates: readonly (SocialInteractionCandidate & {
+    observation_revision: number;
+    observer_scope: string;
+  })[];
+};
+
 export type TypedToolBindingCard =
   | StateJournalBindingCard
   | NarrationReviewBindingCard
@@ -153,9 +339,13 @@ export type TypedToolBindingCard =
   | SceneMoveBindingCard
   | AdvanceTimeBindingCard
   | CombatResolveBindingCard
+  | ChaseExecuteBindingCard
+  | SanityBoutBindingCard
   | TableOpeningBindingCard
   | NpcEngagementBindingCard
-  | NpcReactionRunBindingCard;
+  | NpcReactionRunBindingCard
+  | SocialAdjudicationBindingCard
+  | PsychologyObserveBindingCard;
 
 /**
  * Same identity shape, but supplied independently from current canonical host
@@ -196,7 +386,7 @@ export class ToolContractProjectionError extends Error {
   }
 }
 
-export const HOST_OWNED_FIELDS: Record<TypedToolBindingCard["operation"], readonly string[]> = {
+export const HOST_OWNED_FIELDS: Readonly<Record<string, readonly string[]>> = {
   "state.journal": [
     "root",
     "campaign",
@@ -239,6 +429,12 @@ export const HOST_OWNED_FIELDS: Record<TypedToolBindingCard["operation"], readon
     "target_npc_id",
     "affordance_id",
   ],
+  "chase.execute": [
+    "root",
+    "campaign",
+    "decision_id",
+    "investigator",
+  ],
   "evidence.table_opening": [
     "root",
     "campaign",
@@ -260,6 +456,32 @@ export const HOST_OWNED_FIELDS: Record<TypedToolBindingCard["operation"], readon
     "campaign",
     "investigator",
     "run_id",
+  ],
+  "sanity.execute": [
+    "decision_id",
+  ],
+  "rules.sanity_check": [
+    "decision_id",
+  ],
+  "rules.social_adjudicate": [
+    "root",
+    "campaign",
+    "decision_id",
+    "investigator",
+    "npc_id",
+    "conversation_window_id",
+  ],
+  "rules.psychology_observe": [
+    "root",
+    "campaign",
+    "decision_id",
+    "investigator",
+    "npc_id",
+    "conversation_window_id",
+    "observation_revision",
+    "observer_scope",
+    "observable_fact_refs",
+    "revision_event_ref",
   ],
 };
 
@@ -650,6 +872,504 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
+const REVIEWED_OBLIGATION_REF_RE =
+  /^roll:[a-z0-9\u3400-\u9fff][a-z0-9\u3400-\u9fff-]{0,126}$/;
+
+function exactUniqueStrings(
+  value: unknown,
+  field: string,
+  maxItems = 128,
+): string[] {
+  if (!Array.isArray(value) || value.length > maxItems) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      `${field} must be a bounded string array`,
+      { field },
+    );
+  }
+  const rows = value.map((entry) => nonEmptyString(entry, field));
+  if (rows.length !== new Set(rows).size) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      `${field} must not contain duplicate identities`,
+      { field },
+    );
+  }
+  return rows;
+}
+
+function validateReviewedCoverageBindingFacts(
+  value: unknown,
+): ReviewedCoverageBindingFacts {
+  if (
+    !isPlainObject(value)
+    || !exactObjectKeys(value, [
+      "schema_version", "contract_id", "settlement_snapshot_id",
+      "mechanics_bundle_sha256", "obligations", "public_check_source_ids",
+      "state_delta_source_ids", "exceptional_effect_source_ids",
+    ])
+    || value.schema_version !== 1
+    || value.contract_id !== REVIEWED_COVERAGE_FACTS_CONTRACT
+  ) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "accepted-review coverage facts use the closed v1 host contract",
+      { field: "coverage_binding_facts" },
+    );
+  }
+  nonEmptyString(
+    value.settlement_snapshot_id,
+    "coverage_binding_facts.settlement_snapshot_id",
+  );
+  const mechanicsDigest = nonEmptyString(
+    value.mechanics_bundle_sha256,
+    "coverage_binding_facts.mechanics_bundle_sha256",
+  );
+  if (!/^sha256:[0-9a-f]{64}$/.test(mechanicsDigest)) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "accepted-review coverage facts require the exact mechanics digest",
+      { field: "coverage_binding_facts.mechanics_bundle_sha256" },
+    );
+  }
+  if (!Array.isArray(value.obligations) || value.obligations.length > 64) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "accepted-review coverage facts require at most 64 obligations",
+      { field: "coverage_binding_facts.obligations" },
+    );
+  }
+  const obligations = value.obligations.map((raw, index) => {
+    if (!isPlainObject(raw)) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "accepted-review coverage obligation must be structured",
+        { field: `coverage_binding_facts.obligations[${index}]` },
+      );
+    }
+    for (const field of [
+      "obligation_id", "source_kind", "source_id", "visibility",
+    ]) {
+      nonEmptyString(
+        raw[field],
+        `coverage_binding_facts.obligations[${index}].${field}`,
+      );
+    }
+    if (typeof raw.exceptional_required !== "boolean") {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "coverage obligation exceptional_required must be boolean",
+        { field: `coverage_binding_facts.obligations[${index}].exceptional_required` },
+      );
+    }
+    return structuredClone(raw);
+  });
+  const obligationIds = obligations.map((row) => String(row.obligation_id));
+  if (obligationIds.length !== new Set(obligationIds).size) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "accepted-review coverage obligations must have unique canonical ids",
+      { field: "coverage_binding_facts.obligations" },
+    );
+  }
+  const publicCheckSourceIds = exactUniqueStrings(
+    value.public_check_source_ids,
+    "coverage_binding_facts.public_check_source_ids",
+  );
+  const obligationSourceIds = new Set(
+    obligations.map((row) => String(row.source_id)),
+  );
+  if (publicCheckSourceIds.some((sourceId) => !obligationSourceIds.has(sourceId))) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "every public check source must belong to a retained obligation",
+      { field: "coverage_binding_facts.public_check_source_ids" },
+    );
+  }
+  return {
+    schema_version: 1,
+    contract_id: REVIEWED_COVERAGE_FACTS_CONTRACT,
+    settlement_snapshot_id: String(value.settlement_snapshot_id),
+    mechanics_bundle_sha256: mechanicsDigest,
+    obligations,
+    public_check_source_ids: publicCheckSourceIds,
+    state_delta_source_ids: exactUniqueStrings(
+      value.state_delta_source_ids,
+      "coverage_binding_facts.state_delta_source_ids",
+    ),
+    exceptional_effect_source_ids: exactUniqueStrings(
+      value.exceptional_effect_source_ids,
+      "coverage_binding_facts.exceptional_effect_source_ids",
+    ),
+  };
+}
+
+/** Build the exact host-only coverage facts from one canonical output context. */
+export function buildReviewedCoverageBindingFacts(
+  value: unknown,
+): ReviewedCoverageBindingFacts {
+  const data = isPlainObject(value) ? value : null;
+  const mechanics = data !== null && isPlainObject(data.mechanics_summary)
+    ? data.mechanics_summary
+    : null;
+  if (data === null || mechanics === null) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "coverage binding requires one complete canonical output context",
+      { field: "output_context" },
+    );
+  }
+  const sourceIds = (
+    rows: unknown,
+    field: "roll_id" | "effect_id" | "event_id",
+  ): string[] => {
+    if (!Array.isArray(rows)) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        `mechanics_summary.${field} source rows must be an array`,
+        { field: `mechanics_summary.${field}` },
+      );
+    }
+    return rows.map((raw, index) => {
+      const row = isPlainObject(raw) ? raw : null;
+      const value = row?.[field];
+      if (typeof value !== "string" || !value.trim()) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          `mechanics_summary source row lacks ${field}`,
+          { field: `mechanics_summary.${field}[${index}]` },
+        );
+      }
+      return value.trim();
+    }).sort();
+  };
+  return validateReviewedCoverageBindingFacts({
+    schema_version: 1,
+    contract_id: REVIEWED_COVERAGE_FACTS_CONTRACT,
+    settlement_snapshot_id: data.settlement_snapshot_id,
+    mechanics_bundle_sha256: data.mechanics_bundle_sha256,
+    obligations: Array.isArray(data.obligations) ? data.obligations : [],
+    public_check_source_ids: sourceIds(mechanics.public_check, "roll_id"),
+    state_delta_source_ids: sourceIds(mechanics.state_delta, "effect_id"),
+    exceptional_effect_source_ids: sourceIds(
+      mechanics.exceptional_effect,
+      "event_id",
+    ),
+  });
+}
+
+export type ReviewedAgencyBindingSource = {
+  review_id: string;
+  revision: number;
+  draft_sha256: string;
+  draft: string;
+  state_authority_review: unknown;
+  player_input_source_ref: string;
+  agency_authority: unknown;
+  control_overrides: unknown;
+  coverage_binding_facts: unknown;
+  semantic_obligation_refs: unknown;
+};
+
+function reviewedParagraphs(draft: string): string[] {
+  return draft
+    .split(/\n[\t ]*\n/u)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph.length > 0);
+}
+
+function reviewedSentences(paragraph: string): string[] {
+  const sentences: string[] = [];
+  let start = 0;
+  for (let index = 0; index < paragraph.length; index += 1) {
+    if (!"。！？!?".includes(paragraph[index])) continue;
+    const sentence = paragraph.slice(start, index + 1).trim();
+    if (sentence) sentences.push(sentence);
+    start = index + 1;
+  }
+  const tail = paragraph.slice(start).trim();
+  if (tail) sentences.push(tail);
+  return sentences;
+}
+
+function authoritySlug(value: unknown): string {
+  const slug = String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return slug || "override";
+}
+
+/**
+ * Build the host-only exact binding behind the post-review semantic surface.
+ * This performs only structural segmentation (review claim / sentence /
+ * paragraph ordinals); it never classifies prose meaning with strings.
+ */
+export function buildReviewedAgencyBinding(
+  source: ReviewedAgencyBindingSource,
+): ReviewedAgencyBinding {
+  const reviewId = nonEmptyString(source.review_id, "review_id");
+  const revision = requirePositiveRevision(source.revision, "revision");
+  const draftSha256 = nonEmptyString(source.draft_sha256, "draft_sha256");
+  const draft = nonEmptyString(source.draft, "draft");
+  const authority = isPlainObject(source.agency_authority)
+    ? source.agency_authority
+    : null;
+  const pcSubjectRefs = authority !== null && Array.isArray(authority.pc_subject_refs)
+    ? authority.pc_subject_refs.filter(
+      (value): value is string => typeof value === "string" && value.trim().length > 0,
+    )
+    : [];
+  if (pcSubjectRefs.length !== 1 || new Set(pcSubjectRefs).size !== 1) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "semantic accepted-review binding currently requires one exact current PC",
+      { field: "agency_authority.pc_subject_refs" },
+    );
+  }
+  const subjectRef = pcSubjectRefs[0];
+  const playerSourceRef = nonEmptyString(
+    source.player_input_source_ref,
+    "player_input_source_ref",
+  );
+  const spans: ReviewedAgencySpan[] = [];
+  const spanNames = new Set<string>();
+  const addSpan = (reviewedSpan: string, exactExcerpt: unknown): void => {
+    if (
+      spans.length >= 64
+      || typeof exactExcerpt !== "string"
+      || !exactExcerpt.trim()
+      || !draft.includes(exactExcerpt)
+      || spanNames.has(reviewedSpan)
+    ) return;
+    spans.push({ reviewed_span: reviewedSpan, exact_excerpt: exactExcerpt });
+    spanNames.add(reviewedSpan);
+  };
+  const stateReview = isPlainObject(source.state_authority_review)
+    ? source.state_authority_review
+    : null;
+  const stateClaims = stateReview !== null && Array.isArray(stateReview.claims)
+    ? stateReview.claims
+    : [];
+  stateClaims.forEach((raw, index) => {
+    const row = isPlainObject(raw) ? raw : null;
+    addSpan(`reviewed-state-claim:${index + 1}`, row?.exact_excerpt);
+  });
+  reviewedParagraphs(draft).forEach((paragraph, paragraphIndex) => {
+    reviewedSentences(paragraph).forEach((sentence, sentenceIndex) => {
+      addSpan(
+        `reviewed-sentence:paragraph-${paragraphIndex + 1}:${sentenceIndex + 1}`,
+        sentence,
+      );
+    });
+    addSpan(`reviewed-paragraph:${paragraphIndex + 1}`, paragraph);
+  });
+  if (spans.length === 0) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "accepted review did not yield any exact structural draft span",
+      { field: "reviewed_agency_binding.spans" },
+    );
+  }
+  const coverageFacts = validateReviewedCoverageBindingFacts(
+    source.coverage_binding_facts,
+  );
+  if (!Array.isArray(source.semantic_obligation_refs)) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "accepted-review coverage binding requires semantic obligation refs",
+      { field: "semantic_obligation_refs" },
+    );
+  }
+  const semanticRefs = new Map<string, string>();
+  const seenObligationRefs = new Set<string>();
+  for (const [index, raw] of source.semantic_obligation_refs.entries()) {
+    if (
+      !isPlainObject(raw)
+      || !exactObjectKeys(raw, ["obligation_id", "obligation_ref"])
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "semantic obligation refs use the exact canonical/ref schema",
+        { field: `semantic_obligation_refs[${index}]` },
+      );
+    }
+    const obligationId = nonEmptyString(
+      raw.obligation_id,
+      `semantic_obligation_refs[${index}].obligation_id`,
+    );
+    const obligationRef = nonEmptyString(
+      raw.obligation_ref,
+      `semantic_obligation_refs[${index}].obligation_ref`,
+    );
+    if (
+      !REVIEWED_OBLIGATION_REF_RE.test(obligationRef)
+      || semanticRefs.has(obligationId)
+      || seenObligationRefs.has(obligationRef)
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "semantic obligation refs must be unique live roll-domain handles",
+        { field: `semantic_obligation_refs[${index}]` },
+      );
+    }
+    semanticRefs.set(obligationId, obligationRef);
+    seenObligationRefs.add(obligationRef);
+  }
+  const canonicalObligationIds = coverageFacts.obligations.map(
+    (row) => String(row.obligation_id),
+  );
+  if (
+    semanticRefs.size !== canonicalObligationIds.length
+    || canonicalObligationIds.some((obligationId) => !semanticRefs.has(obligationId))
+  ) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "semantic obligation refs must cover the exact accepted-review obligations",
+      { field: "semantic_obligation_refs" },
+    );
+  }
+  const paragraphs = reviewedParagraphs(draft);
+  const firstParagraphOrdinal = (excerpt: string): number => {
+    const index = paragraphs.findIndex((paragraph) => paragraph.includes(excerpt));
+    return index < 0 ? 0 : index + 1;
+  };
+  const publicCheckSources = new Set(coverageFacts.public_check_source_ids);
+  const semanticText = (value: unknown): string | null => (
+    typeof value === "string" && value.trim()
+      ? value.trim().slice(0, 1024)
+      : null
+  );
+  const coverageObligations: ReviewedCoverageObligation[] = coverageFacts.obligations
+    .map((row) => {
+      const obligationId = String(row.obligation_id);
+      const sourceKind = String(row.source_kind);
+      const concealed = sourceKind === "concealed_roll";
+      const publicCheck = publicCheckSources.has(String(row.source_id));
+      const safePublicSpans = publicCheck
+        ? spans.filter((span) => firstParagraphOrdinal(span.exact_excerpt) > 1)
+        : spans;
+      const allowedReviewedSpans = concealed
+        ? []
+        : (safePublicSpans.length > 0 ? safePublicSpans : spans)
+          .map((span) => span.reviewed_span);
+      if (!concealed && allowedReviewedSpans.length === 0) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          "a visible accepted-review obligation has no safe reviewed span",
+          { field: `coverage_binding_facts.obligations.${obligationId}` },
+        );
+      }
+      return {
+        obligation_ref: semanticRefs.get(obligationId)!,
+        obligation_id: obligationId,
+        source_kind: sourceKind,
+        visibility: String(row.visibility),
+        npc_display_name: semanticText(row.npc_display_name),
+        skill: semanticText(row.skill),
+        goal: semanticText(row.goal),
+        outcome: semanticText(row.outcome),
+        exceptional_required: row.exceptional_required === true,
+        allowed_reviewed_spans: allowedReviewedSpans,
+        realization: concealed
+          ? "concealed_no_player_visible_beat" as const
+          : "fictional_beat" as const,
+        placement_mode: concealed
+          ? "none" as const
+          : publicCheck
+            ? safePublicSpans.length > 0
+              ? "host_safe_default_before_result" as const
+              : "canonical_repair_if_unsafe" as const
+            : "host_safe_default" as const,
+      };
+    })
+    .sort((left, right) => left.obligation_id.localeCompare(right.obligation_id));
+  const authorities: ReviewedAgencyAuthority[] = [{
+    authority: "current-player-input",
+    claim_types: [
+      "voluntary_action", "voluntary_speech", "voluntary_plan",
+      "voluntary_belief", "voluntary_trust", "voluntary_active_emotion",
+    ],
+    subject_ref: subjectRef,
+    source_ref: playerSourceRef,
+    override_id: null,
+  }];
+  const physiologySources = authority !== null
+    && Array.isArray(authority.involuntary_physiology_sources)
+    ? authority.involuntary_physiology_sources.filter(isPlainObject)
+    : [];
+  physiologySources.forEach((row, index) => {
+    if (
+      row.source_type !== "ownership_contract"
+      || typeof row.source_ref !== "string"
+      || !row.source_ref.trim()
+    ) return;
+    authorities.push({
+      authority: physiologySources.length === 1
+        ? "involuntary-physiology"
+        : `involuntary-physiology:${index + 1}`,
+      claim_types: ["involuntary_physiology"],
+      subject_ref: subjectRef,
+      source_ref: row.source_ref,
+      override_id: null,
+    });
+  });
+  const controlOverrides = Array.isArray(source.control_overrides)
+    ? source.control_overrides.filter(isPlainObject)
+    : [];
+  controlOverrides
+    .filter((row) => (
+      row.active === true
+      && row.subject_ref === subjectRef
+      && typeof row.override_id === "string"
+      && row.override_id.trim().length > 0
+      && typeof row.source_ref === "string"
+      && row.source_ref.trim().length > 0
+    ))
+    .sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)))
+    .forEach((row, index) => {
+      authorities.push({
+        authority: (
+          `control-override:${authoritySlug(row.override_type)}:${index + 1}`
+        ),
+        claim_types: ["forced_behavior"],
+        subject_ref: subjectRef,
+        source_ref: String(row.source_ref),
+        override_id: String(row.override_id),
+      });
+    });
+  const built: ReviewedAgencyBinding = {
+    schema_version: 1,
+    review_id: reviewId,
+    revision,
+    draft_sha256: draftSha256,
+    draft,
+    spans,
+    authorities,
+    coverage_obligations: coverageObligations,
+    mechanics_placement: {
+      mode: "host_safe_default",
+      public_check_count: coverageFacts.public_check_source_ids.length,
+      state_delta_count: coverageFacts.state_delta_source_ids.length,
+      exceptional_effect_count: coverageFacts.exceptional_effect_source_ids.length,
+    },
+  };
+  validateReviewedAgencyBinding(built, {
+    schema_version: 1,
+    operation: "turn.finalize",
+    binding_revision: "reviewed-agency-construction",
+    root: "host",
+    campaign: "host",
+    decision_id: "host",
+    revision,
+    turn_id: "host",
+    source_digest: "host",
+    narration_review_id: reviewId,
+  });
+  return built;
+}
+
 function validateSceneCandidates(
   value: readonly SceneRouteCandidate[],
   allowEmpty = false,
@@ -753,6 +1473,22 @@ function validateCombatCandidates(value: readonly CombatTargetCandidate[]): void
           { field: "candidates" },
         );
       }
+      const allowed = candidate.allowed_defenses;
+      const validDefenses = new Set<CombatDefenseKind>([
+        "dodge", "fight_back", "dive_for_cover", "none",
+      ]);
+      if (
+        !Array.isArray(allowed)
+        || allowed.length === 0
+        || new Set(allowed).size !== allowed.length
+        || allowed.some((kind) => !validDefenses.has(kind))
+      ) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          "pending defense must retain one or more unique canonical allowed_defenses",
+          { field: "candidates.allowed_defenses" },
+        );
+      }
     } else {
       throw new ToolContractProjectionError(
         "binding_context_invalid",
@@ -766,6 +1502,300 @@ function validateCombatCandidates(value: readonly CombatTargetCandidate[]): void
       "binding_context_invalid",
       "pending defense must be the sole retained combat candidate",
       { field: "candidates" },
+    );
+  }
+}
+
+function validateChaseCandidates(value: readonly ChaseActionCandidate[]): void {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "retained chase candidates must be a non-empty array",
+      { field: "candidates" },
+    );
+  }
+  const seen = new Set<string>();
+  for (const candidate of value) {
+    if (!isPlainObject(candidate)) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "retained chase candidate must be an object",
+        { field: "candidates" },
+      );
+    }
+    const actor = nonEmptyString(candidate.actor_handle, "candidates.actor_handle");
+    const action = nonEmptyString(candidate.action_handle, "candidates.action_handle");
+    nonEmptyString(candidate.actor_id, "candidates.actor_id");
+    nonEmptyString(candidate.action_id, "candidates.action_id");
+    nonEmptyString(candidate.destination_handle, "candidates.destination_handle");
+    if (candidate.kind !== "chase_move") {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "retained chase candidate has an unsupported command kind",
+        { field: "candidates.kind" },
+      );
+    }
+    const key = `${actor}\u0000${action}`;
+    if (seen.has(key)) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "retained chase semantic choices must be unique",
+        { field: "candidates" },
+      );
+    }
+    seen.add(key);
+  }
+}
+
+const REVIEWED_AGENCY_SPAN_RE =
+  /^reviewed-(?:state-claim|sentence|paragraph):[a-z0-9][a-z0-9:-]{0,126}$/;
+const REVIEWED_AGENCY_AUTHORITY_RE =
+  /^(?:current-player-input|involuntary-physiology(?::[1-9][0-9]{0,2})?|control-override:[a-z0-9][a-z0-9-]{0,63}:[1-9][0-9]{0,2})$/;
+
+function exactObjectKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+): boolean {
+  return canonicalJson(Object.keys(value).sort()) === canonicalJson([...expected].sort());
+}
+
+function validateReviewedAgencyBinding(
+  value: ReviewedAgencyBinding,
+  owner: TurnFinalizeBindingCard,
+): void {
+  if (
+    !isPlainObject(value)
+    || !exactObjectKeys(value, [
+      "schema_version", "review_id", "revision", "draft_sha256", "draft",
+      "spans", "authorities", "coverage_obligations", "mechanics_placement",
+    ])
+    || value.schema_version !== 1
+    || value.review_id !== owner.narration_review_id
+    || value.revision !== owner.revision
+  ) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "reviewed agency binding must match the accepted review identity and revision",
+      { field: "reviewed_agency_binding" },
+    );
+  }
+  const draft = nonEmptyString(value.draft, "reviewed_agency_binding.draft");
+  const digest = nonEmptyString(
+    value.draft_sha256,
+    "reviewed_agency_binding.draft_sha256",
+  );
+  if (!/^sha256:[0-9a-f]{64}$/.test(digest)) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "reviewed agency binding draft digest must be a canonical sha256 value",
+      { field: "reviewed_agency_binding.draft_sha256" },
+    );
+  }
+  if (!Array.isArray(value.spans) || value.spans.length < 1 || value.spans.length > 64) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "reviewed agency binding requires one to 64 exact reviewed spans",
+      { field: "reviewed_agency_binding.spans" },
+    );
+  }
+  const spanNames = new Set<string>();
+  for (const raw of value.spans) {
+    if (
+      !isPlainObject(raw)
+      || !exactObjectKeys(raw, ["reviewed_span", "exact_excerpt"])
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "reviewed agency spans use a closed semantic-ref/exact-excerpt schema",
+        { field: "reviewed_agency_binding.spans" },
+      );
+    }
+    const span = nonEmptyString(
+      raw.reviewed_span,
+      "reviewed_agency_binding.spans.reviewed_span",
+    );
+    const excerpt = nonEmptyString(
+      raw.exact_excerpt,
+      "reviewed_agency_binding.spans.exact_excerpt",
+    );
+    if (
+      !REVIEWED_AGENCY_SPAN_RE.test(span)
+      || !draft.includes(excerpt)
+      || spanNames.has(span)
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "reviewed agency spans must be unique semantic ordinals over exact draft excerpts",
+        { field: "reviewed_agency_binding.spans" },
+      );
+    }
+    spanNames.add(span);
+  }
+  if (
+    !Array.isArray(value.authorities)
+    || value.authorities.length < 1
+    || value.authorities.length > 32
+  ) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "reviewed agency binding requires one to 32 semantic authorities",
+      { field: "reviewed_agency_binding.authorities" },
+    );
+  }
+  const authorityNames = new Set<string>();
+  for (const raw of value.authorities) {
+    if (
+      !isPlainObject(raw)
+      || !exactObjectKeys(raw, [
+        "authority", "claim_types", "subject_ref", "source_ref", "override_id",
+      ])
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "reviewed agency authorities use a closed semantic/canonical binding schema",
+        { field: "reviewed_agency_binding.authorities" },
+      );
+    }
+    const authority = nonEmptyString(
+      raw.authority,
+      "reviewed_agency_binding.authorities.authority",
+    );
+    nonEmptyString(raw.subject_ref, "reviewed_agency_binding.authorities.subject_ref");
+    nonEmptyString(raw.source_ref, "reviewed_agency_binding.authorities.source_ref");
+    const types = Array.isArray(raw.claim_types) ? raw.claim_types : [];
+    const authorityTypesValid = authority === "current-player-input"
+      ? types.every((entry) => (
+        typeof entry === "string"
+        && entry.startsWith("voluntary_")
+      ))
+      : authority.startsWith("involuntary-physiology")
+        ? types.length === 1 && types[0] === "involuntary_physiology"
+        : authority.startsWith("control-override:")
+          ? types.length === 1 && types[0] === "forced_behavior"
+          : false;
+    if (
+      !REVIEWED_AGENCY_AUTHORITY_RE.test(authority)
+      || authorityNames.has(authority)
+      || types.length < 1
+      || types.length !== new Set(types).size
+      || !types.every((entry) => (
+        typeof entry === "string"
+        && (REVIEWED_AGENCY_CLAIM_TYPES as readonly string[]).includes(entry)
+      ))
+      || !authorityTypesValid
+      || (
+        authority.startsWith("control-override:")
+          ? typeof raw.override_id !== "string" || !raw.override_id.trim()
+          : raw.override_id !== null
+      )
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "reviewed agency authority is stale, duplicated, or incompatible with its claim types",
+        { field: "reviewed_agency_binding.authorities" },
+      );
+    }
+    authorityNames.add(authority);
+  }
+  if (
+    !Array.isArray(value.coverage_obligations)
+    || value.coverage_obligations.length > 64
+  ) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "reviewed coverage binding requires at most 64 obligations",
+      { field: "reviewed_agency_binding.coverage_obligations" },
+    );
+  }
+  const obligationIds = new Set<string>();
+  const obligationRefs = new Set<string>();
+  for (const [index, raw] of value.coverage_obligations.entries()) {
+    if (
+      !isPlainObject(raw)
+      || !exactObjectKeys(raw, [
+        "obligation_ref", "obligation_id", "source_kind", "visibility",
+        "npc_display_name", "skill", "goal", "outcome",
+        "exceptional_required", "allowed_reviewed_spans", "realization",
+        "placement_mode",
+      ])
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "reviewed coverage obligations use the closed semantic/exact host schema",
+        { field: `reviewed_agency_binding.coverage_obligations[${index}]` },
+      );
+    }
+    const obligationRef = nonEmptyString(
+      raw.obligation_ref,
+      `reviewed_agency_binding.coverage_obligations[${index}].obligation_ref`,
+    );
+    const obligationId = nonEmptyString(
+      raw.obligation_id,
+      `reviewed_agency_binding.coverage_obligations[${index}].obligation_id`,
+    );
+    nonEmptyString(
+      raw.source_kind,
+      `reviewed_agency_binding.coverage_obligations[${index}].source_kind`,
+    );
+    nonEmptyString(
+      raw.visibility,
+      `reviewed_agency_binding.coverage_obligations[${index}].visibility`,
+    );
+    if (
+      !REVIEWED_OBLIGATION_REF_RE.test(obligationRef)
+      || obligationRefs.has(obligationRef)
+      || obligationIds.has(obligationId)
+      || typeof raw.exceptional_required !== "boolean"
+      || !Array.isArray(raw.allowed_reviewed_spans)
+      || raw.allowed_reviewed_spans.length > 64
+      || raw.allowed_reviewed_spans.some((span) => (
+        typeof span !== "string" || !spanNames.has(span)
+      ))
+      || raw.allowed_reviewed_spans.length
+        !== new Set(raw.allowed_reviewed_spans).size
+      || ![
+        "fictional_beat", "concealed_no_player_visible_beat",
+      ].includes(String(raw.realization))
+      || ![
+        "host_safe_default_before_result", "canonical_repair_if_unsafe",
+        "host_safe_default", "none",
+      ].includes(String(raw.placement_mode))
+      || (
+        raw.realization === "concealed_no_player_visible_beat"
+          ? raw.allowed_reviewed_spans.length !== 0 || raw.placement_mode !== "none"
+          : raw.allowed_reviewed_spans.length === 0 || raw.placement_mode === "none"
+      )
+      || [
+        raw.npc_display_name, raw.skill, raw.goal, raw.outcome,
+      ].some((entry) => entry !== null && typeof entry !== "string")
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "reviewed coverage obligation is stale, duplicated, or structurally unsafe",
+        { field: `reviewed_agency_binding.coverage_obligations[${index}]` },
+      );
+    }
+    obligationRefs.add(obligationRef);
+    obligationIds.add(obligationId);
+  }
+  const mechanics = value.mechanics_placement;
+  if (
+    !isPlainObject(mechanics)
+    || !exactObjectKeys(mechanics, [
+      "mode", "public_check_count", "state_delta_count",
+      "exceptional_effect_count",
+    ])
+    || mechanics.mode !== "host_safe_default"
+    || [
+      mechanics.public_check_count,
+      mechanics.state_delta_count,
+      mechanics.exceptional_effect_count,
+    ].some((count) => !Number.isInteger(count) || Number(count) < 0)
+  ) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "reviewed mechanics placement binding must use the closed safe-default contract",
+      { field: "reviewed_agency_binding.mechanics_placement" },
     );
   }
 }
@@ -793,9 +1823,33 @@ function validateBindingShape(binding: TypedToolBindingCard): void {
     requirePositiveRevision(binding.revision, "revision");
     nonEmptyString(binding.turn_id, "turn_id");
     nonEmptyString(binding.source_digest, "source_digest");
-    nonEmptyString(binding.narration_review_id, "narration_review_id");
+    const directSingleDraft = binding.direct_single_draft === true;
+    if (binding.direct_single_draft !== undefined && !directSingleDraft) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "direct_single_draft must be true when present",
+        { field: "direct_single_draft" },
+      );
+    }
+    if (directSingleDraft) {
+      if (
+        binding.narration_review_id !== null
+        || binding.reviewed_agency_binding !== undefined
+      ) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          "direct single-draft finalize cannot carry review evidence",
+          { field: "narration_review_id" },
+        );
+      }
+    } else {
+      nonEmptyString(binding.narration_review_id, "narration_review_id");
+    }
     if (binding.repair_finalization_id !== undefined) {
       nonEmptyString(binding.repair_finalization_id, "repair_finalization_id");
+    }
+    if (binding.reviewed_agency_binding !== undefined) {
+      validateReviewedAgencyBinding(binding.reviewed_agency_binding, binding);
     }
   } else if (binding.operation === "state.move_scene") {
     nonEmptyString(binding.source_revision, "source_revision");
@@ -823,6 +1877,60 @@ function validateBindingShape(binding: TypedToolBindingCard): void {
     nonEmptyString(binding.combat_revision, "combat_revision");
     nonEmptyString(binding.combat_digest, "combat_digest");
     validateCombatCandidates(binding.candidates);
+  } else if (binding.operation === "chase.execute") {
+    nonEmptyString(binding.investigator, "investigator");
+    nonEmptyString(binding.chase_id, "chase_id");
+    requirePositiveRevision(binding.chase_revision, "chase_revision");
+    nonEmptyString(binding.chase_digest, "chase_digest");
+    validateChaseCandidates(binding.candidates);
+  } else if (binding.operation === "sanity.execute") {
+    nonEmptyString(binding.investigator, "investigator");
+    nonEmptyString(binding.bout_id, "bout_id");
+    nonEmptyString(binding.choice_id, "choice_id");
+    nonEmptyString(binding.source_command_id, "source_command_id");
+    if (
+      !Number.isInteger(binding.choice_revision)
+      || binding.choice_revision < 0
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "sanity bout choice_revision must be a non-negative integer",
+        { field: "choice_revision" },
+      );
+    }
+    if (
+      !Array.isArray(binding.candidates)
+      || binding.candidates.length === 0
+      || binding.candidates.length > 2
+    ) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "sanity bout binding requires one or two current semantic actions",
+        { field: "candidates" },
+      );
+    }
+    const actions = new Set<string>();
+    for (const [index, candidate] of binding.candidates.entries()) {
+      const expectedKind = candidate.action === "tick"
+        ? "bout_tick"
+        : candidate.action === "end"
+          ? "bout_end"
+          : null;
+      if (
+        expectedKind === null
+        || candidate.kind !== expectedKind
+        || actions.has(candidate.action)
+      ) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          "sanity bout candidates must be unique matching tick/end actions",
+          { field: `candidates[${index}]` },
+        );
+      }
+      nonEmptyString(candidate.decision_id, `candidates[${index}].decision_id`);
+      nonEmptyString(candidate.command_id, `candidates[${index}].command_id`);
+      actions.add(candidate.action);
+    }
   } else if (
     binding.operation === "evidence.table_opening"
   ) {
@@ -830,6 +1938,67 @@ function validateBindingShape(binding: TypedToolBindingCard): void {
   } else if (binding.operation === "npc.reaction") {
     nonEmptyString(binding.investigator, "investigator");
     if (binding.run_id !== undefined) nonEmptyString(binding.run_id, "run_id");
+  } else if (
+    binding.operation === "rules.social_adjudicate"
+    || binding.operation === "rules.psychology_observe"
+  ) {
+    if (!Array.isArray(binding.candidates) || binding.candidates.length === 0) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        `${binding.operation} requires at least one current interaction candidate`,
+        { field: "candidates" },
+      );
+    }
+    if (binding.operation === "rules.psychology_observe") {
+      nonEmptyString(binding.realize_decision_id, "realize_decision_id");
+    }
+    const candidateIds = new Set<string>();
+    for (const [index, candidate] of binding.candidates.entries()) {
+      const prefix = `candidates[${index}]`;
+      const candidateId = nonEmptyString(candidate.candidate_id, `${prefix}.candidate_id`);
+      nonEmptyString(candidate.investigator, `${prefix}.investigator`);
+      nonEmptyString(candidate.npc_id, `${prefix}.npc_id`);
+      nonEmptyString(
+        candidate.conversation_window_id,
+        `${prefix}.conversation_window_id`,
+      );
+      if (candidate.first_impression_ref !== undefined) {
+        nonEmptyString(candidate.first_impression_ref, `${prefix}.first_impression_ref`);
+      }
+      if (
+        candidateIds.has(candidateId)
+        || !Array.isArray(candidate.validated_fact_refs)
+        || (
+          binding.operation === "rules.psychology_observe"
+          && candidate.validated_fact_refs.length === 0
+        )
+        || candidate.validated_fact_refs.some((ref) => (
+          typeof ref !== "string" || !ref.trim()
+        ))
+        || new Set(candidate.validated_fact_refs).size
+          !== candidate.validated_fact_refs.length
+      ) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          `${binding.operation} candidates must have unique ids and verified fact refs`,
+          { field: prefix },
+        );
+      }
+      candidateIds.add(candidateId);
+      if (binding.operation === "rules.psychology_observe") {
+        if (
+          !Number.isInteger(candidate.observation_revision)
+          || candidate.observation_revision < 0
+        ) {
+          throw new ToolContractProjectionError(
+            "binding_context_invalid",
+            "psychology observation revision must be a non-negative integer",
+            { field: `${prefix}.observation_revision` },
+          );
+        }
+        nonEmptyString(candidate.observer_scope, `${prefix}.observer_scope`);
+      }
+    }
   } else {
     nonEmptyString(binding.npc_id, "npc_id");
     nonEmptyString(binding.investigator, "investigator");
@@ -933,7 +2102,12 @@ function bindingValues(binding: TypedToolBindingCard): Record<string, unknown> {
       campaign: binding.campaign,
       decision_id: binding.decision_id,
       revision: binding.revision,
-      narration_review_id: binding.narration_review_id,
+      ...(binding.narration_review_id === null
+        ? {}
+        : { narration_review_id: binding.narration_review_id }),
+      ...(binding.reviewed_agency_binding === undefined
+        ? {}
+        : { draft: binding.reviewed_agency_binding.draft }),
       ...(binding.repair_finalization_id === undefined
         ? {}
         : { repair_finalization_id: binding.repair_finalization_id }),
@@ -971,6 +2145,31 @@ function bindingValues(binding: TypedToolBindingCard): Record<string, unknown> {
       ...(binding.run_id === undefined ? {} : { run_id: binding.run_id }),
     };
   }
+  if (binding.operation === "chase.execute") {
+    return {
+      root: binding.root,
+      campaign: binding.campaign,
+      decision_id: binding.decision_id,
+      investigator: binding.investigator,
+    };
+  }
+  if (binding.operation === "sanity.execute") {
+    return {
+      root: binding.root,
+      campaign: binding.campaign,
+      decision_id: binding.decision_id,
+    };
+  }
+  if (
+    binding.operation === "rules.social_adjudicate"
+    || binding.operation === "rules.psychology_observe"
+  ) {
+    return {
+      root: binding.root,
+      campaign: binding.campaign,
+      decision_id: binding.decision_id,
+    };
+  }
   return {
     root: binding.root,
     campaign: binding.campaign,
@@ -997,7 +2196,31 @@ function hostOwnedFields(binding: TypedToolBindingCard): string[] {
     binding.operation === "combat.resolve"
     && binding.candidates.length === 1
   ) fields.push("candidate_id");
+  if (
+    binding.operation === "turn.finalize"
+    && binding.reviewed_agency_binding !== undefined
+  ) fields.push("draft", "mechanics_placements");
   return fields;
+}
+
+function selectedInteractionCandidate(
+  binding: SocialAdjudicationBindingCard | PsychologyObserveBindingCard,
+  modelInput: Record<string, unknown>,
+): SocialInteractionCandidate | PsychologyObserveBindingCard["candidates"][number] {
+  const candidateId = binding.candidates.length === 1
+    ? binding.candidates[0].candidate_id
+    : typeof modelInput.candidate_id === "string"
+      ? modelInput.candidate_id
+      : "";
+  const selected = binding.candidates.find((row) => row.candidate_id === candidateId);
+  if (!selected) {
+    throw new ToolContractProjectionError(
+      "semantic_candidate_stale",
+      `selected ${binding.operation} target is not current`,
+      { operation: binding.operation, candidate_field: "candidate_id" },
+    );
+  }
+  return selected;
 }
 
 function sceneNeedsRouteChoice(candidates: readonly SceneRouteCandidate[]): boolean {
@@ -1029,6 +2252,210 @@ function setEnumProperty(
   if (!required.includes(field)) schema.required = [...required, field];
 }
 
+function requireSchemaField(schema: JsonSchema, field: string): void {
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  if (!required.includes(field)) schema.required = [...required, field];
+}
+
+function projectChaseCommandSchema(
+  schema: JsonSchema,
+  binding: ChaseExecuteBindingCard,
+): void {
+  if (!isPlainObject(schema.properties)) return;
+  schema.properties.command = {
+    oneOf: binding.candidates.map((candidate) => {
+      const properties: Record<string, unknown> = {
+        actor: {
+          type: "string",
+          const: candidate.actor_handle,
+          description: "Choose one current semantic chase actor handle.",
+        },
+        action: {
+          type: "string",
+          const: candidate.action_handle,
+          description: "Choose one current legal semantic chase action.",
+        },
+      };
+      return {
+        type: "object",
+        additionalProperties: false,
+        properties,
+        required: ["actor", "action"],
+      };
+    }),
+    description: (
+      "Choose only the semantic actor and action. "
+      + "The host binds the canonical command identity, kind, phase, current "
+      + "revision, actor identity, and action identity from chase.context."
+    ),
+  };
+}
+
+function projectSanityBoutCommandSchema(
+  schema: JsonSchema,
+  binding: SanityBoutBindingCard,
+): void {
+  if (!isPlainObject(schema.properties)) return;
+  schema.properties.command = {
+    oneOf: binding.candidates.map((candidate) => ({
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: {
+          type: "string",
+          const: candidate.action,
+          description: (
+            candidate.action === "tick"
+              ? "Advance the current Keeper-controlled bout by one round."
+              : "End the current Keeper-controlled bout now."
+          ),
+        },
+      },
+      required: ["action"],
+    })),
+    description: (
+      "Choose only the semantic action for the current active bout. The host "
+      + "binds the exact pending choice, revision, command, bout, and "
+      + "idempotency identities from authoritative sanity state."
+    ),
+  };
+}
+
+function projectReviewedAgencyClaimsSchema(
+  schema: JsonSchema,
+  binding: ReviewedAgencyBinding,
+): void {
+  if (!isPlainObject(schema.properties)) return;
+  const spanValues = binding.spans.map((row) => row.reviewed_span);
+  const authorityBranches: JsonSchema[] = binding.authorities.map((row) => ({
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      reviewed_span: {
+        type: "string",
+        enum: spanValues,
+        description: (
+          "Choose one host-reviewed semantic span ordinal. The host restores "
+          + "the exact accepted-draft excerpt; never copy prose here."
+        ),
+      },
+      claim_type: {
+        type: "string",
+        enum: [...row.claim_types],
+      },
+      authority: {
+        type: "string",
+        const: row.authority,
+        description: (
+          "Choose this semantic authority. The host binds the exact PC, "
+          + "player input, physiology contract, or active override receipt."
+        ),
+      },
+    },
+    required: ["reviewed_span", "claim_type", "authority"],
+  }));
+  schema.properties.agency_claims = {
+    type: "array",
+    maxItems: 64,
+    items: authorityBranches.length === 1
+      ? authorityBranches[0]
+      : { oneOf: authorityBranches },
+    description: (
+      "Semantic agency selections for the accepted review. Submit [] when "
+      + "the reviewed draft contains no authorized PC proposition. Exact "
+      + "draft excerpts and canonical sources are host-bound."
+    ),
+  };
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  if (!required.includes("agency_claims")) {
+    schema.required = [...required, "agency_claims"];
+  }
+}
+
+function projectReviewedCoverageSchema(
+  schema: JsonSchema,
+  binding: ReviewedAgencyBinding,
+): void {
+  if (!isPlainObject(schema.properties)) return;
+  const branches: JsonSchema[] = binding.coverage_obligations.map((row) => {
+    const concealed = row.realization === "concealed_no_player_visible_beat";
+    const semanticField = concealed
+      ? { type: "null", const: null }
+      : { type: "string", minLength: 1 };
+    return {
+      type: "object",
+      additionalProperties: false,
+      description: [
+        `source_kind=${row.source_kind}`,
+        `visibility=${row.visibility}`,
+        ...(row.npc_display_name === null ? [] : [`npc=${row.npc_display_name}`]),
+        ...(row.skill === null ? [] : [`skill=${row.skill}`]),
+        ...(row.goal === null ? [] : [`goal=${row.goal}`]),
+        ...(row.outcome === null ? [] : [`outcome=${row.outcome}`]),
+        `placement=${row.placement_mode}`,
+      ].join("; "),
+      properties: {
+        obligation_ref: {
+          type: "string",
+          const: row.obligation_ref,
+          description: (
+            "Choose this semantic obligation reference. The host restores "
+            + "the exact canonical finalizer join key."
+          ),
+        },
+        reviewed_span: concealed
+          ? { type: "null", const: null }
+          : {
+              type: "string",
+              enum: [...row.allowed_reviewed_spans],
+              description: (
+                "Choose one exact accepted-review structural span. The host "
+                + "restores its hidden exact excerpt and safe placement."
+              ),
+            },
+        realization: { type: "string", const: row.realization },
+        action_realization: semanticField,
+        response: semanticField,
+        causal_explanation: semanticField,
+        persona_fit: semanticField,
+        player_input_handling: concealed
+          ? { type: "string", const: "not_applicable" }
+          : {
+              type: "string",
+              enum: ["abstract_completed", "not_applicable", "specific_preserved"],
+            },
+        exceptional_beat: concealed
+          ? { type: "null", const: null }
+          : row.exceptional_required
+            ? { type: "string", minLength: 1 }
+            : { type: ["string", "null"] },
+      },
+      required: [
+        "obligation_ref", "reviewed_span", "realization",
+        "action_realization", "response", "causal_explanation", "persona_fit",
+        "player_input_handling", "exceptional_beat",
+      ],
+    };
+  });
+  schema.properties.coverage = {
+    type: "array",
+    minItems: branches.length,
+    maxItems: branches.length,
+    items: branches.length === 0
+      ? { type: "object", not: {} }
+      : branches.length === 1
+        ? branches[0]
+        : { oneOf: branches },
+    description: (
+      "Exactly one semantic row per accepted-review obligation. Select an "
+      + "obligation_ref and reviewed_span; never submit verbatim prose, "
+      + "canonical ids, hidden draft text, or mechanics placement indices."
+    ),
+  };
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  if (!required.includes("coverage")) schema.required = [...required, "coverage"];
+}
+
 /**
  * Remove host-owned fields only after the exact retained binding is validated
  * against an independently derived current canonical host context.
@@ -1047,6 +2474,13 @@ export function projectBoundTypedToolParameters(
     : cloned.required;
   if (isPlainObject(cloned.properties)) {
     for (const field of owned) delete cloned.properties[field];
+  }
+  if (
+    valid.operation === "turn.finalize"
+    && valid.reviewed_agency_binding !== undefined
+  ) {
+    projectReviewedCoverageSchema(cloned, valid.reviewed_agency_binding);
+    projectReviewedAgencyClaimsSchema(cloned, valid.reviewed_agency_binding);
   }
   if (valid.operation === "state.move_scene") {
     const selectionMode = valid.selection_mode;
@@ -1070,13 +2504,91 @@ export function projectBoundTypedToolParameters(
       );
     }
   }
-  if (valid.operation === "combat.resolve" && valid.candidates.length > 1) {
+  if (valid.operation === "combat.resolve") {
+    const pending = valid.candidates[0].invocation_mode === "pending_defense";
+    if (valid.candidates.length > 1) {
+      setEnumProperty(
+        cloned,
+        "candidate_id",
+        valid.candidates.map((candidate) => candidate.candidate_id),
+        "Choose one current semantic combat route; the host binds its exact canonical invocation mode.",
+      );
+    }
+    if (isPlainObject(cloned.properties)) {
+      if (pending) {
+        delete cloned.properties.action_kind;
+        delete cloned.properties.weapon_id;
+        delete cloned.properties.weapon_effect_ids;
+        const candidate = valid.candidates[0];
+        if (candidate.invocation_mode !== "pending_defense") {
+          throw new ToolContractProjectionError(
+            "binding_context_invalid",
+            "pending combat projection lost its sole defense candidate",
+            { operation: valid.operation },
+          );
+        }
+        setEnumProperty(
+          cloned,
+          "defense_kind",
+          candidate.allowed_defenses,
+          "Choose exactly one defense allowed by the current pending attack. This is not a new attack.",
+        );
+      } else {
+        delete cloned.properties.defense_kind;
+        setEnumProperty(
+          cloned,
+          "action_kind",
+          ["attack"],
+          "Confirm that the player's semantic action is an attack. Maneuvers, waiting, Dodge, and Fight Back are not attacks and must not use this card.",
+        );
+        requireSchemaField(cloned, "weapon_id");
+        if (isPlainObject(cloned.properties.weapon_id)) {
+          cloned.properties.weapon_id = {
+            ...cloned.properties.weapon_id,
+            minLength: 1,
+            description: "Exact semantically selected owned weapon handle. Use literal unarmed for fists, kicks, or other unarmed attacks; never omit this field and never substitute another owned weapon.",
+          };
+        }
+      }
+    }
+  }
+  if (valid.operation === "chase.execute") {
+    projectChaseCommandSchema(cloned, valid);
+  }
+  if (valid.operation === "sanity.execute") {
+    projectSanityBoutCommandSchema(cloned, valid);
+  }
+  if (
+    (valid.operation === "rules.social_adjudicate"
+      || valid.operation === "rules.psychology_observe")
+    && valid.candidates.length > 1
+  ) {
     setEnumProperty(
       cloned,
       "candidate_id",
       valid.candidates.map((candidate) => candidate.candidate_id),
-      "Choose one current semantic combat route; the host binds its exact canonical invocation mode.",
+      "Choose one current scene/NPC-query target; the host binds exact canonical identity.",
     );
+    const required = Array.isArray(cloned.required) ? cloned.required : [];
+    if (!required.includes("candidate_id")) {
+      cloned.required = [...required, "candidate_id"];
+    }
+  }
+  if (valid.operation === "rules.psychology_observe") {
+    const factRefs = valid.candidates.flatMap((candidate) => (
+      candidate.validated_fact_refs
+    ));
+    if (factRefs.length > 1 && isPlainObject(cloned.properties)) {
+      cloned.properties.fact_refs = {
+        type: "array",
+        minItems: 1,
+        uniqueItems: true,
+        items: { type: "string", enum: factRefs },
+        description: "Choose one or more exact facts returned by the current npc.query target; the host validates target ownership and restores canonical refs.",
+      };
+      const required = Array.isArray(cloned.required) ? cloned.required : [];
+      if (!required.includes("fact_refs")) cloned.required = [...required, "fact_refs"];
+    }
   }
   return cloned;
 }
@@ -1106,6 +2618,295 @@ export function bindRetainedTypedToolArguments(
     ...structuredClone(modelInput),
     ...bindingValues(valid),
   };
+  if (
+    valid.operation === "rules.social_adjudicate"
+    || valid.operation === "rules.psychology_observe"
+  ) {
+    const candidate = selectedInteractionCandidate(valid, modelInput);
+    delete result.candidate_id;
+    result.investigator = candidate.investigator;
+    result.npc_id = candidate.npc_id;
+    result.conversation_window_id = candidate.conversation_window_id;
+    if (valid.operation === "rules.psychology_observe") {
+      const psychologyCandidate = candidate as PsychologyObserveBindingCard["candidates"][number];
+      const realize = modelInput.action === "realize";
+      result.decision_id = realize
+        ? valid.realize_decision_id
+        : valid.decision_id;
+      result.observation_revision = psychologyCandidate.observation_revision;
+      result.observer_scope = psychologyCandidate.observer_scope;
+      const factRefs = valid.candidates.flatMap((row) => row.validated_fact_refs);
+      const selectedRefs = factRefs.length === 1
+        ? [factRefs[0]]
+        : Array.isArray(modelInput.fact_refs)
+          ? modelInput.fact_refs
+          : [];
+      delete result.fact_refs;
+      if (!realize) {
+        if (
+          selectedRefs.length === 0
+          || selectedRefs.some((ref) => (
+            typeof ref !== "string"
+            || !psychologyCandidate.validated_fact_refs.includes(ref)
+          ))
+          || new Set(selectedRefs).size !== selectedRefs.length
+        ) {
+          throw new ToolContractProjectionError(
+            "semantic_candidate_stale",
+            "selected Psychology facts are absent or belong to another current NPC",
+            { operation, candidate_field: "fact_refs" },
+          );
+        }
+        result.observable_fact_refs = [...selectedRefs];
+      }
+    }
+  }
+  if (
+    valid.operation === "turn.finalize"
+    && valid.reviewed_agency_binding !== undefined
+  ) {
+    const rawCoverage = modelInput.coverage;
+    if (
+      !Array.isArray(rawCoverage)
+      || rawCoverage.length !== valid.reviewed_agency_binding.coverage_obligations.length
+    ) {
+      throw new ToolContractProjectionError(
+        "reviewed_coverage_invalid",
+        "accepted-review coverage must contain exactly one semantic row per obligation",
+        { operation, field: "coverage" },
+      );
+    }
+    const coverageByRef = new Map(
+      valid.reviewed_agency_binding.coverage_obligations.map(
+        (row) => [row.obligation_ref, row],
+      ),
+    );
+    const spanByName = new Map(
+      valid.reviewed_agency_binding.spans.map((row) => [row.reviewed_span, row]),
+    );
+    const seenCoverage = new Set<string>();
+    const coverageFields = [
+      "obligation_ref", "reviewed_span", "realization", "action_realization",
+      "response", "causal_explanation", "persona_fit",
+      "player_input_handling", "exceptional_beat",
+    ];
+    const semanticString = (
+      value: unknown,
+      field: string,
+    ): string => {
+      if (typeof value !== "string" || !value.trim()) {
+        throw new ToolContractProjectionError(
+          "reviewed_coverage_invalid",
+          `${field} must be a non-empty semantic explanation`,
+          { operation, field },
+        );
+      }
+      return value;
+    };
+    const normalizedCoverage = rawCoverage.map((raw, index) => {
+      if (!isPlainObject(raw) || !exactObjectKeys(raw, coverageFields)) {
+        throw new ToolContractProjectionError(
+          "reviewed_coverage_invalid",
+          `coverage[${index}] must use the closed semantic reviewed-span schema`,
+          { operation, field: `coverage[${index}]` },
+        );
+      }
+      const obligationRef = typeof raw.obligation_ref === "string"
+        ? raw.obligation_ref
+        : "";
+      const obligation = coverageByRef.get(obligationRef);
+      if (obligation === undefined || seenCoverage.has(obligationRef)) {
+        throw new ToolContractProjectionError(
+          "reviewed_coverage_obligation_stale",
+          "selected coverage obligation is absent, stale, or duplicated",
+          { operation, field: `coverage[${index}].obligation_ref` },
+        );
+      }
+      seenCoverage.add(obligationRef);
+      const concealed = obligation.realization === "concealed_no_player_visible_beat";
+      if (raw.realization !== obligation.realization) {
+        throw new ToolContractProjectionError(
+          "reviewed_coverage_invalid",
+          "coverage realization does not match the retained obligation visibility",
+          { operation, field: `coverage[${index}].realization` },
+        );
+      }
+      if (concealed) {
+        if (
+          raw.reviewed_span !== null
+          || raw.action_realization !== null
+          || raw.response !== null
+          || raw.causal_explanation !== null
+          || raw.persona_fit !== null
+          || raw.exceptional_beat !== null
+          || raw.player_input_handling !== "not_applicable"
+        ) {
+          throw new ToolContractProjectionError(
+            "reviewed_coverage_invalid",
+            "concealed coverage cannot cite or describe player-visible prose",
+            { operation, field: `coverage[${index}]` },
+          );
+        }
+        return {
+          obligation_id: obligation.obligation_id,
+          realization: obligation.realization,
+          action_realization: null,
+          response: null,
+          causal_explanation: null,
+          persona_fit: null,
+          player_input_handling: "not_applicable",
+          exact_excerpt: null,
+          exceptional_beat: null,
+        };
+      }
+      const reviewedSpan = typeof raw.reviewed_span === "string"
+        ? raw.reviewed_span
+        : "";
+      if (!obligation.allowed_reviewed_spans.includes(reviewedSpan)) {
+        throw new ToolContractProjectionError(
+          "reviewed_coverage_span_stale",
+          "selected reviewed span is not safe for this current obligation",
+          { operation, field: `coverage[${index}].reviewed_span` },
+        );
+      }
+      const span = spanByName.get(reviewedSpan);
+      if (span === undefined) {
+        throw new ToolContractProjectionError(
+          "reviewed_coverage_span_stale",
+          "selected reviewed span is absent from the current accepted review",
+          { operation, field: `coverage[${index}].reviewed_span` },
+        );
+      }
+      const handling = raw.player_input_handling;
+      if (![
+        "abstract_completed", "not_applicable", "specific_preserved",
+      ].includes(String(handling))) {
+        throw new ToolContractProjectionError(
+          "reviewed_coverage_invalid",
+          "coverage player_input_handling is outside the closed canonical enum",
+          { operation, field: `coverage[${index}].player_input_handling` },
+        );
+      }
+      const exceptionalBeat = raw.exceptional_beat;
+      if (
+        obligation.exceptional_required
+          ? typeof exceptionalBeat !== "string" || !exceptionalBeat.trim()
+          : exceptionalBeat !== null
+            && (typeof exceptionalBeat !== "string" || !exceptionalBeat.trim())
+      ) {
+        throw new ToolContractProjectionError(
+          "reviewed_coverage_invalid",
+          "coverage exceptional_beat does not match the retained obligation",
+          { operation, field: `coverage[${index}].exceptional_beat` },
+        );
+      }
+      return {
+        obligation_id: obligation.obligation_id,
+        realization: obligation.realization,
+        action_realization: semanticString(
+          raw.action_realization,
+          `coverage[${index}].action_realization`,
+        ),
+        response: semanticString(raw.response, `coverage[${index}].response`),
+        causal_explanation: semanticString(
+          raw.causal_explanation,
+          `coverage[${index}].causal_explanation`,
+        ),
+        persona_fit: semanticString(
+          raw.persona_fit,
+          `coverage[${index}].persona_fit`,
+        ),
+        player_input_handling: handling,
+        exact_excerpt: span.exact_excerpt,
+        exceptional_beat: exceptionalBeat,
+      };
+    });
+    result.coverage = normalizedCoverage.sort((left, right) => (
+      String(left.obligation_id).localeCompare(String(right.obligation_id))
+    ));
+    const hasAgencyClaims = Object.hasOwn(modelInput, "agency_claims");
+    const rawClaims = hasAgencyClaims ? modelInput.agency_claims : [];
+    if (!Array.isArray(rawClaims) || rawClaims.length > 64) {
+      throw new ToolContractProjectionError(
+        "reviewed_agency_claim_invalid",
+        "accepted-review agency_claims must be a bounded semantic selection array",
+        { operation, field: "agency_claims" },
+      );
+    }
+    const spans = new Map(
+      valid.reviewed_agency_binding.spans.map((row) => [row.reviewed_span, row]),
+    );
+    const authorities = new Map(
+      valid.reviewed_agency_binding.authorities.map((row) => [row.authority, row]),
+    );
+    const seen = new Set<string>();
+    const normalizedClaims = rawClaims.map((raw, index) => {
+      if (
+        !isPlainObject(raw)
+        || !exactObjectKeys(raw, ["reviewed_span", "claim_type", "authority"])
+      ) {
+        throw new ToolContractProjectionError(
+          "reviewed_agency_claim_invalid",
+          `agency_claims[${index}] must use the closed semantic reviewed-span schema`,
+          { operation, field: `agency_claims[${index}]` },
+        );
+      }
+      const reviewedSpan = typeof raw.reviewed_span === "string"
+        ? raw.reviewed_span
+        : "";
+      const claimType = typeof raw.claim_type === "string"
+        ? raw.claim_type
+        : "";
+      const authorityName = typeof raw.authority === "string"
+        ? raw.authority
+        : "";
+      const span = spans.get(reviewedSpan);
+      if (span === undefined) {
+        throw new ToolContractProjectionError(
+          "reviewed_agency_claim_stale",
+          "selected reviewed span is not in the current accepted review",
+          { operation, field: `agency_claims[${index}].reviewed_span` },
+        );
+      }
+      const authority = authorities.get(authorityName);
+      if (
+        authority === undefined
+        || !authority.claim_types.includes(claimType as ReviewedAgencyClaimType)
+      ) {
+        throw new ToolContractProjectionError(
+          "reviewed_agency_authority_mismatch",
+          "selected claim type is not authorized by the current reviewed authority",
+          { operation, field: `agency_claims[${index}].authority` },
+        );
+      }
+      const identity = `${reviewedSpan}\u0000${claimType}`;
+      if (seen.has(identity)) {
+        throw new ToolContractProjectionError(
+          "reviewed_agency_claim_invalid",
+          "accepted-review semantic agency selections must be unique",
+          { operation, field: `agency_claims[${index}]` },
+        );
+      }
+      seen.add(identity);
+      const semanticPart = (value: string): string => value
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 96);
+      return {
+        claim_id: (
+          `agency-reviewed:${semanticPart(reviewedSpan)}:${semanticPart(claimType)}`
+        ),
+        claim_type: claimType,
+        exact_excerpt: span.exact_excerpt,
+        override_id: authority.override_id,
+        source_ref: authority.source_ref,
+        subject_ref: authority.subject_ref,
+      };
+    });
+    if (hasAgencyClaims) result.agency_claims = normalizedClaims;
+    else delete result.agency_claims;
+  }
   if (valid.operation === "state.move_scene") {
     const selectionMode = valid.selection_mode;
     if (selectionMode === "manual_scene") {
@@ -1165,6 +2966,39 @@ export function bindRetainedTypedToolArguments(
         { operation, candidate_field: "candidate_id" },
       );
     }
+    if (candidate.invocation_mode === "pending_defense") {
+      const defenseKind = typeof modelInput.defense_kind === "string"
+        ? modelInput.defense_kind
+        : "";
+      if (
+        !candidate.allowed_defenses.includes(defenseKind as CombatDefenseKind)
+        || Object.hasOwn(modelInput, "action_kind")
+        || Object.hasOwn(modelInput, "weapon_id")
+        || Object.hasOwn(modelInput, "weapon_effect_ids")
+      ) {
+        throw new ToolContractProjectionError(
+          "semantic_candidate_stale",
+          "pending combat defense must use one currently allowed defense and cannot substitute a new weapon/action",
+          { operation, candidate_field: "defense_kind" },
+        );
+      }
+    } else {
+      const weaponId = typeof modelInput.weapon_id === "string"
+        ? modelInput.weapon_id.trim()
+        : "";
+      if (
+        modelInput.action_kind !== "attack"
+        || !weaponId
+        || Object.hasOwn(modelInput, "defense_kind")
+      ) {
+        throw new ToolContractProjectionError(
+          "semantic_candidate_stale",
+          "combat attack must preserve explicit attack semantics and an exact selected weapon; defense or maneuver intent cannot be substituted",
+          { operation, candidate_field: "action_kind" },
+        );
+      }
+      delete result.action_kind;
+    }
     delete result.candidate_id;
     if (candidate.invocation_mode === "target_npc_id") {
       result.target_npc_id = candidate.target_npc_id;
@@ -1172,7 +3006,107 @@ export function bindRetainedTypedToolArguments(
       result.affordance_id = candidate.affordance_id;
     }
   }
+  if (valid.operation === "chase.execute") {
+    const command = isPlainObject(modelInput.command)
+      ? modelInput.command
+      : null;
+    if (command === null) {
+      throw new ToolContractProjectionError(
+        "semantic_candidate_stale",
+        "chase command must select one current semantic actor and action",
+        { operation, candidate_field: "command" },
+      );
+    }
+    const actor = typeof command.actor === "string" ? command.actor : "";
+    const action = typeof command.action === "string" ? command.action : "";
+    if (!exactObjectKeys(command, ["actor", "action"])) {
+      throw new ToolContractProjectionError(
+        "semantic_candidate_stale",
+        "chase command must use the closed semantic actor/action schema",
+        { operation, candidate_field: "command" },
+      );
+    }
+    const candidate = valid.candidates.find((row) => (
+      row.actor_handle === actor
+      && row.action_handle === action
+    ));
+    if (candidate === undefined) {
+      throw new ToolContractProjectionError(
+        "semantic_candidate_stale",
+        "selected chase actor/action is absent or stale in the current snapshot",
+        { operation, candidate_field: "command" },
+      );
+    }
+    result.command = {
+      command_id: valid.decision_id,
+      kind: candidate.kind,
+      phase: "resolve",
+      payload: {
+        decision_id: valid.decision_id,
+        revision: valid.chase_revision,
+        actor_id: candidate.actor_id,
+        action_id: candidate.action_id,
+      },
+    };
+  }
+  if (valid.operation === "sanity.execute") {
+    const command = isPlainObject(modelInput.command)
+      ? modelInput.command
+      : null;
+    if (
+      command === null
+      || !exactObjectKeys(command, ["action"])
+      || (command.action !== "tick" && command.action !== "end")
+    ) {
+      throw new ToolContractProjectionError(
+        "semantic_candidate_stale",
+        "sanity bout command must select exactly one current tick/end action",
+        { operation, candidate_field: "command.action" },
+      );
+    }
+    const candidate = valid.candidates.find((row) => (
+      row.action === command.action
+    ));
+    if (candidate === undefined) {
+      throw new ToolContractProjectionError(
+        "semantic_candidate_stale",
+        "selected sanity bout action is absent or stale in the current choice",
+        { operation, candidate_field: "command.action" },
+      );
+    }
+    result.decision_id = candidate.decision_id;
+    result.command = {
+      command_id: candidate.command_id,
+      kind: candidate.kind,
+      phase: "resolve",
+      payload: {
+        choice_id: valid.choice_id,
+        responder: "keeper",
+        revision: valid.choice_revision,
+        action: candidate.action,
+        terminal_command_ids: [candidate.command_id],
+        decision_id: candidate.decision_id,
+        request_index: 1,
+      },
+    };
+  }
   return result;
+}
+
+/**
+ * Return only the independently validated host-owned values for a retained
+ * binding. Recovery lanes use this when the semantic model payload is already
+ * sealed elsewhere; it must not manufacture an empty model call merely to
+ * discover host arguments (coverage/agency validation belongs to the normal
+ * bindRetainedTypedToolArguments path).
+ */
+export function retainedTypedToolHostArguments(
+  operation: string,
+  binding: TypedToolBindingCard | null | undefined,
+  currentHostContext: CurrentTypedToolHostContext | null | undefined,
+): Record<string, unknown> {
+  const valid = validateBindingCard(operation, binding, currentHostContext);
+  return bindingValues(valid);
 }
 
 /**
@@ -1208,6 +3142,65 @@ export function projectPiTypedToolParameters(
   // Semantic-handle overlay first: every presented schema exposes only the
   // stable entity handles; exact canonical identities are host-bound.
   const handleOverlayed = projectSemanticHandleSchemaOverlay(inputSchema);
+  if (operation === "sanity.execute") {
+    const cloned = handleOverlayed;
+    if (!isPlainObject(cloned.properties)) return cloned;
+    const sanityPayload = {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        source: { type: "string" },
+        reason: { type: "string" },
+        trigger_id: { type: "string" },
+        san_loss_success: {
+          oneOf: [{ type: "integer", minimum: 0 }, { type: "string" }],
+        },
+        san_loss_fail_expr: { type: "string" },
+        involuntary_kind: {
+          type: "string",
+          enum: [
+            "jump_in_fright",
+            "cry_out",
+            "involuntary_movement",
+            "involuntary_combat_action",
+            "freeze",
+          ],
+        },
+        involuntary_summary: { type: "string" },
+        alone: { type: "boolean" },
+        creature_type: { type: "string" },
+        module_bout_override: { type: "object", additionalProperties: true },
+      },
+      required: ["source", "san_loss_fail_expr"],
+    };
+    const boutBranch = (action: "tick" | "end") => ({
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: { type: "string", const: action },
+      },
+      required: ["action"],
+    });
+    cloned.properties.command = {
+      description: (
+        "Semantic sanity command. For a pending sanity check, provide only "
+        + "the meaningful payload; the host binds kind, phase, command, and "
+        + "idempotency identity. Bout continuation keeps its explicit kind."
+      ),
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          properties: { payload: sanityPayload },
+          required: ["payload"],
+        },
+        boutBranch("tick"),
+        boutBranch("end"),
+      ],
+    };
+    overlayClosedIdentityGrammarDescriptions(cloned);
+    return cloned;
+  }
   if (operation === "turn.finalize") {
     overlayFinalizeCoverageAbsenceForm(handleOverlayed);
   }
@@ -1633,12 +3626,14 @@ const CLASSIFIED_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
   "original_hash", "bundle_sha256", "bundle_sha256s", "sha256",
   "payload_sha256", "receipt_digest", "rendered_sha256",
   "baseline_draft_sha256", "data_digest", "row_digest", "content_sha256",
+  "transaction_sha256",
+  "record_digest",
 ]);
 
 /**
- * Operation-declared output identity projection registry. Each entry is the
- * closed declaration of the identity/integrity-bearing field paths ONE
- * operation's canonical data may carry and what happens to each:
+ * Operation-declared output identity projection registry. Each entry adds
+ * operation-local handling for identity/integrity-bearing fields whose
+ * disposition differs from the shared closed model-facing identity grammar:
  * - `integrity`: host-only machine identity — stripped from model content;
  *   the exact canonical values stay in host-only details. Declared = silent.
  * - `semantic`: declared model-visible semantic content — the value must
@@ -1651,10 +3646,13 @@ const CLASSIFIED_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
  * The registry-domain projectors (roll/effect/item/weapon/route handle
  * mapping, lost-id arrays, current-entity handles, obligations, provenance)
  * are the declared registry-domain-mapping dispositions and stay closed
- * tables. Any identity/integrity-like path NOT declared for the operation —
- * including plausible semantic slugs and unknown `*_id(s)`/`*_ref(s)` —
- * fails closed with exact path diagnostics. There is no global
- * grammar acceptance and no silent deletion.
+ * tables. Model-authored decisions, composed ids, and exact handles already
+ * classified by the closed grammar stay semantic on canonical result paths;
+ * operation-local host-only and integrity dispositions take precedence.
+ * Echoed entity/provenance fields remain operation-local. Any other
+ * identity/integrity-like path — including plausible semantic slugs under an
+ * unknown field name — fails closed with exact path diagnostics. There is no
+ * open field-name or value-shape fallback and no silent deletion.
  */
 type OperationIdentityDeclarations = {
   integrity: ReadonlySet<string>;
@@ -1673,6 +3671,19 @@ const declaredIdentityTable = (
 });
 
 /**
+ * Authored RuleGraph identities carried by every model-visible
+ * RuleDecisionCard. These are meaning-bearing graph node ids, not registry
+ * handles: the model copies `decision_ref` into rules.settle while
+ * `capability_ref` remains explanatory card context. The same declaration is
+ * reused by direct scene context, exact rules context, and the identical
+ * scene-context sub-document embedded by session.resume.
+ */
+const RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS = [
+  "decision_ref", "capability_ref", "rule_refs", "effect_refs",
+  "possible_continuations",
+] as const;
+
+/**
  * Identity-bearing fields emitted by the bounded `scene.context` wire view.
  * `session.resume.data.scene_context` is the same canonical sub-document and
  * must be projected through this exact closed declaration instead of widening
@@ -1685,6 +3696,7 @@ const SCENE_CONTEXT_SEMANTIC_IDENTITY_FIELDS = [
   "conclusion_id", "drilldown_refs", "flag_id", "grants_clue_ids",
   "location_id", "mechanics_ref", "npc_id", "npc_ids", "ref_id",
   "scene_id", "source_ref", "trigger_id",
+  ...RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS,
 ] as const;
 
 const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
@@ -1721,7 +3733,7 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   )],
   ["npc.query", declaredIdentityTable(
     [
-      "clue_id", "deflect_id", "fact_id", "known_fact_ids", "npc_id",
+      "campaign_id", "clue_id", "deflect_id", "fact_id", "known_fact_ids", "npc_id",
       "revealable_fact_ids", "schedule_id", "subject_id",
       "valid_optional_evidence_refs",
     ],
@@ -1771,6 +3783,14 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ],
     [],
   )],
+  ["director.advise", declaredIdentityTable(
+    [
+      "active_scene_id", "clock_id", "front_id", "id", "location_id",
+      "npc_id", "san_trigger_id",
+    ],
+    [],
+    ["decision_id", "monster_ref"],
+  )],
   ["state.move_scene", declaredIdentityTable(
     [
       "asset_root_id", "from_location_id", "from_scene_id", "scene_id",
@@ -1783,11 +3803,123 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["scenario_binding_sha256"],
   )],
   ["rules.roll", declaredIdentityTable(
-    ["attempt_id", "decision_id", "original_check_decision_id", "scene_id"],
+    [
+      "attempt_id", "decision_id", "original_check_decision_id", "rule_ref",
+      "scene_id",
+    ],
     [],
+  )],
+  ["rules.push", declaredIdentityTable(
+    ["attempt_id", "decision_id", "original_check_decision_id", "scene_id"],
+    ["integrity_digest"],
+  )],
+  ["rules.luck_spend", declaredIdentityTable(
+    ["decision_id", "rule_ref"],
+    ["integrity_digest"],
+  )],
+  ["rules.damage", declaredIdentityTable(
+    [],
+    [],
+    ["roll_id"],
+  )],
+  ["rules.build_scale", declaredIdentityTable(
+    [],
+    [],
+    ["rule_ref"],
+  )],
+  ["rules.social_adjudicate", declaredIdentityTable(
+    ["npc_id", "commitment_id"],
+    ["source_digest", "request_digest"],
+    ["conversation_window_id", "social_adjudication_ref"],
+  )],
+  ["rules.psychology_observe", declaredIdentityTable(
+    ["source_ref"],
+    ["record_digest", "request_digest"],
+    ["insight_id", "conversation_window_id"],
+  )],
+  ["rules.catalog_search", declaredIdentityTable(
+    ["entity_id", "price_id", "ruleset_id"],
+    [],
+  )],
+  ["magic.cast", declaredIdentityTable(
+    [],
+    [],
+    ["operation_id"],
+  )],
+  ["magic.learn", declaredIdentityTable(
+    [],
+    [],
+    ["completion_trigger_id", "operation_id"],
+  )],
+  ["rules.skill_describe", declaredIdentityTable(
+    ["catalog_skill_ids", "id"],
+    [],
+  )],
+  ["rules.context", declaredIdentityTable(
+    RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS,
+    [],
+  )],
+  ["rules.settle", declaredIdentityTable(
+    [
+      "actor_id", "capability_ref", "caregiver_id", "day_id", "decision_ref",
+      "rescuer_id", "rule_ref", "rule_refs", "wound_id",
+    ],
+    ["request_digest"],
+    ["command_id", "roll_id", "source_command_id", "state_refs"],
   )],
   ["state.advance_time", declaredIdentityTable(
     ["civil_segment_id", "location_id", "source_ref"],
+    [],
+  )],
+  ["state.exceptional_effect", declaredIdentityTable(
+    ["scene_id", "subject_id", "restriction_id", "target_id"],
+    ["integrity_digest"],
+    ["event_id"],
+  )],
+  ["mechanics.ensure", declaredIdentityTable(
+    ["actor_id", "affordance_id", "stable_id", "subject_id"],
+    ["content_sha256"],
+    ["monster_ref"],
+  )],
+  ["rules.sanity_check", declaredIdentityTable(
+    ["trigger_id", "rule_ref"],
+    [],
+    ["active_bout_id", "bout_id", "command_id", "decision_id", "event_id"],
+  )],
+  ["sanity.execute", declaredIdentityTable(
+    ["san_trigger_id", "rule_ref"],
+    [],
+    [
+      "bout_id", "choice_id", "command_id", "decision_id", "event_id",
+      "source_command_id", "state_refs", "trigger_id",
+    ],
+  )],
+  ["sanity.context", declaredIdentityTable(
+    ["rule_ref"],
+    [],
+    [
+      "active_bout_id", "bout_id", "choice_id", "command_id", "event_id",
+      "state_refs", "trigger_id",
+    ],
+  )],
+  ["combat.resolve", declaredIdentityTable(
+    [
+      "actor_id", "combat_id", "id", "investigator_id", "rule_ref",
+      "scene_ref", "source_actor_id", "target_actor_id",
+    ],
+    ["transaction_sha256"],
+    [
+      "command_id", "damage_roll_id", "event_id", "executor_id",
+      "attack_command_id", "opposed_roll_id", "resolution_command_id", "skill_owner_id",
+      "source_command_id", "source_turn_id", "state_refs", "turn_id",
+    ],
+  )],
+  ["combat.end", declaredIdentityTable(
+    [],
+    ["projection_sha256"],
+  )],
+  ["combat.context", declaredIdentityTable(
+    ["actor_id", "combat_id", "scene_ref", "target_actor_id"],
     [],
   )],
   ["state.inventory_list", declaredIdentityTable(["npc_id"], [])],
@@ -1806,14 +3938,20 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["decision_id", "item_id", "thread_id"],
     [],
   )],
+  ["state.end_session", declaredIdentityTable(
+    ["scene_id", "rule_ref", "scenario_san_reward_rule_ref"],
+    [],
+  )],
   ["turn.output_context", declaredIdentityTable(
     [
       "authorized_entity_refs", "authorized_route_ids", "clock_id", "clue_id",
       "decision_id", "family_id", "front_id", "last_storylet_id",
       "location_id", "npc_id", "required_obligation_ids", "run_segment_id",
-      "scene_id", "source_id", "source_ref", "storylet_id", "trope_id",
+      "restriction_id", "scene_id", "source_ref", "storylet_id",
+      "subject_id", "target_id", "trope_id",
     ],
     ["contract_projection_sha256", "mechanics_bundle_sha256", "source_digest", "text_sha256"],
+    ["event_id", "source_decision_id", "source_id", "source_receipt_id"],
   )],
   ["narration.review", declaredIdentityTable(
     ["decision_id"],
@@ -1835,13 +3973,15 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
 const IDENTITY_NAMED_FIELD = /(^|_)(id|ids|ref|refs)$/;
 
 /**
- * Globally declared semantic paths: closed host contracts (the
- * turn-processing fault receipt) whose semantic contract id may appear in
- * ANY operation's error details. Values still pass the closed semantic
- * grammar; unknown namespaced or entropy-bearing values fail closed.
+ * Globally declared host-semantic fields whose meaning is operation-neutral:
+ * contract ids may appear in any bounded fault receipt, and civil segment ids
+ * are the canonical time-coordinate vocabulary shared by state mutations.
+ * Values still pass the closed semantic grammar; unknown namespaced or
+ * entropy-bearing values fail closed.
  */
 const GLOBAL_SEMANTIC_IDENTITY_FIELDS: ReadonlySet<string> = new Set([
   "contract_id",
+  "civil_segment_id",
 ]);
 
 // Closed-universe check: every operation-declared integrity field must be a
@@ -1863,13 +4003,28 @@ function declaredIdentityDisposition(
   operation: string | null,
   field: string,
 ): "host_only" | "integrity" | "semantic" | null {
+  if (operation !== null) {
+    const declarations = OPERATION_IDENTITY_DECLARATIONS.get(operation);
+    // Operation-local privacy/integrity rules override the shared semantic
+    // grammar. For example, npc.query source_ref remains host-only even
+    // though source_ref is a closed model-facing semantic field elsewhere.
+    if (declarations?.hostOnly.has(field)) return "host_only";
+    if (declarations?.integrity.has(field)) return "integrity";
+    if (declarations?.semantic.has(field)) return "semantic";
+  }
   if (GLOBAL_SEMANTIC_IDENTITY_FIELDS.has(field)) return "semantic";
-  if (operation === null) return null;
-  const declarations = OPERATION_IDENTITY_DECLARATIONS.get(operation);
-  if (declarations === undefined) return null;
-  if (declarations.hostOnly.has(field)) return "host_only";
-  if (declarations.integrity.has(field)) return "integrity";
-  if (declarations.semantic.has(field)) return "semantic";
+  // One classifier already inventories identities authored by the model.
+  // Composed ids, decisions, and exact semantic handles remain the same
+  // contract when the canonical result nests them, so reuse that classifier
+  // instead of duplicating the field under every emitting operation. Echoed
+  // canonical entity/provenance/vocabulary fields remain operation-local and
+  // registry-backed; this does not open the path boundary for scene/item/etc.
+  const modelGrammar = closedIdentityGrammarSpec(field);
+  if (
+    modelGrammar?.kind === "decision"
+    || modelGrammar?.kind === "composed"
+    || modelGrammar?.kind === "handle_only"
+  ) return "semantic";
   return null;
 }
 
@@ -1912,6 +4067,13 @@ function projectEntityHandleValue(
         typeof entry === "string" ? CURRENT_PC_SUBJECT_HANDLE : entry
       ),
     };
+  }
+  if (
+    field === "subject_ref"
+    && typeof value === "string"
+    && value.startsWith("pc:")
+  ) {
+    return { action: "keep", value: CURRENT_PC_SUBJECT_HANDLE };
   }
   if (field === "advice_id" || field === "candidate_ref") {
     if (parentField === "narrative_opportunity" && typeof value === "string") {
@@ -2021,14 +4183,51 @@ function projectDiscoveredIdentityField(
   const identityNamed = DISCOVERY_IDENTITY_NAME.test(field)
     || DISCOVERY_INFRA_NAME.test(field);
   if (!identityNamed) return null;
-  // Operation-declared closure: an identity/integrity-bearing path the
-  // operation never declared is unknown STRING evidence — it fails closed
-  // with a bounded diagnostic regardless of its value shape. A
-  // semantic-looking slug on an undeclared path is still an undeclared
-  // path. Non-string values (counts, nested objects) carry no identity
-  // material themselves and recurse as before; host-rewritten
-  // current-entity handles are not model-authored and skip only this
-  // declaration gate.
+  // rules.skill_describe uses the canonical skill names themselves as its
+  // catalog identities (for example "Library Use" and
+  // "Firearms (Rifle/Shotgun)"). They are meaning-bearing rule vocabulary,
+  // not generic slug-shaped entity ids, so validate them against the opaque
+  // identity boundary without forcing the generic slug grammar.
+  if (
+    operation === "rules.skill_describe"
+    && field === "catalog_skill_ids"
+  ) {
+    if (!Array.isArray(value)) {
+      diagnostics?.unmapped.push({
+        field,
+        parentField,
+        domain: "skill_catalog",
+        path: fieldPath,
+      });
+      return { action: "drop" };
+    }
+    const members: string[] = [];
+    for (const entry of value) {
+      const safe = typeof entry === "string"
+        && entry.length > 0
+        && entry.length <= 160
+        && entry === entry.trim()
+        && !RAW_REJECTED_PREFIXES.some((prefix) => entry.startsWith(prefix))
+        && !violatesSemanticIdentityGrammar(entry);
+      if (safe) {
+        members.push(entry);
+      } else {
+        diagnostics?.unmapped.push({
+          field,
+          parentField,
+          domain: "skill_catalog",
+          path: fieldPath,
+        });
+      }
+    }
+    return { action: "keep", value: members };
+  }
+  // Closed field classification: an identity/integrity-bearing path that is
+  // neither operation-local nor part of the shared model-authored grammar is
+  // unknown STRING evidence — it fails closed regardless of value shape. A
+  // semantic-looking slug under an unclassified field name is still
+  // undeclared. Non-string values (counts, nested objects) recurse as before;
+  // host-rewritten current-entity handles skip only this declaration gate.
   const declared = valueFromHostProjector
     || declaredIdentityDisposition(operation, field) !== null;
   if (operation !== null && !declared && typeof value === "string") {
@@ -2068,6 +4267,16 @@ function projectDiscoveredIdentityField(
 /** Fields whose scalar value is a canonical roll/effect/item/weapon/route identity. */
 const SEMANTIC_ID_SCALAR_FIELDS: ReadonlyMap<string, string> = new Map([
   ["roll_id", "roll:"],
+  ["investigator_roll_id", "roll:"],
+  ["opponent_roll_id", "roll:"],
+  ["check_roll_id", "roll:"],
+  ["int_roll_id", "roll:"],
+  ["bout_duration_roll_id", "roll:"],
+  ["bout_table_roll_id", "roll:"],
+  ["bout_rounds_roll_id", "roll:"],
+  ["mania_roll_id", "roll:"],
+  ["phobia_roll_id", "roll:"],
+  ["loss_roll_id", "roll:"],
   ["consuming_roll_id", "roll:"],
   ["resolution_roll_id", "roll:"],
   ["source_roll_id", "roll:"],
@@ -2087,6 +4296,7 @@ const LOST_ID_ARRAY_FIELDS: ReadonlyMap<string, "items" | "weapons"> = new Map([
 
 /** Fields whose array members are canonical roll/effect/item/route identities. */
 const SEMANTIC_ID_ARRAY_FIELDS: ReadonlyMap<string, string> = new Map([
+  ["session_roll_ids", "roll:"],
   ["source_roll_ids", "roll:"],
   ["roll_ids", "roll:"],
   ["presented_roll_ids", "roll:"],
@@ -2155,6 +4365,16 @@ function projectSemanticIdField(
   diagnostics: ProjectionIdentityDiagnostics | null,
   operation: string | null = null,
 ): { action: "keep"; value?: unknown } | { action: "drop" } | null {
+  if (
+    operation === "rules.psychology_observe"
+    && parentField === "observable_fact_refs"
+    && field === "source_ref"
+    && typeof value === "string"
+  ) {
+    if (isNpcFactEvidenceRef(value)) return { action: "keep", value };
+    diagnostics?.unmapped.push({ field, parentField, domain: "evidence" });
+    return { action: "drop" };
+  }
   // continuation_delta.do_not_repeat[].item_id names a semantic memory note,
   // not an inventory entity. Keep that operation-owned journal identity in
   // the closed grammar instead of consulting the live item registry.
@@ -2315,11 +4535,23 @@ const stringSet = (values: readonly string[]): ReadonlySet<string> => new Set(va
 
 const PROVENANCE_FIELD = /(?:^|_)source_refs$/;
 const PDF_PAGE_REF = /^pdf_index-\d+$/;
+/** Evidence-bound RuleGraph source span: semantic page/block coordinates. */
+const RULE_SOURCE_SPAN_REF = /^span-[a-z0-9]+(?:-[a-z0-9]+)+$/;
 const PROVENANCE_SOURCE_NAMESPACES = stringSet(["pdf:", "module:", "source:", "handout:"]);
+const RULE_DECISION_REF_NAMESPACE = stringSet(["decision:"]);
+const RULE_CAPABILITY_REF_NAMESPACE = stringSet(["capability:"]);
+const RULE_RULE_REF_NAMESPACE = stringSet(["rule:"]);
+const RULE_EFFECT_REF_NAMESPACE = stringSet(["effect:"]);
 
 function projectProvenanceMember(member: unknown): unknown {
   if (typeof member === "string") {
-    return PDF_PAGE_REF.test(member) ? member : null;
+    return (
+      PDF_PAGE_REF.test(member)
+      || (
+        RULE_SOURCE_SPAN_REF.test(member)
+        && !violatesSemanticIdentityGrammar(member)
+      )
+    ) ? member : null;
   }
   if (!isPlainObject(member)) return null;
   if (
@@ -2355,12 +4587,132 @@ function projectProvenanceRefs(value: unknown): unknown {
 }
 
 /**
+ * Apply the closed source-ref grammar specifically to RuleDecisionCards.
+ * Generic provenance projections may safely omit mixed host audit members;
+ * a RuleDecisionCard is different because its source refs are part of the
+ * model-facing evidence contract. One malformed card source therefore emits
+ * a bounded diagnostic and makes the gateway fail closed rather than quietly
+ * presenting a source-less decision.
+ */
+function projectRuleDecisionCard(
+  card: unknown,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  path: string,
+): unknown {
+  if (!isPlainObject(card)) return card;
+  const projected = { ...card };
+  for (const [field, namespaces] of [
+    ["decision_ref", RULE_DECISION_REF_NAMESPACE],
+    ["capability_ref", RULE_CAPABILITY_REF_NAMESPACE],
+  ] as const) {
+    const value = card[field];
+    if (
+      typeof value === "string"
+      && isNamespacedSemantic(value, namespaces)
+    ) continue;
+    diagnostics?.unmapped.push({
+      field,
+      parentField: "cards",
+      domain: field === "decision_ref" ? "decision" : "capability",
+      path: `${path}.${field}`,
+    });
+    delete projected[field];
+  }
+  for (const [field, namespaces, domain] of [
+    ["rule_refs", RULE_RULE_REF_NAMESPACE, "rule"],
+    ["effect_refs", RULE_EFFECT_REF_NAMESPACE, "effect"],
+    ["possible_continuations", RULE_DECISION_REF_NAMESPACE, "decision"],
+  ] as const) {
+    if (!Object.hasOwn(card, field)) continue;
+    const values = card[field];
+    if (!Array.isArray(values)) {
+      diagnostics?.unmapped.push({
+        field,
+        parentField: "cards",
+        domain,
+        path: `${path}.${field}`,
+      });
+      delete projected[field];
+      continue;
+    }
+    const safeValues: string[] = [];
+    for (const value of values) {
+      if (
+        typeof value === "string"
+        && isNamespacedSemantic(value, namespaces)
+      ) {
+        safeValues.push(value);
+        continue;
+      }
+      diagnostics?.unmapped.push({
+        field,
+        parentField: "cards",
+        domain,
+        path: `${path}.${field}`,
+      });
+    }
+    projected[field] = safeValues;
+  }
+  if (!Object.hasOwn(card, "source_refs")) return projected;
+  const sourceRefs = card.source_refs;
+  if (!Array.isArray(sourceRefs)) {
+    diagnostics?.unmapped.push({
+      field: "source_refs",
+      parentField: "cards",
+      domain: "provenance",
+      path: `${path}.source_refs`,
+    });
+    delete projected.source_refs;
+    return projected;
+  }
+  const safeRefs: unknown[] = [];
+  for (const sourceRef of sourceRefs) {
+    const safe = typeof sourceRef === "string"
+      && (
+        PDF_PAGE_REF.test(sourceRef)
+        || RULE_SOURCE_SPAN_REF.test(sourceRef)
+        || isNamespacedSemantic(sourceRef, PROVENANCE_SOURCE_NAMESPACES)
+      )
+      && !violatesSemanticIdentityGrammar(sourceRef)
+        ? sourceRef
+        : null;
+    if (safe === null) {
+      diagnostics?.unmapped.push({
+        field: "source_refs",
+        parentField: "cards",
+        domain: "provenance",
+        path: `${path}.source_refs`,
+      });
+      continue;
+    }
+    safeRefs.push(safe);
+  }
+  projected.source_refs = safeRefs;
+  return projected;
+}
+
+function projectRuleDecisionCardBlock(
+  block: Record<string, unknown>,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  path: string,
+): Record<string, unknown> {
+  if (!Array.isArray(block.cards)) return { ...block };
+  return {
+    ...block,
+    cards: block.cards.map((card, index) =>
+      projectRuleDecisionCard(card, diagnostics, `${path}.cards[${index}]`)
+    ),
+  };
+}
+
+/**
  * Structured recursive model-content sanitizer: drops wire/integrity/cache/
  * archive/job/packet/receipt identity fields and rewrites current-entity
  * references to semantic handles. Semantic substance passes unchanged.
  * Operation-aware: identity/integrity-bearing paths are judged against the
- * operation's declared projection registry — undeclared paths fail closed
- * with exact path diagnostics regardless of their value shape.
+ * shared closed model-authored grammar plus operation-local overrides;
+ * unclassified paths fail closed with exact path diagnostics regardless of
+ * their value shape.
  */
 export function stripOpaqueModelIdentity(
   value: unknown,
@@ -2379,6 +4731,11 @@ export function stripOpaqueModelIdentity(
   const projected: Record<string, unknown> = {};
   for (const [field, child] of Object.entries(value)) {
     const childPath = fieldPath ? `${fieldPath}.${field}` : field;
+    if (
+      operation === "session.resume"
+      && parentField === "recent_summaries"
+      && (field === "source_ref" || field === "summary_sha256")
+    ) continue;
     if (DENIED_IDENTITY_FIELDS.has(field)) continue;
     if (declaredIdentityDisposition(operation, field) === "host_only") continue;
     if (isIntegrityFieldName(field)) {
@@ -2430,12 +4787,10 @@ export function stripOpaqueModelIdentity(
     const rewritten = handle.action === "keep" && handle.value !== undefined;
     const replacement = rewritten ? handle.value : child;
     // Unknown-identity discovery: any identity/integrity-bearing field the
-    // explicit projectors above declined must be DECLARED for this
-    // operation AND pass the closed semantic grammar — absence of a
-    // declaration is never a grammar pass, and a declaration never exempts
-    // the value from the grammar. Host-rewritten current-entity handles are
-    // themselves the closed projector output and carry no model-authored
-    // identity, so they skip only the declaration gate.
+    // explicit projectors above declined must be classified by the shared
+    // model-authored grammar or an operation-local override AND pass the closed
+    // semantic value grammar. Host-rewritten current-entity handles are the
+    // closed projector output and skip only the field-classification gate.
     const discovered = projectDiscoveredIdentityField(
       field,
       replacement,
@@ -2484,7 +4839,9 @@ const OPENING_DELIVERY_HINT =
   + "be contradicted, recomputed, rewritten, or duplicated";
 const REVIEW_GUIDANCE_HINTS = [
   "findings are advisory; the KP decides whether and how to revise them",
-  "bind every authorized PC proposition as an agency_claim in turn.finalize",
+  "after a clear Pi review, select reviewed_span + claim_type + authority "
+    + "from the refreshed finalize binding; the host attaches the frozen "
+    + "draft and exact agency evidence",
 ];
 const FINALIZE_DELIVERY_HINTS = [
   "echo rendered_text exactly; direct-host output is contract-invalid if any "
@@ -2556,6 +4913,130 @@ const OUTPUT_CONTEXT_KEPT_FIELDS = [
   "pending_narration_draft_status",
 ] as const;
 
+function selectedFields(
+  source: Record<string, unknown>,
+  fields: readonly string[],
+): Record<string, unknown> {
+  return Object.fromEntries(
+    fields.filter((field) => field in source).map((field) => [field, source[field]]),
+  );
+}
+
+function projectDevelopmentMechanics(value: unknown): Record<string, unknown> | null {
+  if (!isPlainObject(value)) return null;
+  const projected = selectedFields(value, [
+    "schema_version", "rendered_lines", "rendered_text", "complete",
+  ]);
+  if (Array.isArray(value.required_roll_ids)) {
+    projected.required_roll_count = value.required_roll_ids.length;
+  }
+  if (Array.isArray(value.missing_roll_ids)) {
+    projected.missing_roll_count = value.missing_roll_ids.length;
+  }
+  return projected;
+}
+
+/** Closed state.end_session view: ending disposition plus public settlement. */
+function projectEndSessionData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const view = selectedFields(
+    data,
+    ["session_ending", "kind", "reason", "scene_id", "player_visible", "status"],
+  );
+  const development = isPlainObject(data.development) ? data.development : null;
+  if (development !== null) {
+    const developmentView = selectedFields(development, ["status"]);
+    if (Array.isArray(development.settlements)) {
+      developmentView.settlements = development.settlements.flatMap((entry) => {
+        if (!isPlainObject(entry)) return [];
+        const settlement = selectedFields(
+          entry,
+          ["investigator_id", "status", "attempts"],
+        );
+        const receipt = isPlainObject(entry.receipt) ? entry.receipt : null;
+        if (receipt === null) return [settlement];
+        const receiptView = selectedFields(
+          receipt,
+          ["schema_version", "status", "kind"],
+        );
+        const result = isPlainObject(receipt.result) ? receipt.result : null;
+        if (result !== null) {
+          const resultView = selectedFields(result, [
+            "skills_checked", "san_reward_expr", "san_reward_planned_delta",
+            "scenario_san_reward_expr", "scenario_san_reward_planned_delta",
+            "scenario_san_reward_applied", "merge_policy",
+          ]);
+          for (const field of ["improvement_checks", "skills_improved"] as const) {
+            if (Array.isArray(result[field])) {
+              resultView[field] = result[field].flatMap((row) =>
+                isPlainObject(row)
+                  ? [selectedFields(row, [
+                    "skill", "check_roll", "gain", "value_before",
+                    "planned_value_after", "current_value_before_apply",
+                    "applied_delta", "value_after", "improved", "merge_policy",
+                  ])]
+                  : []
+              );
+            }
+          }
+          for (const field of [
+            "san_reward", "san_reward_roll", "development_san_reward",
+            "scenario_san_reward", "scenario_san_reward_roll",
+          ] as const) {
+            if (isPlainObject(result[field])) {
+              resultView[field] = selectedFields(result[field], [
+                "expression", "rolls", "total", "planned_san_before",
+                "planned_san_delta", "san_before", "san_gained", "san_after",
+                "san_max", "value_before", "applied_delta", "value_after",
+                "replayed", "rule_ref",
+              ]);
+            }
+          }
+          if (isPlainObject(result.luck_recovery)) {
+            resultView.luck_recovery = selectedFields(result.luck_recovery, [
+              "roll", "success", "gained", "luck_before", "luck_after",
+              "planned_luck_before", "planned_luck_after", "planned_gained",
+              "current_luck_before_apply", "applied_delta", "merge_policy",
+              "rule_ref",
+            ]);
+          }
+          const endingEvidence = isPlainObject(result.ending_evidence)
+            ? result.ending_evidence
+            : null;
+          if (
+            endingEvidence !== null
+            && typeof endingEvidence.scenario_san_reward_rule_ref === "string"
+          ) {
+            resultView.scenario_san_reward_rule_ref =
+              endingEvidence.scenario_san_reward_rule_ref;
+          }
+          const mechanics = projectDevelopmentMechanics(
+            result.player_facing_mechanics,
+          );
+          if (mechanics !== null) resultView.player_facing_mechanics = mechanics;
+          receiptView.result = resultView;
+        }
+        const mechanics = projectDevelopmentMechanics(
+          receipt.player_facing_mechanics,
+        );
+        if (mechanics !== null) receiptView.player_facing_mechanics = mechanics;
+        settlement.receipt = receiptView;
+        return [settlement];
+      });
+    }
+    view.development = developmentView;
+  }
+  return sanitizeEnvelopeBranch(
+    view,
+    semanticIds,
+    diagnostics,
+    "state.end_session",
+  ) as Record<string, unknown>;
+}
+
 function projectOutputContextContractProjection(data: Record<string, unknown>): unknown {
   const raw = isPlainObject(data.contract_projection)
     ? data.contract_projection
@@ -2615,6 +5096,241 @@ function projectOperationDescriptor(
   return descriptor;
 }
 
+/**
+ * One recovery-card model view, driven by the same host-owned argument table
+ * and model-call split used by the invoke-time binder. Canonical cards stay
+ * untouched in gateway `details`; this view retains only model-owned
+ * prefilled/missing arguments plus the names of fields the host will attach.
+ * No recovery caller maintains a second per-field identity list.
+ */
+function projectRecoveryOperationCard(
+  card: unknown,
+  modelCall: unknown,
+): Record<string, unknown> | null {
+  if (!isPlainObject(card) || typeof card.operation !== "string") return null;
+  const operation = card.operation;
+  const hostOwned = new Set(
+    (HOST_OWNED_FIELDS as Record<string, readonly string[] | undefined>)[operation]
+      ?? [],
+  );
+  const call = isPlainObject(modelCall) ? modelCall : null;
+  const declaredHostBound = Array.isArray(call?.host_bound_auto_attached_arguments)
+    ? call.host_bound_auto_attached_arguments.filter(
+        (field): field is string => typeof field === "string" && field.length > 0,
+      )
+    : [];
+  for (const field of declaredHostBound) hostOwned.add(field);
+  const prefilled = isPlainObject(card.prefilled_arguments)
+    ? card.prefilled_arguments
+    : {};
+  const modelPrefilled: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(prefilled)) {
+    if (!hostOwned.has(field)) modelPrefilled[field] = structuredClone(value);
+  }
+  const missing = Array.isArray(card.missing_arguments)
+    ? card.missing_arguments.filter(
+        (field): field is string => typeof field === "string" && !hostOwned.has(field),
+      )
+    : [];
+  const projected: Record<string, unknown> = {
+    operation,
+    ...(typeof card.invoke_via === "string" ? { invoke_via: card.invoke_via } : {}),
+    prefilled_arguments: modelPrefilled,
+    missing_arguments: missing,
+    host_bound_auto_attached_arguments: declaredHostBound.length > 0
+      ? [...declaredHostBound]
+      : [...hostOwned].sort(),
+  };
+  for (const field of [
+    "discovery_required",
+    "authority",
+    "hard_gate",
+    "hard_gate_scope",
+    "host_state_claim_compiler_required",
+    "coverage_contract",
+    "span_repairs",
+  ]) {
+    if (field in card) projected[field] = structuredClone(card[field]);
+  }
+  return projected;
+}
+
+/**
+ * Operation-aware session.resume recovery projection. The recovery builder
+ * may retain exact canonical cards for host audit/binding; the model view
+ * projects every review/finalize card through `projectRecoveryOperationCard`
+ * and suppresses accepted-review evidence as an executable review action.
+ */
+function projectSessionRecoveryGuidance(
+  guidance: unknown,
+): Record<string, unknown> | null {
+  if (!isPlainObject(guidance)) return null;
+  const projected = structuredClone(guidance);
+  const modelCalls = isPlainObject(projected.model_calls)
+    ? projected.model_calls
+    : null;
+  const reviewRecovery = isPlainObject(projected.review_recovery)
+    ? projected.review_recovery
+    : null;
+  if (reviewRecovery !== null) {
+    delete reviewRecovery.revision;
+    if (reviewRecovery.card !== undefined) {
+      const card = projectRecoveryOperationCard(
+        reviewRecovery.card,
+        modelCalls?.review,
+      );
+      if (card === null) delete reviewRecovery.card;
+      else reviewRecovery.card = card;
+    }
+  }
+  const then = isPlainObject(projected.then) ? projected.then : null;
+  if (then !== null && then.card !== undefined) {
+    const card = projectRecoveryOperationCard(then.card, modelCalls?.finalize);
+    if (card === null) delete then.card;
+    else then.card = card;
+  }
+  const accepted = isPlainObject(projected.accepted_review)
+    ? projected.accepted_review
+    : null;
+  if (accepted !== null) {
+    projected.accepted_review = {
+      ...(typeof accepted.status === "string" ? { status: accepted.status } : {}),
+      ...(typeof accepted.instruction === "string"
+        ? { instruction: accepted.instruction }
+        : {}),
+    };
+    // Accepted review evidence is not another executable review operation.
+    delete projected.review_recovery;
+    if (then !== null && isPlainObject(then.finalize_input)) {
+      const input = then.finalize_input;
+      then.finalize_input = {
+        ...(typeof input.visibility === "string"
+          ? { visibility: input.visibility }
+          : {}),
+        ...(typeof input.source === "string" ? { source: input.source } : {}),
+        ...(typeof input.mode === "string" ? { mode: input.mode } : {}),
+        ...(Array.isArray(input.reviewed_spans)
+          ? {
+              reviewed_spans: input.reviewed_spans.filter(
+                (entry): entry is string => typeof entry === "string",
+              ),
+            }
+          : {}),
+        ...(Array.isArray(input.authorities)
+          ? {
+              authorities: input.authorities.flatMap((entry) => {
+                const authority = isPlainObject(entry) ? entry : null;
+                if (authority === null || typeof authority.authority !== "string") {
+                  return [];
+                }
+                return [{
+                  authority: authority.authority,
+                  claim_types: Array.isArray(authority.claim_types)
+                    ? authority.claim_types.filter(
+                        (claim): claim is string => typeof claim === "string",
+                      )
+                    : [],
+                }];
+              }),
+            }
+          : {}),
+        ...(Array.isArray(input.coverage_obligations)
+          ? {
+              coverage_obligations: input.coverage_obligations.flatMap((entry) => {
+                const row = isPlainObject(entry) ? entry : null;
+                if (row === null || typeof row.obligation !== "string") {
+                  return [];
+                }
+                return [{
+                  obligation: row.obligation,
+                  ...(typeof row.source_kind === "string"
+                    ? { source_kind: row.source_kind }
+                    : {}),
+                  ...(typeof row.visibility === "string"
+                    ? { visibility: row.visibility }
+                    : {}),
+                  ...(typeof row.npc_display_name === "string"
+                    ? { npc_display_name: row.npc_display_name }
+                    : {}),
+                  ...(typeof row.skill === "string" ? { skill: row.skill } : {}),
+                  ...(typeof row.goal === "string" ? { goal: row.goal } : {}),
+                  ...(typeof row.outcome === "string" ? { outcome: row.outcome } : {}),
+                  ...(typeof row.exceptional_required === "boolean"
+                    ? { exceptional_required: row.exceptional_required }
+                    : {}),
+                  allowed_reviewed_spans: Array.isArray(row.allowed_reviewed_spans)
+                    ? row.allowed_reviewed_spans.filter(
+                        (span): span is string => typeof span === "string",
+                      )
+                    : [],
+                  ...(typeof row.realization === "string"
+                    ? { realization: row.realization }
+                    : {}),
+                  ...(typeof row.placement_mode === "string"
+                    ? { placement_mode: row.placement_mode }
+                    : {}),
+                }];
+              }),
+            }
+          : {}),
+        ...(isPlainObject(input.mechanics_placement)
+          ? {
+              mechanics_placement: {
+                mode: input.mechanics_placement.mode,
+                public_check_count: input.mechanics_placement.public_check_count,
+                state_delta_count: input.mechanics_placement.state_delta_count,
+                exceptional_effect_count:
+                  input.mechanics_placement.exceptional_effect_count,
+              },
+            }
+          : {}),
+        ...(Array.isArray(input.model_arguments)
+          ? {
+              model_arguments: input.model_arguments.filter(
+                (entry): entry is string => (
+                  entry === "coverage" || entry === "agency_claims"
+                ),
+              ),
+            }
+          : {}),
+        ...(typeof input.instruction === "string"
+          ? { instruction: input.instruction }
+          : {}),
+      };
+    }
+  }
+  return projected;
+}
+
+function projectOpenTurnPlayerInput(value: unknown): Record<string, unknown> | null {
+  if (!isPlainObject(value)) return null;
+  if (
+    value.schema_version !== 1
+    || value.kind !== "accepted_player_input"
+    || value.audience !== "keeper_only"
+    || typeof value.text !== "string"
+    || !value.text.trim()
+    || value.speaker !== "player"
+    || value.intent_source !== "external_player_message"
+    || Object.keys(value).some((key) => ![
+      "schema_version",
+      "kind",
+      "audience",
+      "text",
+      "speaker",
+      "intent_source",
+    ].includes(key))
+  ) return null;
+  return {
+    schema_version: 1,
+    kind: "accepted_player_input",
+    audience: "keeper_only",
+    text: value.text,
+    speaker: "player",
+    intent_source: "external_player_message",
+  };
+}
+
 function projectAdoptionOperation(card: unknown): Record<string, unknown> {
   const source = isPlainObject(card) ? card : {};
   const descriptor: Record<string, unknown> = {};
@@ -2658,7 +5374,9 @@ function diagnoseUnprojectedIdentityKeys(
     ...RAW_NEVER_MODEL_AUTHORED_FIELDS,
     ...((HOST_OWNED_FIELDS as Record<string, readonly string[] | undefined>)[operation] ?? []),
     ...DENIED_IDENTITY_FIELDS,
+    ...(declarations?.semantic ?? []),
     ...(declarations?.integrity ?? []),
+    ...(declarations?.hostOnly ?? []),
   ]);
   for (const [field, value] of Object.entries(data)) {
     if (known.has(field)) continue;
@@ -2683,6 +5401,11 @@ function projectOutputContextData(
 ): Record<string, unknown> {
   const view: Record<string, unknown> = {};
   for (const field of OUTPUT_CONTEXT_KEPT_FIELDS) {
+    // Candidate factors embed canonical operation results. Project each
+    // result through its OWN operation declaration below; walking it as an
+    // outer turn.output_context branch would misclassify operation-local
+    // identities (for example rules.build_scale rule_ref).
+    if (field === "candidate_factors") continue;
     if (field in data) view[field] = data[field];
   }
   diagnoseUnprojectedIdentityKeys(
@@ -2698,6 +5421,21 @@ function projectOutputContextData(
     diagnostics,
     "turn.output_context",
   ) as Record<string, unknown>;
+  if (Array.isArray(data.candidate_factors)) {
+    projected.candidate_factors = data.candidate_factors.map((entry) => {
+      if (!isPlainObject(entry)) return entry;
+      const candidateOperation = typeof entry.tool === "string"
+        ? entry.tool
+        : null;
+      return stripOpaqueModelIdentity(
+        entry,
+        null,
+        semanticIds,
+        diagnostics,
+        candidateOperation,
+      );
+    });
+  }
   projected.contract_projection = projectOutputContextContractProjection(data);
   if (data.agency_review_operation !== undefined) {
     projected.agency_review_operation = projectOperationDescriptor(
@@ -2816,6 +5554,27 @@ function projectSceneContextData(
   diagnostics: ProjectionIdentityDiagnostics | null,
 ): Record<string, unknown> {
   const view: Record<string, unknown> = { ...data };
+  if (isPlainObject(data.rule_decision_cards)) {
+    view.rule_decision_cards = projectRuleDecisionCardBlock(
+      data.rule_decision_cards,
+      diagnostics,
+      "rule_decision_cards",
+    );
+  }
+  const recovery = isPlainObject(data.recovery) ? data.recovery : null;
+  const healing = recovery !== null && isPlainObject(recovery.healing)
+    ? recovery.healing
+    : null;
+  if (recovery !== null && healing !== null) {
+    view.recovery = {
+      ...recovery,
+      healing: projectRuleDecisionCardBlock(
+        healing,
+        diagnostics,
+        "recovery.healing",
+      ),
+    };
+  }
   if (isPlainObject(data.exit_operation_template)) {
     const descriptor = projectOperationDescriptor(
       data.exit_operation_template,
@@ -2867,6 +5626,269 @@ function projectSceneContextData(
     semanticIds,
     diagnostics,
     "scene.context",
+  ) as Record<string, unknown>;
+}
+
+function chaseSemanticHandle(
+  prefix: "actor" | "location" | "chase",
+  value: unknown,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  path: string,
+): string | null {
+  if (typeof value !== "string" || !isSemanticSlugShape(value)) {
+    diagnostics?.unmapped.push({
+      field: prefix,
+      parentField: prefix,
+      domain: "chase",
+      path,
+    });
+    return null;
+  }
+  return `${prefix}:${value}`;
+}
+
+/**
+ * Derive the legal next-location action set from one exact active ChaseSession
+ * snapshot. Canonical actor/action ids stay in the host binding; only the
+ * semantic handles are projected to the model.
+ */
+export function deriveChaseActionCandidates(
+  data: Record<string, unknown>,
+  diagnostics: ProjectionIdentityDiagnostics | null = null,
+): ChaseActionCandidate[] {
+  const snapshot = isPlainObject(data.snapshot) ? data.snapshot : null;
+  if (data.active !== true || snapshot?.status !== "active") return [];
+  const locations = (Array.isArray(snapshot.location_chain)
+    ? snapshot.location_chain
+    : []).filter(isPlainObject);
+  const byIndex = new Map<number, Record<string, unknown>>();
+  for (const location of locations) {
+    if (Number.isInteger(location.index)) {
+      byIndex.set(Number(location.index), location);
+    }
+  }
+  const candidates: ChaseActionCandidate[] = [];
+  const participants = (Array.isArray(snapshot.participants)
+    ? snapshot.participants
+    : []).filter(isPlainObject);
+  for (const participant of participants) {
+    if (
+      participant.captured === true
+      || participant.escaped === true
+      || participant.wrecked === true
+      || !Number.isInteger(participant.position)
+      || !Number.isInteger(participant.movement_actions_remaining)
+      || Number(participant.movement_actions_remaining) <= 0
+    ) continue;
+    const actorId = typeof participant.actor_id === "string"
+      ? participant.actor_id
+      : "";
+    const actorHandle = chaseSemanticHandle(
+      "actor",
+      actorId,
+      diagnostics,
+      "snapshot.participants.actor_id",
+    );
+    const next = byIndex.get(Number(participant.position) + 1) ?? null;
+    const label = typeof next?.label === "string" ? next.label : "";
+    const locationHandle = chaseSemanticHandle(
+      "location",
+      label,
+      diagnostics,
+      "snapshot.location_chain.label",
+    );
+    if (actorHandle === null || next === null || locationHandle === null) continue;
+    if (
+      isPlainObject(next.hazard)
+      || (isPlainObject(next.barrier) && Number(next.barrier.hp) > 0)
+    ) continue;
+    candidates.push({
+      actor_handle: actorHandle,
+      action_handle: "advance",
+      actor_id: actorId,
+      action_id: "move:advance",
+      kind: "chase_move",
+      destination_handle: locationHandle,
+    });
+  }
+  return candidates;
+}
+
+/** Closed Pi model view for the canonical ChaseSession context. */
+function projectChaseContextData(
+  data: Record<string, unknown>,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const snapshot = isPlainObject(data.snapshot) ? data.snapshot : null;
+  const active = data.active === true && snapshot?.status === "active";
+  if (!active || snapshot === null) {
+    return {
+      active: false,
+      snapshot: null,
+      pending_choice_count: Array.isArray(data.pending_choices)
+        ? data.pending_choices.length
+        : 0,
+    };
+  }
+  const candidates = deriveChaseActionCandidates(data, diagnostics);
+  const locations = (Array.isArray(snapshot.location_chain)
+    ? snapshot.location_chain
+    : []).filter(isPlainObject).flatMap((location) => {
+      const handle = chaseSemanticHandle(
+        "location",
+        location.label,
+        diagnostics,
+        "snapshot.location_chain.label",
+      );
+      if (handle === null || !Number.isInteger(location.index)) return [];
+      return [{
+        location: handle,
+        index: Number(location.index),
+        label: location.label,
+        hazard: isPlainObject(location.hazard)
+          ? {
+              present: true,
+              skill: location.hazard.skill ?? null,
+              target: location.hazard.target ?? null,
+              difficulty: location.hazard.difficulty ?? "regular",
+            }
+          : null,
+        barrier: isPlainObject(location.barrier)
+          ? {
+              present: true,
+              hp: location.barrier.hp ?? null,
+              hp_max: location.barrier.hp_max ?? null,
+              skill: location.barrier.skill ?? null,
+              target: location.barrier.target ?? null,
+              difficulty: location.barrier.difficulty ?? "regular",
+            }
+          : null,
+      }];
+    });
+  const actors = (Array.isArray(snapshot.participants)
+    ? snapshot.participants
+    : []).filter(isPlainObject).flatMap((participant) => {
+      const actor = chaseSemanticHandle(
+        "actor",
+        participant.actor_id,
+        diagnostics,
+        "snapshot.participants.actor_id",
+      );
+      if (actor === null) return [];
+      const location = locations.find((row) => row.index === participant.position);
+      return [{
+        actor,
+        side: participant.side ?? null,
+        role: participant.role ?? null,
+        location: location?.location ?? null,
+        movement_actions: participant.movement_actions ?? null,
+        movement_actions_remaining: participant.movement_actions_remaining ?? null,
+        conditions: Array.isArray(participant.conditions)
+          ? participant.conditions
+          : [],
+        captured: participant.captured === true,
+        escaped: participant.escaped === true,
+        wrecked: participant.wrecked === true,
+      }];
+    });
+  return {
+    active: true,
+    snapshot: {
+      schema_version: snapshot.schema_version,
+      status: "active",
+      revision: snapshot.revision,
+      round: snapshot.current_round,
+      actors,
+      locations,
+      available_actions: candidates.map((candidate) => ({
+        actor: candidate.actor_handle,
+        action: candidate.action_handle,
+        destination: candidate.destination_handle,
+      })),
+    },
+    pending_choice_count: Array.isArray(data.pending_choices)
+      ? data.pending_choices.length
+      : 0,
+    execute_operation: {
+      operation: "chase.execute",
+      invoke_via: "coc_chase_execute",
+      bound_revision: snapshot.revision,
+      model_command_fields: ["actor", "action"],
+    },
+  };
+}
+
+/**
+ * Chase mutation disposition: canonical join/path identities remain in
+ * host-only details, while the settled event and its mechanical changes stay
+ * visible to the Keeper.
+ */
+function projectChaseExecuteData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const results = (Array.isArray(data.results) ? data.results : []).map((raw) => {
+    if (!isPlainObject(raw)) return raw;
+    const events = (Array.isArray(raw.events) ? raw.events : []).map((event) => {
+      if (!isPlainObject(event)) return event;
+      const {
+        chase_id: chaseId,
+        source_command_id: _sourceCommandId,
+        ...substance
+      } = event;
+      if (typeof chaseId !== "string") return substance;
+      const slug = chaseId.startsWith("chase-")
+        ? chaseId.slice("chase-".length)
+        : chaseId;
+      const chase = chaseSemanticHandle(
+        "chase",
+        slug,
+        diagnostics,
+        "results.events.chase_id",
+      );
+      return chase === null ? substance : { ...substance, chase };
+    });
+    return {
+      ...(typeof raw.kind === "string" ? { kind: raw.kind } : {}),
+      ...(typeof raw.status === "string" ? { status: raw.status } : {}),
+      events,
+      ...(Object.hasOwn(raw, "pending_choice")
+        ? { pending_choice: raw.pending_choice }
+        : {}),
+    };
+  });
+  return sanitizeEnvelopeBranch(
+    {
+      ...(Object.hasOwn(data, "schema_version")
+        ? { schema_version: data.schema_version }
+        : {}),
+      ...(typeof data.authority === "string"
+        ? { authority: data.authority }
+        : {}),
+      ...(typeof data.investigator_id === "string"
+        ? { investigator: CURRENT_INVESTIGATOR_HANDLE }
+        : {}),
+      results,
+    },
+    semanticIds,
+    diagnostics,
+    "chase.execute",
+  ) as Record<string, unknown>;
+}
+
+/** Exact-discovery RuleGraph cards share the scene card projection contract. */
+function projectRulesContextData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const view = projectRuleDecisionCardBlock(data, diagnostics, "rules.context");
+  return sanitizeEnvelopeBranch(
+    view,
+    semanticIds,
+    diagnostics,
+    "rules.context",
   ) as Record<string, unknown>;
 }
 
@@ -3131,24 +6153,66 @@ export function projectModelVisibleCanonicalResult(
   if (data !== null) {
     if (operation === "scene.context") {
       projected.data = projectSceneContextData(data, semanticIds, diagnostics);
+    } else if (operation === "chase.context") {
+      projected.data = projectChaseContextData(data, diagnostics);
+    } else if (operation === "chase.execute") {
+      projected.data = projectChaseExecuteData(data, semanticIds, diagnostics);
+    } else if (operation === "rules.context") {
+      projected.data = projectRulesContextData(data, semanticIds, diagnostics);
     } else if (operation === "npc.reaction") {
       projected.data = projectNpcReactionData(data, semanticIds, diagnostics);
     } else if (operation === "state.record_npc_engagement") {
       projected.data = projectNpcEngagementData(data, semanticIds, diagnostics);
     } else if (operation === "state.deliver_handout") {
       projected.data = projectHandoutDeliveryData(data, semanticIds, diagnostics);
+    } else if (operation === "rules.social_adjudicate") {
+      const view = { ...data };
+      delete view.goal_key;
+      projected.data = sanitizeEnvelopeBranch(
+        view, semanticIds, diagnostics, operationName,
+      );
+    } else if (operation === "rules.psychology_observe") {
+      const view = { ...data };
+      delete view.window_key;
+      projected.data = sanitizeEnvelopeBranch(
+        view, semanticIds, diagnostics, operationName,
+      );
     } else if (operation === "session.resume") {
       const sceneContext = isPlainObject(data.scene_context)
         ? data.scene_context
         : null;
+      const currentTurn = isPlainObject(data.current_turn)
+        ? data.current_turn
+        : null;
+      const openTurnPlayerInput = projectOpenTurnPlayerInput(
+        currentTurn?.player_input,
+      );
+      const recoveryGuidance = isPlainObject(data.host_recovery_guidance)
+        ? data.host_recovery_guidance
+        : null;
       const resumeData: Record<string, unknown> = { ...data };
       delete resumeData.scene_context;
+      delete resumeData.host_recovery_guidance;
+      // Host recovery cache binding only. The model receives the hydrated
+      // semantic player-input card, never the timeline/source anchor or digest.
+      delete resumeData.open_turn_anchor;
       const resumeView = sanitizeEnvelopeBranch(
         resumeData,
         semanticIds,
         diagnostics,
         operationName,
       ) as Record<string, unknown>;
+      if (openTurnPlayerInput !== null) {
+        const projectedCurrentTurn = isPlainObject(resumeView.current_turn)
+          ? resumeView.current_turn
+          : null;
+        if (projectedCurrentTurn !== null) {
+          resumeView.current_turn = {
+            ...projectedCurrentTurn,
+            player_input: openTurnPlayerInput,
+          };
+        }
+      }
       if (sceneContext !== null) {
         resumeView.scene_context = projectSceneContextData(
           sceneContext,
@@ -3156,7 +6220,22 @@ export function projectModelVisibleCanonicalResult(
           diagnostics,
         );
       }
+      if (recoveryGuidance !== null) {
+        const projectedGuidance = projectSessionRecoveryGuidance(
+          recoveryGuidance,
+        );
+        if (projectedGuidance !== null) {
+          resumeView.host_recovery_guidance = sanitizeEnvelopeBranch(
+            projectedGuidance,
+            semanticIds,
+            diagnostics,
+            operationName,
+          );
+        }
+      }
       projected.data = resumeView;
+    } else if (operation === "state.end_session") {
+      projected.data = projectEndSessionData(data, semanticIds, diagnostics);
     } else if (operation === "turn.output_context") {
       projected.data = projectOutputContextData(data, semanticIds, diagnostics);
     } else if (
@@ -3589,16 +6668,21 @@ function isNamespacedSemantic(
 ): boolean {
   const idx = value.indexOf(":");
   if (idx <= 0) return false;
-  if (!namespaces.has(value.slice(0, idx + 1))) return false;
+  const namespace = value.slice(0, idx + 1);
+  if (!namespaces.has(namespace)) return false;
   // The namespace scopes the semantics; the remainder still needs a
   // minimal meaning-bearing form (never one-char arbitrary tokens).
   // Host-presented chains may nest colon-scoped segments (e.g.
   // `scene-route:<scene>:<kind>:<ordinal>`); every segment must be
   // meaning-bearing slug material.
   const remainder = value.slice(idx + 1);
-  // CJK semantic names are often two characters (猎刀); ASCII slugs keep the
-  // four-character minimum.
-  const minimum = /[\u3400-\u9fff]/.test(remainder) ? 2 : 4;
+  // CJK semantic names are often two characters (猎刀). Roll handles may be
+  // host-minted from three-letter CoC characteristics (CON, DEX, POW, SAN,
+  // etc.); those exact live handles remain registry-resolved and therefore
+  // use a three-character minimum. Other ASCII namespaces keep four.
+  const minimum = /[\u3400-\u9fff]/.test(remainder)
+    ? 2
+    : namespace === "roll:" ? 3 : 4;
   if (remainder.length < minimum) return false;
   return remainder.split(":").every((segment) => isSemanticSlugShape(segment));
 }
@@ -3871,6 +6955,13 @@ function rawIdentityFieldRule(
     ) {
       return (value) => isNamespacedSemantic(value, echoed);
     }
+    if (field === "weapon_id") {
+      // `unarmed` is the ruleset's canonical built-in weapon vocabulary,
+      // not an opaque entity id. Keeping this one literal lets a model
+      // preserve fists/kicks without inventing a registry handle or silently
+      // selecting another owned weapon.
+      return (value) => value === "unarmed" || isEchoedSemanticRef(value, echoed);
+    }
     return (value) => isEchoedSemanticRef(value, echoed);
   }
   const handles = RAW_HANDLE_ONLY.get(field);
@@ -4021,7 +7112,9 @@ export function closedIdentityGrammarSpec(
       };
     }
     const namespaces = [...echoed];
-    const nsText = namespaces.length > 0
+    const nsText = field === "weapon_id"
+      ? "literal `unarmed`, a multi-token semantic slug, or namespace `weapon:`, `item:`"
+      : namespaces.length > 0
       ? `multi-token semantic slug or namespace ${namespaces.map((n) => `\`${n}\``).join(", ")}`
       : "multi-token semantic slug (no colon namespace)";
     // Campaign-09 point of use: a coverage handle is never authored, it is
@@ -4052,7 +7145,9 @@ export function closedIdentityGrammarSpec(
         ),
       };
     }
-    const right = namespaces.length > 0
+    const right = field === "weapon_id"
+      ? "unarmed"
+      : namespaces.length > 0
       ? `${namespaces[0]}${GRAMMAR_EXAMPLE_SLUG}`
       : GRAMMAR_EXAMPLE_SLUG;
     const wrong = echoedWrongExample(namespaces);

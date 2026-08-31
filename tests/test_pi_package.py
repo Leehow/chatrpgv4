@@ -159,13 +159,23 @@ console.log(JSON.stringify({
     surface_buckets = {
         surface: sorted(
             name for name in canonical_names
-            if toolbox.operation_policy(name)["kp_surface"] == surface
+            if (
+                toolbox.operation_policy(name)["kp_surface"] == surface
+                and toolbox.operation_policy(name)["discovery"] == "surface"
+            )
         )
         for surface in sorted(
             toolbox.coc_operation_policy.KP_SURFACES - {"none"}
         )
     }
     expected_surfaced = sorted(
+        name for name in canonical_names
+        if (
+            toolbox.operation_policy(name)["kp_surface"] != "none"
+            and toolbox.operation_policy(name)["discovery"] == "surface"
+        )
+    )
+    expected_typed = sorted(
         name for name in canonical_names
         if toolbox.operation_policy(name)["kp_surface"] != "none"
     )
@@ -177,7 +187,7 @@ console.log(JSON.stringify({
         "archiveNames": canonical_names,
         "archivePolicies": archive_policies,
         "surfaced": expected_surfaced,
-        "typedOperations": expected_surfaced,
+        "typedOperations": expected_typed,
         "missing": "serial_campaign",
         "unknown": "serial_campaign",
         "dangerous": "serial_campaign",
@@ -248,8 +258,64 @@ def test_pi_typed_tool_surface():
     _node_test(ROOT / "tests/pi/typed-tool-surface.mjs")
 
 
+def test_pi_rule_query_projection():
+    _node_test(ROOT / "tests/pi/rule-query-projection.mjs")
+
+
 def test_pi_tool_working_set():
     _node_test(ROOT / "tests/pi/tool-working-set.mjs")
+
+
+def test_pi_debug_experiment_host_command():
+    result = _node(ROOT / "tests/pi/debug-experiment-host.mjs", str(ROOT))
+    assert result == {"ok": True, "seam": "DebugExperimentHost.dispatch"}
+
+
+def test_pi_system_instruction_debug_interception():
+    result = _node(ROOT / "tests/pi/system-instruction-protocol.mjs", str(ROOT))
+    assert result == {
+        "ok": True,
+        "command": "/system",
+        "customType": "coc-system-instruction",
+        "contract": "coc.pi-system-instruction.v1",
+    }
+    _node_test(ROOT / "tests/pi/tool-affordance-extension.mjs")
+
+
+def test_pi_open_turn_player_input_cache():
+    _node_test(ROOT / "tests/pi/open-turn-player-input.mjs")
+
+
+def test_pi_agent_loop_graph_replan_patch_contract():
+    adapter = ROOT / "runtime/adapters/keeper"
+    package = json.loads((adapter / "package.json").read_text(encoding="utf-8"))
+    lock = json.loads((adapter / "package-lock.json").read_text(encoding="utf-8"))
+    version = package["dependencies"]["@earendil-works/pi-coding-agent"]
+    assert version == "0.84.2"
+    assert lock["packages"]["node_modules/@earendil-works/pi-agent-core"]["version"] == version
+    assert lock["packages"]["node_modules/@earendil-works/pi-coding-agent"]["version"] == version
+    patch = adapter / "patches" / f"@earendil-works+pi-agent-core+{version}.patch"
+    assert patch.is_file(), "a Pi upgrade must fail until the versioned core patch is replayed"
+    patch_text = patch.read_text(encoding="utf-8")
+    assert "replan?: boolean" in patch_text
+    assert "replan_requested" in patch_text
+    assert "executeToolCallsSequential" in patch_text
+    coding_patch = (
+        adapter / "patches"
+        / f"@earendil-works+pi-coding-agent+{version}.patch"
+    )
+    assert coding_patch.is_file()
+    coding_patch_text = coding_patch.read_text(encoding="utf-8")
+    assert "handlerResult.replan" in coding_patch_text
+    assert "replan: hookResult?.replan" in coding_patch_text
+    assert _node(ROOT / "tests/pi/agent-loop-graph-replan.mjs", str(ROOT)) == {
+        "ok": True,
+        "providerCalls": 2,
+        "executions": ["refresh_graph"],
+        "pairedToolResults": 3,
+        "refreshedTools": ["fresh_context"],
+        "extensionReplan": True,
+    }
 
 
 def test_pi_state_claim_compiler_contract():
@@ -305,10 +371,24 @@ def test_pi_startup_resume_typed_opening_phase():
 
 def test_pi_open_turn_recovery_host_guidance_is_structured_and_pairing_safe():
     result = _node(ROOT / "tests/pi/recovery-kp-guidance.mjs", str(ROOT))
-    assert result == {
+    expected = {
         "ok": True,
         "contract": "coc.pi-open-turn-recovery-guidance.v1",
         "attachedOnOpenTurnRecovery": True,
+        "openTurnPlayerInputHydrated": True,
+        "openTurnActingSurface": True,
+        "openTurnMissingInputFailsClosed": True,
+        "startupControlPromptNotCaptured": True,
+        "restartPlayerInputStable": True,
+        "crossTimelineAnchorFailsClosed": True,
+        "recoveryAnchorHiddenFromModel": True,
+        "openTurnCanonicalDetailsPreserved": True,
+        "zeroToolRecoveryOverlaySeparated": True,
+        "zeroToolNeighborCanonicalDetailsStable": True,
+        "zeroToolAcceptedInputRecoversActing": True,
+        "zeroToolNeighborsFailClosed": [
+            "missing", "tampered", "cross-timeline", "journaled",
+        ],
         "skippedModes": [
             "table_opening",
             "awaiting_player",
@@ -341,6 +421,7 @@ def test_pi_open_turn_recovery_host_guidance_is_structured_and_pairing_safe():
             "pending_finalization",
         ],
     }
+    assert {key: result.get(key) for key in expected} == expected
 
 
 def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():
@@ -1500,6 +1581,170 @@ def test_pi_coc_attached_ui_repins_stale_packages_to_running_repo(tmp_path: Path
     assert written["packages"] == [str(ROOT)]
 
 
+def test_pi_coc_repo_local_launches_pin_the_package_that_owns_the_launcher(
+    tmp_path: Path,
+):
+    """TUI/RPC worktrees load themselves without changing unrelated settings."""
+    settings, models = _supported_pi_settings()
+    stale = tmp_path / "main-checkout"
+    stale.mkdir()
+    preserved = {
+        **settings,
+        "packages": [str(stale)],
+        "theme": "dark",
+        "quietStartup": False,
+        "customSetting": {"kept": True},
+    }
+
+    completed, _args_path = _run_pi_coc(
+        tmp_path / "main-run",
+        settings=preserved,
+        models=models,
+        args=["--mode", "rpc"],
+    )
+    assert completed.returncode == 0, completed.stderr
+    main_written = json.loads(
+        (tmp_path / "main-run" / "agent" / "settings.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert main_written == {**preserved, "packages": [str(ROOT)]}
+
+    worktree_root = tmp_path / "chatrpgv4-disposable-worktree"
+    (worktree_root / "plugins" / "coc-keeper").mkdir(parents=True)
+    shutil.copytree(
+        PLUGIN / "pi",
+        worktree_root / "plugins" / "coc-keeper" / "pi",
+    )
+    (worktree_root / "package.json").write_text(
+        json.dumps({"name": "@chatrpg/coc-keeper-pi"}) + "\n",
+        encoding="utf-8",
+    )
+    agent_dir, fake_bin = _pi_coc_test_home(
+        tmp_path / "worktree-run",
+        settings={**preserved, "packages": [str(ROOT)]},
+        models=models,
+    )
+    args_path = tmp_path / "worktree-run" / "pi-args.txt"
+    completed = subprocess.run(
+        [
+            str(worktree_root / "plugins" / "coc-keeper" / "pi" / "bin" / "pi-coc"),
+            "--new",
+            "--mode",
+            "rpc",
+        ],
+        cwd=worktree_root,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "PI_COC_AGENT_DIR": str(agent_dir),
+            "PI_COC_TEST_ARGS": str(args_path),
+            "PI_COC_TEST_CAMPAIGN": str(tmp_path / "worktree-run" / "campaign.txt"),
+            "PI_COC_TEST_PATH": str(tmp_path / "worktree-run" / "path.txt"),
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    worktree_written = json.loads(
+        (agent_dir / "settings.json").read_text(encoding="utf-8")
+    )
+    assert worktree_written == {
+        **preserved,
+        "packages": [str(worktree_root.resolve())],
+    }
+    assert list(agent_dir.glob(".settings.json.pi-coc-*.tmp")) == []
+
+
+def test_pi_coc_rules_director_profile_assembles_focused_play_package(
+    tmp_path: Path,
+):
+    worktree_root = tmp_path / "chatrpgv4-profile-worktree"
+    (worktree_root / "plugins" / "coc-keeper").mkdir(parents=True)
+    shutil.copytree(
+        PLUGIN / "pi",
+        worktree_root / "plugins" / "coc-keeper" / "pi",
+    )
+    for relative in (
+        "plugins/coc-keeper/skills/coc-keeper-play",
+        "plugins/coc-keeper/skills/coc-story-director",
+        "plugins/coc-keeper/rulesets/coc7/skills/coc-rules-engine",
+    ):
+        target = worktree_root / relative
+        target.mkdir(parents=True)
+        (target / "SKILL.md").write_text("---\nname: fixture\n---\n", encoding="utf-8")
+    (worktree_root / "package.json").write_text(
+        json.dumps({"name": "@chatrpg/coc-keeper-pi"}) + "\n",
+        encoding="utf-8",
+    )
+
+    settings, models = _supported_pi_settings()
+    agent_dir, fake_bin = _pi_coc_test_home(
+        tmp_path / "profile-run",
+        settings={**settings, "packages": [str(ROOT)]},
+        models=models,
+    )
+    fake_uv = fake_bin / "uv"
+    fake_uv.write_text(
+        '#!/bin/sh\n'
+        'if [ "$1" = "--version" ]; then printf "uv 0.11.16\\n"; '
+        'else printf "play\\n"; fi\n',
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o755)
+    args_path = tmp_path / "profile-run" / "pi-args.txt"
+    env_path = tmp_path / "profile-run" / "pi-env.txt"
+    fake_pi = fake_bin / "pi"
+    fake_pi.write_text(
+        '#!/bin/sh\n'
+        'for arg in "$@"; do printf "%s\\n" "$arg"; done > "$PI_COC_TEST_ARGS"\n'
+        'printf "role=%s\\nprofile=%s\\n" "$COC_PI_SESSION_ROLE" '
+        '"$COC_PI_ACCEPTANCE_PROFILE" > "$PI_COC_TEST_ENVDUMP"\n',
+        encoding="utf-8",
+    )
+    fake_pi.chmod(0o755)
+    completed = subprocess.run(
+        [
+            str(worktree_root / "plugins" / "coc-keeper" / "pi" / "bin" / "pi-coc"),
+            "--campaign", "profile-campaign", "--mode", "rpc",
+        ],
+        cwd=worktree_root,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "PI_COC_AGENT_DIR": str(agent_dir),
+            "PI_COC_TEST_ARGS": str(args_path),
+            "PI_COC_TEST_ENVDUMP": str(env_path),
+            "COC_PI_ACCEPTANCE_PROFILE": "rules-director-single-draft",
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    args = args_path.read_text(encoding="utf-8").splitlines()
+    skill_paths = [
+        args[index + 1]
+        for index, value in enumerate(args[:-1])
+        if value == "--skill"
+    ]
+    assert skill_paths == [
+        str(worktree_root / "plugins/coc-keeper/skills/coc-keeper-play"),
+        str(worktree_root / "plugins/coc-keeper/skills/coc-story-director"),
+        str(worktree_root / "plugins/coc-keeper/rulesets/coc7/skills/coc-rules-engine"),
+    ]
+    prompt_index = args.index("--append-system-prompt")
+    assert args[prompt_index + 1] == str(
+        worktree_root / "plugins/coc-keeper/pi/prompts/host-system-play.md"
+    )
+    assert env_path.read_text(encoding="utf-8") == (
+        "role=play\nprofile=rules-director-single-draft\n"
+    )
+    written = json.loads((agent_dir / "settings.json").read_text(encoding="utf-8"))
+    assert written["packages"] == [str(worktree_root.resolve())]
+
+
 def test_pi_coc_prefers_uv_project_environment_python(tmp_path: Path):
     """Packaged desktop relocates the venv via UV_PROJECT_ENVIRONMENT.
 
@@ -2598,6 +2843,20 @@ def test_pi_gateway_projects_module_context_semantic_ids():
             "opaqueFieldsAbsent": True,
         },
         "canonicalDetailsPreserved": True,
+    }
+
+
+def test_pi_gateway_projects_development_end_session_semantics():
+    result = _node(
+        ROOT / "tests/pi/development-end-session-projection.mjs",
+        str(ROOT),
+    )
+    assert result == {
+        "ok": True,
+        "kind": "conclusion",
+        "developmentStatus": "PASS",
+        "mechanicsComplete": True,
+        "opaqueFieldsAbsent": True,
     }
 
 

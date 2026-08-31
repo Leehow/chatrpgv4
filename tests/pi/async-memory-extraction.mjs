@@ -9,8 +9,8 @@
 // 3. Terminal child failure and malformed agent results record a recoverable
 //    pending failure — they never block, never write hard state, and never
 //    alter the player envelope.
-// 4. Re-arm on session start schedules durable pending backlog rows exactly
-//    once, without KP polling and without touching non-pending rows.
+// 4. Re-arm only after a successful session.resume schedules durable pending
+//    backlog rows exactly once, without KP polling or touching non-pending rows.
 // 5. Privacy: the extractor task packet is semantic-only (no machine
 //    digests), the worker never calls state/rules operations, and no audit
 //    entry ever carries the rendered table text.
@@ -794,8 +794,9 @@ const finalizeCall = (id) => ({
 }
 
 // ---------------------------------------------------------------------------
-// 4. Restart / session-start re-arm: pending rows scheduled exactly once,
-//    non-pending rows never scheduled, no polling afterwards.
+// 4. Restart / resume-first re-arm: startup performs no canonical campaign
+//    read; successful resume then schedules pending rows exactly once,
+//    non-pending rows never schedule, and there is no polling afterwards.
 // ---------------------------------------------------------------------------
 {
   const h = makeHarness({
@@ -819,6 +820,18 @@ const finalizeCall = (id) => ({
     await handler({ type: "session_start", reason: "probe" }, h.ctx);
   }
   await flush();
+  assert.deepEqual(
+    h.clientCalls.filter((call) => call.name === "coc_invoke"),
+    [],
+    "session_start performs no canonical campaign operation before resume",
+  );
+  await h.invoke("resume-rearm-fixture", {
+    operation: "session.resume",
+    root,
+    campaign: campaignId,
+    arguments: {},
+  });
+  await flush();
   await flush();
   const prepareCalls = h.bridgeCalls.filter((call) => call.command === "prepare");
   assert.equal(prepareCalls.length, 1, "exactly one pending row re-armed");
@@ -827,7 +840,7 @@ const finalizeCall = (id) => ({
   const statusCalls = h.clientCalls.filter(
     (call) => call.params.operation === "memory.extraction_status",
   );
-  assert.equal(statusCalls.length, 1, "one re-arm probe, no polling loop");
+  assert.equal(statusCalls.length, 1, "one post-resume re-arm probe, no polling loop");
 }
 
 // ---------------------------------------------------------------------------

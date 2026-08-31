@@ -159,24 +159,48 @@ test("setup role does not gain recovery closure rights", async () => {
   });
 });
 
-test("play role may close an open recovery turn but not reroll", async () => {
+test("play role requires a verified pre-journal binding before recovered acting", async () => {
   await withRole("play", async () => {
     const mod = await loadDomain();
     for (const operation of ["turn.output_context", "state.journal", "turn.finalize"]) {
-      const allowed = mod.evaluateExecuteAcl({
+      const denied = mod.evaluateExecuteAcl({
         toolName: "coc_turn",
         operation,
         phase: "recovery",
       });
-      assert.equal(allowed.ok, true, operation);
+      assert.equal(denied.ok, false, operation);
+      assert.equal(denied.code, "recovery_authorization_required", operation);
     }
+    const authorization = {
+      kind: "open_turn_pre_journal",
+      stage: "acting",
+    };
     const roll = mod.evaluateExecuteAcl({
       toolName: "coc_rules",
       operation: "rules.roll",
       phase: "recovery",
+      role: "play",
+      recoveryAuthorization: authorization,
     });
-    assert.equal(roll.ok, false);
-    assert.equal(roll.code, "phase_forbidden");
+    assert.equal(roll.ok, true);
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_turn",
+      operation: "state.journal",
+      phase: "recovery",
+      role: "play",
+      recoveryAuthorization: authorization,
+    }).ok, true);
+    for (const operation of ["turn.output_context", "turn.finalize"]) {
+      const denied = mod.evaluateExecuteAcl({
+        toolName: "coc_turn",
+        operation,
+        phase: "recovery",
+        role: "play",
+        recoveryAuthorization: authorization,
+      });
+      assert.equal(denied.ok, false, operation);
+      assert.equal(denied.code, "stage_forbidden", operation);
+    }
     assert.equal(mod.evaluateExecuteAcl({
       toolName: "coc_rules",
       operation: "rules.roll",
@@ -270,7 +294,7 @@ test("play role startup union keeps live tools and pending non-resume is forbidd
       toolName: "coc_rules",
       operation: "rules.roll",
       phase: "recovery",
-    }).code, "phase_forbidden");
+    }).code, "recovery_authorization_required");
     assert.equal(mod.evaluateExecuteAcl({
       toolName: "coc_rules",
       operation: "rules.roll",

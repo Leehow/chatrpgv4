@@ -105,12 +105,26 @@ import {
 import { registerCocHud } from "../lib/hud.ts";
 import { registerTurnTelemetry, type TurnTelemetry } from "../lib/turn-telemetry.ts";
 import {
+  createDebugExperimentHost,
+  type DebugExperimentHostContext,
+  type DebugExperimentReceipt,
+} from "../lib/debug-experiment.ts";
+import {
   cocSystemInstructionOperations,
   latestExternalUserText,
-  recoveredOpenTurnPlayerText,
   registerCocSystemInstructionCommand,
   sendCocSystemInstruction,
 } from "../lib/system-instruction.ts";
+import {
+  clearOpenTurnPlayerInput,
+  createOpenTurnAnchor,
+  loadOpenTurnPlayerInput,
+  loadZeroToolOpenTurnPlayerInput,
+  recordOpenTurnPlayerInput,
+  validOpenTurnAnchor,
+  type OpenTurnAnchor,
+} from "../lib/open-turn-player-input.ts";
+
 import { createContextFold, readFoldSettings } from "../lib/context-fold.ts";
 import {
   registerCocWelcome,
@@ -135,6 +149,7 @@ import {
   type PlayPhase,
 } from "../lib/domain-tools.ts";
 import {
+  executionClassForPolicy,
   KP_SURFACES,
   OPERATION_POLICY,
   type SessionRole,
@@ -184,8 +199,13 @@ import {
   applyRetainedAdoptSourceFacts,
   attachExpectedSchema,
   bindRetainedTypedToolArguments,
+  retainedTypedToolHostArguments,
+  buildReviewedAgencyBinding,
+  buildReviewedCoverageBindingFacts,
   CURRENT_INVESTIGATOR_HANDLE,
+  deriveChaseActionCandidates,
   deriveSemanticEntityFacts,
+  defaultTypedToolCatalog,
   listTypedOperationTools,
   projectBoundTypedToolParameters,
   projectModelVisibleCanonicalResult,
@@ -196,10 +216,16 @@ import {
   typedToolNameForOperation,
   buildGenericInvokeInputSchema,
   validateGenericInvokeAgainstRegisteredSchema,
+  validateProjectedModelArguments,
   validateRawModelIdentityPayload,
   HOST_OWNED_FIELDS,
   wrapTypedToolInvokeParams,
   type CurrentTypedToolHostContext,
+  type ChaseActionCandidate,
+  type SanityBoutActionCandidate,
+  type SanityBoutBindingCard,
+  type ReviewedAgencyBinding,
+  type ReviewedCoverageBindingFacts,
   type SemanticEntityFacts,
   type SemanticIdMap,
   type TypedOperationTool,
@@ -214,6 +240,7 @@ import {
 import type { SemanticIdentityHandleResolver } from "../lib/tool-contract-projection.ts";
 import {
   affordancesFromHealingCardProjection,
+  affordancesFromSanityTriggerProjection,
   loadToolNamespace,
   projectToolWorkingSet,
   type LoadedExactOperation,
@@ -239,6 +266,13 @@ export {
   registerPlayerPdfBindInstruction,
 } from "../lib/player-pdf-bind.ts";
 export type { PlayerPdfBindDetection } from "../lib/player-pdf-bind.ts";
+
+const RULES_DIRECTOR_SINGLE_DRAFT_PROFILE = "rules-director-single-draft";
+
+function rulesDirectorSingleDraftProfileActive(): boolean {
+  return process.env.COC_PI_ACCEPTANCE_PROFILE
+    === RULES_DIRECTOR_SINGLE_DRAFT_PROFILE;
+}
 
 const emptySchema = { type: "object", properties: {}, additionalProperties: false } as const;
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
@@ -3679,6 +3713,10 @@ interface MainExtensionOverrides {
    * never passes it — the canonical factory is used.
    */
   createSemanticIdentityRegistry?: () => SemanticIdentityRegistry;
+  dispatchDebugExperiment?: (
+    command: string,
+    context: DebugExperimentHostContext,
+  ) => Promise<DebugExperimentReceipt>;
   hostHydrationObserverCheckpoint?: (
     stage: "compiler" | "binding" | "progress",
   ) => void;
@@ -3829,6 +3867,7 @@ type StartupSilentResumeQuarantine = {
 type DeliveryReplayQuarantine = { campaignId: string };
 
 export default function mainExtension(pi: ExtensionAPI, overrides: MainExtensionOverrides = {}) {
+  const debugExperimentHost = createDebugExperimentHost();
   let mcp: McpJsonlClient | null = null;
   let turnTelemetry: TurnTelemetry | null = null;
   let sessionEpoch = 0;
@@ -3871,10 +3910,31 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   const supplyCoordinator = new PiSemanticSupplyCoordinator();
   let memoryExtractionRuns = new Set<Promise<unknown>>();
   const memoryExtractionDispatcher = new MemoryExtractionDispatcher();
+  // One successful, model-projectable session.resume may re-arm the durable
+  // extraction backlog once for this campaign/session epoch. Startup itself
+  // is deliberately absent from this boundary: for a continuing campaign the
+  // resume receipt must remain the first canonical campaign operation.
+  let memoryExtractionRearmedCampaigns = new Set<string>();
   const sceneSupplyDispatches = new Map<string, SceneSupplyDispatchStatus>();
   let kpPlayPhase: PlayPhase = "live_turn";
   let currentWorkspaceRoot = "";
+  let currentHostSessionId = "";
   let canonicalProgressCampaignId = "";
+  let currentOpenTurnAnchor: {
+    campaignId: string;
+    anchor: OpenTurnAnchor;
+  } | null = null;
+  let journaledOpenTurnAnchor: {
+    campaignId: string;
+    anchor: OpenTurnAnchor;
+    turnNumber: number;
+  } | null = null;
+  let openTurnRecoveryAuthorization: {
+    campaignId: string;
+    sessionEpoch: number;
+    playerTurnEpoch: number;
+    anchorDigest: string;
+  } | null = null;
   // One host-owned live hydration attempt per strict pending identity:
   // campaign + pending turn/source identity (an identity-less marker for
   // pointer-only resumes) + player epoch + session generation. Concurrent
@@ -3925,14 +3985,134 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let loadedNamespaces: LoadedNamespace[] = [];
   let loadedOperations: LoadedExactOperation[] = [];
   let lastWorkingSet: ToolWorkingSet | null = null;
+  type ActiveToolWorkingSetFingerprint = {
+    digest: string;
+    workingSetRevision: string | null;
+  };
+  const toolWorkingSetAtExecutionStart = new Map<
+    string,
+    ActiveToolWorkingSetFingerprint
+  >();
+  /**
+   * Fingerprint the exact model-visible active tool interface. This is the
+   * single runtime seam for deciding whether a completed tool invalidated the
+   * remaining calls in the model's current batch. The digest is host-only;
+   * models never copy or emit it.
+   */
+  const activeToolWorkingSetRevision = (): ActiveToolWorkingSetFingerprint | null => {
+    try {
+      const activeNames = [...new Set(pi.getActiveTools())].sort();
+      const definitions = new Map(
+        pi.getAllTools().map((tool) => [tool.name, tool]),
+      );
+      const activeDefinitions = activeNames.map((name) => {
+        const definition = definitions.get(name);
+        if (definition === undefined) {
+          throw new Error(`active tool ${name} is not registered`);
+        }
+        return {
+          name,
+          description: definition.description,
+          parameters: definition.parameters,
+          promptGuidelines: definition.promptGuidelines,
+        };
+      });
+      return {
+        digest: createHash("sha256")
+          .update(JSON.stringify({
+            projected_revision: lastWorkingSet?.revision ?? null,
+            player_turn_epoch: canonicalProgress.playerTurnEpoch,
+            canonical_progress_revision:
+              canonicalProgress.canonicalProgressRevision,
+            stage: canonicalProgress.stage,
+            active_tools: activeDefinitions,
+          }), "utf8")
+          .digest("hex"),
+        workingSetRevision: lastWorkingSet?.revision ?? null,
+      };
+    } catch {
+      return null;
+    }
+  };
+  pi.on("tool_execution_start", (event: unknown) => {
+    const typed = event as { toolCallId?: unknown } | undefined;
+    const toolCallId = typeof typed?.toolCallId === "string"
+      ? typed.toolCallId
+      : "";
+    if (!toolCallId) return;
+    const fingerprint = activeToolWorkingSetRevision();
+    if (fingerprint !== null) {
+      toolWorkingSetAtExecutionStart.set(toolCallId, fingerprint);
+    }
+  });
+  pi.on("tool_result", (event: unknown) => {
+    const typed = event as {
+      toolCallId?: unknown;
+      toolName?: unknown;
+      input?: unknown;
+    } | undefined;
+    const toolCallId = typeof typed?.toolCallId === "string"
+      ? typed.toolCallId
+      : "";
+    if (!toolCallId) return undefined;
+    const before = toolWorkingSetAtExecutionStart.get(toolCallId) ?? null;
+    toolWorkingSetAtExecutionStart.delete(toolCallId);
+    const after = activeToolWorkingSetRevision();
+    if (
+      before === null
+      || after === null
+      || before.digest === after.digest
+    ) return undefined;
+    const input = objectOrNull(typed?.input);
+    try {
+      pi.appendEntry("coc-tool-working-set-replan", {
+        schema_version: 1,
+        contract_id: "coc.pi-tool-working-set-replan.v1",
+        status: "requested",
+        reason: "active_tool_interface_changed",
+        ...(typeof typed?.toolName === "string"
+          ? { tool_name: typed.toolName }
+          : {}),
+        ...(typeof input?.operation === "string"
+          ? { operation: input.operation }
+          : {}),
+        stage: canonicalProgress.stage,
+        player_turn_epoch: canonicalProgress.playerTurnEpoch,
+        canonical_progress_revision:
+          canonicalProgress.canonicalProgressRevision,
+        before: {
+          working_set_revision: before.workingSetRevision,
+          active_tool_interface_sha256: `sha256:${before.digest}`,
+        },
+        after: {
+          working_set_revision: after.workingSetRevision,
+          active_tool_interface_sha256: `sha256:${after.digest}`,
+        },
+      });
+    } catch { /* replan audit is host-only and best effort */ }
+    return { replan: true };
+  });
+  pi.on("tool_execution_end", (event: unknown) => {
+    const typed = event as { toolCallId?: unknown } | undefined;
+    if (typeof typed?.toolCallId === "string") {
+      // Immediate validation/block failures do not enter the tool_result hook.
+      toolWorkingSetAtExecutionStart.delete(typed.toolCallId);
+    }
+  });
   let operatorSystemInstructionScope: {
     sourceType: "operator_command";
     playerTurnEpoch: number;
   } | null = null;
-  const typedToolDefinitions = listTypedOperationTools();
+  const typedToolCatalog = defaultTypedToolCatalog();
+  const typedToolDefinitions = listTypedOperationTools(typedToolCatalog);
   const typedToolByOperation = new Map(
     typedToolDefinitions.map((tool) => [tool.operation, tool]),
   );
+  const typedOperationNeedsCampaign = (operation: string): boolean => {
+    const inputSchema = typedToolCatalog.contracts.operations.get(operation)?.inputSchema;
+    const properties = objectOrNull(inputSchema?.properties);
+    return properties !== null && Object.hasOwn(properties, "campaign");
+  };
   const retainedTypedBindings = new Map<string, TypedToolBindingCard>();
   const currentTypedBindingFactories = new Map<
     string,
@@ -3961,6 +4141,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     journalDecisionId: string;
     finalizeDecisionId: string | null;
     narrationReviewId: string | null;
+    playerInputSourceRef: string;
+    agencyAuthority: JsonObject;
+    controlOverrides: JsonObject[];
+    coverageBindingFacts: ReviewedCoverageBindingFacts;
+    reviewedAgencyBinding: ReviewedAgencyBinding | null;
+    directGenericFinalize: boolean;
+    directTypedFinalize: boolean;
   } | null = null;
   // Exact canonical entity identities retained from observed envelopes so the
   // model can use semantic handles (current-investigator / pc:current-
@@ -4052,6 +4239,25 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     resultData: Record<string, unknown> | null = null,
   ): SemanticIdMap =>
     semanticRegistry.projectAll(scopedRegistryScope(invocationCampaign, resultData));
+  const semanticObligationRefsFor = (
+    facts: ReviewedCoverageBindingFacts,
+    invocationCampaign: string,
+  ): Array<{ obligation_id: string; obligation_ref: string }> | null => {
+    const projected = liveSemanticIdMap(invocationCampaign);
+    const refs = facts.obligations.flatMap((row) => {
+      const obligationId = typeof row.obligation_id === "string"
+        ? row.obligation_id
+        : "";
+      const canonical = obligationId.startsWith("roll:")
+        ? obligationId.slice("roll:".length)
+        : obligationId;
+      const obligationRef = projected.rolls.get(canonical);
+      return obligationId && obligationRef
+        ? [{ obligation_id: obligationId, obligation_ref: obligationRef }]
+        : [];
+    });
+    return refs.length === facts.obligations.length ? refs : null;
+  };
   const liveSemanticResolver = (
     invocationCampaign: string,
     invocationArguments: Record<string, unknown> | null = null,
@@ -4094,6 +4300,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     // previous global campaign. An absent, ambiguous, empty, or differing
     // campaign leaves no authorized identity, so restoration fails closed
     // instead of leaking.
+    if (!invocationCampaign) {
+      return {
+        investigatorId: null,
+        pcSubjectRefs: [],
+        playerInputSourceRef: null,
+        advisoryAdviceId: null,
+        advisoryCandidateRef: null,
+      };
+    }
     const party = semanticRegistry.currentParty(registryScope(invocationCampaign));
     const identityLive = party.live && party.state === "single";
     return {
@@ -4145,12 +4360,48 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       | {
         candidate_id: string;
         invocation_mode: "pending_defense";
+        allowed_defenses: Array<"dodge" | "fight_back" | "dive_for_cover" | "none">;
       }
     >;
+  };
+  type ChaseBindingFacts = StructuredBindingScope & {
+    root: string;
+    campaign: string;
+    chaseId: string;
+    chaseRevision: number;
+    chaseDigest: string;
+    investigatorId: string;
+    decisionId: string;
+    candidates: ChaseActionCandidate[];
+  };
+  type NpcInteractionBindingFacts = StructuredBindingScope & {
+    root: string;
+    campaign: string;
+    sourceRevision: string;
+    sourceDigest: string;
+    candidates: Array<{
+      investigator: string;
+      npcId: string;
+      factRefs: string[];
+      firstImpressionRef?: string;
+    }>;
+  };
+  type SanityBoutBindingFacts = StructuredBindingScope & {
+    root: string;
+    campaign: string;
+    investigatorId: string;
+    boutId: string;
+    choiceId: string;
+    sourceCommandId: string;
+    choiceRevision: number;
+    actions: Array<"tick" | "end">;
   };
   let currentSceneBindingFacts: SceneBindingFacts | null = null;
   let retainedSceneAffordanceOperations: string[] = [];
   let currentCombatBindingFacts: CombatBindingFacts | null = null;
+  let currentChaseBindingFacts: ChaseBindingFacts | null = null;
+  let currentSanityBoutBindingFacts: SanityBoutBindingFacts | null = null;
+  let currentNpcInteractionBindingFacts: NpcInteractionBindingFacts | null = null;
   let lastHealingCardProjection: {
     playerTurnEpoch: number;
     projection: JsonObject;
@@ -4173,9 +4424,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   const beginSceneDerivedBindingReplacement = (): void => {
     currentSceneBindingFacts = null;
+    currentCombatBindingFacts = null;
+    currentChaseBindingFacts = null;
     lastHealingCardProjection = null;
     retainedSceneAffordanceOperations = [];
-    for (const operation of ["state.move_scene", "state.advance_time"]) {
+    for (const operation of [
+      "state.move_scene", "state.advance_time", "combat.resolve",
+      "rules.social_adjudicate", "rules.psychology_observe",
+    ]) {
       revokedSceneBindingOperations.add(operation);
       retainedTypedBindings.delete(operation);
       currentTypedBindingFactories.delete(operation);
@@ -4183,9 +4439,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   const revokeSceneDerivedBindings = (): void => {
     currentSceneBindingFacts = null;
+    currentCombatBindingFacts = null;
     lastHealingCardProjection = null;
     retainedSceneAffordanceOperations = [];
-    for (const operation of ["state.move_scene", "state.advance_time"]) {
+    for (const operation of [
+      "state.move_scene", "state.advance_time", "combat.resolve",
+      "rules.social_adjudicate", "rules.psychology_observe",
+    ]) {
       revokedSceneBindingOperations.add(operation);
       retainedTypedBindings.delete(operation);
       currentTypedBindingFactories.delete(operation);
@@ -4195,6 +4455,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     loadedOperations = loadedOperations.filter((grant) => (
       grant.operation !== "state.move_scene"
       && grant.operation !== "state.advance_time"
+      && grant.operation !== "combat.resolve"
     ));
     try { applyKpActiveTools(); }
     catch { /* best-effort projection must not replace the primary receipt error */ }
@@ -4208,7 +4469,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     // a redundant scene.context call.
     clearTurnEntityFacts();
     currentSceneBindingFacts = null;
-    currentCombatBindingFacts = null;
+    currentNpcInteractionBindingFacts = null;
     revokedSceneBindingOperations.clear();
     for (const operation of [
       "state.journal",
@@ -4219,7 +4480,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       "combat.resolve",
       "evidence.table_opening",
       "state.record_npc_engagement",
+      "chase.execute",
+      "sanity.execute",
+      "rules.social_adjudicate",
+      "rules.psychology_observe",
     ]) clearTypedBinding(operation);
+    currentChaseBindingFacts = null;
+    currentSanityBoutBindingFacts = null;
   };
   const armTypedBinding = (
     binding: TypedToolBindingCard,
@@ -4570,6 +4837,80 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       canonicalProgress.playerTurnEpoch
     }:revision-${revision}`
   );
+  const bindSanityHostArguments = (
+    operation: string,
+    modelArguments: JsonObject,
+  ): JsonObject => {
+    if (operation === "rules.sanity_check") {
+      const triggerId = typeof modelArguments.trigger_id === "string"
+        && modelArguments.trigger_id.trim()
+        ? modelArguments.trigger_id.trim()
+        : "sanity-check";
+      return {
+        ...modelArguments,
+        decision_id: semanticDecisionId(`rules.sanity_check:${triggerId}`),
+      };
+    }
+    if (operation !== "sanity.execute") return modelArguments;
+    const command = objectOrNull(modelArguments.command) ?? {};
+    const semanticBoutAction = command.action === "tick"
+      || command.action === "end";
+    const boutBinding = retainedTypedBindings.get("sanity.execute");
+    if (boutBinding?.operation === "sanity.execute") {
+      if (!semanticBoutAction) {
+        throw new ToolContractProjectionError(
+          "semantic_candidate_stale",
+          "an active sanity bout accepts only the current semantic tick/end action",
+          { operation, candidate_field: "command.action" },
+        );
+      }
+      return bindRetainedTypedToolArguments(
+        operation,
+        modelArguments,
+        boutBinding,
+        currentTypedBindingFactories.get(operation)?.() ?? null,
+      ) as JsonObject;
+    }
+    if (semanticBoutAction) {
+      throw new ToolContractProjectionError(
+        "binding_context_missing",
+        "call sanity.context to bind the current active bout before choosing tick/end",
+        { operation },
+      );
+    }
+    const payload = objectOrNull(command.payload) ?? {};
+    const kind = typeof command.kind === "string" && command.kind.trim()
+      ? command.kind.trim()
+      : "sanity_check";
+    const semanticScope = (
+      typeof payload.trigger_id === "string" && payload.trigger_id.trim()
+        ? payload.trigger_id.trim()
+        : typeof payload.choice_id === "string" && payload.choice_id.trim()
+          ? payload.choice_id.trim()
+          : kind
+    );
+    const decisionId = semanticDecisionId(
+      `sanity.execute:${kind}:${semanticScope}`,
+    );
+    return {
+      ...modelArguments,
+      decision_id: decisionId,
+      command: {
+        command_id: decisionId,
+        kind,
+        phase: "resolve",
+        payload: {
+          ...payload,
+          decision_id: decisionId,
+          ...(
+            kind === "bout_tick" || kind === "bout_end"
+              ? { terminal_command_ids: [decisionId] }
+              : {}
+          ),
+        },
+      },
+    };
+  };
   const operationCardRevision = (
     value: unknown,
     operation: string,
@@ -4776,7 +5117,68 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           lifetime: "player_turn",
         });
       };
-      if (operation === "rules.roll") {
+      const walkCanonicalRows = (
+        value: unknown,
+        visit: (row: Record<string, unknown>) => void,
+      ): void => {
+        if (Array.isArray(value)) {
+          for (const entry of value) walkCanonicalRows(entry, visit);
+          return;
+        }
+        const row = objectOrNull(value);
+        if (row === null) return;
+        visit(row);
+        for (const child of Object.values(row)) {
+          walkCanonicalRows(child, visit);
+        }
+      };
+      if (
+        operation === "rules.sanity_check"
+        || operation === "sanity.execute"
+        || operation === "combat.resolve"
+      ) {
+        walkCanonicalRows(data, (row) => {
+          registerRoll(row.roll_id, [
+            row.skill,
+            row.goal,
+            row.roll_role,
+            row.event_type,
+          ]);
+          if (operation !== "rules.sanity_check") return;
+          const check = objectOrNull(data.check);
+          for (const [field, role] of [
+            ["check_roll_id", "san-check"],
+            ["int_roll_id", "int-check"],
+            ["bout_duration_roll_id", "bout-duration"],
+            ["bout_table_roll_id", "bout-table"],
+            ["bout_rounds_roll_id", "bout-rounds"],
+            ["mania_roll_id", "mania"],
+            ["phobia_roll_id", "phobia"],
+            ["loss_roll_id", "san-loss"],
+          ] as const) {
+            registerRoll(row[field], [data.source, check?.skill, role]);
+          }
+          const sessionRollIds = Array.isArray(row.session_roll_ids)
+            ? row.session_roll_ids
+            : [];
+          sessionRollIds.forEach((rollId, index) => {
+            registerRoll(rollId, [data.source, "san-session-roll", index + 1]);
+          });
+        });
+      }
+      if (operation === "mechanics.ensure" || operation === "combat.resolve") {
+        walkCanonicalRows(data, (row) => {
+          if (typeof row.weapon_id !== "string" || !row.weapon_id.trim()) return;
+          semanticRegistry.register({
+            domain: "weapon",
+            canonicalId: row.weapon_id.trim(),
+            facts: [row.name, row.weapon_label, row.extends, "combat-weapon"],
+            scope,
+            lifetime: "player_turn",
+          });
+        });
+      }
+      if (operation === "rules.roll" || operation === "rules.push") {
         const resolutionContext = objectOrNull(data.resolution_context);
         const rollArguments = objectOrNull(params.arguments);
         registerRoll(data.roll_id, [
@@ -4784,6 +5186,30 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           data.skill,
           resolutionContext?.roll_density_group,
           rollArguments?.decision_id,
+        ]);
+      }
+      if (operation === "rules.roll_dice") {
+        registerRoll(data.roll_id, [
+          data.reason,
+          data.expression,
+          "random-dice-roll",
+        ]);
+      }
+      if (operation === "rules.opposed") {
+        registerRoll(data.investigator_roll_id, [
+          data.skill,
+          "investigator-opposed-roll",
+        ]);
+        registerRoll(data.opponent_roll_id, [
+          data.opponent_label,
+          "opponent-opposed-roll",
+        ]);
+      }
+      if (operation === "rules.psychology_observe") {
+        registerRoll(data.roll_id, [
+          data.question,
+          data.outcome,
+          "psychology-observation",
         ]);
       }
       if (operation === "npc.reaction") {
@@ -4849,6 +5275,104 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         for (const rollId of Array.isArray(data.source_roll_ids) ? data.source_roll_ids : []) {
           registerRoll(rollId, [data.turn_number, "source-roll"]);
         }
+        // A recovered pending turn may be the first observation in this Pi
+        // session of the exact mechanics frozen by the prior host. Register
+        // every nested model-referenceable roll/effect from structured
+        // output_context facts before projecting it. The model receives only
+        // stable semantic handles; exact ids remain in canonical `details`
+        // and are restored through the same registry on review/finalize.
+        const mechanics = objectOrNull(data.mechanics_summary);
+        for (const rowValue of Array.isArray(mechanics?.public_check)
+          ? mechanics.public_check
+          : []) {
+          const row = objectOrNull(rowValue);
+          if (row === null) continue;
+          registerRoll(row.roll_id, [
+            row.display_skill,
+            row.skill,
+            row.kind,
+            row.outcome,
+          ]);
+        }
+        const registerOutputContextEffect = (
+          rowValue: unknown,
+          category: string,
+        ): void => {
+          const row = objectOrNull(rowValue);
+          if (row === null || typeof row.effect_id !== "string") return;
+          // The registry uses its first fact as the presented handle base.
+          // Compose only controlled semantic dimensions so even a short
+          // resource token (`HP`, `MP`) yields a multi-token handle accepted
+          // by the same closed point-of-use grammar (`hp-scalar-state-delta`),
+          // without embedding canonical identity or weakening validation.
+          const semanticEffectFact = [
+            row.resource,
+            row.effect_kind,
+            category,
+          ].filter((fact): fact is string => (
+            typeof fact === "string" && fact.trim().length > 0
+          )).map((fact) => fact.trim()).join("-");
+          semanticRegistry.register({
+            domain: "effect",
+            canonicalId: row.effect_id,
+            facts: [
+              semanticEffectFact,
+              row.npc_display_name,
+              category,
+            ],
+            scope,
+            lifetime: "player_turn",
+          });
+        };
+        for (const category of [
+          "state_delta",
+          "exceptional_effect",
+          "concealed_consequence",
+        ]) {
+          for (const row of Array.isArray(mechanics?.[category])
+            ? mechanics[category]
+            : []) {
+            registerOutputContextEffect(row, category);
+          }
+        }
+        for (const constraintValue of Array.isArray(data.npc_performance_constraints)
+          ? data.npc_performance_constraints
+          : []) {
+          const constraint = objectOrNull(constraintValue);
+          if (constraint === null) continue;
+          registerOutputContextEffect(constraint, "npc_performance_constraint");
+          registerRoll(constraint.source_roll_id, [
+            constraint.npc_display_name,
+            constraint.effect_kind,
+            "npc-performance-constraint",
+          ]);
+        }
+        for (const pendingValue of Array.isArray(data.pending_modifier_consumptions)
+          ? data.pending_modifier_consumptions
+          : []) {
+          const pending = objectOrNull(pendingValue);
+          if (pending === null) continue;
+          if (typeof pending.effect_id === "string") {
+            semanticRegistry.register({
+              domain: "effect",
+              canonicalId: pending.effect_id,
+              facts: [
+                pending.effect_kind,
+                pending.skill,
+                "pending-modifier-consumption",
+              ],
+              scope,
+              // This effect pre-existed the recovered turn and stays live
+              // until the authoritative consume operation retires it.
+              lifetime: "authoritative",
+            });
+          }
+          registerRoll(pending.roll_id, [
+            pending.skill,
+            pending.effect_kind,
+            "pending-modifier-roll",
+          ]);
+        }
       }
       // Exceptional effects: apply registers a persistent handle;
       // consume/resolve are the authoritative retirement of the named id.
@@ -4869,14 +5393,27 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           if (canonicalEffect && canonicalEffect !== effectInput) {
             semanticRegistry.retire("effect", canonicalEffect, scope);
           }
-        } else if (typeof data.effect_id === "string") {
-          semanticRegistry.register({
-            domain: "effect",
-            canonicalId: data.effect_id,
-            facts: [data.kind, operation],
-            scope,
-            lifetime: "authoritative",
-          });
+        } else {
+          const effect = objectOrNull(data.effect);
+          const canonicalEffect = typeof data.effect_id === "string"
+            ? data.effect_id
+            : typeof effect?.effect_id === "string"
+              ? effect.effect_id
+              : "";
+          const effectKind = typeof data.kind === "string"
+            ? data.kind
+            : typeof effect?.effect_kind === "string"
+              ? effect.effect_kind
+              : "effect";
+          if (canonicalEffect) {
+            semanticRegistry.register({
+              domain: "effect",
+              canonicalId: canonicalEffect,
+              facts: [effectKind, operation],
+              scope,
+              lifetime: "authoritative",
+            });
+          }
         }
       } else if (typeof data.effect_id === "string") {
         // Any other envelope naming an effect registers it turn-scoped.
@@ -5199,7 +5736,33 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
     }
 
+    if (operation === "sanity.context" || operation === "sanity.execute") {
+      armSanityBoutBindingFromCanonical(operation, campaignId, params, data);
+    }
+
     if (operation === "state.journal" && typeof data.turn_id === "string") {
+      const retainedAnchor = currentOpenTurnAnchor;
+      if (
+        campaignId
+        && currentWorkspaceRoot
+        && retainedAnchor?.campaignId === campaignId
+      ) {
+        clearOpenTurnPlayerInput(
+          currentWorkspaceRoot,
+          campaignId,
+          retainedAnchor.anchor,
+        );
+      }
+      journaledOpenTurnAnchor = (
+        retainedAnchor?.campaignId === campaignId
+        && Number.isSafeInteger(data.turn_number)
+        && Number(data.turn_number) > 0
+      ) ? {
+          campaignId,
+          anchor: retainedAnchor.anchor,
+          turnNumber: Number(data.turn_number),
+        } : null;
+      openTurnRecoveryAuthorization = null;
       advanceCanonicalProgress(campaignId, {
         stage: "journaled",
         journalRevision: data.turn_id,
@@ -5211,17 +5774,54 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const contractProjection = objectOrNull(data.contract_projection);
       const agencyReviewRequired = contractProjection?.agency_review_required === true;
       const reviewCard = objectOrNull(data.agency_review_operation);
+      const finalizeCard = objectOrNull(data.finalize_operation);
       const revision = agencyReviewRequired
         ? operationCardRevision(reviewCard, "narration.review")
-        : operationCardRevision(data.finalize_operation, "turn.finalize");
+        : operationCardRevision(finalizeCard, "turn.finalize");
+      const directGenericFinalize = (
+        !agencyReviewRequired
+        && finalizeCard?.invoke_via === "coc_invoke"
+      );
+      const directTypedFinalize = (
+        !agencyReviewRequired
+        && finalizeCard?.invoke_via === "coc_turn_finalize"
+      );
       const sourceDigest = typeof data.source_digest === "string"
         ? data.source_digest
         : "";
       if (sourceDigest && revision !== null) {
+        let coverageBindingFacts: ReviewedCoverageBindingFacts | null = null;
+        try {
+          coverageBindingFacts = buildReviewedCoverageBindingFacts(data);
+        } catch {
+          coverageBindingFacts = null;
+        }
+        const playerInput = objectOrNull(contractProjection?.player_input);
+        const agencyAuthority = objectOrNull(
+          contractProjection?.agency_authority,
+        );
+        const controlOverrides = Array.isArray(
+          contractProjection?.control_overrides,
+        )
+          ? contractProjection.control_overrides.filter(
+            (row): row is JsonObject => objectOrNull(row) !== null,
+          ) as JsonObject[]
+          : [];
         const journalDecisionId = typeof data.journal_decision_id === "string"
           ? data.journal_decision_id
           : semanticDecisionId("state.journal", 1);
-        retainedOutputContextFacts = {
+        const finalizePrefilled = objectOrNull(
+          finalizeCard?.prefilled_arguments,
+        );
+        const directFinalizeDecisionId = (
+          directTypedFinalize
+          && typeof finalizePrefilled?.decision_id === "string"
+          && finalizePrefilled.decision_id === `${journalDecisionId}:finalize`
+        ) ? finalizePrefilled.decision_id : null;
+        retainedOutputContextFacts = (
+          coverageBindingFacts === null
+          || (directTypedFinalize && directFinalizeDecisionId === null)
+        ) ? null : {
           root: typeof params.root === "string" && params.root
             ? params.root
             : currentWorkspaceRoot,
@@ -5230,10 +5830,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           sourceDigest,
           revision,
           journalDecisionId,
-          finalizeDecisionId: null,
+          finalizeDecisionId: directFinalizeDecisionId,
           narrationReviewId: null,
+          playerInputSourceRef: typeof playerInput?.source_ref === "string"
+            ? playerInput.source_ref
+            : "",
+          agencyAuthority: agencyAuthority ?? {},
+          controlOverrides,
+          coverageBindingFacts,
+          reviewedAgencyBinding: null,
+          directGenericFinalize,
+          directTypedFinalize,
         };
-        if (agencyReviewRequired) {
+        if (agencyReviewRequired && retainedOutputContextFacts !== null) {
           const retainedReviewBinding: TypedToolBindingCard = {
             schema_version: 1,
             operation: "narration.review",
@@ -5265,6 +5874,46 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           if (hostHydrationObservationTransaction !== null) {
             overrides.hostHydrationObserverCheckpoint?.("binding");
           }
+        } else if (directTypedFinalize && retainedOutputContextFacts !== null) {
+          const retainedFinalizeBinding: TypedToolBindingCard = {
+            schema_version: 1,
+            operation: "turn.finalize",
+            binding_revision: `turn-finalize-direct:${data.turn_id}:revision-${revision}`,
+            root: retainedOutputContextFacts.root,
+            campaign: campaignId,
+            decision_id: retainedOutputContextFacts.finalizeDecisionId!,
+            revision,
+            turn_id: data.turn_id,
+            source_digest: sourceDigest,
+            narration_review_id: null,
+            direct_single_draft: true,
+          };
+          armTypedBinding(retainedFinalizeBinding, () => {
+            const current = retainedOutputContextFacts;
+            if (
+              current === null
+              || current.turnId !== data.turn_id
+              || current.finalizeDecisionId === null
+              || current.directTypedFinalize !== true
+            ) return null;
+            return {
+              schema_version: 1,
+              operation: "turn.finalize",
+              binding_revision:
+                `turn-finalize-direct:${current.turnId}:revision-${current.revision}`,
+              root: current.root,
+              campaign: current.campaign,
+              decision_id: current.finalizeDecisionId,
+              revision: current.revision,
+              turn_id: current.turnId,
+              source_digest: current.sourceDigest,
+              narration_review_id: null,
+              direct_single_draft: true,
+            };
+          });
+          if (hostHydrationObservationTransaction !== null) {
+            overrides.hostHydrationObserverCheckpoint?.("binding");
+          }
         }
       }
       advanceCanonicalProgress(campaignId, {
@@ -5290,6 +5939,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       return;
     }
     if (operation === "narration.review") {
+      // A successful review changes the authoritative pending-draft/review
+      // identity even when the turn/source/revision tuple is unchanged. A
+      // later resume must refetch that exact context; reusing the pre-review
+      // hydration would re-advertise an already consumed review card.
+      pendingFinalizationHydrationState = null;
       const facts = retainedOutputContextFacts;
       const reviewId = typeof data.review_id === "string"
         ? data.review_id
@@ -5298,12 +5952,96 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           : "";
       if (facts !== null && reviewId) {
         const revision = Number(data.revision ?? facts.revision);
+        const rewriteRequired = (
+          data.agency_gate === "rewrite_required"
+          || data.state_authority_gate === "rewrite_required"
+        );
+        if (rewriteRequired) {
+          // A review receipt can be successfully recorded while still
+          // rejecting this exact prose. It is progress evidence, not
+          // finalize authority. Retire revision-N bindings immediately; the
+          // gateway refresh below will hydrate the canonical revision-N+1
+          // output-context card before another visible review can execute.
+          retainedOutputContextFacts = {
+            ...facts,
+            revision,
+            finalizeDecisionId: null,
+            narrationReviewId: null,
+            reviewedAgencyBinding: null,
+          };
+          clearTypedBinding("turn.finalize");
+          clearTypedBinding("narration.review");
+          advanceCanonicalProgress(campaignId, {
+            stage: "review_ready",
+            reviewRevision: revision,
+          });
+          return;
+        }
+        const reviewArgs = objectOrNull(params.arguments);
+        const reviewedDraft = typeof reviewArgs?.draft_text === "string"
+          ? reviewArgs.draft_text
+          : "";
+        const semanticObligationRefs = semanticObligationRefsFor(
+          facts.coverageBindingFacts,
+          facts.campaign,
+        );
+        let reviewedAgencyBinding: ReviewedAgencyBinding | null = null;
+        if (
+          data.agency_gate === "clear"
+          && data.state_authority_gate === "clear"
+          && revision === facts.revision
+          && data.turn_id === facts.turnId
+          && data.source_digest === facts.sourceDigest
+          && reviewArgs?.turn_id === facts.turnId
+          && reviewArgs?.source_digest === facts.sourceDigest
+          && reviewArgs?.revision === facts.revision
+          && reviewedDraft
+          && typeof data.draft_sha256 === "string"
+          && data.draft_sha256 === canonicalJsonValueSha256(reviewedDraft)
+          && semanticObligationRefs !== null
+        ) {
+          try {
+            reviewedAgencyBinding = buildReviewedAgencyBinding({
+              review_id: reviewId,
+              revision,
+              draft_sha256: data.draft_sha256,
+              draft: reviewedDraft,
+              state_authority_review: data.state_authority_review,
+              player_input_source_ref: facts.playerInputSourceRef,
+              agency_authority: facts.agencyAuthority,
+              control_overrides: facts.controlOverrides,
+              coverage_binding_facts: facts.coverageBindingFacts,
+              semantic_obligation_refs: semanticObligationRefs,
+            });
+          } catch {
+            reviewedAgencyBinding = null;
+          }
+        }
+        if (reviewedAgencyBinding === null) {
+          // A clear review without exact current span/authority binding cannot
+          // safely expose finalize. Keep the settlement frozen; never fall
+          // back to asking the model to transcribe exact reviewed evidence.
+          retainedOutputContextFacts = {
+            ...facts,
+            revision,
+            finalizeDecisionId: null,
+            narrationReviewId: null,
+            reviewedAgencyBinding: null,
+          };
+          clearTypedBinding("turn.finalize");
+          advanceCanonicalProgress(campaignId, {
+            stage: "review_ready",
+            reviewRevision: revision,
+          });
+          return;
+        }
         const finalizeDecisionId = semanticDecisionId("turn.finalize", revision);
         retainedOutputContextFacts = {
           ...facts,
           revision,
           finalizeDecisionId,
           narrationReviewId: reviewId,
+          reviewedAgencyBinding,
         };
         const retainedFinalizeBinding: TypedToolBindingCard = {
           schema_version: 1,
@@ -5316,6 +6054,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           turn_id: facts.turnId,
           source_digest: facts.sourceDigest,
           narration_review_id: reviewId,
+          reviewed_agency_binding: structuredClone(reviewedAgencyBinding),
         };
         armTypedBinding(retainedFinalizeBinding, () => {
           const current = retainedOutputContextFacts;
@@ -5335,8 +6074,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             turn_id: current.turnId,
             source_digest: current.sourceDigest,
             narration_review_id: current.narrationReviewId,
+            ...(current.reviewedAgencyBinding === null
+              ? {}
+              : {
+                  reviewed_agency_binding: structuredClone(
+                    current.reviewedAgencyBinding,
+                  ),
+                }),
           };
         });
+        clearTypedBinding("narration.review");
         advanceCanonicalProgress(campaignId, {
           stage: "review_ready",
           reviewRevision: revision,
@@ -5410,6 +6157,37 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           draftShapeRecoveryCards.delete(campaignId);
         } catch { /* recovery stays pending; no durable retirement claim */ }
       }
+      const journaledAnchor = journaledOpenTurnAnchor;
+      if (
+        journaledAnchor?.campaignId === campaignId
+        && currentWorkspaceRoot
+      ) {
+        clearOpenTurnPlayerInput(
+          currentWorkspaceRoot,
+          campaignId,
+          journaledAnchor.anchor,
+        );
+      }
+      if (
+        journaledAnchor?.campaignId === campaignId
+        && currentOpenTurnAnchor?.campaignId === campaignId
+        && currentOpenTurnAnchor.anchor.anchor_digest
+          === journaledAnchor.anchor.anchor_digest
+        && typeof data.source_digest === "string"
+        && /^sha256:[0-9a-f]{64}$/u.test(data.source_digest)
+      ) {
+        currentOpenTurnAnchor = {
+          campaignId,
+          anchor: createOpenTurnAnchor({
+            timelineId: journaledAnchor.anchor.timeline_id,
+            priorFinalizedTurn: journaledAnchor.turnNumber,
+            priorFinalizedSourceDigest: data.source_digest,
+          }),
+        };
+      } else {
+        currentOpenTurnAnchor = null;
+      }
+      journaledOpenTurnAnchor = null;
       clearTurnTypedBindings();
       return;
     }
@@ -5474,6 +6252,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     if (operation === "npc.query") {
       armNpcEngagementBindingFromQuery(campaignId, params, data);
+      observeNpcInteractionBindingsFromQuery(campaignId, params, envelope);
       return;
     }
     if (operation === "state.record_npc_engagement") {
@@ -5483,34 +6262,51 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (operation === "scene.context") {
       armStructuredSceneBindings(campaignId, params, envelope);
       armNpcReactionBindingFromScene(campaignId, params, envelope);
+      rearmSocialPsychologyBindings();
       return;
     }
     if (operation === "combat.context") {
       armStructuredCombatBinding(campaignId, params, envelope);
       return;
     }
+    if (operation === "chase.context") {
+      armStructuredChaseBinding(campaignId, params, envelope);
+      return;
+    }
     if (operation === "state.move_scene") {
       currentSceneBindingFacts = null;
+      currentNpcInteractionBindingFacts = null;
       lastHealingCardProjection = null;
       retainedSceneAffordanceOperations = [];
       currentCombatBindingFacts = null;
       clearTypedBinding("state.move_scene");
       clearTypedBinding("state.advance_time");
       clearTypedBinding("combat.resolve");
+      clearTypedBinding("rules.social_adjudicate");
+      clearTypedBinding("rules.psychology_observe");
       applyKpActiveTools();
       return;
     }
     if (operation === "state.advance_time") {
       currentSceneBindingFacts = null;
+      currentNpcInteractionBindingFacts = null;
       lastHealingCardProjection = null;
       clearTypedBinding("state.move_scene");
       clearTypedBinding("state.advance_time");
+      clearTypedBinding("rules.social_adjudicate");
+      clearTypedBinding("rules.psychology_observe");
       applyKpActiveTools();
       return;
     }
     if (operation === "combat.resolve") {
       currentCombatBindingFacts = null;
       clearTypedBinding("combat.resolve");
+      applyKpActiveTools();
+      return;
+    }
+    if (operation === "chase.execute") {
+      currentChaseBindingFacts = null;
+      clearTypedBinding("chase.execute");
       applyKpActiveTools();
       return;
     }
@@ -5541,6 +6337,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         return;
       }
       const mode = typeof data.mode === "string" ? data.mode : "";
+      const resumedAnchor = validOpenTurnAnchor(data.open_turn_anchor)
+        ? structuredClone(data.open_turn_anchor)
+        : null;
+      if (resumedAnchor !== null && campaignId) {
+        currentOpenTurnAnchor = { campaignId, anchor: resumedAnchor };
+        journaledOpenTurnAnchor = null;
+      } else if (mode !== "already_acknowledged") {
+        currentOpenTurnAnchor = null;
+        journaledOpenTurnAnchor = null;
+      }
       const resumedStage = mode === "pending_finalization"
         ? nextOperations.includes("narration.review")
           ? "output_context_ready"
@@ -5556,12 +6362,24 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       advanceCanonicalProgress(campaignId, { stage: resumedStage });
       if (mode === "open_turn_recovery") {
         const currentTurn = objectOrNull(data.current_turn);
-        const recoveredPlayer = recoveredOpenTurnPlayerText(
-          currentTurn,
-          openingContinuationGate.currentExternalPlayerText,
-        );
-        if (recoveredPlayer !== null) {
-          openingContinuationGate.currentExternalPlayerText = recoveredPlayer.text;
+        const recoveryRoot = currentWorkspaceRoot;
+        const zeroToolAccepted = currentTurn?.zero_tool_accepted_input === true;
+        const recoveredPlayer = resumedAnchor === null
+          ? { ok: false as const, code: "invalid_anchor" as const }
+          : zeroToolAccepted
+            ? loadZeroToolOpenTurnPlayerInput({
+                root: recoveryRoot,
+                campaignId,
+                anchor: resumedAnchor,
+              })
+            : loadOpenTurnPlayerInput({
+                root: recoveryRoot,
+                campaignId,
+                currentTurn,
+                anchor: resumedAnchor,
+              });
+        if (recoveredPlayer.ok) {
+          openingContinuationGate.currentExternalPlayerText = recoveredPlayer.card.text;
           armJournalBinding(campaignId);
           try {
             pi.appendEntry("coc-open-turn-player-input-rebound", {
@@ -5569,10 +6387,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               status: "rebound",
               campaign_id: campaignId,
               player_turn_epoch: canonicalProgress.playerTurnEpoch,
-              source: recoveredPlayer.source,
+              source: "host_open_turn_input_cache",
             });
           } catch { /* recovery binding audit is best effort */ }
         } else {
+          openingContinuationGate.currentExternalPlayerText = null;
           clearTypedBinding("state.journal");
           try {
             pi.appendEntry("coc-open-turn-player-input-rebound", {
@@ -5580,7 +6399,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               status: "unavailable",
               campaign_id: campaignId,
               player_turn_epoch: canonicalProgress.playerTurnEpoch,
-              source: "current_turn.actions.advise",
+              source: recoveredPlayer.code,
             });
           } catch { /* recovery binding audit is best effort */ }
         }
@@ -5662,6 +6481,347 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       : digest;
     return digest && revision ? { revision, digest } : null;
   };
+  const sanityResumeIds = (
+    choiceId: string,
+    revision: number,
+    action: "tick" | "end",
+  ): { decisionId: string; commandId: string } => {
+    // Byte-identical to coc_subsystem_executor._resume_ids: Python
+    // json.dumps(sort_keys=True,separators=(",",":")) orders these keys as
+    // action, choice_id, revision. The opaque digest remains host-only.
+    const material = JSON.stringify({
+      action,
+      choice_id: choiceId,
+      revision,
+    });
+    const digest = createHash("sha256").update(material).digest("hex");
+    return {
+      decisionId: `resume-${digest.slice(0, 32)}`,
+      commandId: `resume:${digest}:confirm`,
+    };
+  };
+  const sanityBoutCardFromFacts = (
+    facts: SanityBoutBindingFacts,
+  ): SanityBoutBindingCard => {
+    const candidates: SanityBoutActionCandidate[] = facts.actions.map((action) => {
+      const ids = sanityResumeIds(
+        facts.choiceId,
+        facts.choiceRevision,
+        action,
+      );
+      return {
+        action,
+        kind: action === "tick" ? "bout_tick" : "bout_end",
+        decision_id: ids.decisionId,
+        command_id: ids.commandId,
+      };
+    });
+    return {
+      schema_version: 1,
+      operation: "sanity.execute",
+      binding_revision: (
+        `sanity-bout:player-epoch-${facts.playerTurnEpoch}`
+        + `:choice-revision-${facts.choiceRevision}`
+      ),
+      root: facts.root,
+      campaign: facts.campaign,
+      decision_id: candidates[0].decision_id,
+      investigator: facts.investigatorId,
+      bout_id: facts.boutId,
+      choice_id: facts.choiceId,
+      source_command_id: facts.sourceCommandId,
+      choice_revision: facts.choiceRevision,
+      candidates,
+    };
+  };
+  const clearSanityBoutBinding = (): void => {
+    currentSanityBoutBindingFacts = null;
+    clearTypedBinding("sanity.execute");
+  };
+  const armSanityBoutBindingFromCanonical = (
+    operation: string,
+    campaignId: string,
+    params: JsonObject,
+    data: JsonObject,
+  ): void => {
+    const snapshot = objectOrNull(data.snapshot);
+    const pendingValues = operation === "sanity.context"
+      ? (Array.isArray(data.pending_choices) ? data.pending_choices : [])
+      : (Array.isArray(data.results) ? data.results : []).flatMap((value) => {
+        const row = objectOrNull(value);
+        const pendingChoice = objectOrNull(row?.pending_choice);
+        return pendingChoice === null ? [] : [pendingChoice];
+      });
+    const pending = pendingValues.map((row) => objectOrNull(row)).filter(
+      (row): row is JsonObject => row !== null,
+    ).filter((row) => (
+      row.kind === "bout_keeper_action"
+      && row.responder === "keeper"
+    ));
+    const existing = currentSanityBoutBindingFacts;
+    const contextBase = operation === "sanity.context" ? {
+      root: typeof params.root === "string" && params.root
+        ? params.root
+        : currentWorkspaceRoot,
+      investigatorId: typeof data.investigator_id === "string"
+        ? data.investigator_id.trim()
+        : typeof snapshot?.investigator_id === "string"
+          ? snapshot.investigator_id.trim()
+          : "",
+      boutId: typeof snapshot?.active_bout_id === "string"
+        ? snapshot.active_bout_id.trim()
+        : "",
+    } : existing?.campaign === campaignId && bindingScopeMatches(existing)
+      ? {
+          root: existing.root,
+          investigatorId: existing.investigatorId,
+          boutId: existing.boutId,
+        }
+      : null;
+    if (
+      !campaignId
+      || pending.length !== 1
+      || contextBase === null
+      || (
+        operation === "sanity.context"
+        && (
+          data.active !== true
+          || snapshot?.bout_active !== true
+        )
+      )
+    ) {
+      clearSanityBoutBinding();
+      return;
+    }
+    const choice = pending[0];
+    const choiceId = typeof choice.choice_id === "string"
+      ? choice.choice_id.trim()
+      : "";
+    const sourceCommandId = typeof choice.command_id === "string"
+      ? choice.command_id.trim()
+      : "";
+    const choiceRevision = Number(choice.revision);
+    const options = Array.isArray(choice.options) ? choice.options : [];
+    const optionActions = new Set(options.flatMap((value) => {
+      const option = objectOrNull(value);
+      return option?.action === "tick" || option?.action === "end"
+        ? [option.action]
+        : [];
+    }));
+    const actions = (["tick", "end"] as const).filter((action) => (
+      optionActions.has(action)
+    ));
+    if (
+      !contextBase.root
+      || !choiceId
+      || !sourceCommandId
+      || !Number.isInteger(choiceRevision)
+      || choiceRevision < 0
+      || !contextBase.boutId
+      || !contextBase.investigatorId
+      || actions.length === 0
+    ) {
+      clearSanityBoutBinding();
+      return;
+    }
+    const facts: SanityBoutBindingFacts = {
+      sessionEpoch,
+      playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+      stage: canonicalProgress.stage,
+      phase: resolveAclPhase(campaignId),
+      root: contextBase.root,
+      campaign: campaignId,
+      investigatorId: contextBase.investigatorId,
+      boutId: contextBase.boutId,
+      choiceId,
+      sourceCommandId,
+      choiceRevision,
+      actions: [...actions],
+    };
+    currentSanityBoutBindingFacts = facts;
+    armTypedBinding(sanityBoutCardFromFacts(facts), () => {
+      const current = currentSanityBoutBindingFacts;
+      if (
+        current === null
+        || current.campaign !== campaignId
+        || !bindingScopeMatches(current)
+      ) return null;
+      return sanityBoutCardFromFacts(current);
+    });
+  };
+  const rearmSocialPsychologyBindings = (): void => {
+    const scene = currentSceneBindingFacts;
+    const query = currentNpcInteractionBindingFacts;
+    const clear = (): void => {
+      clearTypedBinding("rules.social_adjudicate");
+      clearTypedBinding("rules.psychology_observe");
+    };
+    if (
+      scene === null
+      || query === null
+      || scene.campaign !== query.campaign
+      || !bindingScopeMatches(scene)
+      || !bindingScopeMatches(query)
+    ) {
+      clear();
+      return;
+    }
+    const currentNpcIds = new Set(scene.npcIds);
+    const candidates = query.candidates.filter((candidate) => (
+      currentNpcIds.has(candidate.npcId)
+    ));
+    if (candidates.length === 0) {
+      clear();
+      return;
+    }
+    const card = (
+      operation: "rules.social_adjudicate" | "rules.psychology_observe",
+      currentScene: SceneBindingFacts,
+      currentQuery: NpcInteractionBindingFacts,
+    ): TypedToolBindingCard => {
+      const rows = currentQuery.candidates
+        .filter((candidate) => new Set(currentScene.npcIds).has(candidate.npcId))
+        .filter((candidate) => (
+          operation === "rules.social_adjudicate" || candidate.factRefs.length > 0
+        ))
+        .map((candidate) => ({
+          candidate_id: `${operation === "rules.social_adjudicate"
+            ? "social-target"
+            : "psychology-target"}:${candidate.npcId}`,
+          investigator: candidate.investigator,
+          npc_id: candidate.npcId,
+          conversation_window_id: (
+            `conversation:${currentScene.activeSceneId}:${candidate.investigator}:${candidate.npcId}`
+          ),
+          ...(candidate.firstImpressionRef === undefined
+            ? {}
+            : { first_impression_ref: candidate.firstImpressionRef }),
+          validated_fact_refs: structuredClone(candidate.factRefs),
+          ...(operation === "rules.psychology_observe"
+            ? { observation_revision: 0, observer_scope: candidate.investigator }
+            : {}),
+        }));
+      const base = {
+        schema_version: 1 as const,
+        operation,
+        binding_revision: (
+          `${operation}:${currentScene.activeSceneId}:player-epoch-${currentScene.playerTurnEpoch}`
+          + `:${currentScene.sourceRevision}:${currentScene.sourceDigest}`
+          + `:${currentQuery.sourceRevision}:${currentQuery.sourceDigest}`
+        ),
+        root: currentScene.root,
+        campaign: currentScene.campaign,
+        decision_id: semanticDecisionId(operation),
+        candidates: rows,
+      };
+      return operation === "rules.psychology_observe"
+        ? {
+            ...base,
+            operation,
+            realize_decision_id: semanticDecisionId(
+              operation,
+              canonicalProgress.canonicalProgressRevision + 2,
+            ),
+          }
+        : base;
+    };
+    const arm = (operation: "rules.social_adjudicate" | "rules.psychology_observe") => {
+      const initial = card(operation, scene, query);
+      if (initial.candidates.length === 0) {
+        clearTypedBinding(operation);
+        return;
+      }
+      armTypedBinding(initial, () => {
+        const currentScene = currentSceneBindingFacts;
+        const currentQuery = currentNpcInteractionBindingFacts;
+        if (
+          currentScene === null
+          || currentQuery === null
+          || currentScene.campaign !== currentQuery.campaign
+        ) return null;
+        return card(
+          operation,
+          {
+            ...currentScene,
+            sessionEpoch,
+            playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+            stage: canonicalProgress.stage,
+            phase: resolveAclPhase(currentScene.campaign),
+          },
+          {
+            ...currentQuery,
+            sessionEpoch,
+            playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+            stage: canonicalProgress.stage,
+            phase: resolveAclPhase(currentQuery.campaign),
+          },
+        );
+      });
+      revokedSceneBindingOperations.delete(operation);
+    };
+    arm("rules.social_adjudicate");
+    arm("rules.psychology_observe");
+  };
+  const observeNpcInteractionBindingsFromQuery = (
+    campaignId: string,
+    params: JsonObject,
+    envelope: JsonObject,
+  ): void => {
+    const data = objectOrNull(envelope.data);
+    const identity = structuredReceiptIdentity(envelope);
+    const scene = currentSceneBindingFacts;
+    if (!campaignId || data === null || identity === null) {
+      currentNpcInteractionBindingFacts = null;
+      rearmSocialPsychologyBindings();
+      return;
+    }
+    const party = semanticRegistry.currentParty(registryScope(campaignId));
+    const currentInvestigator = party.live && party.state === "single"
+      ? party.investigatorId
+      : "";
+    const candidates = (Array.isArray(data.npcs) ? data.npcs : []).flatMap((entry) => {
+      const row = objectOrNull(entry);
+      const readiness = objectOrNull(row?.first_contact_readiness);
+      const impression = objectOrNull(readiness?.requested_pair_first_impression);
+      const npcId = typeof row?.npc_id === "string" ? row.npc_id.trim() : "";
+      const observedInvestigator = typeof impression?.investigator_id === "string"
+        ? impression.investigator_id.trim()
+        : "";
+      const investigator = observedInvestigator || currentInvestigator;
+      if (!npcId || !investigator) return [];
+      const factRefs = (Array.isArray(row?.facts) ? row.facts : []).flatMap((factValue) => {
+        const fact = objectOrNull(factValue);
+        const factId = typeof fact?.fact_id === "string" ? fact.fact_id.trim() : "";
+        return factId ? [`npc_fact:${npcId}/${factId}`] : [];
+      });
+      const firstImpressionRef = (
+        impression?.status === "settled"
+        && impression.receipt_exists === true
+        && typeof impression.first_impression_ref === "string"
+      ) ? impression.first_impression_ref.trim() : "";
+      return [{
+        investigator,
+        npcId,
+        factRefs: [...new Set(factRefs)],
+        ...(firstImpressionRef ? { firstImpressionRef } : {}),
+      }];
+    });
+    const root = typeof params.root === "string" && params.root
+      ? params.root
+      : scene?.root ?? currentWorkspaceRoot;
+    currentNpcInteractionBindingFacts = root ? {
+      sessionEpoch,
+      playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+      stage: canonicalProgress.stage,
+      phase: resolveAclPhase(campaignId),
+      root,
+      campaign: campaignId,
+      sourceRevision: identity.revision,
+      sourceDigest: identity.digest,
+      candidates,
+    } : null;
+    rearmSocialPsychologyBindings();
+  };
   const sceneMoveCardFromFacts = (
     facts: SceneBindingFacts,
   ): TypedToolBindingCard => ({
@@ -5702,6 +6862,111 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     combat_digest: facts.combatDigest,
     candidates: structuredClone(facts.candidates),
   });
+  const chaseExecuteCardFromFacts = (
+    facts: ChaseBindingFacts,
+  ): TypedToolBindingCard => ({
+    schema_version: 1,
+    operation: "chase.execute",
+    binding_revision: (
+      `chase:${facts.chaseId}:revision-${facts.chaseRevision}`
+    ),
+    root: facts.root,
+    campaign: facts.campaign,
+    decision_id: facts.decisionId,
+    investigator: facts.investigatorId,
+    chase_id: facts.chaseId,
+    chase_revision: facts.chaseRevision,
+    chase_digest: facts.chaseDigest,
+    candidates: structuredClone(facts.candidates),
+  });
+  const armStructuredChaseBinding = (
+    campaignId: string,
+    params: JsonObject,
+    envelope: JsonObject,
+  ): void => {
+    const data = objectOrNull(envelope.data);
+    const identity = structuredReceiptIdentity(envelope);
+    const snapshot = objectOrNull(data?.snapshot);
+    const chaseId = typeof snapshot?.chase_id === "string"
+      ? snapshot.chase_id.trim()
+      : "";
+    const chaseRevision = Number(snapshot?.revision);
+    const party = semanticRegistry.currentParty(registryScope(campaignId));
+    const investigatorId = party.live && party.state === "single"
+      ? party.investigatorId
+      : "";
+    const candidates = data === null
+      ? []
+      : deriveChaseActionCandidates(data);
+    if (
+      data?.active !== true
+      || snapshot?.status !== "active"
+      || identity === null
+      || !chaseId
+      || !Number.isInteger(chaseRevision)
+      || chaseRevision < 1
+      || !investigatorId
+      || candidates.length === 0
+    ) {
+      currentChaseBindingFacts = null;
+      clearTypedBinding("chase.execute");
+      applyKpActiveTools();
+      return;
+    }
+    const decisionId = `move-${chaseId}-revision-${chaseRevision}`;
+    const facts: ChaseBindingFacts = {
+      sessionEpoch,
+      playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+      stage: canonicalProgress.stage,
+      phase: resolveAclPhase(campaignId),
+      root: typeof params.root === "string" && params.root
+        ? params.root
+        : currentWorkspaceRoot,
+      campaign: campaignId,
+      chaseId,
+      chaseRevision,
+      chaseDigest: identity.digest,
+      investigatorId,
+      decisionId,
+      candidates,
+    };
+    currentChaseBindingFacts = facts;
+    armTypedBinding(chaseExecuteCardFromFacts(facts), () => {
+      const current = currentChaseBindingFacts;
+      return current === null ? null : chaseExecuteCardFromFacts(current);
+    });
+    applyKpActiveTools();
+  };
+  const rearmCurrentCombatBinding = (campaignId: string): void => {
+    const retained = currentCombatBindingFacts;
+    if (
+      retained === null
+      || retained.sessionEpoch !== sessionEpoch
+      || retained.campaign !== campaignId
+      || retained.candidates.length === 0
+    ) return;
+    const facts: CombatBindingFacts = {
+      ...retained,
+      sessionEpoch,
+      playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+      stage: canonicalProgress.stage,
+      phase: resolveAclPhase(campaignId),
+    };
+    currentCombatBindingFacts = facts;
+    armTypedBinding(combatResolveCardFromFacts(facts), () => {
+      const current = currentCombatBindingFacts;
+      return current !== null
+        ? combatResolveCardFromFacts({
+            ...current,
+            sessionEpoch,
+            playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+            stage: canonicalProgress.stage,
+            phase: resolveAclPhase(current.campaign),
+          })
+        : null;
+    });
+    revokedSceneBindingOperations.delete("combat.resolve");
+  };
   const armStructuredSceneBindings = (
     campaignId: string,
     params: JsonObject,
@@ -5871,7 +7136,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         projection: data,
       };
       retainedSceneAffordanceOperations = [
-        ...new Set(explicitAffordanceOperations),
+        ...new Set([
+          ...explicitAffordanceOperations,
+          ...affordancesFromSanityTriggerProjection(data).map(
+            (affordance) => affordance.operation,
+          ),
+        ]),
       ].sort();
       armTypedBinding(sceneMoveCardFromFacts(facts), () => {
         const current = currentSceneBindingFacts;
@@ -5897,6 +7167,49 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             })
           : null;
       });
+      const combatCandidates: CombatBindingFacts["candidates"] = [
+        ...facts.npcIds.map((npcId) => ({
+          candidate_id: `attack:${npcId}`,
+          invocation_mode: "target_npc_id" as const,
+          target_npc_id: npcId,
+        })),
+        ...facts.combatAffordanceIds.map((affordanceId) => ({
+          candidate_id: `combat-route:${affordanceId}`,
+          invocation_mode: "affordance_id" as const,
+          affordance_id: affordanceId,
+        })),
+      ];
+      if (combatCandidates.length > 0) {
+        currentCombatBindingFacts = {
+          sessionEpoch,
+          playerTurnEpoch: facts.playerTurnEpoch,
+          stage: facts.stage,
+          phase: facts.phase,
+          root: facts.root,
+          campaign: facts.campaign,
+          combatRevision: facts.sourceRevision,
+          combatDigest: facts.sourceDigest,
+          candidates: combatCandidates,
+        };
+        armTypedBinding(
+          combatResolveCardFromFacts(currentCombatBindingFacts),
+          () => {
+            const current = currentCombatBindingFacts;
+            return current !== null
+              ? combatResolveCardFromFacts({
+                  ...current,
+                  sessionEpoch,
+                  playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+                  stage: canonicalProgress.stage,
+                  phase: resolveAclPhase(current.campaign),
+                })
+              : null;
+          },
+        );
+        revokedSceneBindingOperations.delete("combat.resolve");
+      } else {
+        refreshTypedToolDefinition("combat.resolve");
+      }
       applyKpActiveTools();
       revokedSceneBindingOperations.delete("state.move_scene");
       revokedSceneBindingOperations.delete("state.advance_time");
@@ -5989,12 +7302,34 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         : identity.revision;
     const candidates: CombatBindingFacts["candidates"] = [];
     if (pendingDefense !== null) {
+      const allowedDefenseValues = Array.isArray(pendingDefense.allowed_defenses)
+        ? pendingDefense.allowed_defenses
+        : [];
+      const allowedDefenseKinds = allowedDefenseValues.filter((value): value is (
+        "dodge" | "fight_back" | "dive_for_cover" | "none"
+      ) => (
+        value === "dodge"
+        || value === "fight_back"
+        || value === "dive_for_cover"
+        || value === "none"
+      ));
+      if (
+        allowedDefenseKinds.length === 0
+        || allowedDefenseKinds.length !== allowedDefenseValues.length
+        || new Set(allowedDefenseKinds).size !== allowedDefenseKinds.length
+      ) {
+        currentCombatBindingFacts = null;
+        clearTypedBinding("combat.resolve");
+        applyKpActiveTools();
+        return;
+      }
       const combatId = typeof combatValue?.combat_id === "string"
         ? combatValue.combat_id.trim()
         : "current";
       candidates.push({
         candidate_id: `defend-pending:${combatId}:revision-${combatRevision}`,
         invocation_mode: "pending_defense",
+        allowed_defenses: allowedDefenseKinds,
       });
     } else {
       const scene = currentSceneBindingFacts;
@@ -6047,15 +7382,25 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           })
         : null;
     });
+    revokedSceneBindingOperations.delete("combat.resolve");
     applyKpActiveTools();
   };
   const resolvedWorkingSetHostTools = (role: SessionRole): ModelVisibleHostTool[] => {
-    const desiredNames = new Set([
-      "coc_discover",
-      "subagent",
-      "subagent_wait",
-      ...extraToolsForSessionRole(role),
-    ]);
+    const directFinalize = (
+      canonicalProgress.stage === "output_context_ready"
+      && retainedOutputContextFacts?.directGenericFinalize === true
+    );
+    const desiredNames = new Set(
+      rulesDirectorSingleDraftProfileActive() && role === "play"
+        ? (directFinalize ? ["coc_invoke"] : [])
+        : [
+            "coc_discover",
+            "subagent",
+            "subagent_wait",
+            ...(directFinalize ? ["coc_invoke"] : []),
+            ...extraToolsForSessionRole(role),
+          ],
+    );
     if (typeof pi.getAllTools !== "function") {
       // Explicit compatibility lane for old focused ExtensionAPI fakes. The
       // production Pi runtime always resolves the registered definitions.
@@ -6073,6 +7418,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   const workingSetSnapshot = (role: SessionRole): ToolWorkingSetSnapshot => {
     const phase = resolveAclPhase();
+    const verifiedOpenTurnRecovery = (
+      role === "play"
+      && phase === "recovery"
+      && canonicalProgress.stage === "acting"
+      && openTurnRecoveryAuthorization !== null
+      && openTurnRecoveryAuthorization.campaignId === canonicalProgressCampaignId
+      && openTurnRecoveryAuthorization.sessionEpoch === sessionEpoch
+      && openTurnRecoveryAuthorization.playerTurnEpoch
+        === canonicalProgress.playerTurnEpoch
+      && currentOpenTurnAnchor?.campaignId === canonicalProgressCampaignId
+      && currentOpenTurnAnchor.anchor.anchor_digest
+        === openTurnRecoveryAuthorization.anchorDigest
+    );
     loadedNamespaces = loadedNamespaces.filter((grant) => (
       grant.role === role
       && grant.phase === phase
@@ -6107,6 +7465,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       stage: canonicalProgress.stage,
       playerTurnEpoch: canonicalProgress.playerTurnEpoch,
       canonicalProgressRevision: canonicalProgress.canonicalProgressRevision,
+      ...(
+        role === "play" && rulesDirectorSingleDraftProfileActive()
+          ? { acceptanceProfile: RULES_DIRECTOR_SINGLE_DRAFT_PROFILE as const }
+          : {}
+      ),
       roleManifestToolNames: extraToolsForSessionRole(role),
       hostTools: resolvedWorkingSetHostTools(role),
       affordances: {
@@ -6126,6 +7489,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       },
       loadedNamespaces,
       loadedOperations,
+      boundOperations: [...retainedTypedBindings.keys()].sort(),
       ...(canonicalProgress.stage === "faulted" && faultRecoveryOperation !== null
         ? {
             recoveryRoute: {
@@ -6134,7 +7498,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               operation: faultRecoveryOperation,
             },
           }
-        : {}),
+        : verifiedOpenTurnRecovery
+          ? {
+              recoveryRoute: {
+                authorization: "stage" as const,
+                code: "open_turn_pre_journal",
+                operations: [],
+              },
+            }
+          : {}),
     };
   };
   const withActualRegisteredSchemas = (
@@ -6917,16 +8289,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       },
     });
   };
-  // Re-arm durable pending extraction rows exactly once per boundary
-  // (successful session.resume or session start). One read-only canonical
-  // status call, fired off the critical path; never a polling loop and
-  // never a trigger that interrupts player narration.
+  // Re-arm durable pending extraction rows exactly once after a successful,
+  // model-projectable session.resume. One read-only canonical status call,
+  // fired off the critical path; never a polling loop and never a trigger
+  // that interrupts player narration.
   const rearmPendingMemoryExtraction = (
     ctx: ExtensionContext,
     campaignId: string,
     epoch: number,
   ) => {
     if (!campaignId || !isCurrent(epoch)) return;
+    if (memoryExtractionRearmedCampaigns.has(campaignId)) return;
+    memoryExtractionRearmedCampaigns.add(campaignId);
     void (async () => {
       try {
         const response = await client(ctx).callTool("coc_invoke", {
@@ -7100,7 +8474,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     semanticRegistry.clearSession(sessionEpoch - 1);
     sessionClosing = false;
     currentWorkspaceRoot = resolve(ctx.cwd);
+    currentHostSessionId = typeof ctx.sessionManager?.getSessionId === "function"
+      ? String(ctx.sessionManager.getSessionId() || "")
+      : "";
     canonicalProgressCampaignId = "";
+    currentOpenTurnAnchor = null;
+    journaledOpenTurnAnchor = null;
+    openTurnRecoveryAuthorization = null;
     canonicalProgress = {
       playerTurnEpoch: 0,
       canonicalProgressRevision: 0,
@@ -7118,6 +8498,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     faultRecoveryOperation = null;
     pendingFinalizationHydrationState = null;
     draftShapeRecoveryCards.clear();
+    currentCombatBindingFacts = null;
     clearTurnTypedBindings();
     clearTypedBinding("npc.reaction");
     startupSilentResumeQuarantine = null;
@@ -7145,6 +8526,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     rawPdfBindBundleRuns = new Set<Promise<unknown>>();
     pendingStewardRefillStates = new Map<string, JsonObject>();
     pendingStewardRefillRuns = new Set<Promise<unknown>>();
+    memoryExtractionRearmedCampaigns = new Set<string>();
     idleTakeoverAttempts = new Map<string, number>();
     idleTakeoverBusy = false;
     const startupCampaignId = overrides.startupCampaignId === undefined
@@ -8379,26 +9761,78 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     pendingFinalizationHydrationState = entry;
     return attempt;
   };
-  // Arm the preserved `turn.finalize` binding from a persisted draft-shape
-  // recovery card after a successful live hydration. The accepted review
-  // identity (narration_review_id) exists only in the frozen card — canonical
-  // output-context receipts carry no review id — so this is the only way a
-  // fresh session can re-arm typed finalize without re-reviewing. Every fact
-  // comes from the validated live hydration plus the exact invocation scope;
-  // a receipt without an exact journal fact refuses to arm — returning
-  // false so the caller attaches no guidance and suppresses no quarantine —
-  // rather than manufacturing a placeholder. Mirrors the narration.review
-  // observation arming exactly; binding and factory derive from the same
-  // retained facts so they validate as current host context.
+  // Rebuild the ordinary reviewed-agency finalize binding after successful
+  // live hydration. Identity comes from the exact frozen draft while semantic
+  // span/authority facts come from the independently validated canonical
+  // accepted-review evidence block; neither is reconstructed from transcript
+  // prose. A missing journal fact or any cross-source mismatch returns null,
+  // so callers attach no finalize-only guidance rather than manufacturing a
+  // partial binding. The same path also re-arms a persisted draft-shape repair
+  // card; that sealed lane retains its narrower draft-only replay gate.
   const armRecoveredFinalizeBinding = (args: {
     campaign: string;
     root: string;
     narrationReviewId: string;
     cards: LiveOutputContextCards;
-  }): boolean => {
+    exactCardDecision?: boolean;
+  }): ReviewedAgencyBinding | null => {
     const revision = args.cards.revision;
-    if (args.cards.journalDecisionId === null) return false;
-    const finalizeDecisionId = semanticDecisionId("turn.finalize", revision);
+    const frozenDraft = objectOrNull(args.cards.frozenDraft);
+    const acceptedEvidence = objectOrNull(
+      args.cards.acceptedReviewEvidence,
+    );
+    if (
+      args.cards.journalDecisionId === null
+      || frozenDraft === null
+      || acceptedEvidence === null
+      || acceptedEvidence.review_id !== args.narrationReviewId
+      || frozenDraft.review_id !== args.narrationReviewId
+      || acceptedEvidence.revision !== revision
+      || frozenDraft.revision !== revision
+      || acceptedEvidence.draft_sha256 !== frozenDraft.draft_sha256
+      || typeof frozenDraft.draft_text !== "string"
+    ) return null;
+    const coverageBindingFacts = (
+      acceptedEvidence.coverage_binding_facts as ReviewedCoverageBindingFacts
+    );
+    const semanticObligationRefs = semanticObligationRefsFor(
+      coverageBindingFacts,
+      args.campaign,
+    );
+    if (semanticObligationRefs === null) return null;
+    let reviewedAgencyBinding: ReviewedAgencyBinding;
+    try {
+      reviewedAgencyBinding = buildReviewedAgencyBinding({
+        review_id: args.narrationReviewId,
+        revision,
+        draft_sha256: String(frozenDraft.draft_sha256),
+        draft: frozenDraft.draft_text,
+        state_authority_review: acceptedEvidence.state_authority_review,
+        player_input_source_ref: String(
+          acceptedEvidence.player_input_source_ref ?? "",
+        ),
+        agency_authority: acceptedEvidence.agency_authority,
+        control_overrides: acceptedEvidence.control_overrides,
+        coverage_binding_facts: coverageBindingFacts,
+        semantic_obligation_refs: semanticObligationRefs,
+      });
+    } catch {
+      return null;
+    }
+    let finalizeDecisionId = semanticDecisionId("turn.finalize", revision);
+    if (args.exactCardDecision === true) {
+      const finalizePrefilled = objectOrNull(
+        args.cards.finalizeCard.prefilled_arguments,
+      );
+      const exactDecision = typeof finalizePrefilled?.decision_id === "string"
+        && finalizePrefilled.decision_id.length > 0
+        ? finalizePrefilled.decision_id
+        : "";
+      if (exactDecision !== `${args.cards.journalDecisionId}:finalize`) {
+        return null;
+      }
+      finalizeDecisionId = exactDecision;
+    }
     retainedOutputContextFacts = {
       root: args.root,
       campaign: args.campaign,
@@ -8408,6 +9842,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       journalDecisionId: args.cards.journalDecisionId,
       finalizeDecisionId,
       narrationReviewId: args.narrationReviewId,
+      playerInputSourceRef: String(acceptedEvidence.player_input_source_ref),
+      agencyAuthority: structuredClone(
+        acceptedEvidence.agency_authority as JsonObject,
+      ),
+      controlOverrides: structuredClone(
+        acceptedEvidence.control_overrides as JsonObject[],
+      ),
+      coverageBindingFacts: structuredClone(coverageBindingFacts),
+      reviewedAgencyBinding,
+      directGenericFinalize: false,
+      directTypedFinalize: false,
     };
     const facts = retainedOutputContextFacts;
     const retainedFinalizeBinding: TypedToolBindingCard = {
@@ -8421,6 +9866,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       turn_id: facts.turnId,
       source_digest: facts.sourceDigest,
       narration_review_id: facts.narrationReviewId,
+      reviewed_agency_binding: structuredClone(reviewedAgencyBinding),
     };
     armTypedBinding(retainedFinalizeBinding, () => {
       const current = retainedOutputContextFacts;
@@ -8440,9 +9886,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         turn_id: current.turnId,
         source_digest: current.sourceDigest,
         narration_review_id: current.narrationReviewId,
+        ...(current.reviewedAgencyBinding === null
+          ? {}
+          : {
+              reviewed_agency_binding: structuredClone(
+                current.reviewedAgencyBinding,
+              ),
+            }),
       };
     });
-    return true;
+    clearTypedBinding("narration.review");
+    advanceCanonicalProgress(args.campaign, {
+      stage: "review_ready",
+      reviewRevision: revision,
+    });
+    return reviewedAgencyBinding;
   };
   // Host-injected `turn.finalize` identity fields: the canonical host-owned
   // contract set (including optional identities a given binding may not
@@ -8465,17 +9923,26 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ?? null;
     if (binding === undefined || current === null) return null;
     try {
-      const hostInjected = bindRetainedTypedToolArguments(
+      const projected = projectBoundTypedToolParameters(
         "turn.finalize",
-        {},
+        typed!.parameters,
         binding,
         current,
       );
-      const hostOwned = new Set([
-        ...RECOVERY_HOST_INJECTED_FINALIZE_ARGUMENTS,
-        ...Object.keys(hostInjected),
-      ]);
-      return Object.keys(properties).filter((field) => !hostOwned.has(field));
+      const projectedProperties = objectOrNull(projected.properties);
+      if (projectedProperties === null) return null;
+      const fields = Object.keys(projectedProperties);
+      // A clear review host-binds the ordinary finalize draft, but draft-shape
+      // recovery must still freeze that exact draft and expose it as the sole
+      // repairable field. Keep it in the internal recovery whitelist without
+      // returning it to the ordinary model schema.
+      if (
+        binding.operation === "turn.finalize"
+        && binding.reviewed_agency_binding !== undefined
+        && Object.hasOwn(properties, "draft")
+        && !fields.includes("draft")
+      ) fields.push("draft");
+      return fields;
     } catch {
       return null;
     }
@@ -8519,6 +9986,40 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         // investigator handles are ignored before validation/restoration.
         params = {};
       }
+      const rawTypedCommand = objectOrNull(params.command);
+      const rawTypedPayload = objectOrNull(rawTypedCommand?.payload);
+      if (
+        typedDefinition.operation === "sanity.execute"
+        && (
+          Object.hasOwn(params, "decision_id")
+          || Object.hasOwn(rawTypedCommand ?? {}, "command_id")
+          || Object.hasOwn(rawTypedCommand ?? {}, "phase")
+          || Object.hasOwn(rawTypedPayload ?? {}, "decision_id")
+          || Object.hasOwn(rawTypedPayload ?? {}, "terminal_command_ids")
+        )
+      ) {
+        return hostFailureResult(hostBindingFailure(
+          typedDefinition.operation,
+          new ToolContractProjectionError(
+            "forged_host_argument",
+            "sanity.execute command identity is host-owned",
+            { operation: typedDefinition.operation },
+          ),
+        ));
+      }
+      if (
+        typedDefinition.operation === "rules.sanity_check"
+        && Object.hasOwn(params, "decision_id")
+      ) {
+        return hostFailureResult(hostBindingFailure(
+          typedDefinition.operation,
+          new ToolContractProjectionError(
+            "forged_host_argument",
+            "rules.sanity_check decision_id is host-owned",
+            { operation: typedDefinition.operation, fields: ["decision_id"] },
+          ),
+        ));
+      }
       // Raw model-identity validation runs BEFORE any host injection or
       // restoration: host-attached identity reaches arguments only after
       // this gate, by provenance. Model-authored `pi-*` values are always
@@ -8536,6 +10037,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           warnings: [],
           hints: [],
         });
+      }
+      if (
+        typedDefinition.operation === "rules.sanity_check"
+        || typedDefinition.operation === "sanity.execute"
+      ) {
+        try {
+          params = bindSanityHostArguments(typedDefinition.operation, params);
+        } catch (error) {
+          if (!(error instanceof ToolContractProjectionError)) throw error;
+          return hostFailureResult(hostBindingFailure(typedDefinition.operation, error));
+        }
       }
       if (
         typedDefinition.operation === "session.resume"
@@ -8650,7 +10162,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         && binding !== undefined
         && draftShapeRecoveryCards.has(binding.campaign)
       ) ? binding.campaign : null;
-      if (armedRecoveryCampaign === null && binding !== undefined) {
+      if (
+        armedRecoveryCampaign === null
+        && binding !== undefined
+        && typedDefinition.operation !== "sanity.execute"
+      ) {
         try {
           params = bindRetainedTypedToolArguments(
             typedDefinition.operation,
@@ -8662,6 +10178,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           if (!(error instanceof ToolContractProjectionError)) throw error;
           return hostFailureResult(hostBindingFailure(typedDefinition.operation, error));
         }
+      }
+      if (
+        typedDefinition.operation === "state.advance_time"
+        && !Object.hasOwn(params, "decision_id")
+      ) {
+        // The model schema intentionally omits decision_id. A precise scene
+        // card supplies the retained host binding; ordinary unbound time
+        // advances still need the same stable host-owned idempotency key.
+        // Attach it only after raw model validation/binding so model input is
+        // never confused with host provenance.
+        params = {
+          ...params,
+          decision_id: semanticDecisionId("state.advance_time"),
+        };
       }
       if (armedRecoveryCampaign !== null && !Object.hasOwn(params, "campaign")) {
         // Host-derived routing identity only, so the wrapped envelope names
@@ -8678,6 +10208,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       && (typeof params.campaign !== "string" || !params.campaign.trim())
       && canonicalProgressCampaignId
     ) {
+      params = { ...params, campaign: canonicalProgressCampaignId };
+    }
+    if (
+      typedDefinition !== undefined
+      && typedOperationNeedsCampaign(typedDefinition.operation)
+      && (typeof params.campaign !== "string" || !params.campaign.trim())
+      && canonicalProgressCampaignId
+    ) {
+      // Typed schemas intentionally hide the transport campaign. Attach the
+      // active canonical campaign before wrapping so semantic handles resolve
+      // inside the exact current session/campaign scope.
       params = { ...params, campaign: canonicalProgressCampaignId };
     }
     params = wrapTypedToolInvokeParams(name, params) as JsonObject;
@@ -8839,6 +10380,24 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         operation: String(params.operation || ""),
         phase: aclPhase,
         role: effectiveTypedRole,
+        recoveryAuthorization: (
+          aclPhase === "recovery"
+          && canonicalProgress.stage === "acting"
+          && openTurnRecoveryAuthorization !== null
+          && openTurnRecoveryAuthorization.campaignId
+            === (typeof params.campaign === "string"
+              ? params.campaign.trim()
+              : canonicalProgressCampaignId)
+          && openTurnRecoveryAuthorization.sessionEpoch === sessionEpoch
+          && openTurnRecoveryAuthorization.playerTurnEpoch
+            === canonicalProgress.playerTurnEpoch
+          && currentOpenTurnAnchor?.campaignId
+            === (typeof params.campaign === "string"
+              ? params.campaign.trim()
+              : canonicalProgressCampaignId)
+          && currentOpenTurnAnchor.anchor.anchor_digest
+            === openTurnRecoveryAuthorization.anchorDigest
+        ) ? { kind: "open_turn_pre_journal", stage: "acting" } : null,
       });
       if (!acl.ok) {
         try {
@@ -8879,6 +10438,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ? params.campaign_id.trim()
           : "";
       if (restoredOperation && restoredArgs !== null) {
+        const reviewedFinalizeBinding = restoredOperation === "turn.finalize"
+          ? retainedTypedBindings.get("turn.finalize")
+          : undefined;
+        const reviewedFinalizeCurrent = restoredOperation === "turn.finalize"
+          ? currentTypedBindingFactories.get("turn.finalize")?.() ?? null
+          : null;
+        const armedDraftShapeRecovery = (
+          restoredOperation === "turn.finalize"
+          && invocationCampaign !== ""
+          && draftShapeRecoveryCards.has(invocationCampaign)
+        );
         // Generic-surface raw validation mirrors the typed branch: the raw
         // model payload is grammar-checked before host restoration attaches
         // provenance-tagged identity. Typed tools were already validated
@@ -8917,13 +10487,31 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             )
           )
         ) {
-          const shape = validateGenericInvokeAgainstRegisteredSchema(
-            {
-              operation: restoredOperation,
-              arguments: restoredArgs,
-            },
-            genericInvokeInputSchema,
-          );
+          const reviewedFinalizeSchema = (
+            reviewedFinalizeBinding?.operation === "turn.finalize"
+            && reviewedFinalizeBinding.reviewed_agency_binding !== undefined
+            && reviewedFinalizeCurrent !== null
+            && typedToolByOperation.get("turn.finalize") !== undefined
+          )
+            ? projectBoundTypedToolParameters(
+              "turn.finalize",
+              typedToolByOperation.get("turn.finalize")!.parameters,
+              reviewedFinalizeBinding,
+              reviewedFinalizeCurrent,
+            )
+            : null;
+          const shape = reviewedFinalizeSchema === null
+            ? validateGenericInvokeAgainstRegisteredSchema(
+              {
+                operation: restoredOperation,
+                arguments: restoredArgs,
+              },
+              genericInvokeInputSchema,
+            )
+            : validateProjectedModelArguments(
+              restoredArgs,
+              reviewedFinalizeSchema,
+            );
           if (!shape.ok) {
             return hostFailureResult({
               ok: false,
@@ -8952,11 +10540,62 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         const hostBoundAfterRestore: JsonObject = {};
         let semanticArgs = restoredArgs;
         if (
+          typedDefinition === undefined
+          && !armedDraftShapeRecovery
+          && reviewedFinalizeBinding?.operation === "turn.finalize"
+          && reviewedFinalizeBinding.reviewed_agency_binding !== undefined
+        ) {
+          try {
+            semanticArgs = bindRetainedTypedToolArguments(
+              "turn.finalize",
+              restoredArgs,
+              reviewedFinalizeBinding,
+              reviewedFinalizeCurrent,
+            );
+          } catch (error) {
+            if (!(error instanceof ToolContractProjectionError)) throw error;
+            return hostFailureResult(hostBindingFailure("turn.finalize", error));
+          }
+        }
+        if (
           typedDefinition?.operation === "state.record_npc_engagement"
           || typedDefinition?.operation === "npc.reaction"
+          || typedDefinition?.operation === "chase.execute"
+          || typedDefinition?.operation === "rules.social_adjudicate"
+          || typedDefinition?.operation === "rules.psychology_observe"
         ) {
           semanticArgs = { ...restoredArgs };
           for (const field of HOST_OWNED_FIELDS[typedDefinition.operation]) {
+            if (Object.hasOwn(semanticArgs, field)) {
+              hostBoundAfterRestore[field] = semanticArgs[field];
+              delete semanticArgs[field];
+            }
+          }
+        }
+        if (
+          typedDefinition?.operation === "sanity.execute"
+          && retainedTypedBindings.get("sanity.execute")?.operation
+            === "sanity.execute"
+        ) {
+          // The semantic action has already been compiled through the exact
+          // retained/current bout binding. Keep its hash-derived executor
+          // command out of model-identity restoration; only the semantic
+          // investigator handle still crosses that boundary.
+          semanticArgs = { ...restoredArgs };
+          for (const field of ["decision_id", "command"]) {
+            if (Object.hasOwn(semanticArgs, field)) {
+              hostBoundAfterRestore[field] = semanticArgs[field];
+              delete semanticArgs[field];
+            }
+          }
+        }
+        if (
+          reviewedFinalizeBinding?.operation === "turn.finalize"
+          && reviewedFinalizeBinding.reviewed_agency_binding !== undefined
+          && !armedDraftShapeRecovery
+        ) {
+          semanticArgs = { ...semanticArgs };
+          for (const field of ["coverage", "agency_claims"]) {
             if (Object.hasOwn(semanticArgs, field)) {
               hostBoundAfterRestore[field] = semanticArgs[field];
               delete semanticArgs[field];
@@ -8991,6 +10630,26 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             ...hostBoundAfterRestore,
           },
         };
+        if (
+          typedDefinition === undefined
+          && (
+            restoredOperation === "rules.sanity_check"
+            || restoredOperation === "sanity.execute"
+          )
+        ) {
+          try {
+            params = {
+              ...params,
+              arguments: bindSanityHostArguments(
+                restoredOperation,
+                objectOrNull(params.arguments) ?? {},
+              ),
+            };
+          } catch (error) {
+            if (!(error instanceof ToolContractProjectionError)) throw error;
+            return hostFailureResult(hostBindingFailure(restoredOperation, error));
+          }
+        }
       }
     }
     params = openingContinuationGate.bindHandoutReplayRequest(params);
@@ -9381,6 +11040,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     let value: unknown;
     let transportMeta: McpTransportMeta | null = null;
+    // Set only after the canonical resume has crossed its lifecycle acceptance
+    // boundary. Startup result classification may reject an otherwise `ok`
+    // envelope (for example an incomplete opening route), so `ok` alone is not
+    // permission to inspect the extraction backlog.
+    let memoryExtractionRearmEligible = false;
     // Run-02 armed-recovery result projection: while an armed recovery
     // finalize is being handled, model-visible content is projected to
     // semantic status and player-visible text only — integrity hashes,
@@ -9389,6 +11053,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     // envelope is preserved there for event delivery/audit).
     let recoveryFinalizeActive = false;
     let recoveryCanonicalDetails: JsonObject | null = null;
+    // A Pi-host recovery overlay may deliberately refine the model/behavior
+    // surface without changing the canonical receipt. Keep that exact receipt
+    // for host-only details while the overlay continues through progress, ACL,
+    // working-set, and model projection.
+    let canonicalDetailsOverride: JsonObject | null = null;
     // Host-reconstructed semantic recovery instruction: derived ONLY from
     // the exact validated armed internal card, never from any downstream
     // canonical error payload.
@@ -9408,7 +11077,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const identityScopeData = params.operation === "session.resume"
         ? objectOrNull(canonicalData?.scene_context) ?? canonicalData
         : canonicalData;
-      const baseVisible = modelVisibleCanonicalEnvelope(
+      let baseVisible = modelVisibleCanonicalEnvelope(
         params.operation,
         canonical,
         liveSemanticIdMap(
@@ -9417,6 +11086,69 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ),
         diagnostics,
       );
+      if (params.operation === "narration.review") {
+        const finalizeBinding = retainedTypedBindings.get("turn.finalize");
+        if (
+          finalizeBinding?.operation === "turn.finalize"
+          && finalizeBinding.reviewed_agency_binding !== undefined
+        ) {
+          const visibleEnvelope = objectOrNull(baseVisible);
+          const visibleData = objectOrNull(visibleEnvelope?.data);
+          if (visibleEnvelope?.ok === true && visibleData !== null) {
+            const reviewed = finalizeBinding.reviewed_agency_binding;
+            baseVisible = {
+              ...baseVisible,
+              data: {
+                ...visibleData,
+                finalize_agency_binding: {
+                  schema_version: 1,
+                  mode: "semantic_reviewed_spans",
+                  reviewed_spans: reviewed.spans.map(
+                    (row) => row.reviewed_span,
+                  ),
+                  authorities: reviewed.authorities.map((row) => ({
+                    authority: row.authority,
+                    claim_types: [...row.claim_types],
+                  })),
+                  coverage_obligations: reviewed.coverage_obligations.map(
+                    (row) => ({
+                      obligation: row.obligation_ref,
+                      source_kind: row.source_kind,
+                      visibility: row.visibility,
+                      npc_display_name: row.npc_display_name,
+                      skill: row.skill,
+                      goal: row.goal,
+                      outcome: row.outcome,
+                      exceptional_required: row.exceptional_required,
+                      allowed_reviewed_spans: [...row.allowed_reviewed_spans],
+                      realization: row.realization,
+                      placement_mode: row.placement_mode,
+                    }),
+                  ),
+                  mechanics_placement: structuredClone(
+                    reviewed.mechanics_placement,
+                  ),
+                  model_arguments: ["coverage", "agency_claims"],
+                  host_bound_evidence: [
+                    "draft", "claim_id", "verbatim_reviewed_prose", "subject_ref",
+                    "source_ref", "override_id", "narration_review_id",
+                    "obligation_id", "mechanics_placements",
+                  ],
+                  instruction: (
+                    "Call coc_turn_finalize with semantic coverage and "
+                    + "agency_claims selections only. Copy each offered "
+                    + "obligation into coverage.obligation_ref and choose its "
+                    + "reviewed_span; then choose reviewed_span, "
+                    + "claim_type, and authority for agency; the host restores "
+                    + "the frozen draft, exact excerpts, canonical obligations, "
+                    + "and safe mechanics placement."
+                  ),
+                },
+              },
+            };
+          }
+        }
+      }
       // While an armed recovery owns this result, its closed semantic
       // whitelist is the projection — the hostile canonical payload never
       // reaches the identity discovery path.
@@ -9447,7 +11179,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           // Host-only evidence: the exact canonical envelope plus the bounded
           // field/domain diagnostics (never the unmapped values).
           details: {
-            canonical,
+            canonical: canonicalDetailsOverride ?? canonical,
             semantic_identity_diagnostics: diagnostics.unmapped.map((entry) => ({
               field: entry.field,
               parent_field: entry.parentField,
@@ -9460,8 +11192,29 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const visible = recoveryFinalizeActive
         ? projectRecoveryFinalizeResult(baseVisible, recoveryVisibleRecovery)
         : baseVisible;
-      const internalDetails = recoveryCanonicalDetails ?? canonical;
+      const internalDetails = recoveryCanonicalDetails
+        ?? canonicalDetailsOverride
+        ?? canonical;
       const rendered = { ...result(visible), details: internalDetails };
+      const resumeData = objectOrNull(canonical.data);
+      const resumeCampaign = typeof params.campaign === "string"
+        ? params.campaign.trim()
+        : "";
+      if (
+        params.operation === "session.resume"
+        && memoryExtractionRearmEligible
+        && canonical.ok === true
+        && canonical.tool === "session.resume"
+        && resumeCampaign
+        && resumeData?.schema_version === 1
+        && resumeData.campaign_id === resumeCampaign
+        && typeof resumeData.mode === "string"
+        && acceptedResumeModes.has(resumeData.mode)
+        && signal?.aborted !== true
+        && isCurrent(epoch)
+      ) {
+        rearmPendingMemoryExtraction(ctx, resumeCampaign, epoch);
+      }
       // `details` retains the canonical host receipt for the internal event;
       // model-facing `content` receives the host-only-field projection.
       return transportMeta === null
@@ -9526,9 +11279,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         }
         let hostInjected: Record<string, unknown>;
         try {
-          hostInjected = bindRetainedTypedToolArguments(
+          hostInjected = retainedTypedToolHostArguments(
             "turn.finalize",
-            {},
             binding,
             current,
           );
@@ -9860,7 +11612,66 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         value,
       );
       value = accepted.value;
-      const acceptedData = objectOrNull(objectOrNull(value)?.data);
+      if (
+        !startupResumeAttempt
+        && params.operation === "session.resume"
+        && accepted.accepted
+      ) {
+        memoryExtractionRearmEligible = true;
+      }
+      let acceptedData = objectOrNull(objectOrNull(value)?.data);
+      if (
+        accepted.accepted
+        && params.operation === "session.resume"
+        && acceptedData?.mode === "open_turn_recovery"
+      ) {
+        canonicalDetailsOverride = structuredClone(accepted.value);
+      }
+      if (
+        accepted.accepted
+        && params.operation === "session.resume"
+        && typeof params.campaign === "string"
+        && params.campaign.trim()
+        && acceptedData?.campaign_id === params.campaign.trim()
+        && acceptedData.mode === "awaiting_player"
+        && acceptedData.current_turn == null
+        && acceptedData.pending_turn == null
+        && acceptedData.pending_output_context == null
+        && acceptedData.ending_output == null
+        && validOpenTurnAnchor(acceptedData.open_turn_anchor)
+      ) {
+        const cached = loadZeroToolOpenTurnPlayerInput({
+          root: currentWorkspaceRoot,
+          campaignId: params.campaign.trim(),
+          anchor: acceptedData.open_turn_anchor,
+        });
+        if (cached.ok) {
+          canonicalDetailsOverride = structuredClone(accepted.value);
+          value = {
+            ...(objectOrNull(value) ?? {}),
+            data: {
+              ...acceptedData,
+              mode: "open_turn_recovery",
+              next_operations: ["continue_current_turn_from_receipts"],
+              current_turn: {
+                schema_version: 1,
+                meaningful_row_count: 0,
+                operational_row_count: 0,
+                rows: [],
+                zero_tool_accepted_input: true,
+              },
+            },
+          };
+          acceptedData = objectOrNull(objectOrNull(value)?.data);
+          try {
+            pi.appendEntry("coc-zero-tool-open-turn-recovery", {
+              schema_version: 1,
+              status: "rebound",
+              campaign_id: params.campaign.trim(),
+            });
+          } catch { /* zero-tool recovery audit is best effort */ }
+        }
+      }
       const acceptedContractProjection = objectOrNull(
         acceptedData?.contract_projection,
       );
@@ -10084,13 +11895,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           if (recoveredHydration.status === "success" && isCurrent(epoch)) {
             // Missing or mismatched journal evidence fails the whole lane
             // closed: no binding, no guidance, no quarantine suppression.
-            const recoveryArmed = armRecoveredFinalizeBinding({
+            const recoveredAgencyBinding = armRecoveredFinalizeBinding({
               campaign: campaignId,
               root: recoveryRoot,
               narrationReviewId: String(card.narration_review_id),
               cards: recoveredHydration.cards,
             });
-            if (recoveryArmed) {
+            if (recoveredAgencyBinding !== null) {
               const guided = applyAcknowledgedResumeRecoveryGuidance(
                 value,
                 card,
@@ -10141,6 +11952,69 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           canonicalProgress,
         });
       }
+      const reviewEnvelope = objectOrNull(value);
+      const reviewData = objectOrNull(reviewEnvelope?.data);
+      const reviewRevision = Number(reviewData?.revision);
+      const reviewRewriteRequired = (
+        accepted.accepted
+        && params.operation === "narration.review"
+        && reviewEnvelope?.ok === true
+        && typeof reviewData?.review_id === "string"
+        && reviewData.review_id.length > 0
+        && reviewRevision === 1
+        && (
+          reviewData.agency_gate === "rewrite_required"
+          || reviewData.state_authority_gate === "rewrite_required"
+        )
+      );
+      if (
+        reviewRewriteRequired
+        && typeof params.campaign === "string"
+        && params.campaign.trim()
+        && isCurrent(epoch)
+        && signal?.aborted !== true
+      ) {
+        const reviewArgs = objectOrNull(params.arguments);
+        const turnId = typeof reviewData?.turn_id === "string"
+          ? reviewData.turn_id
+          : typeof reviewArgs?.turn_id === "string"
+            ? reviewArgs.turn_id
+            : "";
+        const sourceDigest = typeof reviewData?.source_digest === "string"
+          ? reviewData.source_digest
+          : typeof reviewArgs?.source_digest === "string"
+            ? reviewArgs.source_digest
+            : "";
+        if (turnId && sourceDigest) {
+          const campaignId = params.campaign.trim();
+          const refreshed = await runPendingFinalizationHydration({
+            resumeValue: {
+              ok: true,
+              tool: "session.resume",
+              data: {
+                schema_version: 1,
+                campaign_id: campaignId,
+                mode: "pending_finalization",
+              },
+            },
+            campaign: campaignId,
+            root: typeof params.root === "string" && params.root
+              ? params.root
+              : ctx.cwd,
+            ctx,
+            signal,
+            epoch,
+            pendingIdentity: {
+              turnId,
+              sourceDigest,
+              revision: 2,
+            },
+          });
+          if (refreshed.status === "superseded") {
+            return gatewayResult(asObject(value, "late canonical result"));
+          }
+        }
+      }
       const briefingOperation = String(params.operation);
       const briefingEnvelope = objectOrNull(value);
       const briefingReason = briefingOperation === "session.resume"
@@ -10161,9 +12035,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           briefingReason,
           epoch,
         );
-        if (briefingReason === "session_resume") {
-          rearmPendingMemoryExtraction(ctx, params.campaign.trim(), epoch);
-        }
         if (!isCurrent(epoch)) {
           return gatewayResult(asObject(value, "late canonical result"));
         }
@@ -10312,6 +12183,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           )
         );
         if (disposition.accepted && exactRoleNullResume) {
+          memoryExtractionRearmEligible = disposition.mode !== null;
           if (
             launcherRole === null
             && effectiveTypedRole === "setup"
@@ -10884,19 +12756,54 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       )
         ? { status: "unavailable" }
         : liveHydration;
+      const recoveryRoot = typeof params.root === "string" && params.root
+        ? params.root
+        : ctx.cwd;
+      let acceptedReviewBinding: ReviewedAgencyBinding | null = null;
+      if (
+        effectiveLiveHydration.status === "success"
+        && effectiveLiveHydration.cards.agencyReviewRequired
+        && effectiveLiveHydration.cards.reviewCard !== null
+        && effectiveLiveHydration.cards.frozenDraftMode === "exact_replay"
+        && effectiveLiveHydration.cards.frozenDraft !== null
+        && effectiveLiveHydration.cards.acceptedReviewEvidence !== null
+        && typeof effectiveLiveHydration.cards.acceptedReviewEvidence.review_id
+          === "string"
+        && effectiveLiveHydration.cards.acceptedReviewEvidence.review_id.length > 0
+      ) {
+        acceptedReviewBinding = armRecoveredFinalizeBinding({
+          campaign: resumeCampaign,
+          root: recoveryRoot,
+          narrationReviewId:
+            effectiveLiveHydration.cards.acceptedReviewEvidence.review_id,
+          cards: effectiveLiveHydration.cards,
+          exactCardDecision: true,
+        });
+      }
       const pendingGuided = applyPendingFinalizationRecoveryGuidance(value, {
-        root: typeof params.root === "string" && params.root
-          ? params.root
-          : ctx.cwd,
+        root: recoveryRoot,
         campaign: resumeCampaign,
       }, {
         reviewRecoveryArmed,
+        acceptedReviewBinding,
         ...(reviewRecoveryArmed ? { revision: recoveryIdentity.revision } : {}),
         ...(effectiveLiveHydration.status !== "not_attempted"
           ? { liveHydration: effectiveLiveHydration }
           : {}),
       });
       if (pendingGuided.attached) {
+        openTurnRecoveryAuthorization = null;
+        if (
+          typeof params.campaign === "string"
+          && params.campaign.trim()
+          && currentOpenTurnAnchor?.campaignId === params.campaign.trim()
+        ) {
+          clearOpenTurnPlayerInput(
+            currentWorkspaceRoot,
+            params.campaign.trim(),
+            currentOpenTurnAnchor.anchor,
+          );
+        }
         value = pendingGuided.envelope as JsonObject;
         try {
           pi.appendEntry(
@@ -10905,12 +12812,66 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           );
         } catch { /* recovery-guidance audit is best effort */ }
       } else {
-        const guided = applyOpenTurnRecoveryGuidance(value);
+        const openTurnData = objectOrNull(objectOrNull(value)?.data);
+        const recoveryRoot = currentWorkspaceRoot;
+        const zeroToolAccepted = (
+          objectOrNull(openTurnData?.current_turn)?.zero_tool_accepted_input
+          === true
+        );
+        const recoveredInput = (
+          openTurnData?.mode === "open_turn_recovery"
+          && typeof params.campaign === "string"
+          && params.campaign.trim()
+          && currentOpenTurnAnchor?.campaignId === params.campaign.trim()
+        ) ? zeroToolAccepted
+          ? loadZeroToolOpenTurnPlayerInput({
+              root: recoveryRoot,
+              campaignId: params.campaign.trim(),
+              anchor: currentOpenTurnAnchor.anchor,
+            })
+          : loadOpenTurnPlayerInput({
+              root: recoveryRoot,
+              campaignId: params.campaign.trim(),
+              currentTurn: openTurnData.current_turn,
+              anchor: currentOpenTurnAnchor.anchor,
+            }) : null;
+        const guided = applyOpenTurnRecoveryGuidance(value, {
+          expectedCampaign: typeof params.campaign === "string"
+            ? params.campaign.trim()
+            : undefined,
+          playerInput: recoveredInput?.ok === true ? recoveredInput.card : null,
+          zeroToolAccepted,
+        });
         if (guided.attached) {
           value = guided.envelope as JsonObject;
+          const authorized = guided.audit?.acting_authorized === true;
+          openTurnRecoveryAuthorization = authorized
+            && typeof params.campaign === "string"
+            && params.campaign.trim()
+            ? {
+                campaignId: params.campaign.trim(),
+                sessionEpoch,
+                playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+                anchorDigest: currentOpenTurnAnchor?.anchor.anchor_digest ?? "",
+              }
+            : null;
+          applyKpActiveTools();
           try {
             pi.appendEntry(OPEN_TURN_RECOVERY_GUIDANCE_AUDIT, guided.audit);
           } catch { /* recovery-guidance audit is best effort */ }
+        } else if (
+          openTurnData !== null
+          && openTurnData.mode !== "open_turn_recovery"
+          && typeof params.campaign === "string"
+          && params.campaign.trim()
+          && currentOpenTurnAnchor?.campaignId === params.campaign.trim()
+        ) {
+          openTurnRecoveryAuthorization = null;
+          clearOpenTurnPlayerInput(
+            recoveryRoot,
+            params.campaign.trim(),
+            currentOpenTurnAnchor.anchor,
+          );
         }
       }
     }
@@ -11038,12 +12999,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   pi.registerTool({
     name: "coc_discover", label: "COC discover",
     description: "Load one canonical operation or one bounded namespace into the current turn working set.", parameters: discoverSchema,
+    executionMode: "sequential",
     execute: executeDiscovery,
     ...compactToolRenderers("coc_discover"),
   });
   pi.registerTool({
     name: "coc_invoke", label: "COC invoke (hidden compat)",
     description: "Hidden compatibility gateway. Live KP should use the closed domain tools.", parameters: invokeSchema,
+    executionMode: "sequential",
     execute: gateway("coc_invoke"),
     ...compactToolRenderers("coc_invoke"),
   });
@@ -11053,6 +13016,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       label: DOMAIN_TOOL_LABELS[domainName],
       description: DOMAIN_TOOL_DESCRIPTIONS[domainName],
       parameters: domainToolSchema(domainName),
+      executionMode: "sequential",
       execute: gateway(domainName),
       ...compactToolRenderers(domainName),
     });
@@ -11180,6 +13144,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       label: typed.label,
       description: typed.description,
       parameters,
+      executionMode: executionClassForPolicy(
+        OPERATION_POLICY[typed.operation],
+      ) === "parallel_read" ? "parallel" : "sequential",
       ...(typed.operation === "setup.complete" && launcherRole !== null ? {
         prepareArguments: (args: unknown) => (
           openingContinuationGate.prepareSetupCompleteArguments(args)
@@ -11501,6 +13468,36 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     agentDir,
   );
   registerCocSystemInstructionCommand(pi, {
+    hostControl: async (command, context) => {
+      const campaignId = explicitPiStartupCampaignId()
+        ?? canonicalProgressCampaignId;
+      if (!campaignId) {
+        throw new Error("/system debug requires one active campaign");
+      }
+      const model = context.model;
+      if (!model) {
+        throw new Error("/system debug requires one configured model");
+      }
+      const agentHome = process.env.PI_CODING_AGENT_DIR;
+      if (!agentHome) {
+        throw new Error("/system debug requires the repo-local Pi agent home");
+      }
+      const commandContext = context as ExtensionContext & {
+        isIdle?: () => boolean;
+      };
+      const debugContext: DebugExperimentHostContext = {
+        workspaceRoot: resolve(context.cwd),
+        campaignId,
+        role: effectiveTypedRole,
+        hostIsIdle: commandContext.isIdle?.() !== false,
+        provider: String(model.provider || ""),
+        model: String(model.id || ""),
+        thinking: pi.getThinkingLevel(),
+        agentHome: resolve(agentHome),
+      };
+      return overrides.dispatchDebugExperiment?.(command, debugContext)
+        ?? debugExperimentHost.dispatch(command, debugContext);
+    },
     beforeDispatch: (_instruction, context) => {
       operatorSystemInstructionScope = {
         sourceType: "operator_command",
@@ -11736,7 +13733,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       return decision;
     },
     (message) => {
-      const externalUser = userMessageText(message) !== null;
+      const externalPlayerText = userMessageText(message);
+      const externalUser = externalPlayerText !== null;
       if (externalUser) operatorSystemInstructionScope = null;
       openingContinuationGate.observeMessageStart(message);
       if (externalUser) {
@@ -11749,7 +13747,48 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           newPlayerEpoch: openingContinuationGate.playerTurnEpoch,
           reprojectTools: false,
         });
-        armJournalBinding(campaignId);
+        rearmCurrentCombatBinding(campaignId);
+        if (
+          startupResumeGate === null
+          && kpPlayPhase === "live_turn"
+          && campaignId
+          && currentWorkspaceRoot
+          && currentHostSessionId
+          && externalPlayerText !== null
+        ) {
+          const retained = currentOpenTurnAnchor?.campaignId === campaignId
+            ? recordOpenTurnPlayerInput({
+                root: currentWorkspaceRoot,
+                campaignId,
+                sessionId: currentHostSessionId,
+                playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+                text: externalPlayerText,
+                anchor: currentOpenTurnAnchor.anchor,
+              })
+            : "ignored" as const;
+          if (
+            retained === "recorded"
+            || retained === "replaced_stale"
+            || retained === "idempotent"
+            // A missing trustworthy recovery anchor disables only durable
+            // restart caching. The exact in-memory player message still owns
+            // this live session's ordinary journal binding.
+            || retained === "ignored"
+          ) {
+            armJournalBinding(campaignId);
+          } else {
+            openingContinuationGate.currentExternalPlayerText = null;
+            clearTypedBinding("state.journal");
+          }
+          try {
+            pi.appendEntry("coc-open-turn-player-input-cache", {
+              schema_version: 1,
+              status: retained,
+              campaign_id: campaignId,
+              player_turn_epoch: canonicalProgress.playerTurnEpoch,
+            });
+          } catch { /* operational cache audit is best effort */ }
+        }
       }
       if (externalUser && startupResumeGate === null) {
         const preflightDelivery = deliverPendingPreInferenceFinalizationSteer(
@@ -11968,12 +14007,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     registerSkillDocRead(pi);
   });
   pi.on("session_start", async (event, ctx) => {
+    toolWorkingSetAtExecutionStart.clear();
     sceneSupplyDispatches.clear();
     idleTakeoverContext = ctx;
     const startupCampaignId = initializeSession(ctx);
     if (startupCampaignId !== null) {
       await refreshKeeperBriefing(ctx, startupCampaignId, "session_start");
-      rearmPendingMemoryExtraction(ctx, startupCampaignId, sessionEpoch);
     }
     await startCocWelcome(event, ctx, startupCampaignId);
   });
@@ -11989,14 +14028,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     loadedNamespaces = [];
     loadedOperations = [];
     lastWorkingSet = null;
+    toolWorkingSetAtExecutionStart.clear();
     faultRecoveryOperation = null;
     retainedOutputContextFacts = null;
     semanticRegistry.clearAll();
     clearTurnEntityFacts();
     draftShapeRecoveryCards.clear();
     currentSceneBindingFacts = null;
+    currentHostSessionId = "";
+    currentOpenTurnAnchor = null;
+    journaledOpenTurnAnchor = null;
+    openTurnRecoveryAuthorization = null;
     lastHealingCardProjection = null;
     currentCombatBindingFacts = null;
+    currentChaseBindingFacts = null;
     retainedTypedBindings.clear();
     currentTypedBindingFactories.clear();
     sceneSupplyDispatches.clear();

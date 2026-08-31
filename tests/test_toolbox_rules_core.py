@@ -2026,6 +2026,12 @@ def test_rules_push_records_announced_failure_consequence(campaign_ws):
     assert result["data"]["failure_consequence"]["summary"].startswith(
         "the archive closes"
     )
+    expected_protocol = {
+        "failure_consequence_source": "keeper",
+        "keeper_foreshadowed_failure": True,
+        "player_confirmation_recorded": True,
+    }
+    assert result["data"]["pushed_roll_protocol"] == expected_protocol
     repeated = _run(campaign_ws, "rules.push", {**args, "seed": 999})
     assert repeated["ok"] is True
     assert repeated["data"] == result["data"]
@@ -2038,6 +2044,7 @@ def test_rules_push_records_announced_failure_consequence(campaign_ws):
     assert roll["payload"]["announced_consequence"] == result["data"][
         "failure_consequence"
     ]
+    assert roll["payload"]["pushed_roll_protocol"] == expected_protocol
 
 def test_rules_push_requires_and_inherits_original_check_contract(campaign_ws):
     missing = _run(
@@ -2329,6 +2336,11 @@ def test_failed_first_aid_allows_one_evidenced_push(campaign_ws):
     assert push_roll["payload"]["changed_method"].startswith("open the field kit")
     assert push_roll["payload"]["announced_consequence"] == {
         "summary": "the dying clock immediately resumes"
+    }
+    assert push_roll["payload"]["pushed_roll_protocol"] == {
+        "failure_consequence_source": "keeper",
+        "keeper_foreshadowed_failure": True,
+        "player_confirmation_recorded": True,
     }
 
     second_push = _run(

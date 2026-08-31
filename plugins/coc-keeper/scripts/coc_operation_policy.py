@@ -101,6 +101,14 @@ _DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
         "advisory": False,
         "kp_surface": "subsystem",
     },
+    "magic": {
+        "audience": "keeper",
+        "phases": ("live_turn",),
+        "contract": "rules",
+        "advisory": False,
+        "kp_surface": "subsystem",
+        "discovery": "exact",
+    },
     "scene": {
         "audience": "keeper",
         "phases": ("opening", "live_turn", "pending_finalization"),

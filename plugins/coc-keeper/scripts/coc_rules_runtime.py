@@ -580,6 +580,65 @@ def _minutes_since_injury(
     return max(0, elapsed_minutes - max(occurred))
 
 
+def _major_wound_recovery_due(
+    state: Mapping[str, Any],
+    elapsed_minutes: int | None,
+) -> bool | None:
+    """Project the executor's weekly recovery interval without authorizing it.
+
+    The subsystem executor remains the final validator. This read projection
+    only keeps an early weekly card out of Keeper context; malformed or
+    incomplete ledgers return ``None`` so graph applicability fails closed.
+    """
+    if (
+        "major_wound" not in (state.get("conditions") or [])
+        or isinstance(elapsed_minutes, bool)
+        or not isinstance(elapsed_minutes, int)
+        or elapsed_minutes < 0
+    ):
+        return None
+    ledger = state.get("wound_ledger")
+    if not isinstance(ledger, list) or not ledger:
+        return None
+    active: list[tuple[int, str]] = []
+    for row in ledger:
+        if not isinstance(row, Mapping) or row.get("status") != "active":
+            continue
+        stamp = row.get("occurred_elapsed_minutes")
+        wound_id = row.get("wound_id")
+        if (
+            isinstance(stamp, bool)
+            or not isinstance(stamp, int)
+            or stamp < 0
+            or not isinstance(wound_id, str)
+            or not wound_id
+        ):
+            return None
+        active.append((stamp, wound_id))
+    if not active:
+        return None
+    baseline, active_wound_id = max(active)
+    recovery_rows = state.get("major_wound_recovery_ledger") or []
+    if not isinstance(recovery_rows, list):
+        return None
+    for row in recovery_rows:
+        if not isinstance(row, Mapping):
+            return None
+        stamp = row.get("attempt_elapsed_minutes")
+        wound_id = row.get("wound_id")
+        if (
+            isinstance(stamp, bool)
+            or not isinstance(stamp, int)
+            or stamp < 0
+            or not isinstance(wound_id, str)
+            or not wound_id
+        ):
+            return None
+        if wound_id == active_wound_id:
+            baseline = max(baseline, stamp)
+    return elapsed_minutes - baseline >= 7 * 24 * 60
+
+
 def facts_from_state(
     state: dict[str, Any] | None,
     sheet: dict[str, Any] | None,
@@ -620,6 +679,9 @@ def facts_from_state(
     minutes_since = _minutes_since_injury(state, elapsed_minutes)
     if minutes_since is not None:
         facts["time.minutes_since_injury"] = minutes_since
+    recovery_due = _major_wound_recovery_due(state, elapsed_minutes)
+    if recovery_due is not None:
+        facts["actor.recovery.major_wound_week_due"] = recovery_due
     if ruleset_id is not None:
         facts["campaign.ruleset_id"] = ruleset_id
     if isinstance(extra, dict):
@@ -1022,8 +1084,8 @@ class RulesRuntime:
                     existing["type"] = node_type
                 existing.setdefault("path", props.get("path"))
                 continue
-            slots[str(target.get("node_id"))] = {
-                "name": str(target.get("node_id")),
+            slots[canonical] = {
+                "name": canonical,
                 "ownership": node_ownership,
                 "type": node_type,
                 "path": props.get("path"),
@@ -1931,6 +1993,8 @@ def public_card_projection(card: Mapping[str, Any]) -> dict[str, Any]:
     row = _thaw(card)
     if not isinstance(row, dict):
         return {}
+    row.pop("active_exceptions", None)
+    row.pop("unevaluated_exceptions", None)
     authority = row.get("authority") if isinstance(row.get("authority"), dict) else {}
     row["authority"] = {
         "selection": authority.get("selection") or "keeper-semantic",

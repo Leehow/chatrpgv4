@@ -69,10 +69,31 @@ const modelOwnedReview = (({
   ...owned
 }) => owned)(baseReview);
 
+function clearAgencyReviewData(params, reviewId) {
+  return {
+    accepted: true,
+    review_id: reviewId,
+    turn_id: baseReview.turn_id,
+    source_digest: baseReview.source_digest,
+    revision: Number(params.arguments.revision),
+    draft_sha256: canonicalDigest(params.arguments.draft_text),
+    findings: [],
+    agency_gate: "clear",
+    state_authority_review: params.arguments.state_authority_review,
+    state_claim_compilation: params.arguments.state_claim_compilation,
+    state_authority_gate: "clear",
+    recommendation: "no_revision_suggested",
+  };
+}
+
 // Canonical `frozen_narration_draft` receipt (coc.pending-narration-draft):
 // closed 20-field producer schema, draft digest over the kernel canonical
 // convention, and a recomputed receipt_digest excluding only itself.
-function frozenNarrationDraftReceipt({ draftText, revision = 1 } = {}) {
+function frozenNarrationDraftReceipt({
+  draftText,
+  revision = 1,
+  reviewId = "narration-review-v2:dfd1d66b",
+} = {}) {
   const reviewDecisionId = "review-fault-1";
   const receipt = {
     schema_version: 1,
@@ -81,7 +102,7 @@ function frozenNarrationDraftReceipt({ draftText, revision = 1 } = {}) {
     campaign_id: campaign,
     receipt_id: `pending-narration-draft:${reviewDecisionId}:revision-${revision}`,
     review_decision_id: reviewDecisionId,
-    review_id: "narration-review-v2:dfd1d66b",
+    review_id: reviewId,
     turn_id: baseReview.turn_id,
     source_digest: baseReview.source_digest,
     revision,
@@ -115,7 +136,7 @@ const outputContext = {
     turn_id: baseReview.turn_id,
     source_digest: baseReview.source_digest,
     settlement_snapshot_id: "turn-settlement-v1:fault-1",
-    mechanics_bundle_sha256: "sha256:mechanics-fault-1",
+    mechanics_bundle_sha256: `sha256:${"9".repeat(64)}`,
     journal_decision_id: "journal-fault-1",
     frozen_narration_draft: frozenNarrationDraftReceipt({
       draftText: baseReview.draft_text,
@@ -129,8 +150,10 @@ const outputContext = {
         source_kind: "check",
         skill: "Spot Hidden",
         visibility: "public",
+        goal: "inspect the room",
         passed: false,
         outcome: "failure",
+        exceptional_required: false,
         substantive_effect_ids: [],
         substantive_effect_status: "not_required",
       },
@@ -140,15 +163,33 @@ const outputContext = {
         source_kind: "check",
         skill: "Listen",
         visibility: "public",
+        goal: "listen at the door",
         passed: false,
         outcome: "failure",
+        exceptional_required: false,
         substantive_effect_ids: [],
         substantive_effect_status: "not_required",
       },
     ],
+    mechanics_summary: {
+      public_check: [
+        { roll_id: "roll-spot-hidden", display_skill: "Spot Hidden", outcome: "failure" },
+        { roll_id: "roll-listen", display_skill: "Listen", outcome: "failure" },
+      ],
+      state_delta: [],
+      exceptional_effect: [],
+      concealed_consequence: [],
+    },
     contract_projection: {
       agency_review_required: true,
-      agency_authority: { pc_subject_refs: ["pc:fault-investigator"] },
+      agency_authority: {
+        pc_subject_refs: ["pc:fault-investigator"],
+        involuntary_physiology_sources: [{
+          source_ref: "narration_contract:involuntary_physiology",
+          source_type: "ownership_contract",
+        }],
+      },
+      control_overrides: [],
       player_input: {
         source_ref: "player_input:9f2d4c8ab17e4460b3a9c5d1e7f02a46",
         text: baseReview.draft_text,
@@ -172,17 +213,77 @@ const outputContext = {
       operation: "turn.finalize",
       invoke_via: "coc_turn_finalize",
       prefilled_arguments: {
-        decision_id: "journal-1:finalize",
+        decision_id: "journal-fault-1:finalize",
         revision: 1,
-        coverage: [],
       },
-      missing_arguments: ["draft", "narration_review_id", "agency_claims"],
+      missing_arguments: ["draft", "coverage", "narration_review_id", "agency_claims"],
       discovery_required: false,
       authority: "settled_output_completeness",
       hard_gate: true,
     },
   },
 };
+
+function acceptedOutputContext(
+  draftText,
+  reviewId = "narration-review-v2:dfd1d66b",
+  revision = 1,
+) {
+  const envelope = structuredClone(outputContext);
+  const frozen = frozenNarrationDraftReceipt({
+    draftText,
+    revision,
+    reviewId,
+  });
+  envelope.data.frozen_narration_draft = frozen;
+  envelope.data.agency_review_operation.prefilled_arguments.revision = revision;
+  envelope.data.finalize_operation.prefilled_arguments.revision = revision;
+  const projectionSha256 = canonicalDigest(envelope.data.contract_projection);
+  envelope.data.contract_projection_sha256 = projectionSha256;
+  const evidence = {
+    schema_version: 1,
+    contract_id: "coc.accepted-review-evidence.v2",
+    visibility: "host_only",
+    review_id: reviewId,
+    turn_id: envelope.data.turn_id,
+    source_digest: envelope.data.source_digest,
+    revision,
+    draft_sha256: frozen.draft_sha256,
+    review_digest: frozen.review_digest,
+    pending_draft_receipt_digest: frozen.receipt_digest,
+    contract_projection_sha256: projectionSha256,
+    verification: {
+      agency_gate: "clear",
+      state_authority_gate: "clear",
+    },
+    state_authority_review: {
+      disposition: "no_player_state_change_claimed",
+      reason: "没有调查员状态变化。",
+      claims: [],
+    },
+    player_input_source_ref:
+      envelope.data.contract_projection.player_input.source_ref,
+    agency_authority: structuredClone(
+      envelope.data.contract_projection.agency_authority,
+    ),
+    control_overrides: structuredClone(
+      envelope.data.contract_projection.control_overrides,
+    ),
+    coverage_binding_facts: {
+      schema_version: 1,
+      contract_id: "coc.reviewed-coverage-binding-facts.v1",
+      settlement_snapshot_id: envelope.data.settlement_snapshot_id,
+      mechanics_bundle_sha256: envelope.data.mechanics_bundle_sha256,
+      obligations: structuredClone(envelope.data.obligations),
+      public_check_source_ids: ["roll-listen", "roll-spot-hidden"],
+      state_delta_source_ids: [],
+      exceptional_effect_source_ids: [],
+    },
+  };
+  evidence.evidence_sha256 = canonicalDigest(evidence);
+  envelope.data.accepted_review_evidence = evidence;
+  return envelope;
+}
 
 function assistant(text, timestamp) {
   return {
@@ -814,7 +915,10 @@ test("resume-armed recovery retries compiler once and finalizes with host receip
       resumed.data.host_recovery_guidance.review_recovery.exact_card_path,
       "coc_turn_output_context.data.agency_review_operation",
     );
-    assert.equal(resumed.data.host_recovery_guidance.review_recovery.revision, 1);
+    assert.equal(
+      resumed.data.host_recovery_guidance.review_recovery.revision,
+      undefined,
+    );
     assert.equal(
       resumed.data.host_recovery_guidance.review_recovery.instruction.includes("revision-1"),
       false,
@@ -1163,7 +1267,10 @@ test("frozen revision 2 recovery uses the host card revision", async () => {
     h.setResumeMode("pending_finalization");
     const resumed = await h.parse("recover-resume", "session.resume", {});
     assert.equal(resumed.data.host_recovery_guidance.review_recovery.armed, true);
-    assert.equal(resumed.data.host_recovery_guidance.review_recovery.revision, 2);
+    assert.equal(
+      resumed.data.host_recovery_guidance.review_recovery.revision,
+      undefined,
+    );
     const wrongRevision = await h.parse("review-wrong-rev", "narration.review", {
       ...reviewTwo,
       revision: 1,
@@ -1464,51 +1571,48 @@ test("run-02 chain: placement failure freezes an executable card and an acknowle
       exact_excerpt: "你贴着墙根屏息",
       candidate_ref: "storylet-candidate:corridor-whisper",
     };
-    const failedCallMechanicsPlacements = [
-      { after_paragraph: 0, segment_type: "public_check", source_ids: ["roll-spot-hidden"] },
-    ];
-    // Model-facing claims carry only semantic handles and meaning-bearing
-    // ids; the host restores the exact opaque identities retained from the
-    // observed output_context envelope before transport. The restored claim
-    // material (nested random-hex source_ref) lives only in the internal
-    // card and host details — never in any model-visible recovery surface.
+    // After the accepted review, the model carries only the reviewed span and
+    // semantic authority. Exact excerpt/subject/source bytes are host-bound.
     const failedCallAgencyClaims = [
       {
-        claim_id: "claim-wall-listen-cupboard",
-        subject_ref: "pc:current-investigator",
+        reviewed_span: "reviewed-sentence:paragraph-1:1",
         claim_type: "voluntary_action",
-        exact_excerpt: "你贴着墙根屏息",
-        source_ref: "player_input:current",
+        authority: "current-player-input",
       },
     ];
     const transportedFailedCallAgencyClaims = [
       {
-        ...failedCallAgencyClaims[0],
+        claim_id: (
+          "agency-reviewed:reviewed-sentence-paragraph-1-1:voluntary-action"
+        ),
+        claim_type: "voluntary_action",
+        exact_excerpt: mergedDraft,
+        override_id: null,
         subject_ref: "pc:fault-investigator",
         source_ref: "player_input:9f2d4c8ab17e4460b3a9c5d1e7f02a46",
       },
     ];
     const finalizeCoverage = [
       {
-        obligation_id: "roll:spot-hidden",
-        realization: "observable_beat",
-        player_input_handling: "consumed",
+        obligation_ref: "roll:spot-hidden",
+        reviewed_span: "reviewed-sentence:paragraph-1:1",
+        realization: "fictional_beat",
+        player_input_handling: "specific_preserved",
         action_realization: "你压低身形。",
-        response: "",
-        causal_explanation: "",
-        persona_fit: "",
-        exact_excerpt: "你贴着墙根屏息",
+        response: "门后没有给出明确回应。",
+        causal_explanation: "侦查检定的结果落实为没有发现更多痕迹。",
+        persona_fit: "调查员保持谨慎。",
         exceptional_beat: null,
       },
       {
-        obligation_id: "roll:listen",
-        realization: "observable_beat",
-        player_input_handling: "consumed",
+        obligation_ref: "roll:listen",
+        reviewed_span: "reviewed-sentence:paragraph-1:1",
+        realization: "fictional_beat",
+        player_input_handling: "specific_preserved",
         action_realization: "你听见门后有轻微的刮擦声。",
-        response: "",
-        causal_explanation: "",
-        persona_fit: "",
-        exact_excerpt: "竖起耳朵听向门后的动静",
+        response: "门后的动静仍然含混。",
+        causal_explanation: "聆听检定的结果落实为无法确认声源。",
+        persona_fit: "调查员贴墙屏息、耐心分辨。",
         exceptional_beat: null,
       },
     ];
@@ -1570,17 +1674,16 @@ test("run-02 chain: placement failure freezes an executable card and an acknowle
           },
         };
       }
-      if (params.operation === "turn.output_context") return outputContext;
+      if (params.operation === "turn.output_context") {
+        return resumeMode === "already_acknowledged"
+          ? acceptedOutputContext(mergedDraft, reviewId)
+          : outputContext;
+      }
       if (params.operation === "narration.review") {
         return {
           ok: true,
           tool: "narration.review",
-          data: {
-            accepted: true,
-            review_id: reviewId,
-            revision: 1,
-            state_claim_compilation: params.arguments.state_claim_compilation,
-          },
+          data: clearAgencyReviewData(params, reviewId),
         };
       }
       if (params.operation === "turn.finalize") {
@@ -1689,7 +1792,11 @@ test("run-02 chain: placement failure freezes an executable card and an acknowle
     await invoke1("context", "turn.output_context", {});
     const reviewedResult = await session1.tools.get("coc_invoke").execute(
       "review",
-      { operation: "narration.review", campaign: campaignId, arguments: modelOwnedReview },
+      {
+        operation: "narration.review",
+        campaign: campaignId,
+        arguments: { ...modelOwnedReview, draft_text: mergedDraft },
+      },
       undefined,
       undefined,
       ctx1,
@@ -1708,10 +1815,8 @@ test("run-02 chain: placement failure freezes an executable card and an acknowle
     );
 
     const failed = await typedExecute1("finalize-1", {
-      draft: mergedDraft,
       coverage: finalizeCoverage,
       agency_claims: failedCallAgencyClaims,
-      mechanics_placements: failedCallMechanicsPlacements,
       advisory_uptake: failedCallAdvisoryUptake,
     });
     assert.equal(
@@ -1726,7 +1831,7 @@ test("run-02 chain: placement failure freezes an executable card and an acknowle
     assert.equal(recovery.contract_id, "coc.pi-draft-shape-recovery-guidance.v1");
     assert.equal(recovery.kind, "draft_shape_recovery");
     assert.equal(recovery.recovery_kind, "consequence_paragraph_zero");
-    assert.deepEqual(recovery.consequence_excerpts, ["你贴着墙根屏息"]);
+    assert.deepEqual(recovery.consequence_excerpts, [mergedDraft]);
     assert.equal(recovery.draft, mergedDraft);
     assert.match(recovery.instruction, /paragraph zero/);
     assert.equal(recovery.next_call.tool, "coc_invoke");
@@ -1774,25 +1879,44 @@ test("run-02 chain: placement failure freezes an executable card and an acknowle
     // The frozen payload carries the RESTORED canonical obligation ids — the
     // registry handles the model echoed were resolved before transport.
     const transportedCoverage = [
-      { ...finalizeCoverage[0], obligation_id: "roll:roll-spot-hidden" },
-      { ...finalizeCoverage[1], obligation_id: "roll:roll-listen" },
+      {
+        obligation_id: "roll:roll-listen",
+        realization: "fictional_beat",
+        player_input_handling: "specific_preserved",
+        action_realization: "你听见门后有轻微的刮擦声。",
+        response: "门后的动静仍然含混。",
+        causal_explanation: "聆听检定的结果落实为无法确认声源。",
+        persona_fit: "调查员贴墙屏息、耐心分辨。",
+        exact_excerpt: mergedDraft,
+        exceptional_beat: null,
+      },
+      {
+        obligation_id: "roll:roll-spot-hidden",
+        realization: "fictional_beat",
+        player_input_handling: "specific_preserved",
+        action_realization: "你压低身形。",
+        response: "门后没有给出明确回应。",
+        causal_explanation: "侦查检定的结果落实为没有发现更多痕迹。",
+        persona_fit: "调查员保持谨慎。",
+        exact_excerpt: mergedDraft,
+        exceptional_beat: null,
+      },
     ];
     assert.deepEqual(internalCard.frozen_finalize_payload, {
       draft: mergedDraft,
       coverage: transportedCoverage,
       agency_claims: transportedFailedCallAgencyClaims,
-      mechanics_placements: failedCallMechanicsPlacements,
       advisory_uptake: failedCallAdvisoryUptake,
     });
     assert.equal(
       internalCard.payload_sha256,
       draftShapePayloadDigest(internalCard.frozen_finalize_payload),
     );
-    // The opaque claim material is internal-only evidence: the UUID claim
-    // id and the nested random source_ref are retained host-side...
+    // The canonical exact claim material is internal-only evidence: the
+    // host-minted semantic claim id and exact source_ref stay host-side...
     assert.equal(
       JSON.stringify(internalCard.frozen_finalize_payload.agency_claims)
-        .includes("claim-wall-listen-cupboard"),
+        .includes("agency-reviewed:reviewed-sentence-paragraph-1-1:voluntary-action"),
       true,
     );
     assert.equal(
@@ -1896,7 +2020,7 @@ test("run-02 chain: placement failure freezes an executable card and an acknowle
     );
     assert.deepEqual(
       resumed.data.host_recovery_guidance.recovery.consequence_excerpts,
-      ["你贴着墙根屏息"],
+      [mergedDraft],
     );
     assert.match(
       resumed.data.host_recovery_guidance.instruction,
@@ -2090,7 +2214,7 @@ test("run-02 chain: placement failure freezes an executable card and an acknowle
     assert.equal(downstream.error.recovery.kind, "draft_shape_recovery");
     assert.deepEqual(
       downstream.error.recovery.consequence_excerpts,
-      ["你贴着墙根屏息"],
+      [mergedDraft],
     );
     const downstreamVisible = JSON.stringify(downstreamResult.content);
     for (const forbidden of [
@@ -2289,9 +2413,9 @@ test("run-02 chain: placement failure freezes an executable card and an acknowle
       finalizeTransportCall.arguments.agency_claims[0].source_ref,
       "player_input:9f2d4c8ab17e4460b3a9c5d1e7f02a46",
     );
-    assert.deepEqual(
-      finalizeTransportCall.arguments.mechanics_placements,
-      failedCallMechanicsPlacements,
+    assert.equal(
+      Object.hasOwn(finalizeTransportCall.arguments, "mechanics_placements"),
+      false,
     );
     assert.deepEqual(
       finalizeTransportCall.arguments.advisory_uptake,
@@ -2378,25 +2502,25 @@ async function run02AdversarialHarness(options = {}) {
   const mergedDraft = "你贴着墙根屏息，同时竖起耳朵听向门后的动静。";
   const finalizeCoverage = [
     {
-      obligation_id: "roll:spot-hidden",
-      realization: "observable_beat",
-      player_input_handling: "consumed",
+      obligation_ref: "roll:spot-hidden",
+      reviewed_span: "reviewed-sentence:paragraph-1:1",
+      realization: "fictional_beat",
+      player_input_handling: "specific_preserved",
       action_realization: "你压低身形。",
-      response: "",
-      causal_explanation: "",
-      persona_fit: "",
-      exact_excerpt: "你贴着墙根屏息",
+      response: "门后没有给出明确回应。",
+      causal_explanation: "侦查检定的结果落实为没有发现更多痕迹。",
+      persona_fit: "调查员保持谨慎。",
       exceptional_beat: null,
     },
     {
-      obligation_id: "roll:listen",
-      realization: "observable_beat",
-      player_input_handling: "consumed",
+      obligation_ref: "roll:listen",
+      reviewed_span: "reviewed-sentence:paragraph-1:1",
+      realization: "fictional_beat",
+      player_input_handling: "specific_preserved",
       action_realization: "你听见门后有轻微的刮擦声。",
-      response: "",
-      causal_explanation: "",
-      persona_fit: "",
-      exact_excerpt: "竖起耳朵听向门后的动静",
+      response: "门后的动静仍然含混。",
+      causal_explanation: "聆听检定的结果落实为无法确认声源。",
+      persona_fit: "调查员贴墙屏息、耐心分辨。",
       exceptional_beat: null,
     },
   ];
@@ -2440,15 +2564,18 @@ async function run02AdversarialHarness(options = {}) {
       };
     }
     if (params.operation === "turn.output_context") {
+      const currentContext = phase === 2
+        ? acceptedOutputContext(mergedDraft, reviewId)
+        : outputContext;
       if (phase === 2 && options.staleLiveReceipt) {
         return {
-          ...outputContext,
+          ...currentContext,
           data: {
-            ...outputContext.data,
+            ...currentContext.data,
             finalize_operation: {
-              ...outputContext.data.finalize_operation,
+              ...currentContext.data.finalize_operation,
               prefilled_arguments: {
-                ...outputContext.data.finalize_operation.prefilled_arguments,
+                ...currentContext.data.finalize_operation.prefilled_arguments,
                 revision: 2,
               },
             },
@@ -2457,21 +2584,16 @@ async function run02AdversarialHarness(options = {}) {
       }
       if (phase === 2 && options.session2OmitJournalDecisionId) {
         const { journal_decision_id: _omitted, ...withoutJournalId } =
-          outputContext.data;
-        return { ...outputContext, data: withoutJournalId };
+          currentContext.data;
+        return { ...currentContext, data: withoutJournalId };
       }
-      return outputContext;
+      return currentContext;
     }
     if (params.operation === "narration.review") {
       return {
         ok: true,
         tool: "narration.review",
-        data: {
-          accepted: true,
-          review_id: reviewId,
-          revision: 1,
-          state_claim_compilation: params.arguments.state_claim_compilation,
-        },
+        data: clearAgencyReviewData(params, reviewId),
       };
     }
     if (params.operation === "turn.finalize") {
@@ -2570,12 +2692,14 @@ async function run02AdversarialHarness(options = {}) {
     }, ctx1);
   }
   await invoke1("context", "turn.output_context", {});
-  await invoke1("review", "narration.review", modelOwnedReview);
+  await invoke1("review", "narration.review", {
+    ...modelOwnedReview,
+    draft_text: mergedDraft,
+  });
   const session1Finalized = await JSON.parse(
     (await session1.tools.get("coc_turn_finalize").execute(
       "finalize-1",
       {
-        draft: mergedDraft,
         coverage: finalizeCoverage,
         agency_claims: [],
       },
@@ -2949,14 +3073,22 @@ test("adversarial: recovered replay mutating any frozen field is rejected pre-tr
     // The replayed coverage rides the RESTORED canonical obligation ids.
     assert.deepEqual(
       transport[0].arguments.coverage,
-      harness.finalizeCoverage.map((row) => ({
-        ...row,
-        obligation_id: row.obligation_id === "roll:spot-hidden"
-          ? "roll:roll-spot-hidden"
-          : row.obligation_id === "roll:listen"
-            ? "roll:roll-listen"
-            : row.obligation_id,
-      })),
+      harness.finalizeCoverage.map((row) => {
+        const {
+          obligation_ref: obligationRef,
+          reviewed_span: _reviewedSpan,
+          ...semantic
+        } = row;
+        return {
+          ...semantic,
+          obligation_id: obligationRef === "roll:spot-hidden"
+            ? "roll:roll-spot-hidden"
+            : "roll:roll-listen",
+          exact_excerpt: harness.mergedDraft,
+        };
+      }).sort((left, right) => (
+        left.obligation_id.localeCompare(right.obligation_id)
+      )),
     );
     assert.deepEqual(transport[0].arguments.agency_claims, []);
     const completions = successHarness.appended.filter(

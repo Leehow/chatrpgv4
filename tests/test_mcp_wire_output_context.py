@@ -155,6 +155,72 @@ def _project(operation: str, envelope: dict) -> dict:
     )
 
 
+def test_hot_schema_fit_reserves_final_measurement_field(monkeypatch):
+    result = {
+        "ok": True,
+        "tool": "session.resume",
+        "wire": {},
+        "data": {
+            "ordinary_turn_operations": {
+                "actions.advise": {
+                    "operation": "actions.advise",
+                    "arguments_schema": {
+                        "type": "object",
+                        "properties": {
+                            f"field_{index}": {"type": "string"}
+                            for index in range(40)
+                        },
+                    },
+                },
+            },
+        },
+        "warnings": [],
+        "hints": [],
+    }
+    pre_measurement = coc_mcp_wire.transport_bytes(result)
+    monkeypatch.setattr(
+        coc_mcp_wire, "MAX_INLINE_BYTES", pre_measurement + 32,
+    )
+
+    coc_mcp_wire._fit_hot_argument_schemas(
+        result,
+        omit_order=("actions.advise",),
+        reserve_bytes=64,
+    )
+
+    assert result["wire"]["hot_argument_schemas_omitted"] == [
+        "actions.advise"
+    ]
+    measured = coc_mcp_wire.transport_bytes(result)
+    result["wire"]["measured_inline_bytes"] = measured
+    measured = coc_mcp_wire.transport_bytes(result)
+    result["wire"]["measured_inline_bytes"] = measured
+    assert coc_mcp_wire.transport_bytes(result) <= coc_mcp_wire.MAX_INLINE_BYTES
+
+
+def test_resume_recovery_budget_includes_final_measurement_reserve(monkeypatch):
+    result = {
+        "ok": True,
+        "tool": "session.resume",
+        "wire": {},
+        "data": {"payload": "x" * 256},
+        "warnings": [],
+        "hints": [],
+    }
+    current_bytes = coc_mcp_wire.transport_bytes(result)
+    monkeypatch.setattr(
+        coc_mcp_wire,
+        "MAX_INLINE_BYTES",
+        current_bytes + coc_mcp_wire.FINAL_MEASUREMENT_RESERVE_BYTES - 1,
+    )
+
+    assert coc_mcp_wire._exceeds_inline_budget(
+        result,
+        reserve_bytes=coc_mcp_wire.FINAL_MEASUREMENT_RESERVE_BYTES,
+    ) is True
+    assert coc_mcp_wire._exceeds_inline_budget(result) is False
+
+
 def test_t13_shaped_output_context_reproduces_oversize_then_keeps_review_card():
     data = _output_context_data()
     envelope = _envelope(data)
@@ -350,6 +416,60 @@ def _frozen_receipt(
         "provenance": {"kind": "direct_review_submission"},
     }
     return _sealed_receipt(receipt)
+
+
+def _accepted_review_evidence(data: dict, receipt: dict) -> dict:
+    data["contract_projection"]["player_input"]["source_ref"] = (
+        "player_input:journal-t13"
+    )
+    data["contract_projection"]["control_overrides"] = []
+    data["contract_projection_sha256"] = _digest(data["contract_projection"])
+    payload = {
+        "schema_version": 1,
+        "contract_id": "coc.accepted-review-evidence.v2",
+        "visibility": "host_only",
+        "review_id": receipt["review_id"],
+        "turn_id": data["turn_id"],
+        "source_digest": data["source_digest"],
+        "revision": receipt["revision"],
+        "draft_sha256": receipt["draft_sha256"],
+        "review_digest": receipt["review_digest"],
+        "pending_draft_receipt_digest": receipt["receipt_digest"],
+        "contract_projection_sha256": data["contract_projection_sha256"],
+        "verification": {
+            "agency_gate": "clear",
+            "state_authority_gate": "clear",
+        },
+        "state_authority_review": {
+            "disposition": "no_player_state_change_claimed",
+            "reason": "草稿没有宣告玩家状态变化。",
+            "claims": [],
+        },
+        "player_input_source_ref": "player_input:journal-t13",
+        "agency_authority": data["contract_projection"]["agency_authority"],
+        "control_overrides": [],
+        "coverage_binding_facts": {
+            "schema_version": 1,
+            "contract_id": "coc.reviewed-coverage-binding-facts.v1",
+            "settlement_snapshot_id": data["settlement_snapshot_id"],
+            "mechanics_bundle_sha256": data["mechanics_bundle_sha256"],
+            "obligations": data["obligations"],
+            "public_check_source_ids": sorted(
+                row["roll_id"]
+                for row in data["mechanics_bundle"]["public_check"]
+            ),
+            "state_delta_source_ids": sorted(
+                row["effect_id"]
+                for row in data["mechanics_bundle"]["state_delta"]
+            ),
+            "exceptional_effect_source_ids": sorted(
+                row["event_id"]
+                for row in data["mechanics_bundle"]["exceptional_effect"]
+            ),
+        },
+    }
+    payload["evidence_sha256"] = _digest(payload)
+    return payload
 
 
 def _recovered_frozen_receipt() -> dict:
@@ -582,6 +702,44 @@ def test_wire_keeps_frozen_draft_and_cards_only_when_actionable_true():
     wire = _project("turn.output_context", _envelope(data))
     assert wire["ok"] is True
     assert wire["data"]["frozen_narration_draft"]["draft_text"] == FROZEN_DRAFT_TEXT
+
+
+def test_wire_keeps_host_only_accepted_review_evidence_with_exact_draft_chain():
+    data = _output_context_data(padding="短草稿")
+    receipt = _frozen_receipt()
+    data["frozen_narration_draft"] = receipt
+    data["accepted_review_evidence"] = _accepted_review_evidence(data, receipt)
+    data["pending_narration_draft_status"] = _draft_status(actionable=True)
+
+    compact = coc_mcp_wire._compact_output_context(data)
+    tight = coc_mcp_wire._project_output_context_review_card(data)
+    wire = _project("turn.output_context", _envelope(data))
+    for projected in (compact, tight, wire["data"]):
+        assert projected["accepted_review_evidence"] == data[
+            "accepted_review_evidence"
+        ]
+        assert projected["accepted_review_evidence"][
+            "state_authority_review"
+        ]["reason"] == "草稿没有宣告玩家状态变化。"
+
+    corrupt = _output_context_data(padding="短草稿")
+    bad_receipt = _frozen_receipt()
+    corrupt["frozen_narration_draft"] = bad_receipt
+    corrupt["accepted_review_evidence"] = _accepted_review_evidence(
+        corrupt, bad_receipt
+    )
+    corrupt["pending_narration_draft_status"] = _draft_status(actionable=True)
+    corrupt["frozen_narration_draft"]["receipt_digest"] = (
+        "sha256:" + "0" * 64
+    )
+    for projected in (
+        coc_mcp_wire._compact_output_context(corrupt),
+        coc_mcp_wire._project_output_context_review_card(corrupt),
+    ):
+        assert "accepted_review_evidence" not in projected
+        assert "frozen_narration_draft" not in projected
+        assert "agency_review_operation" not in projected
+        assert "finalize_operation" not in projected
 
 
 def test_wire_keeps_valid_recovered_receipt_with_cards():

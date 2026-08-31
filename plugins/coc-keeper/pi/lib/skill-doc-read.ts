@@ -45,7 +45,14 @@ const MAX_LINES = 2000;
 const MAX_BYTES = 50 * 1024;
 
 type RoleManifestEntry = { skills?: unknown };
-type RoleManifest = { setup?: RoleManifestEntry; play?: RoleManifestEntry };
+type ProfileManifestEntry = RoleManifestEntry & { role?: unknown };
+type RoleManifest = {
+  setup?: RoleManifestEntry;
+  play?: RoleManifestEntry;
+  profiles?: Record<string, ProfileManifestEntry>;
+};
+
+const RULES_DIRECTOR_SINGLE_DRAFT_PROFILE = "rules-director-single-draft";
 
 function readRoleManifest(): RoleManifest | null {
   try {
@@ -65,10 +72,16 @@ export function skillDocAllowedRoots(role: SessionRole | null = sessionRoleFromE
     // Fail closed but stay useful: the plugin reference root is role-free.
     return [join(PLUGIN_ROOT, "references")];
   }
+  const profile = process.env.COC_PI_ACCEPTANCE_PROFILE;
+  const profileEntry = (
+    role === "play"
+    && profile === RULES_DIRECTOR_SINGLE_DRAFT_PROFILE
+    && manifest.profiles?.[profile]?.role === "play"
+  ) ? manifest.profiles[profile] : null;
   const entries = role === "setup"
     ? [manifest.setup]
     : role === "play"
-      ? [manifest.play]
+      ? [profileEntry ?? manifest.play]
       : [manifest.setup, manifest.play];
   const skillDirs: string[] = [];
   for (const entry of entries) {

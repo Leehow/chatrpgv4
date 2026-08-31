@@ -157,6 +157,72 @@ assert.deepEqual(dispatchError, {
   message: "dispatch failed",
 });
 
+const debugSent = [];
+const debugCommands = new Map();
+const debugNotifications = [];
+const debugDispatches = [];
+let ordinaryBeforeDispatches = 0;
+protocol.registerCocSystemInstructionCommand({
+  registerCommand(name, options) { debugCommands.set(name, options); },
+  sendMessage(message, options) { debugSent.push({ message, options }); },
+}, {
+  beforeDispatch() { ordinaryBeforeDispatches += 1; },
+  async hostControl(command, context) {
+    debugDispatches.push({ command, cwd: context.cwd });
+    return { status: "started", experiment_id: "debug-haunting-r1" };
+  },
+});
+const debugContext = {
+  cwd: "/tmp/pi-coc-debug-host",
+  isIdle: () => true,
+  ui: {
+    notify(message, level) { debugNotifications.push({ message, level }); },
+  },
+};
+await debugCommands.get("system").handler(
+  'debug run {"player_input":"我检查伤口。"}',
+  debugContext,
+);
+assert.deepEqual(debugDispatches, [{
+  command: 'run {"player_input":"我检查伤口。"}',
+  cwd: "/tmp/pi-coc-debug-host",
+}]);
+assert.equal(debugSent.length, 0);
+assert.equal(ordinaryBeforeDispatches, 0);
+assert.deepEqual(debugNotifications, [{
+  message: "Debug experiment started: debug-haunting-r1",
+  level: "info",
+}]);
+
+await debugCommands.get("system").handler("debugx 保持普通系统指令", debugContext);
+assert.equal(debugSent.length, 1);
+assert.equal(ordinaryBeforeDispatches, 1);
+assert.equal(
+  JSON.parse(debugSent[0].message.content).instruction,
+  "debugx 保持普通系统指令",
+);
+
+const unavailableSent = [];
+const unavailableCommands = new Map();
+const unavailableNotifications = [];
+protocol.registerCocSystemInstructionCommand({
+  registerCommand(name, options) { unavailableCommands.set(name, options); },
+  sendMessage(message) { unavailableSent.push(message); },
+});
+await unavailableCommands.get("system").handler("debug status current", {
+  isIdle: () => true,
+  ui: {
+    notify(message, level) {
+      unavailableNotifications.push({ message, level });
+    },
+  },
+});
+assert.equal(unavailableSent.length, 0);
+assert.deepEqual(unavailableNotifications, [{
+  message: "/system debug is unavailable in this host.",
+  level: "warning",
+}]);
+
 for (const prompt of [
   "host-system.md",
   "host-system-setup.md",

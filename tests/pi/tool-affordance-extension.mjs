@@ -22,6 +22,7 @@ const {
 
 const ROLE_ENV = "COC_PI_SESSION_ROLE";
 const CAMPAIGN_ENV = "PI_COC_CAMPAIGN_ID";
+const PROFILE_ENV = "COC_PI_ACCEPTANCE_PROFILE";
 
 // This harness drives the root KP extension surface directly. A worker-shell
 // PI_SUBAGENT_CHILD=1 would silence applyKpActiveTools/setActiveTools and
@@ -40,6 +41,7 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
   const active = [];
   const sent = [];
   const appended = [];
+  const notifications = [];
   let aborts = 0;
   let hideRead = false;
   const pi = {
@@ -54,7 +56,10 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
       rows.push(handler);
       handlers.set(type, rows);
     },
-    appendEntry(type, value) { appended.push({ type, value }); },
+    appendEntry(type, value) {
+      hostFaults.beforeAppendEntry?.(type, value);
+      appended.push({ type, value });
+    },
     sendMessage(message, options) { sent.push({ message, options }); return true; },
     setActiveTools(names) {
       hostFaults.beforeSetActiveTools?.(names);
@@ -98,6 +103,9 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
       },
       async close() {},
     }),
+    ...(hostFaults.dispatchDebugExperiment === undefined
+      ? {}
+      : { dispatchDebugExperiment: hostFaults.dispatchDebugExperiment }),
   });
   const ctx = {
     cwd: root,
@@ -109,6 +117,7 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
       getBranch: () => [],
     },
     hasUI: false,
+    ui: { notify(message, level) { notifications.push({ message, level }); } },
     abort() { aborts += 1; },
   };
   const emit = async (type, message, eventExtra = {}) => {
@@ -117,6 +126,13 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
       projected = await handler({ type, message, ...eventExtra }, ctx);
     }
     return projected;
+  };
+  const emitAll = async (type, message, eventExtra = {}) => {
+    const results = [];
+    for (const handler of handlers.get(type) || []) {
+      results.push(await handler({ type, message, ...eventExtra }, ctx));
+    }
+    return results;
   };
   const start = async () => {
     for (const handler of handlers.get("session_start") || []) {
@@ -129,7 +145,7 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
     }
   };
   return {
-    tools, commands, handlers, active, sent, appended, clientCalls, ctx, emit, start, shutdown,
+    tools, commands, handlers, active, sent, appended, notifications, clientCalls, ctx, emit, emitAll, start, shutdown,
     get aborts() { return aborts; },
     hideRead() { hideRead = true; },
   };
@@ -197,6 +213,55 @@ test("/system opens one hidden bounded recovery scope and restores normal tools"
   });
 });
 
+test("/system debug dispatches host-side without model or tool-scope mutation", async () => {
+  const dispatches = [];
+  const priorAgentHome = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = path.join(root, ".pi", "coc-agent");
+  try {
+    await withPlayHarness(async (h) => {
+      const activeBefore = structuredClone(h.active.at(-1));
+      const sentBefore = h.sent.length;
+      const scopeRowsBefore = h.appended.filter((row) => (
+        row.type === "coc-system-instruction-tool-scope"
+      )).length;
+      await h.commands.get("system").handler(
+        'debug run {"player_input":"我检查伤口。","lanes":[{"id":"production-1","profile":"production"}]}',
+        h.ctx,
+      );
+      assert.equal(h.sent.length, sentBefore);
+      assert.deepEqual(h.active.at(-1), activeBefore);
+      assert.equal(h.appended.filter((row) => (
+        row.type === "coc-system-instruction-tool-scope"
+      )).length, scopeRowsBefore);
+      assert.deepEqual(dispatches, [{
+        command: 'run {"player_input":"我检查伤口。","lanes":[{"id":"production-1","profile":"production"}]}',
+        campaignId: "tool-affordance-campaign",
+        provider: "probe",
+        model: "probe",
+        thinking: "off",
+      }]);
+      assert.deepEqual(h.notifications.at(-1), {
+        message: "Debug experiment started: debug-tool-affordance-r1",
+        level: "info",
+      });
+    }, undefined, {
+      async dispatchDebugExperiment(command, context) {
+        dispatches.push({
+          command,
+          campaignId: context.campaignId,
+          provider: context.provider,
+          model: context.model,
+          thinking: context.thinking,
+        });
+        return { status: "started", experiment_id: "debug-tool-affordance-r1" };
+      },
+    });
+  } finally {
+    if (priorAgentHome === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = priorAgentHome;
+  }
+});
+
 async function withPlayHarness(fn, callTool = (_name, params) => (
   params.operation === "session.resume"
     ? {
@@ -217,7 +282,7 @@ async function withPlayHarness(fn, callTool = (_name, params) => (
   try {
     const harness = makeHarness(callTool, compiler, hostFaults);
     await harness.start();
-    await harness.tools.get("coc_invoke").execute(
+    const initialResume = await harness.tools.get("coc_invoke").execute(
       "resume-live",
       {
         operation: "session.resume",
@@ -228,7 +293,7 @@ async function withPlayHarness(fn, callTool = (_name, params) => (
       undefined,
       harness.ctx,
     );
-    await fn(harness);
+    await fn(harness, initialResume);
   } finally {
     if (priorRole === undefined) delete process.env[ROLE_ENV];
     else process.env[ROLE_ENV] = priorRole;
@@ -327,6 +392,317 @@ test("Pi host projects a bounded role-manifest set and exact discovery load", as
       row.type === "coc-tool-working-set"
       && row.value.status === "rejected"
     )));
+  });
+});
+
+test("working-set invalidation requests a sequential replan but stable reads do not", async () => {
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我检查当前场景。" }],
+    });
+
+    await h.emit("tool_execution_start", null, {
+      toolCallId: "stable-capabilities",
+      toolName: "coc_capabilities",
+      args: {},
+    });
+    const stable = await h.tools.get("coc_capabilities").execute(
+      "stable-capabilities", {}, undefined, undefined, h.ctx,
+    );
+    const stableHooks = await h.emitAll("tool_result", null, {
+      toolCallId: "stable-capabilities",
+      toolName: "coc_capabilities",
+      input: {},
+      content: stable.content,
+      details: stable.details,
+      isError: false,
+    });
+    assert.equal(
+      stableHooks.some((hook) => hook?.replan === true),
+      false,
+      "stable read-only result must not replan",
+    );
+    assert.equal(
+      h.appended.filter((row) => row.type === "coc-tool-working-set-replan").length,
+      0,
+      "stable read-only result must not append a replan audit",
+    );
+
+    await h.emit("tool_execution_start", null, {
+      toolCallId: "journal-stage-change",
+      toolName: "coc_invoke",
+      args: {
+        operation: "state.journal",
+        campaign: "tool-affordance-campaign",
+        arguments: { summary: "记录本轮调查。" },
+      },
+    });
+    const journal = await h.tools.get("coc_invoke").execute(
+      "journal-stage-change",
+      {
+        operation: "state.journal",
+        campaign: "tool-affordance-campaign",
+        arguments: { summary: "记录本轮调查。" },
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const changedHooks = await h.emitAll("tool_result", null, {
+      toolCallId: "journal-stage-change",
+      toolName: "coc_invoke",
+      input: {
+        operation: "state.journal",
+        campaign: "tool-affordance-campaign",
+        arguments: { summary: "记录本轮调查。" },
+      },
+      content: journal.content,
+      details: journal.details,
+      isError: false,
+    });
+    assert.ok(
+      changedHooks.some((hook) => hook?.replan === true),
+      JSON.stringify({ active: h.active.slice(-4), journal, changedHooks }),
+    );
+    const replanAudits = h.appended.filter(
+      (row) => row.type === "coc-tool-working-set-replan",
+    );
+    assert.equal(replanAudits.length, 1);
+    assert.deepEqual(
+      Object.keys(replanAudits[0].value).sort(),
+      [
+        "after",
+        "before",
+        "canonical_progress_revision",
+        "contract_id",
+        "operation",
+        "player_turn_epoch",
+        "reason",
+        "schema_version",
+        "stage",
+        "status",
+        "tool_name",
+      ],
+    );
+    assert.deepEqual({
+      schema_version: replanAudits[0].value.schema_version,
+      contract_id: replanAudits[0].value.contract_id,
+      status: replanAudits[0].value.status,
+      reason: replanAudits[0].value.reason,
+      tool_name: replanAudits[0].value.tool_name,
+      operation: replanAudits[0].value.operation,
+      stage: replanAudits[0].value.stage,
+      player_turn_epoch: replanAudits[0].value.player_turn_epoch,
+      canonical_progress_revision:
+        replanAudits[0].value.canonical_progress_revision,
+    }, {
+      schema_version: 1,
+      contract_id: "coc.pi-tool-working-set-replan.v1",
+      status: "requested",
+      reason: "active_tool_interface_changed",
+      tool_name: "coc_invoke",
+      operation: "state.journal",
+      stage: "journaled",
+      player_turn_epoch: 1,
+      canonical_progress_revision: 1,
+    });
+    assert.equal(typeof replanAudits[0].value.before.working_set_revision, "string");
+    assert.equal(typeof replanAudits[0].value.after.working_set_revision, "string");
+    assert.match(
+      replanAudits[0].value.before.active_tool_interface_sha256,
+      /^sha256:[0-9a-f]{64}$/u,
+    );
+    assert.match(
+      replanAudits[0].value.after.active_tool_interface_sha256,
+      /^sha256:[0-9a-f]{64}$/u,
+    );
+    assert.notEqual(
+      replanAudits[0].value.before.active_tool_interface_sha256,
+      replanAudits[0].value.after.active_tool_interface_sha256,
+    );
+    assert.doesNotMatch(
+      JSON.stringify(journal.content),
+      /coc\.pi-tool-working-set-replan|active_tool_interface_sha256/u,
+      "host audit identity must not enter model-visible tool-result content",
+    );
+    assert.equal(
+      h.sent.some((row) => (
+        JSON.stringify(row).includes("coc.pi-tool-working-set-replan")
+      )),
+      false,
+      "host audit must not be sent as model-visible follow-up content",
+    );
+
+    const repeatedHooks = await h.emitAll("tool_result", null, {
+      toolCallId: "journal-stage-change",
+      toolName: "coc_invoke",
+      input: {
+        operation: "state.journal",
+        campaign: "tool-affordance-campaign",
+        arguments: { summary: "记录本轮调查。" },
+      },
+      content: journal.content,
+      details: journal.details,
+      isError: false,
+    });
+    assert.equal(
+      repeatedHooks.some((hook) => hook?.replan === true),
+      false,
+      "a consumed execution fingerprint cannot request another replan",
+    );
+    assert.equal(
+      h.appended.filter((row) => row.type === "coc-tool-working-set-replan").length,
+      1,
+      "a repeated stale result cannot append another replan audit",
+    );
+  }, (_name, params) => (
+    params.operation === "state.journal"
+      ? {
+          ok: true,
+          tool: "state.journal",
+          data: { turn_id: "turn-affordance-replan" },
+        }
+      : {
+          ok: true,
+          tool: params.operation,
+          data: {},
+        }
+  ));
+});
+
+test("late, failed, and prior-session results do not append replan audits", async () => {
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我检查当前场景。" }],
+    });
+
+    const lateHooks = await h.emitAll("tool_result", null, {
+      toolCallId: "late-without-start",
+      toolName: "coc_capabilities",
+      input: {},
+      content: [{ type: "text", text: "late" }],
+      details: {},
+      isError: false,
+    });
+    assert.equal(lateHooks.some((hook) => hook?.replan === true), false);
+
+    await h.emit("tool_execution_start", null, {
+      toolCallId: "failed-stable-read",
+      toolName: "coc_capabilities",
+      args: {},
+    });
+    await h.emit("tool_execution_end", null, {
+      toolCallId: "failed-stable-read",
+      toolName: "coc_capabilities",
+      isError: true,
+    });
+    const failedHooks = await h.emitAll("tool_result", null, {
+      toolCallId: "failed-stable-read",
+      toolName: "coc_capabilities",
+      input: {},
+      content: [{ type: "text", text: "failed" }],
+      details: {},
+      isError: true,
+    });
+    assert.equal(failedHooks.some((hook) => hook?.replan === true), false);
+
+    await h.emit("tool_execution_start", null, {
+      toolCallId: "prior-session-read",
+      toolName: "coc_capabilities",
+      args: {},
+    });
+    await h.start();
+    const priorSessionHooks = await h.emitAll("tool_result", null, {
+      toolCallId: "prior-session-read",
+      toolName: "coc_capabilities",
+      input: {},
+      content: [{ type: "text", text: "stale session" }],
+      details: {},
+      isError: false,
+    });
+    assert.equal(
+      priorSessionHooks.some((hook) => hook?.replan === true),
+      false,
+    );
+    assert.equal(
+      h.appended.filter((row) => row.type === "coc-tool-working-set-replan").length,
+      0,
+    );
+  });
+});
+
+test("replan audit append failure cannot suppress the replan request", async () => {
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我记录当前调查。" }],
+    });
+    await h.emit("tool_execution_start", null, {
+      toolCallId: "journal-audit-failure",
+      toolName: "coc_invoke",
+      args: {
+        operation: "state.journal",
+        campaign: "tool-affordance-campaign",
+        arguments: { summary: "记录本轮调查。" },
+      },
+    });
+    const journal = await h.tools.get("coc_invoke").execute(
+      "journal-audit-failure",
+      {
+        operation: "state.journal",
+        campaign: "tool-affordance-campaign",
+        arguments: { summary: "记录本轮调查。" },
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const hooks = await h.emitAll("tool_result", null, {
+      toolCallId: "journal-audit-failure",
+      toolName: "coc_invoke",
+      input: {
+        operation: "state.journal",
+        campaign: "tool-affordance-campaign",
+        arguments: { summary: "记录本轮调查。" },
+      },
+      content: journal.content,
+      details: journal.details,
+      isError: false,
+    });
+    const visibleJournal = JSON.parse(journal.content[0].text);
+    assert.equal(visibleJournal.ok, true);
+    assert.equal(visibleJournal.tool, "state.journal");
+    assert.equal(hooks.some((hook) => hook?.replan === true), true);
+    assert.equal(
+      h.appended.filter((row) => row.type === "coc-tool-working-set-replan").length,
+      0,
+    );
+  }, (_name, params) => (
+    params.operation === "state.journal"
+      ? {
+          ok: true,
+          tool: "state.journal",
+          data: { turn_id: "turn-affordance-audit-failure" },
+        }
+      : { ok: true, tool: params.operation, data: {} }
+  ), {
+    beforeAppendEntry(type) {
+      if (type === "coc-tool-working-set-replan") {
+        throw new Error("audit unavailable");
+      }
+    },
+  });
+});
+
+test("only tools that can invalidate the working set declare sequential execution", async () => {
+  await withPlayHarness(async (h) => {
+    assert.equal(h.tools.get("coc_capabilities").executionMode, undefined);
+    assert.equal(h.tools.get("coc_discover").executionMode, "sequential");
+    assert.equal(h.tools.get("coc_invoke").executionMode, "sequential");
+    assert.equal(h.tools.get("coc_rules_context").executionMode, "parallel");
+    assert.equal(h.tools.get("coc_state_journal").executionMode, "sequential");
   });
 });
 
@@ -533,6 +909,601 @@ const contextReceipt = (revision, data) => ({
   data,
 });
 
+const ACTIVE_CHASE_CONTEXT = {
+  ok: true,
+  tool: "chase.context",
+  wire: { full_result_sha256: `sha256:${"7".repeat(64)}` },
+  cache: { revision: "chase-context:office-corridor:revision-1" },
+  data: {
+    active: true,
+    snapshot: {
+      schema_version: 4,
+      chase_id: "chase-office-corridor",
+      status: "active",
+      outcome: null,
+      revision: 1,
+      initiative_cursor: 0,
+      roll_counter: 0,
+      roll_history: [],
+      turn_counter: 0,
+      current_round: 1,
+      participants: [{
+        actor_id: "thomas-hayes",
+        side: "pursuer",
+        role: "driver",
+        position: 0,
+        movement_actions: 1,
+        movement_actions_remaining: 1,
+        conditions: [],
+        captured: false,
+        escaped: false,
+        wrecked: false,
+      }, {
+        actor_id: "fleeing-intruder",
+        side: "quarry",
+        role: "driver",
+        position: 1,
+        movement_actions: 2,
+        movement_actions_remaining: 2,
+        conditions: [],
+        captured: false,
+        escaped: false,
+        wrecked: false,
+      }],
+      location_chain: [
+        { index: 0, label: "office-door", hazard: null, barrier: null },
+        { index: 1, label: "corridor", hazard: null, barrier: null },
+        { index: 2, label: "stair-landing", hazard: null, barrier: null },
+        { index: 3, label: "street-exit", hazard: null, barrier: null },
+      ],
+      rounds: [{
+        round: 1,
+        dex_order: ["thomas-hayes", "fleeing-intruder"],
+        turns: [],
+      }],
+      play_language: "zh-Hans",
+    },
+    pending_choices: [],
+  },
+};
+
+test("active chase context projects semantic move choices and host-binds execute", async () => {
+  const forwarded = [];
+  const sceneEnvelope = contextReceipt("chase-party", {
+    active_scene_id: "knott-office",
+    party: ["thomas-hayes"],
+    exits: [],
+    time: { time_precision: "imprecise", local_datetime: null },
+    npcs_present: [],
+    action_routes: [],
+    clues_here: [],
+  });
+  await withPlayHarness(async (h) => {
+    await invokeCompat(h, "chase-party-context", "scene.context");
+    const contextResult = await h.tools.get("coc_chase_context").execute(
+      "active-chase-context",
+      {},
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const visible = JSON.parse(contextResult.content[0].text);
+    assert.equal(visible.ok, true, JSON.stringify(visible));
+    assert.equal(visible.data.active, true);
+    assert.equal(visible.data.snapshot.revision, 1);
+    assert.deepEqual(
+      visible.data.snapshot.actors.map((row) => row.actor),
+      ["actor:thomas-hayes", "actor:fleeing-intruder"],
+    );
+    assert.deepEqual(
+      visible.data.snapshot.available_actions.map((row) => ({
+        actor: row.actor,
+        action: row.action,
+        destination: row.destination,
+      })),
+      [{
+        actor: "actor:thomas-hayes",
+        action: "advance",
+        destination: "location:corridor",
+      }, {
+        actor: "actor:fleeing-intruder",
+        action: "advance",
+        destination: "location:stair-landing",
+      }],
+    );
+    for (const forbidden of [
+      "chase_id", "actor_id", "action_id", "command_id", "state_refs",
+    ]) {
+      assert.equal(JSON.stringify(visible).includes(`\"${forbidden}\"`), false);
+    }
+
+    const commandSchema = h.tools.get("coc_chase_execute")
+      .parameters.properties.command;
+    assert.equal(commandSchema.oneOf.length, 2);
+    assert.deepEqual(
+      commandSchema.oneOf.map((branch) => ({
+        actor: branch.properties.actor.const,
+        action: branch.properties.action.const,
+      })),
+      [{ actor: "actor:thomas-hayes", action: "advance" }, {
+        actor: "actor:fleeing-intruder", action: "advance",
+      }],
+    );
+
+    const executed = JSON.parse((await h.tools.get("coc_chase_execute").execute(
+      "active-chase-move",
+      { command: { actor: "actor:thomas-hayes", action: "advance" } },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(executed.ok, true, JSON.stringify(executed));
+    assert.deepEqual(executed.data.results, [{
+      kind: "chase_move",
+      status: "completed",
+      events: [{
+        type: "advance",
+        position_before: 0,
+        new_position: 1,
+        location_label: "corridor",
+        actions_spent: 1,
+        event_type: "chase_moved",
+        chase: "chase:office-corridor",
+        revision: 2,
+      }],
+      pending_choice: null,
+    }]);
+    for (const forbidden of ["command_id", "source_command_id", "state_refs"]) {
+      assert.equal(JSON.stringify(executed).includes(`\"${forbidden}\"`), false);
+    }
+    const call = forwarded.findLast((params) => (
+      params.operation === "chase.execute"
+    ));
+    assert.equal(call.campaign, "tool-affordance-campaign");
+    assert.equal(call.arguments.investigator, "thomas-hayes");
+    assert.equal(call.arguments.command.kind, "chase_move");
+    assert.equal(call.arguments.command.phase, "resolve");
+    assert.equal(call.arguments.command.payload.revision, 1);
+    assert.equal(call.arguments.command.payload.actor_id, "thomas-hayes");
+    assert.equal(call.arguments.command.payload.action_id, "move:advance");
+    assert.equal(
+      call.arguments.command.payload.decision_id,
+      call.arguments.decision_id,
+    );
+    assert.equal(call.arguments.command.command_id, call.arguments.decision_id);
+  }, (_name, params) => {
+    forwarded.push(structuredClone(params));
+    if (params.operation === "scene.context") return sceneEnvelope;
+    if (params.operation === "chase.context") {
+      return structuredClone(ACTIVE_CHASE_CONTEXT);
+    }
+    if (params.operation === "chase.execute") {
+      return {
+        ok: true,
+        tool: "chase.execute",
+        data: {
+          schema_version: 1,
+          authority: "deterministic_subsystem",
+          investigator_id: "thomas-hayes",
+          results: [{
+            command_id: "move-chase-office-corridor-revision-1",
+            kind: "chase_move",
+            status: "completed",
+            events: [{
+              type: "advance",
+              position_before: 0,
+              new_position: 1,
+              location_label: "corridor",
+              actions_spent: 1,
+              event_type: "chase_moved",
+              chase_id: "chase-office-corridor",
+              revision: 2,
+              source_command_id: "move-chase-office-corridor-revision-1",
+            }],
+            pending_choice: null,
+            state_refs: [
+              "save/chase.json",
+              "save/investigator-state/thomas-hayes.json#current_hp",
+            ],
+          }],
+        },
+      };
+    }
+    return { ok: true, tool: params.operation, data: { accepted: true } };
+  });
+});
+
+const PRODUCTION_HEALING_DECISION_CARD = {
+  schema_version: 1,
+  decision_ref: "decision:coc7:healing:first-aid-ordinary",
+  family: "healing",
+  label: "Administer First Aid to a non-dying injured character",
+  applicability: "applicable",
+  required_inputs: [
+    { name: "assistant_rescuer_ref", owner: "optional-semantic", type: "string" },
+    { name: "rescuer_ref", owner: "optional-semantic", type: "string" },
+  ],
+  locked_inputs: [
+    "assistant_rescuer_id", "assistant_skill_value", "first_aid_pushed",
+    "first_aid_skill", "pushed", "rescuer_id", "skill_value",
+  ],
+  rule_refs: ["rule:coc7:healing:first-aid-stabilization"],
+  source_refs: ["span-wounds-and-healing-page-131-block-18"],
+  capability_ref: "capability:coc7:first-aid",
+  effect_refs: ["effect:coc7:healing:temporary-stabilization"],
+  possible_continuations: [
+    "decision:coc7:healing:medicine-ordinary",
+  ],
+  authority: {
+    selection: "keeper-semantic",
+    execution: "current-ruleset-adapter",
+    hard_gate: false,
+  },
+};
+
+const healingCardBlock = (card = PRODUCTION_HEALING_DECISION_CARD) => ({
+  schema_version: 1,
+  family: "healing",
+  investigator_id: "thomas-hayes",
+  status: "ok",
+  cards: [structuredClone(card)],
+  authority: {
+    hard_gate: false,
+    role: "affordance",
+    note: "advisory healing affordances; settle via rules.settle; absence never blocks play",
+  },
+});
+
+const healingSceneData = (card = PRODUCTION_HEALING_DECISION_CARD) => ({
+  active_scene_id: "infirmary-treatment-room",
+  party: ["thomas-hayes"],
+  exits: [],
+  time: { elapsed_minutes: 0 },
+  npcs_present: [],
+  action_routes: [],
+  rule_decision_cards: healingCardBlock(card),
+  recovery: { healing: healingCardBlock(card) },
+});
+
+test("RuleDecisionCard survives resume, scene, exact context, and typed settle", async () => {
+  const forwarded = [];
+  const resumeEnvelope = {
+    ok: true,
+    tool: "session.resume",
+    wire: { full_result_sha256: `sha256:${"1".repeat(64)}` },
+    data: {
+      schema_version: 1,
+      campaign_id: "tool-affordance-campaign",
+      mode: "awaiting_player",
+      next_operations: [],
+      scene_context: healingSceneData(),
+    },
+  };
+  const sceneEnvelope = contextReceipt("ruledecision-card", healingSceneData());
+  const rulesContextEnvelope = {
+    ok: true,
+    tool: "rules.context",
+    data: {
+      schema_version: 1,
+      status: "ok",
+      family: "healing",
+      cards: [structuredClone(PRODUCTION_HEALING_DECISION_CARD)],
+      family_status: [{
+        family: "healing",
+        coverage: "accepted",
+        runtime_owner: "graph",
+        legacy_surface: "hidden",
+      }],
+    },
+  };
+  await withPlayHarness(async (h, initialResume) => {
+    const resumed = JSON.parse(initialResume.content[0].text);
+    assert.equal(resumed.ok, true, JSON.stringify({ resumed, details: initialResume.details }));
+    assert.deepEqual(
+      resumed.data.scene_context.rule_decision_cards.cards[0],
+      PRODUCTION_HEALING_DECISION_CARD,
+    );
+
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我请同伴立刻为伤口做急救。" }],
+    });
+    const sceneResult = await invokeCompat(h, "ruledecision-scene", "scene.context");
+    const sceneVisible = JSON.parse(sceneResult.content[0].text);
+    assert.equal(sceneVisible.ok, true, JSON.stringify({ sceneVisible, details: sceneResult.details }));
+    assert.deepEqual(
+      sceneVisible.data.rule_decision_cards.cards[0],
+      PRODUCTION_HEALING_DECISION_CARD,
+    );
+    assert.equal(
+      h.active.at(-1).filter((name) => name === "coc_rules_settle").length,
+      1,
+      JSON.stringify(h.active.at(-1)),
+    );
+    for (const legacy of [
+      "coc_rules_first_aid", "coc_rules_dying_check",
+      "coc_rules_medicine", "coc_rules_weekly_recovery",
+    ]) {
+      assert.equal(h.active.at(-1).includes(legacy), false, legacy);
+    }
+
+    const loaded = JSON.parse((await h.tools.get("coc_discover").execute(
+      "load-rule-context",
+      { operation: "rules.context" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(loaded.ok, true, JSON.stringify(loaded));
+    const exactContext = await h.tools.get("coc_rules_context").execute(
+      "ruledecision-exact-context",
+      {
+        root,
+        campaign: "tool-affordance-campaign",
+        investigator: "current-investigator",
+        family: "healing",
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const exactVisible = JSON.parse(exactContext.content[0].text);
+    assert.equal(exactVisible.ok, true, JSON.stringify({ exactVisible, details: exactContext.details }));
+    assert.deepEqual(exactVisible.data.cards[0], PRODUCTION_HEALING_DECISION_CARD);
+
+    const settle = await h.tools.get("coc_rules_settle").execute(
+      "ruledecision-settle",
+      {
+        root,
+        campaign: "tool-affordance-campaign",
+        investigator: "current-investigator",
+        decision_ref: exactVisible.data.cards[0].decision_ref,
+        semantic_inputs: {},
+        decision_id: "roll-healing-ruledecision-first-aid-v1",
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const settledVisible = JSON.parse(settle.content[0].text);
+    assert.equal(settledVisible.ok, true, JSON.stringify({ settledVisible, details: settle.details }));
+    const canonicalSettle = forwarded.findLast((row) => row.operation === "rules.settle");
+    assert.equal(
+      canonicalSettle.arguments.decision_ref,
+      PRODUCTION_HEALING_DECISION_CARD.decision_ref,
+    );
+  }, (_name, params) => {
+    forwarded.push(structuredClone(params));
+    if (params.operation === "session.resume") return resumeEnvelope;
+    if (params.operation === "scene.context") return sceneEnvelope;
+    if (params.operation === "rules.context") return rulesContextEnvelope;
+    if (params.operation === "rules.settle") {
+      return {
+        ok: true,
+        tool: "rules.settle",
+        data: {
+          schema_version: 1,
+          decision_ref: params.arguments.decision_ref,
+          family: "healing",
+          status: "settled",
+          next_decisions: [],
+          authority: "canonical-resolver-state-receipts",
+        },
+      };
+    }
+    return { ok: true, tool: params.operation, data: {} };
+  });
+});
+
+test("rules-director profile activates healing card without discovery or broad tools", async () => {
+  const priorProfile = process.env[PROFILE_ENV];
+  process.env[PROFILE_ENV] = "rules-director-single-draft";
+  try {
+    const resumeEnvelope = {
+      ok: true,
+      tool: "session.resume",
+      data: {
+        schema_version: 1,
+        campaign_id: "tool-affordance-campaign",
+        mode: "awaiting_player",
+        next_operations: [],
+        scene_context: healingSceneData(),
+      },
+    };
+    const sceneEnvelope = contextReceipt(
+      "ruledecision-profile-card",
+      healingSceneData(),
+    );
+    const turnId = "turn-rules-director-single-draft-1";
+    const sourceDigest = `sha256:${"c7".repeat(32)}`;
+    await withPlayHarness(async (h) => {
+      await h.emit("message_start", {
+        role: "user",
+        content: [{ type: "text", text: "我按住伤口，重新仔细包扎。" }],
+      });
+      const scene = await invokeCompat(
+        h,
+        "ruledecision-profile-scene",
+        "scene.context",
+      );
+      assert.equal(JSON.parse(scene.content[0].text).ok, true);
+      assert.deepEqual(h.active.at(-1), [
+        "coc_actions_list",
+        "coc_rules_settle",
+        "coc_scene_context",
+        "coc_state_journal",
+      ]);
+      const settled = await h.tools.get("coc_rules_settle").execute(
+        "ruledecision-profile-settle",
+        {
+          campaign: "tool-affordance-campaign",
+          decision_ref: PRODUCTION_HEALING_DECISION_CARD.decision_ref,
+          semantic_inputs: {},
+          decision_id: "recovery-profile-first-aid-v1",
+        },
+        undefined,
+        undefined,
+        h.ctx,
+      );
+      assert.equal(JSON.parse(settled.content[0].text).ok, true);
+      const journal = await h.tools.get("coc_state_journal").execute(
+        "rules-director-profile-journal",
+        {
+          summary: "调查员按住右手伤口并完成急救尝试。",
+          player_action: "按住伤口并仔细包扎",
+          intent_class: "treat_wound",
+          player_speaker: "调查员",
+          tension: "medium",
+        },
+        undefined,
+        undefined,
+        h.ctx,
+      );
+      assert.equal(JSON.parse(journal.content[0].text).ok, true);
+      const output = await invokeCompat(
+        h,
+        "rules-director-profile-output",
+        "turn.output_context",
+      );
+      assert.equal(JSON.parse(output.content[0].text).ok, true);
+      assert.ok(h.active.at(-1).includes("coc_turn_finalize"));
+      assert.ok(!h.active.at(-1).includes("coc_invoke"));
+      assert.ok(!h.active.at(-1).includes("coc_narration_review"));
+      const finalized = await h.tools.get("coc_turn_finalize").execute(
+        "rules-director-profile-finalize",
+        { draft: "你按住伤口，布条很快被血浸透。", coverage: [] },
+        undefined,
+        undefined,
+        h.ctx,
+      );
+      assert.equal(JSON.parse(finalized.content[0].text).ok, true);
+      const call = h.clientCalls.findLast((row) => (
+        row.name === "coc_invoke" && row.params.operation === "turn.finalize"
+      ));
+      assert.equal(call.params.arguments.revision, 1);
+      assert.equal(call.params.arguments.narration_review_id, undefined);
+    }, (_name, params) => {
+      if (params.operation === "session.resume") return resumeEnvelope;
+      if (params.operation === "scene.context") return sceneEnvelope;
+      if (params.operation === "rules.settle") {
+        return {
+          ok: true,
+          tool: "rules.settle",
+          data: {
+            schema_version: 1,
+            decision_ref: params.arguments.decision_ref,
+            family: "healing",
+            status: "settled",
+            next_decisions: [],
+            authority: "canonical-resolver-state-receipts",
+          },
+        };
+      }
+      if (params.operation === "state.journal") {
+        return {
+          ok: true,
+          tool: "state.journal",
+          data: { turn_id: turnId, turn_number: 1 },
+        };
+      }
+      if (params.operation === "turn.output_context") {
+        return {
+          ok: true,
+          tool: "turn.output_context",
+          data: {
+            turn_id: turnId,
+            journal_decision_id: params.arguments?.decision_id
+              ?? "pi-state-journal:profile:player-epoch-1:revision-1",
+            source_digest: sourceDigest,
+            settlement_snapshot_id: "turn-settlement-v1:profile-single-draft",
+            mechanics_bundle_sha256: `sha256:${"c8".repeat(32)}`,
+            obligations: [],
+            required_obligation_ids: [],
+            mechanics_summary: {
+              public_check: [], state_delta: [], exceptional_effect: [],
+              concealed_consequence: [],
+            },
+            contract_projection: {
+              player_input: {
+                source_ref: "player_input:profile-single-draft",
+                text: "我按住伤口，重新仔细包扎。",
+              },
+              agency_review_required: false,
+              agency_authority: { pc_subject_refs: ["pc:thomas-hayes"] },
+              control_overrides: [],
+            },
+            finalize_operation: {
+              operation: "turn.finalize",
+              invoke_via: "coc_turn_finalize",
+              prefilled_arguments: {
+                decision_id:
+                  "pi-state-journal:profile:player-epoch-1:revision-1:finalize",
+                revision: 1,
+                coverage: [],
+              },
+              missing_arguments: ["draft"],
+            },
+          },
+        };
+      }
+      if (params.operation === "turn.finalize") {
+        return {
+          ok: true,
+          tool: "turn.finalize",
+          data: {
+            finalized: true,
+            finalization_id: "finalization-v1:profile-single-draft",
+            turn_id: turnId,
+            rendered_text: params.arguments.draft,
+            rendered_text_sha256: canonicalDigest(params.arguments.draft),
+          },
+        };
+      }
+      return { ok: true, tool: params.operation, data: {} };
+    });
+  } finally {
+    if (priorProfile === undefined) delete process.env[PROFILE_ENV];
+    else process.env[PROFILE_ENV] = priorProfile;
+  }
+});
+
+test("RuleDecisionCard rejects opaque or malformed semantic references", async () => {
+  for (const [field, value] of [
+    ["decision_ref", "7c9e6679-7425-40de-944b-e07fc1f90ae7"],
+    ["decision_ref", "capability:coc7:first-aid"],
+    ["capability_ref", `sha256:${"a".repeat(64)}`],
+    ["capability_ref", "decision:coc7:healing:first-aid-ordinary"],
+    ["rule_refs", ["effect:coc7:healing:wrong-domain"]],
+    ["effect_refs", ["rule:coc7:healing:wrong-domain"]],
+    ["possible_continuations", ["capability:coc7:first-aid"]],
+    ["source_refs", ["/private/rule-graph.json"]],
+  ]) {
+    const card = structuredClone(PRODUCTION_HEALING_DECISION_CARD);
+    card[field] = value;
+    await withPlayHarness(async (_h, initialResume) => {
+      const visible = JSON.parse(initialResume.content[0].text);
+      assert.equal(visible.ok, false, `${field}: ${JSON.stringify(visible)}`);
+      assert.equal(visible.error.code, "semantic_identity_unavailable", field);
+      assert.equal(JSON.stringify(visible).includes(String(value)), false, field);
+    }, (_name, params) => (
+      params.operation === "session.resume"
+        ? {
+            ok: true,
+            tool: "session.resume",
+            wire: { full_result_sha256: `sha256:${"2".repeat(64)}` },
+            data: {
+              schema_version: 1,
+              campaign_id: "tool-affordance-campaign",
+              mode: "awaiting_player",
+              next_operations: [],
+              scene_context: healingSceneData(card),
+            },
+          }
+        : { ok: true, tool: params.operation, data: {} }
+    ));
+  }
+});
+
 const invokeCompat = (h, id, operation, arguments_ = {}) => (
   h.tools.get("coc_invoke").execute(
     id,
@@ -548,6 +1519,165 @@ const latestWorkingSetAudit = (h) => h.appended
 const actualActiveSchemaBytes = (h) => h.active.at(-1).reduce((total, name) => (
   total + Buffer.byteLength(JSON.stringify(h.tools.get(name).parameters), "utf8")
 ), 0);
+
+test("scene plus npc query bind social and Psychology identity without model ids", async () => {
+  const forwarded = [];
+  const scene = contextReceipt("social-scene", {
+    active_scene_id: "commission-briefing",
+    party: ["thomas-hayes"],
+    exits: [],
+    time: { elapsed_minutes: 0 },
+    npcs_present: [{ npc_id: "npc-steven-knott" }],
+    action_routes: [],
+    clues_here: [],
+  });
+  const npcQuery = {
+    ok: true,
+    tool: "npc.query",
+    wire: { full_result_sha256: `sha256:${"b".repeat(64)}` },
+    cache: { revision: "npc-query:social-scene" },
+    data: {
+      npcs: [{
+        npc_id: "npc-steven-knott",
+        facts: [{ fact_id: "fact-knott-commission" }],
+        first_contact_readiness: {
+          requested_pair_first_impression: {
+            status: "settled",
+            investigator_id: "thomas-hayes",
+            receipt_exists: true,
+            first_impression_ref: "first-impression:npc-steven-knott:thomas-hayes",
+          },
+        },
+      }],
+    },
+  };
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我观察诺特并说服他合作。" }],
+    });
+    await invokeCompat(h, "social-scene", "scene.context");
+    await invokeCompat(h, "social-npc", "npc.query", { npc_id: "npc-steven-knott" });
+
+    const social = h.tools.get("coc_rules_social_adjudicate");
+    const psychology = h.tools.get("coc_rules_psychology_observe");
+    for (const field of [
+      "campaign", "investigator", "npc_id", "conversation_window_id", "decision_id",
+    ]) assert.equal(Object.hasOwn(social.parameters.properties, field), false, field);
+    for (const field of [
+      "campaign", "investigator", "npc_id", "conversation_window_id", "decision_id",
+      "observation_revision", "observer_scope", "observable_fact_refs",
+    ]) assert.equal(Object.hasOwn(psychology.parameters.properties, field), false, field);
+
+    const socialResult = JSON.parse((await social.execute(
+      "bound-social",
+      {
+        commitment_id: "commitment:raise-knott-cooperation",
+        approach: "charm",
+        goal_summary: "请诺特更充分地配合调查",
+      },
+      undefined, undefined, h.ctx,
+    )).content[0].text);
+    assert.equal(socialResult.ok, true, JSON.stringify({ socialResult, appended: h.appended.slice(-20), properties: Object.keys(social.parameters.properties) }));
+    assert.equal(socialResult.data.npc_id, "npc-steven-knott");
+    assert.equal(socialResult.data.commitment_id, "commitment:raise-knott-cooperation");
+    assert.equal(socialResult.data.source_digest, undefined);
+    assert.equal(socialResult.data.request_digest, undefined);
+    assert.equal(socialResult.data.goal_key, undefined);
+    assert.equal(
+      socialResult.data.roll_operation.prefilled_arguments.social_adjudication_ref,
+      undefined,
+    );
+    const socialCall = forwarded.findLast((row) => row.operation === "rules.social_adjudicate");
+    assert.equal(socialCall.arguments.investigator, "thomas-hayes");
+    assert.equal(socialCall.arguments.npc_id, "npc-steven-knott");
+    assert.equal(
+      socialCall.arguments.conversation_window_id,
+      "conversation:commission-briefing:thomas-hayes:npc-steven-knott",
+    );
+    assert.match(socialCall.arguments.decision_id, /^pi-rules-social_adjudicate:/u);
+
+    const psychologyResult = JSON.parse((await psychology.execute(
+      "bound-psychology",
+      { question: "诺特此刻在回避什么可见问题？" },
+      undefined, undefined, h.ctx,
+    )).content[0].text);
+    assert.equal(psychologyResult.ok, true, JSON.stringify(psychologyResult));
+    assert.equal(psychologyResult.data.insight_id, undefined);
+    assert.equal(psychologyResult.data.conversation_window_id, undefined);
+    assert.match(psychologyResult.data.roll_id, /^roll:/u);
+    assert.notEqual(psychologyResult.data.roll_id, "toolbox-social-surface-000001");
+    assert.deepEqual(psychologyResult.data.observable_fact_refs, [{
+      source_ref: "npc_fact:npc-steven-knott/fact-knott-commission",
+      kind: "npc_fact",
+      identifier: "npc-steven-knott/fact-knott-commission",
+      player_known: false,
+      grounding_scope: "keeper_target_truth",
+    }]);
+    assert.equal(psychologyResult.data.request_digest, undefined);
+    const psychologyCall = forwarded.findLast((row) => row.operation === "rules.psychology_observe");
+    assert.equal(psychologyCall.arguments.investigator, "thomas-hayes");
+    assert.equal(psychologyCall.arguments.npc_id, "npc-steven-knott");
+    assert.equal(psychologyCall.arguments.observation_revision, 0);
+    assert.deepEqual(psychologyCall.arguments.observable_fact_refs, [
+      "npc_fact:npc-steven-knott/fact-knott-commission",
+    ]);
+  }, (_name, params) => {
+    forwarded.push(structuredClone(params));
+    if (params.operation === "scene.context") return scene;
+    if (params.operation === "npc.query") return npcQuery;
+    if (params.operation === "rules.social_adjudicate") return {
+      ok: true,
+      tool: params.operation,
+      data: {
+        investigator_id: "thomas-hayes",
+        npc_id: "npc-steven-knott",
+        conversation_window_id: "conversation:commission-briefing:thomas-hayes:npc-steven-knott",
+        commitment_id: "commitment:raise-knott-cooperation",
+        approach: "charm",
+        goal_summary: "请诺特更充分地配合调查",
+        goal_key: "cb45f81061371aa8",
+        source_digest: `sha256:${"c".repeat(64)}`,
+        request_digest: `sha256:${"d".repeat(64)}`,
+        roll_operation: {
+          operation: "rules.roll",
+          invoke_via: "coc_rules_roll",
+          prefilled_arguments: {
+            investigator: "thomas-hayes",
+            npc_id: "npc-steven-knott",
+            skill: "Charm",
+            social_adjudication_ref: "cb45f81061371aa8",
+          },
+          missing_arguments: ["stakes", "decision_id"],
+        },
+      },
+    };
+    if (params.operation === "rules.psychology_observe") return {
+      ok: true,
+      tool: params.operation,
+      data: {
+        resolution: "settled",
+        insight_id: "psych-insight-56f70e80826a",
+        window_key: "team:party:opaque-window",
+        question: "诺特此刻在回避什么可见问题？",
+        conversation_window_id: "conversation:commission-briefing:thomas-hayes:npc-steven-knott",
+        observation_revision: 0,
+        outcome: "hard",
+        roll_id: "toolbox-social-surface-000001",
+        observable_fact_refs: [{
+          source_ref: "npc_fact:npc-steven-knott/fact-knott-commission",
+          kind: "npc_fact",
+          identifier: "npc-steven-knott/fact-knott-commission",
+          player_known: false,
+          record_digest: `sha256:${"e".repeat(64)}`,
+          grounding_scope: "keeper_target_truth",
+        }],
+        request_digest: `sha256:${"f".repeat(64)}`,
+      },
+    };
+    return { ok: true, tool: params.operation, data: { accepted: true } };
+  });
+});
 
 test("structured scene combat affordances survive into the next player turn", async () => {
   let confrontationActive = true;
@@ -599,6 +1729,573 @@ test("structured scene combat affordances survive into the next player turn", as
     if (params.operation === "scene.context") return sceneEnvelope();
     return { ok: true, tool: params.operation, data: {} };
   });
+});
+
+test("scene context directly binds a single combat target without combat context", async () => {
+  const forwarded = [];
+  const sceneEnvelope = contextReceipt("direct-combat-single", {
+    active_scene_id: "cellar",
+    party: ["thomas-hayes"],
+    exits: [],
+    time: { time_precision: "imprecise", local_datetime: null },
+    npcs_present: [{ npc_id: "walter-corbitt" }],
+    action_routes: [],
+    clues_here: [],
+  });
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我冲向科比特，挥拳攻击。" }],
+    });
+    await invokeCompat(h, "direct-combat-scene", "scene.context");
+    const discovered = JSON.parse((await h.tools.get("coc_discover").execute(
+      "discover-direct-combat",
+      { operation: "combat.resolve" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(discovered.ok, true, JSON.stringify(discovered));
+    for (const field of [
+      "root", "campaign", "decision_id", "candidate_id", "target_npc_id",
+      "defense_kind",
+    ]) {
+      assert.equal(Object.hasOwn(
+        discovered.data.operation_card.parameters.properties,
+        field,
+      ), false, field);
+    }
+    assert.ok(discovered.data.operation_card.parameters.required.includes("action_kind"));
+    assert.ok(discovered.data.operation_card.parameters.required.includes("weapon_id"));
+
+    const callsBeforeMismatch = forwarded.filter(
+      (params) => params.operation === "combat.resolve",
+    ).length;
+    for (const [callId, modelArguments] of [
+      ["reject-defense-as-attack", {
+        investigator: "current-investigator",
+        defense_kind: "dodge",
+      }],
+      ["reject-maneuver-as-attack", {
+        investigator: "current-investigator",
+        action_kind: "maneuver",
+        weapon_id: "unarmed",
+      }],
+    ]) {
+      const rejected = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
+        callId,
+        modelArguments,
+        undefined,
+        undefined,
+        h.ctx,
+      )).content[0].text);
+      assert.equal(rejected.ok, false, JSON.stringify(rejected));
+      assert.equal(rejected.error.code, "semantic_candidate_stale");
+    }
+    assert.equal(forwarded.filter(
+      (params) => params.operation === "combat.resolve",
+    ).length, callsBeforeMismatch, "semantic mismatches never reach canonical combat");
+
+    const resolved = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
+      "direct-combat-resolve",
+      {
+        investigator: "current-investigator",
+        action_kind: "attack",
+        weapon_id: "unarmed",
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(resolved.ok, true, JSON.stringify(resolved));
+    const combatCall = forwarded.findLast(
+      (params) => params.operation === "combat.resolve",
+    );
+    assert.equal(combatCall.campaign, "tool-affordance-campaign");
+    assert.equal(combatCall.arguments.investigator, "thomas-hayes");
+    assert.equal(combatCall.arguments.target_npc_id, "walter-corbitt");
+    assert.equal(combatCall.arguments.weapon_id, "unarmed");
+    assert.equal(Object.hasOwn(combatCall.arguments, "action_kind"), false);
+    assert.match(combatCall.arguments.decision_id, /^pi-combat-resolve:/u);
+  }, (_name, params) => {
+    forwarded.push(structuredClone(params));
+    if (params.operation === "scene.context") return sceneEnvelope;
+    return { ok: true, tool: params.operation, data: { accepted: true } };
+  });
+});
+
+test("scene combat choices are explicit and combat context replaces them authoritatively", async () => {
+  const forwarded = [];
+  let sceneEnvelope = contextReceipt("direct-combat-ambiguous", {
+    active_scene_id: "cellar",
+    party: ["thomas-hayes"],
+    exits: [],
+    time: { time_precision: "imprecise", local_datetime: null },
+    npcs_present: [{ npc_id: "walter-corbitt" }],
+    action_routes: [{
+      route_id: "floating-knife",
+      resolution_kind: "combat_engagement",
+    }],
+    clues_here: [],
+  });
+  const pendingDefenseEnvelope = {
+    ok: true,
+    tool: "combat.context",
+    wire: { full_result_sha256: `sha256:${"d".repeat(64)}` },
+    cache: { revision: "combat-context:pending-defense" },
+    data: {
+      active: true,
+      pending_defense: {
+        defender: "thomas-hayes",
+        allowed_defenses: ["dodge", "fight_back"],
+      },
+      combat: { value: { combat_id: "corbitt", revision: 3 } },
+    },
+  };
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我在科比特和飞刀之间判断应对目标。" }],
+    });
+    await invokeCompat(h, "direct-combat-ambiguous-scene", "scene.context");
+    const sceneDiscovery = JSON.parse((await h.tools.get("coc_discover").execute(
+      "discover-direct-combat-ambiguous",
+      { operation: "combat.resolve" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.deepEqual(
+      sceneDiscovery.data.operation_card.parameters.properties.candidate_id.enum,
+      ["attack:walter-corbitt", "combat-route:floating-knife"],
+    );
+
+    await invokeCompat(h, "pending-defense-context", "combat.context");
+    const defenseDiscovery = JSON.parse((await h.tools.get("coc_discover").execute(
+      "discover-pending-defense",
+      { operation: "combat.resolve" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(Object.hasOwn(
+      defenseDiscovery.data.operation_card.parameters.properties,
+      "candidate_id",
+    ), false, "one pending defense replaces the earlier ambiguous attack choices");
+    assert.deepEqual(
+      defenseDiscovery.data.operation_card.parameters.properties.defense_kind.enum,
+      ["dodge", "fight_back"],
+    );
+    assert.equal(Object.hasOwn(
+      defenseDiscovery.data.operation_card.parameters.properties,
+      "weapon_id",
+    ), false);
+    const defense = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
+      "resolve-pending-defense",
+      { investigator: "current-investigator", defense_kind: "dodge" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(defense.ok, true, JSON.stringify(defense));
+    const defenseCall = forwarded.findLast(
+      (params) => params.operation === "combat.resolve",
+    );
+    assert.equal(Object.hasOwn(defenseCall.arguments, "target_npc_id"), false);
+    assert.equal(Object.hasOwn(defenseCall.arguments, "affordance_id"), false);
+    assert.equal(defenseCall.arguments.defense_kind, "dodge");
+    assert.match(defenseCall.arguments.decision_id, /^pi-combat-resolve:/u);
+
+    await invokeCompat(h, "rearm-ambiguous-scene", "scene.context");
+    const staleCombatTool = h.tools.get("coc_combat_resolve");
+    sceneEnvelope = contextReceipt("direct-combat-cleared", {
+      active_scene_id: "street",
+      party: ["thomas-hayes"],
+      exits: [],
+      time: { time_precision: "imprecise", local_datetime: null },
+      npcs_present: [],
+      action_routes: [],
+      clues_here: [],
+    });
+    await invokeCompat(h, "clear-direct-combat-scene", "scene.context");
+    const callsBeforeStale = forwarded.filter(
+      (params) => params.operation === "combat.resolve",
+    ).length;
+    const stale = JSON.parse((await staleCombatTool.execute(
+      "stale-direct-combat",
+      { investigator: "current-investigator", candidate_id: "attack:walter-corbitt" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(stale.ok, false, JSON.stringify(stale));
+    assert.equal(stale.error.code, "binding_context_missing");
+    assert.equal(forwarded.filter(
+      (params) => params.operation === "combat.resolve",
+    ).length, callsBeforeStale, "stale scene combat choice must not transport");
+  }, (_name, params) => {
+    forwarded.push(structuredClone(params));
+    if (params.operation === "scene.context") return sceneEnvelope;
+    if (params.operation === "combat.context") return pendingDefenseEnvelope;
+    return { ok: true, tool: params.operation, data: { accepted: true } };
+  });
+});
+
+test("resume-projected combat tool rebinds before a stale tool object executes", async () => {
+  const forwarded = [];
+  const resumeEnvelope = {
+    ok: true,
+    tool: "session.resume",
+    wire: { full_result_sha256: `sha256:${"e".repeat(64)}` },
+    cache: { revision: "resume:combat-scene" },
+    data: {
+      schema_version: 1,
+      campaign_id: "tool-affordance-campaign",
+      mode: "awaiting_player",
+      evidence: { table_opening_id: "table-opening:combat-rebind" },
+      next_operations: [],
+      scene_context: {
+        active_scene_id: "corbitt-confrontation",
+        party: ["thomas-hayes"],
+        exits: [],
+        time: { time_precision: "imprecise", local_datetime: null },
+        npcs_present: [{ npc_id: "npc-walter-corbitt" }],
+        action_routes: [{
+          route_id: "conventional-assault",
+          resolution_kind: "combat_engagement",
+        }],
+        clues_here: [],
+      },
+    },
+  };
+  await withPlayHarness(async (h) => {
+    const resumeProjectedTool = h.tools.get("coc_combat_resolve");
+    assert.deepEqual(
+      resumeProjectedTool.parameters.properties.candidate_id.enum,
+      ["attack:npc-walter-corbitt", "combat-route:conventional-assault"],
+    );
+
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我迎向科比特，用拳头攻击。" }],
+    });
+    const resolved = JSON.parse((await resumeProjectedTool.execute(
+      "stale-resume-projected-combat",
+      {
+        candidate_id: "attack:npc-walter-corbitt",
+        action_kind: "attack",
+        weapon_id: "unarmed",
+        investigator: "current-investigator",
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(resolved.ok, true, JSON.stringify(resolved));
+    const combatCall = forwarded.findLast(
+      (params) => params.operation === "combat.resolve",
+    );
+    assert.equal(combatCall.arguments.target_npc_id, "npc-walter-corbitt");
+    assert.equal(combatCall.arguments.weapon_id, "unarmed");
+    assert.equal(Object.hasOwn(combatCall.arguments, "candidate_id"), false);
+    assert.match(
+      combatCall.arguments.decision_id,
+      /^pi-combat-resolve:[^:]+:player-epoch-1:revision-/u,
+    );
+  }, (_name, params) => {
+    forwarded.push(structuredClone(params));
+    if (params.operation === "session.resume") return resumeEnvelope;
+    if (params.operation === "combat.resolve") {
+      if (typeof params.arguments.decision_id !== "string") {
+        return {
+          ok: false,
+          tool: "combat.resolve",
+          error: {
+            code: "missing_param",
+            message: "required parameter: decision_id",
+            retryable: false,
+          },
+        };
+      }
+      return { ok: true, tool: "combat.resolve", data: { accepted: true } };
+    }
+    return { ok: true, tool: params.operation, data: {} };
+  });
+});
+
+test("campaign-bound typed semantic calls use the active campaign before restoration", async () => {
+  const forwarded = [];
+  const campaign = "tool-affordance-campaign";
+  const sceneEnvelope = contextReceipt("typed-active-campaign", {
+    active_scene_id: "front-hall",
+    party: ["thomas-hayes"],
+    exits: [],
+    time: { elapsed_minutes: 0 },
+    npcs_present: [{ npc_id: "walter-corbitt" }],
+    action_routes: [],
+    clues_here: [],
+  });
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我检查大厅，准备应对危险。" }],
+    });
+    const scene = JSON.parse((await invokeCompat(
+      h,
+      "typed-active-campaign-scene",
+      "scene.context",
+    )).content[0].text);
+    assert.equal(scene.ok, true, JSON.stringify(scene));
+
+    for (const operation of ["combat.resolve", "rules.roll"]) {
+      const discovered = JSON.parse((await h.tools.get("coc_discover").execute(
+        `discover-${operation}`,
+        { operation },
+        undefined,
+        undefined,
+        h.ctx,
+      )).content[0].text);
+      assert.equal(discovered.ok, true, JSON.stringify(discovered));
+    }
+
+    const combat = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
+      "typed-active-campaign-combat",
+      {
+        investigator: "current-investigator",
+        action_kind: "attack",
+        weapon_id: "unarmed",
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(combat.ok, true, JSON.stringify(combat));
+    const combatForwarded = forwarded.findLast(
+      (params) => params.operation === "combat.resolve",
+    );
+    assert.equal(combatForwarded.campaign, campaign);
+    assert.equal(combatForwarded.arguments.investigator, "thomas-hayes");
+
+    const roll = JSON.parse((await h.tools.get("coc_rules_roll").execute(
+      "typed-active-campaign-roll",
+      {
+        investigator: "current-investigator",
+        skill: "Spot Hidden",
+        difficulty: "regular",
+        difficulty_basis: "environment",
+        goal: "检查大厅里的异常",
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(roll.ok, true, JSON.stringify(roll));
+    const rollForwarded = forwarded.findLast(
+      (params) => params.operation === "rules.roll",
+    );
+    assert.equal(rollForwarded.campaign, campaign);
+    assert.equal(rollForwarded.arguments.investigator, "thomas-hayes");
+  }, (_name, params) => {
+    forwarded.push(structuredClone(params));
+    if (params.operation === "session.resume") {
+      return {
+        ok: true,
+        tool: "session.resume",
+        data: {
+          schema_version: 1,
+          campaign_id: campaign,
+          mode: "awaiting_player",
+          evidence: { table_opening_id: "table-opening:typed-active-campaign" },
+          next_operations: [],
+          scene_context: { party: ["thomas-hayes"] },
+        },
+      };
+    }
+    if (params.operation === "scene.context") return sceneEnvelope;
+    return { ok: true, tool: params.operation, data: { schema_version: 1 } };
+  });
+});
+
+test("unbound state.advance_time receives one stable host decision identity", async () => {
+  const forwarded = [];
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我花半天查阅资料。" }],
+    });
+    const timeDiscovery = JSON.parse((await h.tools.get("coc_discover").execute(
+      "discover-unbound-time",
+      { operation: "state.advance_time" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(timeDiscovery.ok, true);
+    assert.equal(Object.hasOwn(
+      timeDiscovery.data.operation_card.parameters.properties,
+      "decision_id",
+    ), false);
+
+    const modelArguments = {
+      minutes: 360,
+      reason: "暂时撤离并用半天查阅资料",
+      day_phase_after: "afternoon",
+      display_after: "下午",
+    };
+    const first = JSON.parse((await h.tools.get("coc_state_advance_time").execute(
+      "unbound-time-first",
+      modelArguments,
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(first.ok, true, JSON.stringify(first));
+    const firstCall = forwarded.findLast((row) => (
+      row.operation === "state.advance_time"
+    ));
+    assert.match(firstCall.arguments.decision_id, /^pi-state-advance_time:/u);
+    assert.equal(Object.hasOwn(modelArguments, "decision_id"), false);
+
+    const second = JSON.parse((await h.tools.get("coc_state_advance_time").execute(
+      "unbound-time-idempotent-replay",
+      modelArguments,
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(second.ok, true, JSON.stringify(second));
+    const timeCalls = forwarded.filter((row) => (
+      row.operation === "state.advance_time"
+    ));
+    assert.equal(timeCalls.length, 2);
+    assert.equal(
+      timeCalls[1].arguments.decision_id,
+      timeCalls[0].arguments.decision_id,
+      "same semantic time request in one unchanged host epoch is idempotent",
+    );
+
+    const purchaseDiscovery = JSON.parse((await h.tools.get("coc_discover").execute(
+      "discover-purchase-decision-ownership",
+      { operation: "state.purchase" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(purchaseDiscovery.ok, true);
+    assert.equal(Object.hasOwn(
+      purchaseDiscovery.data.operation_card.parameters.properties,
+      "decision_id",
+    ), true, "state.purchase keeps its model-owned semantic decision id");
+    assert.ok(
+      purchaseDiscovery.data.operation_card.parameters.required.includes("decision_id"),
+    );
+  }, (_name, params) => {
+    if (params.operation === "state.advance_time") {
+      forwarded.push(structuredClone(params));
+      if (typeof params.arguments.decision_id !== "string") {
+        return {
+          ok: false,
+          tool: "state.advance_time",
+          error: {
+            code: "missing_param",
+            message: "required parameter: decision_id",
+            retryable: false,
+          },
+        };
+      }
+      return {
+        ok: true,
+        tool: "state.advance_time",
+        data: { elapsed_minutes: 360, changed: true },
+      };
+    }
+    return params.operation === "session.resume"
+      ? {
+          ok: true,
+          tool: "session.resume",
+          data: {
+            mode: "awaiting_player",
+            evidence: { table_opening_id: "table-opening:unbound-time" },
+            next_operations: [],
+          },
+        }
+      : { ok: true, tool: params.operation, data: {} };
+  });
+});
+
+test("campaign-bound typed semantic calls fail closed without an active campaign", async () => {
+  const priorRole = process.env[ROLE_ENV];
+  const priorCampaign = process.env[CAMPAIGN_ENV];
+  process.env[ROLE_ENV] = "play";
+  delete process.env[CAMPAIGN_ENV];
+  const forwarded = [];
+  try {
+    const h = makeHarness((_name, params) => {
+      forwarded.push(structuredClone(params));
+      if (params.operation === "session.resume") {
+        return {
+          ok: true,
+          tool: "session.resume",
+          data: {
+            schema_version: 1,
+            mode: "awaiting_player",
+            evidence: { table_opening_id: "table-opening:no-active-campaign" },
+            next_operations: [],
+            scene_context: { party: ["thomas-hayes"] },
+          },
+        };
+      }
+      if (params.operation === "scene.context") {
+        return contextReceipt("no-active-campaign", {
+          active_scene_id: "front-hall",
+          party: ["thomas-hayes"],
+          exits: [],
+          npcs_present: [],
+          action_routes: [],
+          clues_here: [],
+        });
+      }
+      return { ok: true, tool: params.operation, data: { schema_version: 1 } };
+    });
+    await h.start();
+    await h.tools.get("coc_invoke").execute(
+      "resume-without-active-campaign",
+      { operation: "session.resume", arguments: {} },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我检查大厅。" }],
+    });
+    await h.tools.get("coc_invoke").execute(
+      "scene-without-active-campaign",
+      { operation: "scene.context", arguments: {} },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const combat = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
+      "combat-without-active-campaign",
+      { investigator: "current-investigator" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(combat.ok, false, JSON.stringify(combat));
+    assert.equal(combat.error.code, "binding_context_missing");
+    assert.equal(
+      forwarded.filter((params) => params.operation === "combat.resolve").length,
+      0,
+      "campaign-less typed calls must never reach transport",
+    );
+  } finally {
+    if (priorRole === undefined) delete process.env[ROLE_ENV];
+    else process.env[ROLE_ENV] = priorRole;
+    if (priorCampaign === undefined) delete process.env[CAMPAIGN_ENV];
+    else process.env[CAMPAIGN_ENV] = priorCampaign;
+  }
 });
 
 test("projected same-destination scene routes preserve exact optional travel through canonical invoke", async () => {
@@ -1191,7 +2888,11 @@ test("scene, precise-clock, and combat cards bind discovered production tools an
       ), false, field);
     }
     const combat = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
-      "combat-bound", { candidate_id: "attack:walter-corbitt" },
+      "combat-bound", {
+        candidate_id: "attack:walter-corbitt",
+        action_kind: "attack",
+        weapon_id: "unarmed",
+      },
       undefined, undefined, h.ctx,
     )).content[0].text);
     assert.equal(combat.ok, true);
@@ -1405,7 +3106,12 @@ const completeOutputContextData = ({
   turn_id: turnId,
   source_digest: `sha256:source-${turnId}`,
   settlement_snapshot_id: `turn-settlement-v1:${turnId}`,
-  mechanics_bundle_sha256: `sha256:mechanics-${turnId}`,
+  mechanics_bundle_sha256: `sha256:${"8".repeat(64)}`,
+  obligations: [],
+  mechanics_summary: {
+    public_check: [], state_delta: [], exceptional_effect: [],
+    concealed_consequence: [],
+  },
   contract_projection: {
     agency_review_required: agencyReviewRequired,
     agency_authority: { pc_subject_refs: ["pc:receipt-probe"] },
@@ -1420,6 +3126,7 @@ const completeOutputContextData = ({
     : {}),
   finalize_operation: {
     operation: "turn.finalize",
+    invoke_via: agencyReviewRequired ? "coc_turn_finalize" : "coc_invoke",
     prefilled_arguments: { revision: finalizeRevision },
   },
 });
@@ -1455,6 +3162,9 @@ test("non-review output-context accepts the canonical finalize-card revision", a
       row.type === "coc-typed-tool-binding"
       && row.value.operation === "narration.review"
     )), false);
+    assert.ok(h.active.at(-1).includes("coc_invoke"), JSON.stringify(h.active.at(-1)));
+    assert.ok(!h.active.at(-1).includes("coc_narration_review"));
+    assert.ok(!h.active.at(-1).includes("coc_turn_finalize"));
   }, (_name, params) => {
     if (params.operation === "state.journal") {
       return { ok: true, tool: params.operation, data: { turn_id: "turn-non-review" } };
@@ -1704,6 +3414,11 @@ test("faulted turn advances only through the exact session-resume recovery recei
             source_digest: `sha256:${"f".repeat(64)}`,
             settlement_snapshot_id: "turn-settlement-v1:recovery-fault",
             mechanics_bundle_sha256: `sha256:${"0".repeat(64)}`,
+            obligations: [],
+            mechanics_summary: {
+              public_check: [], state_delta: [], exceptional_effect: [],
+              concealed_consequence: [],
+            },
             contract_projection: {
               agency_review_required: true,
               agency_authority: { pc_subject_refs: ["pc:probe"] },
@@ -1895,6 +3610,11 @@ test("explicit output-context receipt campaign binds fault recovery authorizatio
               source_digest: `sha256:${"f".repeat(64)}`,
               settlement_snapshot_id: "turn-settlement-v1:recovery-fault",
               mechanics_bundle_sha256: `sha256:${"0".repeat(64)}`,
+              obligations: [],
+              mechanics_summary: {
+                public_check: [], state_delta: [], exceptional_effect: [],
+                concealed_consequence: [],
+              },
               contract_projection: {
                 agency_review_required: true,
                 agency_authority: { pc_subject_refs: ["pc:probe"] },
@@ -2029,6 +3749,11 @@ test("state-claim compiler terminal failure enters the same narrow fault working
             source_digest: `sha256:${"d".repeat(64)}`,
             settlement_snapshot_id: "turn-settlement-v1:compiler-fault",
             mechanics_bundle_sha256: `sha256:${"e".repeat(64)}`,
+            obligations: [],
+            mechanics_summary: {
+              public_check: [], state_delta: [], exceptional_effect: [],
+              concealed_consequence: [],
+            },
             contract_projection: {
               agency_review_required: true,
               agency_authority: { pc_subject_refs: ["pc:probe"] },
@@ -2144,7 +3869,7 @@ test("valid ending receipt advances finalized then exact delivery", async () => 
   }
 });
 
-test("pending-finalization hydration carries the exact frozen draft keeper-only and projects model-owned review/finalize calls", async () => {
+test("accepted-review hydration projects finalize-only and host-binds exact review identity", async () => {
   const compiler = new PiStateClaimCompiler(async (input) => ({
     result: {
       schema_version: 1,
@@ -2162,8 +3887,25 @@ test("pending-finalization hydration carries the exact frozen draft keeper-only 
   }));
   const turnId = "turn-affordance-pending-1";
   const sourceDigest = `sha256:${"c7".repeat(32)}`;
-  const draftText = "旅馆大厅的烛光在未封缄的信封上跳动，你把信推回桌角。";
+  const draftText = (
+    "你当着他的面抡起右拳，空着手，对着桌角一下一下砸下去。"
+    + "硬木棱反复撞上骨节，直到指节的皮裂开，血顺着拳面往下淌。\n\n"
+    + "诺特盯着那只手，没有退。房间里的沉默没有因此松动。"
+  );
   const draftSha256 = canonicalDigest(draftText);
+  const stateExcerpt = "直到指节的皮裂开，血顺着拳面往下淌。";
+  const stateAuthorityReview = {
+    disposition: "claims_listed",
+    reason: "精确记录草稿里的指节伤势。",
+    claims: [{
+      claim_id: "claim-knuckle-injury",
+      subject_ref: "pc:affordance-investigator",
+      claim_kind: "condition",
+      exact_excerpt: stateExcerpt,
+      source_effect_id: "effect:knuckle-injury",
+      reason: "已由冻结的伤势效果授权。",
+    }],
+  };
   const buildFrozenReceipt = (options = {}) => {
     const revision = options.revision ?? 2;
     const draft = options.draft_text ?? draftText;
@@ -2215,32 +3957,141 @@ test("pending-finalization hydration carries the exact frozen draft keeper-only 
     operation: "turn.finalize",
     invoke_via: invokeVia,
     prefilled_arguments: {
-      decision_id: `${turnId}:player-epoch-7:revision-${revision}:finalize`,
+      decision_id: `pi-state-journal:2a383743:player-epoch-7:revision-${revision}:finalize`,
       revision,
-      coverage: [],
     },
-    missing_arguments: ["draft", "narration_review_id", "agency_claims"],
+    missing_arguments: ["draft", "coverage", "narration_review_id", "agency_claims"],
     discovery_required: false,
     authority: "settled_output_completeness",
     hard_gate: true,
   });
-  const liveContextEnvelope = (reviewCard = liveReviewCard(), finalizeCard = liveFinalizeCard(), receipt = frozenDraft()) => ({
-    ok: true,
-    tool: "turn.output_context",
-    data: {
+  const liveContextEnvelope = (reviewCard = liveReviewCard(), finalizeCard = liveFinalizeCard(), receipt = frozenDraft()) => {
+    const obligations = [
+      {
+        obligation_id: "first-impression:first-impression-receipt-affordance-pending-1",
+        source_kind: "first_impression",
+        source_id: "first-impression-receipt-affordance-pending-1",
+        npc_display_name: "史蒂文·诺特",
+        visibility: "context_effect",
+        skill: null,
+        goal: "realize the NPC's first observable response",
+        outcome: null,
+        required_level: null,
+        achieved_level: null,
+        passed: null,
+        surplus_levels: null,
+        exceptional_required: false,
+        substantive_effect_required: false,
+        substantive_effect_direction: null,
+        substantive_effect_ids: [],
+        substantive_effect_status: "not_required",
+      },
+      {
+        obligation_id: "roll:toolbox-first-impression-affordance-pending-000001",
+        source_kind: "check",
+        source_id: "toolbox-first-impression-affordance-pending-000001",
+        npc_display_name: "史蒂文·诺特",
+        visibility: "public",
+        skill: "APP",
+        goal: "resolve the first material meeting",
+        outcome: "failure",
+        required_level: "regular",
+        achieved_level: "failure",
+        passed: false,
+        surplus_levels: -1,
+        exceptional_required: false,
+        substantive_effect_required: false,
+        substantive_effect_direction: null,
+        substantive_effect_ids: [],
+        substantive_effect_status: "not_required",
+      },
+    ];
+    const contractProjection = {
+      agency_review_required: true,
+      player_input: {
+        source_ref: "player_input:affordance-pending-1",
+        text: "我用右拳砸桌角，直到指节破裂流血。",
+      },
+      control_overrides: [],
+      agency_authority: {
+        pc_subject_refs: ["pc:affordance-investigator"],
+        involuntary_physiology_sources: [{
+          source_ref: "narration_contract:involuntary_physiology",
+          source_type: "ownership_contract",
+        }],
+      },
+    };
+    const contractProjectionSha256 = canonicalDigest(contractProjection);
+    const acceptedReviewEvidence = {
+      schema_version: 1,
+      contract_id: "coc.accepted-review-evidence.v2",
+      visibility: "host_only",
+      review_id: receipt.review_id,
       turn_id: turnId,
       source_digest: sourceDigest,
-      settlement_snapshot_id: "turn-settlement-v1:affordance-pending-1",
-      mechanics_bundle_sha256: `sha256:${"e9".repeat(32)}`,
-      contract_projection: {
-        agency_review_required: true,
-        agency_authority: { pc_subject_refs: ["pc:affordance-investigator"] },
+      revision: receipt.revision,
+      draft_sha256: receipt.draft_sha256,
+      review_digest: receipt.review_digest,
+      pending_draft_receipt_digest: receipt.receipt_digest,
+      contract_projection_sha256: contractProjectionSha256,
+      verification: {
+        agency_gate: "clear",
+        state_authority_gate: "clear",
       },
-      frozen_narration_draft: receipt,
-      agency_review_operation: reviewCard,
-      finalize_operation: finalizeCard,
-    },
-  });
+      state_authority_review: structuredClone(stateAuthorityReview),
+      player_input_source_ref: contractProjection.player_input.source_ref,
+      agency_authority: structuredClone(contractProjection.agency_authority),
+      control_overrides: [],
+      coverage_binding_facts: {
+        schema_version: 1,
+        contract_id: "coc.reviewed-coverage-binding-facts.v1",
+        settlement_snapshot_id: "turn-settlement-v1:affordance-pending-1",
+        mechanics_bundle_sha256: `sha256:${"e9".repeat(32)}`,
+        obligations: structuredClone(obligations),
+        public_check_source_ids: [
+          "toolbox-first-impression-affordance-pending-000001",
+        ],
+        state_delta_source_ids: ["effect:knuckle-injury"],
+        exceptional_effect_source_ids: [],
+      },
+    };
+    acceptedReviewEvidence.evidence_sha256 = canonicalDigest(
+      acceptedReviewEvidence,
+    );
+    return {
+      ok: true,
+      tool: "turn.output_context",
+      data: {
+        turn_id: turnId,
+        source_digest: sourceDigest,
+        journal_decision_id:
+          "pi-state-journal:2a383743:player-epoch-7:revision-2",
+        settlement_snapshot_id: "turn-settlement-v1:affordance-pending-1",
+        mechanics_bundle_sha256: `sha256:${"e9".repeat(32)}`,
+        obligations: structuredClone(obligations),
+        mechanics_summary: {
+          public_check: [{
+            roll_id: "toolbox-first-impression-affordance-pending-000001",
+            display_skill: "APP",
+            outcome: "failure",
+          }],
+          state_delta: [{
+            effect_id: "effect:knuckle-injury",
+            resource: "HP",
+            effect_kind: "scalar",
+          }],
+          exceptional_effect: [],
+          concealed_consequence: [],
+        },
+        contract_projection_sha256: contractProjectionSha256,
+        contract_projection: contractProjection,
+        frozen_narration_draft: receipt,
+        accepted_review_evidence: acceptedReviewEvidence,
+        agency_review_operation: reviewCard,
+        finalize_operation: finalizeCard,
+      },
+    };
+  };
   let contextFetches = 0;
   const priorRole = process.env[ROLE_ENV];
   const priorCampaign = process.env[CAMPAIGN_ENV];
@@ -2277,8 +4128,16 @@ test("pending-finalization hydration carries the exact frozen draft keeper-only 
           data: {
             accepted: true,
             review_id: "narration-review-v1:affordance-accepted-1",
+            turn_id: turnId,
+            source_digest: sourceDigest,
             revision: 2,
+            draft_sha256: canonicalDigest(params.arguments.draft_text),
+            findings: [],
+            agency_gate: "clear",
+            state_authority_review: params.arguments.state_authority_review,
             state_claim_compilation: params.arguments.state_claim_compilation,
+            state_authority_gate: "clear",
+            recommendation: "no_revision_suggested",
           },
         };
       }
@@ -2308,7 +4167,7 @@ test("pending-finalization hydration carries the exact frozen draft keeper-only 
       h.ctx,
     );
     const resumed = JSON.parse(resumedResult.content[0].text);
-    assert.equal(resumed.ok, true);
+    assert.equal(resumed.ok, true, JSON.stringify(resumed));
     assert.equal(contextFetches, 1, "exactly one host output-context fetch");
     assert.equal(
       h.clientCalls.filter((call) => (
@@ -2336,24 +4195,123 @@ test("pending-finalization hydration carries the exact frozen draft keeper-only 
     );
     const guidance = resumed.data.host_recovery_guidance;
     assert.equal(guidance.output_context_status, "host_refreshed_live");
-    // Model-visible cards are identity-sanitized by the gateway boundary
-    // (opaque turn/source binding values stripped; the host injects them at
-    // invoke time); the exact canonical cards stay authoritative in
-    // host-only details.
+    assert.equal(guidance.status, "review_accepted_pending_finalization");
+    assert.deepEqual(guidance.next_call, { tool: "coc_turn_finalize" });
     assert.equal(
-      JSON.stringify(guidance.review_recovery.card),
-      JSON.stringify({
-        ...liveReviewCard(),
-        prefilled_arguments: { revision: 2 },
-      }),
+      guidance.review_recovery,
+      undefined,
+      "an accepted review must never be offered as the next model action",
     );
-    assert.equal(
-      JSON.stringify(guidance.then.card),
-      JSON.stringify(liveFinalizeCard()),
-    );
+    assert.equal(guidance.model_calls.review, undefined);
+    assert.deepEqual(guidance.accepted_review, {
+      status: "accepted",
+      instruction: guidance.accepted_review.instruction,
+    });
+    // The model-facing finalize card carries only model-owned prefilled and
+    // missing arguments. Every exact identity is listed as host-attached and
+    // remains available only in canonical details.
+    assert.deepEqual(guidance.then.card, {
+      operation: "turn.finalize",
+      invoke_via: "coc_turn_finalize",
+      prefilled_arguments: {},
+      missing_arguments: ["coverage", "agency_claims"],
+      host_bound_auto_attached_arguments: [
+        "campaign", "decision_id", "draft", "mechanics_placements",
+        "narration_review_id", "repair_finalization_id", "revision", "root",
+      ],
+      discovery_required: false,
+      authority: "settled_output_completeness",
+      hard_gate: true,
+    });
+    for (const field of [
+      "decision_id", "narration_review_id", "repair_finalization_id",
+      "revision", "source_digest", "review_id", "receipt_id",
+    ]) {
+      assert.equal(
+        Object.hasOwn(guidance.then.card.prefilled_arguments, field),
+        false,
+        `model-facing finalize card leaked host-bound ${field}`,
+      );
+    }
+    assert.deepEqual(guidance.then.finalize_input, {
+      visibility: "keeper_only",
+      source: "turn.output_context.data.accepted_review_evidence",
+      mode: "accepted_review_semantic",
+      reviewed_spans: [
+        "reviewed-state-claim:1",
+        "reviewed-sentence:paragraph-1:1",
+        "reviewed-sentence:paragraph-1:2",
+        "reviewed-paragraph:1",
+        "reviewed-sentence:paragraph-2:1",
+        "reviewed-sentence:paragraph-2:2",
+        "reviewed-paragraph:2",
+      ],
+      authorities: [
+        {
+          authority: "current-player-input",
+          claim_types: [
+            "voluntary_action", "voluntary_speech", "voluntary_plan",
+            "voluntary_belief", "voluntary_trust",
+            "voluntary_active_emotion",
+          ],
+        },
+        {
+          authority: "involuntary-physiology",
+          claim_types: ["involuntary_physiology"],
+        },
+      ],
+      coverage_obligations: [
+        {
+          obligation: "roll:史蒂文-诺特",
+          source_kind: "first_impression",
+          visibility: "context_effect",
+          npc_display_name: "史蒂文·诺特",
+          goal: "realize the NPC's first observable response",
+          exceptional_required: false,
+          allowed_reviewed_spans: [
+            "reviewed-state-claim:1",
+            "reviewed-sentence:paragraph-1:1",
+            "reviewed-sentence:paragraph-1:2",
+            "reviewed-paragraph:1",
+            "reviewed-sentence:paragraph-2:1",
+            "reviewed-sentence:paragraph-2:2",
+            "reviewed-paragraph:2",
+          ],
+          realization: "fictional_beat",
+          placement_mode: "host_safe_default",
+        },
+        {
+          obligation: "roll:史蒂文-诺特-2",
+          source_kind: "check",
+          visibility: "public",
+          npc_display_name: "史蒂文·诺特",
+          skill: "APP",
+          goal: "resolve the first material meeting",
+          outcome: "failure",
+          exceptional_required: false,
+          allowed_reviewed_spans: [
+            "reviewed-sentence:paragraph-2:1",
+            "reviewed-sentence:paragraph-2:2",
+            "reviewed-paragraph:2",
+          ],
+          realization: "fictional_beat",
+          placement_mode: "host_safe_default_before_result",
+        },
+      ],
+      mechanics_placement: {
+        mode: "host_safe_default",
+        public_check_count: 1,
+        state_delta_count: 1,
+        exceptional_effect_count: 0,
+      },
+      model_arguments: ["coverage", "agency_claims"],
+      instruction: guidance.then.finalize_input.instruction,
+    });
+    // Host-only details retain both exact canonical cards and accepted-review
+    // identity/digest evidence for audit and binding.
     assert.equal(
       JSON.stringify(
-        resumedResult.details.data.host_recovery_guidance.review_recovery.card,
+        resumedResult.details.data.host_recovery_guidance.accepted_review.card,
       ),
       JSON.stringify(liveReviewCard()),
       "host-only details must retain the exact canonical review card",
@@ -2363,106 +4321,176 @@ test("pending-finalization hydration carries the exact frozen draft keeper-only 
       JSON.stringify(liveFinalizeCard()),
       "host-only details must retain the exact canonical finalize card",
     );
-    // The exact frozen draft rides exactly once, keeper-only, as the
-    // immutable baseline with its mode relation to the actionable cards.
-    // Model content is digest-free (the draft text itself is the semantic
-    // baseline); the exact digest stays host-only in details.
-    assert.deepEqual(guidance.review_recovery.review_input, {
-      visibility: "keeper_only",
-      source: "turn.output_context.data.frozen_narration_draft",
-      mode: "exact_replay",
-      baseline_draft_text: draftText,
-      instruction: guidance.review_recovery.review_input.instruction,
-    });
-    assert.equal(
-      resumedResult.details.data.host_recovery_guidance.review_recovery
-        .review_input.baseline_draft_sha256,
-      draftSha256,
-      "host-only details must retain the exact frozen draft digest",
-    );
     const guidanceJson = JSON.stringify(guidance);
     assert.equal(
       guidanceJson.split(draftText).length - 1,
-      1,
-      "frozen draft appears exactly once in the guidance",
+      0,
+      "accepted-review recovery guidance never exposes the frozen draft",
     );
+    assert.equal(guidanceJson.includes(stateExcerpt), false);
+    assert.equal(guidanceJson.includes("accepted_review_evidence"), true);
+    for (const hostOnlyValue of [
+      turnId,
+      sourceDigest,
+      liveFinalizeCard().prefilled_arguments.decision_id,
+      frozenDraft().review_id,
+      draftSha256,
+    ]) {
+      assert.equal(
+        guidanceJson.includes(hostOnlyValue),
+        false,
+        "model recovery guidance leaked host-only identity or integrity",
+      );
+    }
     assert.equal(
       guidanceJson.includes("coc_turn_output_context"),
       false,
       "host-refreshed guidance must be pointer-free",
     );
-    // Separate model-call projection: model-owned only, host-bound listed,
-    // exact card invoke_via surfaces.
-    assert.deepEqual(guidance.model_calls.review.model_owned_required_arguments, [
-      "draft_text",
-      "state_authority_review",
-    ]);
-    assert.deepEqual(guidance.model_calls.review.host_bound_auto_attached_arguments, [
-      "campaign", "decision_id", "revision", "root", "source_digest",
-      "state_claim_compilation", "turn_id",
-    ]);
-    assert.equal(guidance.model_calls.review.invoke_via, "coc_narration_review");
     assert.deepEqual(guidance.model_calls.finalize.model_owned_required_arguments, [
-      "coverage",
-      "draft",
+      "coverage", "agency_claims",
     ]);
-    assert.equal(guidance.model_calls.finalize.invoke_via, "coc_turn_finalize");
-    // The armed typed tool surface presents only model-owned fields: no
-    // host-owned identity, compiler receipt, or draft alias remains.
-    const reviewParameters = h.tools.get("coc_narration_review").parameters;
-    for (const hostOwned of [
-      "root", "campaign", "decision_id", "turn_id", "source_digest",
-      "revision", "state_claim_compilation",
-    ]) {
-      assert.ok(!Object.hasOwn(reviewParameters.properties, hostOwned), hostOwned);
-    }
     assert.deepEqual(
-      reviewParameters.required,
-      ["draft_text", "state_authority_review"],
+      guidance.model_calls.finalize.model_owned_optional_arguments,
+      [],
     );
-    assert.ok(!Object.hasOwn(reviewParameters.properties, "draft"), "no draft alias");
-    // The projected model-owned arguments execute against the typed tool:
-    // the host attaches turn/source/revision and its compiler receipt.
-    const review = JSON.parse((await h.tools.get("coc_narration_review").execute(
-      "typed-review",
-      {
-        draft_text: draftText,
-        findings: [],
-        state_authority_review: {
-          disposition: "no_player_state_change_claimed",
-          reason: "没有调查员状态变化。",
-          claims: [],
-        },
-      },
-      undefined,
-      undefined,
-      h.ctx,
-    )).content[0].text);
-    assert.equal(review.ok, true, JSON.stringify(review));
-    const reviewCalls = h.clientCalls.filter((call) => (
-      call.name === "coc_invoke" && call.params?.operation === "narration.review"
-    ));
-    assert.equal(reviewCalls.length, 1);
-    const wireArguments = reviewCalls[0].params.arguments;
-    assert.equal(wireArguments.turn_id, turnId);
-    assert.equal(wireArguments.source_digest, sourceDigest);
-    assert.equal(wireArguments.revision, 2);
-    assert.equal(wireArguments.draft_text, draftText);
+    assert.ok(
+      guidance.model_calls.finalize.host_bound_auto_attached_arguments
+        .includes("draft"),
+    );
+    assert.equal(guidance.model_calls.finalize.invoke_via, "coc_turn_finalize");
     assert.equal(
-      wireArguments.state_claim_compilation?.contract_id,
-      "coc.pi-state-claim-compilation-receipt.v1",
+      h.clientCalls.some((call) => call.params?.operation === "narration.review"),
+      false,
+      "resume and finalize-only recovery must not repeat the accepted review",
     );
-    assert.ok(!Object.hasOwn(wireArguments, "draft"), "no draft alias on the wire");
+    assert.ok(h.active.at(-1).includes("coc_turn_finalize"));
+    assert.equal(
+      h.active.at(-1).includes("coc_narration_review"),
+      false,
+      "accepted review advances the working set to finalize-only",
+    );
     // Complete through finalize using the generated finalize projection's
     // typed_flat surface: model-owned arguments only; the host attaches
     // decision/revision/review identities — no alias or forged rejection.
     assert.equal(guidance.model_calls.finalize.invocation_shape, "typed_flat");
+    const semanticCoverage = [
+      {
+        obligation_ref: "roll:史蒂文-诺特",
+        reviewed_span: "reviewed-sentence:paragraph-2:1",
+        realization: "fictional_beat",
+        action_realization: "诺特看见海斯以拳击打桌角。",
+        response: "诺特盯着那只手，没有退。",
+        causal_explanation: "第一次实质接触形成冷硬回应。",
+        persona_fit: "诺特保持克制，没有放弃职责。",
+        player_input_handling: "specific_preserved",
+        exceptional_beat: null,
+      },
+      {
+        obligation_ref: "roll:史蒂文-诺特-2",
+        reviewed_span: "reviewed-sentence:paragraph-2:2",
+        realization: "fictional_beat",
+        action_realization: "公开的第一印象检定在交谈中得到结果。",
+        response: "房间里的沉默没有因此松动。",
+        causal_explanation: "检定失败没有让诺特改变态度。",
+        persona_fit: "冷硬而克制的反应符合诺特的立场。",
+        player_input_handling: "specific_preserved",
+        exceptional_beat: null,
+      },
+    ];
+    for (const [label, arguments_] of [
+      ["stale obligation", {
+        coverage: [
+          { ...semanticCoverage[0], obligation_ref: "roll:不存在的义务" },
+          semanticCoverage[1],
+        ],
+        agency_claims: [],
+      }],
+      ["model-written exact excerpt", {
+        coverage: [
+          { ...semanticCoverage[0], exact_excerpt: "史蒂文·诺特" },
+          semanticCoverage[1],
+        ],
+        agency_claims: [],
+      }],
+      ["model-written placement", {
+        coverage: semanticCoverage,
+        agency_claims: [],
+        mechanics_placements: [{
+          after_paragraph: 0,
+          segment_type: "public_check",
+          source_ids: ["roll:史蒂文-诺特-2"],
+        }],
+      }],
+    ]) {
+      const beforeRejected = h.clientCalls.filter((call) => (
+        call.name === "coc_invoke" && call.params?.operation === "turn.finalize"
+      )).length;
+      const rejected = JSON.parse((await h.tools.get("coc_turn_finalize").execute(
+        `typed-finalize-coverage-reject-${label}`,
+        arguments_,
+        undefined,
+        undefined,
+        h.ctx,
+      )).content[0].text);
+      assert.equal(rejected.ok, false, label);
+      assert.equal(
+        h.clientCalls.filter((call) => (
+          call.name === "coc_invoke"
+          && call.params?.operation === "turn.finalize"
+        )).length,
+        beforeRejected,
+        `${label} must fail before canonical transport`,
+      );
+    }
+    for (const [label, agencyClaim] of [
+      ["stale reviewed span", {
+        reviewed_span: "reviewed-sentence:paragraph-99:1",
+        claim_type: "voluntary_action",
+        authority: "current-player-input",
+      }],
+      ["mismatched reviewed authority", {
+        reviewed_span: "reviewed-state-claim:1",
+        claim_type: "voluntary_action",
+        authority: "involuntary-physiology",
+      }],
+    ]) {
+      const beforeRejected = h.clientCalls.filter((call) => (
+        call.name === "coc_invoke" && call.params?.operation === "turn.finalize"
+      )).length;
+      const rejected = JSON.parse((await h.tools.get("coc_turn_finalize").execute(
+        `typed-finalize-reject-${label}`,
+        { coverage: semanticCoverage, agency_claims: [agencyClaim] },
+        undefined,
+        undefined,
+        h.ctx,
+      )).content[0].text);
+      assert.equal(rejected.ok, false, label);
+      assert.equal(
+        h.clientCalls.filter((call) => (
+          call.name === "coc_invoke"
+          && call.params?.operation === "turn.finalize"
+        )).length,
+        beforeRejected,
+        `${label} must fail before canonical transport`,
+      );
+    }
     const finalize = JSON.parse((await h.tools.get("coc_turn_finalize").execute(
       "typed-finalize",
       {
-        draft: draftText,
-        coverage: [],
-        agency_claims: [],
+        coverage: semanticCoverage,
+        agency_claims: [
+          {
+            reviewed_span: "reviewed-sentence:paragraph-1:1",
+            claim_type: "voluntary_action",
+            authority: "current-player-input",
+          },
+          {
+            reviewed_span: "reviewed-state-claim:1",
+            claim_type: "involuntary_physiology",
+            authority: "involuntary-physiology",
+          },
+        ],
       },
       undefined,
       undefined,
@@ -2475,16 +4503,49 @@ test("pending-finalization hydration carries the exact frozen draft keeper-only 
     assert.equal(finalizeCalls.length, 1);
     const finalizeWire = finalizeCalls[0].params.arguments;
     assert.equal(finalizeWire.draft, draftText);
+    assert.equal(Object.hasOwn(finalizeWire, "mechanics_placements"), false);
+    assert.deepEqual(
+      finalizeWire.coverage.map((row) => ({
+        obligation_id: row.obligation_id,
+        exact_excerpt: row.exact_excerpt,
+      })),
+      [
+        {
+          obligation_id:
+            "first-impression:first-impression-receipt-affordance-pending-1",
+          exact_excerpt: "诺特盯着那只手，没有退。",
+        },
+        {
+          obligation_id:
+            "roll:toolbox-first-impression-affordance-pending-000001",
+          exact_excerpt: "房间里的沉默没有因此松动。",
+        },
+      ],
+      "host restores canonical obligation ids and exact reviewed spans",
+    );
+    assert.equal(
+      finalizeWire.agency_claims[0].exact_excerpt,
+      "你当着他的面抡起右拳，空着手，对着桌角一下一下砸下去。",
+    );
+    assert.equal(finalizeWire.agency_claims[1].exact_excerpt, stateExcerpt);
+    assert.equal(
+      finalizeWire.agency_claims[0].source_ref,
+      "player_input:affordance-pending-1",
+    );
+    assert.equal(
+      finalizeWire.agency_claims[1].source_ref,
+      "narration_contract:involuntary_physiology",
+    );
     assert.equal(finalizeWire.revision, 2);
-    // decision_id is host-owned and auto-attached: the binding layer mints
-    // its own semantic finalize decision id, never a model echo.
-    assert.ok(
-      finalizeWire.decision_id.startsWith("pi-turn-finalize:"),
+    assert.equal(
       finalizeWire.decision_id,
+      liveFinalizeCard().prefilled_arguments.decision_id,
+      "host restores the exact validated finalize decision",
     );
     assert.equal(
       finalizeWire.narration_review_id,
-      "narration-review-v1:affordance-accepted-1",
+      frozenDraft().review_id,
+      "host restores the accepted frozen review without repeating review",
     );
     // No player-visible leak of the draft, the receipt, or the guidance.
     assert.ok(
@@ -2636,6 +4697,11 @@ test("pending-finalization direct finalize executes through the coc_invoke gener
             source_digest: sourceDigest,
             settlement_snapshot_id: "turn-settlement-v1:affordance-direct-1",
             mechanics_bundle_sha256: `sha256:${"f1".repeat(32)}`,
+            obligations: [],
+            mechanics_summary: {
+              public_check: [], state_delta: [], exceptional_effect: [],
+              concealed_consequence: [],
+            },
             contract_projection: { agency_review_required: false },
             finalize_operation: finalizeCard,
           },
@@ -2798,9 +4864,25 @@ test("excerpt-only revision-2 repair requires an edited draft and completes thro
             source_digest: sourceDigest,
             settlement_snapshot_id: "turn-settlement-v1:affordance-repair-1",
             mechanics_bundle_sha256: `sha256:${"f2".repeat(32)}`,
+            obligations: [],
+            mechanics_summary: {
+              public_check: [], state_delta: [], exceptional_effect: [],
+              concealed_consequence: [],
+            },
             contract_projection: {
               agency_review_required: true,
-              agency_authority: { pc_subject_refs: ["pc:affordance-investigator"] },
+              player_input: {
+                source_ref: "player_input:affordance-repair-1",
+                text: "我把东西收好后离开旅店。",
+              },
+              control_overrides: [],
+              agency_authority: {
+                pc_subject_refs: ["pc:affordance-investigator"],
+                involuntary_physiology_sources: [{
+                  source_ref: "narration_contract:involuntary_physiology",
+                  source_type: "ownership_contract",
+                }],
+              },
             },
             frozen_narration_draft: frozenReceipt,
             agency_review_operation: {
@@ -2839,8 +4921,16 @@ test("excerpt-only revision-2 repair requires an edited draft and completes thro
           data: {
             accepted: true,
             review_id: "narration-review-v1:affordance-repair-accepted-1",
+            turn_id: turnId,
+            source_digest: sourceDigest,
             revision: 2,
+            draft_sha256: canonicalDigest(params.arguments.draft_text),
+            findings: [],
+            agency_gate: "clear",
+            state_authority_review: params.arguments.state_authority_review,
             state_claim_compilation: params.arguments.state_claim_compilation,
+            state_authority_gate: "clear",
+            recommendation: "no_revision_suggested",
           },
         };
       }
@@ -2913,7 +5003,7 @@ test("excerpt-only revision-2 repair requires an edited draft and completes thro
     // Then finalize the repaired revision-2 draft.
     const finalize = JSON.parse((await h.tools.get("coc_turn_finalize").execute(
       "typed-repair-finalize",
-      { draft: repairedDraft, coverage: [], agency_claims: [] },
+      { coverage: [], agency_claims: [] },
       undefined,
       undefined,
       h.ctx,

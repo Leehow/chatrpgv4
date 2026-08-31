@@ -909,14 +909,17 @@ _TURN_TAIL_DURABLE_DECISION_TOOLS = frozenset({
 })
 
 def _quarantine_unbound_turn_tail(ctx: Ctx) -> dict[str, Any]:
-    """Void public rolls bound to no finalization; restore save/ to the last commit.
+    """Quarantine true orphans without destroying a recoverable open turn.
 
-    Runs at session.resume: when a crash abandoned a turn mid-write, its rolls
-    and state writes must never silently persist into canonical state or the
-    battle report.  Rolls are dispositioned in an append-only ledger (never
-    rewritten or deleted); turn-scoped state restores from the latest
-    finalized turn commit.  Rolls owned by a live pending-turn manifest
-    are legitimate in-flight work, never quarantine targets.
+    A successful non-replay mutation after the durable turn cursor is the
+    current in-flight turn, even when a host restart happened before
+    ``state.journal``.  ``session.resume.current_turn`` already exposes that
+    exact source window, so quarantine must defer while it is recoverable;
+    otherwise it would advertise a reusable receipt after voiding the same
+    roll and restoring its state.  With no open source window, genuinely
+    unbound rolls are dispositioned append-only and turn-scoped state restores
+    from the latest finalized commit as before.  Rolls owned by a live pending
+    manifest are likewise legitimate in-flight work.
     """
     pending_window_rolls: set[str] = set()
     has_pending_turn = False
@@ -928,6 +931,38 @@ def _quarantine_unbound_turn_tail(ctx: Ctx) -> dict[str, Any]:
         has_pending_turn = True
         _manifest, window, _journal = refresh
         pending_window_rolls = coc_turn_finalization._referenced_roll_ids(window)
+    source_tail: list[dict[str, Any]] = []
+    if not has_pending_turn:
+        source_boundary = coc_turn_manifest.effective_source_boundary(
+            ctx.campaign_dir
+        )
+        source_tail = coc_turn_manifest.uncommitted_source_rows(ctx.campaign_dir)
+        meaningful_tools = _turn_recovery_meaningful_tools()
+        recoverable_rows = [
+            row
+            for row in source_tail
+            if row.get("ok") is True
+            and row.get("idempotent_replay") is not True
+            and str(row.get("tool") or "") in meaningful_tools
+        ]
+        if (
+            source_boundary["cursor_close_owner"] == "turn.finalize"
+            and int(source_boundary["effective_start_index"]) > 0
+            and recoverable_rows
+        ):
+            # The exact toolbox rows and canonical state are the recovery
+            # source.  Deferring unrelated orphan cleanup is required because
+            # restoring save/ here would also roll back this live turn.  Once
+            # the turn finalizes, its cursor advances and a later empty-window
+            # resume can quarantine any independent historical orphan safely.
+            return {
+                "quarantined_orphan_rolls": [],
+                "restored_commit_snapshot": None,
+                "invalidated_decisions": [],
+                "discarded_development_ticks": {
+                    "queue": 0, "claims": 0, "archive": 0,
+                },
+            }
     orphan_ids = [
         roll_id
         for roll_id in coc_turn_finalization.unbound_public_roll_ids(ctx.campaign_dir)
@@ -944,7 +979,6 @@ def _quarantine_unbound_turn_tail(ctx: Ctx) -> dict[str, Any]:
 
     invalidation_candidates: set[tuple[str, str]] = set()
     if not has_pending_turn:
-        source_tail = coc_turn_manifest.uncommitted_source_rows(ctx.campaign_dir)
         for row in source_tail:
             tool_name = str(row.get("tool") or "")
             tool_spec = TOOLS.get(tool_name)
@@ -1279,6 +1313,94 @@ def _recover_temporal_history_for_resume(
     })
     return history, capsule, warnings
 
+
+def _session_open_turn_anchor(
+    ctx: Ctx,
+    *,
+    checkpoint: dict[str, Any] | None,
+    temporal_capsule: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Host-only semantic worldline/turn anchor for accepted player input.
+
+    The anchor is rebuilt from canonical session-resume facts.  It never asks
+    the model to relay a timeline, digest, or turn identity.  Missing or
+    internally inconsistent history returns no anchor, so Pi declines to cache
+    the next player message rather than binding it to a guessed worldline.
+    """
+    timeline_id = temporal_capsule.get("timeline_id")
+    if not isinstance(timeline_id, str) or not timeline_id.strip():
+        try:
+            timeline_id = coc_git_history.active_timeline_id(
+                ctx.root, str(ctx.campaign_id)
+            )
+        except (
+            coc_git_history.GitHistoryError,
+            coc_git_history.GitHistoryUnavailableError,
+        ):
+            return None
+    timeline_id = str(timeline_id).strip()
+    if not timeline_id:
+        return None
+
+    prior_turn = 0
+    if isinstance(checkpoint, dict):
+        raw_turn = checkpoint.get("turn_number")
+        if isinstance(raw_turn, int) and not isinstance(raw_turn, bool):
+            prior_turn = raw_turn
+    if prior_turn < 0:
+        return None
+    history_turn = temporal_capsule.get("current_finalized_turn")
+    if history_turn is not None and (
+        isinstance(history_turn, bool)
+        or not isinstance(history_turn, int)
+        or history_turn != prior_turn
+    ):
+        return None
+
+    prior_source_digest: str | None = None
+    if prior_turn > 0:
+        source = (
+            checkpoint.get("source")
+            if isinstance(checkpoint, dict)
+            and isinstance(checkpoint.get("source"), dict)
+            else {}
+        )
+        finalization_id = str(source.get("finalization_id") or "").strip()
+        if not finalization_id:
+            return None
+        finalization = next(
+            (
+                row
+                for row in reversed(
+                    coc_turn_finalization.load_finalizations(ctx.campaign_dir)
+                )
+                if row.get("finalization_id") == finalization_id
+            ),
+            None,
+        )
+        digest = (
+            str(finalization.get("source_digest") or "").strip()
+            if isinstance(finalization, dict)
+            else ""
+        )
+        if (
+            not digest.startswith("sha256:")
+            or len(digest) != len("sha256:") + 64
+            or any(char not in "0123456789abcdef" for char in digest[7:])
+        ):
+            return None
+        prior_source_digest = digest
+
+    body = {
+        "schema_version": 1,
+        "kind": "coc_open_turn_anchor",
+        "timeline_id": timeline_id,
+        "prior_finalized_turn": prior_turn,
+        "prior_finalized_source_digest": prior_source_digest,
+        "next_turn_ordinal": prior_turn + 1,
+    }
+    return {**body, "anchor_digest": _canonical_digest(body)}
+
 def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
     current_host_marker = coc_host_context.current_marker(
         ctx.root, session_id=args.get("host_session_id")
@@ -1380,6 +1502,11 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
     attempt_opportunities = _open_attempt_opportunities(
         ctx,
         scene_id=str(ctx.world().get("active_scene_id") or "") or None,
+    )
+    open_turn_anchor = _session_open_turn_anchor(
+        ctx,
+        checkpoint=checkpoint,
+        temporal_capsule=temporal_capsule,
     )
 
     warnings = [*checkpoint_warnings, *archive_warnings, *temporal_warnings]
@@ -1528,6 +1655,8 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
             ],
         },
     }
+    if open_turn_anchor is not None:
+        data["open_turn_anchor"] = open_turn_anchor
     if ctx.campaign_dir is not None:
         try:
             campaign_row = coc_state.load_campaign_state(ctx.campaign_dir)

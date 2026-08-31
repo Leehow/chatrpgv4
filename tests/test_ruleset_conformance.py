@@ -159,6 +159,24 @@ def test_valid_minimal_package_passes(tmp_path: Path):
     assert ruleset_conformance.validate_package(package_dir) == []
 
 
+@pytest.mark.parametrize("attribute", ["damage_state_effect", "skill_base"])
+def test_optional_resolver_hooks_must_be_callable(
+    tmp_path: Path, attribute: str,
+):
+    package_dir = tmp_path / "testrs"
+    _build_minimal_package(package_dir)
+    resolver = package_dir / "resolver.py"
+    resolver.write_text(
+        resolver.read_text(encoding="utf-8") + f"\n{attribute} = 42\n",
+        encoding="utf-8",
+    )
+    problems = ruleset_conformance.validate_package(package_dir)
+    assert any(
+        f"optional attribute {attribute!r} must be callable" in problem
+        for problem in problems
+    )
+
+
 def test_graph_artifact_absence_remains_legal(tmp_path: Path):
     # A package shipping no rule-graph entry_points stays conformant.
     package_dir = tmp_path / "testrs"

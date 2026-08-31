@@ -138,6 +138,14 @@ Each `turn.finalize.coverage` row uses exactly these fields:
 and `exceptional_beat`. `exact_excerpt` must occur verbatim in the draft. This
 is structured semantic evidence from the Keeper, not keyword scoring.
 
+After a clear Pi narration review, that canonical row becomes host-internal.
+The refreshed card offers one semantic `obligation` to copy into the tool's
+`obligation_ref`, plus an allowed structural `reviewed_span`, `realization`, `action_realization`, `response`,
+`causal_explanation`, `persona_fit`, `player_input_handling`, and
+`exceptional_beat`. The accepted-review binding restores `obligation_id` and
+the verbatim excerpt from the exact reviewed draft. The model never transcribes
+the draft or an excerpt and cannot submit paragraph/source placement indices.
+
 Each `turn.finalize.mechanics_placements` row uses exactly
 `after_paragraph`, `segment_type`, and `source_ids`. Paragraphs are zero-based
 blocks separated by one blank line. Use source IDs from the matching
@@ -147,6 +155,13 @@ the attack/reaction `public_check` IDs after paragraph `0`, damage after the
 paragraph that establishes the hit, and HP/state deltas beside their fictional
 consequence. The finalizer supplies all mechanic text and rejects a roll placed
 after its coverage excerpt.
+
+On the accepted-review Pi surface, mechanics placement is host-owned: safe
+public checks are inserted before the paragraph containing the selected
+reviewed result span, and state/asset/exceptional blocks use the canonical
+default placement. If the reviewed draft has no safe preceding paragraph, the
+unchanged canonical placement failure opens the existing draft-shape revision
+lane; completeness and exactly-once checks remain unchanged.
 
 Validation reports **all** violations in one response (`error.violations`,
 each with `stage`, `code`, and `message`), in the same order they would
@@ -162,14 +177,15 @@ pending draft first uses the exact `agency_review_operation` returned by
 turn/source/revision/draft. Its `state_authority_review` declares every
 player-state change claimed in the draft and binds each exact excerpt to one
 matching current frozen `source_effect_id`; a null source records an ungrounded
-claim. `agency_claims` bind exact draft excerpts to their
-authority: voluntary investigator claims use the exact current
-`player_input:<journal decision_id>`; forced behavior uses a matching active
-override frozen in `contract_projection`; involuntary physiology uses the
-typed ownership source listed by `agency_authority`. Voluntary and physiology
-subjects must resolve to a current party PC. These bindings are deterministic
-evidence only. An empty list does not semantically prove that the prose contains
-no agency violation. A clean bound semantic review supplies that proof. If it
+claim. Canonical `agency_claims` still bind exact draft excerpts to their
+authority. In Pi, a clear review projects semantic reviewed-span, coverage,
+and authority choices; `coc_turn_finalize` accepts those choices and host-binds
+the exact draft, coverage obligation/excerpt, current PC/player input, typed
+physiology source, or matching active override. The model never recopies the
+frozen excerpt or canonical identity. These bindings are deterministic
+evidence only. An empty list does
+not semantically prove that the prose contains no agency violation. A clean
+bound semantic review supplies that proof. If it
 records `agency_violation`, no output is accepted: keep the exact settlement
 pending, rewrite prose only, review `revision: 2`, and finalize that revision
 without rerunning rules, state, journal, coverage, or mechanics. An ungrounded

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
@@ -46,6 +47,111 @@ test("registered catalog projects host-owned fields out of model schemas", () =>
   }
   assert.ok(finalize.required.includes("draft"));
   assert.ok(finalize.required.includes("coverage"));
+  const canonicalClaimTypes = catalog.contracts.operations.get("turn.finalize")
+    .inputSchema.properties.agency_claims.items.properties.claim_type.enum;
+  assert.deepEqual(
+    [...typed.REVIEWED_AGENCY_CLAIM_TYPES].sort(),
+    [...canonicalClaimTypes].sort(),
+    "semantic reviewed-claim choices must track the canonical claim types",
+  );
+});
+
+test("sanity bout binding exposes only semantic action and restores the exact resume command", () => {
+  const operation = "sanity.execute";
+  const tickDigest = "0ad0dfd394769e2e5abed7eda566a527932fd812519efdd019320700357fc014";
+  const binding = {
+    schema_version: 1,
+    operation,
+    binding_revision: "sanity-bout:current-investigator:choice-revision-3",
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-allan-ward",
+    decision_id: `resume-${tickDigest.slice(0, 32)}`,
+    investigator: "allan-ward",
+    bout_id: "allan-ward:bout:1",
+    choice_id: "pi-sanity-execute:opaque:bout",
+    source_command_id: "pi-sanity-execute:opaque",
+    choice_revision: 3,
+    candidates: [{
+      action: "tick",
+      kind: "bout_tick",
+      decision_id: `resume-${tickDigest.slice(0, 32)}`,
+      command_id: `resume:${tickDigest}:confirm`,
+    }],
+  };
+  const schema = typed.projectBoundTypedToolParameters(
+    operation,
+    catalog.byOperation.get(operation).parameters,
+    binding,
+    independentCurrent(binding),
+  );
+  assert.deepEqual(schema.properties.command.oneOf.map((branch) => (
+    branch.properties.action.const
+  )), ["tick"]);
+  assert.deepEqual(schema.properties.command.oneOf.map((branch) => (
+    branch.required
+  )), [["action"]]);
+  const modelCommandSchema = JSON.stringify(schema.properties.command);
+  for (const opaque of [
+    binding.choice_id,
+    binding.source_command_id,
+    binding.bout_id,
+    tickDigest,
+  ]) assert.ok(!modelCommandSchema.includes(opaque), opaque);
+
+  const tick = typed.bindRetainedTypedToolArguments(
+    operation,
+    { investigator: "current-investigator", command: { action: "tick" } },
+    binding,
+    independentCurrent(binding),
+  );
+  const plan = {
+    decision_id: `resume-${tickDigest.slice(0, 32)}`,
+    rules_requests: [{
+      command_id: `resume:${tickDigest}:confirm`,
+      kind: "bout_tick",
+      choice_id: binding.choice_id,
+      responder: "keeper",
+      revision: 3,
+      action: "tick",
+      terminal_command_ids: [`resume:${tickDigest}:confirm`],
+    }],
+  };
+  const python = spawnSync("uv", ["run", "--frozen", "python", "-c", [
+    "import importlib.util,json,pathlib,sys",
+    "p=pathlib.Path('plugins/coc-keeper/scripts/coc_subsystem_executor.py')",
+    "s=importlib.util.spec_from_file_location('coc_subsystem_executor_probe',p)",
+    "m=importlib.util.module_from_spec(s);s.loader.exec_module(m)",
+    "print(json.dumps(m.commands_from_rules_requests(json.load(sys.stdin)),sort_keys=True,separators=(',',':')))",
+  ].join(";")], {
+    cwd: root,
+    input: JSON.stringify(plan),
+    encoding: "utf8",
+  });
+  assert.equal(python.status, 0, python.stderr);
+  const pythonCommand = JSON.parse(python.stdout)[0];
+  assert.equal(pythonCommand.payload.request_index, 1);
+  assert.deepEqual(tick.command, pythonCommand);
+  assert.equal(tick.decision_id, `resume-${tickDigest.slice(0, 32)}`);
+  assert.deepEqual(
+    typed.bindRetainedTypedToolArguments(
+      operation,
+      { investigator: "current-investigator", command: { action: "tick" } },
+      binding,
+      independentCurrent(binding),
+    ),
+    tick,
+    "same retained choice/action must replay byte-identically",
+  );
+
+  const advanced = structuredClone(binding);
+  advanced.choice_revision = 4;
+  advanced.binding_revision = "sanity-bout:current-investigator:choice-revision-4";
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    operation,
+    { investigator: "current-investigator", command: { action: "tick" } },
+    binding,
+    advanced,
+  ), "binding_context_stale");
 });
 
 test("state.journal binding hides transport/player identity but preserves KP semantics", () => {
@@ -110,6 +216,168 @@ test("state.journal binding hides transport/player identity but preserves KP sem
   assert.equal(wrapped.arguments.player_text, binding.player_text);
   assert.equal(wrapped.arguments.decision_id, binding.decision_id);
   assert.ok(!Object.hasOwn(wrapped.arguments, "root"));
+});
+
+test("social adjudication binding owns exact conversation identity and keeps approach/goal semantic", () => {
+  const binding = {
+    schema_version: 1,
+    operation: "rules.social_adjudicate",
+    binding_revision: "social:commission-briefing:thomas-hayes:npc-steven-knott",
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-thomas-hayes",
+    decision_id: "pi-rules-social-adjudicate:player-epoch-2:revision-1",
+    candidates: [{
+      candidate_id: "social-target:npc-steven-knott",
+      investigator: "thomas-hayes",
+      npc_id: "npc-steven-knott",
+      conversation_window_id: "conversation:commission-briefing:thomas-hayes:npc-steven-knott",
+      first_impression_ref: "first-impression:npc-steven-knott:thomas-hayes",
+      validated_fact_refs: [
+        "npc_fact:npc-steven-knott/fact-knott-commission",
+      ],
+    }],
+  };
+  const schema = typed.projectBoundTypedToolParameters(
+    binding.operation,
+    catalog.byOperation.get(binding.operation).parameters,
+    binding,
+    independentCurrent(binding),
+  );
+  for (const field of [
+    "root", "campaign", "decision_id", "investigator", "npc_id",
+    "conversation_window_id", "candidate_id",
+  ]) {
+    assert.equal(Object.hasOwn(schema.properties, field), false, field);
+    assert.equal(schema.required.includes(field), false, field);
+  }
+  assert.deepEqual(schema.required, ["commitment_id", "approach", "goal_summary"]);
+
+  const bound = typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    {
+      commitment_id: "commitment:raise-knott-cooperation",
+      approach: "persuade",
+      goal_summary: "说服诺特提高合作程度",
+    },
+    binding,
+    independentCurrent(binding),
+  );
+  assert.equal(bound.investigator, "thomas-hayes");
+  assert.equal(bound.npc_id, "npc-steven-knott");
+  assert.equal(
+    bound.conversation_window_id,
+    "conversation:commission-briefing:thomas-hayes:npc-steven-knott",
+  );
+  assert.equal(bound.decision_id, binding.decision_id);
+  assert.equal(bound.approach, "persuade");
+});
+
+test("psychology binding auto-attaches one verified fact and makes multiple targets/evidence explicit", () => {
+  const one = {
+    schema_version: 1,
+    operation: "rules.psychology_observe",
+    binding_revision: "psychology:commission-briefing:thomas-hayes:npc-steven-knott",
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-thomas-hayes",
+    decision_id: "pi-rules-psychology-observe:player-epoch-2:revision-1",
+    realize_decision_id: "pi-rules-psychology-observe:player-epoch-2:revision-2",
+    candidates: [{
+      candidate_id: "psychology-target:npc-steven-knott",
+      investigator: "thomas-hayes",
+      npc_id: "npc-steven-knott",
+      conversation_window_id: "conversation:commission-briefing:thomas-hayes:npc-steven-knott",
+      observation_revision: 0,
+      observer_scope: "thomas-hayes",
+      validated_fact_refs: [
+        "npc_fact:npc-steven-knott/fact-knott-commission",
+      ],
+    }],
+  };
+  const oneSchema = typed.projectBoundTypedToolParameters(
+    one.operation,
+    catalog.byOperation.get(one.operation).parameters,
+    one,
+    independentCurrent(one),
+  );
+  for (const field of [
+    "root", "campaign", "decision_id", "investigator", "npc_id",
+    "conversation_window_id", "observation_revision", "observer_scope",
+    "observable_fact_refs", "candidate_id", "fact_refs",
+  ]) assert.equal(Object.hasOwn(oneSchema.properties, field), false, field);
+  assert.deepEqual(oneSchema.required, ["question"]);
+  const oneBound = typed.bindRetainedTypedToolArguments(
+    one.operation,
+    { question: "诺特此刻在回避什么可见问题？" },
+    one,
+    independentCurrent(one),
+  );
+  assert.deepEqual(oneBound.observable_fact_refs, [
+    "npc_fact:npc-steven-knott/fact-knott-commission",
+  ]);
+  assert.equal(oneBound.npc_id, "npc-steven-knott");
+  assert.equal(oneBound.observation_revision, 0);
+
+  const many = structuredClone(one);
+  many.binding_revision += ":many";
+  many.candidates[0].validated_fact_refs.push(
+    "npc_fact:npc-steven-knott/fact-knott-research-leads",
+  );
+  many.candidates.push({
+    candidate_id: "psychology-target:npc-arty-wilson",
+    investigator: "thomas-hayes",
+    npc_id: "npc-arty-wilson",
+    conversation_window_id: "conversation:commission-briefing:thomas-hayes:npc-arty-wilson",
+    observation_revision: 0,
+    observer_scope: "thomas-hayes",
+    validated_fact_refs: ["npc_fact:npc-arty-wilson/fact-arty-access"],
+  });
+  const manySchema = typed.projectBoundTypedToolParameters(
+    many.operation,
+    catalog.byOperation.get(many.operation).parameters,
+    many,
+    independentCurrent(many),
+  );
+  assert.deepEqual(manySchema.properties.candidate_id.enum, [
+    "psychology-target:npc-steven-knott",
+    "psychology-target:npc-arty-wilson",
+  ]);
+  assert.deepEqual(manySchema.properties.fact_refs.items.enum, [
+    "npc_fact:npc-steven-knott/fact-knott-commission",
+    "npc_fact:npc-steven-knott/fact-knott-research-leads",
+    "npc_fact:npc-arty-wilson/fact-arty-access",
+  ]);
+  assert.ok(manySchema.required.includes("candidate_id"));
+  assert.ok(manySchema.required.includes("fact_refs"));
+  const selected = typed.bindRetainedTypedToolArguments(
+    many.operation,
+    {
+      candidate_id: "psychology-target:npc-arty-wilson",
+      fact_refs: ["npc_fact:npc-arty-wilson/fact-arty-access"],
+      question: "阿蒂为什么迟疑？",
+    },
+    many,
+    independentCurrent(many),
+  );
+  assert.equal(selected.npc_id, "npc-arty-wilson");
+  assert.deepEqual(selected.observable_fact_refs, [
+    "npc_fact:npc-arty-wilson/fact-arty-access",
+  ]);
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    many.operation,
+    {
+      candidate_id: "psychology-target:npc-arty-wilson",
+      fact_refs: ["npc_fact:npc-steven-knott/fact-knott-commission"],
+      question: "阿蒂为什么迟疑？",
+    },
+    many,
+    independentCurrent(many),
+  ), "semantic_candidate_stale");
+  assertProjectionError(() => typed.projectBoundTypedToolParameters(
+    many.operation,
+    catalog.byOperation.get(many.operation).parameters,
+    many,
+    { ...independentCurrent(many), binding_revision: "newer-npc-query" },
+  ), "binding_context_stale");
 });
 
 test("caller-forged host fields are rejected even when byte-equal", () => {
@@ -276,6 +544,536 @@ test("turn.finalize binds review identity while coverage and prose stay model-ow
   assert.equal(bound.draft, "斜光里浮出数道新鲜刮痕。");
 });
 
+test("accepted review binds frozen draft and exact agency evidence from semantic spans", () => {
+  const draft = (
+    "你当着他的面抡起右拳，空着手，对着桌角一下一下砸下去。"
+    + "硬木棱反复撞上骨节，直到指节的皮裂开，血顺着拳面往下淌。\n\n"
+    + "诺特没有退，也没有叫人。"
+  );
+  const binding = {
+    schema_version: 1,
+    operation: "turn.finalize",
+    binding_revision: "turn:thomas-hayes:1:review-accepted-1",
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-thomas-hayes",
+    decision_id: "finalize:thomas-hayes:turn-1:revision-1",
+    revision: 1,
+    turn_id: "turn:thomas-hayes:1",
+    source_digest: `sha256:${"c".repeat(64)}`,
+    narration_review_id: "review:thomas-hayes:turn-1:revision-1",
+    reviewed_agency_binding: {
+      schema_version: 1,
+      review_id: "review:thomas-hayes:turn-1:revision-1",
+      revision: 1,
+      draft_sha256: `sha256:${"d".repeat(64)}`,
+      draft,
+      spans: [
+        {
+          reviewed_span: "reviewed-sentence:paragraph-1:1",
+          exact_excerpt: "你当着他的面抡起右拳，空着手，对着桌角一下一下砸下去。",
+        },
+        {
+          reviewed_span: "reviewed-state-claim:1",
+          exact_excerpt: "直到指节的皮裂开，血顺着拳面往下淌。",
+        },
+      ],
+      authorities: [
+        {
+          authority: "current-player-input",
+          claim_types: [
+            "voluntary_action", "voluntary_speech", "voluntary_plan",
+            "voluntary_belief", "voluntary_trust",
+            "voluntary_active_emotion",
+          ],
+          subject_ref: "pc:thomas-hayes",
+          source_ref: "player_input:journal-thomas-hayes-turn-1",
+          override_id: null,
+        },
+        {
+          authority: "involuntary-physiology",
+          claim_types: ["involuntary_physiology"],
+          subject_ref: "pc:thomas-hayes",
+          source_ref: "narration_contract:involuntary_physiology",
+          override_id: null,
+        },
+      ],
+      coverage_obligations: [],
+      mechanics_placement: {
+        mode: "host_safe_default",
+        public_check_count: 0,
+        state_delta_count: 0,
+        exceptional_effect_count: 0,
+      },
+    },
+  };
+  const current = independentCurrent(binding);
+  const schema = typed.projectBoundTypedToolParameters(
+    binding.operation,
+    catalog.byOperation.get(binding.operation).parameters,
+    binding,
+    current,
+  );
+
+  assert.ok(!Object.hasOwn(schema.properties, "draft"));
+  assert.ok(!schema.required.includes("draft"));
+  assert.ok(schema.required.includes("coverage"));
+  assert.ok(schema.required.includes("agency_claims"));
+  const agencySchemaText = JSON.stringify(schema.properties.agency_claims);
+  assert.ok(!agencySchemaText.includes("exact_excerpt"));
+  assert.ok(!agencySchemaText.includes("subject_ref"));
+  assert.ok(!agencySchemaText.includes("source_ref"));
+  assert.ok(!agencySchemaText.includes("override_id"));
+  assert.ok(agencySchemaText.includes("reviewed-sentence:paragraph-1:1"));
+  assert.ok(agencySchemaText.includes("reviewed-state-claim:1"));
+  assert.ok(agencySchemaText.includes("voluntary_trust"));
+  assert.ok(agencySchemaText.includes("voluntary_active_emotion"));
+  assert.ok(!agencySchemaText.includes('"voluntary_emotion"'));
+
+  const bound = typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    {
+      coverage: [],
+      agency_claims: [
+        {
+          reviewed_span: "reviewed-sentence:paragraph-1:1",
+          claim_type: "voluntary_action",
+          authority: "current-player-input",
+        },
+        {
+          reviewed_span: "reviewed-state-claim:1",
+          claim_type: "involuntary_physiology",
+          authority: "involuntary-physiology",
+        },
+      ],
+    },
+    binding,
+    current,
+  );
+  assert.equal(bound.draft, draft);
+  assert.deepEqual(bound.agency_claims, [
+    {
+      claim_id: "agency-reviewed:reviewed-sentence-paragraph-1-1:voluntary-action",
+      claim_type: "voluntary_action",
+      exact_excerpt: "你当着他的面抡起右拳，空着手，对着桌角一下一下砸下去。",
+      override_id: null,
+      source_ref: "player_input:journal-thomas-hayes-turn-1",
+      subject_ref: "pc:thomas-hayes",
+    },
+    {
+      claim_id: "agency-reviewed:reviewed-state-claim-1:involuntary-physiology",
+      claim_type: "involuntary_physiology",
+      exact_excerpt: "直到指节的皮裂开，血顺着拳面往下淌。",
+      override_id: null,
+      source_ref: "narration_contract:involuntary_physiology",
+      subject_ref: "pc:thomas-hayes",
+    },
+  ]);
+
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    {
+      draft,
+      coverage: [],
+      agency_claims: [],
+    },
+    binding,
+    current,
+  ), "forged_host_argument");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    {
+      coverage: [],
+      agency_claims: [{
+        reviewed_span: "reviewed-sentence:paragraph-1:99",
+        claim_type: "voluntary_action",
+        authority: "current-player-input",
+      }],
+    },
+    binding,
+    current,
+  ), "reviewed_agency_claim_stale");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    {
+      coverage: [],
+      agency_claims: [{
+        reviewed_span: "reviewed-state-claim:1",
+        claim_type: "forced_behavior",
+        authority: "involuntary-physiology",
+      }],
+    },
+    binding,
+    current,
+  ), "reviewed_agency_authority_mismatch");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    {
+      coverage: [],
+      agency_claims: [{
+        claim_id: "agency-forged-exact-claim",
+        claim_type: "voluntary_action",
+        exact_excerpt: draft.replace("抡起", "抢起"),
+        override_id: null,
+        source_ref: "player_input:current",
+        subject_ref: "pc:current-investigator",
+      }],
+    },
+    binding,
+    current,
+  ), "reviewed_agency_claim_invalid");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    { coverage: [], agency_claims: [] },
+    binding,
+    {
+      ...current,
+      reviewed_agency_binding: {
+        ...current.reviewed_agency_binding,
+        draft: current.reviewed_agency_binding.draft.replace("抡起", "抢起"),
+        spans: current.reviewed_agency_binding.spans.map((row) => ({
+          ...row,
+          exact_excerpt: row.exact_excerpt.replace("抡起", "抢起"),
+        })),
+      },
+    },
+  ), "binding_context_stale");
+});
+
+test("accepted review binds semantic coverage spans and host-owned safe placement", () => {
+  const draft = (
+    "海斯抡起右拳，对准桌角砸了下去。\n\n"
+    + "硬木棱撞上骨节，指节裂开，血顺着拳面淌下。诺特盯着那只手，没有退让。\n\n"
+    + "疼痛和对方冷硬的目光一起留在房间里。"
+  );
+  const coverageBindingFacts = {
+    schema_version: 1,
+    contract_id: "coc.reviewed-coverage-binding-facts.v1",
+    settlement_snapshot_id: `turn-effect-v1:${"a".repeat(32)}`,
+    mechanics_bundle_sha256: `sha256:${"b".repeat(64)}`,
+    obligations: [
+      {
+        obligation_id: "first-impression:first-impression-receipt-v1:steven-knott",
+        source_kind: "first_impression",
+        source_id: "first-impression-receipt-v1:steven-knott",
+        npc_display_name: "史蒂文·诺特",
+        visibility: "context_effect",
+        skill: null,
+        goal: "realize the NPC's first observable response",
+        outcome: null,
+        required_level: null,
+        achieved_level: null,
+        passed: null,
+        surplus_levels: null,
+        exceptional_required: false,
+        substantive_effect_required: false,
+        substantive_effect_direction: null,
+        substantive_effect_ids: [],
+        substantive_effect_status: "not_required",
+      },
+      {
+        obligation_id: "roll:roll-first-impression-steven-knott",
+        source_kind: "check",
+        source_id: "roll-first-impression-steven-knott",
+        npc_display_name: "史蒂文·诺特",
+        visibility: "public",
+        skill: "APP",
+        goal: "resolve the first material meeting",
+        outcome: "failure",
+        required_level: "regular",
+        achieved_level: "failure",
+        passed: false,
+        surplus_levels: -1,
+        exceptional_required: false,
+        substantive_effect_required: false,
+        substantive_effect_direction: null,
+        substantive_effect_ids: [],
+        substantive_effect_status: "not_required",
+      },
+    ],
+    public_check_source_ids: ["roll-first-impression-steven-knott"],
+    state_delta_source_ids: ["effect-hp-delta-right-knuckles"],
+    exceptional_effect_source_ids: [],
+  };
+  const reviewed = typed.buildReviewedAgencyBinding({
+    review_id: "review:thomas-hayes:turn-1:revision-1",
+    revision: 1,
+    draft_sha256: `sha256:${"c".repeat(64)}`,
+    draft,
+    state_authority_review: {
+      disposition: "claims_listed",
+      reason: "HP变化已绑定到当前伤害效果。",
+      claims: [{
+        claim_id: "state-claim-hp-right-knuckles",
+        subject_ref: "pc:thomas-hayes",
+        claim_kind: "scalar",
+        exact_excerpt: "指节裂开，血顺着拳面淌下",
+        source_effect_id: "effect-hp-delta-right-knuckles",
+        reason: "伤害结算导致HP下降。",
+      }],
+    },
+    player_input_source_ref: "player_input:journal-thomas-hayes-turn-1",
+    agency_authority: {
+      pc_subject_refs: ["pc:thomas-hayes"],
+      involuntary_physiology_sources: [{
+        source_ref: "narration_contract:involuntary_physiology",
+        source_type: "ownership_contract",
+      }],
+    },
+    control_overrides: [],
+    coverage_binding_facts: coverageBindingFacts,
+    semantic_obligation_refs: [
+      {
+        obligation_id: "first-impression:first-impression-receipt-v1:steven-knott",
+        obligation_ref: "roll:史蒂文-诺特-2",
+      },
+      {
+        obligation_id: "roll:roll-first-impression-steven-knott",
+        obligation_ref: "roll:史蒂文-诺特",
+      },
+    ],
+  });
+  assert.equal(reviewed.coverage_obligations.length, 2);
+  assert.deepEqual(
+    reviewed.coverage_obligations.find(
+      (row) => row.obligation_ref === "roll:史蒂文-诺特",
+    ).allowed_reviewed_spans,
+    [
+      "reviewed-state-claim:1",
+      "reviewed-sentence:paragraph-2:1",
+      "reviewed-sentence:paragraph-2:2",
+      "reviewed-paragraph:2",
+      "reviewed-sentence:paragraph-3:1",
+      "reviewed-paragraph:3",
+    ],
+    "public checks may select only exact reviewed spans with a safe preceding paragraph",
+  );
+
+  const binding = {
+    schema_version: 1,
+    operation: "turn.finalize",
+    binding_revision: "turn:thomas-hayes:1:review-accepted-1",
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-thomas-hayes",
+    decision_id: "finalize:thomas-hayes:turn-1:revision-1",
+    revision: 1,
+    turn_id: "turn:thomas-hayes:1",
+    source_digest: `sha256:${"d".repeat(64)}`,
+    narration_review_id: reviewed.review_id,
+    reviewed_agency_binding: reviewed,
+  };
+  const schema = typed.projectBoundTypedToolParameters(
+    "turn.finalize",
+    catalog.byOperation.get("turn.finalize").parameters,
+    binding,
+    independentCurrent(binding),
+  );
+  const coverageSchemaText = JSON.stringify(schema.properties.coverage);
+  assert.equal(coverageSchemaText.includes("exact_excerpt"), false);
+  assert.equal(coverageSchemaText.includes(draft), false);
+  assert.equal(coverageSchemaText.includes("指节裂开"), false);
+  assert.equal(coverageSchemaText.includes("roll:史蒂文-诺特"), true);
+  assert.equal(coverageSchemaText.includes("roll:史蒂文-诺特-2"), true);
+  assert.equal(Object.hasOwn(schema.properties, "mechanics_placements"), false);
+
+  const bound = typed.bindRetainedTypedToolArguments(
+    "turn.finalize",
+    {
+      coverage: [
+        {
+          obligation_ref: "roll:史蒂文-诺特",
+          reviewed_span: "reviewed-sentence:paragraph-2:1",
+          realization: "fictional_beat",
+          action_realization: "海斯以拳击打桌角。",
+          response: "伤势和失败的第一印象在场景中同时显现。",
+          causal_explanation: "公开检定未通过，诺特没有因此退让。",
+          persona_fit: "诺特保持冷硬克制。",
+          player_input_handling: "specific_preserved",
+          exceptional_beat: null,
+        },
+        {
+          obligation_ref: "roll:史蒂文-诺特-2",
+          reviewed_span: "reviewed-sentence:paragraph-2:2",
+          realization: "fictional_beat",
+          action_realization: "诺特看见海斯自伤。",
+          response: "诺特盯着那只手，没有退让。",
+          causal_explanation: "第一次实质接触形成冷硬回应。",
+          persona_fit: "回应符合诺特的职责与克制。",
+          player_input_handling: "specific_preserved",
+          exceptional_beat: null,
+        },
+      ],
+      agency_claims: [{
+        reviewed_span: "reviewed-sentence:paragraph-1:1",
+        claim_type: "voluntary_action",
+        authority: "current-player-input",
+      }],
+    },
+    binding,
+    independentCurrent(binding),
+  );
+  assert.equal(bound.draft, draft);
+  assert.equal(Object.hasOwn(bound, "mechanics_placements"), false);
+  assert.deepEqual(
+    bound.coverage.map((row) => ({
+      obligation_id: row.obligation_id,
+      exact_excerpt: row.exact_excerpt,
+    })),
+    [
+      {
+        obligation_id: "first-impression:first-impression-receipt-v1:steven-knott",
+        exact_excerpt: "诺特盯着那只手，没有退让。",
+      },
+      {
+        obligation_id: "roll:roll-first-impression-steven-knott",
+        exact_excerpt: "硬木棱撞上骨节，指节裂开，血顺着拳面淌下。",
+      },
+    ],
+  );
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    "turn.finalize",
+    {
+      coverage: [{
+        obligation_ref: "roll:史蒂文-诺特",
+        reviewed_span: "reviewed-sentence:paragraph-1:1",
+        realization: "fictional_beat",
+        action_realization: "伪造",
+        response: "伪造",
+        causal_explanation: "伪造",
+        persona_fit: "伪造",
+        player_input_handling: "specific_preserved",
+        exceptional_beat: null,
+      }, {
+        obligation_ref: "roll:史蒂文-诺特-2",
+        reviewed_span: "reviewed-sentence:paragraph-2:2",
+        realization: "fictional_beat",
+        action_realization: "诺特看见海斯自伤。",
+        response: "诺特没有退让。",
+        causal_explanation: "第一次实质接触形成冷硬回应。",
+        persona_fit: "诺特保持克制。",
+        player_input_handling: "specific_preserved",
+        exceptional_beat: null,
+      }],
+      agency_claims: [],
+    },
+    binding,
+    independentCurrent(binding),
+  ), "reviewed_coverage_span_stale");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    "turn.finalize",
+    {
+      coverage: [{
+        obligation_ref: "roll:史蒂文-诺特",
+        reviewed_span: "reviewed-sentence:paragraph-2:1",
+        exact_excerpt: "史蒂文·诺特",
+        realization: "fictional_beat",
+        action_realization: "伪造",
+        response: "伪造",
+        causal_explanation: "伪造",
+        persona_fit: "伪造",
+        player_input_handling: "specific_preserved",
+        exceptional_beat: null,
+      }],
+      agency_claims: [],
+    },
+    binding,
+    independentCurrent(binding),
+  ), "reviewed_coverage_invalid");
+});
+
+test("reviewed authority candidates bind one active control override and ignore inactive ones", () => {
+  const draft = "海斯失去意识，身体软倒在门边。";
+  const reviewed = typed.buildReviewedAgencyBinding({
+    review_id: "review:thomas-hayes:turn-2:revision-1",
+    revision: 1,
+    draft_sha256: `sha256:${"e".repeat(64)}`,
+    draft,
+    state_authority_review: {
+      disposition: "no_player_state_change_claimed",
+      reason: "无新增状态声称。",
+      claims: [],
+    },
+    player_input_source_ref: "player_input:journal-thomas-hayes-turn-2",
+    agency_authority: {
+      pc_subject_refs: ["pc:thomas-hayes"],
+      involuntary_physiology_sources: [{
+        source_ref: "narration_contract:involuntary_physiology",
+        source_type: "ownership_contract",
+      }],
+    },
+    control_overrides: [
+      {
+        override_id: "control-override-v1:active-unconscious",
+        subject_ref: "pc:thomas-hayes",
+        override_type: "unconscious",
+        source_ref: "investigator_state:thomas-hayes:condition:unconscious",
+        active: true,
+      },
+      {
+        override_id: "control-override-v1:expired-mania",
+        subject_ref: "pc:thomas-hayes",
+        override_type: "mania",
+        source_ref: "sanity:expired-mania",
+        active: false,
+      },
+    ],
+    coverage_binding_facts: {
+      schema_version: 1,
+      contract_id: "coc.reviewed-coverage-binding-facts.v1",
+      settlement_snapshot_id: `turn-effect-v1:${"f".repeat(32)}`,
+      mechanics_bundle_sha256: `sha256:${"a".repeat(64)}`,
+      obligations: [],
+      public_check_source_ids: [],
+      state_delta_source_ids: [],
+      exceptional_effect_source_ids: [],
+    },
+    semantic_obligation_refs: [],
+  });
+  assert.ok(
+    reviewed.authorities.some(
+      (row) => row.authority === "control-override:unconscious:1",
+    ),
+  );
+  assert.ok(
+    reviewed.authorities.every(
+      (row) => !row.authority.includes("mania"),
+    ),
+  );
+  const binding = {
+    schema_version: 1,
+    operation: "turn.finalize",
+    binding_revision: "turn:thomas-hayes:2:review-accepted-1",
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-thomas-hayes",
+    decision_id: "finalize:thomas-hayes:turn-2:revision-1",
+    revision: 1,
+    turn_id: "turn:thomas-hayes:2",
+    source_digest: `sha256:${"f".repeat(64)}`,
+    narration_review_id: reviewed.review_id,
+    reviewed_agency_binding: reviewed,
+  };
+  const bound = typed.bindRetainedTypedToolArguments(
+    "turn.finalize",
+    {
+      coverage: [],
+      agency_claims: [{
+        reviewed_span: "reviewed-sentence:paragraph-1:1",
+        claim_type: "forced_behavior",
+        authority: "control-override:unconscious:1",
+      }],
+    },
+    binding,
+    independentCurrent(binding),
+  );
+  assert.deepEqual(bound.agency_claims[0], {
+    claim_id: "agency-reviewed:reviewed-sentence-paragraph-1-1:forced-behavior",
+    claim_type: "forced_behavior",
+    exact_excerpt: draft,
+    override_id: "control-override-v1:active-unconscious",
+    source_ref: "investigator_state:thomas-hayes:condition:unconscious",
+    subject_ref: "pc:thomas-hayes",
+  });
+});
+
 test("missing, mismatched, invalid, and stale retained contexts fail closed", () => {
   const revision = "turn:allan-ward:17:journaled";
   const binding = {
@@ -365,6 +1163,7 @@ test("same revision cannot mask retained campaign/turn/source/review identity mu
   };
   const currentFinalize = independentCurrent(finalizeBinding);
   for (const mutation of [
+    { revision: 2 },
     { turn_id: "turn:allan-ward:99" },
     { source_digest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" },
     { narration_review_id: "review:allan-ward:turn-17:revision-2" },
@@ -736,7 +1535,11 @@ test("combat.resolve binds exactly one canonical route, while pending defense bi
   assert.ok(Object.hasOwn(schema.properties, "weapon_id"));
   const targetBound = typed.bindRetainedTypedToolArguments(
     binding.operation,
-    { candidate_id: "attack-walter-corbitt", weapon_id: "ritual-dagger" },
+    {
+      candidate_id: "attack-walter-corbitt",
+      action_kind: "attack",
+      weapon_id: "ritual-dagger",
+    },
     binding,
     current,
   );
@@ -746,7 +1549,11 @@ test("combat.resolve binds exactly one canonical route, while pending defense bi
   assert.equal(targetBound.weapon_id, "ritual-dagger");
   const affordanceBound = typed.bindRetainedTypedToolArguments(
     binding.operation,
-    { candidate_id: "use-floating-knife-route", weapon_id: "ritual-dagger" },
+    {
+      candidate_id: "use-floating-knife-route",
+      action_kind: "attack",
+      weapon_id: "ritual-dagger",
+    },
     binding,
     current,
   );
@@ -812,7 +1619,7 @@ test("combat.resolve binds exactly one canonical route, while pending defense bi
   assert.ok(!Object.hasOwn(singleSchema.properties, "affordance_id"));
   const singleBound = typed.bindRetainedTypedToolArguments(
     single.operation,
-    { weapon_id: "ritual-dagger" },
+    { action_kind: "attack", weapon_id: "ritual-dagger" },
     single,
     independentCurrent(single),
   );
@@ -828,6 +1635,7 @@ test("combat.resolve binds exactly one canonical route, while pending defense bi
     candidates: [{
       candidate_id: "defend-pending-floating-knife",
       invocation_mode: "pending_defense",
+      allowed_defenses: ["dodge", "fight_back"],
     }],
   };
   const pendingBound = typed.bindRetainedTypedToolArguments(
@@ -846,6 +1654,104 @@ test("combat.resolve binds exactly one canonical route, while pending defense bi
     pendingDefense,
     independentCurrent(pendingDefense),
   ), "forged_host_argument");
+});
+
+test("combat.resolve keeps attack weapon semantics separate from pending defenses", () => {
+  const attack = {
+    schema_version: 1,
+    operation: "combat.resolve",
+    binding_revision: "combat:corbitt:attack-1",
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-allan-ward",
+    decision_id: "combat:allan-ward:attack-1",
+    combat_revision: "combat-context:corbitt:attack-1",
+    combat_digest: "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+    candidates: [{
+      candidate_id: "attack-walter-corbitt",
+      invocation_mode: "target_npc_id",
+      target_npc_id: "walter-corbitt",
+    }],
+  };
+  const attackSchema = typed.projectBoundTypedToolParameters(
+    attack.operation,
+    catalog.byOperation.get(attack.operation).parameters,
+    attack,
+    independentCurrent(attack),
+  );
+  assert.ok(attackSchema.required.includes("action_kind"));
+  assert.ok(attackSchema.required.includes("weapon_id"));
+  assert.deepEqual(attackSchema.properties.action_kind.enum, ["attack"]);
+  assert.ok(!Object.hasOwn(attackSchema.properties, "defense_kind"));
+
+  const unarmed = typed.bindRetainedTypedToolArguments(
+    attack.operation,
+    { action_kind: "attack", weapon_id: "unarmed" },
+    attack,
+    independentCurrent(attack),
+  );
+  assert.equal(unarmed.weapon_id, "unarmed");
+  assert.ok(!Object.hasOwn(unarmed, "action_kind"));
+  assert.ok(!Object.hasOwn(unarmed, "defense_kind"));
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    attack.operation,
+    { action_kind: "maneuver", weapon_id: "unarmed" },
+    attack,
+    independentCurrent(attack),
+  ), "semantic_candidate_stale");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    attack.operation,
+    { action_kind: "attack", defense_kind: "dodge", weapon_id: "unarmed" },
+    attack,
+    independentCurrent(attack),
+  ), "semantic_candidate_stale");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    attack.operation,
+    { action_kind: "attack" },
+    attack,
+    independentCurrent(attack),
+  ), "semantic_candidate_stale");
+
+  const pendingDefense = {
+    ...attack,
+    binding_revision: "combat:corbitt:pending-defense-2",
+    combat_revision: "combat-context:corbitt:pending-defense-2",
+    combat_digest: "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+    candidates: [{
+      candidate_id: "defend-pending-floating-knife",
+      invocation_mode: "pending_defense",
+      allowed_defenses: ["dodge", "fight_back"],
+    }],
+  };
+  const defenseSchema = typed.projectBoundTypedToolParameters(
+    pendingDefense.operation,
+    catalog.byOperation.get(pendingDefense.operation).parameters,
+    pendingDefense,
+    independentCurrent(pendingDefense),
+  );
+  assert.ok(defenseSchema.required.includes("defense_kind"));
+  assert.deepEqual(defenseSchema.properties.defense_kind.enum, ["dodge", "fight_back"]);
+  assert.ok(!Object.hasOwn(defenseSchema.properties, "action_kind"));
+  assert.ok(!Object.hasOwn(defenseSchema.properties, "weapon_id"));
+
+  const dodge = typed.bindRetainedTypedToolArguments(
+    pendingDefense.operation,
+    { defense_kind: "dodge" },
+    pendingDefense,
+    independentCurrent(pendingDefense),
+  );
+  assert.equal(dodge.defense_kind, "dodge");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    pendingDefense.operation,
+    { defense_kind: "dive_for_cover" },
+    pendingDefense,
+    independentCurrent(pendingDefense),
+  ), "semantic_candidate_stale");
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    pendingDefense.operation,
+    { defense_kind: "fight_back", weapon_id: "unarmed" },
+    pendingDefense,
+    independentCurrent(pendingDefense),
+  ), "semantic_candidate_stale");
 });
 
 test("Pi failure projection classifies recovery ownership without replacing canonical details", () => {

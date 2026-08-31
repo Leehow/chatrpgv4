@@ -143,6 +143,28 @@ def _outcome_level_token(outcome: str) -> int:
     return SUCCESS_LEVEL.get(outcome, -1)
 
 
+def _skill_roll_success_target(roll: dict, payload: dict, target: int) -> int:
+    """Return the number this roll actually had to meet.
+
+    Difficulty rolls carry the full skill in ``target`` and the selected
+    Regular/Hard/Extreme gate in ``required_target`` / ``effective_target``.
+    Opposed rolls are the exception: each side establishes its success level
+    against its own full skill before the levels are compared.
+    """
+    is_opposed = (
+        payload.get("difficulty") == "opposed"
+        or payload.get("kind") == "opposed_check"
+        or roll.get("kind") == "opposed_check"
+    )
+    if is_opposed:
+        return target
+    for key in ("required_target", "effective_target"):
+        value = payload.get(key)
+        if isinstance(value, int):
+            return value
+    return target
+
+
 # --------------------------------------------------------------------------- #
 # Per-roll checks (exhaustive over every roll)
 # --------------------------------------------------------------------------- #
@@ -169,36 +191,45 @@ def check_roll(run: str, roll: dict, V: Violations) -> None:
         if not (1 <= roll_val <= 100):
             V.add(run, "A5", "91", f"roll {roll_val} outside 1-100", roll)
             return
-        expected = _expected_success_level(roll_val, target)
+        success_target = _skill_roll_success_target(roll, p, target)
         # outcome consistency: a stored success token must not contradict bands
-        if outcome in ("regular_success", "hard_success", "extreme_success", "critical"):
-            exp_level = SUCCESS_LEVEL[expected]
-            got_level = SUCCESS_LEVEL[outcome]
+        if outcome in (
+            "regular_success", "regular", "hard_success", "hard",
+            "extreme_success", "extreme", "critical",
+        ):
             # hard_success token requires roll <= half; extreme <= fifth; critical == 1
-            if outcome == "hard_success" and roll_val > _half(target):
+            if outcome != "critical" and roll_val > success_target:
+                V.add(run, "A5", "91",
+                      f"outcome {outcome} but roll {roll_val} > target {success_target}", roll)
+            elif outcome in ("hard_success", "hard") and roll_val > _half(target):
                 V.add(run, "A2", "83",
                       f"hard_success but roll {roll_val} > half({target})={_half(target)}", roll)
-            elif outcome == "extreme_success" and roll_val > _fifth(target):
+            elif outcome in ("extreme_success", "extreme") and roll_val > _fifth(target):
                 V.add(run, "A3", "83",
                       f"extreme_success but roll {roll_val} > fifth({target})={_fifth(target)}", roll)
             elif outcome == "critical" and roll_val != 1:
                 V.add(run, "B1", "89", f"critical but roll {roll_val} != 1", roll)
         elif outcome == "failure":
-            if roll_val <= target:
+            if roll_val <= success_target:
                 V.add(run, "A5", "91",
-                      f"outcome failure but roll {roll_val} <= target {target}", roll)
+                      f"outcome failure but roll {roll_val} <= target {success_target}", roll)
         elif outcome == "success":
-            # generic success must satisfy roll <= target
-            if roll_val > target:
+            # generic success must satisfy the selected difficulty gate
+            if roll_val > success_target:
                 V.add(run, "A5", "91",
-                      f"outcome success but roll {roll_val} > target {target}", roll)
+                      f"outcome success but roll {roll_val} > target {success_target}", roll)
         # fumble band (B3/B4): if a fumble token were stored it must match; also
         # if roll is in fumble band the outcome must not be a plain success.
-        is_fumble_band = (target < 50 and roll_val >= 96) or (target >= 50 and roll_val == 100)
-        if is_fumble_band and outcome in ("regular_success", "hard_success",
-                                          "extreme_success", "critical", "success"):
+        is_fumble_band = (
+            (success_target < 50 and roll_val >= 96)
+            or (success_target >= 50 and roll_val == 100)
+        )
+        if is_fumble_band and outcome in (
+            "regular_success", "regular", "hard_success", "hard",
+            "extreme_success", "extreme", "critical", "success",
+        ):
             V.add(run, "B3/B4", "90",
-                  f"roll {roll_val} is in fumble band (target {target}) but outcome is {outcome}", roll)
+                  f"roll {roll_val} is in fumble band (target {success_target}) but outcome is {outcome}", roll)
 
     # --- F: Sanity core mechanics (SAN rolls) ---
     if rtype == "sanity" or skill == "SAN":
@@ -383,23 +414,43 @@ def check_run_cross(run: str, rolls: list[dict], events: list[dict],
 # --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
-def _find_campaign_log_dirs(run_dir: Path) -> list[Path]:
-    """Campaign dirs under a run's sandbox that actually hold log files.
+def _campaign_log_dirs(
+    campaigns: Path,
+    *,
+    label_prefix: str = "",
+) -> list[tuple[str, Path]]:
+    if not campaigns.is_dir():
+        return []
+    out: list[tuple[str, Path]] = []
+    for campaign in sorted(campaigns.iterdir()):
+        if not campaign.is_dir():
+            continue
+        logs = campaign / "logs"
+        if (logs / "rolls.jsonl").exists() or (logs / "events.jsonl").exists():
+            label = f"{label_prefix}/{campaign.name}" if label_prefix else campaign.name
+            out.append((label, campaign))
+    return out
+
+
+def _find_campaign_log_dirs(run_dir: Path) -> list[tuple[str, Path]]:
+    """Campaign dirs under legacy and DebugExperiment run sandboxes.
 
     Campaign ids are chosen at campaign-creation time and do NOT match the
     playtest run id (e.g. run '0.4.0a-kimi-closure-...' contains campaign
     'the-haunting-qs'), so discovery must scan instead of assuming equality.
+    DebugExperiment adds one semantic lane directory under ``sandboxes/``;
+    include that lane in the label so parallel copies stay distinguishable.
     """
-    campaigns = run_dir / "sandbox" / ".coc" / "campaigns"
-    if not campaigns.is_dir():
-        return []
-    out = []
-    for d in sorted(campaigns.iterdir()):
-        if not d.is_dir():
-            continue
-        logs = d / "logs"
-        if (logs / "rolls.jsonl").exists() or (logs / "events.jsonl").exists():
-            out.append(d)
+    out = _campaign_log_dirs(run_dir / "sandbox" / ".coc" / "campaigns")
+    debug_lanes = run_dir / "sandboxes"
+    if debug_lanes.is_dir():
+        for lane in sorted(debug_lanes.iterdir()):
+            if not lane.is_dir():
+                continue
+            out.extend(_campaign_log_dirs(
+                lane / ".coc" / "campaigns",
+                label_prefix=lane.name,
+            ))
     return out
 
 
@@ -409,8 +460,8 @@ def validate_run(run_dir: Path, V: Violations) -> tuple[int, int]:
     Returns (rolls_swept, events_swept).
     """
     total_rolls = total_events = 0
-    for campaign_dir in _find_campaign_log_dirs(run_dir):
-        label = f"{run_dir.name}/{campaign_dir.name}"
+    for campaign_label, campaign_dir in _find_campaign_log_dirs(run_dir):
+        label = f"{run_dir.name}/{campaign_label}"
         rolls = _load_jsonl(campaign_dir / "logs" / "rolls.jsonl")
         events = _load_jsonl(campaign_dir / "logs" / "events.jsonl")
         total_rolls += len(rolls)

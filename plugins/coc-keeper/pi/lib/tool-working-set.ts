@@ -89,6 +89,8 @@ export type RecoveryRoute =
 
 export type ToolWorkingSetSnapshot = LoadScope & {
   canonicalProgressRevision: number;
+  /** Exact opt-in test profile. Omitted is the production/default surface. */
+  acceptanceProfile?: "rules-director-single-draft";
   /** Resolved from extraToolsForSessionRole(role) by the host adapter. */
   roleManifestToolNames: readonly string[];
   hostTools: readonly ModelVisibleHostTool[];
@@ -96,6 +98,13 @@ export type ToolWorkingSetSnapshot = LoadScope & {
   loadedNamespaces?: readonly LoadedNamespace[];
   loadedOperations?: readonly LoadedExactOperation[];
   recoveryRoute?: RecoveryRoute;
+  /**
+   * Exact host-binding availability for closure operations whose model schema
+   * is meaningful only after the host has armed canonical identity. Omitted
+   * preserves the pure projector's legacy/default stage view; the live Pi
+   * adapter always supplies it.
+   */
+  boundOperations?: readonly string[];
 };
 
 export type WorkingSetReasonCode =
@@ -225,6 +234,18 @@ const PLAY_ACTING_BASELINE = [
   "state.journal",
 ] as const;
 
+const RULES_DIRECTOR_ACTING_BASELINE = [
+  "scene.context",
+  "actions.list",
+  "state.journal",
+] as const;
+
+const OPEN_TURN_PRE_JOURNAL_FORBIDDEN = new Set([
+  "turn.output_context",
+  "narration.review",
+  "turn.finalize",
+]);
+
 /** Legacy healing operations retained while the family is shadow-owned. */
 export const SHADOW_HEALING_LEGACY_OPERATIONS = [
   "rules.first_aid",
@@ -270,17 +291,33 @@ function grantKey(scope: LoadScope): string {
 }
 
 function revisionContextKey(snapshot: ToolWorkingSetSnapshot): string {
-  return `${grantKey(snapshot)}:progress-${snapshot.canonicalProgressRevision}`;
+  const profile = snapshot.acceptanceProfile === undefined
+    ? ""
+    : `:profile-${snapshot.acceptanceProfile}`;
+  return `${grantKey(snapshot)}${profile}:progress-${snapshot.canonicalProgressRevision}`;
 }
 
 function loadMatchesSnapshot(load: LoadScope, snapshot: ToolWorkingSetSnapshot): boolean {
   return grantKey(load) === grantKey(snapshot);
 }
 
+function isVerifiedOpenTurnRecovery(snapshot: ToolWorkingSetSnapshot): boolean {
+  return snapshot.role === "play"
+    && snapshot.phase === "recovery"
+    && snapshot.stage === "acting"
+    && snapshot.recoveryRoute?.authorization === "stage"
+    && snapshot.recoveryRoute.code === "open_turn_pre_journal";
+}
+
 function policyAllows(operation: string, snapshot: ToolWorkingSetSnapshot): boolean {
   const policy = OPERATION_POLICY[operation];
   if (!policy || policy.kp_surface === "none") return false;
-  if (!policy.phases.includes(snapshot.phase)) return false;
+  if (!policy.phases.includes(snapshot.phase)) {
+    if (
+      !isVerifiedOpenTurnRecovery(snapshot)
+      || !policy.phases.includes("live_turn")
+    ) return false;
+  }
   if (!sessionRolesForPolicy(operation, policy).includes(snapshot.role)) return false;
   return true;
 }
@@ -294,6 +331,10 @@ function faultRecoveryOperation(snapshot: ToolWorkingSetSnapshot): string | null
 }
 
 function stageAllows(operation: string, snapshot: ToolWorkingSetSnapshot): boolean {
+  if (
+    isVerifiedOpenTurnRecovery(snapshot)
+    && OPEN_TURN_PRE_JOURNAL_FORBIDDEN.has(operation)
+  ) return false;
   const capability = STAGE_CAPABILITIES[snapshot.stage];
   if (capability.allowedOperations === null) return true;
   if (capability.allowedOperations.has(operation)) return true;
@@ -311,19 +352,33 @@ function actingBaseline(snapshot: ToolWorkingSetSnapshot): readonly string[] {
       : SETUP_ACTING_BASELINE;
   }
   if (snapshot.phase === "recovery") {
-    return ["session.resume", "state.journal", "turn.output_context", "turn.finalize"];
+    return isVerifiedOpenTurnRecovery(snapshot)
+      ? (
+          snapshot.acceptanceProfile === "rules-director-single-draft"
+            ? RULES_DIRECTOR_ACTING_BASELINE
+            : PLAY_ACTING_BASELINE
+        )
+      : ["session.resume"];
   }
   if (snapshot.phase === "ending") return ["state.journal"];
   if (snapshot.phase === "opening" || snapshot.phase === "cold_start") {
     return ["session.resume", "scene.context", "actions.list", "evidence.table_opening"];
   }
-  return PLAY_ACTING_BASELINE;
+  return snapshot.acceptanceProfile === "rules-director-single-draft"
+    ? RULES_DIRECTOR_ACTING_BASELINE
+    : PLAY_ACTING_BASELINE;
 }
 
 function baselineOperations(snapshot: ToolWorkingSetSnapshot): readonly string[] {
-  return snapshot.stage === "acting"
+  const baseline = snapshot.stage === "acting"
     ? actingBaseline(snapshot)
     : STAGE_CAPABILITIES[snapshot.stage].operations;
+  if (snapshot.boundOperations === undefined) return baseline;
+  const bound = new Set(snapshot.boundOperations);
+  return baseline.filter((operation) => (
+    (operation !== "narration.review" && operation !== "turn.finalize")
+    || bound.has(operation)
+  ));
 }
 
 function workingSetBudget(
@@ -331,7 +386,7 @@ function workingSetBudget(
   capability: StageCapability,
 ): typeof WORKING_SET_TOOL_BUDGET | typeof CLOSURE_TOOL_BUDGET {
   return snapshot.phase === "pending_finalization"
-    || snapshot.phase === "recovery"
+    || (snapshot.phase === "recovery" && !isVerifiedOpenTurnRecovery(snapshot))
     || snapshot.phase === "ending"
     ? CLOSURE_TOOL_BUDGET
     : capability.budget;
@@ -437,6 +492,31 @@ function invalidSnapshot(snapshot: ToolWorkingSetSnapshot): WorkingSetFailure | 
       code: "invalid_snapshot",
       message: "canonicalProgressRevision must be a non-negative safe integer",
       details: { canonicalProgressRevision: snapshot.canonicalProgressRevision },
+    };
+  }
+  if (
+    snapshot.acceptanceProfile !== undefined
+    && snapshot.acceptanceProfile !== "rules-director-single-draft"
+  ) {
+    return {
+      code: "invalid_snapshot",
+      message: "acceptanceProfile is not a supported exact test profile",
+      details: { acceptanceProfile: snapshot.acceptanceProfile },
+    };
+  }
+  if (
+    snapshot.boundOperations !== undefined
+    && (
+      !Array.isArray(snapshot.boundOperations)
+      || snapshot.boundOperations.some((operation) => (
+        typeof operation !== "string" || !operation.trim()
+      ))
+    )
+  ) {
+    return {
+      code: "invalid_snapshot",
+      message: "boundOperations must contain non-empty operation names",
+      details: { boundOperations: snapshot.boundOperations },
     };
   }
   if (snapshot.recoveryRoute !== undefined) {
@@ -716,7 +796,7 @@ function exactLoadDenied(
       allowed_roles: [...sessionRolesForPolicy(operation, policy)],
     });
   }
-  if (!policy.phases.includes(snapshot.phase)) {
+  if (!policyAllows(operation, snapshot)) {
     return loadFailure("phase_forbidden", `operation ${operation} is not allowed in phase ${snapshot.phase}`, {
       operation,
       phase: snapshot.phase,
@@ -874,4 +954,30 @@ export function affordancesFromHealingCardProjection(
     return [];
   }
   return [{ operation: "rules.settle", source }];
+}
+
+/**
+ * A pending authored SAN trigger already carries the semantic inputs required
+ * by the flat authoritative rule surface. Expose that surface directly; the
+ * deeper subsystem command remains available for bout continuation.
+ */
+export function affordancesFromSanityTriggerProjection(
+  projection: unknown,
+  source: CanonicalAffordanceSource = "scene",
+): CanonicalAffordanceHint[] {
+  if (!isPlainObject(projection) || !Array.isArray(projection.pending_san_triggers)) {
+    return [];
+  }
+  const pending = projection.pending_san_triggers.some((value) => {
+    if (!isPlainObject(value)) return false;
+    return value.status === "pending"
+      && typeof value.trigger_id === "string"
+      && value.trigger_id.trim().length > 0;
+  });
+  if (!pending) return [];
+  const policy = OPERATION_POLICY["rules.sanity_check"];
+  if (!policy || policy.kp_surface !== "rules" || policy.discovery !== "surface") {
+    return [];
+  }
+  return [{ operation: "rules.sanity_check", source }];
 }

@@ -1369,6 +1369,60 @@ Use the repository's required method:
 10. for whole-product/release claims, continue to a natural ending and use the
     canonical battle-report exporter.
 
+#### 19.5.1 Rules/director single-draft test profile
+
+For a focused natural run whose acceptance target is the RuleGraph + Director
+integration rather than repeated prose review, launch the ordinary Pi-Coc RPC
+host with the exact opt-in environment value:
+
+```bash
+COC_PI_ACCEPTANCE_PROFILE=rules-director-single-draft pi-coc --mode rpc --campaign <fresh-campaign-id>
+```
+
+The launcher and MCP child MUST remain in `COC_PI_SESSION_ROLE=play`; this
+profile never replaces or relaxes canonical role ACL. The natural turn stays
+continuous and still requires Grok to produce player-facing narration. Its
+closure is exactly:
+
+```text
+rules + director judgment -> state.journal -> turn.output_context
+-> Grok drafts once -> returned typed turn.finalize once -> exact delivery
+```
+
+The profile pins `settings.packages` to the exact checkout/worktree that owns
+the running launcher and narrows the loaded play skills to Keeper play, Story
+Director, and the active rules engine. During the acting stage it advertises
+only `scene.context`, `actions.list`, `state.journal`, and current canonical
+affordances such as `rules.settle`; `read`, `coc_discover`, subagents,
+`npc.query`, and the generic `rules.roll` baseline are deliberately absent.
+An applicable graph card is therefore a prerequisite, not something the
+model may replace with catalog browsing or an invented operation name.
+
+When a focused rule-family test needs pre-existing canonical state (for
+example, healing needs an active wound), prepare that prerequisite through an
+explicit deterministic setup receipt before the player turn and label it as
+fixture evidence. Do not spend the measured player turn asking the model to
+invent an unrelated, not-yet-promoted generic rule operation merely to create
+the precondition.
+
+For this exact profile only, `turn.output_context` returns
+`agency_review_required=false`, omits `agency_review_operation` and the host
+state-claim compiler lane, and returns a narrow typed `finalize_operation`. Grok
+treats its first draft as final, calls that returned operation once, and does
+not call `narration.review` or enter a prose-revision loop. An absent, misspelled,
+or unknown `COC_PI_ACCEPTANCE_PROFILE` keeps the production review path.
+
+Because a whole turn includes model inference, this focused method uses **180
+seconds wall time per whole turn** as the active diagnostic threshold. At that
+point inspect the exact model/tool trace and whether real turn progress is
+advancing; do not merely keep waiting. The repository's three-second rule still
+applies independently to every non-LLM operation.
+
+This is a **test-only rules/director/runtime profile**. It is not evidence of
+whole-product text-quality acceptance, does not weaken the production Rule 4
+review/finalization default, and cannot support a release-readiness or canonical
+battle-report quality claim.
+
 A focused natural rule-family run proves feature integration only. It is not a
 whole-product acceptance claim unless the full Plugin-Native Acceptance
 Contract is satisfied.

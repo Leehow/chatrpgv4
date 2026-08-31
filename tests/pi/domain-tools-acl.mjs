@@ -115,6 +115,9 @@ for (const [operation, policy] of Object.entries(mod.OPERATION_POLICY)) {
       operation,
       phase,
     });
+    const recoveryNeedsBinding = phase === "recovery"
+      && operation !== "session.resume"
+      && operation !== "session.delivery_text";
     const policyWouldAllow = (
       policy.audience !== "source_worker"
       && policy.audience !== "audit"
@@ -124,6 +127,7 @@ for (const [operation, policy] of Object.entries(mod.OPERATION_POLICY)) {
         policy.kp_surface !== "none"
         || mod.HOST_INVOKE_COMPAT_OPERATIONS.has(operation)
       )
+      && !recoveryNeedsBinding
     );
     assert.equal(decision.ok, policyWouldAllow, `${operation} @ ${phase}`);
   }
@@ -740,19 +744,20 @@ const liveOpeningDenied = mod.evaluateExecuteAcl({
 assert.equal(liveOpeningDenied.ok, false);
 assert.equal(liveOpeningDenied.code, "phase_forbidden");
 
-// Recovery may close an already-open turn from receipts; no new mutations.
+// Recovery without an exact accepted-player-input binding is read/receipt only.
 const recoveryClosure = [
   ["coc_turn", "turn.output_context"],
   ["coc_turn", "state.journal"],
   ["coc_turn", "turn.finalize"],
 ];
 for (const [toolName, operation] of recoveryClosure) {
-  const allowed = mod.evaluateExecuteAcl({
+  const denied = mod.evaluateExecuteAcl({
     toolName,
     operation,
     phase: "recovery",
   });
-  assert.equal(allowed.ok, true, `${operation} @ recovery`);
+  assert.equal(denied.ok, false, `${operation} @ unverified recovery`);
+  assert.equal(denied.code, "recovery_authorization_required");
 }
 for (const [operation, toolName] of [
   ["rules.roll", "coc_rules"],
@@ -770,7 +775,46 @@ for (const [operation, toolName] of [
     phase: "recovery",
   });
   assert.equal(denied.ok, false, `${operation} @ recovery`);
-  assert.equal(denied.code, "phase_forbidden", `${operation} @ recovery`);
+  assert.equal(
+    denied.code,
+    "recovery_authorization_required",
+    `${operation} @ recovery`,
+  );
+}
+
+const openTurnAuthorization = {
+  kind: "open_turn_pre_journal",
+  stage: "acting",
+};
+for (const [operation, toolName] of [
+  ["scene.context", "coc_context"],
+  ["actions.list", "coc_context"],
+  ["rules.context", "coc_context"],
+  ["rules.settle", "coc_rules"],
+]) {
+  const allowed = mod.evaluateExecuteAcl({
+    toolName,
+    operation,
+    phase: "recovery",
+    role: "play",
+    recoveryAuthorization: openTurnAuthorization,
+  });
+  assert.equal(allowed.ok, true, `${operation} @ verified open-turn recovery`);
+}
+for (const [operation, toolName] of [
+  ["turn.output_context", "coc_turn"],
+  ["narration.review", "coc_advice"],
+  ["turn.finalize", "coc_turn"],
+  ["setup.inspect", "coc_setup"],
+]) {
+  const denied = mod.evaluateExecuteAcl({
+    toolName,
+    operation,
+    phase: "recovery",
+    role: "play",
+    recoveryAuthorization: openTurnAuthorization,
+  });
+  assert.equal(denied.ok, false, `${operation} must stay closed pre-journal`);
 }
 assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_setup",
@@ -833,30 +877,30 @@ assert.equal(mod.evaluateExecuteAcl({
   phase: "live_turn",
 }).ok, true);
 
-const shadowHealing = [
+const graphHealingLegacy = [
   "rules.first_aid",
   "rules.dying_check",
   "rules.medicine",
   "rules.weekly_recovery",
 ];
 const rulesOps = mod.domainToolSchema("coc_rules").properties.operation.enum;
-assert.ok(!rulesOps.includes("rules.settle"));
 assert.ok(!rulesOps.includes("rules.context"));
-for (const operation of shadowHealing) {
-  assert.ok(rulesOps.includes(operation), operation);
-  const allowed = mod.evaluateExecuteAcl({
+assert.ok(rulesOps.includes("rules.settle"));
+for (const operation of graphHealingLegacy) {
+  assert.ok(!rulesOps.includes(operation), operation);
+  const denied = mod.evaluateExecuteAcl({
     toolName: "coc_rules",
     operation,
     phase: "live_turn",
   });
-  assert.equal(allowed.ok, true, operation);
+  assert.equal(denied.ok, false, operation);
 }
-const settleDenied = mod.evaluateExecuteAcl({
+const settleAllowed = mod.evaluateExecuteAcl({
   toolName: "coc_rules",
   operation: "rules.settle",
   phase: "live_turn",
 });
-assert.equal(settleDenied.ok, false);
+assert.equal(settleAllowed.ok, true);
 assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_context",
   operation: "rules.context",

@@ -19,8 +19,10 @@
         "adapter": "subsystem-command"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-55",
-        "span-wounds-and-healing-page-131-block-56"
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
       ]
     },
     {
@@ -37,7 +39,8 @@
         "adapter": "subsystem-command"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -54,7 +57,8 @@
         "adapter": "subsystem-command"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-52"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
@@ -71,7 +75,18 @@
         "adapter": "subsystem-command"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-63"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
       ]
     },
     {
@@ -100,8 +115,10 @@
         }
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-56",
-        "span-wounds-and-healing-page-132-block-57"
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
       ]
     },
     {
@@ -130,40 +147,53 @@
         }
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-54",
-        "span-wounds-and-healing-page-131-block-55"
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
       ]
     },
     {
       "node_id": "condition:coc7:healing:first-aid-ordinary-eligible",
       "node_kind": "condition",
-      "name": "Not dying (ordinary First Aid branch; within-one-hour window is a Keeper judgment)",
+      "name": "Not dying and within sixty minutes of the active wound",
       "authority": "deterministic",
       "audience": "host-internal",
       "visibility": "keeper-only",
-      "hard_gate": false,
+      "hard_gate": true,
       "properties": {
         "family_id": "healing",
         "expression": {
-          "op": "not",
-          "of": {
-            "op": "exists",
-            "path": "actor.conditions.dying"
-          }
+          "op": "all",
+          "of": [
+            {
+              "op": "not",
+              "of": {
+                "op": "exists",
+                "path": "actor.conditions.dying"
+              }
+            },
+            {
+              "op": "lte",
+              "path": "time.minutes_since_injury",
+              "value": 60
+            }
+          ]
         }
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
       "node_id": "condition:coc7:healing:major-wound-not-dying",
       "node_kind": "condition",
-      "name": "Major wound marker ticked and the character is not dying",
+      "name": "Major wound active, not dying, and weekly recovery interval due",
       "authority": "deterministic",
       "audience": "host-internal",
       "visibility": "keeper-only",
-      "hard_gate": false,
+      "hard_gate": true,
       "properties": {
         "family_id": "healing",
         "expression": {
@@ -179,13 +209,20 @@
                 "op": "exists",
                 "path": "actor.conditions.dying"
               }
+            },
+            {
+              "op": "eq",
+              "path": "actor.recovery.major_wound_week_due",
+              "value": true
             }
           ]
         }
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-63",
-        "span-wounds-and-healing-page-132-block-71"
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
       ]
     },
     {
@@ -195,7 +232,7 @@
       "authority": "deterministic",
       "audience": "host-internal",
       "visibility": "keeper-only",
-      "hard_gate": false,
+      "hard_gate": true,
       "properties": {
         "family_id": "healing",
         "expression": {
@@ -207,7 +244,8 @@
         }
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-52"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
@@ -222,7 +260,8 @@
         "family_id": "healing"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-56"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
@@ -237,7 +276,10 @@
         "family_id": "healing"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-56"
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
       ]
     },
     {
@@ -245,7 +287,7 @@
       "node_kind": "decision",
       "name": "Resolve the First-Aid-stabilized dying hour clock",
       "authority": "deterministic",
-      "audience": "host-internal",
+      "audience": "keeper",
       "visibility": "keeper-only",
       "hard_gate": false,
       "properties": {
@@ -261,7 +303,10 @@
         }
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-56"
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
       ]
     },
     {
@@ -269,7 +314,7 @@
       "node_kind": "decision",
       "name": "Resolve the unstabilized dying round clock",
       "authority": "deterministic",
-      "audience": "host-internal",
+      "audience": "keeper",
       "visibility": "keeper-only",
       "hard_gate": false,
       "properties": {
@@ -285,7 +330,10 @@
         }
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-55"
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
       ]
     },
     {
@@ -293,7 +341,7 @@
       "node_kind": "decision",
       "name": "Administer First Aid to a non-dying injured character",
       "authority": "mixed",
-      "audience": "host-internal",
+      "audience": "keeper",
       "visibility": "keeper-only",
       "hard_gate": false,
       "properties": {
@@ -317,12 +365,29 @@
             {
               "name": "pushed",
               "ownership": "host-locked"
+            },
+            {
+              "name": "changed_method",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "failure_consequence",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "assistant_skill_value",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "assistant_rescuer_id",
+              "ownership": "host-locked"
             }
           ]
         }
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -330,7 +395,7 @@
       "node_kind": "decision",
       "name": "Temporarily stabilize a dying character with First Aid",
       "authority": "mixed",
-      "audience": "host-internal",
+      "audience": "keeper",
       "visibility": "keeper-only",
       "hard_gate": false,
       "properties": {
@@ -354,13 +419,29 @@
             {
               "name": "pushed",
               "ownership": "host-locked"
+            },
+            {
+              "name": "changed_method",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "failure_consequence",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "assistant_skill_value",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "assistant_rescuer_id",
+              "ownership": "host-locked"
             }
           ]
         }
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49",
-        "span-wounds-and-healing-page-131-block-55"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -368,7 +449,7 @@
       "node_kind": "decision",
       "name": "Administer Medicine to a non-dying injured character",
       "authority": "mixed",
-      "audience": "host-internal",
+      "audience": "keeper",
       "visibility": "keeper-only",
       "hard_gate": false,
       "properties": {
@@ -393,7 +474,8 @@
         }
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-52"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
@@ -401,7 +483,7 @@
       "node_kind": "decision",
       "name": "Stabilize a First-Aid-stabilized dying character with Medicine",
       "authority": "mixed",
-      "audience": "host-internal",
+      "audience": "keeper",
       "visibility": "keeper-only",
       "hard_gate": false,
       "properties": {
@@ -426,8 +508,8 @@
         }
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-52",
-        "span-wounds-and-healing-page-132-block-57"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
@@ -435,7 +517,7 @@
       "node_kind": "decision",
       "name": "Resolve the weekly major-wound recovery roll",
       "authority": "mixed",
-      "audience": "host-internal",
+      "audience": "keeper",
       "visibility": "keeper-only",
       "hard_gate": false,
       "properties": {
@@ -466,40 +548,82 @@
         }
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-63",
-        "span-wounds-and-healing-page-132-block-66",
-        "span-wounds-and-healing-page-132-block-69",
-        "span-wounds-and-healing-page-132-block-70"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
       ]
     },
     {
-      "node_id": "exception:coc7:healing:first-aid-teamwork-uncompiled",
-      "node_kind": "exception",
-      "name": "Source allows two people to work together (either roll succeeding); the current first_aid command is a single skill_value and rescuer_id",
+      "node_id": "effect:coc7:healing:first-aid-stabilization",
+      "node_kind": "effect",
+      "name": "First Aid restores one hit point or supplies the temporary hit point that stabilizes dying",
       "authority": "deterministic",
       "audience": "host-internal",
-      "visibility": "keeper-only",
+      "visibility": "public",
       "hard_gate": false,
       "properties": {
-        "family_id": "healing"
+        "family_id": "healing",
+        "effect_kind": "first-aid-hp-or-temporary-stabilization",
+        "resource_key": "hp"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
-      "node_id": "exception:coc7:healing:first-aid-window-uncompiled",
-      "node_kind": "exception",
-      "name": "Source requires First Aid within one hour; the current first_aid command has no timing payload and the executor does not compile that window",
+      "node_id": "effect:coc7:healing:medicine-stabilization",
+      "node_kind": "effect",
+      "name": "Medicine restores hit points or completes stabilization of a First-Aid-stabilized dying character",
       "authority": "deterministic",
       "audience": "host-internal",
-      "visibility": "keeper-only",
+      "visibility": "public",
       "hard_gate": false,
       "properties": {
-        "family_id": "healing"
+        "family_id": "healing",
+        "effect_kind": "medicine-hp-or-dying-stabilization",
+        "resource_key": "hp"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
+      ]
+    },
+    {
+      "node_id": "effect:coc7:healing:weekly-hp-recovery",
+      "node_kind": "effect",
+      "name": "Weekly major-wound recovery may restore hit points according to the settled recovery roll",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "effect_kind": "weekly-major-wound-hp-recovery",
+        "resource_key": "hp"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
       ]
     },
     {
@@ -514,7 +638,76 @@
         "family_id": "healing"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-72"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:healing:assistant-rescuer-id",
+      "node_kind": "input-slot",
+      "name": "Resolved second rescuer identity",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "ownership": "host-locked",
+        "value_type": "string",
+        "path": "actor.id"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:healing:assistant-rescuer-ref",
+      "node_kind": "input-slot",
+      "name": "Optional second First Aid rescuer selected by the Keeper",
+      "authority": "keeper-semantic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "ownership": "optional-semantic",
+        "value_type": "string"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:healing:assistant-skill-value",
+      "node_kind": "input-slot",
+      "name": "Second rescuer First Aid value from the canonical sheet",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "ownership": "host-locked",
+        "value_type": "int",
+        "path": "actor.sheet.first_aid"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-8"
       ]
     },
     {
@@ -532,7 +725,36 @@
         "path": "actor.id"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-69"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:healing:changed-method",
+      "node_kind": "input-slot",
+      "name": "Materially changed First Aid method for a pushed retry",
+      "authority": "keeper-semantic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "ownership": "optional-semantic",
+        "value_type": "string"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -550,7 +772,36 @@
         "path": "intent.complete_rest"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-66"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:healing:failure-consequence",
+      "node_kind": "input-slot",
+      "name": "Announced consequence if the pushed First Aid attempt fails",
+      "authority": "keeper-semantic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "ownership": "optional-semantic",
+        "value_type": "string"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -568,7 +819,8 @@
         "path": "intent.pushed"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -586,7 +838,8 @@
         "path": "actor.sheet.first_aid"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -604,7 +857,18 @@
         "path": "actor.sheet.medicine"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-69"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
       ]
     },
     {
@@ -622,7 +886,8 @@
         "path": "actor.sheet.medicine"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-52"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
@@ -640,7 +905,18 @@
         "path": "intent.poor_environment"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-70"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
       ]
     },
     {
@@ -658,8 +934,26 @@
         "path": "actor.id"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49",
-        "span-wounds-and-healing-page-131-block-52"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:healing:rescuer-ref",
+      "node_kind": "input-slot",
+      "name": "Optional acting rescuer selected by the Keeper",
+      "authority": "keeper-semantic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "ownership": "optional-semantic",
+        "value_type": "string"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -674,7 +968,10 @@
         "resource_key": "hp"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-130-block-6"
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-8"
       ]
     },
     {
@@ -687,7 +984,13 @@
       "hard_gate": false,
       "properties": {
         "family_id": "healing"
-      }
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-8"
+      ]
     },
     {
       "node_id": "rule:coc7:healing:dying-clocks",
@@ -701,8 +1004,10 @@
         "family_id": "healing"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-55",
-        "span-wounds-and-healing-page-131-block-56"
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
       ]
     },
     {
@@ -717,10 +1022,10 @@
         "family_id": "healing"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-54",
-        "span-wounds-and-healing-page-131-block-46",
-        "span-wounds-and-healing-page-131-block-42",
-        "span-wounds-and-healing-page-131-block-38"
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
       ]
     },
     {
@@ -735,10 +1040,8 @@
         "family_id": "healing"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49",
-        "span-wounds-and-healing-page-131-block-48",
-        "span-wounds-and-healing-page-131-block-55",
-        "span-wounds-and-healing-page-131-block-56"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -753,8 +1056,10 @@
         "family_id": "healing"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-130-block-12",
-        "span-wounds-and-healing-page-131-block-47"
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-8"
       ]
     },
     {
@@ -769,7 +1074,10 @@
         "family_id": "healing"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-71"
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-8"
       ]
     },
     {
@@ -784,12 +1092,10 @@
         "family_id": "healing"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-34",
-        "span-wounds-and-healing-page-131-block-35",
-        "span-wounds-and-healing-page-131-block-36",
-        "span-wounds-and-healing-page-131-block-37",
-        "span-wounds-and-healing-page-131-block-38",
-        "span-wounds-and-healing-page-131-block-46"
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-8"
       ]
     },
     {
@@ -811,11 +1117,10 @@
         }
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-130-block-6",
-        "span-wounds-and-healing-page-130-block-10",
-        "span-wounds-and-healing-page-130-block-11",
-        "span-wounds-and-healing-page-131-block-33",
-        "span-wounds-and-healing-page-131-block-39"
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-8"
       ]
     },
     {
@@ -830,8 +1135,8 @@
         "family_id": "healing"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-52",
-        "span-wounds-and-healing-page-132-block-57"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
@@ -846,8 +1151,18 @@
         "family_id": "healing"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-59",
-        "span-wounds-and-healing-page-132-block-60"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
       ]
     },
     {
@@ -862,14 +1177,18 @@
         "family_id": "healing"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-63",
-        "span-wounds-and-healing-page-132-block-64",
-        "span-wounds-and-healing-page-132-block-65",
-        "span-wounds-and-healing-page-132-block-66",
-        "span-wounds-and-healing-page-132-block-69",
-        "span-wounds-and-healing-page-132-block-70",
-        "span-wounds-and-healing-page-132-block-72",
-        "span-wounds-and-healing-page-132-block-71"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
       ]
     },
     {
@@ -884,11 +1203,10 @@
         "family_id": "healing"
       },
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-42",
-        "span-wounds-and-healing-page-131-block-43",
-        "span-wounds-and-healing-page-131-block-44",
-        "span-wounds-and-healing-page-131-block-45",
-        "span-wounds-and-healing-page-130-block-14"
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-8"
       ]
     },
     {
@@ -901,7 +1219,13 @@
       "hard_gate": false,
       "properties": {
         "subsystem_kind": "healing"
-      }
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-8"
+      ]
     }
   ],
   "relations": [
@@ -909,25 +1233,57 @@
       "relation_id": "relation:coc7:healing:clearing-part-of",
       "relation_kind": "part-of",
       "from_node_id": "rule:coc7:healing:major-wound-clearing",
-      "to_node_id": "rule-family:coc7:healing"
+      "to_node_id": "rule-family:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-8"
+      ]
     },
     {
       "relation_id": "relation:coc7:healing:clocks-part-of",
       "relation_kind": "part-of",
       "from_node_id": "rule:coc7:healing:dying-clocks",
-      "to_node_id": "rule-family:coc7:healing"
+      "to_node_id": "rule-family:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-131-block-8",
+        "span-wounds-and-healing-page-133-block-41"
+      ]
     },
     {
       "relation_id": "relation:coc7:healing:dying-entry-part-of",
       "relation_kind": "part-of",
       "from_node_id": "rule:coc7:healing:dying-entry",
-      "to_node_id": "rule-family:coc7:healing"
+      "to_node_id": "rule-family:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-131-block-8",
+        "span-wounds-and-healing-page-133-block-41"
+      ]
     },
     {
       "relation_id": "relation:coc7:healing:effects-part-of",
       "relation_kind": "part-of",
       "from_node_id": "rule:coc7:healing:major-wound-effects",
-      "to_node_id": "rule-family:coc7:healing"
+      "to_node_id": "rule-family:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-8"
+      ]
     },
     {
       "relation_id": "relation:coc7:healing:fa-ordinary-available",
@@ -935,14 +1291,23 @@
       "from_node_id": "decision:coc7:healing:first-aid-ordinary",
       "to_node_id": "condition:coc7:healing:first-aid-ordinary-eligible",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
       "relation_id": "relation:coc7:healing:fa-ordinary-implemented",
       "relation_kind": "implemented-by",
       "from_node_id": "decision:coc7:healing:first-aid-ordinary",
-      "to_node_id": "subsystem:coc7:healing"
+      "to_node_id": "subsystem:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-131-block-8"
+      ]
     },
     {
       "relation_id": "relation:coc7:healing:fa-ordinary-invokes",
@@ -950,7 +1315,8 @@
       "from_node_id": "decision:coc7:healing:first-aid-ordinary",
       "to_node_id": "capability:coc7:first-aid",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -959,7 +1325,12 @@
       "from_node_id": "decision:coc7:healing:first-aid-ordinary",
       "to_node_id": "resource:coc7:hp",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-131-block-8"
       ]
     },
     {
@@ -968,7 +1339,8 @@
       "from_node_id": "decision:coc7:healing:first-aid-ordinary",
       "to_node_id": "input-slot:coc7:healing:first-aid-pushed",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -977,7 +1349,8 @@
       "from_node_id": "decision:coc7:healing:first-aid-ordinary",
       "to_node_id": "input-slot:coc7:healing:rescuer-id",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -986,7 +1359,8 @@
       "from_node_id": "decision:coc7:healing:first-aid-ordinary",
       "to_node_id": "input-slot:coc7:healing:first-aid-skill",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -995,7 +1369,11 @@
       "from_node_id": "decision:coc7:healing:first-aid-stabilization",
       "to_node_id": "condition:coc7:healing:dying-unstabilized",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-55"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
       ]
     },
     {
@@ -1004,7 +1382,11 @@
       "from_node_id": "decision:coc7:healing:first-aid-stabilization",
       "to_node_id": "decision:coc7:healing:dying-hour-clock",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-56"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
       ]
     },
     {
@@ -1013,14 +1395,35 @@
       "from_node_id": "decision:coc7:healing:first-aid-stabilization",
       "to_node_id": "continuation:coc7:healing:first-aid-to-medicine",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-56"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-132-block-25"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:fa-stab-emits",
+      "relation_kind": "emits",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "effect:coc7:healing:first-aid-stabilization",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
       "relation_id": "relation:coc7:healing:fa-stab-implemented",
       "relation_kind": "implemented-by",
       "from_node_id": "decision:coc7:healing:first-aid-stabilization",
-      "to_node_id": "subsystem:coc7:healing"
+      "to_node_id": "subsystem:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-131-block-8"
+      ]
     },
     {
       "relation_id": "relation:coc7:healing:fa-stab-invokes",
@@ -1028,7 +1431,8 @@
       "from_node_id": "decision:coc7:healing:first-aid-stabilization",
       "to_node_id": "capability:coc7:first-aid",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -1037,7 +1441,8 @@
       "from_node_id": "decision:coc7:healing:first-aid-stabilization",
       "to_node_id": "input-slot:coc7:healing:first-aid-pushed",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -1046,7 +1451,8 @@
       "from_node_id": "decision:coc7:healing:first-aid-stabilization",
       "to_node_id": "input-slot:coc7:healing:rescuer-id",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -1055,32 +1461,151 @@
       "from_node_id": "decision:coc7:healing:first-aid-stabilization",
       "to_node_id": "input-slot:coc7:healing:first-aid-skill",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
-      "relation_id": "relation:coc7:healing:fa-teamwork-uncompiled-applies",
-      "relation_kind": "applies-to",
-      "from_node_id": "exception:coc7:healing:first-aid-teamwork-uncompiled",
-      "to_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "relation_id": "relation:coc7:healing:first-aid-ordinary-assistant-id",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "to_node_id": "input-slot:coc7:healing:assistant-rescuer-id",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
-      "relation_id": "relation:coc7:healing:fa-window-uncompiled-applies",
-      "relation_kind": "applies-to",
-      "from_node_id": "exception:coc7:healing:first-aid-window-uncompiled",
-      "to_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "relation_id": "relation:coc7:healing:first-aid-ordinary-assistant-ref",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "to_node_id": "input-slot:coc7:healing:assistant-rescuer-ref",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-49"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:first-aid-ordinary-assistant-skill",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "to_node_id": "input-slot:coc7:healing:assistant-skill-value",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-131-block-8"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:first-aid-ordinary-changed-method",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "to_node_id": "input-slot:coc7:healing:changed-method",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:first-aid-ordinary-failure-consequence",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "to_node_id": "input-slot:coc7:healing:failure-consequence",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:first-aid-ordinary-rescuer-ref",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "to_node_id": "input-slot:coc7:healing:rescuer-ref",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
       "relation_id": "relation:coc7:healing:first-aid-part-of",
       "relation_kind": "part-of",
       "from_node_id": "rule:coc7:healing:first-aid",
-      "to_node_id": "rule-family:coc7:healing"
+      "to_node_id": "rule-family:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-131-block-8"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:first-aid-stabilization-assistant-id",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "input-slot:coc7:healing:assistant-rescuer-id",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:first-aid-stabilization-assistant-ref",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "input-slot:coc7:healing:assistant-rescuer-ref",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:first-aid-stabilization-assistant-skill",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "input-slot:coc7:healing:assistant-skill-value",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-131-block-8"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:first-aid-stabilization-changed-method",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "input-slot:coc7:healing:changed-method",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:first-aid-stabilization-failure-consequence",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "input-slot:coc7:healing:failure-consequence",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:first-aid-stabilization-rescuer-ref",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "input-slot:coc7:healing:rescuer-ref",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
     },
     {
       "relation_id": "relation:coc7:healing:hour-available",
@@ -1088,7 +1613,10 @@
       "from_node_id": "decision:coc7:healing:dying-hour-clock",
       "to_node_id": "condition:coc7:healing:dying-stabilized",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-56"
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
       ]
     },
     {
@@ -1097,14 +1625,27 @@
       "from_node_id": "decision:coc7:healing:dying-hour-clock",
       "to_node_id": "continuation:coc7:healing:hour-clock-revert",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-56"
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
       ]
     },
     {
       "relation_id": "relation:coc7:healing:hour-implemented",
       "relation_kind": "implemented-by",
       "from_node_id": "decision:coc7:healing:dying-hour-clock",
-      "to_node_id": "subsystem:coc7:healing"
+      "to_node_id": "subsystem:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-131-block-8",
+        "span-wounds-and-healing-page-133-block-41"
+      ]
     },
     {
       "relation_id": "relation:coc7:healing:hour-invokes",
@@ -1112,7 +1653,10 @@
       "from_node_id": "decision:coc7:healing:dying-hour-clock",
       "to_node_id": "capability:coc7:dying-check",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-56"
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
       ]
     },
     {
@@ -1121,14 +1665,23 @@
       "from_node_id": "decision:coc7:healing:medicine-ordinary",
       "to_node_id": "condition:coc7:healing:medicine-ordinary-eligible",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-52"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
       "relation_id": "relation:coc7:healing:med-ordinary-implemented",
       "relation_kind": "implemented-by",
       "from_node_id": "decision:coc7:healing:medicine-ordinary",
-      "to_node_id": "subsystem:coc7:healing"
+      "to_node_id": "subsystem:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-8",
+        "span-wounds-and-healing-page-132-block-25"
+      ]
     },
     {
       "relation_id": "relation:coc7:healing:med-ordinary-invokes",
@@ -1136,7 +1689,8 @@
       "from_node_id": "decision:coc7:healing:medicine-ordinary",
       "to_node_id": "capability:coc7:medicine",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-52"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
@@ -1145,7 +1699,12 @@
       "from_node_id": "decision:coc7:healing:medicine-ordinary",
       "to_node_id": "resource:coc7:hp",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-52"
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-8",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
@@ -1154,7 +1713,10 @@
       "from_node_id": "decision:coc7:healing:medicine-ordinary",
       "to_node_id": "input-slot:coc7:healing:rescuer-id",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-52"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
@@ -1163,7 +1725,8 @@
       "from_node_id": "decision:coc7:healing:medicine-ordinary",
       "to_node_id": "input-slot:coc7:healing:medicine-skill",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-52"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
@@ -1172,14 +1735,37 @@
       "from_node_id": "decision:coc7:healing:medicine-stabilization",
       "to_node_id": "condition:coc7:healing:dying-stabilized",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-57"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-133-block-41"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:med-stab-emits",
+      "relation_kind": "emits",
+      "from_node_id": "decision:coc7:healing:medicine-stabilization",
+      "to_node_id": "effect:coc7:healing:medicine-stabilization",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
       "relation_id": "relation:coc7:healing:med-stab-implemented",
       "relation_kind": "implemented-by",
       "from_node_id": "decision:coc7:healing:medicine-stabilization",
-      "to_node_id": "subsystem:coc7:healing"
+      "to_node_id": "subsystem:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-8",
+        "span-wounds-and-healing-page-132-block-25"
+      ]
     },
     {
       "relation_id": "relation:coc7:healing:med-stab-invokes",
@@ -1187,7 +1773,8 @@
       "from_node_id": "decision:coc7:healing:medicine-stabilization",
       "to_node_id": "capability:coc7:medicine",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-52"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
@@ -1196,7 +1783,12 @@
       "from_node_id": "decision:coc7:healing:medicine-stabilization",
       "to_node_id": "resource:coc7:hp",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-57"
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-8",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
@@ -1205,7 +1797,10 @@
       "from_node_id": "decision:coc7:healing:medicine-stabilization",
       "to_node_id": "input-slot:coc7:healing:rescuer-id",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-52"
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
@@ -1214,20 +1809,71 @@
       "from_node_id": "decision:coc7:healing:medicine-stabilization",
       "to_node_id": "input-slot:coc7:healing:medicine-skill",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-52"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:medicine-ordinary-rescuer-ref",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:medicine-ordinary",
+      "to_node_id": "input-slot:coc7:healing:rescuer-ref",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-132-block-25"
       ]
     },
     {
       "relation_id": "relation:coc7:healing:medicine-part-of",
       "relation_kind": "part-of",
       "from_node_id": "rule:coc7:healing:medicine",
-      "to_node_id": "rule-family:coc7:healing"
+      "to_node_id": "rule-family:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-8",
+        "span-wounds-and-healing-page-132-block-25"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:medicine-stabilization-rescuer-ref",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:medicine-stabilization",
+      "to_node_id": "input-slot:coc7:healing:rescuer-ref",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-132-block-25"
+      ]
     },
     {
       "relation_id": "relation:coc7:healing:regular-part-of",
       "relation_kind": "part-of",
       "from_node_id": "rule:coc7:healing:regular-damage-recovery",
-      "to_node_id": "rule-family:coc7:healing"
+      "to_node_id": "rule-family:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-8",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
+      ]
     },
     {
       "relation_id": "relation:coc7:healing:round-available",
@@ -1235,14 +1881,27 @@
       "from_node_id": "decision:coc7:healing:dying-round-clock",
       "to_node_id": "condition:coc7:healing:dying-unstabilized",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-55"
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
       ]
     },
     {
       "relation_id": "relation:coc7:healing:round-implemented",
       "relation_kind": "implemented-by",
       "from_node_id": "decision:coc7:healing:dying-round-clock",
-      "to_node_id": "subsystem:coc7:healing"
+      "to_node_id": "subsystem:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-131-block-8",
+        "span-wounds-and-healing-page-133-block-41"
+      ]
     },
     {
       "relation_id": "relation:coc7:healing:round-invokes",
@@ -1250,14 +1909,87 @@
       "from_node_id": "decision:coc7:healing:dying-round-clock",
       "to_node_id": "capability:coc7:dying-check",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-55"
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:rule-dying-clocks-invokes-dying-check",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:healing:dying-clocks",
+      "to_node_id": "capability:coc7:dying-check",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:rule-dying-entry-invokes-dying-check",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:healing:dying-entry",
+      "to_node_id": "capability:coc7:dying-check",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-133-block-41"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:rule-first-aid-invokes-first-aid",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:healing:first-aid",
+      "to_node_id": "capability:coc7:first-aid",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:rule-medicine-invokes-medicine",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:healing:medicine",
+      "to_node_id": "capability:coc7:medicine",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:rule-weekly-recovery-invokes-weekly-recovery",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:healing:weekly-recovery",
+      "to_node_id": "capability:coc7:weekly-recovery",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
       ]
     },
     {
       "relation_id": "relation:coc7:healing:threshold-part-of",
       "relation_kind": "part-of",
       "from_node_id": "rule:coc7:healing:major-wound-threshold",
-      "to_node_id": "rule-family:coc7:healing"
+      "to_node_id": "rule-family:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-8"
+      ]
     },
     {
       "relation_id": "relation:coc7:healing:weekly-available",
@@ -1265,7 +1997,41 @@
       "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
       "to_node_id": "condition:coc7:healing:major-wound-not-dying",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-63"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-22",
+        "span-wounds-and-healing-page-131-block-23",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:weekly-emits",
+      "relation_kind": "emits",
+      "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
+      "to_node_id": "effect:coc7:healing:weekly-hp-recovery",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
       ]
     },
     {
@@ -1274,14 +2040,43 @@
       "from_node_id": "exception:coc7:healing:weekly-fumble-injury",
       "to_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-72"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
       ]
     },
     {
       "relation_id": "relation:coc7:healing:weekly-implemented",
       "relation_kind": "implemented-by",
       "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
-      "to_node_id": "subsystem:coc7:healing"
+      "to_node_id": "subsystem:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-8",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
+      ]
     },
     {
       "relation_id": "relation:coc7:healing:weekly-invokes",
@@ -1289,7 +2084,40 @@
       "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
       "to_node_id": "capability:coc7:weekly-recovery",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-63"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:weekly-major-wound-recovery-rescuer-ref",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
+      "to_node_id": "input-slot:coc7:healing:rescuer-ref",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
       ]
     },
     {
@@ -1298,14 +2126,47 @@
       "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
       "to_node_id": "resource:coc7:hp",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-63"
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-8",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
       ]
     },
     {
       "relation_id": "relation:coc7:healing:weekly-part-of",
       "relation_kind": "part-of",
       "from_node_id": "rule:coc7:healing:weekly-recovery",
-      "to_node_id": "rule-family:coc7:healing"
+      "to_node_id": "rule-family:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-131-block-8",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
+      ]
     },
     {
       "relation_id": "relation:coc7:healing:weekly-requires-caregiver-id",
@@ -1313,7 +2174,18 @@
       "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
       "to_node_id": "input-slot:coc7:healing:caregiver-id",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-69"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
       ]
     },
     {
@@ -1322,7 +2194,18 @@
       "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
       "to_node_id": "input-slot:coc7:healing:medicine-caregiver-skill",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-69"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
       ]
     },
     {
@@ -1331,7 +2214,18 @@
       "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
       "to_node_id": "input-slot:coc7:healing:poor-environment",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-70"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
       ]
     },
     {
@@ -1340,14 +2234,31 @@
       "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
       "to_node_id": "input-slot:coc7:healing:complete-rest",
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-132-block-66"
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
       ]
     },
     {
       "relation_id": "relation:coc7:healing:zero-part-of",
       "relation_kind": "part-of",
       "from_node_id": "rule:coc7:healing:zero-hit-points",
-      "to_node_id": "rule-family:coc7:healing"
+      "to_node_id": "rule-family:coc7:healing",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-1",
+        "span-wounds-and-healing-page-131-block-10",
+        "span-wounds-and-healing-page-131-block-16",
+        "span-wounds-and-healing-page-131-block-8"
+      ]
     }
   ],
   "coverage": {
@@ -1367,7 +2278,7 @@
     "combat": "legacy",
     "core-check": "legacy",
     "development": "legacy",
-    "healing": "shadow",
+    "healing": "graph",
     "magic": "legacy",
     "psychology": "legacy",
     "push-luck": "legacy",
@@ -1379,7 +2290,7 @@
     "combat": "visible",
     "core-check": "visible",
     "development": "visible",
-    "healing": "visible",
+    "healing": "hidden",
     "magic": "visible",
     "psychology": "visible",
     "push-luck": "visible",

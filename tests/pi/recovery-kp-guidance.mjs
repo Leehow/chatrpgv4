@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -14,6 +14,9 @@ const guidanceMod = await import(
 );
 const main = await import(
   path.join(root, "plugins/coc-keeper/pi/extensions/index.ts")
+);
+const openTurnInput = await import(
+  path.join(root, "plugins/coc-keeper/pi/lib/open-turn-player-input.ts")
 );
 const {
   PiStateClaimCompiler,
@@ -69,7 +72,15 @@ function resumeEnvelope(mode, extra = {}) {
       campaign_id: extra.campaign_id ?? "recovery-guide-campaign",
       mode,
       next_operations: extra.next_operations ?? [],
-      current_turn: extra.current_turn ?? { rows: [{ tool: "rules.roll", ok: true }] },
+      current_turn: Object.hasOwn(extra, "current_turn")
+        ? extra.current_turn
+        : { rows: [{ tool: "rules.roll", ok: true }] },
+      ...(extra.open_turn_anchor === undefined
+        ? {}
+        : { open_turn_anchor: extra.open_turn_anchor }),
+      ...(Object.hasOwn(extra, "pending_turn")
+        ? { pending_turn: extra.pending_turn }
+        : {}),
     },
   };
 }
@@ -126,16 +137,21 @@ assert.equal(guidance.contract_id, OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT);
 assert.equal(guidance.schema_version, 1);
 assert.equal(guidance.audience, "keeper_only");
 assert.equal(guidance.mode, "open_turn_recovery");
-assert.equal(guidance.current_acl_supersedes_prior_denials, true);
+assert.equal(guidance.current_acl_supersedes_prior_denials, false);
+assert.equal(guidance.acting_authorized, false);
+assert.deepEqual(guidance.next_capabilities, []);
 assert.deepEqual(
   guidance.closure_sequence.map((row) => row.operation),
-  OPEN_TURN_RECOVERY_CLOSURE_SEQUENCE.map((row) => row.operation),
+  [],
 );
 assert.deepEqual(
   guidance.forbidden_until_closed,
   [...OPEN_TURN_RECOVERY_FORBIDDEN_UNTIL_CLOSED],
 );
-assert.equal(guidance.after_closure, "adjudicate_unsettled_player_action");
+assert.equal(
+  guidance.after_settlement,
+  "journal_then_build_output_context_review_and_finalize",
+);
 assert.ok(guidance.keep.includes("kp_semantic_judgment"));
 assert.ok(guidance.keep.includes("rule4"));
 assert.ok(guidance.do_not.includes("fixed_narrative_template"));
@@ -834,6 +850,12 @@ async function invoke(h, id, params, toolName = "coc_invoke") {
   )).content[0].text);
 }
 
+async function invokeRaw(h, id, params, toolName = "coc_invoke") {
+  const tool = h.registered.get(toolName);
+  if (!tool) throw new Error(`missing tool ${toolName}`);
+  return tool.execute(id, params, undefined, undefined, h.ctx);
+}
+
 async function invokeWithSignal(h, id, params, signal, toolName = "coc_invoke") {
   const tool = h.registered.get(toolName);
   if (!tool) throw new Error(`missing tool ${toolName}`);
@@ -846,34 +868,130 @@ async function invokeWithSignal(h, id, params, signal, toolName = "coc_invoke") 
   )).content[0].text);
 }
 
-function resumeParams(campaignId) {
+function resumeParams(campaignId, workspaceRoot = root) {
   return {
     operation: "session.resume",
-    root,
+    root: workspaceRoot,
     campaign: campaignId,
     arguments: {},
   };
 }
 
 const recoveryCampaign = "startup-open-turn-recovery";
+const recoveryPlayerText = "我停下来检查右手的伤口，撕下一条干净布料，按住伤口并仔细包扎止血。";
+const recoveryAnchor = openTurnInput.createOpenTurnAnchor({
+  timelineId: "timeline-main",
+  priorFinalizedTurn: 1,
+  priorFinalizedSourceDigest: `sha256:${"b".repeat(64)}`,
+});
+const recoveryWorkspace = mkdtempSync(path.join(tmpdir(), "pi-coc-open-turn-recovery-"));
+mkdirSync(
+  path.join(recoveryWorkspace, ".coc", "campaigns", recoveryCampaign),
+  { recursive: true },
+);
+assert.equal(openTurnInput.recordOpenTurnPlayerInput({
+  root: recoveryWorkspace,
+  campaignId: recoveryCampaign,
+  sessionId: "previous-natural-player-session",
+  playerTurnEpoch: 2,
+  text: recoveryPlayerText,
+  anchor: recoveryAnchor,
+}), "recorded");
 const recovery = harness((name, params) => {
   if (name !== "coc_invoke") throw new Error(`unexpected ${name}`);
+  if (params.operation === "scene.context") {
+    return {
+      ok: true,
+      tool: "scene.context",
+      wire: { full_result_sha256: `sha256:${"1".repeat(64)}` },
+      cache: { revision: "scene-context:recovered-healing" },
+      data: {
+        active_scene_id: "infirmary-treatment-room",
+        party: ["thomas-hayes"],
+        exits: [],
+        time: { elapsed_minutes: 0 },
+        npcs_present: [],
+        action_routes: [],
+        rule_decision_cards: {
+          schema_version: 1,
+          family: "healing",
+          status: "ok",
+          cards: [{
+            schema_version: 1,
+            decision_ref: "decision:coc7:healing:first-aid-ordinary",
+            family: "healing",
+            label: "Administer First Aid",
+            applicability: "applicable",
+            required_inputs: [],
+            locked_inputs: ["skill_value"],
+            rule_refs: ["rule:coc7:healing:first-aid-stabilization"],
+            source_refs: ["span-wounds-and-healing-page-131-block-18"],
+            capability_ref: "capability:coc7:first-aid",
+            effect_refs: ["effect:coc7:healing:temporary-stabilization"],
+            possible_continuations: [],
+            authority: {
+              selection: "keeper-semantic",
+              execution: "current-ruleset-adapter",
+              hard_gate: false,
+            },
+          }],
+          authority: { hard_gate: false, role: "affordance" },
+        },
+      },
+    };
+  }
   if (params.operation !== "session.resume") {
     throw new Error(`unexpected ${params.operation}`);
   }
-  return resumeEnvelope("open_turn_recovery", {
+  const canonical = resumeEnvelope("open_turn_recovery", {
     campaign_id: recoveryCampaign,
+    open_turn_anchor: recoveryAnchor,
     next_operations: ["continue_current_turn_from_receipts"],
+    current_turn: {
+      schema_version: 1,
+      meaningful_row_count: 10,
+      source_digest: `sha256:${"c".repeat(64)}`,
+      rows: [{
+        call_index: 19,
+        tool: "actions.list",
+        ok: true,
+        data_ref: "logs/toolbox-calls.jsonl#call-19",
+        data_digest: "sha256:host-only-row-digest",
+      }],
+      detail_operation: {
+        operation: "session.continuation_detail",
+        invoke_via: "coc_invoke",
+        prefilled_arguments: { section: "current_turn" },
+        missing_arguments: [],
+      },
+    },
   });
-}, recoveryCampaign);
+  canonical.wire = {
+    schema_version: 1,
+    profile: "keeper_hot_v1",
+    canonical_operation: "session.resume",
+    control: {
+      mode: "open_turn_recovery",
+      next_operations: ["continue_current_turn_from_receipts"],
+    },
+  };
+  return canonical;
+}, recoveryCampaign, recoveryWorkspace, [{
+  type: "message",
+  message: {
+    role: "user",
+    content: [{ type: "text", text: "恢复这个既有战役；不要重发玩家输入。" }],
+  },
+}]);
 await recovery.start();
 const sentBeforeResume = recovery.sent.length;
-const recovered = await invoke(
+const recoveryRawResult = await invokeRaw(
   recovery,
   "recovery-resume",
-  resumeParams(recoveryCampaign),
+  resumeParams(recoveryCampaign, recoveryWorkspace),
   "coc_setup",
 );
+const recovered = JSON.parse(recoveryRawResult.content[0].text);
 assert.equal(recovered.ok, true);
 assert.equal(recovered.data.mode, "open_turn_recovery");
 assert.deepEqual(
@@ -884,13 +1002,77 @@ assert.equal(
   recovered.data.host_recovery_guidance?.contract_id,
   OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT,
 );
+assert.deepEqual(recovered.data.current_turn.player_input, {
+  schema_version: 1,
+  kind: "accepted_player_input",
+  audience: "keeper_only",
+  text: recoveryPlayerText,
+  speaker: "player",
+  intent_source: "external_player_message",
+}, JSON.stringify(recovered.data.current_turn));
+assert.equal(recovered.data.current_turn.detail_operation, undefined);
+assert.equal(JSON.stringify(recovered.data.current_turn).includes("sha256:"), false);
+assert.equal(JSON.stringify(recovered.data.current_turn).includes("toolbox-calls"), false);
+assert.equal(recoveryRawResult.details.data.mode, "open_turn_recovery");
+assert.equal(recoveryRawResult.details.data.host_recovery_guidance, undefined);
+assert.equal(recoveryRawResult.details.data.current_turn.player_input, undefined);
+assert.equal(
+  recoveryRawResult.details.data.current_turn.detail_operation.operation,
+  "session.continuation_detail",
+);
+assert.equal(
+  recoveryRawResult.details.wire.control.mode,
+  "open_turn_recovery",
+);
 assert.deepEqual(
-  recovered.data.host_recovery_guidance.closure_sequence.map((row) => row.operation),
-  ["turn.output_context", "state.journal", "turn.finalize"],
+  recovered.data.host_recovery_guidance.next_capabilities.map((row) => row.operation),
+  ["scene.context", "actions.list"],
 );
+assert.equal(recovered.data.host_recovery_guidance.acting_authorized, true);
+assert.equal(
+  recovered.data.host_recovery_guidance.current_acl_supersedes_prior_denials,
+  true,
+);
+assert.deepEqual(
+  recovered.data.host_recovery_guidance.closure_sequence.map(
+    (row) => row.operation,
+  ),
+  OPEN_TURN_RECOVERY_CLOSURE_SEQUENCE.map((row) => row.operation),
+);
+const recoveryTools = recovery.activeTools.at(-1);
+for (const name of ["coc_scene_context", "coc_actions_list", "coc_rules_roll"]) {
+  assert.ok(recoveryTools.includes(name), name);
+}
+const recoveredScene = await invoke(
+  recovery,
+  "recovery-scene-card",
+  { root: recoveryWorkspace, campaign: recoveryCampaign },
+  "coc_scene_context",
+);
+assert.equal(recoveredScene.ok, true);
 assert.ok(
-  recovered.data.host_recovery_guidance.forbidden_until_closed.includes("state.move_scene"),
+  recovery.activeTools.at(-1).includes("coc_rules_settle"),
+  JSON.stringify({
+    message: "recovered scene RuleDecisionCard must project the graph settlement surface",
+    active: recovery.activeTools.at(-1),
+    scene: recoveredScene,
+    audits: recovery.audits.filter((row) => row.name === "coc-tool-working-set").slice(-2),
+  }),
 );
+for (const name of ["coc_turn_output_context", "coc_narration_review", "coc_turn_finalize"]) {
+  assert.ok(!recoveryTools.includes(name), name);
+}
+const discover = recovery.registered.get("coc_discover");
+for (const operation of ["rules.context", "rules.settle"]) {
+  const loaded = JSON.parse((await discover.execute(
+    `recovery-discover-${operation}`,
+    { operation },
+    undefined,
+    undefined,
+    recovery.ctx,
+  )).content[0].text);
+  assert.equal(loaded.ok, true, operation);
+}
 assert.ok(
   recovery.audits.some((entry) => (
     entry.name === OPEN_TURN_RECOVERY_GUIDANCE_AUDIT
@@ -905,6 +1087,13 @@ assert.equal(
   )),
   false,
   "guidance must stay on the tool result; no mid-pair custom message",
+);
+assert.equal(
+  recovery.sent.slice(sentBeforeResume).some((entry) => (
+    JSON.stringify(entry).includes(recoveryPlayerText)
+  )),
+  false,
+  "recovered player text is Keeper-only and never a duplicate player-visible send",
 );
 assert.ok(
   recovery.activeTools.length > 0
@@ -933,6 +1122,351 @@ assert.equal(
   "open_turn_recovery visible final must not arm a gate follow-up",
 );
 await recovery.shutdown();
+
+const recoveryRestart = harness((name, params) => {
+  if (name !== "coc_invoke" || params.operation !== "session.resume") {
+    throw new Error(`unexpected restart ${name}:${params.operation}`);
+  }
+  return resumeEnvelope("open_turn_recovery", {
+    campaign_id: recoveryCampaign,
+    open_turn_anchor: recoveryAnchor,
+    next_operations: ["continue_current_turn_from_receipts"],
+    current_turn: {
+      schema_version: 1,
+      meaningful_row_count: 10,
+      source_digest: `sha256:${"c".repeat(64)}`,
+      rows: [{ call_index: 19, tool: "actions.list", ok: true }],
+    },
+  });
+}, recoveryCampaign, recoveryWorkspace, []);
+await recoveryRestart.start();
+const restarted = await invoke(
+  recoveryRestart,
+  "recovery-restart-resume",
+  resumeParams(recoveryCampaign, recoveryWorkspace),
+  "coc_setup",
+);
+assert.equal(restarted.data.current_turn.player_input.text, recoveryPlayerText);
+assert.equal(restarted.data.host_recovery_guidance.acting_authorized, true);
+assert.equal(restarted.data.open_turn_anchor, undefined);
+assert.equal(
+  JSON.stringify(restarted.data).match(new RegExp(recoveryPlayerText, "gu"))?.length,
+  1,
+  "one recovered tool result carries one exact semantic player-input card",
+);
+await recoveryRestart.shutdown();
+
+const counterfactualAnchor = openTurnInput.createOpenTurnAnchor({
+  timelineId: "timeline-counterfactual",
+  priorFinalizedTurn: 1,
+  priorFinalizedSourceDigest: `sha256:${"b".repeat(64)}`,
+});
+const crossTimelineRecovery = harness((name, params) => {
+  if (name !== "coc_invoke" || params.operation !== "session.resume") {
+    throw new Error(`unexpected cross-timeline ${name}:${params.operation}`);
+  }
+  return resumeEnvelope("open_turn_recovery", {
+    campaign_id: recoveryCampaign,
+    open_turn_anchor: counterfactualAnchor,
+    next_operations: ["continue_current_turn_from_receipts"],
+    current_turn: {
+      schema_version: 1,
+      meaningful_row_count: 10,
+      source_digest: `sha256:${"c".repeat(64)}`,
+      rows: [{ call_index: 19, tool: "actions.list", ok: true }],
+    },
+  });
+}, recoveryCampaign, recoveryWorkspace, []);
+await crossTimelineRecovery.start();
+const crossTimelineResumed = await invoke(
+  crossTimelineRecovery,
+  "cross-timeline-recovery-resume",
+  resumeParams(recoveryCampaign, recoveryWorkspace),
+  "coc_setup",
+);
+assert.equal(crossTimelineResumed.data.current_turn.player_input, undefined);
+assert.equal(
+  crossTimelineResumed.data.host_recovery_guidance.acting_authorized,
+  false,
+);
+for (const name of ["coc_scene_context", "coc_rules_roll", "coc_state_journal"]) {
+  assert.ok(!crossTimelineRecovery.activeTools.at(-1).includes(name), name);
+}
+await crossTimelineRecovery.shutdown();
+
+const zeroToolCampaign = "startup-zero-tool-open-turn-recovery";
+const zeroToolWorkspace = mkdtempSync(path.join(tmpdir(), "pi-coc-zero-tool-recovery-"));
+mkdirSync(path.join(zeroToolWorkspace, ".coc", "campaigns", zeroToolCampaign), {
+  recursive: true,
+});
+const zeroToolAnchor = openTurnInput.createOpenTurnAnchor({
+  timelineId: "timeline-main",
+  priorFinalizedTurn: 4,
+  priorFinalizedSourceDigest: `sha256:${"4".repeat(64)}`,
+});
+const zeroToolPlayerText = "我蹲下来检查地板上的血迹，但暂时不触碰它。";
+assert.equal(openTurnInput.recordOpenTurnPlayerInput({
+  root: zeroToolWorkspace,
+  campaignId: zeroToolCampaign,
+  sessionId: "zero-tool-natural-player-session",
+  playerTurnEpoch: 5,
+  text: zeroToolPlayerText,
+  anchor: zeroToolAnchor,
+}), "recorded");
+const zeroToolRecovery = harness((name, params) => {
+  if (name !== "coc_invoke" || params.operation !== "session.resume") {
+    throw new Error(`unexpected zero-tool ${name}:${params.operation}`);
+  }
+  const canonical = resumeEnvelope("awaiting_player", {
+    campaign_id: zeroToolCampaign,
+    open_turn_anchor: zeroToolAnchor,
+    next_operations: ["interpret_current_player_message"],
+    current_turn: null,
+    pending_turn: null,
+  });
+  canonical.wire = {
+    schema_version: 1,
+    profile: "keeper_hot_v1",
+    canonical_operation: "session.resume",
+    control: {
+      mode: "awaiting_player",
+      next_operations: ["interpret_current_player_message"],
+    },
+  };
+  return canonical;
+}, zeroToolCampaign, zeroToolWorkspace, []);
+await zeroToolRecovery.start();
+const zeroToolRawResult = await invokeRaw(
+  zeroToolRecovery,
+  "zero-tool-recovery-resume",
+  resumeParams(zeroToolCampaign, zeroToolWorkspace),
+  "coc_setup",
+);
+const zeroToolResumed = JSON.parse(zeroToolRawResult.content[0].text);
+assert.equal(zeroToolResumed.data.mode, "open_turn_recovery");
+assert.equal(
+  zeroToolResumed.data.current_turn.player_input.text,
+  zeroToolPlayerText,
+);
+assert.equal(zeroToolResumed.data.host_recovery_guidance.acting_authorized, true);
+assert.equal(zeroToolResumed.data.open_turn_anchor, undefined);
+for (const name of ["coc_scene_context", "coc_actions_list", "coc_rules_roll"]) {
+  assert.ok(zeroToolRecovery.activeTools.at(-1).includes(name), name);
+}
+for (const name of [
+  "coc_turn_output_context",
+  "coc_narration_review",
+  "coc_turn_finalize",
+  "coc_setup_complete",
+]) {
+  assert.ok(!zeroToolRecovery.activeTools.at(-1).includes(name), name);
+}
+assert.equal(
+  zeroToolRecovery.sent.some((entry) => JSON.stringify(entry).includes(zeroToolPlayerText)),
+  false,
+);
+assert.equal(zeroToolRawResult.details.data.mode, "awaiting_player");
+assert.equal(zeroToolRawResult.details.data.current_turn, null);
+assert.equal(zeroToolRawResult.details.wire.control.mode, "awaiting_player");
+await zeroToolRecovery.shutdown();
+
+const zeroToolNeighbor = async ({ label, anchor, pendingTurn = null, tamper = false }) => {
+  const campaign = `zero-tool-neighbor-${label}`;
+  const workspace = mkdtempSync(path.join(tmpdir(), `pi-coc-zero-${label}-`));
+  mkdirSync(path.join(workspace, ".coc", "campaigns", campaign), { recursive: true });
+  if (label !== "missing") {
+    openTurnInput.recordOpenTurnPlayerInput({
+      root: workspace,
+      campaignId: campaign,
+      sessionId: `zero-tool-${label}-session`,
+      playerTurnEpoch: 1,
+      text: zeroToolPlayerText,
+      anchor: zeroToolAnchor,
+    });
+  }
+  if (tamper) {
+    const file = path.join(
+      workspace, ".coc", "runtime", "open-turn-player-inputs", `${campaign}.json`,
+    );
+    const payload = JSON.parse(readFileSync(file, "utf8"));
+    payload.text = "被篡改的玩家输入";
+    writeFileSync(file, `${JSON.stringify(payload)}\n`, "utf8");
+  }
+  const h = harness((name, params) => {
+    if (name !== "coc_invoke" || params.operation !== "session.resume") {
+      throw new Error(`unexpected ${label} ${name}:${params.operation}`);
+    }
+    const canonical = resumeEnvelope("awaiting_player", {
+      campaign_id: campaign,
+      open_turn_anchor: anchor,
+      next_operations: ["interpret_current_player_message"],
+      current_turn: null,
+      pending_turn: pendingTurn,
+    });
+    canonical.wire = {
+      schema_version: 1,
+      profile: "keeper_hot_v1",
+      canonical_operation: "session.resume",
+      control: {
+        mode: "awaiting_player",
+        next_operations: ["interpret_current_player_message"],
+      },
+    };
+    return canonical;
+  }, campaign, workspace, []);
+  await h.start();
+  const rawResult = await invokeRaw(
+    h,
+    `zero-tool-${label}-resume`,
+    resumeParams(campaign, workspace),
+    "coc_setup",
+  );
+  const resumed = JSON.parse(rawResult.content[0].text);
+  assert.equal(resumed.data.mode, "awaiting_player", label);
+  assert.equal(resumed.data.current_turn, null, label);
+  assert.equal(resumed.data.host_recovery_guidance, undefined, label);
+  assert.equal(rawResult.details.data.mode, "awaiting_player", label);
+  assert.equal(rawResult.details.data.current_turn, null, label);
+  assert.equal(rawResult.details.wire.control.mode, "awaiting_player", label);
+  assert.equal(h.activeTools.at(-1).includes("coc_state_journal"), false, label);
+  await h.shutdown();
+};
+
+await zeroToolNeighbor({ label: "missing", anchor: zeroToolAnchor });
+await zeroToolNeighbor({
+  label: "cross-timeline",
+  anchor: openTurnInput.createOpenTurnAnchor({
+    timelineId: "timeline-counterfactual",
+    priorFinalizedTurn: 4,
+    priorFinalizedSourceDigest: `sha256:${"4".repeat(64)}`,
+  }),
+});
+await zeroToolNeighbor({
+  label: "journaled",
+  anchor: zeroToolAnchor,
+  pendingTurn: { schema_version: 1, status: "pending" },
+});
+await zeroToolNeighbor({ label: "tampered", anchor: zeroToolAnchor, tamper: true });
+
+const missingRecoveryCampaign = "startup-open-turn-recovery-missing-input";
+const missingRecoveryAnchor = openTurnInput.createOpenTurnAnchor({
+  timelineId: "timeline-main",
+  priorFinalizedTurn: 2,
+  priorFinalizedSourceDigest: `sha256:${"d".repeat(64)}`,
+});
+const missingRecoveryWorkspace = mkdtempSync(
+  path.join(tmpdir(), "pi-coc-open-turn-recovery-missing-"),
+);
+mkdirSync(
+  path.join(missingRecoveryWorkspace, ".coc", "campaigns", missingRecoveryCampaign),
+  { recursive: true },
+);
+const missingRecovery = harness((name, params) => {
+  if (name !== "coc_invoke" || params.operation !== "session.resume") {
+    throw new Error(`unexpected missing-input ${name}:${params.operation}`);
+  }
+  return resumeEnvelope("open_turn_recovery", {
+    campaign_id: missingRecoveryCampaign,
+    open_turn_anchor: missingRecoveryAnchor,
+    next_operations: ["continue_current_turn_from_receipts"],
+    current_turn: {
+      schema_version: 1,
+      meaningful_row_count: 1,
+      source_digest: `sha256:${"e".repeat(64)}`,
+      rows: [{ call_index: 1, tool: "actions.list", ok: true }],
+    },
+  });
+}, missingRecoveryCampaign, missingRecoveryWorkspace, []);
+await missingRecovery.start();
+const missingResumed = await invoke(
+  missingRecovery,
+  "recovery-missing-input-resume",
+  resumeParams(missingRecoveryCampaign, missingRecoveryWorkspace),
+  "coc_setup",
+);
+assert.equal(missingResumed.data.current_turn.player_input, undefined);
+assert.equal(
+  missingResumed.data.current_turn.recovery_status,
+  "player_input_binding_unavailable",
+);
+assert.equal(missingResumed.data.host_recovery_guidance.acting_authorized, false);
+const missingTools = missingRecovery.activeTools.at(-1);
+assert.ok(missingTools.includes("coc_session_resume"));
+for (const name of [
+  "coc_scene_context",
+  "coc_actions_list",
+  "coc_state_journal",
+  "coc_turn_output_context",
+  "coc_turn_finalize",
+]) {
+  assert.ok(!missingTools.includes(name), name);
+}
+await missingRecovery.shutdown();
+
+const captureCampaign = "startup-open-turn-input-capture";
+const captureAnchor = openTurnInput.createOpenTurnAnchor({
+  timelineId: "timeline-main",
+  priorFinalizedTurn: 3,
+  priorFinalizedSourceDigest: `sha256:${"f".repeat(64)}`,
+});
+const captureWorkspace = mkdtempSync(path.join(tmpdir(), "pi-coc-open-input-capture-"));
+mkdirSync(path.join(captureWorkspace, ".coc", "campaigns", captureCampaign), {
+  recursive: true,
+});
+const captureHost = harness((name, params) => {
+  if (name !== "coc_invoke" || params.operation !== "session.resume") {
+    throw new Error(`unexpected capture ${name}:${params.operation}`);
+  }
+  return resumeEnvelope("awaiting_player", {
+    campaign_id: captureCampaign,
+    open_turn_anchor: captureAnchor,
+    next_operations: ["interpret_current_player_message"],
+    current_turn: {
+      schema_version: 1,
+      meaningful_row_count: 0,
+      source_digest: `sha256:${"0".repeat(64)}`,
+      rows: [],
+    },
+  });
+}, captureCampaign, captureWorkspace, []);
+await captureHost.start();
+await captureHost.emit("message_start", {
+  role: "user",
+  content: [{ type: "text", text: "恢复这个既有战役；不要重发玩家输入。" }],
+});
+assert.deepEqual(openTurnInput.loadOpenTurnPlayerInput({
+  root: captureWorkspace,
+  campaignId: captureCampaign,
+  currentTurn: {
+    meaningful_row_count: 1,
+    source_digest: `sha256:${"1".repeat(64)}`,
+    rows: [{ tool: "actions.list", ok: true }],
+  },
+  anchor: captureAnchor,
+}), { ok: false, code: "missing" });
+await invoke(
+  captureHost,
+  "capture-awaiting-resume",
+  resumeParams(captureCampaign, captureWorkspace),
+  "coc_setup",
+);
+await captureHost.shutdown();
+await captureHost.emit("message_start", {
+  role: "user",
+  content: [{ type: "text", text: recoveryPlayerText }],
+});
+const capturedNaturalInput = openTurnInput.loadOpenTurnPlayerInput({
+  root: captureWorkspace,
+  campaignId: captureCampaign,
+  currentTurn: {
+    meaningful_row_count: 1,
+    source_digest: `sha256:${"2".repeat(64)}`,
+    rows: [{ tool: "actions.list", ok: true }],
+  },
+  anchor: captureAnchor,
+});
+assert.equal(capturedNaturalInput.ok, true);
+assert.equal(capturedNaturalInput.card.text, recoveryPlayerText);
 
 // Exact cards survive the full extension path (coc_setup invoke → gateway →
 // applyPendingFinalizationRecoveryGuidance), stay keeper-only, and never
@@ -974,13 +1508,36 @@ assert.equal(
 assert.deepEqual(
   cardsResumed.data.host_recovery_guidance.review_recovery.card,
   {
-    ...reviewCardFixture(),
-    prefilled_arguments: { revision: 1 },
+    operation: "narration.review",
+    invoke_via: "coc_narration_review",
+    prefilled_arguments: {},
+    missing_arguments: ["draft_text", "findings", "state_authority_review"],
+    host_bound_auto_attached_arguments: [
+      "campaign", "decision_id", "revision", "root", "source_digest",
+      "state_claim_compilation", "turn_id",
+    ],
+    discovery_required: false,
+    authority: "semantic_agency_and_player_state_review",
+    hard_gate_scope: "agency_and_player_state_authority_only",
+    host_state_claim_compiler_required: true,
+    span_repairs: [{ span: "cupboard-reveal", repaired_revision: 1 }],
   },
 );
 assert.deepEqual(
   cardsResumed.data.host_recovery_guidance.then.card,
-  finalizeCardFixture(),
+  {
+    operation: "turn.finalize",
+    invoke_via: "coc_turn_finalize",
+    prefilled_arguments: { coverage: [] },
+    missing_arguments: ["draft", "coverage", "agency_claims"],
+    host_bound_auto_attached_arguments: [
+      "campaign", "decision_id", "narration_review_id",
+      "repair_finalization_id", "revision", "root",
+    ],
+    discovery_required: false,
+    authority: "settled_output_completeness",
+    hard_gate: true,
+  },
 );
 assert.equal(
   JSON.stringify(
@@ -1170,7 +1727,14 @@ const liveEnvelope = (mutateData = () => {}, frozenDraft) => {
       turn_id: liveTurnId,
       source_digest: liveSourceDigest,
       settlement_snapshot_id: "turn-settlement-v1:live-hydrate-1",
-      mechanics_bundle_sha256: "sha256:live-mechanics-hydrate-1",
+      mechanics_bundle_sha256: `sha256:${"c".repeat(64)}`,
+      obligations: [],
+      mechanics_summary: {
+        public_check: [],
+        state_delta: [],
+        exceptional_effect: [],
+        concealed_consequence: [],
+      },
       manifest_revision: 41,
       contract_projection: {
         agency_review_required: true,
@@ -1204,6 +1768,75 @@ const liveEnvelope = (mutateData = () => {}, frozenDraft) => {
       source_digest: envelope.data.source_digest,
     });
   }
+  return envelope;
+};
+const acceptedReviewEnvelope = (mutateEvidence = () => {}, { reseal = true } = {}) => {
+  const envelope = liveEnvelope();
+  envelope.data.contract_projection = {
+    agency_review_required: true,
+    player_input: {
+      source_ref: "player_input:live-hydrate-1",
+      text: "我等待诺特的答复。",
+    },
+    control_overrides: [],
+    agency_authority: {
+      pc_subject_refs: ["pc:live-hydrate-investigator"],
+      involuntary_physiology_sources: [{
+        source_ref: "narration_contract:involuntary_physiology",
+        source_type: "ownership_contract",
+      }],
+    },
+  };
+  envelope.data.contract_projection_sha256 = canonicalDigest(
+    envelope.data.contract_projection,
+  );
+  const frozen = envelope.data.frozen_narration_draft;
+  const evidence = {
+    schema_version: 1,
+    contract_id: "coc.accepted-review-evidence.v2",
+    visibility: "host_only",
+    review_id: frozen.review_id,
+    turn_id: envelope.data.turn_id,
+    source_digest: envelope.data.source_digest,
+    revision: frozen.revision,
+    draft_sha256: frozen.draft_sha256,
+    review_digest: frozen.review_digest,
+    pending_draft_receipt_digest: frozen.receipt_digest,
+    contract_projection_sha256: envelope.data.contract_projection_sha256,
+    verification: {
+      agency_gate: "clear",
+      state_authority_gate: "clear",
+    },
+    state_authority_review: {
+      disposition: "no_player_state_change_claimed",
+      reason: "草稿没有宣告玩家状态变化。",
+      claims: [],
+    },
+    player_input_source_ref:
+      envelope.data.contract_projection.player_input.source_ref,
+    agency_authority: structuredClone(
+      envelope.data.contract_projection.agency_authority,
+    ),
+    control_overrides: [],
+    coverage_binding_facts: {
+      schema_version: 1,
+      contract_id: "coc.reviewed-coverage-binding-facts.v1",
+      settlement_snapshot_id: envelope.data.settlement_snapshot_id,
+      mechanics_bundle_sha256: envelope.data.mechanics_bundle_sha256,
+      obligations: structuredClone(envelope.data.obligations),
+      public_check_source_ids: [],
+      state_delta_source_ids: [],
+      exceptional_effect_source_ids: [],
+    },
+  };
+  mutateEvidence(evidence, envelope.data);
+  if (reseal) {
+    delete evidence.evidence_sha256;
+    evidence.evidence_sha256 = canonicalDigest(evidence);
+  } else if (!Object.hasOwn(evidence, "evidence_sha256")) {
+    evidence.evidence_sha256 = `sha256:${"0".repeat(64)}`;
+  }
+  envelope.data.accepted_review_evidence = evidence;
   return envelope;
 };
 const pointerOnlyPendingEnvelope = (campaignId) => {
@@ -1629,6 +2262,93 @@ for (const [label, envelope, resumeData, expectNull] of [
   assert.equal(mutationValidated.frozenDraft.draft_text, liveDraftText);
 }
 
+// Accepted-review recovery evidence is a closed host-only bridge. It is
+// accepted only when its own seal, frozen review/draft identity, and exact
+// current authority projection all agree. A self-consistent forged mutation
+// still fails when it diverges from an independent canonical source.
+{
+  const acceptedSource = acceptedReviewEnvelope();
+  const accepted = validateLiveOutputContext(acceptedSource, null);
+  assert.ok(accepted !== null);
+  assert.deepEqual(
+    accepted.acceptedReviewEvidence,
+    acceptedSource.data.accepted_review_evidence,
+  );
+  acceptedSource.data.accepted_review_evidence.state_authority_review.reason =
+    "later source mutation";
+  assert.equal(
+    accepted.acceptedReviewEvidence.state_authority_review.reason,
+    "草稿没有宣告玩家状态变化。",
+    "validated accepted-review evidence is an exact deep copy",
+  );
+
+  const forgedCases = [
+    ["invalid evidence digest", acceptedReviewEnvelope(() => {}, { reseal: false })],
+    ["stale review identity", acceptedReviewEnvelope((e) => {
+      e.review_id = "narration-review-v1:stale";
+    })],
+    ["stale draft digest", acceptedReviewEnvelope((e) => {
+      e.draft_sha256 = canonicalDigest("另一份草稿");
+    })],
+    ["stale review digest", acceptedReviewEnvelope((e) => {
+      e.review_digest = `sha256:${"9".repeat(64)}`;
+    })],
+    ["stale receipt digest", acceptedReviewEnvelope((e) => {
+      e.pending_draft_receipt_digest = `sha256:${"8".repeat(64)}`;
+    })],
+    ["authority diverges from canonical projection", acceptedReviewEnvelope((e) => {
+      e.agency_authority.pc_subject_refs = ["pc:other-investigator"];
+    })],
+    ["player input authority diverges", acceptedReviewEnvelope((e) => {
+      e.player_input_source_ref = "player_input:other-turn";
+    })],
+    ["unreviewed exact state span", acceptedReviewEnvelope((e) => {
+      e.state_authority_review = {
+        disposition: "claims_listed",
+        reason: "forged exact span",
+        claims: [{
+          claim_id: "claim-forged",
+          subject_ref: "pc:live-hydrate-investigator",
+          claim_kind: "condition",
+          exact_excerpt: "不在冻结草稿中的文本",
+          source_effect_id: "effect:forged",
+          reason: "forged",
+        }],
+      };
+    })],
+    ["non-clear verification", acceptedReviewEnvelope((e) => {
+      e.verification.state_authority_gate = "rewrite_required";
+    })],
+    ["coverage facts diverge from current obligations", acceptedReviewEnvelope((e) => {
+      e.coverage_binding_facts.obligations = [{
+        obligation_id: "roll:forged-obligation",
+        source_kind: "check",
+        source_id: "forged-obligation",
+        visibility: "public",
+        exceptional_required: false,
+      }];
+      e.coverage_binding_facts.public_check_source_ids = ["forged-obligation"];
+    })],
+    ["coverage mechanics digest drifts", acceptedReviewEnvelope((e) => {
+      e.coverage_binding_facts.mechanics_bundle_sha256 =
+        `sha256:${"7".repeat(64)}`;
+    })],
+    ["current output context drifts after accepted evidence", acceptedReviewEnvelope(
+      (_e, data) => {
+        data.mechanics_summary.state_delta = [{
+          effect_id: "effect:late-drift",
+        }];
+      },
+    )],
+    ["unknown evidence field", acceptedReviewEnvelope((e) => {
+      e.extra = "not closed";
+    })],
+  ];
+  for (const [label, envelope] of forgedCases) {
+    assert.equal(validateLiveOutputContext(envelope, null), null, label);
+  }
+}
+
 // Recovery hydration mode: a review-required live chain is usable only with
 // the exact frozen draft; without it the whole chain fails closed. A direct
 // finalize chain never requires one. Validating an explicit canonical call
@@ -2038,13 +2758,31 @@ assert.equal(liveGuidance.output_context_status, "host_refreshed_live");
 assert.deepEqual(liveGuidance.next_call, { tool: "coc_narration_review" });
 assert.equal(liveGuidance.next_call.card, undefined, "first card is not duplicated");
 assert.deepEqual(liveGuidance.review_recovery.card, {
-  ...liveReviewCard(),
-  // Gateway boundary sanitizes opaque identity from model content; the host
-  // injects the exact turn/source binding at invoke time.
-  prefilled_arguments: { revision: 2 },
+  operation: "narration.review",
+  invoke_via: "coc_narration_review",
+  prefilled_arguments: {},
+  missing_arguments: ["draft_text", "findings", "state_authority_review"],
+  host_bound_auto_attached_arguments: [
+    "campaign", "decision_id", "revision", "root", "source_digest",
+    "state_claim_compilation", "turn_id",
+  ],
+  discovery_required: false,
+  authority: "semantic_agency_and_player_state_review",
 });
-assert.deepEqual(liveGuidance.then.card, liveFinalizeCard());
-assert.equal(liveGuidance.review_recovery.revision, 2);
+assert.deepEqual(liveGuidance.then.card, {
+  operation: "turn.finalize",
+  invoke_via: "coc_turn_finalize",
+  prefilled_arguments: { coverage: [] },
+  missing_arguments: ["draft", "agency_claims"],
+  host_bound_auto_attached_arguments: [
+    "campaign", "decision_id", "narration_review_id",
+    "repair_finalization_id", "revision", "root",
+  ],
+  discovery_required: false,
+  authority: "settled_output_completeness",
+  hard_gate: true,
+});
+assert.equal(liveGuidance.review_recovery.revision, undefined);
 assert.equal(liveGuidance.card_projection.source, "host_refreshed_live_context");
 // The exact frozen draft rides once, keeper-only, inside the review input.
 assert.deepEqual(liveGuidance.review_recovery.review_input, {
@@ -2169,25 +2907,23 @@ assert.equal(
   "coc.pi-state-claim-compilation-receipt.v1",
 );
 assertNoPlayerLeak(liveHost, "live hydration review");
-// Repeated resume of the same pending identity coalesces: no refetch, the
-// same live guidance.
+// A successful review invalidates the pre-review hydration even when the
+// pending turn/source tuple is unchanged; the next resume refetches once so
+// an accepted review can never be mistaken for the old review action.
 const liveResumedAgain = await invoke(
   liveHost,
   "live-hydrate-resume-2",
   resumeParams(liveCampaign),
   "coc_setup",
 );
-assert.equal(outputContextFetchCount(liveHost), 1, "repeated pending identity must not refetch");
+assert.equal(outputContextFetchCount(liveHost), 2, "post-review resume refetches exactly once");
 assert.equal(
   liveResumedAgain.data.host_recovery_guidance.output_context_status,
   "host_refreshed_live",
 );
 assert.deepEqual(
   liveResumedAgain.data.host_recovery_guidance.review_recovery.card,
-  {
-    ...liveReviewCard(),
-    prefilled_arguments: { revision: 2 },
-  },
+  liveGuidance.review_recovery.card,
 );
 await liveHost.shutdown();
 
@@ -2316,20 +3052,22 @@ await liveHost.shutdown();
   }, changedCampaign);
   await changedHost.start();
   const firstChanged = await invoke(changedHost, "changed-resume-1", resumeParams(changedCampaign), "coc_setup");
-  // Identity values are host-only at the gateway boundary; the model-visible
-  // card carries the semantic revision ordinal, and the changed-identity
-  // refetch below proves the host retained the exact turn binding.
+  // Identity values and revision are host-only at the gateway boundary; the
+  // changed-identity refetch below proves the host retained the exact binding.
   assert.equal(
     firstChanged.data.host_recovery_guidance.review_recovery.card.prefilled_arguments.revision,
-    2,
+    undefined,
   );
   const secondChanged = await invoke(changedHost, "changed-resume-2", resumeParams(changedCampaign), "coc_setup");
   assert.equal(outputContextFetchCount(changedHost), 2, "changed identity refetches once");
   assert.equal(
     secondChanged.data.host_recovery_guidance.review_recovery.card.prefilled_arguments.revision,
-    2,
+    undefined,
   );
-  assert.equal(secondChanged.data.host_recovery_guidance.review_recovery.revision, 2);
+  assert.equal(
+    secondChanged.data.host_recovery_guidance.review_recovery.revision,
+    undefined,
+  );
   await changedHost.shutdown();
 }
 
@@ -2387,8 +3125,9 @@ await liveHost.shutdown();
   const staleResume = await oldResume;
   assert.equal(outputContextFetchCount(raceHost), 2);
   assert.equal(
-    newResume.data.host_recovery_guidance.review_recovery.revision,
-    2,
+    newResume.data.host_recovery_guidance.review_recovery.card
+      .host_bound_auto_attached_arguments.includes("revision"),
+    true,
     "new revision-qualified identity commits its one live fetch",
   );
   assert.equal(
@@ -3874,6 +4613,20 @@ process.stdout.write(JSON.stringify({
   ok: true,
   contract: OPEN_TURN_RECOVERY_GUIDANCE_CONTRACT,
   attachedOnOpenTurnRecovery: true,
+  openTurnPlayerInputHydrated: true,
+  openTurnActingSurface: true,
+  openTurnMissingInputFailsClosed: true,
+  startupControlPromptNotCaptured: true,
+  restartPlayerInputStable: true,
+  crossTimelineAnchorFailsClosed: true,
+  recoveryAnchorHiddenFromModel: true,
+  openTurnCanonicalDetailsPreserved: true,
+  zeroToolRecoveryOverlaySeparated: true,
+  zeroToolNeighborCanonicalDetailsStable: true,
+  zeroToolAcceptedInputRecoversActing: true,
+  zeroToolNeighborsFailClosed: [
+    "missing", "tampered", "cross-timeline", "journaled",
+  ],
   skippedModes: ["table_opening", "awaiting_player", "pending_finalization"],
   noMidPairCustom: true,
   providerValid: true,

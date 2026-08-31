@@ -419,6 +419,9 @@ def _error_recovery_hints(code: str) -> list[str]:
         "subsystem_transaction_failed": [
             "the subsystem rolled back the failed transaction; retry later with the same decision_id if automatic recovery is exhausted"
         ],
+        "damage_transaction_incomplete": [
+            "retry rules.damage with the exact same decision_id and arguments; the state-bound receipt will repair missing roll, event, or ledger evidence without applying damage again"
+        ],
         "development_settlement_failed": [
             "the ending remains recorded and the development transaction was rolled back; retry with the same decision_id"
         ],
@@ -3379,6 +3382,7 @@ _load_operation_module('rules-core', 'coc_operation_rules_core.py')
 _load_operation_module('social-psychology', 'coc_operation_social_psychology.py')
 _load_operation_module('combat', 'coc_operation_combat.py')
 _load_operation_module('chase', 'coc_operation_chase.py')
+_load_operation_module('magic', 'coc_operation_magic.py')
 _load_operation_module('sanity-recovery', 'coc_operation_sanity_recovery.py')
 _load_operation_module('finance', 'coc_operation_finance.py')
 _load_operation_module('inventory-mechanics', 'coc_operation_inventory_mechanics.py')
@@ -3417,6 +3421,8 @@ _MUTATING_TOOLS = frozenset({
     "combat.resolve",
     "combat.end",
     "chase.execute",
+    "magic.cast",
+    "magic.learn",
     "sanity.execute",
     "development.settle",
     "evidence.record_adoption",

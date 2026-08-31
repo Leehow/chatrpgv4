@@ -3857,6 +3857,9 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                     "reason": "structured semantic chase action",
                 }]
     scene = ctx.get("active_scene") or {}
+    module_scenario_id = str(
+        (ctx.get("module_meta") or {}).get("scenario_id") or ""
+    ).strip()
     fired = set(ctx.get("world_state", {}).get("san_triggers_fired", []))
     for trig in (scene.get("on_enter") or {}).get("san_triggers", []) or []:
         if not isinstance(trig, dict):
@@ -3874,14 +3877,32 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
             "involuntary_summary",
             involuntary.get("summary", "freezes for a moment"),
         )
+        creature_type = trig.get("creature_type")
+        authored_san = (
+            coc_rules.module_monster_san_threat(
+                module_scenario_id, creature_type,
+            )
+            if module_scenario_id and isinstance(creature_type, str)
+            else None
+        )
+        san_loss_success = (
+            authored_san["success"]
+            if authored_san is not None
+            else trig.get("san_loss_success", 0)
+        )
+        san_loss_failure = (
+            authored_san["failure"]
+            if authored_san is not None
+            else trig.get("san_loss_fail_expr", "1")
+        )
         request = {
             "kind": "sanity_check", "skill": "SAN",
             "reason": trig.get("source", "scene horror"),
             "difficulty": "regular", "bonus_penalty_dice": 0,
-            "san_loss_success": int(trig.get("san_loss_success", 0)),
-            "san_loss_fail_expr": str(trig.get("san_loss_fail_expr", "1")),
+            "san_loss_success": san_loss_success,
+            "san_loss_fail_expr": str(san_loss_failure),
             "source": trig.get("source", "scene horror"),
-            "creature_type": trig.get("creature_type"),
+            "creature_type": creature_type,
             "alone": trig.get("alone", False),
             "involuntary_kind": involuntary_kind,
             "involuntary_summary": involuntary_summary,
@@ -3895,6 +3916,8 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                 push_eligible=False,
             ),
         }
+        if authored_san is not None:
+            request["rule_ref"] = authored_san["source_rule_id"]
         if "module_bout_override" in trig:
             request["module_bout_override"] = trig["module_bout_override"]
         requests.append(request)
@@ -3932,6 +3955,44 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                 profile = profiles[0]
             if not profile:
                 continue
+            creature_type = danger.get("creature_type")
+            time_signals = ctx.get("time_signals") or {}
+            scene_tags = {
+                str(value)
+                for value in [
+                    *(scene.get("location_tags") or []),
+                    *(scene.get("tone") or []),
+                ]
+                if isinstance(value, str)
+            }
+            day_phase = time_signals.get("day_phase")
+            daylight_active = (
+                day_phase in {"morning", "afternoon"}
+                if day_phase in {"morning", "afternoon", "evening", "night"}
+                else bool(scene_tags & {"dawn", "daylight", "dawn-light"})
+            )
+            daylight_modifier = None
+            if (
+                daylight_active
+                and module_scenario_id
+                and isinstance(creature_type, str)
+            ):
+                daylight_modifier = coc_rules.module_daylight_skill_modifier(
+                    module_scenario_id, creature_type,
+                )
+            attack_target = int(profile.get("attack_target_percent", 50))
+            modifier_evidence = None
+            if daylight_modifier is not None:
+                attack_target = max(
+                    0,
+                    min(100, attack_target + int(daylight_modifier["value"])),
+                )
+                modifier_evidence = {
+                    "kind": daylight_modifier["kind"],
+                    "value": daylight_modifier["value"],
+                    "rule_ref": daylight_modifier["source_rule_id"],
+                    "creature_rule_ref": daylight_modifier["creature_rule_id"],
+                }
             reaction_kind = str(profile.get("reaction_kind") or "unspecified")
             if reaction_kind not in {
                 "dodge", "fight_back", "dodge_or_fight_back", "noncombat",
@@ -3950,9 +4011,7 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                     "danger_id": did,
                     "attack_name": profile.get("name", "attack"),
                     "attack_skill": profile.get("attack_skill", "Fighting"),
-                    "attack_target_percent": int(
-                        profile.get("attack_target_percent", 50)
-                    ),
+                    "attack_target_percent": attack_target,
                     "reaction_kind": reaction_kind,
                     "same_level_winner": (
                         "defender" if reaction_kind == "dodge"
@@ -3961,6 +4020,10 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                     ),
                     "canonical_tool": "combat.resolve",
                     "forbidden_tool": "rules.opposed",
+                    **(
+                        {"modifier_evidence": modifier_evidence}
+                        if modifier_evidence is not None else {}
+                    ),
                 })
                 continue
             requests.append({
@@ -3971,12 +4034,17 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                 "difficulty": "regular", "bonus_penalty_dice": 0,
                 "resist_skill": profile.get("resist_skill", "Dodge"),
                 "opposed_skill": profile.get("attack_skill", "Fighting"),
-                "opposed_target_percent": int(profile.get("attack_target_percent", 50)),
+                "opposed_target_percent": attack_target,
+                "opponent_value": attack_target,
                 "damage": profile.get("damage", "1D6"),
                 "lethality": profile.get("lethality"),
                 "ignores_armor": bool(profile.get("ignores_armor", False)),
                 "attack_name": profile.get("name", "attack"),
                 "danger_id": did,
+                **(
+                    {"modifier_evidence": modifier_evidence}
+                    if modifier_evidence is not None else {}
+                ),
                 "roll_contract": _roll_contract(
                     goal=f"avoid {profile.get('name', 'the incoming attack')}",
                     success_effect="avoid the immediate hit or blunt its impact",

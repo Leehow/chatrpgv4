@@ -241,6 +241,29 @@ coc_investigator_guard = _load_sibling(
 )
 coc_npc_state = _load_sibling("coc_npc_state_subsystem_executor", "coc_npc_state.py")
 coc_inventory = _load_sibling("coc_inventory_subsystem_executor", "coc_inventory.py")
+coc_rulesets = _load_sibling("coc_rulesets_subsystem_executor", "coc_rulesets.py")
+
+
+def _package_damage_state_effect(
+    campaign_dir: Path,
+    actor_state: dict[str, Any],
+    event: dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve and invoke the bound package's optional pure damage hook."""
+    campaign_path = Path(campaign_dir) / "campaign.json"
+    if campaign_path.is_file():
+        try:
+            campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("campaign ruleset binding is unreadable") from exc
+        if not isinstance(campaign, dict):
+            raise ValueError("campaign ruleset binding must be an object")
+    else:
+        campaign = None
+    resolver = coc_rulesets.get_resolver(campaign)
+    return coc_rulesets.apply_damage_state_effect(
+        resolver, actor_state, event
+    )
 
 
 def _resolved_percentile_fields(
@@ -4374,6 +4397,44 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                     f"{base}.rescuer_id",
                     "rescuer_id must be a stable safe ID",
                 )
+            assistant_skill = payload.get("assistant_skill_value")
+            assistant_id = payload.get("assistant_rescuer_id")
+            if (assistant_skill is None) != (assistant_id is None):
+                raise _error(
+                    "invalid_command_payload",
+                    base,
+                    "assistant First Aid requires both assistant_skill_value "
+                    "and assistant_rescuer_id",
+                )
+            if assistant_skill is not None:
+                if payload.get("method") != "first_aid":
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.assistant_skill_value",
+                        "only First Aid supports a second rescuer",
+                    )
+                if (
+                    isinstance(assistant_skill, bool)
+                    or not isinstance(assistant_skill, int)
+                    or not 1 <= assistant_skill <= 100
+                ):
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.assistant_skill_value",
+                        "assistant_skill_value must be 1..100",
+                    )
+                if not isinstance(assistant_id, str) or not _SAFE_ID.fullmatch(assistant_id):
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.assistant_rescuer_id",
+                        "assistant_rescuer_id must be a stable safe ID",
+                    )
+                if assistant_id == rescuer_id:
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.assistant_rescuer_id",
+                        "assistant_rescuer_id must name a different rescuer",
+                    )
             pushed = payload.get("pushed", False)
             if not isinstance(pushed, bool):
                 raise _error(
@@ -5731,9 +5792,11 @@ def _settle_sanity_check(
         "san_loss_rolls": _json_copy(san_roll.get("san_loss_rolls") or []),
         "san_loss_raw_total": san_roll.get("san_loss_raw_total"),
         "san_loss_resolution": san_roll.get("san_loss_resolution"),
+        "involuntary_action": _json_copy(san_roll.get("involuntary_action")),
         "bout_triggered": bool(session.bout_active or session.temporary_insane),
         "source": source,
         "san_trigger_id": payload.get("san_trigger_id"),
+        "rule_ref": payload.get("rule_ref"),
         "session_events": session_events,
         "bout_active": bool(session.bout_active),
         "active_bout_id": session.active_bout_id,
@@ -5904,9 +5967,19 @@ def _roll_result(
             "san_loss_rolls": settled["san_loss_rolls"],
             "san_loss_raw_total": settled["san_loss_raw_total"],
             "san_loss_resolution": settled["san_loss_resolution"],
+            **(
+                {"involuntary_action": _json_copy(settled["involuntary_action"])}
+                if isinstance(settled.get("involuntary_action"), dict)
+                else {}
+            ),
             "bout_triggered": settled["bout_triggered"],
             "source": settled["source"],
             "san_trigger_id": settled["san_trigger_id"],
+            **(
+                {"rule_ref": settled["rule_ref"]}
+                if isinstance(settled.get("rule_ref"), str)
+                and settled["rule_ref"] else {}
+            ),
             "roll_contract": payload.get("roll_contract"),
             "resolution_context": _json_copy(payload.get("resolution_context") or {}),
             "_session_events": settled["session_events"],
@@ -6779,6 +6852,11 @@ def _healing_roll_evidence(
                 "announced_consequence": {
                     "summary": payload["failure_consequence"]
                 },
+                "pushed_roll_protocol": {
+                    "failure_consequence_source": "keeper",
+                    "keeper_foreshadowed_failure": True,
+                    "player_confirmation_recorded": True,
+                },
             }
             if payload.get("pushed") is True
             else {}
@@ -6791,6 +6869,92 @@ def _healing_roll_evidence(
         "dice": {"expression": "1D100", "raw": [roll], "total": roll},
         "source_command_id": command_id,
     }
+
+
+def _healing_team_roll_evidence(
+    command_id: str,
+    payload: dict[str, Any],
+    event: dict[str, Any],
+) -> list[dict[str, Any]]:
+    rows = event.get("team_rolls")
+    if rows is None:
+        return []
+    if not isinstance(rows, list) or len(rows) != 2:
+        raise _error(
+            "invalid_healing_roll",
+            "healing.team_rolls",
+            "two-rescuer First Aid requires exactly two roll rows",
+        )
+    expected = (
+        ("primary", payload.get("rescuer_id"), payload.get("skill_value")),
+        (
+            "assistant",
+            payload.get("assistant_rescuer_id"),
+            payload.get("assistant_skill_value"),
+        ),
+    )
+    evidence: list[dict[str, Any]] = []
+    for index, (role, rescuer_id, target) in enumerate(expected):
+        row = rows[index]
+        if not isinstance(row, dict):
+            raise _error(
+                "invalid_healing_roll",
+                f"healing.team_rolls[{index}]",
+                "team roll must be an object",
+            )
+        roll = row.get("roll")
+        difficulty = str(row.get("difficulty") or "regular")
+        if (
+            row.get("rescuer_id") != rescuer_id
+            or isinstance(target, bool)
+            or not isinstance(target, int)
+            or row.get("target") != target
+            or isinstance(roll, bool)
+            or not isinstance(roll, int)
+        ):
+            raise _error(
+                "invalid_healing_roll",
+                f"healing.team_rolls[{index}]",
+                "team roll contradicts the validated command payload",
+            )
+        settlement = _resolved_percentile_fields(roll, target, difficulty)
+        if row.get("outcome") != settlement["outcome"]:
+            raise _error(
+                "invalid_healing_roll",
+                f"healing.team_rolls[{index}].outcome",
+                "team roll outcome contradicts canonical percentile settlement",
+            )
+        record = {
+            "event_type": "combat_rescue_roll",
+            "roll_id": f"{command_id}:roll:{role}",
+            "roll_role": "percentile_check",
+            "decision_id": payload.get("decision_id"),
+            "actor_id": rescuer_id,
+            "skill": "First Aid",
+            "teamwork_role": role,
+            "pushed": bool(payload.get("pushed", False)),
+            **settlement,
+            "roll": roll,
+            "bonus_penalty_dice": 0,
+            "bonus_dice": 0,
+            "penalty_dice": 0,
+            "dice": {"expression": "1D100", "raw": [roll], "total": roll},
+            "source_command_id": command_id,
+        }
+        if payload.get("pushed") is True:
+            record.update({
+                "changed_method": payload["changed_method"],
+                "announced_consequence": {
+                    "summary": payload["failure_consequence"],
+                },
+                "pushed_roll_protocol": {
+                    "failure_consequence_source": "keeper",
+                    "keeper_foreshadowed_failure": True,
+                    "player_confirmation_recorded": True,
+                },
+            })
+        evidence.append(record)
+    return evidence
 
 
 def _weekly_care_roll_evidence(
@@ -7733,6 +7897,7 @@ def _dispatch_combat(
         if "dead" in healing.conditions:
             raise _error("investigator_dead", "save/investigator-state", "dead investigators cannot be rescued")
         care_event: dict[str, Any] | None = None
+        team_roll_evidence: list[dict[str, Any]] = []
         recovery_wound_id: str | None = None
         recovery_baseline: int | None = None
         recovery_elapsed: int | None = None
@@ -7805,7 +7970,11 @@ def _dispatch_combat(
             if _latest_healing_result_reopens_pushed_first_aid(state):
                 healing.reopen_subsequent_first_aid_attempt()
             event = healing.first_aid(
-                payload["skill_value"], pushed=bool(payload.get("pushed", False))
+                payload["skill_value"],
+                pushed=bool(payload.get("pushed", False)),
+                rescuer_id=payload.get("rescuer_id"),
+                assistant_skill_value=payload.get("assistant_skill_value"),
+                assistant_rescuer_id=payload.get("assistant_rescuer_id"),
             )
         else:
             wound_id, day_id, same_day = _authoritative_treatment_scope(
@@ -7830,7 +7999,14 @@ def _dispatch_combat(
                     care_event.get("outcome") if care_event is not None else None
                 ),
             )
-        roll_evidence = _healing_roll_evidence(command_id, payload, event)
+        team_roll_evidence = _healing_team_roll_evidence(
+            command_id, payload, event,
+        )
+        roll_evidence = (
+            None
+            if team_roll_evidence
+            else _healing_roll_evidence(command_id, payload, event)
+        )
         healing_evidence = _medicine_healing_evidence(command_id, payload, event)
         care_evidence = _weekly_care_roll_evidence(
             command_id, payload, care_event
@@ -7932,8 +8108,10 @@ def _dispatch_combat(
     events = [event, *additional_events]
     if kind == "combat_defend":
         events.extend(roll_events)
-    elif kind in {"dying_tick", "stabilize", "weekly_recovery"} and event.get("roll_evidence") is not None:
-        events.append(event["roll_evidence"])
+    elif kind in {"dying_tick", "stabilize", "weekly_recovery"}:
+        if event.get("roll_evidence") is not None:
+            events.append(event["roll_evidence"])
+        events.extend(team_roll_evidence)
         if care_evidence is not None:
             events.append(care_evidence)
         if healing_evidence is not None:
@@ -7955,6 +8133,9 @@ def _dispatch(
     command: dict[str, Any],
     rng: random.Random,
     state: dict[str, Any],
+    damage_state_effect: Callable[
+        [dict[str, Any], dict[str, Any]], dict[str, Any]
+    ] | None,
 ) -> dict[str, Any]:
     command_id = command["command_id"]
     kind = command["kind"]
@@ -8009,6 +8190,30 @@ def _dispatch(
                     )
                     inv["current_hp"] = participant["current_hp"]
                     inv["conditions"] = list(participant.get("conditions") or [])
+                    if (
+                        int(damage["hp_before"]) - int(damage["hp_after"]) > 0
+                        and damage_state_effect is not None
+                    ):
+                        projected = damage_state_effect(inv, {
+                            "schema_version": 1,
+                            "actor_id": investigator_id,
+                            "decision_id": command_id,
+                            "amount": int(damage["damage_roll"]["total"]),
+                            "before": int(damage["hp_before"]),
+                            "after": int(damage["hp_after"]),
+                            "maximum": int(inv["hp_max"]),
+                            "occurred_elapsed_minutes": (
+                                _read_authoritative_elapsed_minutes(campaign_dir)
+                            ),
+                            "source_event_id": f"{command_id}:damage",
+                        })
+                        if not isinstance(projected, dict):
+                            raise _error(
+                                "invalid_damage_state_effect",
+                                "ruleset.damage_state_effect",
+                                "damage state effect must return actor state",
+                            )
+                        inv = projected
                     roll = damage["damage_roll"]
                     events.append({
                         "roll_id": f"{command_id}:damage", "decision_id": payload.get("decision_id"),
@@ -8863,9 +9068,16 @@ def execute_commands(
     rng: random.Random,
     append_jsonl: Callable[[Path, dict[str, Any]], None] | None = None,
     character_snapshot: dict[str, Any] | None = None,
+    damage_state_effect: Callable[
+        [dict[str, Any], dict[str, Any]], dict[str, Any]
+    ] | None = None,
 ) -> list[dict[str, Any]]:
     """Validate, execute, persist, and replay a strict subsystem command batch."""
     campaign = Path(campaign_dir)
+    if damage_state_effect is None:
+        damage_state_effect = lambda actor_state, event: (
+            _package_damage_state_effect(campaign, actor_state, event)
+        )
     if not isinstance(investigator_id, str) or not _SAFE_ID.fullmatch(investigator_id):
         raise _error(
             "invalid_investigator_id",
@@ -9070,6 +9282,7 @@ def execute_commands(
                 command,
                 rng,
                 next_state,
+                damage_state_effect,
             )
             result_events = [
                 event

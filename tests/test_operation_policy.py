@@ -312,21 +312,20 @@ HEALING_LEGACY_OPERATIONS = (
 )
 
 
-def test_healing_legacy_ops_are_keeper_visible_while_family_is_shadow_owned():
+def test_healing_legacy_ops_are_host_internal_after_graph_cutover():
     live = set(coc_toolbox.query_operations(audience="keeper"))
     live_rules = set(coc_toolbox.query_operations(audience="keeper", kp_surface="rules"))
     for name in HEALING_LEGACY_OPERATIONS:
         assert name in coc_toolbox.TOOLS
-        assert name in live
-        assert name in live_rules
+        assert name not in live
+        assert name not in live_rules
         policy = coc_toolbox.operation_policy(name)
-        assert policy["audience"] == "keeper"
-        assert policy["kp_surface"] == "rules"
-        assert name not in coc_operation_policy.HOST_INVOKE_COMPAT_OPERATIONS
-    assert "rules.settle" not in live_rules
+        assert policy["audience"] == "host"
+        assert policy["kp_surface"] == "none"
+    assert "rules.settle" in live_rules
     settle = coc_toolbox.operation_policy("rules.settle")
-    assert settle["audience"] == "host"
-    assert settle["kp_surface"] == "none"
+    assert settle["audience"] == "keeper"
+    assert settle["kp_surface"] == "rules"
     assert settle["phases"] == ["live_turn"]
 
 

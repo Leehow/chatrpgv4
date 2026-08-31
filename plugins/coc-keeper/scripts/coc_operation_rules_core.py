@@ -13,6 +13,7 @@ from coc_operation_kernel_runtime import (
     _active_ruleset_id,
     _canonical_digest,
     _commit_new_roll_receipt,
+    _current_elapsed_minutes,
     _execute_subsystem_requests,
     _existing_roll_receipt,
     _is_exact_int,
@@ -51,6 +52,21 @@ from coc_operation_kernel_runtime import (
 )
 
 coc_catalog = _load_sibling("coc_catalog", "coc_catalog.py")
+
+_DAMAGE_RECEIPTS_KEY = "ruleset_damage_receipts"
+_DAMAGE_RECEIPT_SCHEMA_VERSION = 1
+_DAMAGE_RECEIPT_LIMIT = 300
+_DAMAGE_RECEIPT_FIELDS = frozenset({
+    "schema_version",
+    "tool",
+    "decision_id",
+    "fingerprint",
+    "operation",
+    "data",
+    "roll_record",
+    "event",
+    "integrity_digest",
+})
 
 _DICE_MULTIPLIER_PATTERN = re.compile(
     r"^(?P<base>\d+D\d+(?:[+-]\d+)?)[*Xx×](?P<factor>\d+)$"
@@ -725,19 +741,167 @@ def _tool_rules_opposed(ctx: Ctx, args: dict[str, Any]):
         )
     return data, [], hints
 
+def _damage_operation(
+    args: dict[str, Any], investigator_id: str, kind: str
+) -> dict[str, Any]:
+    return {
+        "investigator_id": investigator_id,
+        "amount": deepcopy(args["amount"]),
+        "kind": kind,
+        "source": args.get("source"),
+        "seed": args.get("seed"),
+    }
+
+
+def _damage_receipt_integrity(receipt: dict[str, Any]) -> str:
+    return _canonical_digest({
+        key: value for key, value in receipt.items() if key != "integrity_digest"
+    })
+
+
+def _damage_receipts(state: dict[str, Any]) -> dict[str, Any]:
+    receipts = state.get(_DAMAGE_RECEIPTS_KEY)
+    if receipts is None:
+        return {}
+    if not isinstance(receipts, dict):
+        raise ToolError("state_corrupt", "damage receipt index is invalid")
+    return receipts
+
+
+def _validate_damage_receipt(
+    receipt: dict[str, Any],
+    *,
+    decision_id: str,
+    operation: dict[str, Any],
+) -> None:
+    data = receipt.get("data")
+    event = receipt.get("event")
+    roll_record = receipt.get("roll_record")
+    valid_roll = roll_record is None or (
+        isinstance(roll_record, dict)
+        and isinstance(data, dict)
+        and isinstance(data.get("roll_id"), str)
+        and roll_record.get("roll_id") == data.get("roll_id")
+    )
+    if (
+        set(receipt) != set(_DAMAGE_RECEIPT_FIELDS)
+        or receipt.get("schema_version") != _DAMAGE_RECEIPT_SCHEMA_VERSION
+        or receipt.get("tool") != "rules.damage"
+        or receipt.get("decision_id") != decision_id
+        or receipt.get("fingerprint")
+        != _operation_fingerprint("rules.damage", operation)
+        or receipt.get("operation") != operation
+        or not isinstance(data, dict)
+        or data.get("investigator_id") != operation["investigator_id"]
+        or not valid_roll
+        or not isinstance(event, dict)
+        or event
+        != {
+            "event_id": _operation_event_id("rules.damage", decision_id),
+            "event_type": "hp_change",
+            "decision_id": decision_id,
+            **deepcopy(data),
+        }
+        or receipt.get("integrity_digest") != _damage_receipt_integrity(receipt)
+    ):
+        raise ToolError(
+            "state_corrupt",
+            f"rules.damage receipt for decision_id {decision_id!r} is invalid",
+        )
+
+
+def _ensure_damage_roll(ctx: Ctx, receipt: dict[str, Any]) -> None:
+    expected = receipt.get("roll_record")
+    if expected is None:
+        return
+    roll_id = str(expected["roll_id"])
+    matches = [
+        row
+        for row in _read_jsonl_records(ctx.campaign_dir / "logs" / "rolls.jsonl")
+        if row.get("roll_id") == roll_id
+    ]
+    if not matches:
+        ctx.log_roll(deepcopy(expected))
+        return
+    if len(matches) != 1 or matches[0] != expected:
+        raise ToolError(
+            "state_corrupt", f"rules.damage roll_id {roll_id!r} is ambiguous"
+        )
+
+
+def _ensure_damage_event(ctx: Ctx, receipt: dict[str, Any]) -> None:
+    expected = receipt["event"]
+    event_id = str(expected["event_id"])
+    matches = [
+        row
+        for row in _read_jsonl_records(ctx.campaign_dir / "logs" / "events.jsonl")
+        if row.get("event_id") == event_id
+    ]
+    if not matches:
+        ctx.log_event(deepcopy(expected))
+        return
+    normalized = {
+        key: value for key, value in matches[0].items() if key != "ts"
+    }
+    if len(matches) != 1 or normalized != expected:
+        raise ToolError(
+            "state_corrupt", f"rules.damage event_id {event_id!r} is ambiguous"
+        )
+
+
+def _recover_damage_receipt(ctx: Ctx, receipt: dict[str, Any]) -> None:
+    try:
+        _ensure_damage_roll(ctx, receipt)
+        _ensure_damage_event(ctx, receipt)
+        prior = ctx.ledger_lookup("rules.damage", str(receipt["decision_id"]))
+        if prior is None:
+            ctx.ledger_record(
+                str(receipt["decision_id"]),
+                "rules.damage",
+                deepcopy(receipt["data"]),
+            )
+        elif prior.get("data") != receipt["data"]:
+            raise ToolError(
+                "state_corrupt", "toolbox ledger conflicts with damage receipt"
+            )
+    except ToolError:
+        raise
+    except Exception as exc:
+        raise ToolError(
+            "damage_transaction_incomplete",
+            "damage is frozen in actor state; retry the same decision_id to repair its evidence",
+        ) from exc
+
+
 def _tool_rules_damage(ctx: Ctx, args: dict[str, Any]):
     investigator_id = _resolve_investigator(ctx, args)
-    prior = ctx.ledger_lookup("rules.damage", args.get("decision_id"))
-    if prior is not None:
-        return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
     kind = str(args.get("kind") or "damage")
     if kind not in ("damage", "heal"):
         raise ToolError("invalid_param", "kind must be damage or heal")
+    decision_id = str(args.get("decision_id") or "")
     state = ctx.inv_state(investigator_id)
+    operation = _damage_operation(args, investigator_id, kind)
+    frozen = _damage_receipts(state).get(decision_id)
+    prior = ctx.ledger_lookup("rules.damage", decision_id)
+    if frozen is not None:
+        if not isinstance(frozen, dict):
+            raise ToolError("state_corrupt", "damage receipt is not an object")
+        _validate_damage_receipt(
+            frozen, decision_id=decision_id, operation=operation
+        )
+        _recover_damage_receipt(ctx, frozen)
+        return deepcopy(frozen["data"]), [
+            "duplicate decision_id: recovered the state-bound damage receipt"
+        ], []
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously settled result"
+        ], []
     sheet = ctx.sheet(investigator_id)
     max_hp = int((sheet.get("derived") or {}).get("HP") or 10)
     before = int(state.get("current_hp", max_hp))
-    settled = _rules_resolver(ctx, "damage").damage(
+    resolver = _rules_resolver(ctx, "damage")
+    settled = resolver.damage(
         args["amount"], before, max_hp, kind=kind, rng=_rng(args)
     )
     amount = settled["amount"]
@@ -767,7 +931,6 @@ def _tool_rules_damage(ctx: Ctx, args: dict[str, Any]):
                 if gone in conditions:
                     conditions.remove(gone)
     state["conditions"] = conditions
-    ctx.save_inv_state(investigator_id, state)
     data = {
         "investigator_id": investigator_id,
         "kind": kind,
@@ -781,6 +944,7 @@ def _tool_rules_damage(ctx: Ctx, args: dict[str, Any]):
         "conditions": conditions,
         "source": args.get("source"),
     }
+    damage_record = None
     if detail is not None:
         damage_payload = {
             **detail,
@@ -792,7 +956,7 @@ def _tool_rules_damage(ctx: Ctx, args: dict[str, Any]):
             "hp_after": after,
             "source": args.get("source"),
         }
-        damage_record = ctx.log_roll({
+        damage_record = ctx.prepare_roll({
             "event_type": "roll",
             "type": "damage" if kind == "damage" else "healing",
             "kind": f"hp_{kind}",
@@ -802,8 +966,67 @@ def _tool_rules_damage(ctx: Ctx, args: dict[str, Any]):
             **damage_payload,
         })
         data["roll_id"] = damage_record["roll_id"]
-    ctx.log_event({"event_type": "hp_change", **data})
-    ctx.ledger_record(args.get("decision_id"), "rules.damage", data)
+    if kind == "damage" and before - after > 0:
+        elapsed = _current_elapsed_minutes(ctx)
+        if elapsed is None:
+            raise ToolError(
+                "state_corrupt",
+                "campaign clock cannot provide authoritative injury time",
+            )
+        try:
+            state = coc_rulesets.apply_damage_state_effect(
+                resolver,
+                state,
+                {
+                    "schema_version": 1,
+                    "actor_id": investigator_id,
+                    "decision_id": decision_id,
+                    "amount": int(amount),
+                    "before": before,
+                    "after": after,
+                    "maximum": max_hp,
+                    "occurred_elapsed_minutes": elapsed,
+                    "source_event_id": (
+                        str(damage_record["roll_id"])
+                        if isinstance(damage_record, dict)
+                        else None
+                    ),
+                },
+            )
+        except ValueError as exc:
+            raise ToolError("state_corrupt", str(exc)) from exc
+    receipt = {
+        "schema_version": _DAMAGE_RECEIPT_SCHEMA_VERSION,
+        "tool": "rules.damage",
+        "decision_id": decision_id,
+        "fingerprint": _operation_fingerprint("rules.damage", operation),
+        "operation": deepcopy(operation),
+        "data": deepcopy(data),
+        "roll_record": deepcopy(damage_record),
+        "event": {
+            "event_id": _operation_event_id("rules.damage", decision_id),
+            "event_type": "hp_change",
+            "decision_id": decision_id,
+            **deepcopy(data),
+        },
+    }
+    receipt["integrity_digest"] = _damage_receipt_integrity(receipt)
+    receipts = _damage_receipts(state)
+    receipts[decision_id] = receipt
+    while len(receipts) > _DAMAGE_RECEIPT_LIMIT:
+        oldest = next(iter(receipts))
+        if oldest == decision_id:
+            break
+        receipts.pop(oldest)
+    state[_DAMAGE_RECEIPTS_KEY] = receipts
+    try:
+        ctx.save_inv_state(investigator_id, state)
+    except Exception as exc:
+        raise ToolError(
+            "damage_transaction_incomplete",
+            "damage actor-state receipt could not be committed; retry the same decision_id",
+        ) from exc
+    _recover_damage_receipt(ctx, receipt)
     return data, [], hints
 
 def _luck_source_receipt_by_roll_id(
@@ -831,6 +1054,11 @@ def _luck_source_receipt_by_roll_id(
         raise ToolError(
             "invalid_param",
             "source roll is ineligible for Luck adjustment",
+        )
+    if source.get("operation", {}).get("combined_targets") is not None:
+        raise ToolError(
+            "invalid_param",
+            "combined skill rolls are ineligible for Luck adjustment",
         )
     if _roll_side_effect_key(source) in document.get("pending_side_effects", {}):
         raise ToolError(
@@ -1095,6 +1323,16 @@ def _tool_rules_first_aid(ctx: Ctx, args: dict[str, Any]):
         ),
         failure_consequence=(
             str(args["failure_consequence"]).strip() if pushed else None
+        ),
+        assistant_skill_value=(
+            int(args["assistant_skill_value"])
+            if args.get("assistant_skill_value") is not None
+            else None
+        ),
+        assistant_rescuer_id=(
+            str(args["assistant_rescuer_id"])
+            if args.get("assistant_rescuer_id") is not None
+            else None
         ),
     )
     results, events = _execute_subsystem_requests(
@@ -1411,12 +1649,28 @@ def register_operations(registry) -> None:
 )(_tool_rules_build_scale)
     registry.tool(
     "rules.roll",
-    "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose.",
+    "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Optional combined_targets performs one public D100 roll against two or more semantic target labels and succeeds when any target succeeds; helper_count grants at most two bonus dice. Combined rolls cannot be Pushed, adjusted with Luck, or earn development ticks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose.",
     {
         "investigator": {"type": "string", "desc": "investigator id (optional when party has one member)"},
         "skill": {"type": "string", "desc": "skill name on the sheet (e.g. 'Library Use')"},
         "characteristic": {"type": "string", "desc": "characteristic (STR/CON/.../SAN/LUCK) instead of a skill"},
         "target": {"type": "integer", "desc": "explicit target value override"},
+        "combined_targets": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 8,
+            "desc": "optional combined-skill mode: two or more unique semantic {label, value} targets; mutually exclusive with skill, characteristic, target, Psychology, and combat actions",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "label": {"type": "string", "minLength": 1, "maxLength": 120, "desc": "meaning-bearing skill or characteristic label"},
+                    "value": {"type": "integer", "minimum": 1, "maximum": 100, "desc": "authoritative percentile target from the sheet or current context"},
+                },
+                "required_fields": ["label", "value"],
+                "additionalProperties": False,
+            },
+        },
+        "helper_count": {"type": "integer", "minimum": 0, "desc": "helpers contributing to combined_targets; one bonus die each, capped at two"},
         "difficulty": {"type": "string", "required": True, "enum": ["regular", "hard", "extreme"], "desc": "required success level: regular | hard | extreme; never inferred or defaulted"},
         "goal": {"type": "string", "required": True, "desc": "the concrete fictional objective this one check may settle"},
         "stakes": {"type": "object", "required": True, "desc": "exactly {on_success, on_failure}, both non-empty player-action consequences", "properties": {"on_success": {"type": "string"}, "on_failure": {"type": "string"}}, "required_fields": ["on_success", "on_failure"]},
