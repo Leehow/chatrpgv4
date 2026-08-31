@@ -257,7 +257,7 @@ def test_social_is_source_accepted_with_full_motive_and_agency_semantics():
     assert manifest["family_coverage"]["social"] == "accepted"
     assert manifest["review_status"] == "accepted"
     assert manifest["reviewer_identity"] == (
-        "codex-rule-families-core-social-source-review-20260831:social"
+        "codex-execgraph-core-push-social-review-20260831:social-v2"
     )
     assert manifest["graph_content_digest"] == acceptor.rg._json_digest(graph)
     assert manifest["shards"] == [{
@@ -286,6 +286,34 @@ def test_social_is_source_accepted_with_full_motive_and_agency_semantics():
     ]["name"].casefold()
     assert all("uncompiled" not in row["node_id"] for row in graph["nodes"])
     assert all("uncompiled" not in row["name"].casefold() for row in graph["nodes"])
+
+
+def test_social_executable_decision_locks_source_backed_motive_evidence():
+    graph = _accepted("social", "rule-graph.json")
+    nodes = {row["node_id"]: row for row in graph["nodes"]}
+    relations = {row["relation_id"]: row for row in graph["relations"]}
+    decision = nodes["decision:coc7:social:adjudicate-difficulty"]
+    impl = decision["properties"]["implementation"]
+    slots = {row["name"]: row["ownership"] for row in impl["payload_slots"]}
+
+    assert impl["kind"] == "social_difficulty"
+    assert impl["phase"] == "resolve"
+    assert slots["motive_direction"] == "keeper-semantic"
+    assert slots["motive_intensity"] == "keeper-semantic"
+    assert slots["motive_evidence"] == "host-locked"
+    evidence_slot = nodes["input-slot:coc7:social:motive-evidence"]
+    assert evidence_slot["properties"] == {
+        "family_id": "social",
+        "ownership": "host-locked",
+        "value_type": "array",
+        "path": "motive_evidence",
+    }
+    assert nodes["subsystem:coc7:social-source-evidence-registry"]["properties"] == {
+        "subsystem_kind": "canonical-social-source-evidence"
+    }
+    assert relations["relation:coc7:social:locks-motive-evidence"]["relation_kind"] == "locks-input"
+    assert relations["relation:coc7:social:motive-evidence-requires-source"]["relation_kind"] == "requires-fact"
+    assert relations["relation:coc7:social:motive-rule-invokes"]["to_node_id"] == "capability:coc7:social-difficulty"
 
 
 def test_social_source_acceptance_regenerates_byte_identically():

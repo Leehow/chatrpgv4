@@ -1,6 +1,7 @@
 # Social independent source review
 
 - Reviewer: `codex-rule-families-core-social-source-review-20260831:social`
+- Executable decision re-review: `codex-execgraph-core-push-social-review-20260831:social-v2`
 - Exact source: *Call of Cthulhu Keeper Rulebook 40th Anniversary*
 - PDF SHA-256: `a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb`
 - Reviewed PDF indexes: 70, 71, 75, 77, 82, 84, 104, 208
@@ -19,3 +20,5 @@ The review checked the complete applicable social family represented by the curr
 The pre-review resolver incorrectly made every two-level opposition result conditional, including Regular + 2. PDF index 104 requires that case to remain an Extreme roll; only a result beyond Extreme is conditional/no-roll. The focused runtime regression now pins Regular + 2 = Extreme/roll and Hard + 2 = conditional.
 
 No fixture-only motive, leverage, or feasibility semantics are treated as source authority. Canonical `accept()` and `build()` receipts are stored beside the accepted family graph.
+
+Executable re-review confirms `social_difficulty/resolve` receives motive direction and intensity as Keeper-semantic judgment, while the supporting motive evidence is a separate host-locked input derived from canonical authored NPC/social evidence. The explicit source-evidence subsystem plus `locks-input` and `requires-fact` relations prevent free prose from becoming evidence and give the later single adapter owner a deterministic hydration contract.

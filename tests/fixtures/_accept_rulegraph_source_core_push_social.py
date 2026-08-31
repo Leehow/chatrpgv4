@@ -33,6 +33,7 @@ REVIEWER_ROOT = "codex-rule-families-core-social-source-review-20260831"
 EXECUTABLE_REVIEWERS = {
     "core-check": "codex-execgraph-core-push-social-review-20260831:core-check-v2",
     "push-luck": "codex-execgraph-core-push-social-review-20260831:push-luck-v2",
+    "social": "codex-execgraph-core-push-social-review-20260831:social-v2",
 }
 
 
@@ -731,6 +732,23 @@ def social_candidate(packet: dict[str, Any]) -> dict[str, Any]:
             evidence=evidence,
         ),
         _node(
+            "rule:coc7:social:canonical-motive-evidence-binding",
+            "rule",
+            "A non-neutral motive adjustment is grounded by host-resolved authored NPC agenda, fact, or state evidence bound to the exact target and goal; free prose cannot supply motive evidence",
+            authority="mixed",
+            properties={"family_id": "social"},
+            evidence=evidence,
+        ),
+        _node(
+            "subsystem:coc7:social-source-evidence-registry",
+            "subsystem",
+            "Canonical authored NPC and player-known social evidence registry",
+            audience="host-internal",
+            visibility="keeper-only",
+            properties={"subsystem_kind": "canonical-social-source-evidence"},
+            evidence=evidence,
+        ),
+        _node(
             "rule:coc7:social:extreme-ceiling",
             "rule",
             "Extreme is the lowest rollable chance; rare circumstances may make the present goal impossible and allow no roll",
@@ -823,6 +841,20 @@ def social_candidate(packet: dict[str, Any]) -> dict[str, Any]:
             evidence=evidence,
         ),
         _node(
+            "input-slot:coc7:social:motive-evidence",
+            "input-slot",
+            "Host-resolved typed evidence rows grounding the NPC motive adjustment",
+            audience="host-internal",
+            visibility="keeper-only",
+            properties={
+                "family_id": "social",
+                "ownership": "host-locked",
+                "value_type": "array",
+                "path": "motive_evidence",
+            },
+            evidence=evidence,
+        ),
+        _node(
             "input-slot:coc7:social:supporting-action",
             "input-slot",
             "One substantive argument, bribe, threat, or other source-grounded support for the case",
@@ -855,6 +887,8 @@ def social_candidate(packet: dict[str, Any]) -> dict[str, Any]:
     relations.extend([
         _relation("relation:coc7:social:feasibility-part-of", "part-of", "rule:coc7:social:feasibility", family_id, evidence),
         _relation("relation:coc7:social:motive-support-part-of", "part-of", "rule:coc7:social:motive-and-support", family_id, evidence),
+        _relation("relation:coc7:social:motive-binding-part-of", "part-of", "rule:coc7:social:canonical-motive-evidence-binding", family_id, evidence),
+        _relation("relation:coc7:social:motive-rule-invokes", "invokes", "rule:coc7:social:canonical-motive-evidence-binding", "capability:coc7:social-difficulty", evidence),
         _relation("relation:coc7:social:ceiling-part-of", "part-of", "rule:coc7:social:extreme-ceiling", family_id, evidence),
         _relation("relation:coc7:social:pc-agency-part-of", "part-of", "rule:coc7:social:pc-agency-and-penalty", family_id, evidence),
         _relation("relation:coc7:social:charm-part-of", "part-of", "rule:coc7:social:charm-scope", family_id, evidence),
@@ -866,6 +900,8 @@ def social_candidate(packet: dict[str, Any]) -> dict[str, Any]:
         _relation("relation:coc7:social:ceiling-applies", "applies-to", "rule:coc7:social:extreme-ceiling", decision, evidence),
         _relation("relation:coc7:social:requires-motive-direction", "requires-input", decision, "input-slot:coc7:social:motive-direction", evidence),
         _relation("relation:coc7:social:requires-motive-intensity", "requires-input", decision, "input-slot:coc7:social:motive-intensity", evidence),
+        _relation("relation:coc7:social:locks-motive-evidence", "locks-input", decision, "input-slot:coc7:social:motive-evidence", evidence),
+        _relation("relation:coc7:social:motive-evidence-requires-source", "requires-fact", "input-slot:coc7:social:motive-evidence", "subsystem:coc7:social-source-evidence-registry", evidence),
         _relation("relation:coc7:social:requires-support", "requires-input", decision, "input-slot:coc7:social:supporting-action", evidence),
         _relation("relation:coc7:social:requires-feasibility", "requires-input", decision, "input-slot:coc7:social:feasibility", evidence),
         _relation("relation:coc7:social:reads-skill-descriptions", "reads-table", decision, "data-table:coc7:skill-descriptions", evidence),

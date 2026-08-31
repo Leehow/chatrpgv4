@@ -365,6 +365,35 @@
       ]
     },
     {
+      "node_id": "input-slot:coc7:social:motive-evidence",
+      "node_kind": "input-slot",
+      "name": "Host-resolved typed evidence rows grounding the NPC motive adjustment",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "host-locked",
+        "value_type": "array",
+        "path": "motive_evidence"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
       "node_id": "input-slot:coc7:social:motive-intensity",
       "node_kind": "input-slot",
       "name": "Source-grounded opposition adjustment of zero, one, or two levels",
@@ -509,6 +538,32 @@
       "node_id": "rule:coc7:social:approach-selection",
       "node_kind": "rule",
       "name": "Player describes conduct; the Keeper then chooses Charm, Fast Talk, Intimidate, or Persuade",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:canonical-motive-evidence-binding",
+      "node_kind": "rule",
+      "name": "A non-neutral motive adjustment is grounded by host-resolved authored NPC agenda, fact, or state evidence bound to the exact target and goal; free prose cannot supply motive evidence",
       "authority": "mixed",
       "audience": "keeper",
       "visibility": "public",
@@ -790,6 +845,32 @@
         "span-social-source-accepted-page-82-block-126",
         "span-social-source-accepted-page-84-block-138"
       ]
+    },
+    {
+      "node_id": "subsystem:coc7:social-source-evidence-registry",
+      "node_kind": "subsystem",
+      "name": "Canonical authored NPC and player-known social evidence registry",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "subsystem_kind": "canonical-social-source-evidence"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
     }
   ],
   "relations": [
@@ -1045,6 +1126,86 @@
         "span-interpersonal-skills-source-page-77-block-90",
         "span-interpersonal-skills-source-page-82-block-121",
         "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:locks-motive-evidence",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:motive-evidence",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:motive-binding-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:canonical-motive-evidence-binding",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:motive-evidence-requires-source",
+      "relation_kind": "requires-fact",
+      "from_node_id": "input-slot:coc7:social:motive-evidence",
+      "to_node_id": "subsystem:coc7:social-source-evidence-registry",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:motive-rule-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:social:canonical-motive-evidence-binding",
+      "to_node_id": "capability:coc7:social-difficulty",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
       ]
     },
     {

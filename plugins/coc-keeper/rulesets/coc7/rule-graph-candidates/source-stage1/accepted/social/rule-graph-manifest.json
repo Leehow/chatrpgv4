@@ -10,11 +10,11 @@
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "7693f9178e7d795ba6a7c33890b8e72a01cbd258bf4a2d7451a0a5fdd9627159",
+  "graph_content_digest": "8a3eaff3c43867c1e44a863c7493b302b6993180369c5e22bca6a192d9a65ade",
   "shards": [
     {
       "shard_id": "shard:coc7:social:section-social-source-accepted",
-      "shard_digest": "fd8ef92bc68858a30d19b5d1628d936afb0735592c7f92adb0c3bbcc197b1bbd"
+      "shard_digest": "bc75af9141dddcedeab0b2e806eec20384b75fc847f840281728cb97b23b076c"
     }
   ],
   "family_coverage": {
@@ -79,7 +79,7 @@
     "social_skill_names"
   ],
   "compiler_identity": "coc.rule-graph-compiler.v1",
-  "reviewer_identity": "codex-rule-families-core-social-source-review-20260831:social",
+  "reviewer_identity": "codex-execgraph-core-push-social-review-20260831:social-v2",
   "review_status": "accepted",
   "findings": [
     {
