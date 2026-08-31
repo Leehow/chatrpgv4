@@ -104,6 +104,24 @@
       "declaration_ref_id": "ref:rule:coc7:capability-opposed"
     },
     {
+      "ref_id": "ref:execution:coc7:psychology-check-contract",
+      "graph_id": "graph:execution:coc7-resolver",
+      "semantic_id": "capability:coc7:psychology-check-contract",
+      "reference_kind": "resolver-capability",
+      "node_kind": "capability",
+      "locator": "psychology_check_contract",
+      "declaration_ref_id": "ref:rule:coc7:capability-psychology-check-contract"
+    },
+    {
+      "ref_id": "ref:execution:coc7:psychology-policy",
+      "graph_id": "graph:execution:coc7-resolver",
+      "semantic_id": "capability:coc7:psychology-policy",
+      "reference_kind": "resolver-capability",
+      "node_kind": "capability",
+      "locator": "psychology_policy",
+      "declaration_ref_id": "ref:rule:coc7:capability-psychology-policy"
+    },
+    {
       "ref_id": "ref:execution:coc7:push-policy",
       "graph_id": "graph:execution:coc7-resolver",
       "semantic_id": "capability:coc7:push-policy",
@@ -156,6 +174,14 @@
       "locator": "actor.conditions.major_wound"
     },
     {
+      "ref_id": "ref:live-state:actor-id",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:actor-id",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "actor.id"
+    },
+    {
       "ref_id": "ref:live-state:actor-resources-hp",
       "graph_id": "graph:live-state:campaign",
       "semantic_id": "fact:live-state:actor-resources-hp",
@@ -194,6 +220,14 @@
       "reference_kind": "registered-condition-path",
       "node_kind": "live-state-fact",
       "locator": "receipt.last_outcome"
+    },
+    {
+      "ref_id": "ref:live-state:subsystem-kind",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:subsystem-kind",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "subsystem.kind"
     },
     {
       "ref_id": "ref:live-state:time-minutes-since-injury",
@@ -246,6 +280,20 @@
       "node_kind": "capability"
     },
     {
+      "ref_id": "ref:rule:coc7:capability-psychology-check-contract",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "capability:coc7:psychology-check-contract",
+      "reference_kind": "artifact-node",
+      "node_kind": "capability"
+    },
+    {
+      "ref_id": "ref:rule:coc7:capability-psychology-policy",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "capability:coc7:psychology-policy",
+      "reference_kind": "artifact-node",
+      "node_kind": "capability"
+    },
+    {
       "ref_id": "ref:rule:coc7:capability-push-policy",
       "graph_id": "graph:rule:coc7",
       "semantic_id": "capability:coc7:push-policy",
@@ -274,6 +322,48 @@
       "node_kind": "capability"
     },
     {
+      "ref_id": "ref:rule:coc7:decision-coc7-chase-barrier",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:chase:barrier",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-chase-conflict",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:chase:conflict",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-chase-end",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:chase:end",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-chase-hazard",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:chase:hazard",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-chase-move",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:chase:move",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-chase-start",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:chase:start",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
       "ref_id": "ref:rule:coc7:decision-coc7-core-check-combined-check",
       "graph_id": "graph:rule:coc7",
       "semantic_id": "decision:coc7:core-check:combined-check",
@@ -291,6 +381,48 @@
       "ref_id": "ref:rule:coc7:decision-coc7-core-check-ordinary-check",
       "graph_id": "graph:rule:coc7",
       "semantic_id": "decision:coc7:core-check:ordinary-check",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-development-end-session",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:development:end-session",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-development-settle-ending",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:development:settle-ending",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-magic-cast-spell",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:magic:cast-spell",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-magic-learn-spell",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:magic:learn-spell",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-psychology-observe-concealed",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:psychology:observe-concealed",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-psychology-realize-player-safe",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:psychology:realize-player-safe",
       "reference_kind": "artifact-node",
       "node_kind": "decision"
     },
@@ -328,6 +460,132 @@
       "semantic_id": "decision:coc7:healing:dying-round-clock",
       "reference_kind": "artifact-node",
       "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-chase-barrier-barrier-resolved",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:chase:barrier-barrier-resolved",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-chase-conflict-conflict-resolved",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:chase:conflict-conflict-resolved",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-chase-end-chase-ended",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:chase:end-chase-ended",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-chase-hazard-hazard-resolved",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:chase:hazard-hazard-resolved",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-chase-move-position-changed",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:chase:move-position-changed",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-chase-start-chase-started",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:chase:start-chase-started",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-development-end-session-development-settled",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:development:end-session-development-settled",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-development-end-session-ending-recorded",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:development:end-session-ending-recorded",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-development-settle-ending-luck-recovery",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:development:settle-ending-luck-recovery",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-development-settle-ending-san-reward",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:development:settle-ending-san-reward",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-development-settle-ending-skill-improvement",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:development:settle-ending-skill-improvement",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-magic-cast-spell-hp-overspill",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:magic:cast-spell-hp-overspill",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-magic-cast-spell-mp-spent",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:magic:cast-spell-mp-spent",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-magic-cast-spell-san-spent",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:magic:cast-spell-san-spent",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-magic-cast-spell-spell-cast",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:magic:cast-spell-spell-cast",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-magic-learn-spell-entity-san-cost",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:magic:learn-spell-entity-san-cost",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-magic-learn-spell-spell-learned",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:magic:learn-spell-spell-learned",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
+    },
+    {
+      "ref_id": "ref:rule:coc7:effect-coc7-magic-learn-spell-study-scheduled",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "effect:coc7:magic:learn-spell-study-scheduled",
+      "reference_kind": "artifact-node",
+      "node_kind": "effect"
     },
     {
       "ref_id": "ref:rule:coc7:effect-coc7-push-luck-luck-spend-mutate",
@@ -400,6 +658,97 @@
       "node_kind": "pending-choice"
     },
     {
+      "ref_id": "ref:rule:coc7:rule-coc7-core-check-canonical-target-binding",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "rule:coc7:core-check:canonical-target-binding",
+      "reference_kind": "artifact-node",
+      "node_kind": "rule"
+    },
+    {
+      "ref_id": "ref:rule:coc7:rule-coc7-core-check-combined",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "rule:coc7:core-check:combined",
+      "reference_kind": "artifact-node",
+      "node_kind": "rule"
+    },
+    {
+      "ref_id": "ref:rule:coc7:rule-coc7-core-check-opposed",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "rule:coc7:core-check:opposed",
+      "reference_kind": "artifact-node",
+      "node_kind": "rule"
+    },
+    {
+      "ref_id": "ref:rule:coc7:rule-coc7-psychology-base-chance-ten",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "rule:coc7:psychology:base-chance-ten",
+      "reference_kind": "artifact-node",
+      "node_kind": "rule"
+    },
+    {
+      "ref_id": "ref:rule:coc7:rule-coc7-psychology-concealed-keeper-roll",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "rule:coc7:psychology:concealed-keeper-roll",
+      "reference_kind": "artifact-node",
+      "node_kind": "rule"
+    },
+    {
+      "ref_id": "ref:rule:coc7:rule-coc7-psychology-disguise-opposition",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "rule:coc7:psychology:disguise-opposition",
+      "reference_kind": "artifact-node",
+      "node_kind": "rule"
+    },
+    {
+      "ref_id": "ref:rule:coc7:rule-coc7-psychology-failure-reliability-unknown",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "rule:coc7:psychology:failure-reliability-unknown",
+      "reference_kind": "artifact-node",
+      "node_kind": "rule"
+    },
+    {
+      "ref_id": "ref:rule:coc7:rule-coc7-psychology-social-difficulty-bands",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "rule:coc7:psychology:social-difficulty-bands",
+      "reference_kind": "artifact-node",
+      "node_kind": "rule"
+    },
+    {
+      "ref_id": "ref:rule:coc7:rule-coc7-psychology-social-opposition",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "rule:coc7:psychology:social-opposition",
+      "reference_kind": "artifact-node",
+      "node_kind": "rule"
+    },
+    {
+      "ref_id": "ref:rule:coc7:rule-coc7-psychology-study-motives-character",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "rule:coc7:psychology:study-motives-character",
+      "reference_kind": "artifact-node",
+      "node_kind": "rule"
+    },
+    {
+      "ref_id": "ref:rule:coc7:rule-coc7-psychology-success-reveals-truth",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "rule:coc7:psychology:success-reveals-truth",
+      "reference_kind": "artifact-node",
+      "node_kind": "rule"
+    },
+    {
+      "ref_id": "ref:rule:coc7:rule-coc7-push-luck-canonical-continuation-hydration",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "rule:coc7:push-luck:canonical-continuation-hydration",
+      "reference_kind": "artifact-node",
+      "node_kind": "rule"
+    },
+    {
+      "ref_id": "ref:rule:coc7:rule-coc7-social-canonical-motive-evidence-binding",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "rule:coc7:social:canonical-motive-evidence-binding",
+      "reference_kind": "artifact-node",
+      "node_kind": "rule"
+    },
+    {
       "ref_id": "ref:rule:coc7:rule-dying-clocks",
       "graph_id": "graph:rule:coc7",
       "semantic_id": "rule:coc7:healing:dying-clocks",
@@ -444,10 +793,106 @@
   ],
   "relations": [
     {
+      "relation_id": "relation:system:relation-coc7-chase-barrier-available-when:requires:subsystem-kind",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-barrier",
+      "to_ref": "ref:live-state:subsystem-kind"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-barrier-emits-barrier-resolved",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-barrier",
+      "to_ref": "ref:rule:coc7:effect-coc7-chase-barrier-barrier-resolved"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-conflict-available-when:requires:subsystem-kind",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-conflict",
+      "to_ref": "ref:live-state:subsystem-kind"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-conflict-emits-conflict-resolved",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-conflict",
+      "to_ref": "ref:rule:coc7:effect-coc7-chase-conflict-conflict-resolved"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-end-available-when:requires:subsystem-kind",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-end",
+      "to_ref": "ref:live-state:subsystem-kind"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-end-emits-chase-ended",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-end",
+      "to_ref": "ref:rule:coc7:effect-coc7-chase-end-chase-ended"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-hazard-available-when:requires:subsystem-kind",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-hazard",
+      "to_ref": "ref:live-state:subsystem-kind"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-hazard-emits-hazard-resolved",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-hazard",
+      "to_ref": "ref:rule:coc7:effect-coc7-chase-hazard-hazard-resolved"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-move-available-when:requires:subsystem-kind",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-move",
+      "to_ref": "ref:live-state:subsystem-kind"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-move-emits-position-changed",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-move",
+      "to_ref": "ref:rule:coc7:effect-coc7-chase-move-position-changed"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-start-available-when:requires:subsystem-kind",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-start",
+      "to_ref": "ref:live-state:subsystem-kind"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-start-emits-chase-started",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-start",
+      "to_ref": "ref:rule:coc7:effect-coc7-chase-start-chase-started"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-core-check-binding-invokes-check",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:rule-coc7-core-check-canonical-target-binding",
+      "to_ref": "ref:execution:coc7:check"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-core-check-combined-actor-bound:requires:actor-id",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-core-check-combined-check",
+      "to_ref": "ref:live-state:actor-id"
+    },
+    {
       "relation_id": "relation:system:relation-coc7-core-check-combined-invokes",
       "relation_kind": "invokes-capability",
       "from_ref": "ref:rule:coc7:decision-coc7-core-check-combined-check",
       "to_ref": "ref:execution:coc7:check"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-core-check-combined-rule-invokes",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:rule-coc7-core-check-combined",
+      "to_ref": "ref:execution:coc7:check"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-core-check-opposed-actor-bound:requires:actor-id",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-core-check-opposed-check",
+      "to_ref": "ref:live-state:actor-id"
     },
     {
       "relation_id": "relation:system:relation-coc7-core-check-opposed-invokes",
@@ -456,10 +901,64 @@
       "to_ref": "ref:execution:coc7:opposed"
     },
     {
+      "relation_id": "relation:system:relation-coc7-core-check-opposed-rule-invokes",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:rule-coc7-core-check-opposed",
+      "to_ref": "ref:execution:coc7:opposed"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-core-check-ordinary-actor-bound:requires:actor-id",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-core-check-ordinary-check",
+      "to_ref": "ref:live-state:actor-id"
+    },
+    {
       "relation_id": "relation:system:relation-coc7-core-check-ordinary-invokes",
       "relation_kind": "invokes-capability",
       "from_ref": "ref:rule:coc7:decision-coc7-core-check-ordinary-check",
       "to_ref": "ref:execution:coc7:check"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-development-end-session-available-when:requires:campaign-ruleset-id",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-development-end-session",
+      "to_ref": "ref:live-state:campaign-ruleset-id"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-development-end-session-emits-development-settled",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-development-end-session",
+      "to_ref": "ref:rule:coc7:effect-coc7-development-end-session-development-settled"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-development-end-session-emits-ending-recorded",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-development-end-session",
+      "to_ref": "ref:rule:coc7:effect-coc7-development-end-session-ending-recorded"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-development-settle-ending-available-when:requires:subsystem-kind",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-development-settle-ending",
+      "to_ref": "ref:live-state:subsystem-kind"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-development-settle-ending-emits-luck-recovery",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-development-settle-ending",
+      "to_ref": "ref:rule:coc7:effect-coc7-development-settle-ending-luck-recovery"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-development-settle-ending-emits-san-reward",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-development-settle-ending",
+      "to_ref": "ref:rule:coc7:effect-coc7-development-settle-ending-san-reward"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-development-settle-ending-emits-skill-improvement",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-development-settle-ending",
+      "to_ref": "ref:rule:coc7:effect-coc7-development-settle-ending-skill-improvement"
     },
     {
       "relation_id": "relation:system:relation-coc7-healing-fa-ordinary-available:requires:actor-conditions-dying",
@@ -636,10 +1135,130 @@
       "to_ref": "ref:execution:coc7:weekly-recovery"
     },
     {
+      "relation_id": "relation:system:relation-coc7-magic-cast-spell-available-when:requires:campaign-ruleset-id",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-magic-cast-spell",
+      "to_ref": "ref:live-state:campaign-ruleset-id"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-magic-cast-spell-emits-hp-overspill",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-magic-cast-spell",
+      "to_ref": "ref:rule:coc7:effect-coc7-magic-cast-spell-hp-overspill"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-magic-cast-spell-emits-mp-spent",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-magic-cast-spell",
+      "to_ref": "ref:rule:coc7:effect-coc7-magic-cast-spell-mp-spent"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-magic-cast-spell-emits-san-spent",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-magic-cast-spell",
+      "to_ref": "ref:rule:coc7:effect-coc7-magic-cast-spell-san-spent"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-magic-cast-spell-emits-spell-cast",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-magic-cast-spell",
+      "to_ref": "ref:rule:coc7:effect-coc7-magic-cast-spell-spell-cast"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-magic-learn-spell-available-when:requires:campaign-ruleset-id",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-magic-learn-spell",
+      "to_ref": "ref:live-state:campaign-ruleset-id"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-magic-learn-spell-emits-entity-san-cost",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-magic-learn-spell",
+      "to_ref": "ref:rule:coc7:effect-coc7-magic-learn-spell-entity-san-cost"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-magic-learn-spell-emits-spell-learned",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-magic-learn-spell",
+      "to_ref": "ref:rule:coc7:effect-coc7-magic-learn-spell-spell-learned"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-magic-learn-spell-emits-study-scheduled",
+      "relation_kind": "may-emit-effect",
+      "from_ref": "ref:rule:coc7:decision-coc7-magic-learn-spell",
+      "to_ref": "ref:rule:coc7:effect-coc7-magic-learn-spell-study-scheduled"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-psychology-base-chance-ten-invokes-capability",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:rule-coc7-psychology-base-chance-ten",
+      "to_ref": "ref:execution:coc7:psychology-check-contract"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-psychology-concealed-keeper-roll-invokes-capability",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:rule-coc7-psychology-concealed-keeper-roll",
+      "to_ref": "ref:execution:coc7:psychology-check-contract"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-psychology-disguise-opposition-invokes-capability",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:rule-coc7-psychology-disguise-opposition",
+      "to_ref": "ref:execution:coc7:psychology-check-contract"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-psychology-failure-reliability-unknown-invokes-capability",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:rule-coc7-psychology-failure-reliability-unknown",
+      "to_ref": "ref:execution:coc7:psychology-policy"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-psychology-observe-invokes-contract",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:decision-coc7-psychology-observe-concealed",
+      "to_ref": "ref:execution:coc7:psychology-check-contract"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-psychology-realize-invokes-policy",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:decision-coc7-psychology-realize-player-safe",
+      "to_ref": "ref:execution:coc7:psychology-policy"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-psychology-social-difficulty-bands-invokes-capability",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:rule-coc7-psychology-social-difficulty-bands",
+      "to_ref": "ref:execution:coc7:psychology-check-contract"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-psychology-social-opposition-invokes-capability",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:rule-coc7-psychology-social-opposition",
+      "to_ref": "ref:execution:coc7:psychology-check-contract"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-psychology-study-motives-character-invokes-capability",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:rule-coc7-psychology-study-motives-character",
+      "to_ref": "ref:execution:coc7:psychology-check-contract"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-psychology-success-reveals-truth-invokes-capability",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:rule-coc7-psychology-success-reveals-truth",
+      "to_ref": "ref:execution:coc7:psychology-policy"
+    },
+    {
       "relation_id": "relation:system:relation-coc7-push-luck-emits-luck",
       "relation_kind": "may-emit-effect",
       "from_ref": "ref:rule:coc7:decision-coc7-push-luck-luck-spend",
       "to_ref": "ref:rule:coc7:effect-coc7-push-luck-luck-spend-mutate"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-push-luck-hydration-invokes-push",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:rule-coc7-push-luck-canonical-continuation-hydration",
+      "to_ref": "ref:execution:coc7:push-policy"
     },
     {
       "relation_id": "relation:system:relation-coc7-push-luck-not-pushed-available:requires:intent-pushed",
@@ -666,6 +1285,18 @@
       "to_ref": "ref:execution:coc7:luck-spend"
     },
     {
+      "relation_id": "relation:system:relation-coc7-push-luck-spend-not-pushed-available:requires:intent-pushed",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-push-luck-luck-spend",
+      "to_ref": "ref:live-state:intent-pushed"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-push-luck-spend-receipt-available:requires:receipt-last-outcome",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-push-luck-luck-spend",
+      "to_ref": "ref:live-state:receipt-last-outcome"
+    },
+    {
       "relation_id": "relation:system:relation-coc7-social-adjudicate-available:requires:campaign-ruleset-id",
       "relation_kind": "requires-live-state-fact",
       "from_ref": "ref:rule:coc7:decision-coc7-social-adjudicate-difficulty",
@@ -682,6 +1313,12 @@
       "relation_kind": "invokes-capability",
       "from_ref": "ref:rule:coc7:decision-coc7-social-adjudicate-difficulty",
       "to_ref": "ref:execution:coc7:social-skill-names"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-social-motive-rule-invokes",
+      "relation_kind": "invokes-capability",
+      "from_ref": "ref:rule:coc7:rule-coc7-social-canonical-motive-evidence-binding",
+      "to_ref": "ref:execution:coc7:social-difficulty"
     },
     {
       "relation_id": "relation:system:relation-coc7-social-pc-refusal-emits",

@@ -30,23 +30,23 @@
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "6979ccdee5be71523e6b627edd379a873e49e8b52a4feca388f7b899bfff7985",
+  "graph_content_digest": "1c7168fb776137c03e815a21dcf910e45f28ddc2a548213ba65902949fc71948",
   "shards": [
     {
       "shard_id": "shard:coc7:chase:section-chase-complete-source",
-      "shard_digest": "e7bd37a8f1720820bc8b23aed7b937c4dd524e8bae40e8b2322c10e453904e16"
+      "shard_digest": "785e28c88568242f94a3f19ed55cab4dc213f750cc85896da59a1a64e00cf7ce"
     },
     {
       "shard_id": "shard:coc7:combat:section-combat-complete-source",
-      "shard_digest": "d24a937b6a42b1a774eacd2f6b0d3d5eb18521891bbf6a841725711ad43b41fe"
+      "shard_digest": "db45cd99592f4740ab3ec5c5b9ba597cdf6b69c51b6a41176bfb8c2c4dc7fb71"
     },
     {
       "shard_id": "shard:coc7:core-check:section-core-check-source-accepted",
-      "shard_digest": "7ffc9fe97586d8b932f2e804fe839b4d90f9d9f2d81fcf89775501f30e2a79ba"
+      "shard_digest": "d986da9f1292433be9eddb4907431ac6b488ae4d3ed40733c1671fba986a9c68"
     },
     {
       "shard_id": "shard:coc7:development:section-development-phase-source",
-      "shard_digest": "29e9740fe9db5188948a03b5aca4e9920868cceca65f671a4165cdb56c364446"
+      "shard_digest": "ada0e9992bf224cdc03254e2073f399fd4eb8dc4ce2b5d6a851c5d7176a1cc1d"
     },
     {
       "shard_id": "shard:coc7:healing:section-wounds-and-healing",
@@ -54,23 +54,23 @@
     },
     {
       "shard_id": "shard:coc7:magic:section-magic-source-and-runtime-gaps",
-      "shard_digest": "e414c31711a751efdb8ad698c7c200fe705add6985ea77512b1e7aa8a73088b2"
+      "shard_digest": "325d75653fcf2af2bf6766f57dd8254d16753a722e010a3d2aae730296560834"
     },
     {
       "shard_id": "shard:coc7:psychology:section-psychology-complete-source",
-      "shard_digest": "6eb0f9ec9c38cc4364ebf1867322a8ebeffc8465a47c8fe6df584da6f7852983"
+      "shard_digest": "251e22f467257f72d2e40d96e6bb793e6aeb4a993185328dc54e3acf79f3af1e"
     },
     {
       "shard_id": "shard:coc7:push-luck:section-push-luck-source-accepted",
-      "shard_digest": "45461185335b290b40219142580ed8eae76945eb9c8644fb7f7021fe06e974e6"
+      "shard_digest": "60ced25cf756f2b96a58eb111d0e9b83c84c10717b51134904a138be55c7401c"
     },
     {
       "shard_id": "shard:coc7:sanity:section-sanity-complete-source",
-      "shard_digest": "33139865dcd6fad991675d2aaf3af61e39b07e288ccdb780e4b8d646c0bb2505"
+      "shard_digest": "6b94c4f69e090bac5a771d5da88a175b75d67f1277e3ceb833ffeeb350f52e0a"
     },
     {
       "shard_id": "shard:coc7:social:section-social-source-accepted",
-      "shard_digest": "fd8ef92bc68858a30d19b5d1628d936afb0735592c7f92adb0c3bbcc197b1bbd"
+      "shard_digest": "bc75af9141dddcedeab0b2e806eec20384b75fc847f840281728cb97b23b076c"
     }
   ],
   "family_coverage": {
@@ -148,7 +148,9 @@
     "chase.context",
     "chase.execute",
     "check",
-    "combat_runtime",
+    "combat.context",
+    "combat.end",
+    "combat.resolve",
     "development.settle",
     "dying_check",
     "first_aid",
@@ -157,12 +159,20 @@
     "magic.learn",
     "medicine",
     "opposed",
-    "psychology_runtime",
+    "psychology_check_contract",
+    "psychology_policy",
+    "psychology_realization_public_projection",
     "push_policy",
-    "sanity_runtime",
+    "rules.sanity_check",
+    "sanity.context",
+    "sanity.execute",
+    "sanity.session.gain_san",
+    "sanity.session.reality_check",
     "social_difficulty",
     "social_skill_names",
     "state.end_session",
+    "time.apply_psychoanalysis_treatment",
+    "time.recover_temporary_insanity",
     "weekly_recovery"
   ],
   "compiler_identity": "coc.rule-graph-compiler.v1",

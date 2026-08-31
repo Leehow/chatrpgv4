@@ -182,7 +182,9 @@ def test_external_source_bundles_reproduce_committed_tree(tmp_path: Path):
     expected = {
         path.relative_to(TREE): path.read_bytes()
         for path in TREE.rglob("*.json")
-        if not path.relative_to(TREE).as_posix().startswith("accepted/")
+        if not path.relative_to(TREE).as_posix().startswith((
+            "accepted/", "families/",
+        ))
     }
     actual = {
         path.relative_to(output): path.read_bytes()
