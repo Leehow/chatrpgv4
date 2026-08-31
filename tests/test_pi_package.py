@@ -1551,6 +1551,82 @@ def test_pi_coc_attached_ui_repins_stale_packages_to_running_repo(tmp_path: Path
     assert written["packages"] == [str(ROOT)]
 
 
+def test_pi_coc_repo_local_launches_pin_the_package_that_owns_the_launcher(
+    tmp_path: Path,
+):
+    """TUI/RPC worktrees load themselves without changing unrelated settings."""
+    settings, models = _supported_pi_settings()
+    stale = tmp_path / "main-checkout"
+    stale.mkdir()
+    preserved = {
+        **settings,
+        "packages": [str(stale)],
+        "theme": "dark",
+        "quietStartup": False,
+        "customSetting": {"kept": True},
+    }
+
+    completed, _args_path = _run_pi_coc(
+        tmp_path / "main-run",
+        settings=preserved,
+        models=models,
+        args=["--mode", "rpc"],
+    )
+    assert completed.returncode == 0, completed.stderr
+    main_written = json.loads(
+        (tmp_path / "main-run" / "agent" / "settings.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert main_written == {**preserved, "packages": [str(ROOT)]}
+
+    worktree_root = tmp_path / "chatrpgv4-disposable-worktree"
+    (worktree_root / "plugins" / "coc-keeper").mkdir(parents=True)
+    shutil.copytree(
+        PLUGIN / "pi",
+        worktree_root / "plugins" / "coc-keeper" / "pi",
+    )
+    (worktree_root / "package.json").write_text(
+        json.dumps({"name": "@chatrpg/coc-keeper-pi"}) + "\n",
+        encoding="utf-8",
+    )
+    agent_dir, fake_bin = _pi_coc_test_home(
+        tmp_path / "worktree-run",
+        settings={**preserved, "packages": [str(ROOT)]},
+        models=models,
+    )
+    args_path = tmp_path / "worktree-run" / "pi-args.txt"
+    completed = subprocess.run(
+        [
+            str(worktree_root / "plugins" / "coc-keeper" / "pi" / "bin" / "pi-coc"),
+            "--new",
+            "--mode",
+            "rpc",
+        ],
+        cwd=worktree_root,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "PI_COC_AGENT_DIR": str(agent_dir),
+            "PI_COC_TEST_ARGS": str(args_path),
+            "PI_COC_TEST_CAMPAIGN": str(tmp_path / "worktree-run" / "campaign.txt"),
+            "PI_COC_TEST_PATH": str(tmp_path / "worktree-run" / "path.txt"),
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    worktree_written = json.loads(
+        (agent_dir / "settings.json").read_text(encoding="utf-8")
+    )
+    assert worktree_written == {
+        **preserved,
+        "packages": [str(worktree_root.resolve())],
+    }
+    assert list(agent_dir.glob(".settings.json.pi-coc-*.tmp")) == []
+
+
 def test_pi_coc_prefers_uv_project_environment_python(tmp_path: Path):
     """Packaged desktop relocates the venv via UV_PROJECT_ENVIRONMENT.
 
