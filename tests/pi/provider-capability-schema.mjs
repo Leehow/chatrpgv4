@@ -27,18 +27,17 @@ const typed = await import(
 const { getJsonSchemaToolParameters, resolveJsonSchemaStrictSampling } = await import(
   pathToFileURL(embeddedPiFile(root, "pi-ai", "dist/api/constrained-sampling.js")).href
 );
-const { convertMessages, getCompat } = await import(
+const { convertMessages } = await import(
   pathToFileURL(embeddedPiFile(root, "pi-ai", "dist/api/openai-completions.js")).href
 );
 
 const SPOTLIGHT = [
-  "rules.roll",
-  "rules.social_adjudicate",
   "npc.reaction",
   "state.journal",
   "turn.output_context",
   "turn.finalize",
 ];
+const GRAPH_HIDDEN_LEGACY = ["rules.roll", "rules.social_adjudicate"];
 const catalog = typed.defaultTypedToolCatalog();
 
 function presentedProduct(operation) {
@@ -85,6 +84,10 @@ function semanticKeys(schema) {
 }
 
 test("product schemas stay presented archive inputSchema across strict capabilities", () => {
+  for (const operation of GRAPH_HIDDEN_LEGACY) {
+    assert.ok(archive.operations[operation], operation);
+    assert.equal(catalog.byOperation.get(operation), undefined, operation);
+  }
   for (const operation of SPOTLIGHT) {
     const product = catalog.byOperation.get(operation).parameters;
     assert.deepEqual(product, presentedProduct(operation), operation);
@@ -172,19 +175,21 @@ test("developer-role capability does not mutate tool schema semantics", () => {
     baseUrl: "https://aiservice.jellytoken.com/v1",
     compat: { supportsDeveloperRole: false, supportsStrictMode: false },
   });
-  assert.equal(getCompat(withDev).supportsDeveloperRole, true);
-  assert.equal(getCompat(withoutDev).supportsDeveloperRole, false);
+  const withDevCompat = { ...withDev.compat };
+  const withoutDevCompat = { ...withoutDev.compat };
+  assert.equal(withDevCompat.supportsDeveloperRole, true);
+  assert.equal(withoutDevCompat.supportsDeveloperRole, false);
 
   const messages = history();
   const enabled = convertMessages(
     withDev,
     { messages, systemPrompt: "Host system prompt stays first." },
-    getCompat(withDev),
+    withDevCompat,
   );
   const disabled = convertMessages(
     withoutDev,
     { messages, systemPrompt: "Host system prompt stays first." },
-    getCompat(withoutDev),
+    withoutDevCompat,
   );
   const enabledRoles = enabled.map((row) => row.role);
   const disabledRoles = disabled.map((row) => row.role);

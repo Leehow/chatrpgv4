@@ -34,6 +34,20 @@ const exactTextSha256 = (text) => (
   `sha256:${createHash("sha256").update(JSON.stringify(text), "utf8").digest("hex")}`
 );
 
+async function assertGraphHiddenLegacy(h, operations) {
+  for (const operation of operations) {
+    const visible = JSON.parse((await h.tools.get("coc_discover").execute(
+      `hidden-${operation}`,
+      { operation },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(visible.ok, false, JSON.stringify(visible));
+    assert.equal(visible.error.code, "policy_forbidden", operation);
+  }
+}
+
 function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
   const tools = new Map();
   const commands = new Map();
@@ -968,6 +982,10 @@ const ACTIVE_CHASE_CONTEXT = {
 };
 
 test("active chase context projects semantic move choices and host-binds execute", async () => {
+  await withPlayHarness(async (h) => {
+    await assertGraphHiddenLegacy(h, ["chase.context", "chase.execute"]);
+  }, (_name, params) => ({ ok: true, tool: params.operation, data: {} }));
+  return;
   const forwarded = [];
   const sceneEnvelope = contextReceipt("chase-party", {
     active_scene_id: "knott-office",
@@ -1521,6 +1539,12 @@ const actualActiveSchemaBytes = (h) => h.active.at(-1).reduce((total, name) => (
 ), 0);
 
 test("scene plus npc query bind social and Psychology identity without model ids", async () => {
+  await withPlayHarness(async (h) => {
+    await assertGraphHiddenLegacy(h, [
+      "rules.social_adjudicate", "rules.psychology_observe",
+    ]);
+  }, (_name, params) => ({ ok: true, tool: params.operation, data: {} }));
+  return;
   const forwarded = [];
   const scene = contextReceipt("social-scene", {
     active_scene_id: "commission-briefing",
@@ -1680,6 +1704,10 @@ test("scene plus npc query bind social and Psychology identity without model ids
 });
 
 test("structured scene combat affordances survive into the next player turn", async () => {
+  await withPlayHarness(async (h) => {
+    await assertGraphHiddenLegacy(h, ["combat.resolve"]);
+  }, (_name, params) => ({ ok: true, tool: params.operation, data: {} }));
+  return;
   let confrontationActive = true;
   const sceneEnvelope = () => contextReceipt("structured-combat", {
     active_scene_id: confrontationActive ? "corbitt-confrontation" : "street",
@@ -1732,6 +1760,10 @@ test("structured scene combat affordances survive into the next player turn", as
 });
 
 test("scene context directly binds a single combat target without combat context", async () => {
+  await withPlayHarness(async (h) => {
+    await assertGraphHiddenLegacy(h, ["combat.resolve"]);
+  }, (_name, params) => ({ ok: true, tool: params.operation, data: {} }));
+  return;
   const forwarded = [];
   const sceneEnvelope = contextReceipt("direct-combat-single", {
     active_scene_id: "cellar",
@@ -1825,6 +1857,10 @@ test("scene context directly binds a single combat target without combat context
 });
 
 test("scene combat choices are explicit and combat context replaces them authoritatively", async () => {
+  await withPlayHarness(async (h) => {
+    await assertGraphHiddenLegacy(h, ["combat.context", "combat.resolve"]);
+  }, (_name, params) => ({ ok: true, tool: params.operation, data: {} }));
+  return;
   const forwarded = [];
   let sceneEnvelope = contextReceipt("direct-combat-ambiguous", {
     active_scene_id: "cellar",
@@ -1942,6 +1978,10 @@ test("scene combat choices are explicit and combat context replaces them authori
 });
 
 test("resume-projected combat tool rebinds before a stale tool object executes", async () => {
+  await withPlayHarness(async (h) => {
+    await assertGraphHiddenLegacy(h, ["combat.resolve"]);
+  }, (_name, params) => ({ ok: true, tool: params.operation, data: {} }));
+  return;
   const forwarded = [];
   const resumeEnvelope = {
     ok: true,
@@ -2024,6 +2064,10 @@ test("resume-projected combat tool rebinds before a stale tool object executes",
 });
 
 test("campaign-bound typed semantic calls use the active campaign before restoration", async () => {
+  await withPlayHarness(async (h) => {
+    await assertGraphHiddenLegacy(h, ["combat.resolve", "rules.roll"]);
+  }, (_name, params) => ({ ok: true, tool: params.operation, data: {} }));
+  return;
   const forwarded = [];
   const campaign = "tool-affordance-campaign";
   const sceneEnvelope = contextReceipt("typed-active-campaign", {
@@ -2276,15 +2320,15 @@ test("campaign-bound typed semantic calls fail closed without an active campaign
       undefined,
       h.ctx,
     );
-    const combat = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
+    const combat = JSON.parse((await h.tools.get("coc_discover").execute(
       "combat-without-active-campaign",
-      { investigator: "current-investigator" },
+      { operation: "combat.resolve" },
       undefined,
       undefined,
       h.ctx,
     )).content[0].text);
     assert.equal(combat.ok, false, JSON.stringify(combat));
-    assert.equal(combat.error.code, "binding_context_missing");
+    assert.equal(combat.error.code, "policy_forbidden");
     assert.equal(
       forwarded.filter((params) => params.operation === "combat.resolve").length,
       0,
@@ -2872,33 +2916,12 @@ test("scene, precise-clock, and combat cards bind discovered production tools an
       }],
     });
     await invokeCompat(h, "scene-c", "scene.context");
-    await invokeCompat(h, "combat-context", "combat.context");
-    const combatDiscovery = JSON.parse((await h.tools.get("coc_discover").execute(
-      "discover-combat", { operation: "combat.resolve" }, undefined, undefined, h.ctx,
-    )).content[0].text);
-    assert.equal(combatDiscovery.ok, true);
-    assert.deepEqual(
-      combatDiscovery.data.operation_card.parameters.properties.candidate_id.enum,
-      ["attack:walter-corbitt", "combat-route:floating-knife"],
+    await assertGraphHiddenLegacy(h, ["combat.context", "combat.resolve"]);
+    assert.equal(
+      forwarded.some((row) => row.operation === "combat.resolve"),
+      false,
+      "hidden legacy combat must not reach canonical transport",
     );
-    for (const field of ["root", "campaign", "decision_id", "target_npc_id", "affordance_id"]) {
-      assert.equal(Object.hasOwn(
-        combatDiscovery.data.operation_card.parameters.properties,
-        field,
-      ), false, field);
-    }
-    const combat = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
-      "combat-bound", {
-        candidate_id: "attack:walter-corbitt",
-        action_kind: "attack",
-        weapon_id: "unarmed",
-      },
-      undefined, undefined, h.ctx,
-    )).content[0].text);
-    assert.equal(combat.ok, true);
-    const combatForwarded = forwarded.find((row) => row.operation === "combat.resolve");
-    assert.equal(combatForwarded.arguments.target_npc_id, "walter-corbitt");
-    assert.equal(Object.hasOwn(combatForwarded.arguments, "candidate_id"), false);
 
     sceneEnvelope = contextReceipt("scene-stale-a", {
       active_scene_id: "hall",
@@ -3009,42 +3032,10 @@ test("malformed output-context and finalization successes fault without progress
         role: "user",
         content: [{ type: "text", text: `验证 ${operation}。` }],
       });
-      // The finalize coverage obligation resolves through the registry, so
-      // observe one real roll first and reference its projected handle.
-      let obligationHandle = null;
-      if (operation === "turn.finalize") {
-        const rollRoute = h.clientCalls;
-        const rollResult = JSON.parse((await invokeCompat(
-          h, `roll-for-${operation}`, "rules.roll",
-          {
-            difficulty: "regular",
-            goal: "推开通往书房的门",
-            stakes: { on_success: "门开了", on_failure: "门纹丝不动" },
-            difficulty_basis: "keeper_judgment",
-            decision_id: "roll-malformed-finalize-probe",
-          },
-        )).content[0].text);
-        obligationHandle = rollResult.data?.roll_id;
-        assert.ok(
-          typeof obligationHandle === "string" && obligationHandle.startsWith("roll:"),
-          JSON.stringify(rollResult),
-        );
-        assert.notEqual(rollRoute, null);
-      }
       const modelOwnedSettleArgs = operation === "turn.finalize"
         ? {
           draft: "探针草稿：你推开书房的门。",
-          coverage: [{
-            obligation_id: obligationHandle,
-            player_input_handling: "not_applicable",
-            realization: "concealed_no_player_visible_beat",
-            exact_excerpt: null,
-            action_realization: null,
-            causal_explanation: null,
-            exceptional_beat: null,
-            persona_fit: null,
-            response: null,
-          }],
+          coverage: [],
         }
         : {};
       const response = JSON.parse((await invokeCompat(
@@ -3066,18 +3057,6 @@ test("malformed output-context and finalization successes fault without progress
       assert.equal(stages.includes("output_context_ready"), false);
       assert.deepEqual(h.active.at(-1), ["coc_session_resume"]);
     }, (_name, params) => {
-      if (params.operation === "rules.roll") {
-        return {
-          ok: true,
-          tool: "rules.roll",
-          data: {
-            roll_id: "toolbox-affordance-malformed-000001",
-            skill: "侦查",
-            passed: true,
-            resolution_context: { attempt_id: "attempt-affordance-malformed" },
-          },
-        };
-      }
       if (params.operation === operation) {
         return operation === "turn.finalize"
           ? {
