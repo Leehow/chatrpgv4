@@ -248,6 +248,10 @@ def test_pi_typed_tool_surface():
     _node_test(ROOT / "tests/pi/typed-tool-surface.mjs")
 
 
+def test_pi_rule_query_projection():
+    _node_test(ROOT / "tests/pi/rule-query-projection.mjs")
+
+
 def test_pi_tool_working_set():
     _node_test(ROOT / "tests/pi/tool-working-set.mjs")
 
