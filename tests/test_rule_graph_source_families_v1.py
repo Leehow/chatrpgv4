@@ -111,8 +111,25 @@ def test_chase_source_review_is_complete_and_records_runtime_mismatches():
         "pedal-to-metal", "passengers-and-fire", "vehicle-reference",
     ):
         assert f"rule:coc7:chase:{token}" in node_ids
-    for token in ("runtime-dex-tie", "runtime-multiple-escape", "runtime-ranged-damage"):
-        assert f"exception:coc7:chase:{token}" in node_ids
+    assert not any(node_id.startswith("exception:coc7:chase:") for node_id in node_ids)
+    assert provenance["executable_operations"] == ["chase.execute"] * 6
+    assert provenance["unresolved_executable_rules"] == []
+    decisions = {
+        node["node_id"]: node for node in candidate["nodes"]
+        if node["node_kind"] == "decision"
+    }
+    assert set(decisions) == {
+        f"decision:coc7:chase:{token}"
+        for token in ("start", "move", "hazard", "barrier", "conflict", "end")
+    }
+    for decision_id, decision in decisions.items():
+        assert decision["properties"]["implementation"]["kind"] == "chase.execute"
+        kinds = {
+            row["relation_kind"] for row in candidate["relations"]
+            if row["from_node_id"] == decision_id
+        }
+        assert {"available-when", "invokes", "emits"} <= kinds
+        assert {"requires-input", "locks-input"} & kinds
 
 
 def test_chase_regenerates_byte_identically_from_external_bundle(tmp_path: Path):

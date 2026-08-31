@@ -10,6 +10,16 @@
   },
   "unresolved_applicable_rules": [],
   "blockers": [],
+  "executable_review_status": "accepted",
+  "executable_operations": [
+    "chase.execute",
+    "chase.execute",
+    "chase.execute",
+    "chase.execute",
+    "chase.execute",
+    "chase.execute"
+  ],
+  "unresolved_executable_rules": [],
   "visual_review": {
     "pdf_file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
     "contact_sheet": "/private/tmp/pi-coc-rule-families-20260831/visual-review/chase-contact.jpg"
@@ -143,5 +153,5 @@
       ]
     }
   ],
-  "accepted_shard_digest": "fd577a1207ce46edcb99cf181537b9f05e99b0edbc50ab9c09813bcb0d5d2681"
+  "accepted_shard_digest": "2beb99db1a14771de3e18de4cbd20130dd1d826b32a4b481893dbb0f1e4ac4cb"
 }

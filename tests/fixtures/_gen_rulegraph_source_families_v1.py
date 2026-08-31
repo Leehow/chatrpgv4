@@ -79,11 +79,7 @@ SPECS: dict[str, dict[str, Any]] = {
             ("vehicle-reference", "Vehicle MOV, Build, armor, passengers, impairment, and collision severity come from Tables V and VI", ["Table V: Vehicle Reference Charts", "Table VI: Vehicular Collisions"]),
             ("escape-and-hide", "A quarry may escape by breaking contact or hiding when the pursuer cannot relocate it", ["Escaping the Pursuer"]),
         ],
-        "exceptions": [
-            ("runtime-dex-tie", "Runtime orders equal DEX by actor id instead of the source-required opposed DEX roll", ["The Chase Round"]),
-            ("runtime-multiple-escape", "Runtime establishment concludes only when every quarry outruns every pursuer; source permits individually outpaced participants to leave", ["Chases with Multiple Characters"]),
-            ("runtime-ranged-damage", "Runtime fire_while_moving uses a generic handgun damage stand-in instead of the source combat weapon options", ["Ranged Attacks During a Chase"]),
-        ],
+        "exceptions": [],
         "unresolved": [],
         "blockers": [],
     },

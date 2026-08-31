@@ -25,15 +25,20 @@ table, and multi-character example. The candidate covers:
 - Tables V and VI for vehicles and collisions.
 
 All source rules in the current ChaseSession scope have page-bound nodes and
-`unresolved_applicable_rules` is empty. Three source/runtime differences are
-preserved as explicit exception nodes rather than hidden:
+`unresolved_applicable_rules` is empty. The earlier DEX tie, multi-character
+escape, and moving-firearm mismatches were corrected before this executable
+review, so the accepted revision contains no runtime-gap exception nodes.
 
-1. equal DEX should use an opposed DEX roll, while runtime uses actor-id order;
-2. source multi-character setup permits individually outpaced participants to
-   leave, while runtime's initial escape check is all-or-nothing;
-3. moving firearms should use ordinary combat weapon options, while runtime
-   currently applies a generic handgun damage stand-in.
+## Executable graph review
 
-These mismatches block promotion/parity but do not make the source extraction
-incomplete. Runtime ownership remains `legacy/visible`; no production graph,
-manifest, archive, or runtime code changed.
+Six semantic decisions map source actions to the single existing
+`chase.execute` typed operation: start, move, hazard, barrier, conflict, and
+end. Actor/action/outcome/location choices remain Keeper-semantic; current
+revision, hazard/barrier snapshots, combat receipt, investigator, and
+idempotency identity are host-locked. Every decision has explicit active-chase
+applicability, invokes the existing subsystem capability, and emits a bounded
+state/evidence effect. There is no copied movement/combat algorithm and no
+generic chase resolver. `unresolved_executable_rules` is empty.
+
+Runtime ownership remains `legacy/visible`; production graph/manifest and the
+common adapter are untouched.
