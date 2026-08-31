@@ -30,11 +30,11 @@
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "1f5b425f6424118c6245c2353f5b1ca59d8c8032136bb2fddd72188449c3ee80",
+  "graph_content_digest": "9367c46b9708ef5c2643e06bd3a1ad09a14c12f44f8561bd66ef556efd15381a",
   "shards": [
     {
       "shard_id": "shard:coc7:chase:section-chase-complete-source",
-      "shard_digest": "7c4db176f95005c7ea34648def8168dfcb6e4a1e9feb98698bd7e3eda787d1af"
+      "shard_digest": "35bcbf9c9829fef07dbc57ec7af48fe705986ca24e499fc73f9ca83bc5d2270e"
     },
     {
       "shard_id": "shard:coc7:combat:section-combat-complete-source",
@@ -99,8 +99,8 @@
       "runtime_ownership": "graph"
     },
     "development": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "healing": {
       "promotion_eligible": true,

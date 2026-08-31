@@ -221,6 +221,14 @@
       "locator": "chase.session.inactive"
     },
     {
+      "ref_id": "ref:live-state:chase-start-ready",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:chase-start-ready",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "chase.start.ready"
+    },
+    {
       "ref_id": "ref:live-state:development-settlement-pending",
       "graph_id": "graph:live-state:campaign",
       "semantic_id": "fact:live-state:development-settlement-pending",
@@ -1036,6 +1044,12 @@
       "relation_kind": "requires-live-state-fact",
       "from_ref": "ref:rule:coc7:decision-coc7-chase-start",
       "to_ref": "ref:live-state:chase-session-inactive"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-chase-start-available-when:requires:chase-start-ready",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-start",
+      "to_ref": "ref:live-state:chase-start-ready"
     },
     {
       "relation_id": "relation:system:relation-coc7-chase-start-emits-chase-started",
