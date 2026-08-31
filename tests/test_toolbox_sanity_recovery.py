@@ -37,6 +37,10 @@ def test_sanity_fumble_records_the_structured_authored_loss_consequence(campaign
             "source": "structured horror",
             "loss_success": "0",
             "loss_failure": "1D4",
+            "involuntary_action": {
+                "kind": "freeze",
+                "summary": "调查员因突如其来的恐怖僵住片刻。",
+            },
             "decision_id": "san-fumble-evidence",
             "seed": 23,
         },

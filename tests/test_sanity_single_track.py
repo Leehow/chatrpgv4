@@ -83,8 +83,14 @@ def campaign_ws(tmp_path: Path):
 
 
 def _run(ws, tool: str, args: dict | None = None) -> dict:
+    call_args = dict(args or {})
+    if tool == "rules.sanity_check" and "involuntary_action" not in call_args:
+        call_args["involuntary_action"] = {
+            "kind": "freeze",
+            "summary": "测试调查员因眼前恐怖僵住片刻。",
+        }
     result = coc_toolbox.run_tool(
-        tool, ws["workspace"], ws["campaign_id"], dict(args or {})
+        tool, ws["workspace"], ws["campaign_id"], call_args
     )
     assert isinstance(result, dict)
     return result
@@ -199,6 +205,51 @@ def test_rules_sanity_check_chains_full_insanity_pipeline(campaign_ws):
     hints = " ".join(result.get("hints") or [])
     assert "bout of madness active" in hints
     assert "blocked" in hints
+
+
+def test_failed_sanity_check_preserves_keeper_involuntary_action_evidence(campaign_ws):
+    involuntary_action = {
+        "kind": "cry_out",
+        "summary": "他失声喊出同伴的名字，回声暴露了众人的位置。",
+    }
+    result = _run(
+        campaign_ws,
+        "rules.sanity_check",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "source": "the corpse turns its head",
+            "loss_success": "0",
+            "loss_failure": "1",
+            "involuntary_action": involuntary_action,
+            "decision_id": "san-involuntary-evidence",
+            "seed": TEMP_INSANITY_SEED,
+        },
+    )
+    assert result["ok"] is True, result
+    data = result["data"]
+    assert data["check"]["outcome"] == "failure"
+    assert data["involuntary_action"] == {
+        **involuntary_action,
+        "source": "the corpse turns its head",
+        "rule_ref": "core.sanity.failure_involuntary_action",
+    }
+    assert data["check"]["involuntary_action"] == data["involuntary_action"]
+
+    rolls = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    check_roll = next(row for row in rolls if row["roll_id"] == data["check_roll_id"])
+    assert check_roll["visibility"] == "consequence_public"
+    assert check_roll["payload"]["involuntary_action"] == data["involuntary_action"]
+
+    events = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "events.jsonl")
+    loss_event = next(row for row in events if row.get("event_type") == "sanity_loss")
+    assert loss_event["involuntary_action"] == data["involuntary_action"]
+    assert any(
+        row.get("event_type") == "involuntary_action"
+        and row.get("kind") == involuntary_action["kind"]
+        and row.get("source") == "the corpse turns its head"
+        for row in data["session_events"]
+    )
+    assert _sanity_snapshot(campaign_ws)["involuntary_actions"][-1] == data["involuntary_action"]
 
 
 def test_rules_sanity_check_skipped_during_active_bout(campaign_ws):
