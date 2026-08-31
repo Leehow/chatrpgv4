@@ -1368,6 +1368,170 @@ test("structured scene combat affordances survive into the next player turn", as
   });
 });
 
+test("campaign-bound typed semantic calls use the active campaign before restoration", async () => {
+  const forwarded = [];
+  const campaign = "tool-affordance-campaign";
+  const sceneEnvelope = contextReceipt("typed-active-campaign", {
+    active_scene_id: "front-hall",
+    party: ["thomas-hayes"],
+    exits: [],
+    time: { elapsed_minutes: 0 },
+    npcs_present: [],
+    action_routes: [],
+    clues_here: [],
+  });
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我检查大厅，准备应对危险。" }],
+    });
+    const scene = JSON.parse((await invokeCompat(
+      h,
+      "typed-active-campaign-scene",
+      "scene.context",
+    )).content[0].text);
+    assert.equal(scene.ok, true, JSON.stringify(scene));
+
+    for (const operation of ["combat.resolve", "rules.roll"]) {
+      const discovered = JSON.parse((await h.tools.get("coc_discover").execute(
+        `discover-${operation}`,
+        { operation },
+        undefined,
+        undefined,
+        h.ctx,
+      )).content[0].text);
+      assert.equal(discovered.ok, true, JSON.stringify(discovered));
+    }
+
+    const combat = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
+      "typed-active-campaign-combat",
+      { investigator: "current-investigator" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(combat.ok, true, JSON.stringify(combat));
+    const combatForwarded = forwarded.findLast(
+      (params) => params.operation === "combat.resolve",
+    );
+    assert.equal(combatForwarded.campaign, campaign);
+    assert.equal(combatForwarded.arguments.investigator, "thomas-hayes");
+
+    const roll = JSON.parse((await h.tools.get("coc_rules_roll").execute(
+      "typed-active-campaign-roll",
+      {
+        investigator: "current-investigator",
+        skill: "Spot Hidden",
+        difficulty: "regular",
+        difficulty_basis: "environment",
+        goal: "检查大厅里的异常",
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(roll.ok, true, JSON.stringify(roll));
+    const rollForwarded = forwarded.findLast(
+      (params) => params.operation === "rules.roll",
+    );
+    assert.equal(rollForwarded.campaign, campaign);
+    assert.equal(rollForwarded.arguments.investigator, "thomas-hayes");
+  }, (_name, params) => {
+    forwarded.push(structuredClone(params));
+    if (params.operation === "session.resume") {
+      return {
+        ok: true,
+        tool: "session.resume",
+        data: {
+          schema_version: 1,
+          campaign_id: campaign,
+          mode: "awaiting_player",
+          evidence: { table_opening_id: "table-opening:typed-active-campaign" },
+          next_operations: [],
+          scene_context: { party: ["thomas-hayes"] },
+        },
+      };
+    }
+    if (params.operation === "scene.context") return sceneEnvelope;
+    return { ok: true, tool: params.operation, data: { schema_version: 1 } };
+  });
+});
+
+test("campaign-bound typed semantic calls fail closed without an active campaign", async () => {
+  const priorRole = process.env[ROLE_ENV];
+  const priorCampaign = process.env[CAMPAIGN_ENV];
+  process.env[ROLE_ENV] = "play";
+  delete process.env[CAMPAIGN_ENV];
+  const forwarded = [];
+  try {
+    const h = makeHarness((_name, params) => {
+      forwarded.push(structuredClone(params));
+      if (params.operation === "session.resume") {
+        return {
+          ok: true,
+          tool: "session.resume",
+          data: {
+            schema_version: 1,
+            mode: "awaiting_player",
+            evidence: { table_opening_id: "table-opening:no-active-campaign" },
+            next_operations: [],
+            scene_context: { party: ["thomas-hayes"] },
+          },
+        };
+      }
+      if (params.operation === "scene.context") {
+        return contextReceipt("no-active-campaign", {
+          active_scene_id: "front-hall",
+          party: ["thomas-hayes"],
+          exits: [],
+          npcs_present: [],
+          action_routes: [],
+          clues_here: [],
+        });
+      }
+      return { ok: true, tool: params.operation, data: { schema_version: 1 } };
+    });
+    await h.start();
+    await h.tools.get("coc_invoke").execute(
+      "resume-without-active-campaign",
+      { operation: "session.resume", arguments: {} },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我检查大厅。" }],
+    });
+    await h.tools.get("coc_invoke").execute(
+      "scene-without-active-campaign",
+      { operation: "scene.context", arguments: {} },
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const combat = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
+      "combat-without-active-campaign",
+      { investigator: "current-investigator" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(combat.ok, false, JSON.stringify(combat));
+    assert.equal(combat.error.code, "semantic_entity_binding_missing");
+    assert.equal(
+      forwarded.filter((params) => params.operation === "combat.resolve").length,
+      0,
+      "campaign-less typed calls must never reach transport",
+    );
+  } finally {
+    if (priorRole === undefined) delete process.env[ROLE_ENV];
+    else process.env[ROLE_ENV] = priorRole;
+    if (priorCampaign === undefined) delete process.env[CAMPAIGN_ENV];
+    else process.env[CAMPAIGN_ENV] = priorCampaign;
+  }
+});
+
 test("projected same-destination scene routes preserve exact optional travel through canonical invoke", async () => {
   const forwarded = [];
   const sceneEnvelope = contextReceipt("multi-route", {

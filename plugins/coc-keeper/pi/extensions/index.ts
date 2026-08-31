@@ -204,6 +204,7 @@ import {
   buildReviewedCoverageBindingFacts,
   CURRENT_INVESTIGATOR_HANDLE,
   deriveSemanticEntityFacts,
+  defaultTypedToolCatalog,
   listTypedOperationTools,
   projectBoundTypedToolParameters,
   projectModelVisibleCanonicalResult,
@@ -4097,10 +4098,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sourceType: "operator_command";
     playerTurnEpoch: number;
   } | null = null;
-  const typedToolDefinitions = listTypedOperationTools();
+  const typedToolCatalog = defaultTypedToolCatalog();
+  const typedToolDefinitions = listTypedOperationTools(typedToolCatalog);
   const typedToolByOperation = new Map(
     typedToolDefinitions.map((tool) => [tool.operation, tool]),
   );
+  const typedOperationNeedsCampaign = (operation: string): boolean => {
+    const inputSchema = typedToolCatalog.contracts.operations.get(operation)?.inputSchema;
+    const properties = objectOrNull(inputSchema?.properties);
+    return properties !== null && Object.hasOwn(properties, "campaign");
+  };
   const retainedTypedBindings = new Map<string, TypedToolBindingCard>();
   const currentTypedBindingFactories = new Map<
     string,
@@ -4288,6 +4295,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     // previous global campaign. An absent, ambiguous, empty, or differing
     // campaign leaves no authorized identity, so restoration fails closed
     // instead of leaking.
+    if (!invocationCampaign) {
+      return {
+        investigatorId: null,
+        pcSubjectRefs: [],
+        playerInputSourceRef: null,
+        advisoryAdviceId: null,
+        advisoryCandidateRef: null,
+      };
+    }
     const party = semanticRegistry.currentParty(registryScope(invocationCampaign));
     const identityLive = party.live && party.state === "single";
     return {
@@ -9410,6 +9426,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       && (typeof params.campaign !== "string" || !params.campaign.trim())
       && canonicalProgressCampaignId
     ) {
+      params = { ...params, campaign: canonicalProgressCampaignId };
+    }
+    if (
+      typedDefinition !== undefined
+      && typedOperationNeedsCampaign(typedDefinition.operation)
+      && (typeof params.campaign !== "string" || !params.campaign.trim())
+      && canonicalProgressCampaignId
+    ) {
+      // Typed schemas intentionally hide the transport campaign. Attach the
+      // active canonical campaign before wrapping so semantic handles resolve
+      // inside the exact current session/campaign scope.
       params = { ...params, campaign: canonicalProgressCampaignId };
     }
     params = wrapTypedToolInvokeParams(name, params) as JsonObject;
