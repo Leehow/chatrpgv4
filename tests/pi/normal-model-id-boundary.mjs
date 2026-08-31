@@ -3821,8 +3821,8 @@ assert.ok(
   "the A-campaign investigator may only ever ride A-campaign transports",
 );
 
-// 11c) Omitted campaign: without a current invocation campaign there is no
-// authorized identity — the handle fails closed with zero transport.
+// 11c) Typed model calls omit the transport campaign by construction. The
+// active canonical campaign scopes semantic restoration before transport.
 const omittedCampaignRoll = await executeTool("coc_rules_roll", {
   root: testRoot,
   investigator: CURRENT_INVESTIGATOR_HANDLE,
@@ -3832,17 +3832,13 @@ const omittedCampaignRoll = await executeTool("coc_rules_roll", {
   goal: "缺少当前战役的聆听",
   decision_id: "roll-listen-omitted-campaign",
 });
-assert.equal(omittedCampaignRoll.isError, true);
-assert.equal(JSON.parse(modelContents.at(-1).text).error.code,
-  "semantic_entity_binding_missing");
-assert.equal(
-  clientCalls.filter(
-    (call) => call.operation === "rules.roll"
-      && call.arguments.decision_id === "roll-listen-omitted-campaign",
-  ).length,
-  0,
-  "missing-campaign handle use must never transport",
+assert.equal(JSON.parse(modelContents.at(-1).text).ok, true);
+const activeCampaignRoll = clientCalls.find(
+  (call) => call.operation === "rules.roll"
+    && call.arguments.decision_id === "roll-listen-omitted-campaign",
 );
+assert.equal(activeCampaignRoll.campaign, campaign);
+assert.equal(activeCampaignRoll.arguments.investigator, "inv-x6a217e22-e0532209");
 
 // 12) Campaign switch rebinds: the retained identity is campaign-tagged, so
 // the handle restores the NEW campaign's investigator and never leaks the old.
