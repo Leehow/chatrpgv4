@@ -955,3 +955,29 @@ export function affordancesFromHealingCardProjection(
   }
   return [{ operation: "rules.settle", source }];
 }
+
+/**
+ * A pending authored SAN trigger already carries the semantic inputs required
+ * by the flat authoritative rule surface. Expose that surface directly; the
+ * deeper subsystem command remains available for bout continuation.
+ */
+export function affordancesFromSanityTriggerProjection(
+  projection: unknown,
+  source: CanonicalAffordanceSource = "scene",
+): CanonicalAffordanceHint[] {
+  if (!isPlainObject(projection) || !Array.isArray(projection.pending_san_triggers)) {
+    return [];
+  }
+  const pending = projection.pending_san_triggers.some((value) => {
+    if (!isPlainObject(value)) return false;
+    return value.status === "pending"
+      && typeof value.trigger_id === "string"
+      && value.trigger_id.trim().length > 0;
+  });
+  if (!pending) return [];
+  const policy = OPERATION_POLICY["rules.sanity_check"];
+  if (!policy || policy.kp_surface !== "rules" || policy.discovery !== "surface") {
+    return [];
+  }
+  return [{ operation: "rules.sanity_check", source }];
+}

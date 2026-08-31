@@ -294,7 +294,7 @@ export class ToolContractProjectionError extends Error {
   }
 }
 
-export const HOST_OWNED_FIELDS: Record<TypedToolBindingCard["operation"], readonly string[]> = {
+export const HOST_OWNED_FIELDS: Readonly<Record<string, readonly string[]>> = {
   "state.journal": [
     "root",
     "campaign",
@@ -358,6 +358,12 @@ export const HOST_OWNED_FIELDS: Record<TypedToolBindingCard["operation"], readon
     "campaign",
     "investigator",
     "run_id",
+  ],
+  "sanity.execute": [
+    "decision_id",
+  ],
+  "rules.sanity_check": [
+    "decision_id",
   ],
 };
 
@@ -2494,6 +2500,75 @@ export function projectPiTypedToolParameters(
   // Semantic-handle overlay first: every presented schema exposes only the
   // stable entity handles; exact canonical identities are host-bound.
   const handleOverlayed = projectSemanticHandleSchemaOverlay(inputSchema);
+  if (operation === "sanity.execute") {
+    const cloned = handleOverlayed;
+    if (!isPlainObject(cloned.properties)) return cloned;
+    const sanityPayload = {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        source: { type: "string" },
+        reason: { type: "string" },
+        trigger_id: { type: "string" },
+        san_loss_success: {
+          oneOf: [{ type: "integer", minimum: 0 }, { type: "string" }],
+        },
+        san_loss_fail_expr: { type: "string" },
+        involuntary_kind: {
+          type: "string",
+          enum: [
+            "jump_in_fright",
+            "cry_out",
+            "involuntary_movement",
+            "involuntary_combat_action",
+            "freeze",
+          ],
+        },
+        involuntary_summary: { type: "string" },
+        alone: { type: "boolean" },
+        creature_type: { type: "string" },
+        module_bout_override: { type: "object", additionalProperties: true },
+      },
+      required: ["source", "san_loss_fail_expr"],
+    };
+    const boutBranch = (kind: "bout_tick" | "bout_end", action: "tick" | "end") => ({
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        kind: { type: "string", const: kind },
+        payload: {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            responder: { type: "string", const: "keeper" },
+            revision: { type: "integer", minimum: 0 },
+            action: { type: "string", const: action },
+          },
+          required: ["choice_id", "responder", "revision", "action"],
+        },
+      },
+      required: ["kind", "payload"],
+    });
+    cloned.properties.command = {
+      description: (
+        "Semantic sanity command. For a pending sanity check, provide only "
+        + "the meaningful payload; the host binds kind, phase, command, and "
+        + "idempotency identity. Bout continuation keeps its explicit kind."
+      ),
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          properties: { payload: sanityPayload },
+          required: ["payload"],
+        },
+        boutBranch("bout_tick", "tick"),
+        boutBranch("bout_end", "end"),
+      ],
+    };
+    overlayClosedIdentityGrammarDescriptions(cloned);
+    return cloned;
+  }
   if (operation === "turn.finalize") {
     overlayFinalizeCoverageAbsenceForm(handleOverlayed);
   }
