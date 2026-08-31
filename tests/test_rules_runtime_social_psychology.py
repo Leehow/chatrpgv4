@@ -968,3 +968,54 @@ def _npc_id(ws) -> str:
     ).get("npcs") or []
     assert npcs, "the-haunting fixture must author at least one NPC"
     return str(npcs[0]["npc_id"])
+
+
+def test_real_toolbox_psychology_context_then_settle_uses_registered_handler(
+    campaign_ws,
+):
+    npc_id = _npc_id(campaign_ws)
+    decision_ref = "decision:coc7:psychology:observe-concealed"
+    semantic = {
+        "target_ref": f"psychology-target:{npc_id}",
+        "question": "他此刻在回避什么可见问题？",
+    }
+    context = _run(campaign_ws, "rules.context", {
+        "investigator": campaign_ws["investigator_id"],
+        "family": "psychology",
+        "selected_affordance_ids": [decision_ref],
+        "semantic_inputs": semantic,
+    })
+    assert context["ok"] is True, context
+    settled = _run(campaign_ws, "rules.settle", {
+        "investigator": campaign_ws["investigator_id"],
+        "decision_ref": decision_ref,
+        "semantic_inputs": semantic,
+        "decision_id": "psychology-registry-observe-1",
+        "seed": 7,
+    })
+    assert settled["ok"] is True, settled
+    assert settled["data"]["family"] == "psychology"
+    assert settled["data"]["settlement"]["result"]["insight_id"]
+
+
+def test_cross_module_rulegraph_handlers_resolve_from_live_registry():
+    module = coc_toolbox.OPERATION_MODULES["rules-core"]
+    for operation in (
+        "combat.resolve", "magic.cast", "rules.psychology_observe",
+    ):
+        assert module._registered_operation_handler(operation) is (
+            coc_toolbox.TOOLS[operation]["handler"]
+        )
+
+
+def test_registered_rulegraph_handler_fails_closed_when_missing_or_noncallable(
+    monkeypatch,
+):
+    module = coc_toolbox.OPERATION_MODULES["rules-core"]
+    with pytest.raises(coc_toolbox.ToolError) as missing:
+        module._registered_operation_handler("missing.operation")
+    assert missing.value.code == "unsupported_ruleset_operation"
+    monkeypatch.setitem(module.TOOLS, "broken.operation", {"handler": None})
+    with pytest.raises(coc_toolbox.ToolError) as broken:
+        module._registered_operation_handler("broken.operation")
+    assert broken.value.code == "unsupported_ruleset_operation"

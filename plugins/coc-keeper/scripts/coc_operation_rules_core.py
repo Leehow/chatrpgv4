@@ -1276,52 +1276,35 @@ def _healing_tool_data(
         }
     return data
 
+def _registered_operation_handler(operation: str):
+    row = TOOLS.get(operation) if isinstance(TOOLS, dict) else None
+    handler = row.get("handler") if isinstance(row, dict) else None
+    if not callable(handler):
+        raise ToolError(
+            "unsupported_ruleset_operation",
+            f"canonical handler for {operation!r} is unavailable",
+        )
+    return handler
+
+
+def _registered_adapter(operation: str):
+    def invoke(active_ctx: Ctx, active_args: dict[str, Any]):
+        return _registered_operation_handler(operation)(active_ctx, active_args)
+    return invoke
+
+
 def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
-    def social_adjudicate(active_ctx: Ctx, active_args: dict[str, Any]):
-        # Loaded after this operation cell; resolve lazily from the shared
-        # kernel namespace so graph settlement reuses the canonical tool.
-        from coc_operation_kernel_runtime import _tool_rules_social_adjudicate
-        return _tool_rules_social_adjudicate(active_ctx, active_args)
-
-    def psychology_observe(active_ctx: Ctx, active_args: dict[str, Any]):
-        from coc_operation_kernel_runtime import _tool_rules_psychology_observe
-        return _tool_rules_psychology_observe(active_ctx, active_args)
-
-    def combat_resolve(active_ctx: Ctx, active_args: dict[str, Any]):
-        from coc_operation_kernel_runtime import _tool_combat_resolve
-        return _tool_combat_resolve(active_ctx, active_args)
-
-    def combat_end(active_ctx: Ctx, active_args: dict[str, Any]):
-        from coc_operation_kernel_runtime import _tool_combat_end
-        return _tool_combat_end(active_ctx, active_args)
-
-    def sanity_check(active_ctx: Ctx, active_args: dict[str, Any]):
-        from coc_operation_kernel_runtime import _tool_rules_sanity_check
-        return _tool_rules_sanity_check(active_ctx, active_args)
-
-    def sanity_execute(active_ctx: Ctx, active_args: dict[str, Any]):
-        from coc_operation_kernel_runtime import _tool_sanity_execute
-        return _tool_sanity_execute(active_ctx, active_args)
-
-    def magic_cast(active_ctx: Ctx, active_args: dict[str, Any]):
-        from coc_operation_kernel_runtime import _tool_magic_cast
-        return _tool_magic_cast(active_ctx, active_args)
-
-    def magic_learn(active_ctx: Ctx, active_args: dict[str, Any]):
-        from coc_operation_kernel_runtime import _tool_magic_learn
-        return _tool_magic_learn(active_ctx, active_args)
-
-    def end_session(active_ctx: Ctx, active_args: dict[str, Any]):
-        from coc_operation_kernel_runtime import _tool_state_end_session
-        return _tool_state_end_session(active_ctx, active_args)
-
-    def development_settle(active_ctx: Ctx, active_args: dict[str, Any]):
-        from coc_operation_kernel_runtime import _tool_development_settle
-        return _tool_development_settle(active_ctx, active_args)
-
-    def chase_execute(active_ctx: Ctx, active_args: dict[str, Any]):
-        from coc_operation_kernel_runtime import _tool_chase_execute
-        return _tool_chase_execute(active_ctx, active_args)
+    social_adjudicate = _registered_adapter("rules.social_adjudicate")
+    psychology_observe = _registered_adapter("rules.psychology_observe")
+    combat_resolve = _registered_adapter("combat.resolve")
+    combat_end = _registered_adapter("combat.end")
+    sanity_check = _registered_adapter("rules.sanity_check")
+    sanity_execute = _registered_adapter("sanity.execute")
+    magic_cast = _registered_adapter("magic.cast")
+    magic_learn = _registered_adapter("magic.learn")
+    end_session = _registered_adapter("state.end_session")
+    development_settle = _registered_adapter("development.settle")
+    chase_execute = _registered_adapter("chase.execute")
 
     return dispatch_rules_settle(
         ctx,

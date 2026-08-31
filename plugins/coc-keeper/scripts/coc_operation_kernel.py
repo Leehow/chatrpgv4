@@ -7850,7 +7850,10 @@ def dispatch_rules_settle(
             details=result,
         )
     settlement = result.get("settlement") if isinstance(result.get("settlement"), dict) else {}
-    adapter_data = settlement.get("result") if status == "settled" else None
+    adapter_data = (
+        coc_rules_runtime._thaw(settlement.get("result"))
+        if status == "settled" else None
+    )
     adapter_row = adapter_data if isinstance(adapter_data, dict) else {}
     data = {
         "decision_ref": result.get("decision_ref"),
