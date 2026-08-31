@@ -133,7 +133,9 @@ export type TurnFinalizeBindingCard = {
   revision: number;
   turn_id: string;
   source_digest: string;
-  narration_review_id: string;
+  narration_review_id: string | null;
+  /** Test-only direct first-draft binding; production review path omits it. */
+  direct_single_draft?: true;
   repair_finalization_id?: string;
   /**
    * Present only after a clear accepted narration.review. The model selects
@@ -1640,7 +1642,28 @@ function validateBindingShape(binding: TypedToolBindingCard): void {
     requirePositiveRevision(binding.revision, "revision");
     nonEmptyString(binding.turn_id, "turn_id");
     nonEmptyString(binding.source_digest, "source_digest");
-    nonEmptyString(binding.narration_review_id, "narration_review_id");
+    const directSingleDraft = binding.direct_single_draft === true;
+    if (binding.direct_single_draft !== undefined && !directSingleDraft) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "direct_single_draft must be true when present",
+        { field: "direct_single_draft" },
+      );
+    }
+    if (directSingleDraft) {
+      if (
+        binding.narration_review_id !== null
+        || binding.reviewed_agency_binding !== undefined
+      ) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          "direct single-draft finalize cannot carry review evidence",
+          { field: "narration_review_id" },
+        );
+      }
+    } else {
+      nonEmptyString(binding.narration_review_id, "narration_review_id");
+    }
     if (binding.repair_finalization_id !== undefined) {
       nonEmptyString(binding.repair_finalization_id, "repair_finalization_id");
     }
@@ -1783,7 +1806,9 @@ function bindingValues(binding: TypedToolBindingCard): Record<string, unknown> {
       campaign: binding.campaign,
       decision_id: binding.decision_id,
       revision: binding.revision,
-      narration_review_id: binding.narration_review_id,
+      ...(binding.narration_review_id === null
+        ? {}
+        : { narration_review_id: binding.narration_review_id }),
       ...(binding.reviewed_agency_binding === undefined
         ? {}
         : { draft: binding.reviewed_agency_binding.draft }),

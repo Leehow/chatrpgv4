@@ -2149,6 +2149,10 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
     if "agency_review_operation" in value:
         projected["agency_review_operation"] = deepcopy(agency_review_operation)
     source_finalize_operation = value.get("finalize_operation")
+    source_finalize_invoke_via = (
+        source_finalize_operation.get("invoke_via")
+        if isinstance(source_finalize_operation, dict) else None
+    )
     source_finalize_prefilled = (
         source_finalize_operation.get("prefilled_arguments")
         if isinstance(source_finalize_operation, dict) else None
@@ -2183,7 +2187,10 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
         prefilled=prefilled,
         missing=missing,
     )
-    if agency_review_required:
+    if (
+        agency_review_required
+        or source_finalize_invoke_via == "coc_turn_finalize"
+    ):
         finalize_operation["invoke_via"] = "coc_turn_finalize"
     finalize_operation["argument_contract"] = {
         "required_arguments": [

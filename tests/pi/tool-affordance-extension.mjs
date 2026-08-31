@@ -1056,6 +1056,8 @@ test("rules-director profile activates healing card without discovery or broad t
       "ruledecision-profile-card",
       healingSceneData(),
     );
+    const turnId = "turn-rules-director-single-draft-1";
+    const sourceDigest = `sha256:${"c7".repeat(32)}`;
     await withPlayHarness(async (h) => {
       await h.emit("message_start", {
         role: "user",
@@ -1073,9 +1075,132 @@ test("rules-director profile activates healing card without discovery or broad t
         "coc_scene_context",
         "coc_state_journal",
       ]);
+      const settled = await h.tools.get("coc_rules_settle").execute(
+        "ruledecision-profile-settle",
+        {
+          campaign: "tool-affordance-campaign",
+          decision_ref: PRODUCTION_HEALING_DECISION_CARD.decision_ref,
+          semantic_inputs: {},
+          decision_id: "recovery-profile-first-aid-v1",
+        },
+        undefined,
+        undefined,
+        h.ctx,
+      );
+      assert.equal(JSON.parse(settled.content[0].text).ok, true);
+      const journal = await h.tools.get("coc_state_journal").execute(
+        "rules-director-profile-journal",
+        {
+          summary: "调查员按住右手伤口并完成急救尝试。",
+          player_action: "按住伤口并仔细包扎",
+          intent_class: "treat_wound",
+          player_speaker: "调查员",
+          tension: "medium",
+        },
+        undefined,
+        undefined,
+        h.ctx,
+      );
+      assert.equal(JSON.parse(journal.content[0].text).ok, true);
+      const output = await invokeCompat(
+        h,
+        "rules-director-profile-output",
+        "turn.output_context",
+      );
+      assert.equal(JSON.parse(output.content[0].text).ok, true);
+      assert.ok(h.active.at(-1).includes("coc_turn_finalize"));
+      assert.ok(!h.active.at(-1).includes("coc_invoke"));
+      assert.ok(!h.active.at(-1).includes("coc_narration_review"));
+      const finalized = await h.tools.get("coc_turn_finalize").execute(
+        "rules-director-profile-finalize",
+        { draft: "你按住伤口，布条很快被血浸透。", coverage: [] },
+        undefined,
+        undefined,
+        h.ctx,
+      );
+      assert.equal(JSON.parse(finalized.content[0].text).ok, true);
+      const call = h.clientCalls.findLast((row) => (
+        row.name === "coc_invoke" && row.params.operation === "turn.finalize"
+      ));
+      assert.equal(call.params.arguments.revision, 1);
+      assert.equal(call.params.arguments.narration_review_id, undefined);
     }, (_name, params) => {
       if (params.operation === "session.resume") return resumeEnvelope;
       if (params.operation === "scene.context") return sceneEnvelope;
+      if (params.operation === "rules.settle") {
+        return {
+          ok: true,
+          tool: "rules.settle",
+          data: {
+            schema_version: 1,
+            decision_ref: params.arguments.decision_ref,
+            family: "healing",
+            status: "settled",
+            next_decisions: [],
+            authority: "canonical-resolver-state-receipts",
+          },
+        };
+      }
+      if (params.operation === "state.journal") {
+        return {
+          ok: true,
+          tool: "state.journal",
+          data: { turn_id: turnId, turn_number: 1 },
+        };
+      }
+      if (params.operation === "turn.output_context") {
+        return {
+          ok: true,
+          tool: "turn.output_context",
+          data: {
+            turn_id: turnId,
+            journal_decision_id: params.arguments?.decision_id
+              ?? "pi-state-journal:profile:player-epoch-1:revision-1",
+            source_digest: sourceDigest,
+            settlement_snapshot_id: "turn-settlement-v1:profile-single-draft",
+            mechanics_bundle_sha256: `sha256:${"c8".repeat(32)}`,
+            obligations: [],
+            required_obligation_ids: [],
+            mechanics_summary: {
+              public_check: [], state_delta: [], exceptional_effect: [],
+              concealed_consequence: [],
+            },
+            contract_projection: {
+              player_input: {
+                source_ref: "player_input:profile-single-draft",
+                text: "我按住伤口，重新仔细包扎。",
+              },
+              agency_review_required: false,
+              agency_authority: { pc_subject_refs: ["pc:thomas-hayes"] },
+              control_overrides: [],
+            },
+            finalize_operation: {
+              operation: "turn.finalize",
+              invoke_via: "coc_turn_finalize",
+              prefilled_arguments: {
+                decision_id:
+                  "pi-state-journal:profile:player-epoch-1:revision-1:finalize",
+                revision: 1,
+                coverage: [],
+              },
+              missing_arguments: ["draft"],
+            },
+          },
+        };
+      }
+      if (params.operation === "turn.finalize") {
+        return {
+          ok: true,
+          tool: "turn.finalize",
+          data: {
+            finalized: true,
+            finalization_id: "finalization-v1:profile-single-draft",
+            turn_id: turnId,
+            rendered_text: params.arguments.draft,
+            rendered_text_sha256: canonicalDigest(params.arguments.draft),
+          },
+        };
+      }
       return { ok: true, tool: params.operation, data: {} };
     });
   } finally {

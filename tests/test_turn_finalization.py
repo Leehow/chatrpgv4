@@ -66,7 +66,7 @@ def test_pi_play_single_draft_profile_is_exact_opt_in_and_finalizes_once(
     assert "state_claim_compilation" not in serialized
     finalize = data["finalize_operation"]
     assert finalize["operation"] == "turn.finalize"
-    assert finalize["invoke_via"] == "coc_invoke"
+    assert finalize["invoke_via"] == "coc_turn_finalize"
     assert finalize["missing_arguments"] == ["draft"]
     assert finalize["prefilled_arguments"]["revision"] == 1
     assert finalize["prefilled_arguments"]["coverage"] == []

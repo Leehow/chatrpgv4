@@ -1386,7 +1386,7 @@ closure is exactly:
 
 ```text
 rules + director judgment -> state.journal -> turn.output_context
--> Grok drafts once -> returned generic turn.finalize once -> exact delivery
+-> Grok drafts once -> returned typed turn.finalize once -> exact delivery
 ```
 
 The profile pins `settings.packages` to the exact checkout/worktree that owns
@@ -1407,7 +1407,7 @@ the precondition.
 
 For this exact profile only, `turn.output_context` returns
 `agency_review_required=false`, omits `agency_review_operation` and the host
-state-claim compiler lane, and returns a generic `finalize_operation`. Grok
+state-claim compiler lane, and returns a narrow typed `finalize_operation`. Grok
 treats its first draft as final, calls that returned operation once, and does
 not call `narration.review` or enter a prose-revision loop. An absent, misspelled,
 or unknown `COC_PI_ACCEPTANCE_PROFILE` keeps the production review path.

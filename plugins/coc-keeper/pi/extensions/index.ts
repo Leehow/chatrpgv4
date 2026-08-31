@@ -4125,6 +4125,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     coverageBindingFacts: ReviewedCoverageBindingFacts;
     reviewedAgencyBinding: ReviewedAgencyBinding | null;
     directGenericFinalize: boolean;
+    directTypedFinalize: boolean;
   } | null = null;
   // Exact canonical entity identities retained from observed envelopes so the
   // model can use semantic handles (current-investigator / pc:current-
@@ -5522,6 +5523,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         !agencyReviewRequired
         && finalizeCard?.invoke_via === "coc_invoke"
       );
+      const directTypedFinalize = (
+        !agencyReviewRequired
+        && finalizeCard?.invoke_via === "coc_turn_finalize"
+      );
       const sourceDigest = typeof data.source_digest === "string"
         ? data.source_digest
         : "";
@@ -5546,7 +5551,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         const journalDecisionId = typeof data.journal_decision_id === "string"
           ? data.journal_decision_id
           : semanticDecisionId("state.journal", 1);
-        retainedOutputContextFacts = coverageBindingFacts === null ? null : {
+        const finalizePrefilled = objectOrNull(
+          finalizeCard?.prefilled_arguments,
+        );
+        const directFinalizeDecisionId = (
+          directTypedFinalize
+          && typeof finalizePrefilled?.decision_id === "string"
+          && finalizePrefilled.decision_id === `${journalDecisionId}:finalize`
+        ) ? finalizePrefilled.decision_id : null;
+        retainedOutputContextFacts = (
+          coverageBindingFacts === null
+          || (directTypedFinalize && directFinalizeDecisionId === null)
+        ) ? null : {
           root: typeof params.root === "string" && params.root
             ? params.root
             : currentWorkspaceRoot,
@@ -5555,7 +5571,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           sourceDigest,
           revision,
           journalDecisionId,
-          finalizeDecisionId: null,
+          finalizeDecisionId: directFinalizeDecisionId,
           narrationReviewId: null,
           playerInputSourceRef: typeof playerInput?.source_ref === "string"
             ? playerInput.source_ref
@@ -5565,6 +5581,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           coverageBindingFacts,
           reviewedAgencyBinding: null,
           directGenericFinalize,
+          directTypedFinalize,
         };
         if (agencyReviewRequired && retainedOutputContextFacts !== null) {
           const retainedReviewBinding: TypedToolBindingCard = {
@@ -5593,6 +5610,46 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               source_digest: current.sourceDigest,
               revision: current.revision,
               state_claim_compilation: {},
+            };
+          });
+          if (hostHydrationObservationTransaction !== null) {
+            overrides.hostHydrationObserverCheckpoint?.("binding");
+          }
+        } else if (directTypedFinalize && retainedOutputContextFacts !== null) {
+          const retainedFinalizeBinding: TypedToolBindingCard = {
+            schema_version: 1,
+            operation: "turn.finalize",
+            binding_revision: `turn-finalize-direct:${data.turn_id}:revision-${revision}`,
+            root: retainedOutputContextFacts.root,
+            campaign: campaignId,
+            decision_id: retainedOutputContextFacts.finalizeDecisionId!,
+            revision,
+            turn_id: data.turn_id,
+            source_digest: sourceDigest,
+            narration_review_id: null,
+            direct_single_draft: true,
+          };
+          armTypedBinding(retainedFinalizeBinding, () => {
+            const current = retainedOutputContextFacts;
+            if (
+              current === null
+              || current.turnId !== data.turn_id
+              || current.finalizeDecisionId === null
+              || current.directTypedFinalize !== true
+            ) return null;
+            return {
+              schema_version: 1,
+              operation: "turn.finalize",
+              binding_revision:
+                `turn-finalize-direct:${current.turnId}:revision-${current.revision}`,
+              root: current.root,
+              campaign: current.campaign,
+              decision_id: current.finalizeDecisionId,
+              revision: current.revision,
+              turn_id: current.turnId,
+              source_digest: current.sourceDigest,
+              narration_review_id: null,
+              direct_single_draft: true,
             };
           });
           if (hostHydrationObservationTransaction !== null) {
@@ -9000,6 +9057,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       coverageBindingFacts: structuredClone(coverageBindingFacts),
       reviewedAgencyBinding,
       directGenericFinalize: false,
+      directTypedFinalize: false,
     };
     const facts = retainedOutputContextFacts;
     const retainedFinalizeBinding: TypedToolBindingCard = {

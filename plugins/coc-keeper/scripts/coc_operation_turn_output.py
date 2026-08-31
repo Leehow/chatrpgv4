@@ -21,6 +21,7 @@ from coc_operation_kernel_runtime import (
     _load_sibling,
     _now_iso,
     _pi_play_agency_review_required,
+    _pi_rules_director_single_draft_profile,
     _read_optional_json,
     _record_table_transcript_entry,
     _resolve_investigator,
@@ -2544,7 +2545,12 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
         data["finalize_operation"] = {
             "operation": "turn.finalize",
             "invoke_via": (
-                "coc_turn_finalize" if agency_review_required else "coc_invoke"
+                "coc_turn_finalize"
+                if (
+                    agency_review_required
+                    or _pi_rules_director_single_draft_profile()
+                )
+                else "coc_invoke"
             ),
             "prefilled_arguments": prefilled_arguments,
             "missing_arguments": missing_arguments,

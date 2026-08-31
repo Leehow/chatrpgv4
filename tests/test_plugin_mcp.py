@@ -6000,6 +6000,59 @@ def test_mcp_wire_finalize_card_matches_archive_and_never_prefills_semantics():
     )
 
 
+def test_mcp_wire_single_draft_profile_preserves_typed_finalize_surface():
+    server = _load_server()
+    projected = server.wire_projection.project_envelope(
+        "turn.output_context",
+        {
+            "ok": True,
+            "tool": "turn.output_context",
+            "data": {
+                "schema_version": 1,
+                "turn_id": "turn-single-draft-wire",
+                "journal_decision_id": "journal-single-draft-wire",
+                "source_digest": "sha256:single-draft-wire",
+                "settlement_snapshot_id": "turn-settlement-v1:single-draft-wire",
+                "mechanics_bundle_sha256": "sha256:mechanics-single-draft-wire",
+                "obligations": [],
+                "required_obligation_ids": [],
+                "contract_projection": {
+                    "agency_review_required": False,
+                },
+                "pending_narration_draft_status": {
+                    "schema_version": 1,
+                    "secrecy": "keeper_only",
+                    "status": "not_submitted",
+                    "actionable": True,
+                },
+                "finalize_operation": {
+                    "operation": "turn.finalize",
+                    "invoke_via": "coc_turn_finalize",
+                    "prefilled_arguments": {
+                        "decision_id": "journal-single-draft-wire:finalize",
+                        "revision": 1,
+                        "coverage": [],
+                    },
+                    "missing_arguments": ["draft"],
+                },
+            },
+            "warnings": [],
+            "hints": [],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+    )
+    card = projected["data"]["finalize_operation"]
+    assert card["operation"] == "turn.finalize"
+    assert card["invoke_via"] == "coc_turn_finalize"
+    assert card["missing_arguments"] == ["draft"]
+    assert card["prefilled_arguments"] == {
+        "decision_id": "journal-single-draft-wire:finalize",
+        "revision": 1,
+        "coverage": [],
+    }
+    assert "agency_review_operation" not in projected["data"]
+
+
 def test_mcp_wire_tight_output_context_preserves_explicit_review_mode():
     server = _load_server()
     for agency_review_required, revision in ((False, 1), (True, 2)):

@@ -11348,15 +11348,20 @@ def _project_storylet_candidate(move: dict[str, Any]) -> dict[str, Any]:
         field: deepcopy(move[field]) for field in fields if field in move
     }
 
-def _pi_play_agency_review_required() -> bool:
-    if (
-        str(os.environ.get("COC_PI_SESSION_ROLE") or "").strip().casefold()
-        != "play"
-    ):
-        return False
+def _pi_rules_director_single_draft_profile() -> bool:
     return (
-        os.environ.get("COC_PI_ACCEPTANCE_PROFILE")
-        != "rules-director-single-draft"
+        str(os.environ.get("COC_PI_SESSION_ROLE") or "").strip().casefold()
+        == "play"
+        and os.environ.get("COC_PI_ACCEPTANCE_PROFILE")
+        == "rules-director-single-draft"
+    )
+
+
+def _pi_play_agency_review_required() -> bool:
+    return (
+        str(os.environ.get("COC_PI_SESSION_ROLE") or "").strip().casefold()
+        == "play"
+        and not _pi_rules_director_single_draft_profile()
     )
 
 def _tool_evidence_record_adoption(ctx: Ctx, args: dict[str, Any]):
@@ -12198,6 +12203,7 @@ OPERATION_RUNTIME_EXPORTS = (
     '_pi_opening_setup_operation_allowed',
     '_pi_opening_source_contract_error_gate',
     '_pi_play_agency_review_required',
+    '_pi_rules_director_single_draft_profile',
     '_pi_source_coordinator_dispatch',
     '_plan_receipt_owned_tail',
     '_plan_roll_materialization',
