@@ -2669,6 +2669,112 @@ def test_sanity_production_cards_follow_exact_canonical_facts(facts, added):
     assert cards == {"check", "context", *added}
 
 
+def test_development_pending_fact_and_adapter_recovery_binding(
+    monkeypatch, tmp_path: Path,
+):
+    kernel = coc_toolbox.coc_operation_kernel
+    ending_path = tmp_path / "ending-investigator.json"
+    ctx = SimpleNamespace(
+        campaign_dir=tmp_path,
+        inv_state=lambda _investigator: {},
+        sheet=lambda _investigator: {},
+    )
+    monkeypatch.setattr(
+        kernel.coc_development,
+        "structured_ending_evidence",
+        lambda _path: {"ending_id": "ending:canonical"},
+    )
+    monkeypatch.setattr(
+        kernel.coc_development,
+        "ending_settlement_path",
+        lambda *_args: ending_path,
+    )
+    monkeypatch.setattr(
+        kernel.coc_time, "current_stamp",
+        lambda _path: {"elapsed_minutes": 0},
+    )
+    monkeypatch.setattr(
+        kernel.coc_subsystem_executor,
+        "get_current_pending_choices",
+        lambda _path: [],
+    )
+    monkeypatch.setattr(kernel.coc_time, "peek_due_triggers", lambda _path: [])
+    provider = kernel._facts_provider_for(ctx, "investigator-one", "coc7")
+    assert provider()["development.settlement.pending"] is True
+    ending_path.write_text("{}", encoding="utf-8")
+    assert provider()["development.settlement.pending"] is False
+
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    selected = {
+        "semantic_inputs": {},
+        "_host_family_binding": {
+            "investigator": "investigator-one",
+            "ending_id": "ending:canonical",
+        },
+    }
+    locked_provider = adapter.host_locked_provider(
+        ctx,
+        {"investigator": "investigator-one", "decision_id": "dev-settle-1"},
+        selected,
+        resolve_investigator=lambda *_args: "investigator-one",
+        safe_sheet=lambda *_args: {},
+        skill_value=lambda *_args: None,
+    )
+    locked = locked_provider("decision:coc7:development:settle-ending")
+    execution = adapter.executor_args(
+        ctx,
+        {
+            "decision_ref": "decision:coc7:development:settle-ending",
+            "capability": {"resolver_capability": "development.settle"},
+            "command": {"payload": locked},
+        },
+        selected,
+        {"investigator": "investigator-one", "decision_id": "dev-settle-1"},
+        resolve_investigator=lambda *_args: "investigator-one",
+        tool_error=kernel.ToolError,
+    )
+    assert execution["ending_id"] == "ending:canonical"
+
+
+@pytest.mark.parametrize(("pending", "expected"), [
+    (False, {"end-session"}),
+    (True, {"end-session", "settle-ending"}),
+])
+def test_development_production_cards_require_pending_settlement(pending, expected):
+    package = Path.cwd() / "plugins" / "coc-keeper" / "rulesets" / "coc7"
+    graph = json.loads((package / "rule-graph.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (package / "rule-graph-manifest.json").read_text(encoding="utf-8")
+    )
+    graph["family_runtime_ownership"]["development"] = "graph"
+    graph["legacy_surface_lifecycle"]["development"] = "hidden"
+    manifest["family_promotion_eligibility"]["development"].update({
+        "promotion_eligible": True, "runtime_ownership": "graph",
+    })
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    runtime = coc_rules_runtime.RulesRuntime(
+        graph,
+        ruleset_id="coc7",
+        graph_manifest=manifest,
+        package_manifest={"rule_families": [{
+            "family_id": "development", "runtime_owner": "graph",
+            "legacy_surface": "hidden",
+        }]},
+        facts_provider=lambda: {
+            "campaign.ruleset_id": "coc7",
+            "development.settlement.pending": pending,
+        },
+        resolver_index=adapter.host_capability_index(),
+        ruleset_adapter=adapter,
+    )
+    cards = {
+        row["decision_ref"].rsplit(":", 1)[-1]
+        for row in runtime.context({"family": "development"})["cards"]
+        if row["applicability"] == "applicable"
+    }
+    assert cards == expected
+
+
 def test_runtime_settle_exclusion_scopes_are_no_candidate(tmp_path: Path):
     graph, manifest = _build_fixture_graph(tmp_path)
     promo = manifest.setdefault("family_promotion_eligibility", {}).setdefault(

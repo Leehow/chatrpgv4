@@ -330,9 +330,7 @@ class Coc7RuleGraphAdapter:
                 "a canonical chase-start participant/location binding"
             ]
         if family == "development":
-            return [
-                "Development awaits the accepted ending/session applicability graph"
-            ]
+            return []
         candidate_families = {
             decision_ref.split(":", 3)[2]
             for decision_ref in _SETTLEMENT_METHOD_BY_DECISION

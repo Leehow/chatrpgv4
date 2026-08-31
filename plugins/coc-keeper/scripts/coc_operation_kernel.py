@@ -6714,6 +6714,16 @@ def _facts_provider_for(ctx: Ctx, investigator_id: str, ruleset_id: str):
             # No canonical pending SAN-gain receipt producer exists yet.
             "sanity.gain.pending": False,
         })
+        ending = coc_development.structured_ending_evidence(ctx.campaign_dir)
+        facts["development.settlement.pending"] = bool(
+            isinstance(ending, Mapping)
+            and isinstance(ending.get("ending_id"), str)
+            and not coc_development.ending_settlement_path(
+                ctx.campaign_dir,
+                str(ending["ending_id"]),
+                investigator_id,
+            ).is_file()
+        )
         return facts
     return provider
 
