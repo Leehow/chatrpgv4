@@ -150,7 +150,7 @@ def test_source_worker_lifecycle_is_not_live_kp():
 def test_audit_and_host_publication_are_not_live_kp():
     live = set(coc_toolbox.query_operations(audience="keeper"))
     assert "development.settle" not in live
-    assert coc_toolbox.operation_policy("development.settle")["audience"] == "audit"
+    assert coc_toolbox.operation_policy("development.settle")["audience"] == "host"
     assert "progressive.project_opening" not in live
     assert "progressive.status" not in live
     assert "progressive.claim_host_work" not in live
