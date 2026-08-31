@@ -105,6 +105,11 @@ import {
 import { registerCocHud } from "../lib/hud.ts";
 import { registerTurnTelemetry, type TurnTelemetry } from "../lib/turn-telemetry.ts";
 import {
+  createDebugExperimentHost,
+  type DebugExperimentHostContext,
+  type DebugExperimentReceipt,
+} from "../lib/debug-experiment.ts";
+import {
   cocSystemInstructionOperations,
   latestExternalUserText,
   registerCocSystemInstructionCommand,
@@ -3702,6 +3707,10 @@ interface MainExtensionOverrides {
    * never passes it — the canonical factory is used.
    */
   createSemanticIdentityRegistry?: () => SemanticIdentityRegistry;
+  dispatchDebugExperiment?: (
+    command: string,
+    context: DebugExperimentHostContext,
+  ) => Promise<DebugExperimentReceipt>;
   hostHydrationObserverCheckpoint?: (
     stage: "compiler" | "binding" | "progress",
   ) => void;
@@ -3852,6 +3861,7 @@ type StartupSilentResumeQuarantine = {
 type DeliveryReplayQuarantine = { campaignId: string };
 
 export default function mainExtension(pi: ExtensionAPI, overrides: MainExtensionOverrides = {}) {
+  const debugExperimentHost = createDebugExperimentHost();
   let mcp: McpJsonlClient | null = null;
   let turnTelemetry: TurnTelemetry | null = null;
   let sessionEpoch = 0;
@@ -12559,6 +12569,36 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     agentDir,
   );
   registerCocSystemInstructionCommand(pi, {
+    hostControl: async (command, context) => {
+      const campaignId = explicitPiStartupCampaignId()
+        ?? canonicalProgressCampaignId;
+      if (!campaignId) {
+        throw new Error("/system debug requires one active campaign");
+      }
+      const model = context.model;
+      if (!model) {
+        throw new Error("/system debug requires one configured model");
+      }
+      const agentHome = process.env.PI_CODING_AGENT_DIR;
+      if (!agentHome) {
+        throw new Error("/system debug requires the repo-local Pi agent home");
+      }
+      const commandContext = context as ExtensionContext & {
+        isIdle?: () => boolean;
+      };
+      const debugContext: DebugExperimentHostContext = {
+        workspaceRoot: resolve(context.cwd),
+        campaignId,
+        role: effectiveTypedRole,
+        hostIsIdle: commandContext.isIdle?.() !== false,
+        provider: String(model.provider || ""),
+        model: String(model.id || ""),
+        thinking: pi.getThinkingLevel(),
+        agentHome: resolve(agentHome),
+      };
+      return overrides.dispatchDebugExperiment?.(command, debugContext)
+        ?? debugExperimentHost.dispatch(command, debugContext);
+    },
     beforeDispatch: (_instruction, context) => {
       operatorSystemInstructionScope = {
         sourceType: "operator_command",

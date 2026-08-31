@@ -252,6 +252,22 @@ def test_pi_tool_working_set():
     _node_test(ROOT / "tests/pi/tool-working-set.mjs")
 
 
+def test_pi_debug_experiment_host_command():
+    result = _node(ROOT / "tests/pi/debug-experiment-host.mjs", str(ROOT))
+    assert result == {"ok": True, "seam": "DebugExperimentHost.dispatch"}
+
+
+def test_pi_system_instruction_debug_interception():
+    result = _node(ROOT / "tests/pi/system-instruction-protocol.mjs", str(ROOT))
+    assert result == {
+        "ok": True,
+        "command": "/system",
+        "customType": "coc-system-instruction",
+        "contract": "coc.pi-system-instruction.v1",
+    }
+    _node_test(ROOT / "tests/pi/tool-affordance-extension.mjs")
+
+
 def test_pi_open_turn_player_input_cache():
     _node_test(ROOT / "tests/pi/open-turn-player-input.mjs")
 

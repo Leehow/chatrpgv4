@@ -487,3 +487,22 @@ POSIX child shutdown targets the private process group with SIGTERM followed by
 a bounded SIGKILL escalation. Windows uses direct-child termination and remains
 untested for descendant-tree containment, so Windows lifecycle support stays
 fail-closed/unadvertised.
+
+## Host-only parallel debug experiments
+
+During an idle `play` session, `/system debug` is intercepted by the host before
+ordinary Keeper-only `/system` delivery. It never becomes model or player input.
+
+```text
+/system debug run {"player_input":"我检查伤口。","lanes":[{"id":"production-1","profile":"production"}],"record":["rules","director","timing"],"concurrency":1,"timeout_seconds":180}
+/system debug status current
+/system debug cancel current
+/system debug report current
+```
+
+The host seals the latest finalized and delivery-confirmed `tl-main` tip, gives
+each lane an independent campaign repo/worktree and private Pi home, requires
+`session.resume` first, sends the natural player action once, and applies one
+absolute maximum-180-second watchdog. Debug evidence is selective, redacted,
+retained under `<workspace>/.coc/debug/runs/`, and never enters production
+campaign Git. See [the DebugExperiment specification](../../../docs/specs/pi-coc-debug-experiment.md).

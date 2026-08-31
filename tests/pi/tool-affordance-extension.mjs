@@ -41,6 +41,7 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
   const active = [];
   const sent = [];
   const appended = [];
+  const notifications = [];
   let aborts = 0;
   let hideRead = false;
   const pi = {
@@ -102,6 +103,9 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
       },
       async close() {},
     }),
+    ...(hostFaults.dispatchDebugExperiment === undefined
+      ? {}
+      : { dispatchDebugExperiment: hostFaults.dispatchDebugExperiment }),
   });
   const ctx = {
     cwd: root,
@@ -113,6 +117,7 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
       getBranch: () => [],
     },
     hasUI: false,
+    ui: { notify(message, level) { notifications.push({ message, level }); } },
     abort() { aborts += 1; },
   };
   const emit = async (type, message, eventExtra = {}) => {
@@ -140,7 +145,7 @@ function makeHarness(callTool, compiler = undefined, hostFaults = {}) {
     }
   };
   return {
-    tools, commands, handlers, active, sent, appended, clientCalls, ctx, emit, emitAll, start, shutdown,
+    tools, commands, handlers, active, sent, appended, notifications, clientCalls, ctx, emit, emitAll, start, shutdown,
     get aborts() { return aborts; },
     hideRead() { hideRead = true; },
   };
@@ -206,6 +211,55 @@ test("/system opens one hidden bounded recovery scope and restores normal tools"
       && row.value.status === "closed"
     )));
   });
+});
+
+test("/system debug dispatches host-side without model or tool-scope mutation", async () => {
+  const dispatches = [];
+  const priorAgentHome = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = path.join(root, ".pi", "coc-agent");
+  try {
+    await withPlayHarness(async (h) => {
+      const activeBefore = structuredClone(h.active.at(-1));
+      const sentBefore = h.sent.length;
+      const scopeRowsBefore = h.appended.filter((row) => (
+        row.type === "coc-system-instruction-tool-scope"
+      )).length;
+      await h.commands.get("system").handler(
+        'debug run {"player_input":"我检查伤口。","lanes":[{"id":"production-1","profile":"production"}]}',
+        h.ctx,
+      );
+      assert.equal(h.sent.length, sentBefore);
+      assert.deepEqual(h.active.at(-1), activeBefore);
+      assert.equal(h.appended.filter((row) => (
+        row.type === "coc-system-instruction-tool-scope"
+      )).length, scopeRowsBefore);
+      assert.deepEqual(dispatches, [{
+        command: 'run {"player_input":"我检查伤口。","lanes":[{"id":"production-1","profile":"production"}]}',
+        campaignId: "tool-affordance-campaign",
+        provider: "probe",
+        model: "probe",
+        thinking: "off",
+      }]);
+      assert.deepEqual(h.notifications.at(-1), {
+        message: "Debug experiment started: debug-tool-affordance-r1",
+        level: "info",
+      });
+    }, undefined, {
+      async dispatchDebugExperiment(command, context) {
+        dispatches.push({
+          command,
+          campaignId: context.campaignId,
+          provider: context.provider,
+          model: context.model,
+          thinking: context.thinking,
+        });
+        return { status: "started", experiment_id: "debug-tool-affordance-r1" };
+      },
+    });
+  } finally {
+    if (priorAgentHome === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = priorAgentHome;
+  }
 });
 
 async function withPlayHarness(fn, callTool = (_name, params) => (

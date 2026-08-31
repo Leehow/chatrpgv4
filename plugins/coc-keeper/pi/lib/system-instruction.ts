@@ -68,6 +68,12 @@ export type CocSystemInstructionDispatchOptions = {
   deliverAs?: "steer" | "followUp";
 };
 
+export type CocSystemHostControlReceipt = {
+  status: string;
+  experiment_id?: string;
+  message?: string;
+};
+
 export function cocSystemInstructionEnvelope(
   spec: CocSystemInstructionSpec,
 ): CocSystemInstructionEnvelope {
@@ -163,6 +169,10 @@ export function recoveredOpenTurnPlayerText(
 export function registerCocSystemInstructionCommand(
   pi: Pick<ExtensionAPI, "registerCommand" | "sendMessage">,
   options: {
+    hostControl?: (
+      command: string,
+      context: ExtensionContext,
+    ) => Promise<CocSystemHostControlReceipt> | CocSystemHostControlReceipt;
     beforeDispatch?: (
       instruction: string,
       context: ExtensionContext,
@@ -180,6 +190,40 @@ export function registerCocSystemInstructionCommand(
       const instruction = args.trim();
       if (!instruction) {
         context.ui.notify("Usage: /system <instruction>", "warning");
+        return;
+      }
+      const debugCommand = instruction === "debug"
+        ? ""
+        : instruction.startsWith("debug ")
+          ? instruction.slice("debug ".length).trim()
+          : null;
+      if (debugCommand !== null) {
+        if (!debugCommand) {
+          context.ui.notify(
+            "Usage: /system debug run <spec> | status current | cancel current | report current",
+            "warning",
+          );
+          return;
+        }
+        if (options.hostControl === undefined) {
+          context.ui.notify(
+            "/system debug is unavailable in this host.",
+            "warning",
+          );
+          return;
+        }
+        try {
+          const receipt = await options.hostControl(debugCommand, context);
+          const experiment = receipt.experiment_id ?? "current";
+          context.ui.notify(
+            receipt.message
+              ?? `Debug experiment ${receipt.status}: ${experiment}`,
+            receipt.status === "failed" ? "error" : "info",
+          );
+        } catch (error) {
+          options.onDispatchError?.(instruction, context, error);
+          throw error;
+        }
         return;
       }
       options.beforeDispatch?.(instruction, context);
