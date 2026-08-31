@@ -1520,6 +1520,95 @@ const actualActiveSchemaBytes = (h) => h.active.at(-1).reduce((total, name) => (
   total + Buffer.byteLength(JSON.stringify(h.tools.get(name).parameters), "utf8")
 ), 0);
 
+test("scene plus npc query bind social and Psychology identity without model ids", async () => {
+  const forwarded = [];
+  const scene = contextReceipt("social-scene", {
+    active_scene_id: "commission-briefing",
+    party: ["thomas-hayes"],
+    exits: [],
+    time: { elapsed_minutes: 0 },
+    npcs_present: [{ npc_id: "npc-steven-knott" }],
+    action_routes: [],
+    clues_here: [],
+  });
+  const npcQuery = {
+    ok: true,
+    tool: "npc.query",
+    wire: { full_result_sha256: `sha256:${"b".repeat(64)}` },
+    cache: { revision: "npc-query:social-scene" },
+    data: {
+      npcs: [{
+        npc_id: "npc-steven-knott",
+        facts: [{ fact_id: "fact-knott-commission" }],
+        first_contact_readiness: {
+          requested_pair_first_impression: {
+            status: "settled",
+            investigator_id: "thomas-hayes",
+            receipt_exists: true,
+            first_impression_ref: "first-impression:npc-steven-knott:thomas-hayes",
+          },
+        },
+      }],
+    },
+  };
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我观察诺特并说服他合作。" }],
+    });
+    await invokeCompat(h, "social-scene", "scene.context");
+    await invokeCompat(h, "social-npc", "npc.query", { npc_id: "npc-steven-knott" });
+
+    const social = h.tools.get("coc_rules_social_adjudicate");
+    const psychology = h.tools.get("coc_rules_psychology_observe");
+    for (const field of [
+      "campaign", "investigator", "npc_id", "conversation_window_id", "decision_id",
+    ]) assert.equal(Object.hasOwn(social.parameters.properties, field), false, field);
+    for (const field of [
+      "campaign", "investigator", "npc_id", "conversation_window_id", "decision_id",
+      "observation_revision", "observer_scope", "observable_fact_refs",
+    ]) assert.equal(Object.hasOwn(psychology.parameters.properties, field), false, field);
+
+    const socialResult = JSON.parse((await social.execute(
+      "bound-social",
+      {
+        commitment_id: "commitment:raise-knott-cooperation",
+        approach: "charm",
+        goal_summary: "请诺特更充分地配合调查",
+      },
+      undefined, undefined, h.ctx,
+    )).content[0].text);
+    assert.equal(socialResult.ok, true, JSON.stringify({ socialResult, appended: h.appended.slice(-20), properties: Object.keys(social.parameters.properties) }));
+    const socialCall = forwarded.findLast((row) => row.operation === "rules.social_adjudicate");
+    assert.equal(socialCall.arguments.investigator, "thomas-hayes");
+    assert.equal(socialCall.arguments.npc_id, "npc-steven-knott");
+    assert.equal(
+      socialCall.arguments.conversation_window_id,
+      "conversation:commission-briefing:thomas-hayes:npc-steven-knott",
+    );
+    assert.match(socialCall.arguments.decision_id, /^pi-rules-social_adjudicate:/u);
+
+    const psychologyResult = JSON.parse((await psychology.execute(
+      "bound-psychology",
+      { question: "诺特此刻在回避什么可见问题？" },
+      undefined, undefined, h.ctx,
+    )).content[0].text);
+    assert.equal(psychologyResult.ok, true, JSON.stringify(psychologyResult));
+    const psychologyCall = forwarded.findLast((row) => row.operation === "rules.psychology_observe");
+    assert.equal(psychologyCall.arguments.investigator, "thomas-hayes");
+    assert.equal(psychologyCall.arguments.npc_id, "npc-steven-knott");
+    assert.equal(psychologyCall.arguments.observation_revision, 0);
+    assert.deepEqual(psychologyCall.arguments.observable_fact_refs, [
+      "npc_fact:npc-steven-knott/fact-knott-commission",
+    ]);
+  }, (_name, params) => {
+    forwarded.push(structuredClone(params));
+    if (params.operation === "scene.context") return scene;
+    if (params.operation === "npc.query") return npcQuery;
+    return { ok: true, tool: params.operation, data: { accepted: true } };
+  });
+});
+
 test("structured scene combat affordances survive into the next player turn", async () => {
   let confrontationActive = true;
   const sceneEnvelope = () => contextReceipt("structured-combat", {

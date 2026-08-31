@@ -119,6 +119,168 @@ test("state.journal binding hides transport/player identity but preserves KP sem
   assert.ok(!Object.hasOwn(wrapped.arguments, "root"));
 });
 
+test("social adjudication binding owns exact conversation identity and keeps approach/goal semantic", () => {
+  const binding = {
+    schema_version: 1,
+    operation: "rules.social_adjudicate",
+    binding_revision: "social:commission-briefing:thomas-hayes:npc-steven-knott",
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-thomas-hayes",
+    decision_id: "pi-rules-social-adjudicate:player-epoch-2:revision-1",
+    candidates: [{
+      candidate_id: "social-target:npc-steven-knott",
+      investigator: "thomas-hayes",
+      npc_id: "npc-steven-knott",
+      conversation_window_id: "conversation:commission-briefing:thomas-hayes:npc-steven-knott",
+      first_impression_ref: "first-impression:npc-steven-knott:thomas-hayes",
+      validated_fact_refs: [
+        "npc_fact:npc-steven-knott/fact-knott-commission",
+      ],
+    }],
+  };
+  const schema = typed.projectBoundTypedToolParameters(
+    binding.operation,
+    catalog.byOperation.get(binding.operation).parameters,
+    binding,
+    independentCurrent(binding),
+  );
+  for (const field of [
+    "root", "campaign", "decision_id", "investigator", "npc_id",
+    "conversation_window_id", "candidate_id",
+  ]) {
+    assert.equal(Object.hasOwn(schema.properties, field), false, field);
+    assert.equal(schema.required.includes(field), false, field);
+  }
+  assert.deepEqual(schema.required, ["commitment_id", "approach", "goal_summary"]);
+
+  const bound = typed.bindRetainedTypedToolArguments(
+    binding.operation,
+    {
+      commitment_id: "commitment:raise-knott-cooperation",
+      approach: "persuade",
+      goal_summary: "说服诺特提高合作程度",
+    },
+    binding,
+    independentCurrent(binding),
+  );
+  assert.equal(bound.investigator, "thomas-hayes");
+  assert.equal(bound.npc_id, "npc-steven-knott");
+  assert.equal(
+    bound.conversation_window_id,
+    "conversation:commission-briefing:thomas-hayes:npc-steven-knott",
+  );
+  assert.equal(bound.decision_id, binding.decision_id);
+  assert.equal(bound.approach, "persuade");
+});
+
+test("psychology binding auto-attaches one verified fact and makes multiple targets/evidence explicit", () => {
+  const one = {
+    schema_version: 1,
+    operation: "rules.psychology_observe",
+    binding_revision: "psychology:commission-briefing:thomas-hayes:npc-steven-knott",
+    root: "/tmp/coc-workspace",
+    campaign: "the-haunting-thomas-hayes",
+    decision_id: "pi-rules-psychology-observe:player-epoch-2:revision-1",
+    realize_decision_id: "pi-rules-psychology-observe:player-epoch-2:revision-2",
+    candidates: [{
+      candidate_id: "psychology-target:npc-steven-knott",
+      investigator: "thomas-hayes",
+      npc_id: "npc-steven-knott",
+      conversation_window_id: "conversation:commission-briefing:thomas-hayes:npc-steven-knott",
+      observation_revision: 0,
+      observer_scope: "thomas-hayes",
+      validated_fact_refs: [
+        "npc_fact:npc-steven-knott/fact-knott-commission",
+      ],
+    }],
+  };
+  const oneSchema = typed.projectBoundTypedToolParameters(
+    one.operation,
+    catalog.byOperation.get(one.operation).parameters,
+    one,
+    independentCurrent(one),
+  );
+  for (const field of [
+    "root", "campaign", "decision_id", "investigator", "npc_id",
+    "conversation_window_id", "observation_revision", "observer_scope",
+    "observable_fact_refs", "candidate_id", "fact_refs",
+  ]) assert.equal(Object.hasOwn(oneSchema.properties, field), false, field);
+  assert.deepEqual(oneSchema.required, ["question"]);
+  const oneBound = typed.bindRetainedTypedToolArguments(
+    one.operation,
+    { question: "诺特此刻在回避什么可见问题？" },
+    one,
+    independentCurrent(one),
+  );
+  assert.deepEqual(oneBound.observable_fact_refs, [
+    "npc_fact:npc-steven-knott/fact-knott-commission",
+  ]);
+  assert.equal(oneBound.npc_id, "npc-steven-knott");
+  assert.equal(oneBound.observation_revision, 0);
+
+  const many = structuredClone(one);
+  many.binding_revision += ":many";
+  many.candidates[0].validated_fact_refs.push(
+    "npc_fact:npc-steven-knott/fact-knott-research-leads",
+  );
+  many.candidates.push({
+    candidate_id: "psychology-target:npc-arty-wilson",
+    investigator: "thomas-hayes",
+    npc_id: "npc-arty-wilson",
+    conversation_window_id: "conversation:commission-briefing:thomas-hayes:npc-arty-wilson",
+    observation_revision: 0,
+    observer_scope: "thomas-hayes",
+    validated_fact_refs: ["npc_fact:npc-arty-wilson/fact-arty-access"],
+  });
+  const manySchema = typed.projectBoundTypedToolParameters(
+    many.operation,
+    catalog.byOperation.get(many.operation).parameters,
+    many,
+    independentCurrent(many),
+  );
+  assert.deepEqual(manySchema.properties.candidate_id.enum, [
+    "psychology-target:npc-steven-knott",
+    "psychology-target:npc-arty-wilson",
+  ]);
+  assert.deepEqual(manySchema.properties.fact_refs.items.enum, [
+    "npc_fact:npc-steven-knott/fact-knott-commission",
+    "npc_fact:npc-steven-knott/fact-knott-research-leads",
+    "npc_fact:npc-arty-wilson/fact-arty-access",
+  ]);
+  assert.ok(manySchema.required.includes("candidate_id"));
+  assert.ok(manySchema.required.includes("fact_refs"));
+  const selected = typed.bindRetainedTypedToolArguments(
+    many.operation,
+    {
+      candidate_id: "psychology-target:npc-arty-wilson",
+      fact_refs: ["npc_fact:npc-arty-wilson/fact-arty-access"],
+      question: "阿蒂为什么迟疑？",
+    },
+    many,
+    independentCurrent(many),
+  );
+  assert.equal(selected.npc_id, "npc-arty-wilson");
+  assert.deepEqual(selected.observable_fact_refs, [
+    "npc_fact:npc-arty-wilson/fact-arty-access",
+  ]);
+  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+    many.operation,
+    {
+      candidate_id: "psychology-target:npc-arty-wilson",
+      fact_refs: ["npc_fact:npc-steven-knott/fact-knott-commission"],
+      question: "阿蒂为什么迟疑？",
+    },
+    many,
+    independentCurrent(many),
+  ), "semantic_candidate_stale");
+  assertProjectionError(() => typed.projectBoundTypedToolParameters(
+    many.operation,
+    catalog.byOperation.get(many.operation).parameters,
+    many,
+    { ...independentCurrent(many), binding_revision: "newer-npc-query" },
+  ), "binding_context_stale");
+});
+
 test("caller-forged host fields are rejected even when byte-equal", () => {
   const revision = "turn:allan-ward:17:journaled";
   const binding = {

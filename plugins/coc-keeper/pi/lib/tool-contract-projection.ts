@@ -268,6 +268,39 @@ export type NpcReactionRunBindingCard = {
   run_id?: string;
 };
 
+export type SocialInteractionCandidate = {
+  candidate_id: string;
+  investigator: string;
+  npc_id: string;
+  conversation_window_id: string;
+  first_impression_ref?: string;
+  validated_fact_refs: readonly string[];
+};
+
+export type SocialAdjudicationBindingCard = {
+  schema_version: 1;
+  operation: "rules.social_adjudicate";
+  binding_revision: string;
+  root: string;
+  campaign: string;
+  decision_id: string;
+  candidates: readonly SocialInteractionCandidate[];
+};
+
+export type PsychologyObserveBindingCard = {
+  schema_version: 1;
+  operation: "rules.psychology_observe";
+  binding_revision: string;
+  root: string;
+  campaign: string;
+  decision_id: string;
+  realize_decision_id: string;
+  candidates: readonly (SocialInteractionCandidate & {
+    observation_revision: number;
+    observer_scope: string;
+  })[];
+};
+
 export type TypedToolBindingCard =
   | StateJournalBindingCard
   | NarrationReviewBindingCard
@@ -278,7 +311,9 @@ export type TypedToolBindingCard =
   | ChaseExecuteBindingCard
   | TableOpeningBindingCard
   | NpcEngagementBindingCard
-  | NpcReactionRunBindingCard;
+  | NpcReactionRunBindingCard
+  | SocialAdjudicationBindingCard
+  | PsychologyObserveBindingCard;
 
 /**
  * Same identity shape, but supplied independently from current canonical host
@@ -395,6 +430,26 @@ export const HOST_OWNED_FIELDS: Readonly<Record<string, readonly string[]>> = {
   ],
   "rules.sanity_check": [
     "decision_id",
+  ],
+  "rules.social_adjudicate": [
+    "root",
+    "campaign",
+    "decision_id",
+    "investigator",
+    "npc_id",
+    "conversation_window_id",
+  ],
+  "rules.psychology_observe": [
+    "root",
+    "campaign",
+    "decision_id",
+    "investigator",
+    "npc_id",
+    "conversation_window_id",
+    "observation_revision",
+    "observer_scope",
+    "observable_fact_refs",
+    "revision_event_ref",
   ],
 };
 
@@ -1787,6 +1842,67 @@ function validateBindingShape(binding: TypedToolBindingCard): void {
   } else if (binding.operation === "npc.reaction") {
     nonEmptyString(binding.investigator, "investigator");
     if (binding.run_id !== undefined) nonEmptyString(binding.run_id, "run_id");
+  } else if (
+    binding.operation === "rules.social_adjudicate"
+    || binding.operation === "rules.psychology_observe"
+  ) {
+    if (!Array.isArray(binding.candidates) || binding.candidates.length === 0) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        `${binding.operation} requires at least one current interaction candidate`,
+        { field: "candidates" },
+      );
+    }
+    if (binding.operation === "rules.psychology_observe") {
+      nonEmptyString(binding.realize_decision_id, "realize_decision_id");
+    }
+    const candidateIds = new Set<string>();
+    for (const [index, candidate] of binding.candidates.entries()) {
+      const prefix = `candidates[${index}]`;
+      const candidateId = nonEmptyString(candidate.candidate_id, `${prefix}.candidate_id`);
+      nonEmptyString(candidate.investigator, `${prefix}.investigator`);
+      nonEmptyString(candidate.npc_id, `${prefix}.npc_id`);
+      nonEmptyString(
+        candidate.conversation_window_id,
+        `${prefix}.conversation_window_id`,
+      );
+      if (candidate.first_impression_ref !== undefined) {
+        nonEmptyString(candidate.first_impression_ref, `${prefix}.first_impression_ref`);
+      }
+      if (
+        candidateIds.has(candidateId)
+        || !Array.isArray(candidate.validated_fact_refs)
+        || (
+          binding.operation === "rules.psychology_observe"
+          && candidate.validated_fact_refs.length === 0
+        )
+        || candidate.validated_fact_refs.some((ref) => (
+          typeof ref !== "string" || !ref.trim()
+        ))
+        || new Set(candidate.validated_fact_refs).size
+          !== candidate.validated_fact_refs.length
+      ) {
+        throw new ToolContractProjectionError(
+          "binding_context_invalid",
+          `${binding.operation} candidates must have unique ids and verified fact refs`,
+          { field: prefix },
+        );
+      }
+      candidateIds.add(candidateId);
+      if (binding.operation === "rules.psychology_observe") {
+        if (
+          !Number.isInteger(candidate.observation_revision)
+          || candidate.observation_revision < 0
+        ) {
+          throw new ToolContractProjectionError(
+            "binding_context_invalid",
+            "psychology observation revision must be a non-negative integer",
+            { field: `${prefix}.observation_revision` },
+          );
+        }
+        nonEmptyString(candidate.observer_scope, `${prefix}.observer_scope`);
+      }
+    }
   } else {
     nonEmptyString(binding.npc_id, "npc_id");
     nonEmptyString(binding.investigator, "investigator");
@@ -1941,6 +2057,16 @@ function bindingValues(binding: TypedToolBindingCard): Record<string, unknown> {
       investigator: binding.investigator,
     };
   }
+  if (
+    binding.operation === "rules.social_adjudicate"
+    || binding.operation === "rules.psychology_observe"
+  ) {
+    return {
+      root: binding.root,
+      campaign: binding.campaign,
+      decision_id: binding.decision_id,
+    };
+  }
   return {
     root: binding.root,
     campaign: binding.campaign,
@@ -1972,6 +2098,26 @@ function hostOwnedFields(binding: TypedToolBindingCard): string[] {
     && binding.reviewed_agency_binding !== undefined
   ) fields.push("draft", "mechanics_placements");
   return fields;
+}
+
+function selectedInteractionCandidate(
+  binding: SocialAdjudicationBindingCard | PsychologyObserveBindingCard,
+  modelInput: Record<string, unknown>,
+): SocialInteractionCandidate | PsychologyObserveBindingCard["candidates"][number] {
+  const candidateId = binding.candidates.length === 1
+    ? binding.candidates[0].candidate_id
+    : typeof modelInput.candidate_id === "string"
+      ? modelInput.candidate_id
+      : "";
+  const selected = binding.candidates.find((row) => row.candidate_id === candidateId);
+  if (!selected) {
+    throw new ToolContractProjectionError(
+      "semantic_candidate_stale",
+      `selected ${binding.operation} target is not current`,
+      { operation: binding.operation, candidate_field: "candidate_id" },
+    );
+  }
+  return selected;
 }
 
 function sceneNeedsRouteChoice(candidates: readonly SceneRouteCandidate[]): boolean {
@@ -2231,6 +2377,38 @@ export function projectBoundTypedToolParameters(
   if (valid.operation === "chase.execute") {
     projectChaseCommandSchema(cloned, valid);
   }
+  if (
+    (valid.operation === "rules.social_adjudicate"
+      || valid.operation === "rules.psychology_observe")
+    && valid.candidates.length > 1
+  ) {
+    setEnumProperty(
+      cloned,
+      "candidate_id",
+      valid.candidates.map((candidate) => candidate.candidate_id),
+      "Choose one current scene/NPC-query target; the host binds exact canonical identity.",
+    );
+    const required = Array.isArray(cloned.required) ? cloned.required : [];
+    if (!required.includes("candidate_id")) {
+      cloned.required = [...required, "candidate_id"];
+    }
+  }
+  if (valid.operation === "rules.psychology_observe") {
+    const factRefs = valid.candidates.flatMap((candidate) => (
+      candidate.validated_fact_refs
+    ));
+    if (factRefs.length > 1 && isPlainObject(cloned.properties)) {
+      cloned.properties.fact_refs = {
+        type: "array",
+        minItems: 1,
+        uniqueItems: true,
+        items: { type: "string", enum: factRefs },
+        description: "Choose one or more exact facts returned by the current npc.query target; the host validates target ownership and restores canonical refs.",
+      };
+      const required = Array.isArray(cloned.required) ? cloned.required : [];
+      if (!required.includes("fact_refs")) cloned.required = [...required, "fact_refs"];
+    }
+  }
   return cloned;
 }
 
@@ -2259,6 +2437,49 @@ export function bindRetainedTypedToolArguments(
     ...structuredClone(modelInput),
     ...bindingValues(valid),
   };
+  if (
+    valid.operation === "rules.social_adjudicate"
+    || valid.operation === "rules.psychology_observe"
+  ) {
+    const candidate = selectedInteractionCandidate(valid, modelInput);
+    delete result.candidate_id;
+    result.investigator = candidate.investigator;
+    result.npc_id = candidate.npc_id;
+    result.conversation_window_id = candidate.conversation_window_id;
+    if (valid.operation === "rules.psychology_observe") {
+      const psychologyCandidate = candidate as PsychologyObserveBindingCard["candidates"][number];
+      const realize = modelInput.action === "realize";
+      result.decision_id = realize
+        ? valid.realize_decision_id
+        : valid.decision_id;
+      result.observation_revision = psychologyCandidate.observation_revision;
+      result.observer_scope = psychologyCandidate.observer_scope;
+      const factRefs = valid.candidates.flatMap((row) => row.validated_fact_refs);
+      const selectedRefs = factRefs.length === 1
+        ? [factRefs[0]]
+        : Array.isArray(modelInput.fact_refs)
+          ? modelInput.fact_refs
+          : [];
+      delete result.fact_refs;
+      if (!realize) {
+        if (
+          selectedRefs.length === 0
+          || selectedRefs.some((ref) => (
+            typeof ref !== "string"
+            || !psychologyCandidate.validated_fact_refs.includes(ref)
+          ))
+          || new Set(selectedRefs).size !== selectedRefs.length
+        ) {
+          throw new ToolContractProjectionError(
+            "semantic_candidate_stale",
+            "selected Psychology facts are absent or belong to another current NPC",
+            { operation, candidate_field: "fact_refs" },
+          );
+        }
+        result.observable_fact_refs = [...selectedRefs];
+      }
+    }
+  }
   if (
     valid.operation === "turn.finalize"
     && valid.reviewed_agency_binding !== undefined
