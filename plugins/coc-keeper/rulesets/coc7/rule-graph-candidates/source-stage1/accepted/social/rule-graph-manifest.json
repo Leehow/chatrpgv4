@@ -10,11 +10,11 @@
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "8a3eaff3c43867c1e44a863c7493b302b6993180369c5e22bca6a192d9a65ade",
+  "graph_content_digest": "b41e3d1365e0ebf686f6f81297e1f512e34ddc888e38aee3c73569deaf3d74a9",
   "shards": [
     {
       "shard_id": "shard:coc7:social:section-social-source-accepted",
-      "shard_digest": "bc75af9141dddcedeab0b2e806eec20384b75fc847f840281728cb97b23b076c"
+      "shard_digest": "f8d10e1e2427284e9bafbcd97bf90302b32d5ef2529417832071969b71844a18"
     }
   ],
   "family_coverage": {
@@ -79,7 +79,7 @@
     "social_skill_names"
   ],
   "compiler_identity": "coc.rule-graph-compiler.v1",
-  "reviewer_identity": "codex-execgraph-core-push-social-review-20260831:social-v2",
+  "reviewer_identity": "codex-execgraph-gap-review-20260831:social-v3",
   "review_status": "accepted",
   "findings": [
     {

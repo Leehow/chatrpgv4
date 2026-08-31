@@ -32,8 +32,8 @@ PDF_SHA256 = "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
 REVIEWER_ROOT = "codex-rule-families-core-social-source-review-20260831"
 EXECUTABLE_REVIEWERS = {
     "core-check": "codex-execgraph-core-push-social-review-20260831:core-check-v2",
-    "push-luck": "codex-execgraph-core-push-social-review-20260831:push-luck-v2",
-    "social": "codex-execgraph-core-push-social-review-20260831:social-v2",
+    "push-luck": "codex-execgraph-gap-review-20260831:push-luck-v3",
+    "social": "codex-execgraph-gap-review-20260831:social-v3",
 }
 
 
@@ -167,6 +167,7 @@ def _family_filter(
 def push_luck_candidate(packet: dict[str, Any]) -> dict[str, Any]:
     base = _base_candidate("section-checks-push-luck-source.candidate.json")
     shared = {
+        "capability:coc7:check",
         "resource:coc7:push-luck:luck",
         "data-table:coc7:percentile-check",
         "data-table:coc7:pushed-roll",
@@ -332,6 +333,8 @@ def push_luck_candidate(packet: dict[str, Any]) -> dict[str, Any]:
         _relation("relation:coc7:push-luck:luck-recovery-part-of", "part-of", "rule:coc7:push-luck:luck-recovery", family_id, evidence),
         _relation("relation:coc7:push-luck:hydration-part-of", "part-of", "rule:coc7:push-luck:canonical-continuation-hydration", family_id, evidence),
         _relation("relation:coc7:push-luck:hydration-invokes-push", "invokes", "rule:coc7:push-luck:canonical-continuation-hydration", "capability:coc7:push-policy", evidence),
+        _relation("relation:coc7:push-luck:luck-roll-rule-invokes", "invokes", "rule:coc7:push-luck:luck-roll", "capability:coc7:check", evidence),
+        _relation("relation:coc7:push-luck:luck-roll-invokes", "invokes", "decision:coc7:push-luck:luck-roll", "capability:coc7:check", evidence),
         _relation("relation:coc7:push-luck:fumble-forbids-push", "forbids", "exception:coc7:push-luck:fumble-final", "decision:coc7:push-luck:pushed-roll", evidence),
         _relation("relation:coc7:push-luck:scope-applies-push", "applies-to", "rule:coc7:push-luck:eligible-scope", "decision:coc7:push-luck:pushed-roll", evidence),
         _relation("relation:coc7:push-luck:goal-time-applies-push", "applies-to", "rule:coc7:push-luck:goal-time-difficulty", "decision:coc7:push-luck:pushed-roll", evidence),
@@ -696,6 +699,8 @@ def social_candidate(packet: dict[str, Any]) -> dict[str, Any]:
             )
             row["properties"]["implementation"]["payload_slots"] = [
                 {"name": "described_action", "ownership": "player-source"},
+                {"name": "target_ref", "ownership": "keeper-semantic"},
+                {"name": "commitment_ref", "ownership": "keeper-semantic"},
                 {"name": "approach", "ownership": "keeper-semantic"},
                 {"name": "goal", "ownership": "player-source"},
                 {"name": "npc_defense", "ownership": "host-locked"},
@@ -705,6 +710,9 @@ def social_candidate(packet: dict[str, Any]) -> dict[str, Any]:
                 {"name": "supporting_action", "ownership": "keeper-semantic"},
                 {"name": "feasibility", "ownership": "keeper-semantic"},
             ]
+    for relation in relations:
+        if relation["relation_id"] == "relation:coc7:social:adjudicate-reads-names":
+            relation["relation_kind"] = "requires-fact"
     additions = [
         _node(
             "data-table:coc7:skill-descriptions",
@@ -815,6 +823,32 @@ def social_candidate(packet: dict[str, Any]) -> dict[str, Any]:
             evidence=evidence,
         ),
         _node(
+            "input-slot:coc7:social:target-ref",
+            "input-slot",
+            "Semantic retained SocialInteractionCandidate target reference in the social-target:<npc_id> namespace",
+            visibility="keeper-only",
+            properties={
+                "family_id": "social",
+                "ownership": "keeper-semantic",
+                "value_type": "scalar",
+                "path": "target_ref",
+            },
+            evidence=evidence,
+        ),
+        _node(
+            "input-slot:coc7:social:commitment-ref",
+            "input-slot",
+            "Semantic durable requested commitment reference; the host binds it to commitment_id without parsing goal prose",
+            visibility="keeper-only",
+            properties={
+                "family_id": "social",
+                "ownership": "keeper-semantic",
+                "value_type": "scalar",
+                "path": "commitment_ref",
+            },
+            evidence=evidence,
+        ),
+        _node(
             "input-slot:coc7:social:motive-direction",
             "input-slot",
             "NPC inclination toward the exact player goal",
@@ -899,6 +933,8 @@ def social_candidate(packet: dict[str, Any]) -> dict[str, Any]:
         _relation("relation:coc7:social:motive-support-applies", "applies-to", "rule:coc7:social:motive-and-support", decision, evidence),
         _relation("relation:coc7:social:ceiling-applies", "applies-to", "rule:coc7:social:extreme-ceiling", decision, evidence),
         _relation("relation:coc7:social:requires-motive-direction", "requires-input", decision, "input-slot:coc7:social:motive-direction", evidence),
+        _relation("relation:coc7:social:requires-target-ref", "requires-input", decision, "input-slot:coc7:social:target-ref", evidence),
+        _relation("relation:coc7:social:requires-commitment-ref", "requires-input", decision, "input-slot:coc7:social:commitment-ref", evidence),
         _relation("relation:coc7:social:requires-motive-intensity", "requires-input", decision, "input-slot:coc7:social:motive-intensity", evidence),
         _relation("relation:coc7:social:locks-motive-evidence", "locks-input", decision, "input-slot:coc7:social:motive-evidence", evidence),
         _relation("relation:coc7:social:motive-evidence-requires-source", "requires-fact", "input-slot:coc7:social:motive-evidence", "subsystem:coc7:social-source-evidence-registry", evidence),

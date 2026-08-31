@@ -12,6 +12,34 @@
   },
   "nodes": [
     {
+      "node_id": "capability:coc7:check",
+      "node_kind": "capability",
+      "name": "check",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "resolver_capability": "check",
+        "adapter": "resolver",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
       "node_id": "capability:coc7:luck-spend",
       "node_kind": "capability",
       "name": "luck_spend",
@@ -1667,6 +1695,26 @@
       ]
     },
     {
+      "relation_id": "relation:coc7:push-luck:luck-roll-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:push-luck:luck-roll",
+      "to_node_id": "capability:coc7:check",
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
       "relation_id": "relation:coc7:push-luck:luck-roll-part-of",
       "relation_kind": "part-of",
       "from_node_id": "rule:coc7:push-luck:luck-roll",
@@ -1682,6 +1730,26 @@
         "span-checks-push-luck-source-page-95-block-47",
         "span-checks-push-luck-source-page-97-block-52",
         "span-checks-push-luck-source-page-97-block-54"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:luck-roll-rule-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:push-luck:luck-roll",
+      "to_node_id": "capability:coc7:check",
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
       ]
     },
     {
@@ -2888,8 +2956,8 @@
     "family_id": "push-luck",
     "section_id": "section-push-luck-source-accepted",
     "shard_id": "shard:coc7:push-luck:section-push-luck-source-accepted",
-    "candidate_sha256": "5984fea65e6b7a7ba759a58133919d7e2a8faa788a5b9f50b4ab7a2652a18ede",
+    "candidate_sha256": "74cf21ad7335e2faa53d2d50897c9a97c2a109453ce06d75f1d4193fe97fa1ba",
     "packet_sha256": "1305e68ce4c62edc983fa28829244dce67e3c362d7d8a6a3d7fb2c5de0870a11",
-    "shard_sha256": "86a0be56c6fdfc9596dea44fc280c7fa48cd470eefd23792749cdb2449886e6a"
+    "shard_sha256": "0ef88dbe7426349a89a51199573ecb586c64939ff1ee300b0f7015c5a3f8f820"
   }
 }

@@ -145,6 +145,14 @@
               "ownership": "player-source"
             },
             {
+              "name": "target_ref",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "commitment_ref",
+              "ownership": "keeper-semantic"
+            },
+            {
               "name": "approach",
               "ownership": "keeper-semantic"
             },
@@ -234,6 +242,35 @@
         "ownership": "keeper-semantic",
         "value_type": "enum",
         "path": "intent.method"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:commitment-ref",
+      "node_kind": "input-slot",
+      "name": "Semantic durable requested commitment reference; the host binds it to commitment_id without parsing goal prose",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "commitment_ref"
       },
       "evidence_span_ids": [
         "span-social-source-accepted-page-104-block-169",
@@ -466,6 +503,35 @@
         "ownership": "keeper-semantic",
         "value_type": "object",
         "path": "supporting_action"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:target-ref",
+      "node_kind": "input-slot",
+      "name": "Semantic retained SocialInteractionCandidate target reference in the social-target:<npc_id> namespace",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "target_ref"
       },
       "evidence_span_ids": [
         "span-social-source-accepted-page-104-block-169",
@@ -916,7 +982,7 @@
     },
     {
       "relation_id": "relation:coc7:social:adjudicate-reads-names",
-      "relation_kind": "invokes",
+      "relation_kind": "requires-fact",
       "from_node_id": "decision:coc7:social:adjudicate-difficulty",
       "to_node_id": "capability:coc7:social-skill-names",
       "evidence_span_ids": [
@@ -1370,6 +1436,26 @@
       ]
     },
     {
+      "relation_id": "relation:coc7:social:requires-commitment-ref",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:commitment-ref",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
       "relation_id": "relation:coc7:social:requires-described-action",
       "relation_kind": "requires-input",
       "from_node_id": "decision:coc7:social:adjudicate-difficulty",
@@ -1491,6 +1577,26 @@
       "relation_kind": "requires-input",
       "from_node_id": "decision:coc7:social:adjudicate-difficulty",
       "to_node_id": "input-slot:coc7:social:supporting-action",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-target-ref",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:target-ref",
       "evidence_span_ids": [
         "span-social-source-accepted-page-104-block-169",
         "span-social-source-accepted-page-208-block-182",
@@ -3256,8 +3362,8 @@
     "family_id": "social",
     "section_id": "section-social-source-accepted",
     "shard_id": "shard:coc7:social:section-social-source-accepted",
-    "candidate_sha256": "c7e51e043bfec766de352aac19e538c0ab1004c1dc4d27a8910a2f9d8d1d6e2f",
+    "candidate_sha256": "0d7cb9ace10fddf6d71ef7d3de0b493b40642401ae4e353cddda7836b9e828bb",
     "packet_sha256": "269b673fd3d6b716d1f0268449e0e25a51bb4fd84f6bb85e28e846d3cd650a4b",
-    "shard_sha256": "af33147568709936005603e13f6a037e6949c49e0abcdb3bab40f6eba8b92e02"
+    "shard_sha256": "3a6dc74b7c29c6bc8974b55528e3edb6b60e87cb936a79b0227fe1b0c8fc03d6"
   }
 }

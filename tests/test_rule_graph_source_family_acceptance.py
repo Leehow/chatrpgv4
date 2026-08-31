@@ -46,7 +46,7 @@ def test_push_luck_is_independently_source_accepted_without_promotion():
     assert manifest["family_coverage"]["push-luck"] == "accepted"
     assert manifest["review_status"] == "accepted"
     assert manifest["reviewer_identity"] == (
-        "codex-execgraph-core-push-social-review-20260831:push-luck-v2"
+        "codex-execgraph-gap-review-20260831:push-luck-v3"
     )
     assert manifest["graph_content_digest"] == acceptor.rg._json_digest(graph)
     assert manifest["shards"] == [{
@@ -257,7 +257,7 @@ def test_social_is_source_accepted_with_full_motive_and_agency_semantics():
     assert manifest["family_coverage"]["social"] == "accepted"
     assert manifest["review_status"] == "accepted"
     assert manifest["reviewer_identity"] == (
-        "codex-execgraph-core-push-social-review-20260831:social-v2"
+        "codex-execgraph-gap-review-20260831:social-v3"
     )
     assert manifest["graph_content_digest"] == acceptor.rg._json_digest(graph)
     assert manifest["shards"] == [{
@@ -301,6 +301,8 @@ def test_social_executable_decision_locks_source_backed_motive_evidence():
     assert slots["motive_direction"] == "keeper-semantic"
     assert slots["motive_intensity"] == "keeper-semantic"
     assert slots["motive_evidence"] == "host-locked"
+    assert slots["target_ref"] == "keeper-semantic"
+    assert slots["commitment_ref"] == "keeper-semantic"
     evidence_slot = nodes["input-slot:coc7:social:motive-evidence"]
     assert evidence_slot["properties"] == {
         "family_id": "social",
@@ -314,6 +316,23 @@ def test_social_executable_decision_locks_source_backed_motive_evidence():
     assert relations["relation:coc7:social:locks-motive-evidence"]["relation_kind"] == "locks-input"
     assert relations["relation:coc7:social:motive-evidence-requires-source"]["relation_kind"] == "requires-fact"
     assert relations["relation:coc7:social:motive-rule-invokes"]["to_node_id"] == "capability:coc7:social-difficulty"
+    assert nodes["input-slot:coc7:social:target-ref"]["properties"] == {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "target_ref",
+    }
+    assert relations["relation:coc7:social:requires-target-ref"]["relation_kind"] == "requires-input"
+    assert nodes["input-slot:coc7:social:commitment-ref"]["properties"] == {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "commitment_ref",
+    }
+    assert relations["relation:coc7:social:requires-commitment-ref"]["relation_kind"] == "requires-input"
+    assert "social-target:<npc_id>" in nodes[
+        "input-slot:coc7:social:target-ref"
+    ]["name"]
 
 
 def test_social_source_acceptance_regenerates_byte_identically():
@@ -348,3 +367,39 @@ def test_family_source_acceptance_updates_coverage_without_runtime_cutover(famil
         "promotion_eligible": False,
         "runtime_ownership": "legacy",
     }
+
+
+@pytest.mark.parametrize("family", ["core-check", "push-luck", "social"])
+def test_every_executable_decision_has_exactly_one_resolvable_capability(family):
+    graph = _accepted(family, "rule-graph.json")
+    nodes = {row["node_id"]: row for row in graph["nodes"]}
+    decisions = [
+        row for row in graph["nodes"]
+        if row["node_kind"] == "decision"
+        and (row.get("properties") or {}).get("family_id") == family
+    ]
+    assert decisions
+    for decision in decisions:
+        targets = [
+            row["to_node_id"] for row in graph["relations"]
+            if row["relation_kind"] == "invokes"
+            and row["from_node_id"] == decision["node_id"]
+        ]
+        assert len(targets) == 1, (decision["node_id"], targets)
+        capability = nodes[targets[0]]
+        assert capability["node_kind"] == "capability"
+        assert (capability.get("properties") or {}).get("resolver_capability")
+
+    if family == "push-luck":
+        assert any(
+            row["relation_kind"] == "invokes"
+            and row["from_node_id"] == "decision:coc7:push-luck:luck-roll"
+            and row["to_node_id"] == "capability:coc7:check"
+            for row in graph["relations"]
+        )
+    if family == "social":
+        assert any(
+            row["relation_id"] == "relation:coc7:social:adjudicate-reads-names"
+            and row["relation_kind"] == "requires-fact"
+            for row in graph["relations"]
+        )

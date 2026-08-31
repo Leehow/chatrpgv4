@@ -6,6 +6,34 @@
   "source_language": "en",
   "nodes": [
     {
+      "node_id": "capability:coc7:check",
+      "node_kind": "capability",
+      "name": "check",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "resolver_capability": "check",
+        "adapter": "resolver",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
       "node_id": "capability:coc7:luck-spend",
       "node_kind": "capability",
       "name": "luck_spend",
@@ -1659,6 +1687,26 @@
       ]
     },
     {
+      "relation_id": "relation:coc7:push-luck:luck-roll-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:push-luck:luck-roll",
+      "to_node_id": "capability:coc7:check",
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
+      ]
+    },
+    {
       "relation_id": "relation:coc7:push-luck:luck-roll-part-of",
       "relation_kind": "part-of",
       "from_node_id": "rule:coc7:push-luck:luck-roll",
@@ -1674,6 +1722,26 @@
         "span-checks-push-luck-source-page-95-block-47",
         "span-checks-push-luck-source-page-97-block-52",
         "span-checks-push-luck-source-page-97-block-54"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:push-luck:luck-roll-rule-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:push-luck:luck-roll",
+      "to_node_id": "capability:coc7:check",
+      "evidence_span_ids": [
+        "span-push-luck-source-accepted-page-100-block-47",
+        "span-push-luck-source-accepted-page-101-block-58",
+        "span-push-luck-source-accepted-page-101-block-59",
+        "span-push-luck-source-accepted-page-101-block-61",
+        "span-push-luck-source-accepted-page-110-block-76",
+        "span-push-luck-source-accepted-page-110-block-78",
+        "span-push-luck-source-accepted-page-110-block-79",
+        "span-push-luck-source-accepted-page-110-block-83",
+        "span-push-luck-source-accepted-page-95-block-13",
+        "span-push-luck-source-accepted-page-96-block-20",
+        "span-push-luck-source-accepted-page-97-block-25",
+        "span-push-luck-source-accepted-page-97-block-27"
       ]
     },
     {
