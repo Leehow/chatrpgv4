@@ -3610,10 +3610,15 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["content_sha256"],
     ["monster_ref"],
   )],
-  ["sanity.execute", declaredIdentityTable(
-    ["san_trigger_id"],
+  ["rules.sanity_check", declaredIdentityTable(
+    ["trigger_id", "rule_ref"],
     [],
-    ["command_id", "event_id", "state_refs"],
+    ["active_bout_id", "bout_id", "command_id", "decision_id", "event_id"],
+  )],
+  ["sanity.execute", declaredIdentityTable(
+    ["san_trigger_id", "rule_ref"],
+    [],
+    ["bout_id", "command_id", "decision_id", "event_id", "state_refs"],
   )],
   ["combat.resolve", declaredIdentityTable(
     [
@@ -3972,6 +3977,13 @@ function projectDiscoveredIdentityField(
 /** Fields whose scalar value is a canonical roll/effect/item/weapon/route identity. */
 const SEMANTIC_ID_SCALAR_FIELDS: ReadonlyMap<string, string> = new Map([
   ["roll_id", "roll:"],
+  ["check_roll_id", "roll:"],
+  ["int_roll_id", "roll:"],
+  ["bout_duration_roll_id", "roll:"],
+  ["bout_table_roll_id", "roll:"],
+  ["bout_rounds_roll_id", "roll:"],
+  ["mania_roll_id", "roll:"],
+  ["loss_roll_id", "roll:"],
   ["consuming_roll_id", "roll:"],
   ["resolution_roll_id", "roll:"],
   ["source_roll_id", "roll:"],
@@ -3991,6 +4003,7 @@ const LOST_ID_ARRAY_FIELDS: ReadonlyMap<string, "items" | "weapons"> = new Map([
 
 /** Fields whose array members are canonical roll/effect/item/route identities. */
 const SEMANTIC_ID_ARRAY_FIELDS: ReadonlyMap<string, string> = new Map([
+  ["session_roll_ids", "roll:"],
   ["source_roll_ids", "roll:"],
   ["roll_ids", "roll:"],
   ["presented_roll_ids", "roll:"],
