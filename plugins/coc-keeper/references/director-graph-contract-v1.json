@@ -178,7 +178,8 @@
     "rationale",
     "origin",
     "falsifiable_by",
-    "source_refs"
+    "source_refs",
+    "grounded_by"
   ],
   "relation_keys": [
     "relation_id",
@@ -272,7 +273,8 @@
       "rungs"
     ],
     "craft-directive": [
-      "directive_id"
+      "directive_id",
+      "declares"
     ]
   },
   "signal_groups": [
@@ -312,5 +314,6 @@
     "time-cost-category": 16
   },
   "expected_node_counts_law": "expected_node_counts pins the D1 vocabulary migration against the measured inventory. A build whose counts differ from this table is rejected: either the source data changed and the table must be updated in the same reviewed change, or the migration lost something.",
-  "ordinal_law": "Every vocabulary node carries ordinal, its zero-based index in the legacy declaration it was migrated from. Declaration order is behaviourally observable: select_action seeds its score dict from ACTIONS order, falls back to ACTIONS as the tiebreak order when the weights table omits one, and returns candidates[0] when the tiebreak order cannot resolve a tie. The runtime MUST reconstruct legacy order from ordinal rather than from node_id sort order."
+  "ordinal_law": "Every vocabulary node carries ordinal, its zero-based index in the legacy declaration it was migrated from. Declaration order is behaviourally observable: select_action seeds its score dict from ACTIONS order, falls back to ACTIONS as the tiebreak order when the weights table omits one, and returns candidates[0] when the tiebreak order cannot resolve a tie. The runtime MUST reconstruct legacy order from ordinal rather than from node_id sort order.",
+  "craft_directive_law": "A craft-directive declares, as structured data, a Director control decision that the scoring implementation performs in code. It is not documentation: its declares payload must agree with the branch it describes, and that agreement is asserted by test so the two cannot drift. A craft-directive never changes control flow."
 }

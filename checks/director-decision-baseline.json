@@ -1,0 +1,2804 @@
+{
+  "schema_version": 1,
+  "kind": "director-decision-baseline",
+  "scope": "Director decision only (build_director_context + select_action). Not a whole-turn or play-quality baseline.",
+  "campaign_id": "memory-playtest-20260820",
+  "matrix": {
+    "pacing_states": [
+      "calm",
+      "one-stall",
+      "two-stall",
+      "three-stall",
+      "yielded"
+    ],
+    "intent_classes": [
+      "investigate",
+      "social",
+      "move",
+      "idle",
+      "ambiguous",
+      "stuck",
+      "montage",
+      "combat",
+      "flee",
+      "cast"
+    ],
+    "risk_postures": [
+      "neutral",
+      "reckless",
+      "cautious"
+    ]
+  },
+  "row_count": 150,
+  "rows": [
+    {
+      "pacing": "calm",
+      "intent": "investigate",
+      "risk_posture": "neutral",
+      "selected_action": "REVEAL",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.2,
+        "RECOVER": 0.0,
+        "REVEAL": 1.08,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "investigate",
+      "risk_posture": "reckless",
+      "selected_action": "REVEAL",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.3,
+        "RECOVER": 0.0,
+        "REVEAL": 1.08,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "investigate",
+      "risk_posture": "cautious",
+      "selected_action": "REVEAL",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.1,
+        "RECOVER": 0.0,
+        "REVEAL": 1.08,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "social",
+      "risk_posture": "neutral",
+      "selected_action": "DEEPEN",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.2,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "social",
+      "risk_posture": "reckless",
+      "selected_action": "DEEPEN",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.3,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "social",
+      "risk_posture": "cautious",
+      "selected_action": "DEEPEN",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.1,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "move",
+      "risk_posture": "neutral",
+      "selected_action": "CUT",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 1.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "move",
+      "risk_posture": "reckless",
+      "selected_action": "CUT",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 1.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "move",
+      "risk_posture": "cautious",
+      "selected_action": "CUT",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 1.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "idle",
+      "risk_posture": "neutral",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.2,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "idle",
+      "risk_posture": "reckless",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.3,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "idle",
+      "risk_posture": "cautious",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.1,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "ambiguous",
+      "risk_posture": "neutral",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.2,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "ambiguous",
+      "risk_posture": "reckless",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.3,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "ambiguous",
+      "risk_posture": "cautious",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.1,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "stuck",
+      "risk_posture": "neutral",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.2,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "stuck",
+      "risk_posture": "reckless",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.3,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "stuck",
+      "risk_posture": "cautious",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.1,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "montage",
+      "risk_posture": "neutral",
+      "selected_action": "MONTAGE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.54,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.2,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "montage",
+      "risk_posture": "reckless",
+      "selected_action": "MONTAGE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.54,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.3,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "montage",
+      "risk_posture": "cautious",
+      "selected_action": "MONTAGE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.54,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.1,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "combat",
+      "risk_posture": "neutral",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.2,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "combat",
+      "risk_posture": "reckless",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.3,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "combat",
+      "risk_posture": "cautious",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.1,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "flee",
+      "risk_posture": "neutral",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.2,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "flee",
+      "risk_posture": "reckless",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.3,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "flee",
+      "risk_posture": "cautious",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.1,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "cast",
+      "risk_posture": "neutral",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.2,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "cast",
+      "risk_posture": "reckless",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.3,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "calm",
+      "intent": "cast",
+      "risk_posture": "cautious",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.1,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "investigate",
+      "risk_posture": "neutral",
+      "selected_action": "REVEAL",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.0,
+        "REVEAL": 1.08,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "investigate",
+      "risk_posture": "reckless",
+      "selected_action": "REVEAL",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.0,
+        "REVEAL": 1.08,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "investigate",
+      "risk_posture": "cautious",
+      "selected_action": "REVEAL",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.0,
+        "REVEAL": 1.08,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "social",
+      "risk_posture": "neutral",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "social",
+      "risk_posture": "reckless",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "social",
+      "risk_posture": "cautious",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "move",
+      "risk_posture": "neutral",
+      "selected_action": "CUT",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 1.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "move",
+      "risk_posture": "reckless",
+      "selected_action": "CUT",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 1.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "move",
+      "risk_posture": "cautious",
+      "selected_action": "CUT",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 1.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "idle",
+      "risk_posture": "neutral",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "idle",
+      "risk_posture": "reckless",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "idle",
+      "risk_posture": "cautious",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "ambiguous",
+      "risk_posture": "neutral",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "ambiguous",
+      "risk_posture": "reckless",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "ambiguous",
+      "risk_posture": "cautious",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "stuck",
+      "risk_posture": "neutral",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "stuck",
+      "risk_posture": "reckless",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "stuck",
+      "risk_posture": "cautious",
+      "selected_action": "CHOICE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "montage",
+      "risk_posture": "neutral",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.54,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "montage",
+      "risk_posture": "reckless",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.54,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "montage",
+      "risk_posture": "cautious",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.54,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "combat",
+      "risk_posture": "neutral",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "combat",
+      "risk_posture": "reckless",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "combat",
+      "risk_posture": "cautious",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "flee",
+      "risk_posture": "neutral",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "flee",
+      "risk_posture": "reckless",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "flee",
+      "risk_posture": "cautious",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "cast",
+      "risk_posture": "neutral",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "cast",
+      "risk_posture": "reckless",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "one-stall",
+      "intent": "cast",
+      "risk_posture": "cautious",
+      "selected_action": "SUBSYSTEM",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "investigate",
+      "risk_posture": "neutral",
+      "selected_action": "REVEAL",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.935,
+        "REVEAL": 1.08,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "investigate",
+      "risk_posture": "reckless",
+      "selected_action": "REVEAL",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.935,
+        "REVEAL": 1.08,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "investigate",
+      "risk_posture": "cautious",
+      "selected_action": "REVEAL",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.935,
+        "REVEAL": 1.08,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "social",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "social",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "social",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.55,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "move",
+      "risk_posture": "neutral",
+      "selected_action": "CUT",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 1.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "move",
+      "risk_posture": "reckless",
+      "selected_action": "CUT",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 1.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "move",
+      "risk_posture": "cautious",
+      "selected_action": "CUT",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 1.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "idle",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "idle",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "idle",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "ambiguous",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "ambiguous",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "ambiguous",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "stuck",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "stuck",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "stuck",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.91,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "montage",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.54,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "montage",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.54,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "montage",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.54,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "combat",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "combat",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "combat",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "flee",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "flee",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "flee",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "cast",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.8,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "cast",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.9,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "two-stall",
+      "intent": "cast",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.7,
+        "RECOVER": 0.935,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.9
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "investigate",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "investigate",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "investigate",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "social",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "social",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "social",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "move",
+      "risk_posture": "neutral",
+      "selected_action": "CUT",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 1.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "move",
+      "risk_posture": "reckless",
+      "selected_action": "CUT",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 1.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "move",
+      "risk_posture": "cautious",
+      "selected_action": "CUT",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 1.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "idle",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "idle",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "idle",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "ambiguous",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "ambiguous",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "ambiguous",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "stuck",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "stuck",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "stuck",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "montage",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "montage",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "montage",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "combat",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "combat",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "combat",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "flee",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "flee",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "flee",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "cast",
+      "risk_posture": "neutral",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "cast",
+      "risk_posture": "reckless",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "three-stall",
+      "intent": "cast",
+      "risk_posture": "cautious",
+      "selected_action": "RECOVER",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 1.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "investigate",
+      "risk_posture": "neutral",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "investigate",
+      "risk_posture": "reckless",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "investigate",
+      "risk_posture": "cautious",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "social",
+      "risk_posture": "neutral",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "social",
+      "risk_posture": "reckless",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "social",
+      "risk_posture": "cautious",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "move",
+      "risk_posture": "neutral",
+      "selected_action": "CUT",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 1.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "move",
+      "risk_posture": "reckless",
+      "selected_action": "CUT",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 1.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "move",
+      "risk_posture": "cautious",
+      "selected_action": "CUT",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 1.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 0.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "idle",
+      "risk_posture": "neutral",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "idle",
+      "risk_posture": "reckless",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "idle",
+      "risk_posture": "cautious",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "ambiguous",
+      "risk_posture": "neutral",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "ambiguous",
+      "risk_posture": "reckless",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "ambiguous",
+      "risk_posture": "cautious",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "stuck",
+      "risk_posture": "neutral",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "stuck",
+      "risk_posture": "reckless",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "stuck",
+      "risk_posture": "cautious",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "montage",
+      "risk_posture": "neutral",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "montage",
+      "risk_posture": "reckless",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "montage",
+      "risk_posture": "cautious",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "combat",
+      "risk_posture": "neutral",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "combat",
+      "risk_posture": "reckless",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "combat",
+      "risk_posture": "cautious",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "flee",
+      "risk_posture": "neutral",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "flee",
+      "risk_posture": "reckless",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "flee",
+      "risk_posture": "cautious",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "cast",
+      "risk_posture": "neutral",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "cast",
+      "risk_posture": "reckless",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    },
+    {
+      "pacing": "yielded",
+      "intent": "cast",
+      "risk_posture": "cautious",
+      "selected_action": "PRESSURE",
+      "scores": {
+        "CHARACTER": 0.0,
+        "CHOICE": 0.0,
+        "CUT": 0.0,
+        "DEEPEN": 0.0,
+        "MONTAGE": 0.0,
+        "PAYOFF": 0.0,
+        "PRESSURE": 1.0,
+        "RECOVER": 0.0,
+        "REVEAL": 0.0,
+        "SUBSYSTEM": 0.0,
+        "_override": 1.0
+      }
+    }
+  ]
+}

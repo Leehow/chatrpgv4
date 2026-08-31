@@ -282,15 +282,59 @@ Gates: repeated runs over the same checkpoint reproduce the same Director
 decisions; the baseline is committed as evidence.
 
 ### D5 — first accountable retune
-Deliverables: one or two `unknown-legacy-tuning` values changed, each with a
-multi-lane DebugExperiment result written back into its node's `rationale` and
-`origin`.
-Gates:
+
+**Blocked on a tool gap found during implementation; D5a is delivered, D5b is
+not.** This section records the gap rather than working around it.
+
+#### The gap
+
+D5 needs two lanes that differ by **one doctrine value**. DebugExperiment lanes
+differ only by `profile` and `player_input`; its run contract explicitly rejects
+environment overrides, paths and arbitrary tools. It therefore cannot vary a
+doctrine value between lanes, and the acceptance instrument this specification
+originally named for D5 does not support D5's experiment shape.
+
+Two honest ways forward, neither of which this slice takes without its own
+authorization:
+
+- extend DebugExperiment with a per-lane doctrine override (a shared-host
+  change, needs its own authorization);
+- run the two arms as sequential DebugExperiment runs against the same sealed
+  checkpoint, changing the graph value in between.
+
+A further limit applies to both: one turn per arm is very weak evidence about a
+pacing weight. Presenting a single-turn arm as a settled retune would be the
+hollow delivery §1 already forbids.
+
+#### D5a — deterministic sensitivity triage (delivered)
+
+`scripts/run_director_sensitivity_sweep.py` perturbs each doctrine value,
+recomputes the D4 decision matrix, and classifies it:
+
+| Verdict | Meaning |
+| --- | --- |
+| `decision-changing` | perturbation moves real decisions; worth a play experiment |
+| `inert-in-matrix` | exercised by the checkpoint, but perturbation changed nothing |
+| `not-exercised` | belongs to a structure type the checkpoint is not; the sweep says nothing |
+
+Result on `memory-playtest-20260820` (`branching_investigation`, 150 rows):
+**17 decision-changing, 36 inert-in-matrix, 60 not-exercised.**
+
+This is model-free and falsifiable, and it is what makes D5b affordable: only
+17 of 113 unknown values are currently worth an experiment. It is explicitly
+NOT a quality judgement, and `inert-in-matrix` is a statement about one matrix
+on one checkpoint, never a claim that a value is globally irrelevant.
+
+#### D5b — the play experiment (not delivered)
+
+Gates, unchanged, for whenever the lane shape exists:
+
 1. `production` profile lanes only — the narrow `rules-director-single-draft`
    profile MUST NOT be used as Director acceptance evidence, because the
    Director runs on every turn and has no "could not be reached" excuse;
-2. one value per experiment;
-3. the outcome is recorded whether it supports or refutes the change.
+2. one value per experiment, drawn from the `decision-changing` bucket;
+3. more than one turn per arm, because one turn cannot falsify a pacing weight;
+4. the outcome is recorded whether it supports or refutes the change.
 
 D5 is deliberately open-ended. DirectorGraph is complete when D1–D4 land; D5 is
 the ongoing practice the artifact exists to enable.

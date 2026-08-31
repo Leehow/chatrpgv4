@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -490,3 +491,189 @@ def test_the_two_page_cited_tunables_are_rule_derived():
         node = by_id[node_id]
         assert node["evidence_class"] == "rule-derived", node_id
         assert node["source_refs"], node_id
+
+
+# --- D3 grounding plane --------------------------------------------------
+
+def _directive(directive_id: str) -> dict:
+    return next(
+        node for node in _graph()["nodes"]
+        if node["node_kind"] == "craft-directive"
+        and node["properties"]["directive_id"] == directive_id
+    )
+
+
+def test_craft_directives_are_rule_derived_and_grounded():
+    for directive_id in ("dying-clock-kind", "dying-forces-rescue-subsystem"):
+        node = _directive(directive_id)
+        assert node["evidence_class"] == "rule-derived", directive_id
+        assert node["source_refs"], directive_id
+        assert node["grounded_by"], directive_id
+
+
+def test_dying_clock_directive_agrees_with_the_rulegraph_decisions():
+    """The grounding must be real: same clock kinds, same stabilized split."""
+    rule_graph = json.loads(
+        (ROOT / "plugins" / "coc-keeper" / "rulesets" / "coc7"
+         / "rule-graph.json").read_text(encoding="utf-8")
+    )
+    by_id = {node["node_id"]: node for node in rule_graph["nodes"]}
+    declares = _directive("dying-clock-kind")["properties"]["declares"]
+    for node_id in _directive("dying-clock-kind")["grounded_by"]:
+        assert node_id in by_id, node_id
+    hour = by_id["decision:coc7:healing:dying-hour-clock"]
+    round_ = by_id["decision:coc7:healing:dying-round-clock"]
+    assert hour["properties"]["implementation"]["payload_constants"]["clock_kind"] == (
+        declares["stabilized"]
+    )
+    assert round_["properties"]["implementation"]["payload_constants"]["clock_kind"] == (
+        declares["unstabilized"]
+    )
+    # Both compile to the same subsystem command the Director asks for.
+    for decision in (hour, round_):
+        assert decision["properties"]["implementation"]["kind"] == "dying_tick"
+
+
+def test_craft_directives_do_not_drift_from_the_branches_they_declare():
+    """A craft-directive is data about a real branch, not documentation.
+
+    If the Director's control flow changes, these assertions fail and the
+    directive must be updated with it.
+    """
+    source = (SCRIPTS / "coc_story_director.py").read_text(encoding="utf-8")
+
+    clock = _directive("dying-clock-kind")["properties"]["declares"]
+    assert '"kind": "dying_tick"' in source
+    assert f'"{clock["stabilized"]}"\n' in source or f'"{clock["stabilized"]}"' in source
+    assert (
+        f'if "stabilized" in set(sig.get("active_conditions") or [])' in source
+    )
+    assert f'else "{clock["unstabilized"]}"' in source
+
+    subsystem = _directive("dying-forces-rescue-subsystem")["properties"]["declares"]
+    assert (
+        f'return {{"scene_action": "{subsystem["scene_action"]}", '
+        f'"subsystem": "{subsystem["subsystem"]}", "handoff": "rules",' in source
+    )
+    assert '"extra_pressure": True' in source
+
+
+def test_registry_grounds_the_director_only_through_grounded_by():
+    """ADR 0003: the Director's sole outward relation is advisory grounding."""
+    registry = json.loads(
+        (ROOT / "plugins" / "coc-keeper" / "references"
+         / "system-ontology-registry-v1.json").read_text(encoding="utf-8")
+    )
+    director_refs = {
+        row["ref_id"] for row in registry["references"]
+        if row["graph_id"] == "graph:director:production"
+    }
+    assert director_refs
+    outward = [
+        row for row in registry["relations"] if row["from_ref"] in director_refs
+    ]
+    assert outward, "the director graph must carry at least one proven instance"
+    assert {row["relation_kind"] for row in outward} == {"grounded-by"}
+    # Nothing may point back into the Director: advisory means read-only.
+    assert not [
+        row for row in registry["relations"] if row["to_ref"] in director_refs
+    ]
+
+
+# --- D4 behavioural baseline ---------------------------------------------
+
+BASELINE_PATH = ROOT / "checks" / "director-decision-baseline.json"
+BASELINE_CAMPAIGN = "memory-playtest-20260820"
+
+
+@pytest.mark.skipif(
+    not (ROOT / ".coc" / "campaigns" / BASELINE_CAMPAIGN).is_dir(),
+    reason="baseline campaign checkpoint is not present in this checkout",
+)
+def test_director_decisions_reproduce_the_committed_baseline():
+    """D4 determinism gate.
+
+    The same checkpoint must produce the same Director decisions every run.
+    Without this, slice D5 has no "before" to compare a retune against — and
+    the inventory established that no other test pins any doctrine value.
+    """
+    import subprocess
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "gen_director_decision_baseline.py"),
+            BASELINE_CAMPAIGN,
+            "--check",
+        ],
+        capture_output=True, text=True, cwd=ROOT,
+    )
+    payload = json.loads(result.stdout or "{}")
+    assert payload.get("ok"), payload.get("drift")
+
+
+def test_baseline_covers_every_migrated_threshold_boundary():
+    """A baseline that never crosses a threshold cannot detect a retune."""
+    baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+    pacing = {row["pacing"] for row in baseline["rows"]}
+    # The stall thresholds live at 1, 2 and 3; the yielded gate at 2 continues.
+    assert {"calm", "one-stall", "two-stall", "three-stall", "yielded"} <= pacing
+    postures = {row["risk_posture"] for row in baseline["rows"]}
+    assert {"neutral", "reckless", "cautious"} <= postures
+    actions = {row["selected_action"] for row in baseline["rows"]}
+    # A baseline that only ever selects one action would be worthless.
+    assert len(actions) >= 5, actions
+
+
+def test_baseline_states_its_scope_honestly():
+    """It is a Director-decision baseline, not a whole-turn or quality one."""
+    baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+    scope = baseline["scope"].lower()
+    assert "director decision" in scope
+    assert "not a whole-turn" in scope
+
+
+# --- D5a sensitivity triage ----------------------------------------------
+
+SWEEP_PATH = ROOT / "checks" / "director-sensitivity-sweep.json"
+
+
+def test_sweep_classifies_every_valued_doctrine_node():
+    sweep = json.loads(SWEEP_PATH.read_text(encoding="utf-8"))
+    graph = _graph()
+    valued = {
+        node["node_id"] for node in graph["nodes"]
+        if node.get("plane") == "doctrine" and "value" in node["properties"]
+    }
+    assert {row["node_id"] for row in sweep["results"]} == valued
+    assert sweep["counts"]["tested"] == len(valued)
+
+
+def test_sweep_does_not_call_unexercised_weights_inert():
+    """The honesty gate on this deliverable.
+
+    A structure weight for a structure type the checkpoint is not cannot move
+    a decision, and reporting that as 'inert' would read as evidence the value
+    does not matter. It must be classified as not-exercised instead.
+    """
+    sweep = json.loads(SWEEP_PATH.read_text(encoding="utf-8"))
+    exercised = str(sweep["checkpoint_structure_type"]).replace("_", "-")
+    for row in sweep["results"]:
+        if not row["node_id"].startswith("structure-weight:"):
+            continue
+        structure = row["node_id"].split(":")[1]
+        if structure != exercised:
+            assert row["verdict"] == "not-exercised", row["node_id"]
+        else:
+            assert row["verdict"] != "not-exercised", row["node_id"]
+
+
+def test_sweep_states_its_limits():
+    sweep = json.loads(SWEEP_PATH.read_text(encoding="utf-8"))
+    scope = sweep["scope"].lower()
+    assert "not globally" in scope
+    assert "not a quality judgement" in scope
+    assert sweep["counts"]["decision_changing"] > 0, (
+        "a sweep where nothing changes a decision would mean the matrix is "
+        "not exercising the doctrine at all"
+    )

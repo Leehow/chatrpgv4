@@ -87,6 +87,53 @@
       }
     },
     {
+      "node_id": "craft-directive:dying-clock-kind",
+      "node_kind": "craft-directive",
+      "plane": "doctrine",
+      "name": "Dying tick uses the hour clock once stabilized, the round clock otherwise",
+      "properties": {
+        "directive_id": "dying-clock-kind",
+        "declares": {
+          "stabilized": "hour",
+          "unstabilized": "round"
+        }
+      },
+      "evidence_class": "rule-derived",
+      "source_refs": [
+        "rule-graph:coc7:decision:dying-hour-clock",
+        "rule-graph:coc7:decision:dying-round-clock"
+      ],
+      "rationale": "When an investigator is dying the Director asks the rescue engine for a dying tick and chooses the clock granularity, rather than requesting a generic CON check that could narrate death without applying it.",
+      "origin": "coc_story_director control branch, grounded in the coc7 RuleGraph",
+      "grounded_by": [
+        "decision:coc7:healing:dying-hour-clock",
+        "decision:coc7:healing:dying-round-clock"
+      ]
+    },
+    {
+      "node_id": "craft-directive:dying-forces-rescue-subsystem",
+      "node_kind": "craft-directive",
+      "plane": "doctrine",
+      "name": "A dying investigator hands the scene to the rescue subsystem",
+      "properties": {
+        "directive_id": "dying-forces-rescue-subsystem",
+        "declares": {
+          "scene_action": "SUBSYSTEM",
+          "subsystem": "combat",
+          "extra_pressure": true
+        }
+      },
+      "evidence_class": "rule-derived",
+      "source_refs": [
+        "rule-graph:coc7:rule:dying-entry"
+      ],
+      "rationale": "Dying is the one HP state that overrides scoring entirely, because the death clock and durable dead state belong to the rescue engine and not to a pacing decision.",
+      "origin": "coc_story_director control branch, grounded in the coc7 RuleGraph",
+      "grounded_by": [
+        "rule:coc7:healing:dying-entry"
+      ]
+    },
+    {
       "node_id": "director-action:character",
       "node_kind": "director-action",
       "plane": "vocabulary",

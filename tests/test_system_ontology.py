@@ -187,14 +187,15 @@ def test_coverage_ledger_states_real_director_and_text_availability_gap():
 
     The ledger's job is to state each gap honestly, so this test tracks the
     real availability rather than pinning a snapshot: director is now a
-    production artifact whose cross-graph grounding is still unclaimed, and
-    text remains an admitted absence.
+    production artifact grounded in the coc7 RuleGraph, and text remains an
+    admitted absence.
     """
     rows = {row["graph_kind"]: row for row in REGISTRY["coverage"]}
     assert set(rows) == {"module", "rule", "live-state", "execution", "director", "text"}
     assert rows["director"]["status"] == "production-linked"
-    assert rows["director"]["composition_status"] == "no-proven-instance"
-    assert "d3" in rows["director"]["reason"].lower()
+    assert rows["director"]["composition_status"] == "instance-linked"
+    # The reason must keep naming why grounding stops where it does.
+    assert "unresolved" in rows["director"]["reason"].lower()
     assert rows["text"]["status"] == "absent-production-artifact"
     assert rows["text"]["composition_status"] == "not-applicable"
     assert rows["module"]["composition_status"] == "no-proven-instance"

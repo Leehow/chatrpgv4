@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 GRAPH = ROOT / "plugins" / "coc-keeper" / "references" / "director-graph.json"
 OUT = ROOT / "docs" / "status" / "director-doctrine-ledger.md"
+SWEEP = ROOT / "checks" / "director-sensitivity-sweep.json"
 
 UNKNOWN = "unknown-legacy-tuning"
 DOCTRINE_KINDS = (
@@ -35,8 +36,16 @@ def _value(node: dict) -> str:
     return f"{comparison} {value}" if comparison else str(value)
 
 
+def _sweep_verdicts() -> dict[str, dict]:
+    if not SWEEP.is_file():
+        return {}
+    payload = json.loads(SWEEP.read_text(encoding="utf-8"))
+    return {row["node_id"]: row for row in payload["results"]}
+
+
 def main() -> int:
     graph = json.loads(GRAPH.read_text(encoding="utf-8"))
+    sweep = _sweep_verdicts()
     doctrine = [n for n in graph["nodes"] if n["node_kind"] in DOCTRINE_KINDS]
     doctrine.sort(key=lambda n: (n["node_kind"], n["node_id"]))
 
@@ -76,6 +85,30 @@ def main() -> int:
         add(f"| `{name}` | {count} |")
     add(f"| ...of which `origin: {UNKNOWN}` | {len(unknown)} |")
     add("")
+    if sweep:
+        payload = json.loads(SWEEP.read_text(encoding="utf-8"))
+        counts = payload["counts"]
+        add("### Sensitivity triage")
+        add("")
+        add(f"Deterministic sweep over the D4 decision matrix "
+            f"(`{payload['campaign_id']}`, structure type "
+            f"`{payload['checkpoint_structure_type']}`, "
+            f"{payload['matrix_rows']} rows):")
+        add("")
+        add("| Verdict | Count | Meaning |")
+        add("| --- | --- | --- |")
+        add(f"| `decision-changing` | {counts['decision_changing']} | perturbing "
+            "the value moves real decisions; settling it needs a play experiment |")
+        add(f"| `inert-in-matrix` | {counts['inert_in_matrix']} | exercised by this "
+            "checkpoint, but perturbing it changed no decision |")
+        add(f"| `not-exercised` | {counts['not_exercised']} | belongs to a structure "
+            "type this checkpoint is not; the sweep says nothing about it |")
+        add("")
+        add("`inert-in-matrix` is a statement about this matrix on this")
+        add("checkpoint, never a claim that a value is globally irrelevant. A")
+        add("decision change is not a quality judgement either — the sweep only")
+        add("says which values are worth spending an experiment on.")
+        add("")
     pct = 100.0 * len(unknown) / len(doctrine) if doctrine else 0.0
     add(
         f"**{len(unknown)} of {len(doctrine)} doctrine nodes ({pct:.0f}%) cannot "
@@ -106,11 +139,14 @@ def main() -> int:
             continue
         add(f"### `{kind}` ({len(rows)})")
         add("")
-        add("| Node | Value | Falsifiable by |")
-        add("| --- | --- | --- |")
+        add("| Node | Value | Sensitivity | Falsifiable by |")
+        add("| --- | --- | --- | --- |")
         for node in rows:
             falsifiable = node["falsifiable_by"].replace("|", "\\|")
-            add(f"| `{node['node_id']}` | `{_value(node)}` | {falsifiable} |")
+            verdict = (sweep.get(node["node_id"]) or {}).get("verdict", "-")
+            changed = (sweep.get(node["node_id"]) or {}).get("changed_rows")
+            cell = verdict if changed is None else f"{verdict} ({changed})"
+            add(f"| `{node['node_id']}` | `{_value(node)}` | {cell} | {falsifiable} |")
         add("")
 
     OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")

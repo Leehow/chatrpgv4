@@ -390,6 +390,33 @@ LEGACY_AFFINITY_LADDERS = [
 ]
 
 
+# Craft directives (slice D3). Unlike the numeric doctrine above, these declare
+# a Director control decision as structured data so it can be grounded in the
+# RuleGraph. They do not change control flow; a test pins each ``declares``
+# payload against the branch it describes so the two cannot drift.
+# (directive_id, name, declares, rationale, source_refs, grounded_by)
+LEGACY_CRAFT_DIRECTIVES = [
+    ("dying-clock-kind",
+     "Dying tick uses the hour clock once stabilized, the round clock otherwise",
+     {"stabilized": "hour", "unstabilized": "round"},
+     "When an investigator is dying the Director asks the rescue engine for a "
+     "dying tick and chooses the clock granularity, rather than requesting a "
+     "generic CON check that could narrate death without applying it.",
+     ["rule-graph:coc7:decision:dying-hour-clock",
+      "rule-graph:coc7:decision:dying-round-clock"],
+     ["decision:coc7:healing:dying-hour-clock",
+      "decision:coc7:healing:dying-round-clock"]),
+    ("dying-forces-rescue-subsystem",
+     "A dying investigator hands the scene to the rescue subsystem",
+     {"scene_action": "SUBSYSTEM", "subsystem": "combat", "extra_pressure": True},
+     "Dying is the one HP state that overrides scoring entirely, because the "
+     "death clock and durable dead state belong to the rescue engine and not "
+     "to a pacing decision.",
+     ["rule-graph:coc7:rule:dying-entry"],
+     ["rule:coc7:healing:dying-entry"]),
+]
+
+
 def _slug(token: str) -> str:
     """Map a legacy token to a kebab-case semantic id segment."""
     return token.strip().lower().replace("_", "-")
@@ -927,6 +954,19 @@ def doctrine_shard() -> dict[str, Any]:
             rationale=rationale, origin=origin,
             falsifiable_by=falsifiable_by, source_refs=None,
         ))
+
+    for (directive_id, name, declares, rationale, source_refs,
+         grounded_by) in LEGACY_CRAFT_DIRECTIVES:
+        node = _doctrine_node(
+            f"craft-directive:{directive_id}", "craft-directive", name,
+            {"directive_id": directive_id, "declares": declares},
+            rationale=rationale,
+            origin="coc_story_director control branch, grounded in the coc7 RuleGraph",
+            falsifiable_by=None,
+            source_refs=source_refs,
+        )
+        node["grounded_by"] = list(grounded_by)
+        nodes.append(node)
 
     return {
         "contract_id": SHARD_CONTRACT_ID,

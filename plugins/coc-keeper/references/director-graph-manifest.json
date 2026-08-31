@@ -2,7 +2,7 @@
   "contract_id": "coc.director-graph-build-manifest.v1",
   "schema_version": 1,
   "graph_id": "graph:director:production",
-  "graph_content_digest": "6be5ceb57c27bcfc111dcc2efbc64f780ab4cd5c5dc25d7d2a722dc883b8b647",
+  "graph_content_digest": "29cd77906d121aab0e4b46477f9766686bbf23a55f4d4c5e1a96c7f1e1ab87f0",
   "shards": [
     "shard:director:doctrine",
     "shard:director:vocabulary"
@@ -15,6 +15,7 @@
   "node_counts": {
     "affinity-ladder": 1,
     "conflict-level": 4,
+    "craft-directive": 2,
     "director-action": 10,
     "player-signal": 34,
     "scoring-rule": 19,
