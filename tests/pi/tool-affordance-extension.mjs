@@ -1368,6 +1368,167 @@ test("structured scene combat affordances survive into the next player turn", as
   });
 });
 
+test("scene context directly binds a single combat target without combat context", async () => {
+  const forwarded = [];
+  const sceneEnvelope = contextReceipt("direct-combat-single", {
+    active_scene_id: "cellar",
+    party: ["thomas-hayes"],
+    exits: [],
+    time: { time_precision: "imprecise", local_datetime: null },
+    npcs_present: [{ npc_id: "walter-corbitt" }],
+    action_routes: [],
+    clues_here: [],
+  });
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我冲向科比特，挥拳攻击。" }],
+    });
+    await invokeCompat(h, "direct-combat-scene", "scene.context");
+    const discovered = JSON.parse((await h.tools.get("coc_discover").execute(
+      "discover-direct-combat",
+      { operation: "combat.resolve" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(discovered.ok, true, JSON.stringify(discovered));
+    for (const field of [
+      "root", "campaign", "decision_id", "candidate_id", "target_npc_id",
+    ]) {
+      assert.equal(Object.hasOwn(
+        discovered.data.operation_card.parameters.properties,
+        field,
+      ), false, field);
+    }
+
+    const resolved = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
+      "direct-combat-resolve",
+      { investigator: "current-investigator" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(resolved.ok, true, JSON.stringify(resolved));
+    const combatCall = forwarded.findLast(
+      (params) => params.operation === "combat.resolve",
+    );
+    assert.equal(combatCall.campaign, "tool-affordance-campaign");
+    assert.equal(combatCall.arguments.investigator, "thomas-hayes");
+    assert.equal(combatCall.arguments.target_npc_id, "walter-corbitt");
+    assert.match(combatCall.arguments.decision_id, /^pi-combat-resolve:/u);
+  }, (_name, params) => {
+    forwarded.push(structuredClone(params));
+    if (params.operation === "scene.context") return sceneEnvelope;
+    return { ok: true, tool: params.operation, data: { accepted: true } };
+  });
+});
+
+test("scene combat choices are explicit and combat context replaces them authoritatively", async () => {
+  const forwarded = [];
+  let sceneEnvelope = contextReceipt("direct-combat-ambiguous", {
+    active_scene_id: "cellar",
+    party: ["thomas-hayes"],
+    exits: [],
+    time: { time_precision: "imprecise", local_datetime: null },
+    npcs_present: [{ npc_id: "walter-corbitt" }],
+    action_routes: [{
+      route_id: "floating-knife",
+      resolution_kind: "combat_engagement",
+    }],
+    clues_here: [],
+  });
+  const pendingDefenseEnvelope = {
+    ok: true,
+    tool: "combat.context",
+    wire: { full_result_sha256: `sha256:${"d".repeat(64)}` },
+    cache: { revision: "combat-context:pending-defense" },
+    data: {
+      active: true,
+      pending_defense: { defender: "thomas-hayes" },
+      combat: { value: { combat_id: "corbitt", revision: 3 } },
+    },
+  };
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我在科比特和飞刀之间判断应对目标。" }],
+    });
+    await invokeCompat(h, "direct-combat-ambiguous-scene", "scene.context");
+    const sceneDiscovery = JSON.parse((await h.tools.get("coc_discover").execute(
+      "discover-direct-combat-ambiguous",
+      { operation: "combat.resolve" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.deepEqual(
+      sceneDiscovery.data.operation_card.parameters.properties.candidate_id.enum,
+      ["attack:walter-corbitt", "combat-route:floating-knife"],
+    );
+
+    await invokeCompat(h, "pending-defense-context", "combat.context");
+    const defenseDiscovery = JSON.parse((await h.tools.get("coc_discover").execute(
+      "discover-pending-defense",
+      { operation: "combat.resolve" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(Object.hasOwn(
+      defenseDiscovery.data.operation_card.parameters.properties,
+      "candidate_id",
+    ), false, "one pending defense replaces the earlier ambiguous attack choices");
+    const defense = JSON.parse((await h.tools.get("coc_combat_resolve").execute(
+      "resolve-pending-defense",
+      { investigator: "current-investigator" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(defense.ok, true, JSON.stringify(defense));
+    const defenseCall = forwarded.findLast(
+      (params) => params.operation === "combat.resolve",
+    );
+    assert.equal(Object.hasOwn(defenseCall.arguments, "target_npc_id"), false);
+    assert.equal(Object.hasOwn(defenseCall.arguments, "affordance_id"), false);
+    assert.match(defenseCall.arguments.decision_id, /^pi-combat-resolve:/u);
+
+    await invokeCompat(h, "rearm-ambiguous-scene", "scene.context");
+    const staleCombatTool = h.tools.get("coc_combat_resolve");
+    sceneEnvelope = contextReceipt("direct-combat-cleared", {
+      active_scene_id: "street",
+      party: ["thomas-hayes"],
+      exits: [],
+      time: { time_precision: "imprecise", local_datetime: null },
+      npcs_present: [],
+      action_routes: [],
+      clues_here: [],
+    });
+    await invokeCompat(h, "clear-direct-combat-scene", "scene.context");
+    const callsBeforeStale = forwarded.filter(
+      (params) => params.operation === "combat.resolve",
+    ).length;
+    const stale = JSON.parse((await staleCombatTool.execute(
+      "stale-direct-combat",
+      { investigator: "current-investigator", candidate_id: "attack:walter-corbitt" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(stale.ok, false, JSON.stringify(stale));
+    assert.equal(stale.error.code, "binding_context_missing");
+    assert.equal(forwarded.filter(
+      (params) => params.operation === "combat.resolve",
+    ).length, callsBeforeStale, "stale scene combat choice must not transport");
+  }, (_name, params) => {
+    forwarded.push(structuredClone(params));
+    if (params.operation === "scene.context") return sceneEnvelope;
+    if (params.operation === "combat.context") return pendingDefenseEnvelope;
+    return { ok: true, tool: params.operation, data: { accepted: true } };
+  });
+});
+
 test("campaign-bound typed semantic calls use the active campaign before restoration", async () => {
   const forwarded = [];
   const campaign = "tool-affordance-campaign";
@@ -1376,7 +1537,7 @@ test("campaign-bound typed semantic calls use the active campaign before restora
     party: ["thomas-hayes"],
     exits: [],
     time: { elapsed_minutes: 0 },
-    npcs_present: [],
+    npcs_present: [{ npc_id: "walter-corbitt" }],
     action_routes: [],
     clues_here: [],
   });
@@ -1518,7 +1679,7 @@ test("campaign-bound typed semantic calls fail closed without an active campaign
       h.ctx,
     )).content[0].text);
     assert.equal(combat.ok, false, JSON.stringify(combat));
-    assert.equal(combat.error.code, "semantic_entity_binding_missing");
+    assert.equal(combat.error.code, "binding_context_missing");
     assert.equal(
       forwarded.filter((params) => params.operation === "combat.resolve").length,
       0,

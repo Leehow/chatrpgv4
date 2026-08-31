@@ -4383,9 +4383,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   const beginSceneDerivedBindingReplacement = (): void => {
     currentSceneBindingFacts = null;
+    currentCombatBindingFacts = null;
     lastHealingCardProjection = null;
     retainedSceneAffordanceOperations = [];
-    for (const operation of ["state.move_scene", "state.advance_time"]) {
+    for (const operation of [
+      "state.move_scene", "state.advance_time", "combat.resolve",
+    ]) {
       revokedSceneBindingOperations.add(operation);
       retainedTypedBindings.delete(operation);
       currentTypedBindingFactories.delete(operation);
@@ -4393,9 +4396,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   };
   const revokeSceneDerivedBindings = (): void => {
     currentSceneBindingFacts = null;
+    currentCombatBindingFacts = null;
     lastHealingCardProjection = null;
     retainedSceneAffordanceOperations = [];
-    for (const operation of ["state.move_scene", "state.advance_time"]) {
+    for (const operation of [
+      "state.move_scene", "state.advance_time", "combat.resolve",
+    ]) {
       revokedSceneBindingOperations.add(operation);
       retainedTypedBindings.delete(operation);
       currentTypedBindingFactories.delete(operation);
@@ -4405,6 +4411,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     loadedOperations = loadedOperations.filter((grant) => (
       grant.operation !== "state.move_scene"
       && grant.operation !== "state.advance_time"
+      && grant.operation !== "combat.resolve"
     ));
     try { applyKpActiveTools(); }
     catch { /* best-effort projection must not replace the primary receipt error */ }
@@ -6515,6 +6522,49 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             })
           : null;
       });
+      const combatCandidates: CombatBindingFacts["candidates"] = [
+        ...facts.npcIds.map((npcId) => ({
+          candidate_id: `attack:${npcId}`,
+          invocation_mode: "target_npc_id" as const,
+          target_npc_id: npcId,
+        })),
+        ...facts.combatAffordanceIds.map((affordanceId) => ({
+          candidate_id: `combat-route:${affordanceId}`,
+          invocation_mode: "affordance_id" as const,
+          affordance_id: affordanceId,
+        })),
+      ];
+      if (combatCandidates.length > 0) {
+        currentCombatBindingFacts = {
+          sessionEpoch,
+          playerTurnEpoch: facts.playerTurnEpoch,
+          stage: facts.stage,
+          phase: facts.phase,
+          root: facts.root,
+          campaign: facts.campaign,
+          combatRevision: facts.sourceRevision,
+          combatDigest: facts.sourceDigest,
+          candidates: combatCandidates,
+        };
+        armTypedBinding(
+          combatResolveCardFromFacts(currentCombatBindingFacts),
+          () => {
+            const current = currentCombatBindingFacts;
+            return current !== null
+              ? combatResolveCardFromFacts({
+                  ...current,
+                  sessionEpoch,
+                  playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+                  stage: canonicalProgress.stage,
+                  phase: resolveAclPhase(current.campaign),
+                })
+              : null;
+          },
+        );
+        revokedSceneBindingOperations.delete("combat.resolve");
+      } else {
+        refreshTypedToolDefinition("combat.resolve");
+      }
       applyKpActiveTools();
       revokedSceneBindingOperations.delete("state.move_scene");
       revokedSceneBindingOperations.delete("state.advance_time");
@@ -6665,6 +6715,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           })
         : null;
     });
+    revokedSceneBindingOperations.delete("combat.resolve");
     applyKpActiveTools();
   };
   const resolvedWorkingSetHostTools = (role: SessionRole): ModelVisibleHostTool[] => {
