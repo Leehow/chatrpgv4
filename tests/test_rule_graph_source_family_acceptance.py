@@ -357,16 +357,24 @@ def test_social_source_acceptance_regenerates_byte_identically():
 
 
 @pytest.mark.parametrize("family", ["core-check", "push-luck", "social"])
-def test_family_source_acceptance_updates_coverage_without_runtime_cutover(family):
+def test_family_source_acceptance_matches_current_package_ownership(family):
+    package_root = ROOT / "plugins" / "coc-keeper" / "rulesets" / "coc7"
     production = _read(
-        ROOT / "plugins" / "coc-keeper" / "rulesets" / "coc7"
-        / "rule-graph-manifest.json"
+        package_root / "rule-graph-manifest.json"
+    )
+    package = _read(package_root / "manifest.json")
+    graph = _read(package_root / "rule-graph.json")
+    authority = next(
+        row for row in package["rule_families"]
+        if row["family_id"] == family
     )
     assert production["family_coverage"][family] == "accepted"
     assert production["family_promotion_eligibility"][family] == {
-        "promotion_eligible": False,
-        "runtime_ownership": "legacy",
+        "promotion_eligible": authority["runtime_owner"] == "graph",
+        "runtime_ownership": authority["runtime_owner"],
     }
+    assert graph["family_runtime_ownership"][family] == authority["runtime_owner"]
+    assert graph["legacy_surface_lifecycle"][family] == authority["legacy_surface"]
 
 
 @pytest.mark.parametrize("family", ["core-check", "push-luck", "social"])
