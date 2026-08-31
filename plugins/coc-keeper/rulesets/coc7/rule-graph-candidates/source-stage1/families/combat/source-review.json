@@ -1,0 +1,156 @@
+{
+  "contract_id": "coc.rule-family-source-review.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "family_id": "combat",
+  "reviewer_identity": "codex-worker-combat-source-review-20260831",
+  "review_status": "accepted",
+  "source": {
+    "source_id": "pdf:coc7-keeper-rulebook-40th",
+    "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+    "bundle_sha256": "5e1a929b0b37f9782fcfb67a24c94846d6e12612f84b3523f9d01cd97413c8eb",
+    "pdf_indices": [
+      113,
+      114,
+      115,
+      116,
+      117,
+      118,
+      119,
+      120,
+      121,
+      122,
+      123,
+      124,
+      125,
+      126,
+      127,
+      128,
+      129,
+      130,
+      412,
+      413,
+      414,
+      415,
+      416,
+      417
+    ]
+  },
+  "accepted_shard_id": "shard:coc7:combat:section-combat-complete-source",
+  "accepted_shard_digest": "ba380a1cf826825ac859b07de605718ff123a749baa086f30ddbbd5b7802696d",
+  "coverage": "accepted",
+  "unresolved_applicable_rules": [],
+  "applicability_ledger": [
+    {
+      "rule_id": "rule:coc7:combat:round-and-action-economy",
+      "status": "accepted",
+      "source_group": "round"
+    },
+    {
+      "rule_id": "rule:coc7:combat:dex-order",
+      "status": "accepted",
+      "source_group": "round"
+    },
+    {
+      "rule_id": "rule:coc7:combat:ready-firearm-initiative",
+      "status": "accepted",
+      "source_group": "firearms"
+    },
+    {
+      "rule_id": "rule:coc7:combat:combat-rolls-not-pushable",
+      "status": "accepted",
+      "source_group": "no-push"
+    },
+    {
+      "rule_id": "rule:coc7:combat:fight-back-opposition",
+      "status": "accepted",
+      "source_group": "melee"
+    },
+    {
+      "rule_id": "rule:coc7:combat:dodge-opposition",
+      "status": "accepted",
+      "source_group": "melee"
+    },
+    {
+      "rule_id": "rule:coc7:combat:weapon-damage",
+      "status": "accepted",
+      "source_group": "damage"
+    },
+    {
+      "rule_id": "rule:coc7:combat:extreme-and-impale",
+      "status": "accepted",
+      "source_group": "damage"
+    },
+    {
+      "rule_id": "rule:coc7:combat:maneuver-build",
+      "status": "accepted",
+      "source_group": "maneuver"
+    },
+    {
+      "rule_id": "rule:coc7:combat:maneuver-goal",
+      "status": "accepted",
+      "source_group": "maneuver"
+    },
+    {
+      "rule_id": "rule:coc7:combat:surprise",
+      "status": "accepted",
+      "source_group": "surprise"
+    },
+    {
+      "rule_id": "rule:coc7:combat:outnumbered",
+      "status": "accepted",
+      "source_group": "outnumbered"
+    },
+    {
+      "rule_id": "rule:coc7:combat:ranged-and-thrown",
+      "status": "accepted",
+      "source_group": "ranged"
+    },
+    {
+      "rule_id": "rule:coc7:combat:escape-close-combat",
+      "status": "accepted",
+      "source_group": "ranged"
+    },
+    {
+      "rule_id": "rule:coc7:combat:armor-reduction",
+      "status": "accepted",
+      "source_group": "ranged"
+    },
+    {
+      "rule_id": "rule:coc7:combat:firearms-unopposed",
+      "status": "accepted",
+      "source_group": "firearms"
+    },
+    {
+      "rule_id": "rule:coc7:combat:firearm-range",
+      "status": "accepted",
+      "source_group": "firearms"
+    },
+    {
+      "rule_id": "rule:coc7:combat:firearm-modifiers",
+      "status": "accepted",
+      "source_group": "modifiers"
+    },
+    {
+      "rule_id": "rule:coc7:combat:automatic-fire",
+      "status": "accepted",
+      "source_group": "automatic"
+    },
+    {
+      "rule_id": "rule:coc7:combat:malfunction",
+      "status": "accepted",
+      "source_group": "malfunction"
+    },
+    {
+      "rule_id": "rule:coc7:combat:weapon-profile-columns",
+      "status": "accepted",
+      "source_group": "weapons"
+    },
+    {
+      "rule_id": "rule:coc7:combat:stun-and-burn",
+      "status": "accepted",
+      "source_group": "special"
+    }
+  ],
+  "runtime_integration_blockers": []
+}

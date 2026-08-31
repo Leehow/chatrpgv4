@@ -1,0 +1,1685 @@
+{
+  "contract_id": "coc.rule-graph-candidate.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "family_id": "combat",
+  "section_id": "section-combat-complete-source",
+  "source_language": "en",
+  "coverage": {
+    "combat": "accepted"
+  },
+  "nodes": [
+    {
+      "node_id": "capability:coc7:combat-runtime",
+      "node_kind": "capability",
+      "name": "Legacy combat runtime capability",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat",
+        "resolver_capability": "combat_runtime",
+        "adapter": "subsystem"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22",
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-47",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-115-block-61",
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-117-block-78",
+        "span-combat-complete-source-page-118-block-81",
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-91",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99",
+        "span-combat-complete-source-page-122-block-102",
+        "span-combat-complete-source-page-122-block-103",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-124-block-114",
+        "span-combat-complete-source-page-125-block-121",
+        "span-combat-complete-source-page-125-block-122",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-126-block-126",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133",
+        "span-combat-complete-source-page-129-block-140",
+        "span-combat-complete-source-page-129-block-141",
+        "span-combat-complete-source-page-129-block-143",
+        "span-combat-complete-source-page-130-block-151",
+        "span-combat-complete-source-page-412-block-154",
+        "span-combat-complete-source-page-414-block-165",
+        "span-combat-complete-source-page-414-block-167",
+        "span-combat-complete-source-page-415-block-170",
+        "span-combat-complete-source-page-415-block-173",
+        "span-combat-complete-source-page-415-block-175",
+        "span-combat-complete-source-page-416-block-177",
+        "span-combat-complete-source-page-416-block-186",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-193",
+        "span-combat-complete-source-page-417-block-196",
+        "span-combat-complete-source-page-417-block-197",
+        "span-combat-complete-source-page-417-block-214",
+        "span-combat-complete-source-page-417-block-215"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:combat",
+      "node_kind": "data-table",
+      "name": "combat.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "combat.json"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22",
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-47",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-115-block-61",
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-117-block-78",
+        "span-combat-complete-source-page-118-block-81",
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-91",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99",
+        "span-combat-complete-source-page-122-block-102",
+        "span-combat-complete-source-page-122-block-103",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-124-block-114",
+        "span-combat-complete-source-page-125-block-121",
+        "span-combat-complete-source-page-125-block-122",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-126-block-126",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133",
+        "span-combat-complete-source-page-129-block-140",
+        "span-combat-complete-source-page-129-block-141",
+        "span-combat-complete-source-page-129-block-143",
+        "span-combat-complete-source-page-130-block-151",
+        "span-combat-complete-source-page-412-block-154",
+        "span-combat-complete-source-page-414-block-165",
+        "span-combat-complete-source-page-414-block-167",
+        "span-combat-complete-source-page-415-block-170",
+        "span-combat-complete-source-page-415-block-173",
+        "span-combat-complete-source-page-415-block-175",
+        "span-combat-complete-source-page-416-block-177",
+        "span-combat-complete-source-page-416-block-186",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-193",
+        "span-combat-complete-source-page-417-block-196",
+        "span-combat-complete-source-page-417-block-197",
+        "span-combat-complete-source-page-417-block-214",
+        "span-combat-complete-source-page-417-block-215"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:weapons",
+      "node_kind": "data-table",
+      "name": "weapons.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "weapons.json"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22",
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-47",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-115-block-61",
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-117-block-78",
+        "span-combat-complete-source-page-118-block-81",
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-91",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99",
+        "span-combat-complete-source-page-122-block-102",
+        "span-combat-complete-source-page-122-block-103",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-124-block-114",
+        "span-combat-complete-source-page-125-block-121",
+        "span-combat-complete-source-page-125-block-122",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-126-block-126",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133",
+        "span-combat-complete-source-page-129-block-140",
+        "span-combat-complete-source-page-129-block-141",
+        "span-combat-complete-source-page-129-block-143",
+        "span-combat-complete-source-page-130-block-151",
+        "span-combat-complete-source-page-412-block-154",
+        "span-combat-complete-source-page-414-block-165",
+        "span-combat-complete-source-page-414-block-167",
+        "span-combat-complete-source-page-415-block-170",
+        "span-combat-complete-source-page-415-block-173",
+        "span-combat-complete-source-page-415-block-175",
+        "span-combat-complete-source-page-416-block-177",
+        "span-combat-complete-source-page-416-block-186",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-193",
+        "span-combat-complete-source-page-417-block-196",
+        "span-combat-complete-source-page-417-block-197",
+        "span-combat-complete-source-page-417-block-214",
+        "span-combat-complete-source-page-417-block-215"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:combat:resolve",
+      "node_kind": "decision",
+      "name": "Resolve one source-governed combat action",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22",
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-47",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-115-block-61",
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-117-block-78",
+        "span-combat-complete-source-page-118-block-81",
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-91",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99",
+        "span-combat-complete-source-page-122-block-102",
+        "span-combat-complete-source-page-122-block-103",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-124-block-114",
+        "span-combat-complete-source-page-125-block-121",
+        "span-combat-complete-source-page-125-block-122",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-126-block-126",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133",
+        "span-combat-complete-source-page-129-block-140",
+        "span-combat-complete-source-page-129-block-141",
+        "span-combat-complete-source-page-129-block-143",
+        "span-combat-complete-source-page-130-block-151",
+        "span-combat-complete-source-page-412-block-154",
+        "span-combat-complete-source-page-414-block-165",
+        "span-combat-complete-source-page-414-block-167",
+        "span-combat-complete-source-page-415-block-170",
+        "span-combat-complete-source-page-415-block-173",
+        "span-combat-complete-source-page-415-block-175",
+        "span-combat-complete-source-page-416-block-177",
+        "span-combat-complete-source-page-416-block-186",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-193",
+        "span-combat-complete-source-page-417-block-196",
+        "span-combat-complete-source-page-417-block-197",
+        "span-combat-complete-source-page-417-block-214",
+        "span-combat-complete-source-page-417-block-215"
+      ]
+    },
+    {
+      "node_id": "rule-family:coc7:combat",
+      "node_kind": "rule-family",
+      "name": "Complete source-reviewed combat family",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat",
+        "runtime_ownership": "legacy",
+        "legacy_surface": "visible"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22",
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-47",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-115-block-61",
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-117-block-78",
+        "span-combat-complete-source-page-118-block-81",
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-91",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99",
+        "span-combat-complete-source-page-122-block-102",
+        "span-combat-complete-source-page-122-block-103",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-124-block-114",
+        "span-combat-complete-source-page-125-block-121",
+        "span-combat-complete-source-page-125-block-122",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-126-block-126",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133",
+        "span-combat-complete-source-page-129-block-140",
+        "span-combat-complete-source-page-129-block-141",
+        "span-combat-complete-source-page-129-block-143",
+        "span-combat-complete-source-page-130-block-151",
+        "span-combat-complete-source-page-412-block-154",
+        "span-combat-complete-source-page-414-block-165",
+        "span-combat-complete-source-page-414-block-167",
+        "span-combat-complete-source-page-415-block-170",
+        "span-combat-complete-source-page-415-block-173",
+        "span-combat-complete-source-page-415-block-175",
+        "span-combat-complete-source-page-416-block-177",
+        "span-combat-complete-source-page-416-block-186",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-193",
+        "span-combat-complete-source-page-417-block-196",
+        "span-combat-complete-source-page-417-block-197",
+        "span-combat-complete-source-page-417-block-214",
+        "span-combat-complete-source-page-417-block-215"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:armor-reduction",
+      "node_kind": "rule",
+      "name": "Ordinary physical armor subtracts its rating from incoming damage",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:automatic-fire",
+      "node_kind": "rule",
+      "name": "Automatic fire resolves declared ammunition in volleys with recoil penalties and per-volley hits",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-125-block-121",
+        "span-combat-complete-source-page-125-block-122",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-215"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:combat-rolls-not-pushable",
+      "node_kind": "rule",
+      "name": "Combat rolls cannot be pushed",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-115-block-61"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:dex-order",
+      "node_kind": "rule",
+      "name": "Combatants act from highest DEX to lowest with combat skill breaking ties",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:dodge-opposition",
+      "node_kind": "rule",
+      "name": "Melee dodge is opposed and ties favor the dodging defender",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-47"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:escape-close-combat",
+      "node_kind": "rule",
+      "name": "A combatant may flee close combat on their action if an escape route is open and they are unrestrained",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:extreme-and-impale",
+      "node_kind": "rule",
+      "name": "Extreme attacks maximize damage and penetrating weapons add an impale damage roll",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-122-block-103"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:fight-back-opposition",
+      "node_kind": "rule",
+      "name": "Melee fight back is opposed and ties favor the initiating attacker",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-47"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:firearm-modifiers",
+      "node_kind": "rule",
+      "name": "Cover, diving, point blank, aiming, speed, size, reloading, and multiple shots modify firearm attacks",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-124-block-114",
+        "span-combat-complete-source-page-126-block-126",
+        "span-combat-complete-source-page-129-block-140",
+        "span-combat-complete-source-page-417-block-214"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:firearm-range",
+      "node_kind": "rule",
+      "name": "Base, long, and very-long range set Regular, Hard, and Extreme difficulty",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-127-block-130"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:firearms-unopposed",
+      "node_kind": "rule",
+      "name": "Firearm attacks are normally unopposed and failure deals no damage",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-127-block-130"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:malfunction",
+      "node_kind": "rule",
+      "name": "An attack roll at or above a weapon malfunction rating jams or misfires the weapon",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-129-block-141",
+        "span-combat-complete-source-page-129-block-143",
+        "span-combat-complete-source-page-417-block-193"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:maneuver-build",
+      "node_kind": "rule",
+      "name": "Fighting maneuvers use Build penalties and become impossible at a three-point deficit",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:maneuver-goal",
+      "node_kind": "rule",
+      "name": "A successful fighting maneuver applies its declared non-damage goal",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:outnumbered",
+      "node_kind": "rule",
+      "name": "After a target defends in a round subsequent melee attackers gain a bonus die",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-91",
+        "span-combat-complete-source-page-122-block-102"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:ranged-and-thrown",
+      "node_kind": "rule",
+      "name": "Ranged and thrown attacks use firearm range difficulty and limited close defense",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:ready-firearm-initiative",
+      "node_kind": "rule",
+      "name": "A readied firearm acts at DEX plus fifty",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-127-block-130"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:round-and-action-economy",
+      "node_kind": "rule",
+      "name": "Combat proceeds in elastic rounds with one action opportunity per capable character",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:stun-and-burn",
+      "node_kind": "rule",
+      "name": "Weapon special effects include bounded Stun and escalating Burn",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-417-block-196",
+        "span-combat-complete-source-page-417-block-197"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:surprise",
+      "node_kind": "rule",
+      "name": "An unanticipated surprise attack may hit automatically or gain a bonus die",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-117-block-78",
+        "span-combat-complete-source-page-118-block-81",
+        "span-combat-complete-source-page-121-block-98"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:weapon-damage",
+      "node_kind": "rule",
+      "name": "Successful attacks apply weapon damage and unarmed attacks use 1D3",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-122-block-103"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:combat:weapon-profile-columns",
+      "node_kind": "rule",
+      "name": "Weapon profiles define skill, damage, range, uses, capacity, malfunction, and era",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-130-block-151",
+        "span-combat-complete-source-page-412-block-154",
+        "span-combat-complete-source-page-414-block-165",
+        "span-combat-complete-source-page-414-block-167",
+        "span-combat-complete-source-page-415-block-170",
+        "span-combat-complete-source-page-415-block-173",
+        "span-combat-complete-source-page-415-block-175",
+        "span-combat-complete-source-page-416-block-177",
+        "span-combat-complete-source-page-416-block-186",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-193"
+      ]
+    },
+    {
+      "node_id": "subsystem:coc7:combat",
+      "node_kind": "subsystem",
+      "name": "Canonical combat subsystem",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "subsystem_kind": "combat"
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22",
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-47",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-115-block-61",
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-117-block-78",
+        "span-combat-complete-source-page-118-block-81",
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-91",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99",
+        "span-combat-complete-source-page-122-block-102",
+        "span-combat-complete-source-page-122-block-103",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-124-block-114",
+        "span-combat-complete-source-page-125-block-121",
+        "span-combat-complete-source-page-125-block-122",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-126-block-126",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133",
+        "span-combat-complete-source-page-129-block-140",
+        "span-combat-complete-source-page-129-block-141",
+        "span-combat-complete-source-page-129-block-143",
+        "span-combat-complete-source-page-130-block-151",
+        "span-combat-complete-source-page-412-block-154",
+        "span-combat-complete-source-page-414-block-165",
+        "span-combat-complete-source-page-414-block-167",
+        "span-combat-complete-source-page-415-block-170",
+        "span-combat-complete-source-page-415-block-173",
+        "span-combat-complete-source-page-415-block-175",
+        "span-combat-complete-source-page-416-block-177",
+        "span-combat-complete-source-page-416-block-186",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-193",
+        "span-combat-complete-source-page-417-block-196",
+        "span-combat-complete-source-page-417-block-197",
+        "span-combat-complete-source-page-417-block-214",
+        "span-combat-complete-source-page-417-block-215"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "relation:coc7:combat:armor-reduction-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:armor-reduction",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:armor-reduction-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:armor-reduction",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:automatic-fire-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:automatic-fire",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-125-block-121",
+        "span-combat-complete-source-page-125-block-122",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-215"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:automatic-fire-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:automatic-fire",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-125-block-121",
+        "span-combat-complete-source-page-125-block-122",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-215"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:combat-rolls-not-pushable-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:combat-rolls-not-pushable",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-115-block-61"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:combat-rolls-not-pushable-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:combat-rolls-not-pushable",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-115-block-61"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:decision-invokes-runtime",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:combat:resolve",
+      "to_node_id": "capability:coc7:combat-runtime",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22",
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-47",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-115-block-61",
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-117-block-78",
+        "span-combat-complete-source-page-118-block-81",
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-91",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99",
+        "span-combat-complete-source-page-122-block-102",
+        "span-combat-complete-source-page-122-block-103",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-124-block-114",
+        "span-combat-complete-source-page-125-block-121",
+        "span-combat-complete-source-page-125-block-122",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-126-block-126",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133",
+        "span-combat-complete-source-page-129-block-140",
+        "span-combat-complete-source-page-129-block-141",
+        "span-combat-complete-source-page-129-block-143",
+        "span-combat-complete-source-page-130-block-151",
+        "span-combat-complete-source-page-412-block-154",
+        "span-combat-complete-source-page-414-block-165",
+        "span-combat-complete-source-page-414-block-167",
+        "span-combat-complete-source-page-415-block-170",
+        "span-combat-complete-source-page-415-block-173",
+        "span-combat-complete-source-page-415-block-175",
+        "span-combat-complete-source-page-416-block-177",
+        "span-combat-complete-source-page-416-block-186",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-193",
+        "span-combat-complete-source-page-417-block-196",
+        "span-combat-complete-source-page-417-block-197",
+        "span-combat-complete-source-page-417-block-214",
+        "span-combat-complete-source-page-417-block-215"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:dex-order-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:dex-order",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:dex-order-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:dex-order",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:dodge-opposition-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:dodge-opposition",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-47"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:dodge-opposition-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:dodge-opposition",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-47"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:escape-close-combat-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:escape-close-combat",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:escape-close-combat-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:escape-close-combat",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:extreme-and-impale-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:extreme-and-impale",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-122-block-103"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:extreme-and-impale-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:extreme-and-impale",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-122-block-103"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:fight-back-opposition-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:fight-back-opposition",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-47"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:fight-back-opposition-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:fight-back-opposition",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-47"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:firearm-modifiers-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:firearm-modifiers",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-124-block-114",
+        "span-combat-complete-source-page-126-block-126",
+        "span-combat-complete-source-page-129-block-140",
+        "span-combat-complete-source-page-417-block-214"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:firearm-modifiers-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:firearm-modifiers",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-124-block-114",
+        "span-combat-complete-source-page-126-block-126",
+        "span-combat-complete-source-page-129-block-140",
+        "span-combat-complete-source-page-417-block-214"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:firearm-range-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:firearm-range",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-127-block-130"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:firearm-range-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:firearm-range",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-127-block-130"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:firearms-unopposed-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:firearms-unopposed",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-127-block-130"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:firearms-unopposed-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:firearms-unopposed",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-127-block-130"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:malfunction-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:malfunction",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-129-block-141",
+        "span-combat-complete-source-page-129-block-143",
+        "span-combat-complete-source-page-417-block-193"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:malfunction-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:malfunction",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-129-block-141",
+        "span-combat-complete-source-page-129-block-143",
+        "span-combat-complete-source-page-417-block-193"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:maneuver-build-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:maneuver-build",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:maneuver-build-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:maneuver-build",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:maneuver-goal-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:maneuver-goal",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:maneuver-goal-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:maneuver-goal",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:outnumbered-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:outnumbered",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-91",
+        "span-combat-complete-source-page-122-block-102"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:outnumbered-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:outnumbered",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-91",
+        "span-combat-complete-source-page-122-block-102"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:ranged-and-thrown-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:ranged-and-thrown",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:ranged-and-thrown-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:ranged-and-thrown",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:ready-firearm-initiative-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:ready-firearm-initiative",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-127-block-130"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:ready-firearm-initiative-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:ready-firearm-initiative",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-127-block-130"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:round-and-action-economy-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:round-and-action-economy",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:round-and-action-economy-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:round-and-action-economy",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:runtime-implemented-by-subsystem",
+      "relation_kind": "implemented-by",
+      "from_node_id": "capability:coc7:combat-runtime",
+      "to_node_id": "subsystem:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22",
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-47",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-115-block-61",
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-117-block-78",
+        "span-combat-complete-source-page-118-block-81",
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-91",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99",
+        "span-combat-complete-source-page-122-block-102",
+        "span-combat-complete-source-page-122-block-103",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-124-block-114",
+        "span-combat-complete-source-page-125-block-121",
+        "span-combat-complete-source-page-125-block-122",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-126-block-126",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133",
+        "span-combat-complete-source-page-129-block-140",
+        "span-combat-complete-source-page-129-block-141",
+        "span-combat-complete-source-page-129-block-143",
+        "span-combat-complete-source-page-130-block-151",
+        "span-combat-complete-source-page-412-block-154",
+        "span-combat-complete-source-page-414-block-165",
+        "span-combat-complete-source-page-414-block-167",
+        "span-combat-complete-source-page-415-block-170",
+        "span-combat-complete-source-page-415-block-173",
+        "span-combat-complete-source-page-415-block-175",
+        "span-combat-complete-source-page-416-block-177",
+        "span-combat-complete-source-page-416-block-186",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-193",
+        "span-combat-complete-source-page-417-block-196",
+        "span-combat-complete-source-page-417-block-197",
+        "span-combat-complete-source-page-417-block-214",
+        "span-combat-complete-source-page-417-block-215"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:runtime-reads-combat",
+      "relation_kind": "reads-table",
+      "from_node_id": "capability:coc7:combat-runtime",
+      "to_node_id": "data-table:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22",
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-47",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-115-block-61",
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-117-block-78",
+        "span-combat-complete-source-page-118-block-81",
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-91",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99",
+        "span-combat-complete-source-page-122-block-102",
+        "span-combat-complete-source-page-122-block-103",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-124-block-114",
+        "span-combat-complete-source-page-125-block-121",
+        "span-combat-complete-source-page-125-block-122",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-126-block-126",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133",
+        "span-combat-complete-source-page-129-block-140",
+        "span-combat-complete-source-page-129-block-141",
+        "span-combat-complete-source-page-129-block-143",
+        "span-combat-complete-source-page-130-block-151",
+        "span-combat-complete-source-page-412-block-154",
+        "span-combat-complete-source-page-414-block-165",
+        "span-combat-complete-source-page-414-block-167",
+        "span-combat-complete-source-page-415-block-170",
+        "span-combat-complete-source-page-415-block-173",
+        "span-combat-complete-source-page-415-block-175",
+        "span-combat-complete-source-page-416-block-177",
+        "span-combat-complete-source-page-416-block-186",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-193",
+        "span-combat-complete-source-page-417-block-196",
+        "span-combat-complete-source-page-417-block-197",
+        "span-combat-complete-source-page-417-block-214",
+        "span-combat-complete-source-page-417-block-215"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:runtime-reads-weapons",
+      "relation_kind": "reads-table",
+      "from_node_id": "capability:coc7:combat-runtime",
+      "to_node_id": "data-table:coc7:weapons",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22",
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-47",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-115-block-61",
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-117-block-78",
+        "span-combat-complete-source-page-118-block-81",
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-91",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99",
+        "span-combat-complete-source-page-122-block-102",
+        "span-combat-complete-source-page-122-block-103",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-124-block-114",
+        "span-combat-complete-source-page-125-block-121",
+        "span-combat-complete-source-page-125-block-122",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-126-block-126",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133",
+        "span-combat-complete-source-page-129-block-140",
+        "span-combat-complete-source-page-129-block-141",
+        "span-combat-complete-source-page-129-block-143",
+        "span-combat-complete-source-page-130-block-151",
+        "span-combat-complete-source-page-412-block-154",
+        "span-combat-complete-source-page-414-block-165",
+        "span-combat-complete-source-page-414-block-167",
+        "span-combat-complete-source-page-415-block-170",
+        "span-combat-complete-source-page-415-block-173",
+        "span-combat-complete-source-page-415-block-175",
+        "span-combat-complete-source-page-416-block-177",
+        "span-combat-complete-source-page-416-block-186",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-193",
+        "span-combat-complete-source-page-417-block-196",
+        "span-combat-complete-source-page-417-block-197",
+        "span-combat-complete-source-page-417-block-214",
+        "span-combat-complete-source-page-417-block-215"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:stun-and-burn-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:stun-and-burn",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-417-block-196",
+        "span-combat-complete-source-page-417-block-197"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:stun-and-burn-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:stun-and-burn",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-417-block-196",
+        "span-combat-complete-source-page-417-block-197"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:surprise-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:surprise",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-117-block-78",
+        "span-combat-complete-source-page-118-block-81",
+        "span-combat-complete-source-page-121-block-98"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:surprise-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:surprise",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-117-block-78",
+        "span-combat-complete-source-page-118-block-81",
+        "span-combat-complete-source-page-121-block-98"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:weapon-damage-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:weapon-damage",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-122-block-103"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:weapon-damage-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:weapon-damage",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-122-block-103"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:weapon-profile-columns-applies-to-resolve",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:combat:weapon-profile-columns",
+      "to_node_id": "decision:coc7:combat:resolve",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-130-block-151",
+        "span-combat-complete-source-page-412-block-154",
+        "span-combat-complete-source-page-414-block-165",
+        "span-combat-complete-source-page-414-block-167",
+        "span-combat-complete-source-page-415-block-170",
+        "span-combat-complete-source-page-415-block-173",
+        "span-combat-complete-source-page-415-block-175",
+        "span-combat-complete-source-page-416-block-177",
+        "span-combat-complete-source-page-416-block-186",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-193"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:weapon-profile-columns-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:combat:weapon-profile-columns",
+      "to_node_id": "rule-family:coc7:combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-130-block-151",
+        "span-combat-complete-source-page-412-block-154",
+        "span-combat-complete-source-page-414-block-165",
+        "span-combat-complete-source-page-414-block-167",
+        "span-combat-complete-source-page-415-block-170",
+        "span-combat-complete-source-page-415-block-173",
+        "span-combat-complete-source-page-415-block-175",
+        "span-combat-complete-source-page-416-block-177",
+        "span-combat-complete-source-page-416-block-186",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-193"
+      ]
+    }
+  ]
+}
