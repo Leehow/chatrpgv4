@@ -3803,7 +3803,10 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["scenario_binding_sha256"],
   )],
   ["rules.roll", declaredIdentityTable(
-    ["attempt_id", "decision_id", "original_check_decision_id", "scene_id"],
+    [
+      "attempt_id", "decision_id", "original_check_decision_id", "rule_ref",
+      "scene_id",
+    ],
     [],
   )],
   ["rules.push", declaredIdentityTable(
@@ -3888,7 +3891,7 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [],
     [
       "bout_id", "choice_id", "command_id", "decision_id", "event_id",
-      "state_refs", "trigger_id",
+      "source_command_id", "state_refs", "trigger_id",
     ],
   )],
   ["sanity.context", declaredIdentityTable(
