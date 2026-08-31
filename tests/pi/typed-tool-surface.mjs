@@ -180,6 +180,21 @@ test("missing required / extra field are visible on the model schema", () => {
   assert.ok(!schema.properties.operation);
 });
 
+test("rules.roll exposes one closed semantic combined-target mode", () => {
+  const schema = catalog.byOperation.get("rules.roll").parameters;
+  const targets = schema.properties.combined_targets;
+  assert.equal(targets.type, "array");
+  assert.equal(targets.minItems, 2);
+  assert.equal(targets.maxItems, 8);
+  assert.equal(targets.items.type, "object");
+  assert.equal(targets.items.additionalProperties, false);
+  assert.deepEqual(targets.items.required, ["label", "value"]);
+  assert.equal(targets.items.properties.label.type, "string");
+  assert.equal(targets.items.properties.value.type, "integer");
+  assert.equal(schema.properties.helper_count.minimum, 0);
+  assert.ok(!(schema.required || []).includes("combined_targets"));
+});
+
 test("utility-level explicit null preserves legacy wrappers while typed roles hide them", () => {
   const legacy = domain.activeToolsForPhase("live_turn", null);
   assert.ok(legacy.includes("coc_rules"), "legacy unset role keeps generic wrappers");

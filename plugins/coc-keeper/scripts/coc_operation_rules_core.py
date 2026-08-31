@@ -1055,6 +1055,11 @@ def _luck_source_receipt_by_roll_id(
             "invalid_param",
             "source roll is ineligible for Luck adjustment",
         )
+    if source.get("operation", {}).get("combined_targets") is not None:
+        raise ToolError(
+            "invalid_param",
+            "combined skill rolls are ineligible for Luck adjustment",
+        )
     if _roll_side_effect_key(source) in document.get("pending_side_effects", {}):
         raise ToolError(
             "invalid_param",
@@ -1644,12 +1649,28 @@ def register_operations(registry) -> None:
 )(_tool_rules_build_scale)
     registry.tool(
     "rules.roll",
-    "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose.",
+    "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Optional combined_targets performs one public D100 roll against two or more semantic target labels and succeeds when any target succeeds; helper_count grants at most two bonus dice. Combined rolls cannot be Pushed, adjusted with Luck, or earn development ticks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose.",
     {
         "investigator": {"type": "string", "desc": "investigator id (optional when party has one member)"},
         "skill": {"type": "string", "desc": "skill name on the sheet (e.g. 'Library Use')"},
         "characteristic": {"type": "string", "desc": "characteristic (STR/CON/.../SAN/LUCK) instead of a skill"},
         "target": {"type": "integer", "desc": "explicit target value override"},
+        "combined_targets": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 8,
+            "desc": "optional combined-skill mode: two or more unique semantic {label, value} targets; mutually exclusive with skill, characteristic, target, Psychology, and combat actions",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "label": {"type": "string", "minLength": 1, "maxLength": 120, "desc": "meaning-bearing skill or characteristic label"},
+                    "value": {"type": "integer", "minimum": 1, "maximum": 100, "desc": "authoritative percentile target from the sheet or current context"},
+                },
+                "required_fields": ["label", "value"],
+                "additionalProperties": False,
+            },
+        },
+        "helper_count": {"type": "integer", "minimum": 0, "desc": "helpers contributing to combined_targets; one bonus die each, capped at two"},
         "difficulty": {"type": "string", "required": True, "enum": ["regular", "hard", "extreme"], "desc": "required success level: regular | hard | extreme; never inferred or defaulted"},
         "goal": {"type": "string", "required": True, "desc": "the concrete fictional objective this one check may settle"},
         "stakes": {"type": "object", "required": True, "desc": "exactly {on_success, on_failure}, both non-empty player-action consequences", "properties": {"on_success": {"type": "string"}, "on_failure": {"type": "string"}}, "required_fields": ["on_success", "on_failure"]},

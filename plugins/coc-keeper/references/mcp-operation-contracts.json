@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:4646cc703297402ed7a9f306822e6cda05fbb9b7e8918774cd0a00fdc12513db",
+  "content_sha256": "sha256:1177cc46574795bfd0dfa5936a0aed1bf37067a1fd44ecfe971ebcc550ee62bd",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -3910,7 +3910,7 @@
     "rules.roll": {
       "access": "mutation",
       "canonical_operation": "rules.roll",
-      "description": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose. Canonical operation `rules.roll`; the result envelope is authoritative.",
+      "description": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Optional combined_targets performs one public D100 roll against two or more semantic target labels and succeeds when any target succeeds; helper_count grants at most two bonus dice. Combined rolls cannot be Pushed, adjusted with Luck, or earn development ticks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose. Canonical operation `rules.roll`; the result envelope is authoritative.",
       "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
@@ -3926,6 +3926,34 @@
           "characteristic": {
             "description": "characteristic (STR/CON/.../SAN/LUCK) instead of a skill",
             "type": "string"
+          },
+          "combined_targets": {
+            "description": "optional combined-skill mode: two or more unique semantic {label, value} targets; mutually exclusive with skill, characteristic, target, Psychology, and combat actions",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "description": "meaning-bearing skill or characteristic label",
+                  "maxLength": 120,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "value": {
+                  "description": "authoritative percentile target from the sheet or current context",
+                  "maximum": 100,
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "label",
+                "value"
+              ],
+              "type": "object"
+            },
+            "maxItems": 8,
+            "minItems": 2,
+            "type": "array"
           },
           "decision_id": {
             "description": "idempotency key",
@@ -3957,6 +3985,11 @@
           "goal": {
             "description": "the concrete fictional objective this one check may settle",
             "type": "string"
+          },
+          "helper_count": {
+            "description": "helpers contributing to combined_targets; one bonus die each, capped at two",
+            "minimum": 0,
+            "type": "integer"
           },
           "investigator": {
             "description": "investigator id (optional when party has one member)",
@@ -4042,7 +4075,7 @@
           "live_turn"
         ]
       },
-      "summary": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose."
+      "summary": "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Optional combined_targets performs one public D100 roll against two or more semantic target labels and succeeds when any target succeeds; helper_count grants at most two bonus dice. Combined rolls cannot be Pushed, adjusted with Luck, or earn development ticks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose."
     },
     "rules.roll_dice": {
       "access": "mutation",
