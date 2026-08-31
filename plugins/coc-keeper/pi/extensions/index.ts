@@ -5146,6 +5146,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           rollArguments?.decision_id,
         ]);
       }
+      if (operation === "rules.roll_dice") {
+        registerRoll(data.roll_id, [
+          data.reason,
+          data.expression,
+          "random-dice-roll",
+        ]);
+      }
+      if (operation === "rules.opposed") {
+        registerRoll(data.investigator_roll_id, [
+          data.skill,
+          "investigator-opposed-roll",
+        ]);
+        registerRoll(data.opponent_roll_id, [
+          data.opponent_label,
+          "opponent-opposed-roll",
+        ]);
+      }
       if (operation === "rules.psychology_observe") {
         registerRoll(data.roll_id, [
           data.question,
