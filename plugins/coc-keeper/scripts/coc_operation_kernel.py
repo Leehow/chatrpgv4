@@ -6657,9 +6657,13 @@ def _semantic_ref_value(value: Any, prefix: str) -> str | None:
 
 
 def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
-    world = ctx.world()
+    world_provider = getattr(ctx, "world", None)
+    story_graph = getattr(ctx, "story_graph", None)
+    if not callable(world_provider) or not isinstance(story_graph, Mapping):
+        return {"actors": {}, "locations": {}, "scene_id": None}
+    world = world_provider()
     scene_id = str(world.get("active_scene_id") or "")
-    scene = _scene_by_id(ctx.story_graph, scene_id)
+    scene = _scene_by_id(story_graph, scene_id)
     if not scene_id or not isinstance(scene, Mapping):
         return {"actors": {}, "locations": {}}
     actors: dict[str, dict[str, Any]] = {}
@@ -6709,7 +6713,7 @@ def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
                 connected.add(target)
     locations: dict[str, dict[str, Any]] = {}
     for candidate_id in connected:
-        candidate = _scene_by_id(ctx.story_graph, candidate_id)
+        candidate = _scene_by_id(story_graph, candidate_id)
         if not isinstance(candidate, Mapping):
             continue
         locations[f"scene:{candidate_id}"] = {

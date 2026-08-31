@@ -2898,6 +2898,13 @@ def test_chase_generic_start_hydrates_only_current_semantic_refs():
         )
 
 
+def test_chase_candidates_are_empty_without_world_context():
+    kernel = coc_toolbox.coc_operation_kernel
+    assert kernel._chase_start_candidates(SimpleNamespace(), "investigator-one") == {
+        "actors": {}, "locations": {}, "scene_id": None,
+    }
+
+
 def test_runtime_settle_exclusion_scopes_are_no_candidate(tmp_path: Path):
     graph, manifest = _build_fixture_graph(tmp_path)
     promo = manifest.setdefault("family_promotion_eligibility", {}).setdefault(
