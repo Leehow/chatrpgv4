@@ -110,6 +110,76 @@ SPECS: dict[str, dict[str, Any]] = {
     },
 }
 
+EXECUTABLE_SPECS: dict[str, list[dict[str, Any]]] = {
+    "development": [
+        {
+            "token": "end-session",
+            "operation": "state.end_session",
+            "slots": [("summary", "player-source"), ("kind", "keeper-semantic"),
+                      ("investigator", "host-locked"), ("decision_id", "host-locked")],
+            "condition": {"op": "eq", "path": "campaign.ruleset_id", "value": "coc7"},
+            "effects": [("ending-recorded", None), ("development-settled", None)],
+        },
+        {
+            "token": "settle-ending",
+            "operation": "development.settle",
+            "slots": [("ending_id", "host-locked"), ("investigator", "host-locked"),
+                      ("decision_id", "host-locked")],
+            "condition": {"op": "eq", "path": "subsystem.kind", "value": "development"},
+            "effects": [("skill-improvement", None), ("luck-recovery", "luck"),
+                        ("san-reward", "san")],
+        },
+    ],
+    "chase": [
+        {
+            "token": token,
+            "operation": "chase.execute",
+            "slots": slots,
+            "condition": {"op": "eq", "path": "subsystem.kind", "value": "chase"},
+            "effects": effects,
+        }
+        for token, slots, effects in (
+            ("start", [("participants", "keeper-semantic"), ("locations", "keeper-semantic"),
+                       ("decision_id", "host-locked")], [("chase-started", None)]),
+            ("move", [("actor", "keeper-semantic"), ("action", "keeper-semantic"),
+                      ("revision", "host-locked"), ("decision_id", "host-locked")],
+             [("position-changed", None)]),
+            ("hazard", [("actor", "keeper-semantic"), ("action", "keeper-semantic"),
+                        ("hazard-state", "host-locked"), ("revision", "host-locked")],
+             [("hazard-resolved", None)]),
+            ("barrier", [("actor", "keeper-semantic"), ("action", "keeper-semantic"),
+                         ("barrier-state", "host-locked"), ("revision", "host-locked")],
+             [("barrier-resolved", None)]),
+            ("conflict", [("actor", "keeper-semantic"), ("action", "keeper-semantic"),
+                          ("combat-receipt", "host-locked"), ("revision", "host-locked")],
+             [("conflict-resolved", None)]),
+            ("end", [("outcome", "keeper-semantic"), ("snapshot", "host-locked"),
+                     ("decision_id", "host-locked")], [("chase-ended", None)]),
+        )
+    ],
+    "magic": [
+        {
+            "token": "cast-spell",
+            "operation": "magic.cast",
+            "slots": [("spell", "keeper-semantic"), ("pushed", "keeper-semantic"),
+                      ("interrupted", "keeper-semantic"), ("is_npc", "host-locked"),
+                      ("investigator", "host-locked"), ("decision_id", "host-locked")],
+            "condition": {"op": "eq", "path": "campaign.ruleset_id", "value": "coc7"},
+            "effects": [("mp-spent", "mp"), ("san-spent", "san"),
+                        ("hp-overspill", "hp"), ("spell-cast", None)],
+        },
+        {
+            "token": "learn-spell",
+            "operation": "magic.learn",
+            "slots": [("spell", "keeper-semantic"), ("source", "keeper-semantic"),
+                      ("investigator", "host-locked"), ("decision_id", "host-locked")],
+            "condition": {"op": "eq", "path": "campaign.ruleset_id", "value": "coc7"},
+            "effects": [("spell-learned", None), ("study-scheduled", None),
+                        ("entity-san-cost", "san")],
+        },
+    ],
+}
+
 
 def _read(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -180,6 +250,89 @@ def _node(family: str, kind: str, token: str, name: str, spans: list[str], **pro
         "properties": properties,
         "evidence_span_ids": spans,
     }
+
+
+def _add_executable_graph(
+    family: str,
+    all_spans: list[str],
+    nodes: list[dict[str, Any]],
+    relations: list[dict[str, Any]],
+) -> None:
+    capability_ids = {
+        str((node.get("properties") or {}).get("resolver_capability")): node["node_id"]
+        for node in nodes if node.get("node_kind") == "capability"
+    }
+    for spec in EXECUTABLE_SPECS[family]:
+        token = spec["token"]
+        operation = spec["operation"]
+        decision = _node(
+            family, "decision", token,
+            f"Invoke {operation} for the source-defined {token} settlement",
+            all_spans,
+            implementation={
+                "adapter": "subsystem-command",
+                "kind": operation,
+                "phase": "resolve",
+                "payload_constants": {},
+                "payload_slots": [
+                    {"name": name, "ownership": ownership}
+                    for name, ownership in spec["slots"]
+                ],
+            },
+        )
+        nodes.append(decision)
+        condition = _node(
+            family, "condition", f"{token}-applicable",
+            f"Applicability for {operation}", all_spans,
+            expression=spec["condition"],
+        )
+        nodes.append(condition)
+        relations.append({
+            "relation_id": f"relation:coc7:{family}:{token}:available-when",
+            "relation_kind": "available-when",
+            "from_node_id": decision["node_id"],
+            "to_node_id": condition["node_id"],
+            "evidence_span_ids": all_spans,
+        })
+        capability_id = capability_ids[operation]
+        relations.append({
+            "relation_id": f"relation:coc7:{family}:{token}:invokes",
+            "relation_kind": "invokes",
+            "from_node_id": decision["node_id"],
+            "to_node_id": capability_id,
+            "evidence_span_ids": all_spans,
+        })
+        for name, ownership in spec["slots"]:
+            slot = _node(
+                family, "input-slot", f"{token}-{name.replace('_', '-')}",
+                f"{operation} input {name}", all_spans,
+                ownership=ownership,
+                value_type="semantic" if ownership in {"keeper-semantic", "player-source"} else "canonical",
+                path=f"typed.{operation}.{name}",
+            )
+            nodes.append(slot)
+            relations.append({
+                "relation_id": f"relation:coc7:{family}:{token}:requires-{name.replace('_', '-')}",
+                "relation_kind": "requires-input" if ownership != "host-locked" else "locks-input",
+                "from_node_id": decision["node_id"],
+                "to_node_id": slot["node_id"],
+                "evidence_span_ids": all_spans,
+            })
+        for effect_name, resource in spec["effects"]:
+            effect = _node(
+                family, "effect", f"{token}-{effect_name}",
+                f"{operation} emits {effect_name}", all_spans,
+                effect_kind=effect_name,
+                **({} if resource is None else {"resource_key": resource}),
+            )
+            nodes.append(effect)
+            relations.append({
+                "relation_id": f"relation:coc7:{family}:{token}:emits-{effect_name}",
+                "relation_kind": "emits",
+                "from_node_id": decision["node_id"],
+                "to_node_id": effect["node_id"],
+                "evidence_span_ids": all_spans,
+            })
 
 
 def build_candidate(packet: dict[str, Any], family: str) -> dict[str, Any]:
@@ -259,6 +412,7 @@ def build_candidate(packet: dict[str, Any], family: str) -> dict[str, Any]:
             "to_node_id": node["node_id"],
             "evidence_span_ids": all_spans,
         })
+    _add_executable_graph(family, all_spans, nodes, relations)
     candidate = {
         "contract_id": rg.CANDIDATE_CONTRACT_ID,
         "schema_version": 1,
@@ -295,6 +449,9 @@ def build_family(bundle_root: Path, family: str, evidence_root: Path) -> dict[st
         "coverage": {family: spec["coverage"]},
         "unresolved_applicable_rules": list(spec["unresolved"]),
         "blockers": list(spec["blockers"]),
+        "executable_review_status": "accepted",
+        "executable_operations": [row["operation"] for row in EXECUTABLE_SPECS[family]],
+        "unresolved_executable_rules": [],
         "visual_review": {
             "pdf_file_sha256": FILE_SHA256,
             "contact_sheet": f"/private/tmp/pi-coc-rule-families-20260831/visual-review/{'chase' if family == 'chase' else 'magic-core'}-contact.jpg" if family != "development" else None,

@@ -36,3 +36,15 @@ All applicable Development Phase source rules in this declared scope have a
 bound page span. `unresolved_applicable_rules` is empty, the accepted shard has
 a machine-generated non-null digest, production graph/manifest files are
 untouched, and runtime ownership remains `legacy/visible`.
+
+## Executable graph review
+
+The accepted revision adds two semantic decisions rather than a generic
+resolver: `decision:coc7:development:end-session` maps exactly to
+`state.end_session`, while `decision:coc7:development:settle-ending` maps to
+the host-only `development.settle` continuation. Player/keeper semantics
+(`summary`, ending `kind`) remain model-owned; campaign, investigator,
+ending identity and idempotency are host-locked. Applicability is explicit,
+both decisions invoke their existing typed capability, and emitted ending,
+skill, Luck, and SAN effects are source-bound. No execution formula is copied
+into the graph and `unresolved_executable_rules` is empty.

@@ -50,6 +50,31 @@ def test_development_source_review_is_complete_and_independent():
         "luck-recovery", "awfulness-decay",
     ):
         assert f"rule:coc7:development:{token}" in node_ids
+    assert provenance["executable_operations"] == [
+        "state.end_session", "development.settle",
+    ]
+    assert provenance["unresolved_executable_rules"] == []
+    decisions = {
+        node["node_id"]: node for node in candidate["nodes"]
+        if node["node_kind"] == "decision"
+    }
+    assert set(decisions) == {
+        "decision:coc7:development:end-session",
+        "decision:coc7:development:settle-ending",
+    }
+    assert decisions["decision:coc7:development:end-session"]["properties"][
+        "implementation"
+    ]["kind"] == "state.end_session"
+    assert decisions["decision:coc7:development:settle-ending"]["properties"][
+        "implementation"
+    ]["kind"] == "development.settle"
+    relations = candidate["relations"]
+    for decision_id in decisions:
+        kinds = {
+            row["relation_kind"] for row in relations
+            if row["from_node_id"] == decision_id
+        }
+        assert {"available-when", "invokes", "emits", "locks-input"} <= kinds
 
 
 def test_development_regenerates_byte_identically_from_external_bundle(tmp_path: Path):
