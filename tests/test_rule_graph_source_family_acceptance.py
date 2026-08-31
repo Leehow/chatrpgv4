@@ -115,7 +115,7 @@ def test_core_check_is_source_accepted_with_corrected_combined_rule():
     assert manifest["family_coverage"]["core-check"] == "accepted"
     assert manifest["review_status"] == "accepted"
     assert manifest["reviewer_identity"] == (
-        "codex-rule-families-core-social-source-review-20260831:core-check"
+        "codex-execgraph-core-push-social-review-20260831:core-check-v2"
     )
     assert manifest["graph_content_digest"] == acceptor.rg._json_digest(graph)
     assert manifest["shards"] == [{
@@ -147,6 +147,48 @@ def test_core_check_is_source_accepted_with_corrected_combined_rule():
     )["combined_roll"]
     assert "teamwork" not in combined_table
     assert "one investigator" in combined_table["source_note"]
+
+
+def test_core_check_executable_decisions_bind_semantic_refs_to_host_targets():
+    graph = _accepted("core-check", "rule-graph.json")
+    nodes = {row["node_id"]: row for row in graph["nodes"]}
+    relations = {row["relation_id"]: row for row in graph["relations"]}
+
+    combined = nodes["decision:coc7:core-check:combined-check"]
+    combined_slots = {
+        row["name"]: row["ownership"]
+        for row in combined["properties"]["implementation"]["payload_slots"]
+    }
+    assert combined["properties"]["implementation"]["kind"] == "check"
+    assert combined["properties"]["implementation"]["phase"] == "resolve"
+    assert combined_slots["combined_target_refs"] == "keeper-semantic"
+    assert combined_slots["combined_targets"] == "host-locked"
+    assert relations["relation:coc7:core-check:combined-requires-target-refs"] == {
+        **relations["relation:coc7:core-check:combined-requires-target-refs"],
+        "relation_kind": "requires-input",
+        "from_node_id": combined["node_id"],
+        "to_node_id": "input-slot:coc7:core-check:combined-target-refs",
+    }
+    assert relations["relation:coc7:core-check:combined-locks-targets"]["relation_kind"] == "locks-input"
+    assert relations["relation:coc7:core-check:combined-actor-bound"]["relation_kind"] == "available-when"
+
+    opposed = nodes["decision:coc7:core-check:opposed-check"]
+    opposed_slots = {
+        row["name"]: row["ownership"]
+        for row in opposed["properties"]["implementation"]["payload_slots"]
+    }
+    assert opposed["properties"]["implementation"]["kind"] == "opposed"
+    assert opposed["properties"]["implementation"]["phase"] == "resolve"
+    assert opposed_slots["actor_check_ref"] == "keeper-semantic"
+    assert opposed_slots["opponent_check_ref"] == "keeper-semantic"
+    assert opposed_slots["investigator_target"] == "host-locked"
+    assert opposed_slots["opponent_value"] == "host-locked"
+    assert relations["relation:coc7:core-check:opposed-locks-actor-target"]["relation_kind"] == "locks-input"
+    assert relations["relation:coc7:core-check:opposed-locks-opponent-value"]["relation_kind"] == "locks-input"
+
+    binding = nodes["rule:coc7:core-check:canonical-target-binding"]
+    assert "canonical" in binding["name"].casefold()
+    assert "numeric" in binding["name"].casefold()
 
 
 def test_core_check_source_acceptance_regenerates_byte_identically():

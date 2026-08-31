@@ -30,6 +30,13 @@ BUNDLE_NAME = "core-social-psychology-v2"
 SOURCE_ID = "pdf:coc7-keeper-rulebook-40th"
 PDF_SHA256 = "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
 REVIEWER_ROOT = "codex-rule-families-core-social-source-review-20260831"
+EXECUTABLE_REVIEWERS = {
+    "core-check": "codex-execgraph-core-push-social-review-20260831:core-check-v2",
+}
+
+
+def _reviewer_identity(family: str) -> str:
+    return EXECUTABLE_REVIEWERS.get(family, f"{REVIEWER_ROOT}:{family}")
 
 
 def _load_module(name: str, path: Path):
@@ -358,6 +365,26 @@ def core_check_candidate(packet: dict[str, Any]) -> dict[str, Any]:
             evidence=evidence,
         ),
         _node(
+            "rule:coc7:core-check:canonical-target-binding",
+            "rule",
+            "Semantic skill, characteristic, and opponent references select the check; numeric targets are host-locked from the canonical investigator sheet or authored opponent state before resolver execution",
+            properties={"family_id": "core-check"},
+            evidence=evidence,
+        ),
+        _node(
+            "condition:coc7:core-check:actor-bound",
+            "condition",
+            "The canonical acting investigator is bound before target hydration",
+            audience="host-internal",
+            visibility="keeper-only",
+            hard_gate=True,
+            properties={
+                "family_id": "core-check",
+                "expression": {"op": "exists", "path": "actor.id"},
+            },
+            evidence=evidence,
+        ),
+        _node(
             "decision:coc7:core-check:opposed-check",
             "decision",
             "Settle one non-combat opposed check with one roll for each side",
@@ -370,6 +397,8 @@ def core_check_candidate(packet: dict[str, Any]) -> dict[str, Any]:
                     "phase": "resolve",
                     "payload_constants": {},
                     "payload_slots": [
+                        {"name": "actor_check_ref", "ownership": "keeper-semantic"},
+                        {"name": "opponent_check_ref", "ownership": "keeper-semantic"},
                         {"name": "investigator_target", "ownership": "host-locked"},
                         {"name": "opponent_value", "ownership": "host-locked"},
                     ],
@@ -390,6 +419,7 @@ def core_check_candidate(packet: dict[str, Any]) -> dict[str, Any]:
                     "phase": "resolve",
                     "payload_constants": {},
                     "payload_slots": [
+                        {"name": "combined_target_refs", "ownership": "keeper-semantic"},
                         {"name": "combined_targets", "ownership": "host-locked"},
                         {"name": "combined_mode", "ownership": "keeper-semantic"},
                         {"name": "difficulty", "ownership": "keeper-semantic"},
@@ -398,6 +428,19 @@ def core_check_candidate(packet: dict[str, Any]) -> dict[str, Any]:
                         {"name": "investigator_id", "ownership": "host-locked"},
                     ],
                 },
+            },
+            evidence=evidence,
+        ),
+        _node(
+            "input-slot:coc7:core-check:combined-target-refs",
+            "input-slot",
+            "Semantic skill or characteristic references selected for the combined check",
+            visibility="keeper-only",
+            properties={
+                "family_id": "core-check",
+                "ownership": "keeper-semantic",
+                "value_type": "array",
+                "path": "combined_target_refs",
             },
             evidence=evidence,
         ),
@@ -429,6 +472,46 @@ def core_check_candidate(packet: dict[str, Any]) -> dict[str, Any]:
             evidence=evidence,
         ),
         _node(
+            "input-slot:coc7:core-check:actor-check-ref",
+            "input-slot",
+            "Semantic acting skill or characteristic reference",
+            visibility="keeper-only",
+            properties={
+                "family_id": "core-check",
+                "ownership": "keeper-semantic",
+                "value_type": "scalar",
+                "path": "actor_check_ref",
+            },
+            evidence=evidence,
+        ),
+        _node(
+            "input-slot:coc7:core-check:opponent-check-ref",
+            "input-slot",
+            "Semantic authored opponent skill or characteristic reference",
+            visibility="keeper-only",
+            properties={
+                "family_id": "core-check",
+                "ownership": "keeper-semantic",
+                "value_type": "scalar",
+                "path": "opponent_check_ref",
+            },
+            evidence=evidence,
+        ),
+        _node(
+            "input-slot:coc7:core-check:investigator-target",
+            "input-slot",
+            "Canonical numeric value hydrated for the acting check reference",
+            audience="host-internal",
+            visibility="keeper-only",
+            properties={
+                "family_id": "core-check",
+                "ownership": "host-locked",
+                "value_type": "scalar",
+                "path": "investigator_target",
+            },
+            evidence=evidence,
+        ),
+        _node(
             "input-slot:coc7:core-check:opponent-value",
             "input-slot",
             "Authoritative opposing skill or characteristic value",
@@ -451,12 +534,23 @@ def core_check_candidate(packet: dict[str, Any]) -> dict[str, Any]:
         _relation("relation:coc7:core-check:combined-part-of", "part-of", "rule:coc7:core-check:combined", family_id, evidence),
         _relation("relation:coc7:core-check:multiple-part-of", "part-of", "rule:coc7:core-check:multiple-investigators", family_id, evidence),
         _relation("relation:coc7:core-check:human-limits-part-of", "part-of", "rule:coc7:core-check:physical-human-limits", family_id, evidence),
+        _relation("relation:coc7:core-check:binding-part-of", "part-of", "rule:coc7:core-check:canonical-target-binding", family_id, evidence),
+        _relation("relation:coc7:core-check:binding-invokes-check", "invokes", "rule:coc7:core-check:canonical-target-binding", "capability:coc7:check", evidence),
+        _relation("relation:coc7:core-check:opposed-rule-invokes", "invokes", "rule:coc7:core-check:opposed", "capability:coc7:opposed", evidence),
+        _relation("relation:coc7:core-check:combined-rule-invokes", "invokes", "rule:coc7:core-check:combined", "capability:coc7:check", evidence),
         _relation("relation:coc7:core-check:ordinary-invokes", "invokes", "decision:coc7:core-check:ordinary-check", "capability:coc7:check", evidence),
         _relation("relation:coc7:core-check:opposed-invokes", "invokes", "decision:coc7:core-check:opposed-check", "capability:coc7:opposed", evidence),
         _relation("relation:coc7:core-check:combined-invokes", "invokes", "decision:coc7:core-check:combined-check", "capability:coc7:check", evidence),
-        _relation("relation:coc7:core-check:combined-requires-targets", "requires-input", "decision:coc7:core-check:combined-check", "input-slot:coc7:core-check:combined-targets", evidence),
+        _relation("relation:coc7:core-check:combined-requires-target-refs", "requires-input", "decision:coc7:core-check:combined-check", "input-slot:coc7:core-check:combined-target-refs", evidence),
+        _relation("relation:coc7:core-check:combined-locks-targets", "locks-input", "decision:coc7:core-check:combined-check", "input-slot:coc7:core-check:combined-targets", evidence),
         _relation("relation:coc7:core-check:combined-requires-mode", "requires-input", "decision:coc7:core-check:combined-check", "input-slot:coc7:core-check:combined-mode", evidence),
-        _relation("relation:coc7:core-check:opposed-requires-value", "requires-input", "decision:coc7:core-check:opposed-check", "input-slot:coc7:core-check:opponent-value", evidence),
+        _relation("relation:coc7:core-check:opposed-requires-actor-ref", "requires-input", "decision:coc7:core-check:opposed-check", "input-slot:coc7:core-check:actor-check-ref", evidence),
+        _relation("relation:coc7:core-check:opposed-requires-opponent-ref", "requires-input", "decision:coc7:core-check:opposed-check", "input-slot:coc7:core-check:opponent-check-ref", evidence),
+        _relation("relation:coc7:core-check:opposed-locks-actor-target", "locks-input", "decision:coc7:core-check:opposed-check", "input-slot:coc7:core-check:investigator-target", evidence),
+        _relation("relation:coc7:core-check:opposed-locks-opponent-value", "locks-input", "decision:coc7:core-check:opposed-check", "input-slot:coc7:core-check:opponent-value", evidence),
+        _relation("relation:coc7:core-check:ordinary-actor-bound", "available-when", "decision:coc7:core-check:ordinary-check", "condition:coc7:core-check:actor-bound", evidence),
+        _relation("relation:coc7:core-check:combined-actor-bound", "available-when", "decision:coc7:core-check:combined-check", "condition:coc7:core-check:actor-bound", evidence),
+        _relation("relation:coc7:core-check:opposed-actor-bound", "available-when", "decision:coc7:core-check:opposed-check", "condition:coc7:core-check:actor-bound", evidence),
         _relation("relation:coc7:core-check:combined-reads-combat", "reads-table", "decision:coc7:core-check:combined-check", "data-table:coc7:combat", evidence),
         _relation("relation:coc7:core-check:opposed-reads-combat", "reads-table", "decision:coc7:core-check:opposed-check", "data-table:coc7:combat", evidence),
     ])
@@ -715,7 +809,7 @@ def _provenance(packet: dict[str, Any], family: str, bundle: dict[str, Any]) -> 
     })
     pages = {int(row["pdf_index"]): row for row in bundle["pages"]}
     return {
-        "reviewer_identity": f"{REVIEWER_ROOT}:{family}",
+        "reviewer_identity": _reviewer_identity(family),
         "source_id": SOURCE_ID,
         "file_sha256": PDF_SHA256,
         "bundle_id": BUNDLE_NAME,
@@ -754,7 +848,7 @@ def accept_family(
         "bundle_sha256": bundle["bundle_sha256"],
         "file_sha256": PDF_SHA256,
     }]
-    manifest["reviewer_identity"] = f"{REVIEWER_ROOT}:{family}"
+    manifest["reviewer_identity"] = _reviewer_identity(family)
     manifest["review_status"] = "accepted"
     manifest["findings"] = [{
         "code": "independent_source_review",
