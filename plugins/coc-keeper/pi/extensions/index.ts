@@ -4358,9 +4358,22 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
     >;
   };
+  type NpcInteractionBindingFacts = StructuredBindingScope & {
+    root: string;
+    campaign: string;
+    sourceRevision: string;
+    sourceDigest: string;
+    candidates: Array<{
+      investigator: string;
+      npcId: string;
+      factRefs: string[];
+      firstImpressionRef?: string;
+    }>;
+  };
   let currentSceneBindingFacts: SceneBindingFacts | null = null;
   let retainedSceneAffordanceOperations: string[] = [];
   let currentCombatBindingFacts: CombatBindingFacts | null = null;
+  let currentNpcInteractionBindingFacts: NpcInteractionBindingFacts | null = null;
   let lastHealingCardProjection: {
     playerTurnEpoch: number;
     projection: JsonObject;
@@ -4388,6 +4401,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     retainedSceneAffordanceOperations = [];
     for (const operation of [
       "state.move_scene", "state.advance_time", "combat.resolve",
+      "rules.social_adjudicate", "rules.psychology_observe",
     ]) {
       revokedSceneBindingOperations.add(operation);
       retainedTypedBindings.delete(operation);
@@ -4401,6 +4415,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     retainedSceneAffordanceOperations = [];
     for (const operation of [
       "state.move_scene", "state.advance_time", "combat.resolve",
+      "rules.social_adjudicate", "rules.psychology_observe",
     ]) {
       revokedSceneBindingOperations.add(operation);
       retainedTypedBindings.delete(operation);
@@ -4425,6 +4440,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     // a redundant scene.context call.
     clearTurnEntityFacts();
     currentSceneBindingFacts = null;
+    currentNpcInteractionBindingFacts = null;
     revokedSceneBindingOperations.clear();
     for (const operation of [
       "state.journal",
@@ -4435,6 +4451,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       "combat.resolve",
       "evidence.table_opening",
       "state.record_npc_engagement",
+      "rules.social_adjudicate",
+      "rules.psychology_observe",
     ]) clearTypedBinding(operation);
   };
   const armTypedBinding = (
@@ -6075,6 +6093,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     if (operation === "npc.query") {
       armNpcEngagementBindingFromQuery(campaignId, params, data);
+      observeNpcInteractionBindingsFromQuery(campaignId, params, envelope);
       return;
     }
     if (operation === "state.record_npc_engagement") {
@@ -6084,6 +6103,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (operation === "scene.context") {
       armStructuredSceneBindings(campaignId, params, envelope);
       armNpcReactionBindingFromScene(campaignId, params, envelope);
+      rearmSocialPsychologyBindings();
       return;
     }
     if (operation === "combat.context") {
@@ -6092,20 +6112,26 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
     if (operation === "state.move_scene") {
       currentSceneBindingFacts = null;
+      currentNpcInteractionBindingFacts = null;
       lastHealingCardProjection = null;
       retainedSceneAffordanceOperations = [];
       currentCombatBindingFacts = null;
       clearTypedBinding("state.move_scene");
       clearTypedBinding("state.advance_time");
       clearTypedBinding("combat.resolve");
+      clearTypedBinding("rules.social_adjudicate");
+      clearTypedBinding("rules.psychology_observe");
       applyKpActiveTools();
       return;
     }
     if (operation === "state.advance_time") {
       currentSceneBindingFacts = null;
+      currentNpcInteractionBindingFacts = null;
       lastHealingCardProjection = null;
       clearTypedBinding("state.move_scene");
       clearTypedBinding("state.advance_time");
+      clearTypedBinding("rules.social_adjudicate");
+      clearTypedBinding("rules.psychology_observe");
       applyKpActiveTools();
       return;
     }
@@ -6285,6 +6311,179 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ? cache.revision.trim()
       : digest;
     return digest && revision ? { revision, digest } : null;
+  };
+  const rearmSocialPsychologyBindings = (): void => {
+    const scene = currentSceneBindingFacts;
+    const query = currentNpcInteractionBindingFacts;
+    const clear = (): void => {
+      clearTypedBinding("rules.social_adjudicate");
+      clearTypedBinding("rules.psychology_observe");
+    };
+    if (
+      scene === null
+      || query === null
+      || scene.campaign !== query.campaign
+      || !bindingScopeMatches(scene)
+      || !bindingScopeMatches(query)
+    ) {
+      clear();
+      return;
+    }
+    const currentNpcIds = new Set(scene.npcIds);
+    const candidates = query.candidates.filter((candidate) => (
+      currentNpcIds.has(candidate.npcId)
+    ));
+    if (candidates.length === 0) {
+      clear();
+      return;
+    }
+    const card = (
+      operation: "rules.social_adjudicate" | "rules.psychology_observe",
+      currentScene: SceneBindingFacts,
+      currentQuery: NpcInteractionBindingFacts,
+    ): TypedToolBindingCard => {
+      const rows = currentQuery.candidates
+        .filter((candidate) => new Set(currentScene.npcIds).has(candidate.npcId))
+        .filter((candidate) => (
+          operation === "rules.social_adjudicate" || candidate.factRefs.length > 0
+        ))
+        .map((candidate) => ({
+          candidate_id: `${operation === "rules.social_adjudicate"
+            ? "social-target"
+            : "psychology-target"}:${candidate.npcId}`,
+          investigator: candidate.investigator,
+          npc_id: candidate.npcId,
+          conversation_window_id: (
+            `conversation:${currentScene.activeSceneId}:${candidate.investigator}:${candidate.npcId}`
+          ),
+          ...(candidate.firstImpressionRef === undefined
+            ? {}
+            : { first_impression_ref: candidate.firstImpressionRef }),
+          validated_fact_refs: structuredClone(candidate.factRefs),
+          ...(operation === "rules.psychology_observe"
+            ? { observation_revision: 0, observer_scope: candidate.investigator }
+            : {}),
+        }));
+      const base = {
+        schema_version: 1 as const,
+        operation,
+        binding_revision: (
+          `${operation}:${currentScene.activeSceneId}:player-epoch-${currentScene.playerTurnEpoch}`
+          + `:${currentScene.sourceRevision}:${currentScene.sourceDigest}`
+          + `:${currentQuery.sourceRevision}:${currentQuery.sourceDigest}`
+        ),
+        root: currentScene.root,
+        campaign: currentScene.campaign,
+        decision_id: semanticDecisionId(operation),
+        candidates: rows,
+      };
+      return operation === "rules.psychology_observe"
+        ? {
+            ...base,
+            operation,
+            realize_decision_id: semanticDecisionId(
+              operation,
+              canonicalProgress.canonicalProgressRevision + 2,
+            ),
+          }
+        : base;
+    };
+    const arm = (operation: "rules.social_adjudicate" | "rules.psychology_observe") => {
+      const initial = card(operation, scene, query);
+      if (initial.candidates.length === 0) {
+        clearTypedBinding(operation);
+        return;
+      }
+      armTypedBinding(initial, () => {
+        const currentScene = currentSceneBindingFacts;
+        const currentQuery = currentNpcInteractionBindingFacts;
+        if (
+          currentScene === null
+          || currentQuery === null
+          || currentScene.campaign !== currentQuery.campaign
+        ) return null;
+        return card(
+          operation,
+          {
+            ...currentScene,
+            sessionEpoch,
+            playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+            stage: canonicalProgress.stage,
+            phase: resolveAclPhase(currentScene.campaign),
+          },
+          {
+            ...currentQuery,
+            sessionEpoch,
+            playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+            stage: canonicalProgress.stage,
+            phase: resolveAclPhase(currentQuery.campaign),
+          },
+        );
+      });
+      revokedSceneBindingOperations.delete(operation);
+    };
+    arm("rules.social_adjudicate");
+    arm("rules.psychology_observe");
+  };
+  const observeNpcInteractionBindingsFromQuery = (
+    campaignId: string,
+    params: JsonObject,
+    envelope: JsonObject,
+  ): void => {
+    const data = objectOrNull(envelope.data);
+    const identity = structuredReceiptIdentity(envelope);
+    const scene = currentSceneBindingFacts;
+    if (!campaignId || data === null || identity === null) {
+      currentNpcInteractionBindingFacts = null;
+      rearmSocialPsychologyBindings();
+      return;
+    }
+    const party = semanticRegistry.currentParty(registryScope(campaignId));
+    const currentInvestigator = party.live && party.state === "single"
+      ? party.investigatorId
+      : "";
+    const candidates = (Array.isArray(data.npcs) ? data.npcs : []).flatMap((entry) => {
+      const row = objectOrNull(entry);
+      const readiness = objectOrNull(row?.first_contact_readiness);
+      const impression = objectOrNull(readiness?.requested_pair_first_impression);
+      const npcId = typeof row?.npc_id === "string" ? row.npc_id.trim() : "";
+      const observedInvestigator = typeof impression?.investigator_id === "string"
+        ? impression.investigator_id.trim()
+        : "";
+      const investigator = observedInvestigator || currentInvestigator;
+      if (!npcId || !investigator) return [];
+      const factRefs = (Array.isArray(row?.facts) ? row.facts : []).flatMap((factValue) => {
+        const fact = objectOrNull(factValue);
+        const factId = typeof fact?.fact_id === "string" ? fact.fact_id.trim() : "";
+        return factId ? [`npc_fact:${npcId}/${factId}`] : [];
+      });
+      const firstImpressionRef = (
+        impression?.status === "settled"
+        && impression.receipt_exists === true
+        && typeof impression.first_impression_ref === "string"
+      ) ? impression.first_impression_ref.trim() : "";
+      return [{
+        investigator,
+        npcId,
+        factRefs: [...new Set(factRefs)],
+        ...(firstImpressionRef ? { firstImpressionRef } : {}),
+      }];
+    });
+    const root = typeof params.root === "string" && params.root
+      ? params.root
+      : scene?.root ?? currentWorkspaceRoot;
+    currentNpcInteractionBindingFacts = root ? {
+      sessionEpoch,
+      playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+      stage: canonicalProgress.stage,
+      phase: resolveAclPhase(campaignId),
+      root,
+      campaign: campaignId,
+      sourceRevision: identity.revision,
+      sourceDigest: identity.digest,
+      candidates,
+    } : null;
+    rearmSocialPsychologyBindings();
   };
   const sceneMoveCardFromFacts = (
     facts: SceneBindingFacts,
@@ -9859,6 +10058,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         if (
           typedDefinition?.operation === "state.record_npc_engagement"
           || typedDefinition?.operation === "npc.reaction"
+          || typedDefinition?.operation === "rules.social_adjudicate"
+          || typedDefinition?.operation === "rules.psychology_observe"
         ) {
           semanticArgs = { ...restoredArgs };
           for (const field of HOST_OWNED_FIELDS[typedDefinition.operation]) {
