@@ -155,7 +155,7 @@ def test_chase_source_review_is_complete_and_records_runtime_mismatches():
     provenance = _read(root / "provenance" / "chase.provenance.json")
     shard = _read(root / "accepted" / "chase.accepted-shard.json")
     assert candidate["coverage"] == {"chase": "accepted"}
-    assert provenance["reviewer_identity"] == "codex-reviewer-chase-applicability-20260831-v2"
+    assert provenance["reviewer_identity"] == "codex-reviewer-chase-generic-start-20260831-v3"
     assert provenance["review_status"] == "accepted"
     assert provenance["unresolved_applicable_rules"] == []
     assert shard["receipt"]["shard_sha256"] == provenance["accepted_shard_digest"]
@@ -192,7 +192,13 @@ def test_chase_source_review_is_complete_and_records_runtime_mismatches():
     nodes = {node["node_id"]: node for node in candidate["nodes"]}
     relations = candidate["relations"]
     expected_conditions = {
-        "start": {"op": "eq", "path": "chase.session.inactive", "value": True},
+        "start": {
+            "op": "all",
+            "of": [
+                {"op": "eq", "path": "chase.session.inactive", "value": True},
+                {"op": "eq", "path": "chase.start.ready", "value": True},
+            ],
+        },
         **{
             token: {
                 "op": "all",
@@ -220,7 +226,20 @@ def test_chase_source_review_is_complete_and_records_runtime_mismatches():
         row["name"]: row["ownership"]
         for row in decisions["decision:coc7:chase:start"]["properties"]["implementation"]["payload_slots"]
     }
-    assert start_slots["chase_candidate_ref"] == "keeper-semantic"
+    assert start_slots == {
+        "pursuer_refs": "keeper-semantic",
+        "quarry_refs": "keeper-semantic",
+        "location_refs": "keeper-semantic",
+        "chase_id": "host-locked",
+        "participants": "host-locked",
+        "locations": "host-locked",
+        "decision_id": "host-locked",
+    }
+    for field in ("pursuer-refs", "quarry-refs", "location-refs"):
+        assert nodes[f"input-slot:coc7:chase:{field}"]["properties"]["value_type"] == (
+            "semantic-ref-array"
+        )
+    assert "input-slot:coc7:chase:chase-candidate-ref" not in nodes
     assert nodes["input-slot:coc7:chase:method"]["properties"]["value_type"] == "enum"
     assert "negotiate|break" in nodes["input-slot:coc7:chase:method"]["name"]
     assert nodes["input-slot:coc7:chase:outcome"]["properties"]["value_type"] == "enum"
@@ -321,7 +340,8 @@ def test_magic_registered_applicability_paths_are_closed():
 def test_chase_registered_applicability_paths_are_closed():
     registered = set(_read(CONTRACT)["registered_condition_paths"])
     assert {
-        "chase.session.active", "chase.session.inactive", "chase.pending.kind",
+        "chase.session.active", "chase.session.inactive", "chase.start.ready",
+        "chase.pending.kind",
         "chase.conflict.receipt-ready",
     } <= registered
 

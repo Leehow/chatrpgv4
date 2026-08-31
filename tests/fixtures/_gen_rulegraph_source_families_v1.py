@@ -58,7 +58,7 @@ SPECS: dict[str, dict[str, Any]] = {
         "section": "section-chase-complete-source",
         "bundles": ["chase-rules-v1"],
         "coverage": "accepted",
-        "reviewer": "codex-reviewer-chase-applicability-20260831-v2",
+        "reviewer": "codex-reviewer-chase-generic-start-20260831-v3",
         "tables": ["chase.json"],
         "capabilities": ["chase.context", "chase.execute"],
         "rules": [
@@ -137,7 +137,13 @@ EXECUTABLE_SPECS: dict[str, list[dict[str, Any]]] = {
             "command_kind": command_kind,
             "slots": slots,
             "condition": (
-                {"op": "eq", "path": "chase.session.inactive", "value": True}
+                {
+                    "op": "all",
+                    "of": [
+                        {"op": "eq", "path": "chase.session.inactive", "value": True},
+                        {"op": "eq", "path": "chase.start.ready", "value": True},
+                    ],
+                }
                 if token == "start"
                 else {
                     "op": "all",
@@ -155,7 +161,9 @@ EXECUTABLE_SPECS: dict[str, list[dict[str, Any]]] = {
             "effects": effects,
         }
         for token, command_kind, slots, effects in (
-            ("start", "chase_start", [("chase_candidate_ref", "keeper-semantic"),
+            ("start", "chase_start", [("pursuer_refs", "keeper-semantic"),
+                       ("quarry_refs", "keeper-semantic"),
+                       ("location_refs", "keeper-semantic"),
                        ("chase_id", "host-locked"),
                        ("participants", "host-locked"), ("locations", "host-locked"),
                        ("decision_id", "host-locked")], [("chase-started", None)]),
@@ -349,6 +357,11 @@ def _add_executable_graph(
             )
             if slot is None:
                 value_type = (
+                    "semantic-ref-array"
+                    if family == "chase" and name in {
+                        "pursuer_refs", "quarry_refs", "location_refs",
+                    }
+                    else
                     "enum"
                     if (family == "chase" and name in {"method", "outcome"})
                     or (family == "magic" and name == "source")
@@ -359,6 +372,11 @@ def _add_executable_graph(
                     else "canonical"
                 )
                 slot_name = (
+                    f"Canonical semantic reference array {name}"
+                    if family == "chase" and name in {
+                        "pursuer_refs", "quarry_refs", "location_refs",
+                    }
+                    else
                     "Typed operation input method enum negotiate|break"
                     if family == "chase" and name == "method"
                     else "Typed operation input outcome enum escaped|captured|concluded"

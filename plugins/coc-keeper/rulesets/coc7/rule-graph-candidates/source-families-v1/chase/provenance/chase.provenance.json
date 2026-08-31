@@ -3,7 +3,7 @@
   "schema_version": 1,
   "family_id": "chase",
   "section_id": "section-chase-complete-source",
-  "reviewer_identity": "codex-reviewer-chase-applicability-20260831-v2",
+  "reviewer_identity": "codex-reviewer-chase-generic-start-20260831-v3",
   "review_status": "accepted",
   "coverage": {
     "chase": "accepted"
@@ -153,5 +153,5 @@
       ]
     }
   ],
-  "accepted_shard_digest": "a6d49bdfec2379067eb4128821e2a19fc1898e5dba59b51b408fc2609c4dafcd"
+  "accepted_shard_digest": "ea4f003bbc53ecc06450a626b45a6986f01166938aba27e3e9bcfc24fa3d7f00"
 }

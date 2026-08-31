@@ -132,6 +132,7 @@
     "clock.dying",
     "chase.session.active",
     "chase.session.inactive",
+    "chase.start.ready",
     "chase.pending.kind",
     "chase.conflict.receipt-ready",
     "magic.spell.known",
