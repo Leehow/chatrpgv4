@@ -72,23 +72,22 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "chase.context": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "subsystem",
+    "kp_surface": "none",
     "phases": [
-      "live_turn",
-      "pending_finalization"
+      "live_turn"
     ]
   },
   "chase.execute": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "subsystem",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -141,11 +140,11 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "development.settle": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "none",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -237,22 +236,22 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "magic.cast": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "exact",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
   },
   "magic.learn": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "exact",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -1248,11 +1247,11 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "state.end_session": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "state",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -1825,15 +1824,13 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "npc.reaction"
   ],
   "rules": [
-    "development.settle",
     "rules.build_scale",
     "rules.cash_assets",
     "rules.catalog_search",
     "rules.damage",
     "rules.roll_dice",
     "rules.settle",
-    "rules.skill_describe",
-    "state.end_session"
+    "rules.skill_describe"
   ],
   "setup": [
     "progressive.follow_mentions",
@@ -1899,8 +1896,6 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "timeline.transfer"
   ],
   "subsystem": [
-    "chase.context",
-    "chase.execute",
     "mechanics.ensure"
   ],
   "turn": [

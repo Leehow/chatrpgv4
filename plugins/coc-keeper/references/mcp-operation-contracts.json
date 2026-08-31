@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:e9122475b5e1e0f7bd7fa238cefbe71e88662f49f013e56ce79014c32577f6be",
+  "content_sha256": "sha256:97180e8c5e8a5968dc1daa37434444eb27df91a4a75cf80dcfd2fbee9130f5fe",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -199,13 +199,12 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "subsystem",
+        "kp_surface": "none",
         "phases": [
-          "live_turn",
-          "pending_finalization"
+          "live_turn"
         ]
       },
       "summary": "Read the current canonical ChaseSession snapshot and unresolved subsystem choices."
@@ -250,10 +249,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "surface",
-        "kp_surface": "subsystem",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -537,10 +536,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "none",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -1019,10 +1018,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "exact",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -1078,10 +1077,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "rules",
         "discovery": "exact",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
@@ -3348,7 +3347,8 @@
               "combat",
               "sanity",
               "magic",
-              "development"
+              "development",
+              "chase"
             ],
             "type": "string"
           },
@@ -3366,6 +3366,11 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "semantic_inputs": {
+            "additionalProperties": true,
+            "description": "structured candidate semantics used to evaluate exact applicability",
+            "type": "object"
           }
         },
         "required": [
@@ -4313,7 +4318,13 @@
               "decision:coc7:magic:cast-spell",
               "decision:coc7:magic:learn-spell",
               "decision:coc7:development:end-session",
-              "decision:coc7:development:settle-ending"
+              "decision:coc7:development:settle-ending",
+              "decision:coc7:chase:start",
+              "decision:coc7:chase:move",
+              "decision:coc7:chase:hazard",
+              "decision:coc7:chase:barrier",
+              "decision:coc7:chase:conflict",
+              "decision:coc7:chase:end"
             ],
             "type": "string"
           },
@@ -4434,6 +4445,12 @@
               "kind": {
                 "type": "string"
               },
+              "location_refs": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
               "loss_failure": {
                 "type": "string"
               },
@@ -4442,6 +4459,13 @@
               },
               "luck_spend_max": {
                 "type": "integer"
+              },
+              "method": {
+                "enum": [
+                  "negotiate",
+                  "break"
+                ],
+                "type": "string"
               },
               "method_changed": {
                 "type": "string"
@@ -4475,8 +4499,20 @@
               "poor_environment": {
                 "type": "boolean"
               },
+              "pursuer_refs": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
               "pushed": {
                 "type": "boolean"
+              },
+              "quarry_refs": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
               },
               "question": {
                 "type": "string"
@@ -4491,6 +4527,9 @@
                 "type": "string"
               },
               "source": {
+                "type": "string"
+              },
+              "source_ref": {
                 "type": "string"
               },
               "spell": {
@@ -7060,10 +7099,10 @@
       "needs_campaign": true,
       "policy": {
         "advisory": false,
-        "audience": "keeper",
+        "audience": "host",
         "contract": "state",
         "discovery": "surface",
-        "kp_surface": "rules",
+        "kp_surface": "none",
         "phases": [
           "live_turn"
         ]
