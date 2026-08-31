@@ -29,7 +29,21 @@ progress is checked after each month. The source-review follow-up changed only
 that cadence to one 30-day elapsed-time treatment month, preserving the
 existing trigger handler, safety policy, and idempotent scheduling path.
 
+The executable graph now names nine exact phases over existing operations and
+subsystem functions: context, SAN check, bout tick/end, reality check,
+temporary recovery, monthly treatment, current-SAN gain, and advisory insane
+insight. SAN check semantic inputs carry the source/loss expressions and the
+Keeper's involuntary-action realization; canonical actor/SAN/trigger state is
+host-locked. Bout decisions consume only the frozen pending-choice/command and
+revision. Reality, recovery, treatment, and gain decisions similarly bind the
+existing SanitySession/time receipts rather than copying their algorithms.
+
+The check and bout decisions issue the existing Keeper bout choice and encode
+check-to-bout, repeated tick, and tick-to-end continuations. Every accepted
+Sanity rule invokes an exact existing capability; the generic `sanity_runtime`
+placeholder and process-local continuity are absent.
+
 Accepted shard: `shard:coc7:sanity:section-sanity-complete-source`.
 
 Accepted shard digest:
-`bfa283ef774a31892f81c0a5da131b8ae0bb3193367c29151cac09c0e83a41ba`.
+`d8c147e31f10d438673e5b25df41f5b92bec053a0a857cbcbc3254fedf531604`.

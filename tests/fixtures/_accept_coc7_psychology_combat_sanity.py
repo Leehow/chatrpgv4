@@ -591,6 +591,241 @@ def _combat_executable(
     return nodes, relations
 
 
+def _sanity_executable(
+    groups: Mapping[str, list[str]], all_spans: list[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    family = "sanity"
+    subsystem = "subsystem:coc7:sanity-session"
+    capability_specs = {
+        "context": ("sanity.context", "subsystem"),
+        "check": ("rules.sanity_check", "subsystem"),
+        "execute": ("sanity.execute", "subsystem"),
+        "reality-check": ("sanity.session.reality_check", "subsystem"),
+        "temporary-recovery": ("time.recover_temporary_insanity", "subsystem"),
+        "treatment": ("time.apply_psychoanalysis_treatment", "subsystem"),
+        "gain-current": ("sanity.session.gain_san", "subsystem"),
+    }
+    cap_ref = {
+        slug: f"capability:coc7:sanity-{slug}" for slug in capability_specs
+    }
+    nodes: list[dict[str, Any]] = [
+        node(
+            family, subsystem, "subsystem", "Existing SanitySession subsystem",
+            all_spans, properties={"subsystem_kind": "sanity"},
+        ),
+    ]
+    for slug, (capability, adapter) in capability_specs.items():
+        nodes.append(node(
+            family, cap_ref[slug], "capability",
+            f"Existing subsystem capability {capability}", all_spans,
+            properties={
+                "family_id": family,
+                "resolver_capability": capability,
+                "adapter": adapter,
+            },
+        ))
+    decisions = {
+        "context": ("context", "sanity.context", "context", [], "keeper-only"),
+        "check": ("check", "rules.sanity_check", "settle", [
+            ("source", "keeper-semantic"),
+            ("loss_success", "optional-semantic"),
+            ("loss_failure", "keeper-semantic"),
+            ("trigger_ref", "optional-semantic"),
+            ("involuntary_kind", "keeper-semantic"),
+            ("involuntary_summary", "keeper-semantic"),
+            ("investigator_id", "host-locked"),
+            ("trigger_id", "host-locked"),
+            ("san_before", "host-locked"),
+            ("san_max", "host-locked"),
+        ], "public"),
+        "bout-tick": ("execute", "sanity.execute", "bout-tick", [
+            ("investigator_id", "host-locked"),
+            ("pending_choice_ref", "host-locked"),
+            ("origin_command_id", "host-locked"),
+            ("bout_revision", "host-locked"),
+        ], "public"),
+        "bout-end": ("execute", "sanity.execute", "bout-end", [
+            ("investigator_id", "host-locked"),
+            ("pending_choice_ref", "host-locked"),
+            ("origin_command_id", "host-locked"),
+            ("bout_revision", "host-locked"),
+        ], "public"),
+        "reality-check": ("reality-check", "sanity.session.reality_check", "resolve", [
+            ("request_reality_check", "player-source"),
+            ("investigator_id", "host-locked"),
+            ("active_delusion_ref", "host-locked"),
+            ("san_before", "host-locked"),
+        ], "public"),
+        "recover-temporary": ("temporary-recovery", "time.recover_temporary_insanity", "due-trigger", [
+            ("investigator_id", "host-locked"),
+            ("recovery_trigger_ref", "host-locked"),
+            ("due_elapsed_minutes", "host-locked"),
+            ("safe_place", "host-locked"),
+        ], "public"),
+        "apply-treatment": ("treatment", "time.apply_psychoanalysis_treatment", "due-trigger", [
+            ("investigator_id", "host-locked"),
+            ("treatment_trigger_ref", "host-locked"),
+            ("due_elapsed_minutes", "host-locked"),
+            ("safe_place", "host-locked"),
+            ("psychoanalysis_skill", "host-locked"),
+        ], "public"),
+        "gain-current-san": ("gain-current", "sanity.session.gain_san", "resolve", [
+            ("gain_source", "keeper-semantic"),
+            ("investigator_id", "host-locked"),
+            ("san_gain", "host-locked"),
+            ("san_before", "host-locked"),
+            ("san_max", "host-locked"),
+        ], "public"),
+        "insane-insight": ("context", "sanity.context", "advise", [
+            ("insight", "keeper-semantic"),
+            ("investigator_id", "host-locked"),
+            ("insanity_state", "host-locked"),
+        ], "keeper-only"),
+    }
+    relations: list[dict[str, Any]] = []
+    slot_nodes: dict[str, dict[str, Any]] = {}
+    for slug, (capability_slug, kind, phase, slots, visibility) in decisions.items():
+        decision_ref = f"decision:coc7:sanity:{slug}"
+        nodes.append(node(
+            family, decision_ref, "decision",
+            f"Sanity {slug} through an existing resolver/subsystem phase",
+            all_spans, authority="mixed", audience="keeper", visibility=visibility,
+            properties={
+                "family_id": family,
+                "implementation": {
+                    "adapter": "subsystem",
+                    "kind": kind,
+                    "phase": phase,
+                    "payload_constants": {},
+                    "payload_slots": [
+                        {"name": name, "ownership": ownership}
+                        for name, ownership in slots
+                    ],
+                },
+            },
+        ))
+        relations.append(relation(
+            family, f"{slug}-invokes", "invokes", decision_ref,
+            cap_ref[capability_slug], all_spans,
+        ))
+        for name, ownership in slots:
+            suffix = name.replace("_", "-")
+            slot_id = f"input-slot:coc7:sanity:{suffix}"
+            if slot_id not in slot_nodes:
+                value_type = (
+                    "int" if name in {
+                        "san_before", "san_max", "san_gain", "bout_revision",
+                        "due_elapsed_minutes", "psychoanalysis_skill",
+                    }
+                    else "boolean" if name in {"request_reality_check", "safe_place"}
+                    else "string"
+                )
+                slot_nodes[slot_id] = node(
+                    family, slot_id, "input-slot", suffix.replace("-", " "),
+                    all_spans, properties={
+                        "family_id": family,
+                        "ownership": ownership,
+                        "value_type": value_type,
+                        "path": "receipt.last_outcome" if ownership == "host-locked" else "intent.method",
+                    },
+                )
+            relations.append(relation(
+                family, f"{slug}-{suffix}",
+                "locks-input" if ownership == "host-locked" else "requires-input",
+                decision_ref, slot_id, all_spans,
+            ))
+    nodes.extend(slot_nodes.values())
+    for slug in capability_specs:
+        relations.append(relation(
+            family, f"{slug}-implemented-by-session", "implemented-by",
+            cap_ref[slug], subsystem, all_spans,
+        ))
+    pending = "pending-choice:coc7:sanity:bout-keeper-action"
+    nodes.append(node(
+        family, pending, "pending-choice", "Keeper advances or ends the active bout",
+        sorted(set(groups["bout-real"] + groups["bout-summary"])),
+        properties={"family_id": family},
+    ))
+    relations.extend([
+        relation(family, "check-offers-bout-choice", "offers-choice",
+                 "decision:coc7:sanity:check", pending, groups["temporary"]),
+        relation(family, "check-continues-bout-tick", "continues-as",
+                 "decision:coc7:sanity:check", "decision:coc7:sanity:bout-tick", groups["bout-real"]),
+        relation(family, "bout-tick-offers-choice", "offers-choice",
+                 "decision:coc7:sanity:bout-tick", pending, groups["bout-real"]),
+        relation(family, "bout-tick-continues-self", "continues-as",
+                 "decision:coc7:sanity:bout-tick", "decision:coc7:sanity:bout-tick", groups["bout-real"]),
+        relation(family, "bout-tick-continues-end", "continues-as",
+                 "decision:coc7:sanity:bout-tick", "decision:coc7:sanity:bout-end", groups["bout-real"]),
+        relation(family, "reality-failure-continues-bout", "continues-as",
+                 "decision:coc7:sanity:reality-check", "decision:coc7:sanity:bout-tick", groups["reality"]),
+    ])
+    rule_capability = {
+        "san-roll": "check",
+        "failed-roll-involuntary-action": "check",
+        "fumble-maximum-loss": "check",
+        "max-san": "check",
+        "temporary-threshold-and-int": "check",
+        "indefinite-daily-fraction": "check",
+        "permanent-at-zero": "check",
+        "bout-real-time": "execute",
+        "bout-summary": "execute",
+        "underlying-repeat-bout": "execute",
+        "phobia-and-mania": "execute",
+        "reality-check": "reality-check",
+        "mythos-insanity-gain": "check",
+        "temporary-recovery": "temporary-recovery",
+        "indefinite-treatment": "treatment",
+        "sanity-increase": "gain-current",
+        "getting-used-to-awfulness": "check",
+        "optional-insane-insight": "context",
+        "optional-mythos-hardened": "check",
+        "optional-multiple-san-rolls": "check",
+    }
+    rule_decisions = {
+        "san-roll": ("check",),
+        "failed-roll-involuntary-action": ("check",),
+        "fumble-maximum-loss": ("check",),
+        "max-san": ("check", "gain-current-san"),
+        "temporary-threshold-and-int": ("check",),
+        "indefinite-daily-fraction": ("check",),
+        "permanent-at-zero": ("check",),
+        "bout-real-time": ("bout-tick", "bout-end"),
+        "bout-summary": ("bout-tick", "bout-end"),
+        "underlying-repeat-bout": ("check", "bout-tick"),
+        "phobia-and-mania": ("bout-tick", "bout-end"),
+        "reality-check": ("reality-check",),
+        "mythos-insanity-gain": ("check",),
+        "temporary-recovery": ("recover-temporary",),
+        "indefinite-treatment": ("apply-treatment",),
+        "sanity-increase": ("gain-current-san",),
+        "getting-used-to-awfulness": ("check",),
+        "optional-insane-insight": ("insane-insight",),
+        "optional-mythos-hardened": ("check",),
+        "optional-multiple-san-rolls": ("check",),
+    }
+    rule_groups = {slug: group for slug, _name, group in RULES[family]}
+    for slug, capability_slug in rule_capability.items():
+        rule_id = f"rule:coc7:sanity:{slug}"
+        group = rule_groups[slug]
+        relations.append(relation(
+            family, f"{slug}-invokes-capability", "invokes", rule_id,
+            cap_ref[capability_slug], groups[group],
+        ))
+        for decision_slug in rule_decisions[slug]:
+            relations.append(relation(
+                family, f"{slug}-applies-{decision_slug}", "applies-to",
+                rule_id, f"decision:coc7:sanity:{decision_slug}", groups[group],
+            ))
+    relations.extend([
+        relation(family, "bout-reads-phobias", "reads-table", cap_ref["execute"],
+                 "data-table:coc7:phobias", groups["phobia-mania"]),
+        relation(family, "bout-reads-manias", "reads-table", cap_ref["execute"],
+                 "data-table:coc7:manias", groups["phobia-mania"]),
+    ])
+    return nodes, relations
+
+
 def build_candidate(packet: Mapping[str, Any], family: str) -> dict[str, Any]:
     groups = {
         key: spans_for(packet, phrases)
@@ -638,6 +873,13 @@ def build_candidate(packet: Mapping[str, Any], family: str) -> dict[str, Any]:
         nodes.extend(executable_nodes)
         relations.extend(executable_relations)
         capability_id = "capability:coc7:combat-resolve"
+    elif family == "sanity":
+        executable_nodes, executable_relations = _sanity_executable(
+            groups, all_spans,
+        )
+        nodes.extend(executable_nodes)
+        relations.extend(executable_relations)
+        capability_id = "capability:coc7:sanity-check"
     else:
         subsystem_id = f"subsystem:coc7:{family}"
         capability_id = f"capability:coc7:{family}-runtime"
@@ -762,7 +1004,7 @@ def build_family(bundle_root: Path, family: str) -> dict[str, Any]:
         "applicability_ledger": ledger,
         "runtime_integration_blockers": runtime_blockers(family),
     }
-    if family in {"psychology", "combat"}:
+    if family in {"psychology", "combat", "sanity"}:
         review["executable_decisions"] = sorted(
             node["node_id"] for node in candidate["nodes"]
             if node["node_kind"] == "decision"

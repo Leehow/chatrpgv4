@@ -268,7 +268,7 @@ def test_sanity_is_source_accepted_with_one_precise_runtime_blocker():
     assert review["unresolved_applicable_rules"] == []
     assert review["accepted_shard_digest"] == shard["receipt"]["shard_sha256"]
     assert review["accepted_shard_digest"] == (
-        "bfa283ef774a31892f81c0a5da131b8ae0bb3193367c29151cac09c0e83a41ba"
+        "d8c147e31f10d438673e5b25df41f5b92bec053a0a857cbcbc3254fedf531604"
     )
     assert review["reviewer_identity"] == (
         "codex-worker-sanity-source-review-20260831"
@@ -292,6 +292,102 @@ def test_sanity_is_source_accepted_with_one_precise_runtime_blocker():
                 "sanity.json", "phobias.json", "manias.json",
             }
     assert review["runtime_integration_blockers"] == []
+    decisions = {
+        node["node_id"]: node for node in candidate["nodes"]
+        if node["node_kind"] == "decision"
+    }
+    assert set(decisions) == {
+        f"decision:coc7:sanity:{suffix}" for suffix in (
+            "context", "check", "bout-tick", "bout-end", "reality-check",
+            "recover-temporary", "apply-treatment", "gain-current-san",
+            "insane-insight",
+        )
+    }
+    assert review["executable_decisions"] == sorted(decisions)
+    assert review["unresolved_executable_rules"] == []
+    capabilities = {
+        node["node_id"]: (
+            node["properties"]["resolver_capability"],
+            node["properties"]["adapter"],
+        )
+        for node in candidate["nodes"] if node["node_kind"] == "capability"
+    }
+    assert capabilities == {
+        "capability:coc7:sanity-context": ("sanity.context", "subsystem"),
+        "capability:coc7:sanity-check": ("rules.sanity_check", "subsystem"),
+        "capability:coc7:sanity-execute": ("sanity.execute", "subsystem"),
+        "capability:coc7:sanity-reality-check": (
+            "sanity.session.reality_check", "subsystem",
+        ),
+        "capability:coc7:sanity-temporary-recovery": (
+            "time.recover_temporary_insanity", "subsystem",
+        ),
+        "capability:coc7:sanity-treatment": (
+            "time.apply_psychoanalysis_treatment", "subsystem",
+        ),
+        "capability:coc7:sanity-gain-current": (
+            "sanity.session.gain_san", "subsystem",
+        ),
+    }
+    assert "sanity_runtime" not in json.dumps(candidate)
+    relations = candidate["relations"]
+    for decision_ref in decisions:
+        assert len([
+            row for row in relations
+            if row["from_node_id"] == decision_ref
+            and row["relation_kind"] == "invokes"
+        ]) == 1
+    assert all(
+        any(
+            row["from_node_id"] == rule_id and row["relation_kind"] == "invokes"
+            for row in relations
+        )
+        for rule_id in expected
+    )
+    assert any(
+        row["from_node_id"] == "decision:coc7:sanity:check"
+        and row["to_node_id"] == "pending-choice:coc7:sanity:bout-keeper-action"
+        and row["relation_kind"] == "offers-choice"
+        for row in relations
+    )
+    check_slots = {
+        row["name"]: row["ownership"] for row in decisions[
+            "decision:coc7:sanity:check"
+        ]["properties"]["implementation"]["payload_slots"]
+    }
+    for field in (
+        "source", "loss_failure", "involuntary_kind", "involuntary_summary",
+    ):
+        assert check_slots[field] == "keeper-semantic"
+    for field in (
+        "investigator_id", "trigger_id", "san_before", "san_max",
+    ):
+        assert check_slots[field] == "host-locked"
+    bout_slots = {
+        row["name"]: row["ownership"] for row in decisions[
+            "decision:coc7:sanity:bout-tick"
+        ]["properties"]["implementation"]["payload_slots"]
+    }
+    assert set(bout_slots.values()) == {"host-locked"}
+    reality_slots = {
+        row["name"]: row["ownership"] for row in decisions[
+            "decision:coc7:sanity:reality-check"
+        ]["properties"]["implementation"]["payload_slots"]
+    }
+    assert reality_slots["request_reality_check"] == "player-source"
+    assert reality_slots["active_delusion_ref"] == "host-locked"
+    treatment_slots = {
+        row["name"]: row["ownership"] for row in decisions[
+            "decision:coc7:sanity:apply-treatment"
+        ]["properties"]["implementation"]["payload_slots"]
+    }
+    assert set(treatment_slots.values()) == {"host-locked"}
+    assert any(
+        row["from_node_id"] == "decision:coc7:sanity:bout-tick"
+        and row["to_node_id"] == "decision:coc7:sanity:bout-end"
+        and row["relation_kind"] == "continues-as"
+        for row in relations
+    )
 
 
 def test_sanity_family_regenerates_deterministically_when_source_is_available():
