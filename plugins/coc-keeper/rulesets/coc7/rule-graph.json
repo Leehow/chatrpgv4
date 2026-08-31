@@ -547,6 +547,70 @@
       ]
     },
     {
+      "node_id": "effect:coc7:healing:first-aid-stabilization",
+      "node_kind": "effect",
+      "name": "First Aid restores one hit point or supplies the temporary hit point that stabilizes dying",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "effect_kind": "first-aid-hp-or-temporary-stabilization",
+        "resource_key": "hp"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
+      "node_id": "effect:coc7:healing:medicine-stabilization",
+      "node_kind": "effect",
+      "name": "Medicine restores hit points or completes stabilization of a First-Aid-stabilized dying character",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "effect_kind": "medicine-hp-or-dying-stabilization",
+        "resource_key": "hp"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
+      ]
+    },
+    {
+      "node_id": "effect:coc7:healing:weekly-hp-recovery",
+      "node_kind": "effect",
+      "name": "Weekly major-wound recovery may restore hit points according to the settled recovery roll",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "effect_kind": "weekly-major-wound-hp-recovery",
+        "resource_key": "hp"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
+      ]
+    },
+    {
       "node_id": "exception:coc7:healing:weekly-fumble-injury",
       "node_kind": "exception",
       "name": "A fumble on the weekly recovery roll causes a lasting injury, complication, or worse, chosen by the Keeper from the nature of the injuries",
@@ -1286,6 +1350,16 @@
       ]
     },
     {
+      "relation_id": "relation:coc7:healing:fa-stab-emits",
+      "relation_kind": "emits",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "effect:coc7:healing:first-aid-stabilization",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
       "relation_id": "relation:coc7:healing:fa-stab-implemented",
       "relation_kind": "implemented-by",
       "from_node_id": "decision:coc7:healing:first-aid-stabilization",
@@ -1578,6 +1652,16 @@
       ]
     },
     {
+      "relation_id": "relation:coc7:healing:med-stab-emits",
+      "relation_kind": "emits",
+      "from_node_id": "decision:coc7:healing:medicine-stabilization",
+      "to_node_id": "effect:coc7:healing:medicine-stabilization",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-20",
+        "span-wounds-and-healing-page-132-block-25"
+      ]
+    },
+    {
       "relation_id": "relation:coc7:healing:med-stab-implemented",
       "relation_kind": "implemented-by",
       "from_node_id": "decision:coc7:healing:medicine-stabilization",
@@ -1825,6 +1909,26 @@
         "span-wounds-and-healing-page-131-block-22",
         "span-wounds-and-healing-page-131-block-23",
         "span-wounds-and-healing-page-131-block-24",
+        "span-wounds-and-healing-page-132-block-25",
+        "span-wounds-and-healing-page-132-block-27",
+        "span-wounds-and-healing-page-132-block-30",
+        "span-wounds-and-healing-page-132-block-31",
+        "span-wounds-and-healing-page-132-block-34",
+        "span-wounds-and-healing-page-132-block-37",
+        "span-wounds-and-healing-page-132-block-38",
+        "span-wounds-and-healing-page-132-block-39",
+        "span-wounds-and-healing-page-132-block-40",
+        "span-wounds-and-healing-page-133-block-41",
+        "span-wounds-and-healing-page-133-block-42"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:weekly-emits",
+      "relation_kind": "emits",
+      "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
+      "to_node_id": "effect:coc7:healing:weekly-hp-recovery",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-20",
         "span-wounds-and-healing-page-132-block-25",
         "span-wounds-and-healing-page-132-block-27",
         "span-wounds-and-healing-page-132-block-30",

@@ -1,0 +1,208 @@
+{
+  "contract_id": "coc.system-ontology-contract.v1",
+  "schema_version": 1,
+  "registry_contract_id": "coc.system-ontology-registry.v1",
+  "semantic_id_pattern": "^[a-z][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)+$",
+  "graph_kinds": {
+    "module": {
+      "authority_plane": "authored-source",
+      "node_ontology_contract": "coc.module-graph-contract.v3"
+    },
+    "rule": {
+      "authority_plane": "rules-semantics",
+      "node_ontology_contract": "coc.rule-graph-contract.v1"
+    },
+    "live-state": {
+      "authority_plane": "canonical-state",
+      "node_ontology_contract": null
+    },
+    "execution": {
+      "authority_plane": "deterministic-execution",
+      "node_ontology_contract": null
+    },
+    "director": {
+      "authority_plane": "advisory",
+      "node_ontology_contract": null
+    },
+    "text": {
+      "authority_plane": "presentation",
+      "node_ontology_contract": null
+    }
+  },
+  "relation_kinds": {
+    "uses-rule": {
+      "source_graph_kinds": ["module"],
+      "target_graph_kinds": ["rule"],
+      "target_node_kinds": ["rule", "decision"],
+      "authority_effect": "declaration-only"
+    },
+    "requires-module-fact": {
+      "source_graph_kinds": ["rule"],
+      "target_graph_kinds": ["module"],
+      "target_node_kinds": ["clue", "conclusion", "event", "requirement", "secret"],
+      "authority_effect": "read-dependency"
+    },
+    "requires-live-state-fact": {
+      "source_graph_kinds": ["rule"],
+      "target_graph_kinds": ["live-state"],
+      "target_node_kinds": ["live-state-fact"],
+      "authority_effect": "read-dependency"
+    },
+    "invokes-capability": {
+      "source_graph_kinds": ["rule"],
+      "target_graph_kinds": ["execution"],
+      "target_node_kinds": ["capability"],
+      "authority_effect": "execution-request"
+    },
+    "may-emit-effect": {
+      "source_graph_kinds": ["rule"],
+      "target_graph_kinds": ["rule"],
+      "target_node_kinds": ["effect"],
+      "authority_effect": "effect-declaration"
+    },
+    "grounded-by": {
+      "source_graph_kinds": ["director"],
+      "target_graph_kinds": ["module", "rule", "live-state"],
+      "target_node_kinds": ["scene", "rule", "decision", "effect", "live-state-fact"],
+      "authority_effect": "advisory-only"
+    },
+    "renders-settled-output": {
+      "source_graph_kinds": ["text"],
+      "target_graph_kinds": ["rule", "live-state"],
+      "target_node_kinds": ["effect", "live-state-fact"],
+      "authority_effect": "presentation-only"
+    }
+  },
+  "authority_laws": [
+    "ModuleGraph declares authored source mechanics but never executes a capability or writes live state.",
+    "RuleGraph is the sole rules ontology; resolver and subsystem registries own deterministic execution.",
+    "Director recommendations are advisory and may only be grounded by scene, rule, effect, or fact references.",
+    "Text and finalization render settled effects or obligations and have no rules, execution, or state authority.",
+    "The composition registry stores references and typed relations only; it never copies graph node bodies or interprets universal graph programs."
+  ],
+  "registry_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://coc-keeper.local/contracts/system-ontology-registry-v1.schema.json",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "contract_id",
+      "schema_version",
+      "registry_id",
+      "graphs",
+      "references",
+      "relations",
+      "coverage"
+    ],
+    "properties": {
+      "contract_id": {"const": "coc.system-ontology-registry.v1"},
+      "schema_version": {"const": 1},
+      "registry_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)+$"},
+      "graphs": {
+        "type": "array",
+        "minItems": 6,
+        "items": {"$ref": "#/$defs/graph"}
+      },
+      "references": {
+        "type": "array",
+        "items": {"$ref": "#/$defs/reference"}
+      },
+      "relations": {
+        "type": "array",
+        "items": {"$ref": "#/$defs/relation"}
+      },
+      "coverage": {
+        "type": "array",
+        "minItems": 6,
+        "items": {"$ref": "#/$defs/coverage"}
+      }
+    },
+    "$defs": {
+      "graph": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["graph_id", "graph_kind", "authority_plane", "availability"],
+        "properties": {
+          "graph_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)+$"},
+          "graph_kind": {"enum": ["module", "rule", "live-state", "execution", "director", "text"]},
+          "authority_plane": {"enum": ["authored-source", "rules-semantics", "canonical-state", "deterministic-execution", "advisory", "presentation"]},
+          "availability": {"enum": ["production-artifact", "runtime-registry", "absent-production-artifact"]},
+          "ontology_contract": {"type": "string", "minLength": 1},
+          "artifact_path": {"type": "string", "minLength": 1},
+          "registry_path": {"type": "string", "minLength": 1},
+          "reason": {"type": "string", "minLength": 1}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"availability": {"const": "production-artifact"}}},
+            "then": {"required": ["ontology_contract", "artifact_path"]}
+          },
+          {
+            "if": {"properties": {"availability": {"const": "runtime-registry"}}},
+            "then": {"required": ["registry_path"]}
+          },
+          {
+            "if": {"properties": {"availability": {"const": "absent-production-artifact"}}},
+            "then": {"required": ["reason"]}
+          }
+        ]
+      },
+      "reference": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref_id", "graph_id", "semantic_id", "reference_kind", "node_kind"],
+        "properties": {
+          "ref_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)+$"},
+          "graph_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)+$"},
+          "semantic_id": {"type": "string", "minLength": 1},
+          "reference_kind": {"enum": ["artifact-node", "module-authored-operation", "registered-condition-path", "resolver-capability"]},
+          "node_kind": {"type": "string", "minLength": 1},
+          "locator": {"type": "string", "minLength": 1},
+          "owner_node_id": {"type": "string", "minLength": 1},
+          "operation_id": {"type": "string", "minLength": 1},
+          "module_rule_ref": {"type": "string", "minLength": 1},
+          "declaration_ref_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)+$"}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"reference_kind": {"const": "module-authored-operation"}}},
+            "then": {"required": ["owner_node_id", "operation_id", "module_rule_ref"]}
+          },
+          {
+            "if": {"properties": {"reference_kind": {"enum": ["registered-condition-path", "resolver-capability"]}}},
+            "then": {"required": ["locator"]}
+          },
+          {
+            "if": {"properties": {"reference_kind": {"const": "resolver-capability"}}},
+            "then": {"required": ["declaration_ref_id"]}
+          }
+        ]
+      },
+      "relation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["relation_id", "relation_kind", "from_ref", "to_ref"],
+        "properties": {
+          "relation_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)+$"},
+          "relation_kind": {"enum": ["uses-rule", "requires-module-fact", "requires-live-state-fact", "invokes-capability", "may-emit-effect", "grounded-by", "renders-settled-output"]},
+          "from_ref": {"type": "string", "pattern": "^[a-z][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)+$"},
+          "to_ref": {"type": "string", "pattern": "^[a-z][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)+$"}
+        }
+      },
+      "coverage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["graph_kind", "status", "graph_ids", "reason"],
+        "properties": {
+          "graph_kind": {"enum": ["module", "rule", "live-state", "execution", "director", "text"]},
+          "status": {"enum": ["production-linked", "runtime-registry-linked", "absent-production-artifact"]},
+          "graph_ids": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)+$"}
+          },
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}
