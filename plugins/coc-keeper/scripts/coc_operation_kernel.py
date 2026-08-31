@@ -6770,6 +6770,18 @@ def _rules_runtime_for_ctx(
         adapter = coc_rulesets.get_rule_graph_adapter(ruleset_id)
         if adapter is not None:
             ruleset_adapter = adapter
+            host_index = getattr(adapter, "host_capability_index", None)
+            if callable(host_index):
+                host_capabilities = host_index()
+                if isinstance(host_capabilities, Mapping):
+                    index = {
+                        **(index if isinstance(index, dict) else {}),
+                        **{
+                            str(key): deepcopy(dict(value))
+                            for key, value in host_capabilities.items()
+                            if isinstance(value, Mapping)
+                        },
+                    }
             blocker_provider = getattr(adapter, "promotion_blockers", None)
             blockers = (
                 blocker_provider(family) if callable(blocker_provider) else []
@@ -6949,6 +6961,17 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
         if isinstance(semantic, dict):
             question["semantic_inputs"] = semantic
     result = runtime.context(question)
+    if family == "combat":
+        handler = globals().get("_tool_combat_context")
+        if callable(handler):
+            context_data, context_warnings, context_hints = handler(
+                ctx, {"investigator": investigator_id},
+            )
+            result["canonical_context"] = context_data
+            if context_warnings:
+                result.setdefault("warnings", []).extend(context_warnings)
+            if context_hints:
+                result.setdefault("hints", []).extend(context_hints)
     findings = result.get("findings") if isinstance(result.get("findings"), list) else []
     if findings:
         coc_rules_runtime.record_host_internal_findings(
@@ -7149,6 +7172,64 @@ def _canonical_psychology_binding(
     }
 
 
+def _canonical_combat_binding(
+    ctx: Ctx,
+    *,
+    decision_ref: str,
+    investigator_id: str,
+    semantic_inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Compile semantic combat refs into the existing typed combat surface."""
+    action = decision_ref.rsplit(":", 1)[-1]
+    if action not in {"attack", "defend", "aim", "reload", "maneuver", "flee", "end"}:
+        raise ToolError("invalid_semantic_input", "unknown combat decision phase")
+    combat = _combat_state(ctx)
+    binding: dict[str, Any] = {
+        "investigator_id": investigator_id,
+        "combat_revision": int(combat.get("revision", 0)),
+    }
+    if action == "end":
+        binding["combat_outcome"] = combat.get("outcome")
+        return binding
+    candidate_ref = str(semantic_inputs.get("candidate_ref") or "").strip()
+    if action in {"attack", "maneuver"}:
+        if candidate_ref.startswith("attack:") and candidate_ref[7:]:
+            binding["target_npc_id"] = candidate_ref[7:]
+        elif candidate_ref.startswith("combat-route:") and candidate_ref[13:]:
+            binding["affordance_id"] = candidate_ref[13:]
+        else:
+            raise ToolError(
+                "invalid_semantic_input",
+                "combat candidate_ref must use attack:<npc_id> or combat-route:<affordance_id>",
+            )
+    elif candidate_ref:
+        raise ToolError(
+            "invalid_semantic_input",
+            f"combat {action} does not accept candidate_ref",
+        )
+    weapon_ref = str(semantic_inputs.get("weapon_ref") or "").strip()
+    if weapon_ref:
+        binding["weapon_id"] = (
+            weapon_ref[len("weapon:"):] if weapon_ref.startswith("weapon:") else weapon_ref
+        )
+    effects = semantic_inputs.get("weapon_effect_refs")
+    if isinstance(effects, list):
+        binding["weapon_effect_ids"] = [str(value) for value in effects]
+    if action == "defend":
+        pending = combat.get("pending_attack")
+        if not isinstance(pending, Mapping):
+            raise ToolError(
+                "combat_defense_not_pending",
+                "the canonical combat has no pending attack to defend",
+            )
+        binding.update({
+            "pending_attack_ref": pending.get("attack_command_id"),
+            "attack_command_id": pending.get("attack_command_id"),
+            "target_actor_id": pending.get("target_actor_id"),
+        })
+    return binding
+
+
 def dispatch_rules_settle(
     ctx: Ctx,
     args: dict[str, Any],
@@ -7226,6 +7307,13 @@ def dispatch_rules_settle(
     ):
         selected["_host_psychology_binding"] = _canonical_psychology_binding(
             ctx,
+            investigator_id=investigator_id,
+            semantic_inputs=semantic_inputs,
+        )
+    if family == "combat":
+        selected["_host_combat_binding"] = _canonical_combat_binding(
+            ctx,
+            decision_ref=decision_ref,
             investigator_id=investigator_id,
             semantic_inputs=semantic_inputs,
         )

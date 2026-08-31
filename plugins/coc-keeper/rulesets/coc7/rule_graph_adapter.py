@@ -98,12 +98,23 @@ _PSYCHOLOGY_SETTLE_DECISION_REFS = (
     "decision:coc7:psychology:observe-concealed",
     "decision:coc7:psychology:realize-player-safe",
 )
+_COMBAT_CONTEXT_REF = "decision:coc7:combat:context"
+_COMBAT_SETTLE_DECISION_REFS = (
+    "decision:coc7:combat:attack",
+    "decision:coc7:combat:defend",
+    "decision:coc7:combat:aim",
+    "decision:coc7:combat:reload",
+    "decision:coc7:combat:maneuver",
+    "decision:coc7:combat:flee",
+    "decision:coc7:combat:end",
+)
 _GROUP_ONE_SETTLE_DECISION_REFS = (
     *_HEALING_SETTLE_DECISION_REFS,
     *_CORE_SETTLE_DECISION_REFS,
     *_PUSH_LUCK_SETTLE_DECISION_REFS,
     *_SOCIAL_SETTLE_DECISION_REFS,
     *_PSYCHOLOGY_SETTLE_DECISION_REFS,
+    *_COMBAT_SETTLE_DECISION_REFS,
 )
 
 
@@ -282,7 +293,7 @@ class Coc7RuleGraphAdapter:
     @staticmethod
     def promotion_blockers(family: str) -> list[str]:
         if family in {
-            "healing", "core-check", "push-luck", "social", "psychology",
+            "healing", "core-check", "push-luck", "social", "psychology", "combat",
         }:
             return []
         candidate_families = {
@@ -361,6 +372,16 @@ class Coc7RuleGraphAdapter:
                     "target_ref": {"type": "string"},
                     "question": {"type": "string"},
                     "external_behavior": {"type": "string"},
+                    "candidate_ref": {"type": "string"},
+                    "weapon_ref": {"type": "string"},
+                    "weapon_effect_refs": {
+                        "type": "array", "items": {"type": "string"},
+                    },
+                    "luck_spend_max": {"type": "integer"},
+                    "defense_kind": {
+                        "type": "string",
+                        "enum": ["dodge", "fight_back", "dive_for_cover", "none"],
+                    },
                 },
             },
             "decision_id": {
@@ -390,6 +411,7 @@ class Coc7RuleGraphAdapter:
                 "type": "string",
                 "enum": [
                     "healing", "core-check", "push-luck", "social", "psychology",
+                    "combat",
                 ],
                 "desc": "source-accepted compiled family",
             },
@@ -421,6 +443,7 @@ class Coc7RuleGraphAdapter:
             "push-luck": ("rules.push", "rules.luck_spend"),
             "social": ("rules.social_adjudicate",),
             "psychology": ("rules.psychology_observe",),
+            "combat": ("combat.context", "combat.resolve", "combat.end"),
         }
         overrides: dict[str, dict[str, Any]] = {}
         any_graph_visible = False
@@ -456,6 +479,14 @@ class Coc7RuleGraphAdapter:
             }
         )
         return overrides
+
+    @staticmethod
+    def host_capability_index() -> dict[str, dict[str, Any]]:
+        """Existing typed host operations accepted by the graph compiler."""
+        return {
+            "combat.resolve": {"adapter": "typed_operation"},
+            "combat.end": {"adapter": "typed_operation"},
+        }
 
     @staticmethod
     def augment_facts(
@@ -638,6 +669,15 @@ class Coc7RuleGraphAdapter:
                 ):
                     if binding.get(key) is not None:
                         locked[key] = _thaw(binding[key])
+            elif decision_ref in _COMBAT_SETTLE_DECISION_REFS:
+                binding = (
+                    selected.get("_host_combat_binding")
+                    if isinstance(selected.get("_host_combat_binding"), Mapping)
+                    else {}
+                )
+                for key, value in binding.items():
+                    if value is not None:
+                        locked[str(key)] = _thaw(value)
             return locked
 
         return provider
@@ -869,6 +909,31 @@ class Coc7RuleGraphAdapter:
                     "insight_id": binding.get("observation_receipt_ref"),
                     "visible_observation": payload.get("external_behavior"),
                 })
+        elif capability == "combat.resolve":
+            action = str(plan.get("decision_ref") or "").rsplit(":", 1)[-1]
+            if not action:
+                raise tool_error("missing_param", "host-locked combat action is unavailable")
+            out["action_kind"] = action
+            for source, target in (
+                ("affordance_id", "affordance_id"),
+                ("target_npc_id", "target_npc_id"),
+                ("weapon_id", "weapon_id"),
+                ("weapon_effect_ids", "weapon_effect_ids"),
+                ("combat_revision", "combat_revision"),
+                ("defense_kind", "defense_kind"),
+                ("luck_spend_max", "luck_spend_max"),
+                ("goal", "goal"),
+            ):
+                if payload.get(source) is not None:
+                    out[target] = _thaw(payload[source])
+        elif capability == "combat.end":
+            outcome = str(payload.get("combat_outcome") or "")
+            if not outcome:
+                raise tool_error(
+                    "combat_outcome_unavailable",
+                    "combat.end requires a mechanically concluded canonical outcome",
+                )
+            out["outcome"] = outcome
         else:
             raise tool_error(
                 "unsupported_ruleset_operation",
@@ -878,7 +943,7 @@ class Coc7RuleGraphAdapter:
 
     @staticmethod
     def is_context_only(decision_ref: str) -> bool:
-        return decision_ref in LOOKUP_CONTEXT_DECISION_REFS
+        return decision_ref in (*LOOKUP_CONTEXT_DECISION_REFS, _COMBAT_CONTEXT_REF)
 
     def context_lookup(
         self,

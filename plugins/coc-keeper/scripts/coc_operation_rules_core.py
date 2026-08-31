@@ -1287,6 +1287,14 @@ def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
         from coc_operation_kernel_runtime import _tool_rules_psychology_observe
         return _tool_rules_psychology_observe(active_ctx, active_args)
 
+    def combat_resolve(active_ctx: Ctx, active_args: dict[str, Any]):
+        from coc_operation_kernel_runtime import _tool_combat_resolve
+        return _tool_combat_resolve(active_ctx, active_args)
+
+    def combat_end(active_ctx: Ctx, active_args: dict[str, Any]):
+        from coc_operation_kernel_runtime import _tool_combat_end
+        return _tool_combat_end(active_ctx, active_args)
+
     return dispatch_rules_settle(
         ctx,
         args,
@@ -1302,6 +1310,8 @@ def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
             "social_difficulty": social_adjudicate,
             "psychology_check_contract": psychology_observe,
             "psychology_policy": psychology_observe,
+            "combat.resolve": combat_resolve,
+            "combat.end": combat_end,
         },
     )
 

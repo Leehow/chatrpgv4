@@ -2389,6 +2389,155 @@ def test_latest_graph_psychology_observation_reads_durable_ledger():
     )
 
 
+def test_combat_graph_attack_compiles_to_existing_typed_action(monkeypatch):
+    kernel = coc_toolbox.coc_operation_kernel
+    monkeypatch.setattr(kernel, "_combat_state", lambda _ctx: {
+        "status": "active", "revision": 2, "pending_attack": None,
+    })
+    ctx = SimpleNamespace()
+    semantic = {
+        "candidate_ref": "attack:npc-corbitt",
+        "weapon_ref": "weapon:unarmed",
+        "weapon_effect_refs": [],
+        "luck_spend_max": 3,
+    }
+    binding = kernel._canonical_combat_binding(
+        ctx,
+        decision_ref="decision:coc7:combat:attack",
+        investigator_id="thomas-hayes",
+        semantic_inputs=semantic,
+    )
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    selected = {
+        "decision_ref": "decision:coc7:combat:attack",
+        "semantic_inputs": semantic,
+        "_host_combat_binding": binding,
+    }
+    provider = adapter.host_locked_provider(
+        ctx,
+        {"investigator": "thomas-hayes", "decision_id": "combat-attack-1"},
+        selected,
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        safe_sheet=lambda *_args: {},
+        skill_value=lambda *_args: None,
+    )
+    package = Path.cwd() / "plugins" / "coc-keeper" / "rulesets" / "coc7"
+    graph = json.loads((package / "rule-graph.json").read_text(encoding="utf-8"))
+    graph["family_runtime_ownership"]["combat"] = "graph"
+    graph["legacy_surface_lifecycle"]["combat"] = "hidden"
+    graph_manifest = json.loads(
+        (package / "rule-graph-manifest.json").read_text(encoding="utf-8")
+    )
+    graph_manifest["family_promotion_eligibility"]["combat"].update({
+        "promotion_eligible": True,
+        "runtime_ownership": "graph",
+    })
+    runtime = coc_rules_runtime.RulesRuntime(
+        graph,
+        ruleset_id="coc7",
+        graph_manifest=graph_manifest,
+        package_manifest={"rule_families": [{
+            "family_id": "combat", "runtime_owner": "graph",
+            "legacy_surface": "hidden",
+        }]},
+        facts_provider=lambda: {"campaign.ruleset_id": "coc7"},
+        resolver_index=adapter.host_capability_index(),
+        ruleset_adapter=adapter,
+    )
+    context = runtime.context({
+        "family": "combat",
+        "selected_affordance_ids": ["decision:coc7:combat:attack"],
+    })
+    assert context["status"] == "ok", context
+    runtime._host_locked_provider = provider
+    calls = []
+    settled = runtime.settle(
+        selected,
+        "combat-attack-1",
+        card_grant=context["card_grant"],
+        executor=lambda plan, decision_id, chosen: (
+            calls.append((plan, decision_id, chosen)) or {"events": []}
+        ),
+    )
+    assert settled["status"] == "settled", settled
+    assert len(calls) == 1
+    binding = kernel._canonical_combat_binding(
+        ctx,
+        decision_ref="decision:coc7:combat:attack",
+        investigator_id="thomas-hayes",
+        semantic_inputs=semantic,
+    )
+    assert binding == {
+        "investigator_id": "thomas-hayes",
+        "combat_revision": 2,
+        "target_npc_id": "npc-corbitt",
+        "weapon_id": "unarmed",
+        "weapon_effect_ids": [],
+    }
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    selected = {
+        "decision_ref": "decision:coc7:combat:attack",
+        "semantic_inputs": semantic,
+        "_host_combat_binding": binding,
+    }
+    provider = adapter.host_locked_provider(
+        ctx,
+        {"investigator": "thomas-hayes", "decision_id": "combat-attack-1"},
+        selected,
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        safe_sheet=lambda *_args: {},
+        skill_value=lambda *_args: None,
+    )
+    locked = provider("decision:coc7:combat:attack")
+    execution = adapter.executor_args(
+        ctx,
+        {
+            "decision_ref": "decision:coc7:combat:attack",
+            "capability": {"resolver_capability": "combat.resolve"},
+            "command": {"payload": {**semantic, **locked}},
+        },
+        selected,
+        {"investigator": "thomas-hayes", "decision_id": "combat-attack-1"},
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        tool_error=kernel.ToolError,
+    )
+    assert execution == {
+        "investigator": "thomas-hayes",
+        "decision_id": "combat-attack-1",
+        "action_kind": "attack",
+        "target_npc_id": "npc-corbitt",
+        "weapon_id": "unarmed",
+        "weapon_effect_ids": [],
+        "combat_revision": 2,
+        "luck_spend_max": 3,
+    }
+
+
+def test_combat_graph_binding_rejects_forged_candidate_and_stale_defense(
+    monkeypatch,
+):
+    kernel = coc_toolbox.coc_operation_kernel
+    monkeypatch.setattr(kernel, "_combat_state", lambda _ctx: {
+        "status": "active", "revision": 2, "pending_attack": None,
+    })
+    with pytest.raises(kernel.ToolError) as forged:
+        kernel._canonical_combat_binding(
+            SimpleNamespace(),
+            decision_ref="decision:coc7:combat:attack",
+            investigator_id="thomas-hayes",
+            semantic_inputs={"candidate_ref": "the monster"},
+        )
+    assert forged.value.code == "invalid_semantic_input"
+    with pytest.raises(kernel.ToolError) as stale:
+        kernel._canonical_combat_binding(
+            SimpleNamespace(),
+            decision_ref="decision:coc7:combat:defend",
+            investigator_id="thomas-hayes",
+            semantic_inputs={"defense_kind": "dodge"},
+        )
+    assert stale.value.code == "combat_defense_not_pending"
+
+
 def test_runtime_settle_exclusion_scopes_are_no_candidate(tmp_path: Path):
     graph, manifest = _build_fixture_graph(tmp_path)
     promo = manifest.setdefault("family_promotion_eligibility", {}).setdefault(
