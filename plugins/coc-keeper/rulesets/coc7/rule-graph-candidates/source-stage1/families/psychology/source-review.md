@@ -2,7 +2,7 @@
 
 Verdict: **ACCEPTED** for the complete applicable Psychology family.
 
-Reviewer: `codex-worker-psychology-source-review-20260831` (independent of the
+Reviewer: `codex-worker-psychology-target-review-20260831-v2` (independent of the
 source-stage1 producer).
 
 Source identity:
@@ -25,7 +25,9 @@ The executable graph now separates the existing typed phases:
 - `realize-player-safe` invokes `psychology_policy` in `realize` phase and is
   linked to the existing player-safe projection capability.
 
-Question and external behavior remain semantic inputs. Investigator/NPC,
+Question, `psychology-target:<npc_id>` target reference, and external behavior
+remain semantic inputs. The retained target candidate is machine-bound to the
+canonical NPC/window; it is never derived from free text. Investigator/NPC,
 conversation window, observation revision/scope, grounded fact references,
 inference ceiling, and the frozen observation receipt are explicitly
 host-locked. The observe decision continues directly to the realization
@@ -36,4 +38,4 @@ Accepted shard:
 `shard:coc7:psychology:section-psychology-complete-source`.
 
 Accepted shard digest:
-`3fb296962f7e86ef33126d7359ffbeb9d1e2c6cabeebe1d776d669f87ff37b2c`.
+`803da1b867ff4deed3217c4fda63330008da970944d73935b26704514103988d`.

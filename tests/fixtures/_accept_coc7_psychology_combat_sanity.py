@@ -38,7 +38,7 @@ FAMILY_CONFIG: dict[str, dict[str, Any]] = {
         "bundle_sha256": "df4cceb1c29cdc530a43ef8b51122d85c20be2fb43a7fcfd0bbb6191ae1f1ae0",
         "pages": [83, 84, 215],
         "section_id": "section-psychology-complete-source",
-        "reviewer_identity": "codex-worker-psychology-source-review-20260831",
+        "reviewer_identity": "codex-worker-psychology-target-review-20260831-v2",
     },
     "combat": {
         "bundle": "combat-full-v2",
@@ -303,6 +303,7 @@ def _psychology_executable(
                     "payload_constants": {},
                     "payload_slots": [
                         {"name": "question", "ownership": "player-source"},
+                        {"name": "target_ref", "ownership": "keeper-semantic"},
                         {"name": "investigator_id", "ownership": "host-locked"},
                         {"name": "npc_id", "ownership": "host-locked"},
                         {"name": "observer_skill", "ownership": "host-locked"},
@@ -348,6 +349,7 @@ def _psychology_executable(
     ]
     slot_specs = (
         ("question", "player-source", "string", "intent.method", observe),
+        ("target-ref", "keeper-semantic", "string", "intent.method", observe),
         ("investigator-id", "host-locked", "string", "actor.id", observe),
         ("npc-id", "host-locked", "string", "actor.id", observe),
         ("observer-skill", "host-locked", "int", "actor.sheet.psychology", observe),
@@ -378,8 +380,13 @@ def _psychology_executable(
     ]
     for slug, ownership, value_type, path, decision_ref in slot_specs:
         slot_id = f"input-slot:coc7:psychology:{slug}"
+        slot_name = (
+            "Semantic retained psychology-target:<npc_id> reference"
+            if slug == "target-ref"
+            else slug.replace("-", " ")
+        )
         nodes.append(node(
-            family, slot_id, "input-slot", slug.replace("-", " "), all_spans,
+            family, slot_id, "input-slot", slot_name, all_spans,
             properties={
                 "family_id": family,
                 "ownership": ownership,

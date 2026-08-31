@@ -52,10 +52,10 @@ def test_psychology_is_source_accepted_with_complete_applicability_ledger():
     assert review["runtime_integration_blockers"] == []
     assert review["accepted_shard_digest"] == shard["receipt"]["shard_sha256"]
     assert review["accepted_shard_digest"] == (
-        "3fb296962f7e86ef33126d7359ffbeb9d1e2c6cabeebe1d776d669f87ff37b2c"
+        "803da1b867ff4deed3217c4fda63330008da970944d73935b26704514103988d"
     )
     assert review["reviewer_identity"] == (
-        "codex-worker-psychology-source-review-20260831"
+        "codex-worker-psychology-target-review-20260831-v2"
     )
     assert review["reviewer_identity"] != gen.__name__
     assert review["source"] == {
@@ -88,6 +88,24 @@ def test_psychology_is_source_accepted_with_complete_applicability_ledger():
     assert decisions["decision:coc7:psychology:realize-player-safe"]["properties"][
         "implementation"
     ]["phase"] == "realize"
+    observe_slots = {
+        row["name"]: row["ownership"]
+        for row in decisions[
+            "decision:coc7:psychology:observe-concealed"
+        ]["properties"]["implementation"]["payload_slots"]
+    }
+    assert observe_slots["target_ref"] == "keeper-semantic"
+    target_slot = next(
+        node for node in candidate["nodes"]
+        if node["node_id"] == "input-slot:coc7:psychology:target-ref"
+    )
+    assert target_slot["properties"] == {
+        "family_id": "psychology",
+        "ownership": "keeper-semantic",
+        "value_type": "string",
+        "path": "intent.method",
+    }
+    assert "psychology-target:<npc_id>" in target_slot["name"]
     capabilities = {
         node["node_id"]: node["properties"]["resolver_capability"]
         for node in candidate["nodes"] if node["node_kind"] == "capability"
@@ -102,11 +120,19 @@ def test_psychology_is_source_accepted_with_complete_applicability_ledger():
     assert "psychology_runtime" not in json.dumps(candidate)
     relations = candidate["relations"]
     for decision_ref in decisions:
-        assert len([
+        invoked = [
             row for row in relations
             if row["from_node_id"] == decision_ref
             and row["relation_kind"] == "invokes"
-        ]) == 1
+        ]
+        assert len(invoked) == 1
+        assert invoked[0]["to_node_id"] in capabilities
+    assert any(
+        row["relation_kind"] == "requires-input"
+        and row["from_node_id"] == "decision:coc7:psychology:observe-concealed"
+        and row["to_node_id"] == "input-slot:coc7:psychology:target-ref"
+        for row in relations
+    )
     assert any(
         row["relation_kind"] == "continues-as"
         and row["from_node_id"] == "decision:coc7:psychology:observe-concealed"

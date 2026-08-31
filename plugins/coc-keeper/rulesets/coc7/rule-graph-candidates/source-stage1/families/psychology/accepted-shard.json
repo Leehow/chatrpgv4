@@ -798,6 +798,10 @@
                 "ownership": "player-source"
               },
               {
+                "name": "target_ref",
+                "ownership": "keeper-semantic"
+              },
+              {
                 "name": "investigator_id",
                 "ownership": "host-locked"
               },
@@ -1152,6 +1156,29 @@
         "visibility": "keeper-only"
       },
       {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "Semantic retained psychology-target:<npc_id> reference",
+        "node_id": "input-slot:coc7:psychology:target-ref",
+        "node_kind": "input-slot",
+        "properties": {
+          "family_id": "psychology",
+          "ownership": "keeper-semantic",
+          "path": "intent.method",
+          "value_type": "string"
+        },
+        "visibility": "keeper-only"
+      },
+      {
         "audience": "keeper",
         "authority": "deterministic",
         "evidence_span_ids": [
@@ -1328,7 +1355,7 @@
       }
     ],
     "receipt": {
-      "candidate_sha256": "28259a9af8ec19e3c72ee15c9459ffd3a253eaeb2690a47c416e3d9eddbbcdb8",
+      "candidate_sha256": "58dfc96ba04355fbf58723b5d603f2ae4bc584ecaeda2fb168cba000ce8e28d1",
       "contract_id": "coc.rule-graph-review-receipt.v1",
       "family_id": "psychology",
       "packet_sha256": "636ab3703418d42adb4353a92baabaddec7b4e87694c90bb13ee806f421bb9c7",
@@ -1336,7 +1363,7 @@
       "schema_version": 1,
       "section_id": "section-psychology-complete-source",
       "shard_id": "shard:coc7:psychology:section-psychology-complete-source",
-      "shard_sha256": "3fb296962f7e86ef33126d7359ffbeb9d1e2c6cabeebe1d776d669f87ff37b2c"
+      "shard_sha256": "803da1b867ff4deed3217c4fda63330008da970944d73935b26704514103988d"
     },
     "relations": [
       {
@@ -1584,6 +1611,20 @@
         "relation_id": "relation:coc7:psychology:observe-concealed-target-opposing-social",
         "relation_kind": "locks-input",
         "to_node_id": "input-slot:coc7:psychology:target-opposing-social"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:observe-concealed",
+        "relation_id": "relation:coc7:psychology:observe-concealed-target-ref",
+        "relation_kind": "requires-input",
+        "to_node_id": "input-slot:coc7:psychology:target-ref"
       },
       {
         "evidence_span_ids": [
