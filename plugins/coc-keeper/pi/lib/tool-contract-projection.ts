@@ -208,6 +208,30 @@ export type CombatResolveBindingCard = {
   candidates: readonly CombatTargetCandidate[];
 };
 
+export type ChaseActionCandidate = {
+  actor_handle: string;
+  action_handle: string;
+  destination_handle: string;
+  /** Exact canonical command material below stays host-only. */
+  actor_id: string;
+  action_id: string;
+  kind: "chase_move";
+};
+
+export type ChaseExecuteBindingCard = {
+  schema_version: 1;
+  operation: "chase.execute";
+  binding_revision: string;
+  root: string;
+  campaign: string;
+  decision_id: string;
+  investigator: string;
+  chase_id: string;
+  chase_revision: number;
+  chase_digest: string;
+  candidates: readonly ChaseActionCandidate[];
+};
+
 export type TableOpeningBindingCard = {
   schema_version: 1;
   operation: "evidence.table_opening";
@@ -251,6 +275,7 @@ export type TypedToolBindingCard =
   | SceneMoveBindingCard
   | AdvanceTimeBindingCard
   | CombatResolveBindingCard
+  | ChaseExecuteBindingCard
   | TableOpeningBindingCard
   | NpcEngagementBindingCard
   | NpcReactionRunBindingCard;
@@ -336,6 +361,12 @@ export const HOST_OWNED_FIELDS: Readonly<Record<string, readonly string[]>> = {
     "decision_id",
     "target_npc_id",
     "affordance_id",
+  ],
+  "chase.execute": [
+    "root",
+    "campaign",
+    "decision_id",
+    "investigator",
   ],
   "evidence.table_opening": [
     "root",
@@ -1372,6 +1403,47 @@ function validateCombatCandidates(value: readonly CombatTargetCandidate[]): void
   }
 }
 
+function validateChaseCandidates(value: readonly ChaseActionCandidate[]): void {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new ToolContractProjectionError(
+      "binding_context_invalid",
+      "retained chase candidates must be a non-empty array",
+      { field: "candidates" },
+    );
+  }
+  const seen = new Set<string>();
+  for (const candidate of value) {
+    if (!isPlainObject(candidate)) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "retained chase candidate must be an object",
+        { field: "candidates" },
+      );
+    }
+    const actor = nonEmptyString(candidate.actor_handle, "candidates.actor_handle");
+    const action = nonEmptyString(candidate.action_handle, "candidates.action_handle");
+    nonEmptyString(candidate.actor_id, "candidates.actor_id");
+    nonEmptyString(candidate.action_id, "candidates.action_id");
+    nonEmptyString(candidate.destination_handle, "candidates.destination_handle");
+    if (candidate.kind !== "chase_move") {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "retained chase candidate has an unsupported command kind",
+        { field: "candidates.kind" },
+      );
+    }
+    const key = `${actor}\u0000${action}`;
+    if (seen.has(key)) {
+      throw new ToolContractProjectionError(
+        "binding_context_invalid",
+        "retained chase semantic choices must be unique",
+        { field: "candidates" },
+      );
+    }
+    seen.add(key);
+  }
+}
+
 const REVIEWED_AGENCY_SPAN_RE =
   /^reviewed-(?:state-claim|sentence|paragraph):[a-z0-9][a-z0-9:-]{0,126}$/;
 const REVIEWED_AGENCY_AUTHORITY_RE =
@@ -1702,6 +1774,12 @@ function validateBindingShape(binding: TypedToolBindingCard): void {
     nonEmptyString(binding.combat_revision, "combat_revision");
     nonEmptyString(binding.combat_digest, "combat_digest");
     validateCombatCandidates(binding.candidates);
+  } else if (binding.operation === "chase.execute") {
+    nonEmptyString(binding.investigator, "investigator");
+    nonEmptyString(binding.chase_id, "chase_id");
+    requirePositiveRevision(binding.chase_revision, "chase_revision");
+    nonEmptyString(binding.chase_digest, "chase_digest");
+    validateChaseCandidates(binding.candidates);
   } else if (
     binding.operation === "evidence.table_opening"
   ) {
@@ -1855,6 +1933,14 @@ function bindingValues(binding: TypedToolBindingCard): Record<string, unknown> {
       ...(binding.run_id === undefined ? {} : { run_id: binding.run_id }),
     };
   }
+  if (binding.operation === "chase.execute") {
+    return {
+      root: binding.root,
+      campaign: binding.campaign,
+      decision_id: binding.decision_id,
+      investigator: binding.investigator,
+    };
+  }
   return {
     root: binding.root,
     campaign: binding.campaign,
@@ -1915,6 +2001,40 @@ function setEnumProperty(
   };
   const required = Array.isArray(schema.required) ? schema.required : [];
   if (!required.includes(field)) schema.required = [...required, field];
+}
+
+function projectChaseCommandSchema(
+  schema: JsonSchema,
+  binding: ChaseExecuteBindingCard,
+): void {
+  if (!isPlainObject(schema.properties)) return;
+  schema.properties.command = {
+    oneOf: binding.candidates.map((candidate) => {
+      const properties: Record<string, unknown> = {
+        actor: {
+          type: "string",
+          const: candidate.actor_handle,
+          description: "Choose one current semantic chase actor handle.",
+        },
+        action: {
+          type: "string",
+          const: candidate.action_handle,
+          description: "Choose one current legal semantic chase action.",
+        },
+      };
+      return {
+        type: "object",
+        additionalProperties: false,
+        properties,
+        required: ["actor", "action"],
+      };
+    }),
+    description: (
+      "Choose only the semantic actor and action. "
+      + "The host binds the canonical command identity, kind, phase, current "
+      + "revision, actor identity, and action identity from chase.context."
+    ),
+  };
 }
 
 function projectReviewedAgencyClaimsSchema(
@@ -2107,6 +2227,9 @@ export function projectBoundTypedToolParameters(
       valid.candidates.map((candidate) => candidate.candidate_id),
       "Choose one current semantic combat route; the host binds its exact canonical invocation mode.",
     );
+  }
+  if (valid.operation === "chase.execute") {
+    projectChaseCommandSchema(cloned, valid);
   }
   return cloned;
 }
@@ -2447,6 +2570,49 @@ export function bindRetainedTypedToolArguments(
     } else if (candidate.invocation_mode === "affordance_id") {
       result.affordance_id = candidate.affordance_id;
     }
+  }
+  if (valid.operation === "chase.execute") {
+    const command = isPlainObject(modelInput.command)
+      ? modelInput.command
+      : null;
+    if (command === null) {
+      throw new ToolContractProjectionError(
+        "semantic_candidate_stale",
+        "chase command must select one current semantic actor and action",
+        { operation, candidate_field: "command" },
+      );
+    }
+    const actor = typeof command.actor === "string" ? command.actor : "";
+    const action = typeof command.action === "string" ? command.action : "";
+    if (!exactObjectKeys(command, ["actor", "action"])) {
+      throw new ToolContractProjectionError(
+        "semantic_candidate_stale",
+        "chase command must use the closed semantic actor/action schema",
+        { operation, candidate_field: "command" },
+      );
+    }
+    const candidate = valid.candidates.find((row) => (
+      row.actor_handle === actor
+      && row.action_handle === action
+    ));
+    if (candidate === undefined) {
+      throw new ToolContractProjectionError(
+        "semantic_candidate_stale",
+        "selected chase actor/action is absent or stale in the current snapshot",
+        { operation, candidate_field: "command" },
+      );
+    }
+    result.command = {
+      command_id: valid.decision_id,
+      kind: candidate.kind,
+      phase: "resolve",
+      payload: {
+        decision_id: valid.decision_id,
+        revision: valid.chase_revision,
+        actor_id: candidate.actor_id,
+        action_id: candidate.action_id,
+      },
+    };
   }
   return result;
 }
@@ -4728,6 +4894,195 @@ function projectSceneContextData(
   ) as Record<string, unknown>;
 }
 
+function chaseSemanticHandle(
+  prefix: "actor" | "location",
+  value: unknown,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  path: string,
+): string | null {
+  if (typeof value !== "string" || !isSemanticSlugShape(value)) {
+    diagnostics?.unmapped.push({
+      field: prefix,
+      parentField: prefix,
+      domain: "chase",
+      path,
+    });
+    return null;
+  }
+  return `${prefix}:${value}`;
+}
+
+/**
+ * Derive the legal next-location action set from one exact active ChaseSession
+ * snapshot. Canonical actor/action ids stay in the host binding; only the
+ * semantic handles are projected to the model.
+ */
+export function deriveChaseActionCandidates(
+  data: Record<string, unknown>,
+  diagnostics: ProjectionIdentityDiagnostics | null = null,
+): ChaseActionCandidate[] {
+  const snapshot = isPlainObject(data.snapshot) ? data.snapshot : null;
+  if (data.active !== true || snapshot?.status !== "active") return [];
+  const locations = (Array.isArray(snapshot.location_chain)
+    ? snapshot.location_chain
+    : []).filter(isPlainObject);
+  const byIndex = new Map<number, Record<string, unknown>>();
+  for (const location of locations) {
+    if (Number.isInteger(location.index)) {
+      byIndex.set(Number(location.index), location);
+    }
+  }
+  const candidates: ChaseActionCandidate[] = [];
+  const participants = (Array.isArray(snapshot.participants)
+    ? snapshot.participants
+    : []).filter(isPlainObject);
+  for (const participant of participants) {
+    if (
+      participant.captured === true
+      || participant.escaped === true
+      || participant.wrecked === true
+      || !Number.isInteger(participant.position)
+      || !Number.isInteger(participant.movement_actions_remaining)
+      || Number(participant.movement_actions_remaining) <= 0
+    ) continue;
+    const actorId = typeof participant.actor_id === "string"
+      ? participant.actor_id
+      : "";
+    const actorHandle = chaseSemanticHandle(
+      "actor",
+      actorId,
+      diagnostics,
+      "snapshot.participants.actor_id",
+    );
+    const next = byIndex.get(Number(participant.position) + 1) ?? null;
+    const label = typeof next?.label === "string" ? next.label : "";
+    const locationHandle = chaseSemanticHandle(
+      "location",
+      label,
+      diagnostics,
+      "snapshot.location_chain.label",
+    );
+    if (actorHandle === null || next === null || locationHandle === null) continue;
+    if (
+      isPlainObject(next.hazard)
+      || (isPlainObject(next.barrier) && Number(next.barrier.hp) > 0)
+    ) continue;
+    candidates.push({
+      actor_handle: actorHandle,
+      action_handle: "advance",
+      actor_id: actorId,
+      action_id: "move:advance",
+      kind: "chase_move",
+      destination_handle: locationHandle,
+    });
+  }
+  return candidates;
+}
+
+/** Closed Pi model view for the canonical ChaseSession context. */
+function projectChaseContextData(
+  data: Record<string, unknown>,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const snapshot = isPlainObject(data.snapshot) ? data.snapshot : null;
+  const active = data.active === true && snapshot?.status === "active";
+  if (!active || snapshot === null) {
+    return {
+      active: false,
+      snapshot: null,
+      pending_choice_count: Array.isArray(data.pending_choices)
+        ? data.pending_choices.length
+        : 0,
+    };
+  }
+  const candidates = deriveChaseActionCandidates(data, diagnostics);
+  const locations = (Array.isArray(snapshot.location_chain)
+    ? snapshot.location_chain
+    : []).filter(isPlainObject).flatMap((location) => {
+      const handle = chaseSemanticHandle(
+        "location",
+        location.label,
+        diagnostics,
+        "snapshot.location_chain.label",
+      );
+      if (handle === null || !Number.isInteger(location.index)) return [];
+      return [{
+        location: handle,
+        index: Number(location.index),
+        label: location.label,
+        hazard: isPlainObject(location.hazard)
+          ? {
+              present: true,
+              skill: location.hazard.skill ?? null,
+              target: location.hazard.target ?? null,
+              difficulty: location.hazard.difficulty ?? "regular",
+            }
+          : null,
+        barrier: isPlainObject(location.barrier)
+          ? {
+              present: true,
+              hp: location.barrier.hp ?? null,
+              hp_max: location.barrier.hp_max ?? null,
+              skill: location.barrier.skill ?? null,
+              target: location.barrier.target ?? null,
+              difficulty: location.barrier.difficulty ?? "regular",
+            }
+          : null,
+      }];
+    });
+  const actors = (Array.isArray(snapshot.participants)
+    ? snapshot.participants
+    : []).filter(isPlainObject).flatMap((participant) => {
+      const actor = chaseSemanticHandle(
+        "actor",
+        participant.actor_id,
+        diagnostics,
+        "snapshot.participants.actor_id",
+      );
+      if (actor === null) return [];
+      const location = locations.find((row) => row.index === participant.position);
+      return [{
+        actor,
+        side: participant.side ?? null,
+        role: participant.role ?? null,
+        location: location?.location ?? null,
+        movement_actions: participant.movement_actions ?? null,
+        movement_actions_remaining: participant.movement_actions_remaining ?? null,
+        conditions: Array.isArray(participant.conditions)
+          ? participant.conditions
+          : [],
+        captured: participant.captured === true,
+        escaped: participant.escaped === true,
+        wrecked: participant.wrecked === true,
+      }];
+    });
+  return {
+    active: true,
+    snapshot: {
+      schema_version: snapshot.schema_version,
+      status: "active",
+      revision: snapshot.revision,
+      round: snapshot.current_round,
+      actors,
+      locations,
+      available_actions: candidates.map((candidate) => ({
+        actor: candidate.actor_handle,
+        action: candidate.action_handle,
+        destination: candidate.destination_handle,
+      })),
+    },
+    pending_choice_count: Array.isArray(data.pending_choices)
+      ? data.pending_choices.length
+      : 0,
+    execute_operation: {
+      operation: "chase.execute",
+      invoke_via: "coc_chase_execute",
+      bound_revision: snapshot.revision,
+      model_command_fields: ["actor", "action"],
+    },
+  };
+}
+
 /** Exact-discovery RuleGraph cards share the scene card projection contract. */
 function projectRulesContextData(
   data: Record<string, unknown>,
@@ -5004,6 +5359,8 @@ export function projectModelVisibleCanonicalResult(
   if (data !== null) {
     if (operation === "scene.context") {
       projected.data = projectSceneContextData(data, semanticIds, diagnostics);
+    } else if (operation === "chase.context") {
+      projected.data = projectChaseContextData(data, diagnostics);
     } else if (operation === "rules.context") {
       projected.data = projectRulesContextData(data, semanticIds, diagnostics);
     } else if (operation === "npc.reaction") {

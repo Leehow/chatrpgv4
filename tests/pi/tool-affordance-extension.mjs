@@ -909,6 +909,160 @@ const contextReceipt = (revision, data) => ({
   data,
 });
 
+const ACTIVE_CHASE_CONTEXT = {
+  ok: true,
+  tool: "chase.context",
+  wire: { full_result_sha256: `sha256:${"7".repeat(64)}` },
+  cache: { revision: "chase-context:office-corridor:revision-1" },
+  data: {
+    active: true,
+    snapshot: {
+      schema_version: 4,
+      chase_id: "chase-office-corridor",
+      status: "active",
+      outcome: null,
+      revision: 1,
+      initiative_cursor: 0,
+      roll_counter: 0,
+      roll_history: [],
+      turn_counter: 0,
+      current_round: 1,
+      participants: [{
+        actor_id: "thomas-hayes",
+        side: "pursuer",
+        role: "driver",
+        position: 0,
+        movement_actions: 1,
+        movement_actions_remaining: 1,
+        conditions: [],
+        captured: false,
+        escaped: false,
+        wrecked: false,
+      }, {
+        actor_id: "fleeing-intruder",
+        side: "quarry",
+        role: "driver",
+        position: 1,
+        movement_actions: 2,
+        movement_actions_remaining: 2,
+        conditions: [],
+        captured: false,
+        escaped: false,
+        wrecked: false,
+      }],
+      location_chain: [
+        { index: 0, label: "office-door", hazard: null, barrier: null },
+        { index: 1, label: "corridor", hazard: null, barrier: null },
+        { index: 2, label: "stair-landing", hazard: null, barrier: null },
+        { index: 3, label: "street-exit", hazard: null, barrier: null },
+      ],
+      rounds: [{
+        round: 1,
+        dex_order: ["thomas-hayes", "fleeing-intruder"],
+        turns: [],
+      }],
+      play_language: "zh-Hans",
+    },
+    pending_choices: [],
+  },
+};
+
+test("active chase context projects semantic move choices and host-binds execute", async () => {
+  const forwarded = [];
+  const sceneEnvelope = contextReceipt("chase-party", {
+    active_scene_id: "knott-office",
+    party: ["thomas-hayes"],
+    exits: [],
+    time: { time_precision: "imprecise", local_datetime: null },
+    npcs_present: [],
+    action_routes: [],
+    clues_here: [],
+  });
+  await withPlayHarness(async (h) => {
+    await invokeCompat(h, "chase-party-context", "scene.context");
+    const contextResult = await h.tools.get("coc_chase_context").execute(
+      "active-chase-context",
+      {},
+      undefined,
+      undefined,
+      h.ctx,
+    );
+    const visible = JSON.parse(contextResult.content[0].text);
+    assert.equal(visible.ok, true, JSON.stringify(visible));
+    assert.equal(visible.data.active, true);
+    assert.equal(visible.data.snapshot.revision, 1);
+    assert.deepEqual(
+      visible.data.snapshot.actors.map((row) => row.actor),
+      ["actor:thomas-hayes", "actor:fleeing-intruder"],
+    );
+    assert.deepEqual(
+      visible.data.snapshot.available_actions.map((row) => ({
+        actor: row.actor,
+        action: row.action,
+        destination: row.destination,
+      })),
+      [{
+        actor: "actor:thomas-hayes",
+        action: "advance",
+        destination: "location:corridor",
+      }, {
+        actor: "actor:fleeing-intruder",
+        action: "advance",
+        destination: "location:stair-landing",
+      }],
+    );
+    for (const forbidden of [
+      "chase_id", "actor_id", "action_id", "command_id", "state_refs",
+    ]) {
+      assert.equal(JSON.stringify(visible).includes(`\"${forbidden}\"`), false);
+    }
+
+    const commandSchema = h.tools.get("coc_chase_execute")
+      .parameters.properties.command;
+    assert.equal(commandSchema.oneOf.length, 2);
+    assert.deepEqual(
+      commandSchema.oneOf.map((branch) => ({
+        actor: branch.properties.actor.const,
+        action: branch.properties.action.const,
+      })),
+      [{ actor: "actor:thomas-hayes", action: "advance" }, {
+        actor: "actor:fleeing-intruder", action: "advance",
+      }],
+    );
+
+    const executed = JSON.parse((await h.tools.get("coc_chase_execute").execute(
+      "active-chase-move",
+      { command: { actor: "actor:thomas-hayes", action: "advance" } },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(executed.ok, true, JSON.stringify(executed));
+    const call = forwarded.findLast((params) => (
+      params.operation === "chase.execute"
+    ));
+    assert.equal(call.campaign, "tool-affordance-campaign");
+    assert.equal(call.arguments.investigator, "thomas-hayes");
+    assert.equal(call.arguments.command.kind, "chase_move");
+    assert.equal(call.arguments.command.phase, "resolve");
+    assert.equal(call.arguments.command.payload.revision, 1);
+    assert.equal(call.arguments.command.payload.actor_id, "thomas-hayes");
+    assert.equal(call.arguments.command.payload.action_id, "move:advance");
+    assert.equal(
+      call.arguments.command.payload.decision_id,
+      call.arguments.decision_id,
+    );
+    assert.equal(call.arguments.command.command_id, call.arguments.decision_id);
+  }, (_name, params) => {
+    forwarded.push(structuredClone(params));
+    if (params.operation === "scene.context") return sceneEnvelope;
+    if (params.operation === "chase.context") {
+      return structuredClone(ACTIVE_CHASE_CONTEXT);
+    }
+    return { ok: true, tool: params.operation, data: { accepted: true } };
+  });
+});
+
 const PRODUCTION_HEALING_DECISION_CARD = {
   schema_version: 1,
   decision_ref: "decision:coc7:healing:first-aid-ordinary",

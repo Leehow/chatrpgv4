@@ -203,6 +203,7 @@ import {
   buildReviewedAgencyBinding,
   buildReviewedCoverageBindingFacts,
   CURRENT_INVESTIGATOR_HANDLE,
+  deriveChaseActionCandidates,
   deriveSemanticEntityFacts,
   defaultTypedToolCatalog,
   listTypedOperationTools,
@@ -220,6 +221,7 @@ import {
   HOST_OWNED_FIELDS,
   wrapTypedToolInvokeParams,
   type CurrentTypedToolHostContext,
+  type ChaseActionCandidate,
   type ReviewedAgencyBinding,
   type ReviewedCoverageBindingFacts,
   type SemanticEntityFacts,
@@ -4359,9 +4361,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
     >;
   };
+  type ChaseBindingFacts = StructuredBindingScope & {
+    root: string;
+    campaign: string;
+    chaseId: string;
+    chaseRevision: number;
+    chaseDigest: string;
+    investigatorId: string;
+    decisionId: string;
+    candidates: ChaseActionCandidate[];
+  };
   let currentSceneBindingFacts: SceneBindingFacts | null = null;
   let retainedSceneAffordanceOperations: string[] = [];
   let currentCombatBindingFacts: CombatBindingFacts | null = null;
+  let currentChaseBindingFacts: ChaseBindingFacts | null = null;
   let lastHealingCardProjection: {
     playerTurnEpoch: number;
     projection: JsonObject;
@@ -4385,6 +4398,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   const beginSceneDerivedBindingReplacement = (): void => {
     currentSceneBindingFacts = null;
     currentCombatBindingFacts = null;
+    currentChaseBindingFacts = null;
     lastHealingCardProjection = null;
     retainedSceneAffordanceOperations = [];
     for (const operation of [
@@ -4436,7 +4450,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       "combat.resolve",
       "evidence.table_opening",
       "state.record_npc_engagement",
+      "chase.execute",
     ]) clearTypedBinding(operation);
+    currentChaseBindingFacts = null;
   };
   const armTypedBinding = (
     binding: TypedToolBindingCard,
@@ -6140,6 +6156,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       armStructuredCombatBinding(campaignId, params, envelope);
       return;
     }
+    if (operation === "chase.context") {
+      armStructuredChaseBinding(campaignId, params, envelope);
+      return;
+    }
     if (operation === "state.move_scene") {
       currentSceneBindingFacts = null;
       lastHealingCardProjection = null;
@@ -6162,6 +6182,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (operation === "combat.resolve") {
       currentCombatBindingFacts = null;
       clearTypedBinding("combat.resolve");
+      applyKpActiveTools();
+      return;
+    }
+    if (operation === "chase.execute") {
+      currentChaseBindingFacts = null;
+      clearTypedBinding("chase.execute");
       applyKpActiveTools();
       return;
     }
@@ -6376,6 +6402,81 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     combat_digest: facts.combatDigest,
     candidates: structuredClone(facts.candidates),
   });
+  const chaseExecuteCardFromFacts = (
+    facts: ChaseBindingFacts,
+  ): TypedToolBindingCard => ({
+    schema_version: 1,
+    operation: "chase.execute",
+    binding_revision: (
+      `chase:${facts.chaseId}:revision-${facts.chaseRevision}`
+    ),
+    root: facts.root,
+    campaign: facts.campaign,
+    decision_id: facts.decisionId,
+    investigator: facts.investigatorId,
+    chase_id: facts.chaseId,
+    chase_revision: facts.chaseRevision,
+    chase_digest: facts.chaseDigest,
+    candidates: structuredClone(facts.candidates),
+  });
+  const armStructuredChaseBinding = (
+    campaignId: string,
+    params: JsonObject,
+    envelope: JsonObject,
+  ): void => {
+    const data = objectOrNull(envelope.data);
+    const identity = structuredReceiptIdentity(envelope);
+    const snapshot = objectOrNull(data?.snapshot);
+    const chaseId = typeof snapshot?.chase_id === "string"
+      ? snapshot.chase_id.trim()
+      : "";
+    const chaseRevision = Number(snapshot?.revision);
+    const party = semanticRegistry.currentParty(registryScope(campaignId));
+    const investigatorId = party.live && party.state === "single"
+      ? party.investigatorId
+      : "";
+    const candidates = data === null
+      ? []
+      : deriveChaseActionCandidates(data);
+    if (
+      data?.active !== true
+      || snapshot?.status !== "active"
+      || identity === null
+      || !chaseId
+      || !Number.isInteger(chaseRevision)
+      || chaseRevision < 1
+      || !investigatorId
+      || candidates.length === 0
+    ) {
+      currentChaseBindingFacts = null;
+      clearTypedBinding("chase.execute");
+      applyKpActiveTools();
+      return;
+    }
+    const decisionId = `move-${chaseId}-revision-${chaseRevision}`;
+    const facts: ChaseBindingFacts = {
+      sessionEpoch,
+      playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+      stage: canonicalProgress.stage,
+      phase: resolveAclPhase(campaignId),
+      root: typeof params.root === "string" && params.root
+        ? params.root
+        : currentWorkspaceRoot,
+      campaign: campaignId,
+      chaseId,
+      chaseRevision,
+      chaseDigest: identity.digest,
+      investigatorId,
+      decisionId,
+      candidates,
+    };
+    currentChaseBindingFacts = facts;
+    armTypedBinding(chaseExecuteCardFromFacts(facts), () => {
+      const current = currentChaseBindingFacts;
+      return current === null ? null : chaseExecuteCardFromFacts(current);
+    });
+    applyKpActiveTools();
+  };
   const rearmCurrentCombatBinding = (campaignId: string): void => {
     const retained = currentCombatBindingFacts;
     if (
@@ -9954,6 +10055,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         if (
           typedDefinition?.operation === "state.record_npc_engagement"
           || typedDefinition?.operation === "npc.reaction"
+          || typedDefinition?.operation === "chase.execute"
         ) {
           semanticArgs = { ...restoredArgs };
           for (const field of HOST_OWNED_FIELDS[typedDefinition.operation]) {
@@ -13410,6 +13512,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     openTurnRecoveryAuthorization = null;
     lastHealingCardProjection = null;
     currentCombatBindingFacts = null;
+    currentChaseBindingFacts = null;
     retainedTypedBindings.clear();
     currentTypedBindingFactories.clear();
     sceneSupplyDispatches.clear();
