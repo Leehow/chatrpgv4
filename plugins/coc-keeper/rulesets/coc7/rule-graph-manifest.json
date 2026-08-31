@@ -30,7 +30,7 @@
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "ad587a4ecba356704ea538de87f1af18ca82aad4ad87ba678bc78f89e0326166",
+  "graph_content_digest": "63c82c55999c0571e344874f992812f8d514d219cc579b6182a95d448da71ac6",
   "shards": [
     {
       "shard_id": "shard:coc7:chase:section-chase-complete-source",
@@ -38,7 +38,7 @@
     },
     {
       "shard_id": "shard:coc7:combat:section-combat-complete-source",
-      "shard_digest": "db45cd99592f4740ab3ec5c5b9ba597cdf6b69c51b6a41176bfb8c2c4dc7fb71"
+      "shard_digest": "8f7541c32d46d259bee72eb520e9d1b0d9800585da5ffe5045e1efd611a5d348"
     },
     {
       "shard_id": "shard:coc7:core-check:section-core-check-source-accepted",
@@ -111,8 +111,8 @@
       "runtime_ownership": "legacy"
     },
     "psychology": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "push-luck": {
       "promotion_eligible": true,
