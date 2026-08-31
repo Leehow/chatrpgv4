@@ -593,12 +593,12 @@ test("verified pre-journal open-turn recovery restores the acting surface withou
   for (const operation of [
     "scene.context",
     "actions.list",
-    "rules.roll",
     "npc.query",
     "state.journal",
   ]) {
     assert.ok(projected.activeOperationNames.includes(operation), operation);
   }
+  assert.ok(!projected.activeOperationNames.includes("rules.roll"));
   for (const operation of [
     "turn.output_context",
     "narration.review",
@@ -679,7 +679,7 @@ test("graph healing cards activate the single rules.settle operation", () => {
   assert.equal(projected.activeToolNames.length, baseline.activeToolNames.length + 1);
 });
 
-test("pending authored SAN trigger activates the flat authoritative surface", () => {
+test("pending authored SAN trigger stays pending without reopening legacy SAN", () => {
   assert.deepEqual(
     workingSet.affordancesFromSanityTriggerProjection({
       pending_san_triggers: [{
@@ -689,7 +689,7 @@ test("pending authored SAN trigger activates the flat authoritative surface", ()
     }),
     [],
   );
-  const hints = workingSet.affordancesFromSanityTriggerProjection({
+  const pendingProjection = {
     pending_san_triggers: [{
       trigger_id: "see-corbitt-body",
       source: "seeing Walter Corbitt's animated corpse",
@@ -697,13 +697,21 @@ test("pending authored SAN trigger activates the flat authoritative surface", ()
       san_loss_fail_expr: "1D8",
       status: "pending",
     }],
-  });
-  assert.deepEqual(hints, [{ operation: "rules.sanity_check", source: "scene" }]);
+  };
+  const hints = workingSet.affordancesFromSanityTriggerProjection(pendingProjection);
+  assert.deepEqual(hints, []);
+  assert.equal(pendingProjection.pending_san_triggers[0].status, "pending");
 
   const source = snapshot({ affordances: { operations: hints } });
   const projected = workingSet.projectToolWorkingSet(source);
   assert.equal(projected.ok, true, projected.error?.message);
-  assert.ok(projected.activeOperationNames.includes("rules.sanity_check"));
+  assert.ok(!projected.activeOperationNames.includes("rules.sanity_check"));
   assert.ok(!projected.activeOperationNames.includes("sanity.execute"));
+  const context = workingSet.loadToolNamespace(source, {
+    kind: "exact_operation",
+    operation: "rules.context",
+  });
+  assert.equal(context.ok, true, context.message);
+  assert.ok(context.workingSet.activeOperationNames.includes("rules.context"));
   assert.ok(projected.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET);
 });

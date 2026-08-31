@@ -12,11 +12,21 @@ const mod = await import(
 
 const rulesSchema = mod.domainToolSchema("coc_rules");
 assert.equal(rulesSchema.properties.operation.type, "string");
-assert.ok(rulesSchema.properties.operation.enum.includes("rules.roll"));
+assert.ok(!rulesSchema.properties.operation.enum.includes("rules.roll"));
+assert.ok(rulesSchema.properties.operation.enum.includes("rules.settle"));
 assert.ok(!rulesSchema.properties.operation.enum.includes("turn.finalize"));
 assert.ok(!rulesSchema.properties.operation.enum.includes("progressive.claim_host_work"));
-
 const contextOps = mod.domainToolSchema("coc_context").properties.operation.enum;
+for (const [toolName, operation] of [
+  ["coc_rules", "rules.settle"],
+]) {
+  const allowed = mod.evaluateExecuteAcl({
+    toolName,
+    operation,
+    phase: "live_turn",
+  });
+  assert.equal(allowed.ok, true, operation);
+}
 for (const banned of [
   "steward.domain_put",
   "steward.scene_bundle_put",
@@ -50,15 +60,13 @@ const denyAudit = mod.evaluateExecuteAcl({
 });
 assert.equal(denyAudit.ok, false);
 
-const translate = mod.evaluateExecuteAcl({
+const hiddenLegacyRoll = mod.evaluateExecuteAcl({
   toolName: "coc_invoke",
   operation: "rules.roll",
   phase: "live_turn",
 });
-assert.equal(translate.ok, true);
-assert.equal(translate.wrapper, "coc_rules");
-assert.equal(translate.transport_tool, "coc_invoke");
-assert.equal(translate.canonical_operation, "rules.roll");
+assert.equal(hiddenLegacyRoll.ok, false);
+assert.equal(hiddenLegacyRoll.code, "host_private_operation");
 
 assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_rules",
@@ -402,10 +410,10 @@ assert.equal(mod.evaluateExecuteAcl({
   operation: "rules.roll",
   phase: "opening",
 }).ok, false);
-assert.ok(mod.domainToolSchema("coc_rules").properties.operation.enum.includes(
+assert.ok(!mod.domainToolSchema("coc_rules").properties.operation.enum.includes(
   "rules.social_adjudicate",
 ));
-assert.ok(mod.domainToolSchema("coc_rules").properties.operation.enum.includes(
+assert.ok(!mod.domainToolSchema("coc_rules").properties.operation.enum.includes(
   "rules.roll",
 ));
 assert.ok(!mod.activeToolsForPhase("opening").includes("coc_invoke"));
@@ -428,17 +436,19 @@ assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_rules",
   operation: "rules.social_adjudicate",
   phase: playedPhase,
-}).ok, true);
+}).ok, false);
 assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_rules",
   operation: "rules.roll",
   phase: playedPhase,
-}).ok, true);
-assert.equal(mod.evaluateExecuteAcl({
+}).ok, false);
+const hiddenPlayedSocial = mod.evaluateExecuteAcl({
   toolName: "coc_invoke",
   operation: "rules.social_adjudicate",
   phase: playedPhase,
-}).wrapper, "coc_rules");
+});
+assert.equal(hiddenPlayedSocial.ok, false);
+assert.equal(hiddenPlayedSocial.code, "host_private_operation");
 assert.ok(!mod.activeToolsForPhase(playedPhase).includes("coc_invoke"));
 
 // Exact 15:19 ready_for_table handoff vs 15:59 mid-play resume from
@@ -508,12 +518,12 @@ assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_rules",
   operation: "rules.social_adjudicate",
   phase: "live_turn",
-}).ok, true);
+}).ok, false);
 assert.equal(mod.evaluateExecuteAcl({
   toolName: "coc_rules",
   operation: "rules.roll",
   phase: "live_turn",
-}).ok, true);
+}).ok, false);
 
 const openingReceiptResume = {
   mode: "table_opening",
@@ -777,7 +787,9 @@ for (const [operation, toolName] of [
   assert.equal(denied.ok, false, `${operation} @ recovery`);
   assert.equal(
     denied.code,
-    "recovery_authorization_required",
+    operation === "rules.roll" || operation === "rules.social_adjudicate"
+      ? "host_private_operation"
+      : "recovery_authorization_required",
     `${operation} @ recovery`,
   );
 }
