@@ -5796,6 +5796,7 @@ def _settle_sanity_check(
         "bout_triggered": bool(session.bout_active or session.temporary_insane),
         "source": source,
         "san_trigger_id": payload.get("san_trigger_id"),
+        "rule_ref": payload.get("rule_ref"),
         "session_events": session_events,
         "bout_active": bool(session.bout_active),
         "active_bout_id": session.active_bout_id,
@@ -5974,6 +5975,11 @@ def _roll_result(
             "bout_triggered": settled["bout_triggered"],
             "source": settled["source"],
             "san_trigger_id": settled["san_trigger_id"],
+            **(
+                {"rule_ref": settled["rule_ref"]}
+                if isinstance(settled.get("rule_ref"), str)
+                and settled["rule_ref"] else {}
+            ),
             "roll_contract": payload.get("roll_contract"),
             "resolution_context": _json_copy(payload.get("resolution_context") or {}),
             "_session_events": settled["session_events"],
