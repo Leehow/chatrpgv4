@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:e299ce44c22c81223764932781dcbb7c8ba456b8d89f91b85bf10e3e468cc313",
+  "content_sha256": "sha256:628dd0df8fc3e655854a6a6a70b77b3eb8cda1a15ce8afc41cd9f024675e7984",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 145,
+  "operation_count": 147,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -939,6 +939,129 @@
         ]
       },
       "summary": "Read the campaign's committed state history at one timeline turn from the rebuildable history projection. Strict read-only; semantic timeline/turn selectors only, never a commit hash."
+    },
+    "magic.cast": {
+      "access": "mutation",
+      "canonical_operation": "magic.cast",
+      "description": "Cast one canonical CoC7 spell through the existing magic runtime; spell names come from rules.catalog_search. Canonical operation `magic.cast`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "semantic idempotency key supplied and retained by the host",
+            "type": "string"
+          },
+          "interrupted": {
+            "default": false,
+            "description": "whether casting was interrupted",
+            "type": "boolean"
+          },
+          "investigator": {
+            "description": "investigator id; defaults to the sole linked party member",
+            "type": "string"
+          },
+          "is_npc": {
+            "default": false,
+            "description": "whether the caster is an NPC",
+            "type": "boolean"
+          },
+          "pushed": {
+            "default": false,
+            "description": "whether this is a pushed first-cast attempt",
+            "type": "boolean"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "spell": {
+            "description": "exact canonical spell name returned by rules.catalog_search",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "spell",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "discovery": "exact",
+        "kp_surface": "subsystem",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Cast one canonical CoC7 spell through the existing magic runtime; spell names come from rules.catalog_search."
+    },
+    "magic.learn": {
+      "access": "mutation",
+      "canonical_operation": "magic.learn",
+      "description": "Learn one canonical CoC7 spell through the existing magic runtime; spell names come from rules.catalog_search. Canonical operation `magic.learn`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "semantic idempotency key supplied and retained by the host",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id; defaults to the sole linked party member",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source": {
+            "default": "tome",
+            "description": "learning source",
+            "enum": [
+              "tome",
+              "person",
+              "entity"
+            ],
+            "type": "string"
+          },
+          "spell": {
+            "description": "exact canonical spell name returned by rules.catalog_search",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "spell",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "rules",
+        "discovery": "exact",
+        "kp_surface": "subsystem",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Learn one canonical CoC7 spell through the existing magic runtime; spell names come from rules.catalog_search."
     },
     "mechanics.ensure": {
       "access": "mutation",

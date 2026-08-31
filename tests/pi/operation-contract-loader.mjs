@@ -22,6 +22,8 @@ const archive = JSON.parse(readFileSync(archivePath, "utf8"));
 const EXPECTED = [
   "rules.roll",
   "rules.social_adjudicate",
+  "magic.cast",
+  "magic.learn",
   "npc.reaction",
   "state.journal",
   "turn.output_context",
@@ -71,6 +73,8 @@ test("policy filters are pure and do not invent operations", () => {
   }
   assert.ok(setup.includes("setup.inspect"));
   assert.ok(!setup.includes("rules.roll"));
+  assert.equal(policyMod.OPERATION_POLICY["magic.cast"].discovery, "exact");
+  assert.equal(policyMod.OPERATION_POLICY["magic.learn"].kp_surface, "subsystem");
 });
 
 test("missing and malformed contracts fail closed", () => {

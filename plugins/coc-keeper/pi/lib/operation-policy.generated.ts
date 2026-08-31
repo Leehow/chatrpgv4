@@ -236,6 +236,28 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "recovery"
     ]
   },
+  "magic.cast": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "rules",
+    "discovery": "exact",
+    "execution_class": "serial_campaign",
+    "kp_surface": "subsystem",
+    "phases": [
+      "live_turn"
+    ]
+  },
+  "magic.learn": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "rules",
+    "discovery": "exact",
+    "execution_class": "serial_campaign",
+    "kp_surface": "subsystem",
+    "phases": [
+      "live_turn"
+    ]
+  },
   "mechanics.ensure": {
     "advisory": false,
     "audience": "keeper",
