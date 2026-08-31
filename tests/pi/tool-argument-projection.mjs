@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
@@ -103,19 +104,33 @@ test("sanity bout binding exposes only semantic action and restores the exact re
     binding,
     independentCurrent(binding),
   );
-  assert.deepEqual(tick.command, {
-    command_id: `resume:${tickDigest}:confirm`,
-    kind: "bout_tick",
-    phase: "resolve",
-    payload: {
+  const plan = {
+    decision_id: `resume-${tickDigest.slice(0, 32)}`,
+    rules_requests: [{
+      command_id: `resume:${tickDigest}:confirm`,
+      kind: "bout_tick",
       choice_id: binding.choice_id,
       responder: "keeper",
       revision: 3,
       action: "tick",
       terminal_command_ids: [`resume:${tickDigest}:confirm`],
-      decision_id: `resume-${tickDigest.slice(0, 32)}`,
-    },
+    }],
+  };
+  const python = spawnSync("uv", ["run", "--frozen", "python", "-c", [
+    "import importlib.util,json,pathlib,sys",
+    "p=pathlib.Path('plugins/coc-keeper/scripts/coc_subsystem_executor.py')",
+    "s=importlib.util.spec_from_file_location('coc_subsystem_executor_probe',p)",
+    "m=importlib.util.module_from_spec(s);s.loader.exec_module(m)",
+    "print(json.dumps(m.commands_from_rules_requests(json.load(sys.stdin)),sort_keys=True,separators=(',',':')))",
+  ].join(";")], {
+    cwd: root,
+    input: JSON.stringify(plan),
+    encoding: "utf8",
   });
+  assert.equal(python.status, 0, python.stderr);
+  const pythonCommand = JSON.parse(python.stdout)[0];
+  assert.equal(pythonCommand.payload.request_index, 1);
+  assert.deepEqual(tick.command, pythonCommand);
   assert.equal(tick.decision_id, `resume-${tickDigest.slice(0, 32)}`);
   assert.deepEqual(
     typed.bindRetainedTypedToolArguments(
