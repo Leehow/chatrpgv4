@@ -2670,33 +2670,21 @@ def _pc_subject_refs(
     return [f"pc:{investigator_id}" for investigator_id in sorted(proven)]
 
 
-def build_output_context(campaign_dir: Path) -> dict[str, Any]:
-    ruleset_id = _campaign_ruleset_id(campaign_dir)
-    try:
-        manifest, window, journal = coc_turn_manifest.refresh_pending_window(
-            campaign_dir
-        )
-    except coc_turn_manifest.TurnManifestError as exc:
-        raise TurnContractError(exc.code, str(exc)) from exc
-    finalizations = load_finalizations(campaign_dir)
-    # Durable exact-replay rows remain audit evidence in the source window but
-    # are not a new settlement. Exclude them before every mechanics projection.
-    window = [
-        call for call in window
-        if call.get("idempotent_replay") is not True
-    ]
-    start = int(manifest["source_start_index"])
-    end = int(manifest["journal_call_index"])
-    hidden_roll_ids = _superseded_roll_ids(campaign_dir)
+def _settlement_requirements(
+    campaign_dir: Path,
+    *,
+    window: list[dict[str, Any]],
+    finalizations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Project the hard settlement requirements from one source window.
+
+    This is shared by the pre-journal mutation gate and the post-journal
+    output context so the two boundaries cannot disagree about exceptional
+    effects or one-shot modifier consumption.
+    """
     rolls = _source_rolls(campaign_dir, window, finalizations)
     rolls = _exclude_dispositioned_rolls(campaign_dir, rolls)
     _attach_structured_skill_labels(campaign_dir, rolls)
-    public_rolls = [raw for raw in rolls if is_player_facing_roll(raw)]
-    state_deltas = _project_state_deltas(
-        window,
-        superseded_roll_ids=hidden_roll_ids,
-        ruleset_id=ruleset_id,
-    )
     context_effects = _project_context_effects(window)
     prior_event_ids, prior_effect_ids = _prior_exceptional_ids(finalizations)
     exceptional_events, exceptional_applies = _project_exceptional_effects(
@@ -2714,10 +2702,12 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
         obligations.sort(key=lambda row: row["obligation_id"])
     if not obligations and not rolls:
         window_roll_calls = [
-            c for c in window
-            if c.get("ok") is True and c.get("tool") in ("rules.roll", "rules.push")
+            call for call in window
+            if call.get("ok") is True
+            and call.get("tool") in ("rules.roll", "rules.push")
         ]
         referenced_roll_ids = _referenced_roll_ids(window)
+        hidden_roll_ids = _superseded_roll_ids(campaign_dir)
         if window_roll_calls and (
             not referenced_roll_ids
             or bool(referenced_roll_ids - hidden_roll_ids)
@@ -2738,7 +2728,84 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
         if row.get("substantive_effect_required")
         and row.get("substantive_effect_status") != "applied"
     ]
-    pending_modifiers = _pending_modifier_consumptions(campaign_dir, rolls)
+    return {
+        "rolls": rolls,
+        "context_effects": context_effects,
+        "exceptional_events": exceptional_events,
+        "obligations": obligations,
+        "concealed": concealed,
+        "missing_substantive_effects": missing_effects,
+        "pending_modifier_consumptions": _pending_modifier_consumptions(
+            campaign_dir, rolls
+        ),
+    }
+
+
+def prejournal_settlement_blockers(campaign_dir: Path) -> dict[str, Any]:
+    """Return recoverable hard blockers before ``state.journal`` writes.
+
+    Failed journal audit rows may remain in the open source window; only
+    successful settlement receipts contribute to the canonical projection.
+    """
+    try:
+        window = coc_turn_manifest.uncommitted_source_rows(campaign_dir)
+    except coc_turn_manifest.TurnManifestError as exc:
+        raise TurnContractError(exc.code, str(exc)) from exc
+    window = [
+        call for call in window
+        if call.get("idempotent_replay") is not True
+    ]
+    requirements = _settlement_requirements(
+        campaign_dir,
+        window=window,
+        finalizations=load_finalizations(campaign_dir),
+    )
+    return {
+        "missing_substantive_effects": requirements[
+            "missing_substantive_effects"
+        ],
+        "pending_modifier_consumptions": requirements[
+            "pending_modifier_consumptions"
+        ],
+    }
+
+
+def build_output_context(campaign_dir: Path) -> dict[str, Any]:
+    ruleset_id = _campaign_ruleset_id(campaign_dir)
+    try:
+        manifest, window, journal = coc_turn_manifest.refresh_pending_window(
+            campaign_dir
+        )
+    except coc_turn_manifest.TurnManifestError as exc:
+        raise TurnContractError(exc.code, str(exc)) from exc
+    finalizations = load_finalizations(campaign_dir)
+    # Durable exact-replay rows remain audit evidence in the source window but
+    # are not a new settlement. Exclude them before every mechanics projection.
+    window = [
+        call for call in window
+        if call.get("idempotent_replay") is not True
+    ]
+    start = int(manifest["source_start_index"])
+    end = int(manifest["journal_call_index"])
+    hidden_roll_ids = _superseded_roll_ids(campaign_dir)
+    requirements = _settlement_requirements(
+        campaign_dir,
+        window=window,
+        finalizations=finalizations,
+    )
+    rolls = requirements["rolls"]
+    public_rolls = [raw for raw in rolls if is_player_facing_roll(raw)]
+    state_deltas = _project_state_deltas(
+        window,
+        superseded_roll_ids=hidden_roll_ids,
+        ruleset_id=ruleset_id,
+    )
+    context_effects = requirements["context_effects"]
+    exceptional_events = requirements["exceptional_events"]
+    obligations = requirements["obligations"]
+    concealed = requirements["concealed"]
+    missing_effects = requirements["missing_substantive_effects"]
+    pending_modifiers = requirements["pending_modifier_consumptions"]
     journal_args = journal.get("args") if isinstance(journal.get("args"), dict) else {}
     journal_decision_id = str(journal_args.get("decision_id") or "")
     journal_context = {

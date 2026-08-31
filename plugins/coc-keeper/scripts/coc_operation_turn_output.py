@@ -2053,6 +2053,44 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
         )
     except coc_continuation.ContinuationError as exc:
         raise ToolError(exc.code, str(exc)) from exc
+    try:
+        settlement_blockers = (
+            coc_turn_finalization.prejournal_settlement_blockers(
+                ctx.campaign_dir
+            )
+        )
+    except coc_turn_finalization.TurnContractError as exc:
+        raise ToolError(exc.code, str(exc)) from exc
+    missing_effects = settlement_blockers["missing_substantive_effects"]
+    pending_modifiers = settlement_blockers["pending_modifier_consumptions"]
+    if missing_effects or pending_modifiers:
+        details = {
+            "journal_committed": False,
+            "missing_substantive_effects": missing_effects,
+            "pending_modifier_consumptions": pending_modifiers,
+        }
+        if missing_effects:
+            missing = ", ".join(
+                row["obligation_id"] for row in missing_effects
+            )
+            raise ToolError(
+                "substantive_exceptional_effect_required",
+                "state.journal refused before writing because a critical, "
+                "fumble, or pushed-failure outcome lacks a source-bound "
+                f"applied effect: {missing}",
+                details=details,
+            )
+        pending = ", ".join(
+            f"{row['effect_id']}->{row['roll_id']}"
+            for row in pending_modifiers
+        )
+        raise ToolError(
+            "exceptional_modifier_unconsumed",
+            "state.journal refused before writing because an applicable "
+            "one-shot exceptional modifier was not source-bound to its roll: "
+            + pending,
+            details=details,
+        )
     pacing["turn_number"] = next_turn_number
     warnings: list[str] = []
     # A later player message is not transport evidence for the preceding
