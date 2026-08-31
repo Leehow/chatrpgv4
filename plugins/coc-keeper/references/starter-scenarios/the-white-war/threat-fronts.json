@@ -8,6 +8,7 @@
       "dangers": [
         {
           "id": "the-whistler",
+          "creature_type": "polyp_horror",
           "impulse": "to examine each human individually by seizing, probing, and discarding them",
           "moves": [
             "wind blast to whirl a target into the air (Athletics to resist, environmental damage on impact)",

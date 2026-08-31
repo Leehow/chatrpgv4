@@ -259,6 +259,94 @@ def module_rules(scenario_id: str) -> dict[str, Any]:
     }
 
 
+def module_monster_rule(
+    scenario_id: str, creature_type: str,
+) -> dict[str, Any] | None:
+    """Return one explicitly keyed module creature rule, if authored.
+
+    ``creature_type`` is a structured scenario identifier (for example
+    ``polyp_horror``), never prose to fuzzy-match.
+    """
+    scenario_id = str(scenario_id or "").strip()
+    creature_type = str(creature_type or "").strip()
+    if not scenario_id or not creature_type:
+        return None
+    if not (RULES_DIR / f"{scenario_id}.json").is_file():
+        return None
+    rules = module_rules(scenario_id)["rules"]
+    row = rules.get(creature_type) if isinstance(rules, dict) else None
+    if not isinstance(row, dict):
+        return None
+    source_rule_id = row.get("source_rule_id")
+    if not isinstance(source_rule_id, str) or not source_rule_id.strip():
+        return None
+    return _json_copy(row)
+
+
+def module_monster_san_threat(
+    scenario_id: str, creature_type: str,
+) -> dict[str, Any] | None:
+    """Normalize an authored module creature's success/failure SAN pair."""
+    row = module_monster_rule(scenario_id, creature_type)
+    if row is None:
+        return None
+    raw = row.get("san_loss")
+    if isinstance(raw, dict):
+        success = raw.get("success")
+        failure = raw.get("failure")
+    elif isinstance(raw, str) and raw.count("/") == 1:
+        success, failure = (part.strip() for part in raw.split("/", 1))
+    else:
+        return None
+    if isinstance(success, int) and not isinstance(success, bool):
+        success_value: int | str = success
+    elif isinstance(success, str) and success.strip():
+        success_value = success.strip()
+    else:
+        return None
+    if not isinstance(failure, str) or not failure.strip():
+        return None
+    return {
+        "success": success_value,
+        "failure": failure.strip(),
+        "source_rule_id": str(row["source_rule_id"]),
+        "creature_type": str(creature_type),
+    }
+
+
+def module_daylight_skill_modifier(
+    scenario_id: str, creature_type: str,
+) -> dict[str, Any] | None:
+    """Return a source-bound flat skill adjustment for a module creature."""
+    creature = module_monster_rule(scenario_id, creature_type)
+    if creature is None:
+        return None
+    abilities = creature.get("special_abilities")
+    value = (
+        abilities.get("daylight_penalty_percent")
+        if isinstance(abilities, dict) else None
+    )
+    if isinstance(value, bool) or not isinstance(value, int) or value >= 0:
+        return None
+    rules = module_rules(scenario_id)["rules"]
+    daylight = rules.get("daylight_penalty") if isinstance(rules, dict) else None
+    if (
+        not isinstance(daylight, dict)
+        or daylight.get("all_skills_penalty_percent") != value
+    ):
+        return None
+    source_rule_id = daylight.get("source_rule_id")
+    if not isinstance(source_rule_id, str) or not source_rule_id.strip():
+        return None
+    return {
+        "kind": "flat_target_percent",
+        "value": value,
+        "source_rule_id": source_rule_id,
+        "creature_rule_id": str(creature["source_rule_id"]),
+        "creature_type": str(creature_type),
+    }
+
+
 def the_haunting_rules() -> dict[str, Any]:
     """Backward-compatible wrapper; prefer module_rules('the-haunting')."""
     return module_rules("the-haunting")

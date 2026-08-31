@@ -19,6 +19,7 @@ if str(SCRIPTS) not in sys.path:
 
 import coc_hazards  # noqa: E402
 import coc_rules  # noqa: E402
+import coc_rulesets  # noqa: E402
 import coc_sanity  # noqa: E402
 import coc_story_director  # noqa: E402
 import coc_subsystem_executor  # noqa: E402
@@ -109,6 +110,114 @@ def _director_context(scene: dict) -> dict:
         "sanity_engine_state": None,
         "chase_state": None,
     }
+
+
+def _white_war_document(name: str) -> dict:
+    path = (
+        REPO / "plugins" / "coc-keeper" / "references"
+        / "starter-scenarios" / "the-white-war" / name
+    )
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_white_war_polyp_san_source_row_drives_existing_threat_path(
+    tmp_path: Path,
+) -> None:
+    story = _white_war_document("story-graph.json")
+    scene = next(
+        row for row in story["scenes"]
+        if row["scene_id"] == "blizzard-withdrawal"
+    )
+    ctx = _director_context(scene)
+    ctx["module_meta"] = {"scenario_id": "the-white-war"}
+    ctx["story_graph"] = story
+
+    requests = coc_story_director._build_rules_requests(
+        ctx, "REVEAL", {"clue_type": "obvious"}
+    )
+    request = next(row for row in requests if row.get("kind") == "sanity_check")
+    assert request["creature_type"] == "polyp_horror"
+    assert request["san_loss_success"] == "1D6"
+    assert request["san_loss_fail_expr"] == "1D12"
+    assert request["rule_ref"] == "module.white_war.polyp_horror"
+
+    campaign, character_path = _san_campaign(tmp_path, san=1)
+    commands = coc_subsystem_executor.commands_from_rules_requests({
+        "decision_id": "white-war-polyp-san-trace",
+        "rules_requests": [request],
+    })
+    normalized = coc_subsystem_executor.execute_commands(
+        campaign,
+        character_path,
+        "inv",
+        commands,
+        rng=random.Random(2),
+    )
+    events = coc_subsystem_executor.flatten_result_events(normalized)
+    check = next(row for row in events if row.get("kind") == "sanity_check")
+    assert check["san_loss_expression"] == "1D12"
+    assert check["rule_ref"] == "module.white_war.polyp_horror"
+    persisted = [
+        json.loads(line)["payload"]
+        for line in (campaign / "logs" / "rolls.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    ]
+    roll = next(row for row in persisted if row.get("kind") == "sanity_check")
+    assert roll["san_loss_expression"] == "1D12"
+    assert roll["rule_ref"] == "module.white_war.polyp_horror"
+
+
+def test_white_war_daylight_row_modifies_structured_threat_values() -> None:
+    story = _white_war_document("story-graph.json")
+    scene = next(
+        row for row in story["scenes"]
+        if row["scene_id"] == "dawn-counterstroke"
+    )
+    ctx = _director_context(scene)
+    ctx["module_meta"] = {"scenario_id": "the-white-war"}
+    ctx["story_graph"] = story
+    ctx["threat_fronts"] = _white_war_document("threat-fronts.json")
+    ctx["player_intent_class"] = "fight"
+    ctx["time_signals"] = {"day_phase": "morning", "is_night": False}
+
+    requests = coc_story_director._build_rules_requests(ctx, "SUBSYSTEM")
+    wind = next(
+        row for row in requests
+        if row.get("kind") == "opposed_check"
+        and row.get("attack_name") == "wind blast"
+    )
+    assert wind["opposed_target_percent"] == 79
+    assert wind["opponent_value"] == 79
+    assert wind["modifier_evidence"] == {
+        "kind": "flat_target_percent",
+        "value": -20,
+        "rule_ref": "module.white_war.daylight_penalty",
+        "creature_rule_ref": "module.white_war.polyp_horror",
+    }
+    settled = coc_rulesets.get_resolver({"ruleset_id": "coc7"}).opposed(
+        50, wind["opponent_value"], rng=random.Random(11)
+    )
+    assert settled["opponent_roll"]["base_target"] == 79
+    tentacle = next(
+        row for row in ctx["combat_reaction_advisories"]
+        if row.get("attack_name") == "tentacle slash"
+    )
+    assert tentacle["attack_target_percent"] == 40
+    assert tentacle["modifier_evidence"]["rule_ref"] == (
+        "module.white_war.daylight_penalty"
+    )
+
+    ctx["time_signals"] = {"day_phase": "night", "is_night": True}
+    requests = coc_story_director._build_rules_requests(ctx, "SUBSYSTEM")
+    night_wind = next(
+        row for row in requests
+        if row.get("kind") == "opposed_check"
+        and row.get("attack_name") == "wind blast"
+    )
+    assert night_wind["opposed_target_percent"] == 99
+    assert "modifier_evidence" not in night_wind
 
 
 def test_byakhee_san_row_flows_through_threat_request_and_sanity_session(
