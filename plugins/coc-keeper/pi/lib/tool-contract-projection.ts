@@ -3566,6 +3566,11 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [],
     ["roll_id"],
   )],
+  ["rules.build_scale", declaredIdentityTable(
+    [],
+    [],
+    ["rule_ref"],
+  )],
   ["rules.social_adjudicate", declaredIdentityTable(
     ["npc_id", "commitment_id"],
     ["source_digest", "request_digest"],
@@ -3591,7 +3596,7 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["completion_trigger_id", "operation_id"],
   )],
   ["rules.skill_describe", declaredIdentityTable(
-    ["catalog_skill_ids"],
+    ["catalog_skill_ids", "id"],
     [],
   )],
   ["rules.context", declaredIdentityTable(
@@ -3991,6 +3996,8 @@ function projectDiscoveredIdentityField(
 /** Fields whose scalar value is a canonical roll/effect/item/weapon/route identity. */
 const SEMANTIC_ID_SCALAR_FIELDS: ReadonlyMap<string, string> = new Map([
   ["roll_id", "roll:"],
+  ["investigator_roll_id", "roll:"],
+  ["opponent_roll_id", "roll:"],
   ["check_roll_id", "roll:"],
   ["int_roll_id", "roll:"],
   ["bout_duration_roll_id", "roll:"],
@@ -5122,6 +5129,11 @@ function projectOutputContextData(
 ): Record<string, unknown> {
   const view: Record<string, unknown> = {};
   for (const field of OUTPUT_CONTEXT_KEPT_FIELDS) {
+    // Candidate factors embed canonical operation results. Project each
+    // result through its OWN operation declaration below; walking it as an
+    // outer turn.output_context branch would misclassify operation-local
+    // identities (for example rules.build_scale rule_ref).
+    if (field === "candidate_factors") continue;
     if (field in data) view[field] = data[field];
   }
   diagnoseUnprojectedIdentityKeys(
@@ -5137,6 +5149,21 @@ function projectOutputContextData(
     diagnostics,
     "turn.output_context",
   ) as Record<string, unknown>;
+  if (Array.isArray(data.candidate_factors)) {
+    projected.candidate_factors = data.candidate_factors.map((entry) => {
+      if (!isPlainObject(entry)) return entry;
+      const candidateOperation = typeof entry.tool === "string"
+        ? entry.tool
+        : null;
+      return stripOpaqueModelIdentity(
+        entry,
+        null,
+        semanticIds,
+        diagnostics,
+        candidateOperation,
+      );
+    });
+  }
   projected.contract_projection = projectOutputContextContractProjection(data);
   if (data.agency_review_operation !== undefined) {
     projected.agency_review_operation = projectOperationDescriptor(

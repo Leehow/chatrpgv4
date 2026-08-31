@@ -45,6 +45,10 @@ test("rules.skill_describe keeps semantic skill catalog identities model-visible
         "Firearms (Rifle/Shotgun)",
         "Library Use",
       ],
+      selection_policy: {
+        id: "interpersonal-disambiguation",
+        title: "Interpersonal Skills: Disambiguation",
+      },
     },
   };
 
@@ -58,8 +62,67 @@ test("rules.skill_describe keeps semantic skill catalog identities model-visible
     "Firearms (Rifle/Shotgun)",
     "Library Use",
   ]);
+  assert.equal(
+    visible.data.selection_policy.id,
+    "interpersonal-disambiguation",
+  );
   assert.ok(!Object.hasOwn(visible, "wire"));
   assert.ok(!JSON.stringify(visible).includes("f1697b5ca3031f0d"));
+});
+
+test("rules.build_scale keeps mechanics while its citation ref stays host-only", () => {
+  const canonical = {
+    ok: true,
+    tool: "rules.build_scale",
+    data: {
+      comparison: {
+        actor_build: 2,
+        target_build: 2,
+        relative_build: 0,
+        lift_throw: {
+          verdict: "carried_briefly",
+          note: "a target of equal build can be carried briefly",
+        },
+        maneuver: { penalty_dice: 0, impossible: false },
+        rule_ref: "keeper-rulebook p.279 (Table XV), p.105",
+      },
+    },
+  };
+
+  const direct = project("rules.build_scale", canonical);
+  assert.deepEqual(direct.diagnostics, []);
+  assert.equal(direct.visible.ok, true);
+  assert.equal(direct.visible.data.comparison.relative_build, 0);
+  assert.equal(direct.visible.data.comparison.rule_ref, undefined);
+
+  const outputContext = project("turn.output_context", {
+    ok: true,
+    tool: "turn.output_context",
+    data: {
+      obligations: [],
+      required_obligation_ids: [],
+      mechanics_summary: {
+        public_check: [],
+        state_delta: [],
+        exceptional_effect: [],
+        concealed_consequence: [],
+      },
+      candidate_factors: [{
+        tool: "rules.build_scale",
+        data: canonical.data,
+      }],
+    },
+  });
+  assert.deepEqual(outputContext.diagnostics, []);
+  assert.equal(outputContext.visible.ok, true);
+  assert.equal(
+    outputContext.visible.data.candidate_factors[0].data.comparison.relative_build,
+    0,
+  );
+  assert.equal(
+    outputContext.visible.data.candidate_factors[0].data.comparison.rule_ref,
+    undefined,
+  );
 });
 
 test("rules.skill_describe rejects opaque values disguised as skill identities", () => {
@@ -74,6 +137,7 @@ test("rules.skill_describe rejects opaque values disguised as skill identities",
       skills: {},
       missing: [],
       catalog_skill_ids: ["Library Use", opaque],
+      selection_policy: { id: opaque },
     },
   });
 
@@ -83,6 +147,10 @@ test("rules.skill_describe rejects opaque values disguised as skill identities",
     parentField: "catalog_skill_ids",
     domain: "skill_catalog",
     path: "catalog_skill_ids",
+  }, {
+    field: "id",
+    parentField: "id",
+    domain: "unknown",
   }]);
   assert.ok(!JSON.stringify(visible).includes(opaque));
 });

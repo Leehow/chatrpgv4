@@ -1819,6 +1819,101 @@ assertModelSafeContent(
   "evidence.table_opening content",
   JSON.parse(modelContents.at(-1).text),
 );
+// Random dice and opposed checks are authoritative rolls too. Their exact
+// toolbox ids are registered before projection, so the first successful call
+// remains ok:true and exposes only stable semantic roll handles. A model must
+// never be pushed into retrying an already-settled opposed check because its
+// result identity was undeclared.
+{
+  const randomCanonicalId = "toolbox-live-rules-000101";
+  routeOperation("rules.roll_dice", {
+    ok: true,
+    tool: "rules.roll_dice",
+    data: {
+      expression: "1D6+1",
+      count: 1,
+      sides: 6,
+      modifier: 1,
+      rolls: [4],
+      total: 5,
+      reason: "随机伤害量",
+      roll_id: randomCanonicalId,
+    },
+  });
+  const randomResult = await executeTool("coc_rules_roll_dice", {
+    campaign,
+    decision_id: "roll-random-damage-v1",
+    expression: "1D6+1",
+    reason: "随机伤害量",
+  });
+  const randomVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(randomVisible.ok, true, JSON.stringify(randomVisible));
+  assert.match(randomVisible.data.roll_id, /^roll:/);
+  assert.ok(!modelContents.at(-1).text.includes(randomCanonicalId));
+  assert.equal(randomResult.details.data.roll_id, randomCanonicalId);
+  assertModelSafeContent("rules.roll_dice content", randomVisible);
+
+  const investigatorRollId = "toolbox-live-rules-000102";
+  const opponentRollId = "toolbox-live-rules-000103";
+  routeOperation("rules.opposed", {
+    ok: true,
+    tool: "rules.opposed",
+    data: {
+      investigator_id: "inv-x6a217e22-e0532209",
+      skill: "Stealth",
+      target_source: "sheet",
+      investigator_roll: {
+        target: 40,
+        roll: 31,
+        achieved_level: "regular",
+        passed: true,
+      },
+      opponent_label: "守卫侦查",
+      opponent_roll: {
+        target: 55,
+        roll: 72,
+        achieved_level: "failure",
+        passed: false,
+      },
+      winner: "investigator",
+      investigator_roll_id: investigatorRollId,
+      opponent_roll_id: opponentRollId,
+    },
+  });
+  const opposedCallsBefore = clientCalls.filter(
+    (call) => call.operation === "rules.opposed",
+  ).length;
+  const opposedResult = await executeTool("coc_rules_opposed", {
+    campaign,
+    contest_kind: "noncombat",
+    decision_id: "roll-stealth-vs-guard-v1",
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    skill: "Stealth",
+    opponent_value: 55,
+    opponent_label: "守卫侦查",
+    reason: "潜行避开守卫",
+  });
+  const opposedVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(opposedVisible.ok, true, JSON.stringify(opposedVisible));
+  assert.match(opposedVisible.data.investigator_roll_id, /^roll:/);
+  assert.match(opposedVisible.data.opponent_roll_id, /^roll:/);
+  assert.notEqual(
+    opposedVisible.data.investigator_roll_id,
+    opposedVisible.data.opponent_roll_id,
+  );
+  assert.equal(
+    clientCalls.filter((call) => call.operation === "rules.opposed").length,
+    opposedCallsBefore + 1,
+    "one canonical opposed settlement must yield one usable model result",
+  );
+  assert.ok(!modelContents.at(-1).text.includes(investigatorRollId));
+  assert.ok(!modelContents.at(-1).text.includes(opponentRollId));
+  assert.equal(
+    opposedResult.details.data.investigator_roll_id,
+    investigatorRollId,
+  );
+  assertModelSafeContent("rules.opposed content", opposedVisible);
+}
 // SAN typed tools expose only semantic cause/loss/trigger data. Host-owned
 // idempotency and subsystem command identity never reach the model schema.
 {
