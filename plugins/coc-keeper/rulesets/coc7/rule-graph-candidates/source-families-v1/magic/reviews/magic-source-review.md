@@ -51,3 +51,16 @@ candidate now has `coverage.magic=accepted`, no exception nodes, no unresolved
 applicable rules, and no source blocker. Runtime ownership remains
 `legacy/visible`; production graph/manifest and operation archive/policy remain
 unchanged.
+
+## Executable graph review
+
+The executable revision contains two decisions, never a generic magic
+resolver. `decision:coc7:magic:cast-spell` maps exactly to `magic.cast`:
+spell and pushed/interrupted intent are semantic, while NPC status,
+investigator identity, and idempotency are host-locked; MP, SAN, HP overspill,
+and casting are distinct effects. `decision:coc7:magic:learn-spell` maps to
+`magic.learn`: spell/source are semantic, learner/idempotency are host-locked,
+and learning, study scheduling, and entity SAN cost are explicit effects.
+Both invoke only existing typed capabilities under coc7 applicability. No
+algorithm or table is copied into the graph and
+`unresolved_executable_rules` is empty.

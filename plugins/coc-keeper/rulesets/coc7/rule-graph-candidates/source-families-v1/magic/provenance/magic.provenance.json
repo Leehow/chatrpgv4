@@ -10,6 +10,12 @@
   },
   "unresolved_applicable_rules": [],
   "blockers": [],
+  "executable_review_status": "accepted",
+  "executable_operations": [
+    "magic.cast",
+    "magic.learn"
+  ],
+  "unresolved_executable_rules": [],
   "visual_review": {
     "pdf_file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
     "contact_sheet": "/private/tmp/pi-coc-rule-families-20260831/visual-review/magic-core-contact.jpg"
@@ -445,5 +451,5 @@
       ]
     }
   ],
-  "accepted_shard_digest": "d38032bc39c21424622d4800d33797dac25800cece5055ff14207e3f45e0ec08"
+  "accepted_shard_digest": "49e63a6495c14dc0000046976e4798918f529afaec16122fb29352e5ccd87f51"
 }

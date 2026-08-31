@@ -165,6 +165,28 @@ def test_magic_has_complete_accepted_shard_after_source_correction():
     assert provenance["blockers"] == []
     node_ids = {node["node_id"] for node in candidate["nodes"]}
     assert not any(node_id.startswith("exception:coc7:magic:") for node_id in node_ids)
+    assert provenance["executable_operations"] == ["magic.cast", "magic.learn"]
+    assert provenance["unresolved_executable_rules"] == []
+    decisions = {
+        node["node_id"]: node for node in candidate["nodes"]
+        if node["node_kind"] == "decision"
+    }
+    assert set(decisions) == {
+        "decision:coc7:magic:cast-spell",
+        "decision:coc7:magic:learn-spell",
+    }
+    assert decisions["decision:coc7:magic:cast-spell"]["properties"][
+        "implementation"
+    ]["kind"] == "magic.cast"
+    assert decisions["decision:coc7:magic:learn-spell"]["properties"][
+        "implementation"
+    ]["kind"] == "magic.learn"
+    for decision_id in decisions:
+        kinds = {
+            row["relation_kind"] for row in candidate["relations"]
+            if row["from_node_id"] == decision_id
+        }
+        assert {"available-when", "invokes", "requires-input", "locks-input", "emits"} <= kinds
 
 
 def test_removed_magic_spell_names_are_absent_from_exact_source_and_catalog():
