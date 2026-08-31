@@ -6836,6 +6836,37 @@ def _latest_graph_check_receipt(
     return decision_id, check
 
 
+def _latest_graph_psychology_observation(
+    ctx: Ctx,
+) -> tuple[str, dict[str, Any]] | None:
+    """Latest durable graph observation for realization after host restart."""
+    ledger = ctx._load_ledger()
+    candidates: list[tuple[str, str, dict[str, Any]]] = []
+    for entry in (ledger.get("entries") or {}).values():
+        if not isinstance(entry, Mapping) or entry.get("tool") != "rules.settle":
+            continue
+        data = entry.get("data") if isinstance(entry.get("data"), Mapping) else {}
+        if (
+            data.get("family") != "psychology"
+            or data.get("decision_ref")
+            != "decision:coc7:psychology:observe-concealed"
+        ):
+            continue
+        settlement = data.get("settlement") if isinstance(data.get("settlement"), Mapping) else {}
+        result = settlement.get("result") if isinstance(settlement.get("result"), Mapping) else {}
+        if not str(result.get("insight_id") or ""):
+            continue
+        candidates.append((
+            str(entry.get("ts") or ""),
+            str(entry.get("decision_id") or ""),
+            deepcopy(dict(result)),
+        ))
+    if not candidates:
+        return None
+    _ts, decision_id, result = sorted(candidates)[-1]
+    return decision_id, result
+
+
 def _project_healing_decision_cards(
     ctx: Ctx, investigator_id: str | None,
 ) -> dict[str, Any]:
@@ -6897,6 +6928,11 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
     question: dict[str, Any] = {"family": family, "kind": kind}
     if family == "push-luck":
         source = _latest_graph_check_receipt(ctx)
+        if source is not None:
+            question["_host_source_decision_id"] = source[0]
+            question["_host_source_receipt"] = source[1]
+    elif family == "psychology":
+        source = _latest_graph_psychology_observation(ctx)
         if source is not None:
             question["_host_source_decision_id"] = source[0]
             question["_host_source_receipt"] = source[1]

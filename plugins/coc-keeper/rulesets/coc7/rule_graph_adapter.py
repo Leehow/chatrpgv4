@@ -281,7 +281,9 @@ class Coc7RuleGraphAdapter:
 
     @staticmethod
     def promotion_blockers(family: str) -> list[str]:
-        if family in {"healing", "core-check", "push-luck", "social"}:
+        if family in {
+            "healing", "core-check", "push-luck", "social", "psychology",
+        }:
             return []
         candidate_families = {
             decision_ref.split(":", 3)[2]

@@ -2275,6 +2275,120 @@ def test_social_canonical_rebuild_rejects_forged_free_text_target(monkeypatch):
     assert failure.value.code == "invalid_semantic_input"
 
 
+def test_psychology_canonical_binding_survives_restart(monkeypatch, tmp_path: Path):
+    kernel = coc_toolbox.coc_operation_kernel
+    monkeypatch.setattr(
+        kernel, "_load_npc_presence_document",
+        lambda _ctx: {"presence": {}},
+    )
+    campaign_dir = tmp_path / "campaign"
+    (campaign_dir / "save").mkdir(parents=True)
+    ctx = SimpleNamespace(
+        campaign_dir=campaign_dir,
+        world=lambda: {"active_scene_id": "commission-briefing"},
+        story_graph={"scenes": [{
+            "scene_id": "commission-briefing", "npc_ids": ["npc-knott"],
+        }]},
+        npc_agendas={"npcs": [{
+            "npc_id": "npc-knott",
+            "facts": [{"fact_id": "commission"}],
+        }]},
+    )
+    semantic = {
+        "target_ref": "psychology-target:npc-knott",
+        "question": "他在回避什么？",
+    }
+    observed_binding = kernel._canonical_psychology_binding(
+        ctx,
+        investigator_id="thomas-hayes",
+        semantic_inputs=semantic,
+    )
+    assert observed_binding["conversation_window_id"] == (
+        "conversation:commission-briefing:thomas-hayes:npc-knott"
+    )
+    assert observed_binding["observable_fact_refs"] == [
+        "npc_fact:npc-knott/commission",
+    ]
+    insight_id = "psych-insight-durable"
+    _write_json(campaign_dir / "save" / "psychology-observations.json", {
+        "schema_version": 2,
+        "observations": {"window": {
+            **observed_binding,
+            "insight_id": insight_id,
+            "inference_depth": "motive_link",
+        }},
+        "realizations": {},
+    })
+    restarted_binding = kernel._canonical_psychology_binding(
+        ctx,
+        investigator_id="thomas-hayes",
+        semantic_inputs={"external_behavior": "他攥紧口袋。"},
+        observation_result={
+            "insight_id": insight_id,
+            "inference_depth": "motive_link",
+        },
+    )
+    assert restarted_binding["observation_receipt_ref"] == insight_id
+    assert restarted_binding["inference_ceiling"] == "motive_link"
+
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    selected = {
+        "semantic_inputs": {"external_behavior": "他攥紧口袋。"},
+        "_host_psychology_binding": restarted_binding,
+    }
+    provider = adapter.host_locked_provider(
+        ctx,
+        {"investigator": "thomas-hayes", "decision_id": "psych-realize-1"},
+        selected,
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        safe_sheet=lambda *_args: {},
+        skill_value=lambda *_args: None,
+    )
+    locked = provider("decision:coc7:psychology:realize-player-safe")
+    execution = adapter.executor_args(
+        ctx,
+        {
+            "capability": {"resolver_capability": "psychology_policy"},
+            "command": {"payload": {
+                "external_behavior": "他攥紧口袋。", **locked,
+            }},
+        },
+        selected,
+        {"investigator": "thomas-hayes", "decision_id": "psych-realize-1"},
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        tool_error=kernel.ToolError,
+    )
+    assert execution["action"] == "realize"
+    assert execution["insight_id"] == insight_id
+    assert execution["visible_observation"] == "他攥紧口袋。"
+
+
+def test_latest_graph_psychology_observation_reads_durable_ledger():
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = SimpleNamespace(_load_ledger=lambda: {"entries": {
+        "one": {
+            "tool": "rules.settle",
+            "ts": "2026-08-31T01:00:00Z",
+            "decision_id": "psych-observe-1",
+            "data": {
+                "family": "psychology",
+                "decision_ref": "decision:coc7:psychology:observe-concealed",
+                "settlement": {"result": {
+                    "insight_id": "psych-insight-durable",
+                    "inference_depth": "motive_link",
+                }},
+            },
+        },
+    }})
+    assert kernel._latest_graph_psychology_observation(ctx) == (
+        "psych-observe-1",
+        {
+            "insight_id": "psych-insight-durable",
+            "inference_depth": "motive_link",
+        },
+    )
+
+
 def test_runtime_settle_exclusion_scopes_are_no_candidate(tmp_path: Path):
     graph, manifest = _build_fixture_graph(tmp_path)
     promo = manifest.setdefault("family_promotion_eligibility", {}).setdefault(
