@@ -87,7 +87,7 @@ SPECS: dict[str, dict[str, Any]] = {
         "section": "section-magic-source-and-runtime-gaps",
         "bundles": ["magic-core-v2", "magic-grimoire-a-v2", "magic-grimoire-b-v2"],
         "coverage": "accepted",
-        "reviewer": "codex-reviewer-magic-source-20260831",
+        "reviewer": "codex-reviewer-magic-applicability-20260831-v2",
         "tables": ["spells.json"],
         "capabilities": ["magic.learn", "magic.cast"],
         "rules": [
@@ -192,8 +192,10 @@ EXECUTABLE_SPECS: dict[str, list[dict[str, Any]]] = {
             "operation": "magic.cast",
             "slots": [("spell", "keeper-semantic"), ("pushed", "keeper-semantic"),
                       ("interrupted", "keeper-semantic"), ("is_npc", "host-locked"),
+                      ("known_spell_ref", "host-locked"),
                       ("investigator", "host-locked"), ("decision_id", "host-locked")],
-            "condition": {"op": "eq", "path": "campaign.ruleset_id", "value": "coc7"},
+            "condition": {"op": "eq", "path": "magic.spell.known", "value": True},
+            "hard_gate": True,
             "effects": [("mp-spent", "mp"), ("san-spent", "san"),
                         ("hp-overspill", "hp"), ("spell-cast", None)],
         },
@@ -201,8 +203,10 @@ EXECUTABLE_SPECS: dict[str, list[dict[str, Any]]] = {
             "token": "learn-spell",
             "operation": "magic.learn",
             "slots": [("spell", "keeper-semantic"), ("source", "keeper-semantic"),
+                      ("source_ref", "keeper-semantic"),
                       ("investigator", "host-locked"), ("decision_id", "host-locked")],
-            "condition": {"op": "eq", "path": "campaign.ruleset_id", "value": "coc7"},
+            "condition": {"op": "eq", "path": "magic.learn.source-available", "value": True},
+            "hard_gate": True,
             "effects": [("spell-learned", None), ("study-scheduled", None),
                         ("entity-san-cost", "san")],
         },
@@ -346,7 +350,8 @@ def _add_executable_graph(
             if slot is None:
                 value_type = (
                     "enum"
-                    if family == "chase" and name in {"method", "outcome"}
+                    if (family == "chase" and name in {"method", "outcome"})
+                    or (family == "magic" and name == "source")
                     else "semantic"
                     if ownership in {
                         "keeper-semantic", "player-source", "optional-semantic",
@@ -358,6 +363,8 @@ def _add_executable_graph(
                     if family == "chase" and name == "method"
                     else "Typed operation input outcome enum escaped|captured|concluded"
                     if family == "chase" and name == "outcome"
+                    else "Typed operation input source enum tome|person|entity"
+                    if family == "magic" and name == "source"
                     else f"Typed operation input {name}"
                 )
                 slot = _node(

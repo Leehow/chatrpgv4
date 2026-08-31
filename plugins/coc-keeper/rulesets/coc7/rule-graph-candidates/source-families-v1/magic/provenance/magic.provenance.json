@@ -3,7 +3,7 @@
   "schema_version": 1,
   "family_id": "magic",
   "section_id": "section-magic-source-and-runtime-gaps",
-  "reviewer_identity": "codex-reviewer-magic-source-20260831",
+  "reviewer_identity": "codex-reviewer-magic-applicability-20260831-v2",
   "review_status": "accepted",
   "coverage": {
     "magic": "accepted"
@@ -451,5 +451,5 @@
       ]
     }
   ],
-  "accepted_shard_digest": "d76d55d0755b899177be8187213222d78c50a99d90d0595e5fbe94bc9bd18ce3"
+  "accepted_shard_digest": "1255192006c94a82235b84a6d3331c12c360dfa62d62e503cb17e0a1f031029c"
 }

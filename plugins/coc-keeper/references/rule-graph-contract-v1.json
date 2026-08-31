@@ -134,6 +134,8 @@
     "chase.session.inactive",
     "chase.pending.kind",
     "chase.conflict.receipt-ready",
+    "magic.spell.known",
+    "magic.learn.source-available",
     "sanity.bout.pending",
     "sanity.delusion.active",
     "sanity.treatment.due",

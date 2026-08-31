@@ -252,7 +252,7 @@ def test_magic_has_complete_accepted_shard_after_source_correction():
     shard = _read(root / "accepted" / "magic.accepted-shard.json")
     assert candidate["coverage"] == {"magic": "accepted"}
     assert shard["coverage"] == {"magic": "accepted"}
-    assert provenance["reviewer_identity"] == "codex-reviewer-magic-source-20260831"
+    assert provenance["reviewer_identity"] == "codex-reviewer-magic-applicability-20260831-v2"
     assert provenance["review_status"] == "accepted"
     assert len(provenance["accepted_shard_digest"]) == 64
     assert shard["receipt"]["shard_sha256"] == provenance["accepted_shard_digest"]
@@ -283,6 +283,41 @@ def test_magic_has_complete_accepted_shard_after_source_correction():
         }
         assert {"available-when", "invokes", "requires-input", "locks-input", "emits"} <= kinds
     _assert_executable_slots_are_runtime_consumable(candidate, "magic")
+    nodes = {node["node_id"]: node for node in candidate["nodes"]}
+    cast = decisions["decision:coc7:magic:cast-spell"]
+    learn = decisions["decision:coc7:magic:learn-spell"]
+    cast_slots = {
+        row["name"]: row["ownership"]
+        for row in cast["properties"]["implementation"]["payload_slots"]
+    }
+    learn_slots = {
+        row["name"]: row["ownership"]
+        for row in learn["properties"]["implementation"]["payload_slots"]
+    }
+    assert cast_slots["known_spell_ref"] == "host-locked"
+    assert learn_slots["source_ref"] == "keeper-semantic"
+    assert nodes["input-slot:coc7:magic:source"]["properties"]["value_type"] == "enum"
+    assert "tome|person|entity" in nodes["input-slot:coc7:magic:source"]["name"]
+    expected = {
+        "cast-spell": {"op": "eq", "path": "magic.spell.known", "value": True},
+        "learn-spell": {"op": "eq", "path": "magic.learn.source-available", "value": True},
+    }
+    for token, expression in expected.items():
+        link = next(
+            row for row in candidate["relations"]
+            if row["relation_kind"] == "available-when"
+            and row["from_node_id"] == f"decision:coc7:magic:{token}"
+        )
+        condition = nodes[link["to_node_id"]]
+        assert condition["hard_gate"] is True
+        assert condition["properties"]["expression"] == expression
+
+
+def test_magic_registered_applicability_paths_are_closed():
+    registered = set(_read(CONTRACT)["registered_condition_paths"])
+    assert {
+        "magic.spell.known", "magic.learn.source-available",
+    } <= registered
 def test_chase_registered_applicability_paths_are_closed():
     registered = set(_read(CONTRACT)["registered_condition_paths"])
     assert {
