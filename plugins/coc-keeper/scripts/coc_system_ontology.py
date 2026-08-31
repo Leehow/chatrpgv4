@@ -303,6 +303,11 @@ def validate_registry(
                     "module-authored-operation requires a module graph",
                 ))
                 continue
+            if ref["node_kind"] != "authored-operation":
+                findings.append(_finding(
+                    "wrong_node_kind", f"{path}/node_kind",
+                    "module-authored-operation must use authored-operation node kind",
+                ))
             node, operation_findings = _resolve_module_operation(
                 loaded_graphs.get(ref["graph_id"], {}), ref, path
             )
@@ -424,6 +429,14 @@ def validate_registry(
                 "wrong_target_node_kind", f"{path}/to_ref",
                 f"{relation['relation_kind']} does not allow {target['node_kind']}",
             ))
+        if relation["relation_kind"] == "uses-rule" and (
+            source.get("reference_kind") != "module-authored-operation"
+            or source.get("module_rule_ref") != target.get("semantic_id")
+        ):
+            findings.append(_finding(
+                "module_rule_binding_mismatch", path,
+                "uses-rule requires the authored module_rule_ref to equal the target RuleGraph semantic id",
+            ))
         adjacency.setdefault(relation["from_ref"], []).append(relation["to_ref"])
 
         source_node = resolved.get(relation["from_ref"])
@@ -504,6 +517,30 @@ def validate_registry(
             "typed composition relations must not form a semantic authority cycle",
         ))
 
+    linked_kinds: set[str] = set()
+    for relation in registry["relations"]:
+        source = references.get(relation["from_ref"])
+        target = references.get(relation["to_ref"])
+        if source is None or target is None:
+            continue
+        source_graph = graphs.get(source["graph_id"])
+        target_graph = graphs.get(target["graph_id"])
+        if source_graph is None or target_graph is None:
+            continue
+        spec = relation_specs[relation["relation_kind"]]
+        if (
+            source_graph["graph_kind"] not in spec["source_graph_kinds"]
+            or target_graph["graph_kind"] not in spec["target_graph_kinds"]
+            or target["node_kind"] not in spec["target_node_kinds"]
+        ):
+            continue
+        if relation["relation_kind"] == "uses-rule" and (
+            source.get("reference_kind") != "module-authored-operation"
+            or source.get("module_rule_ref") != target.get("semantic_id")
+        ):
+            continue
+        linked_kinds.update({source_graph["graph_kind"], target_graph["graph_kind"]})
+
     coverage_rows: dict[str, dict[str, Any]] = {}
     for index, row in enumerate(registry["coverage"]):
         if row["graph_kind"] in coverage_rows:
@@ -538,6 +575,20 @@ def validate_registry(
             findings.append(_finding(
                 "coverage_status_mismatch", f"/coverage/{index}/status",
                 "coverage status must match the graph availability declaration",
+            ))
+        composition_status = row["composition_status"]
+        is_linked = row["graph_kind"] in linked_kinds
+        if (
+            (composition_status == "instance-linked" and not is_linked)
+            or (composition_status == "no-proven-instance" and is_linked)
+            or (
+                composition_status == "not-applicable"
+                and row["status"] != "absent-production-artifact"
+            )
+        ):
+            findings.append(_finding(
+                "composition_coverage_mismatch", f"/coverage/{index}/composition_status",
+                "composition status does not match the validated typed relations",
             ))
     if set(coverage_rows) != expected_kinds:
         findings.append(_finding(

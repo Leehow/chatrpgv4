@@ -50,23 +50,6 @@
   ],
   "references": [
     {
-      "ref_id": "ref:module:the-haunting:chapel-weakened-floor",
-      "graph_id": "graph:module:the-haunting",
-      "semantic_id": "operation:the-haunting:chapel-weakened-floor",
-      "reference_kind": "module-authored-operation",
-      "node_kind": "authored-operation",
-      "owner_node_id": "scene-chapel-of-contemplation-ruins",
-      "operation_id": "descend-ruined-chapel-cellar",
-      "module_rule_ref": "module.haunting.chapel_weakened_floor"
-    },
-    {
-      "ref_id": "ref:rule:coc7:zero-hit-points",
-      "graph_id": "graph:rule:coc7",
-      "semantic_id": "rule:coc7:healing:zero-hit-points",
-      "reference_kind": "artifact-node",
-      "node_kind": "rule"
-    },
-    {
       "ref_id": "ref:rule:coc7:first-aid-stabilization",
       "graph_id": "graph:rule:coc7",
       "semantic_id": "decision:coc7:healing:first-aid-stabilization",
@@ -175,12 +158,6 @@
   ],
   "relations": [
     {
-      "relation_id": "relation:system:the-haunting-floor-uses-zero-hp-rule",
-      "relation_kind": "uses-rule",
-      "from_ref": "ref:module:the-haunting:chapel-weakened-floor",
-      "to_ref": "ref:rule:coc7:zero-hit-points"
-    },
-    {
       "relation_id": "relation:system:first-aid-requires-dying-fact",
       "relation_kind": "requires-live-state-fact",
       "from_ref": "ref:rule:coc7:first-aid-stabilization",
@@ -239,36 +216,42 @@
     {
       "graph_kind": "module",
       "status": "production-linked",
+      "composition_status": "no-proven-instance",
       "graph_ids": ["graph:module:the-haunting"],
-      "reason": "The production The Haunting ModuleGraph is linked by semantic operation and node references."
+      "reason": "The production The Haunting ModuleGraph is available, but its authored module.haunting.* rules have no matching Rule/Decision identity in the current production healing-only RuleGraph; no Module-to-Rule instance is claimed."
     },
     {
       "graph_kind": "rule",
       "status": "production-linked",
+      "composition_status": "instance-linked",
       "graph_ids": ["graph:rule:coc7"],
       "reason": "The production coc7 RuleGraph is linked without copying node bodies."
     },
     {
       "graph_kind": "live-state",
       "status": "runtime-registry-linked",
+      "composition_status": "instance-linked",
       "graph_ids": ["graph:live-state:campaign"],
       "reason": "Only registered RuleGraph condition paths are referenced; campaign state remains the mutation authority."
     },
     {
       "graph_kind": "execution",
       "status": "runtime-registry-linked",
+      "composition_status": "instance-linked",
       "graph_ids": ["graph:execution:coc7-resolver"],
       "reason": "Capability references resolve through the production coc7 resolver public_api_index."
     },
     {
       "graph_kind": "director",
       "status": "absent-production-artifact",
+      "composition_status": "not-applicable",
       "graph_ids": ["graph:director:production"],
       "reason": "No production DirectorGraph artifact exists, so no instance link is fabricated."
     },
     {
       "graph_kind": "text",
       "status": "absent-production-artifact",
+      "composition_status": "not-applicable",
       "graph_ids": ["graph:text:production"],
       "reason": "No production TextGraph artifact exists, so finalization remains an existing presentation runtime rather than a fabricated graph."
     }

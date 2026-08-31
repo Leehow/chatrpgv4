@@ -37,15 +37,21 @@ graph interpreter 越过现有 resolver、subsystem、state、Keeper 与 finaliz
    kind、semantic-id grammar、artifact/registry existence、relation source/target kind、
    RuleGraph 原生 `invokes` / `emits` 证据、condition-path 使用、authority violation
    与 exact-reference cycle。
-4. ModuleGraph 的 authored declaration 只能 `uses-rule`；它不能直接调用执行器或
-   写 state。RuleGraph 只声明 decision、requirement、capability 与 effect；实际执行
-   仍由 resolver/subsystem，实际变更仍由 state transaction 完成。
+4. ModuleGraph 的 authored declaration 只能在其 `module_rule_ref` 与目标
+   RuleGraph Rule/Decision semantic id 精确一致时声明 `uses-rule`；仅因某规则可能在
+   后续条件中触发，不构成直接采用关系。ModuleGraph 不能直接调用执行器或写 state。
+   RuleGraph 只声明 decision、requirement、capability 与 effect；实际执行仍由
+   resolver/subsystem，实际变更仍由 state transaction 完成。
 5. Director 只可通过 `grounded-by` 读取 scene/rule/effect/fact，且始终 advisory。
    Text/finalization 只可通过 `renders-settled-output` 展示已 settled 的 effect/fact，
    没有 rules、execution 或 state authority。
 6. 目前没有 source-controlled production DirectorGraph 或 TextGraph artifact。
    Coverage ledger 将两者明确记为 `absent-production-artifact`；不以代码文件、收据
    或测试 fixture 冒充一张已存在的图。
+7. 当前 production The Haunting ModuleGraph 使用 `module.haunting.*` 模组专属规则
+   identity，而 production RuleGraph 目前只有 healing family，没有匹配的
+   Rule/Decision identity。因此 Module→Rule coverage 明确记录
+   `no-proven-instance`，不以弱地板伤害“可能导致 0 HP”为由伪造 `uses-rule`。
 
 本 slice 给 production CoC7 healing RuleGraph 增补其合同本来支持、但 production
 artifact 缺失的 Effect nodes 与 `emits` relations。它们引用已有 source evidence，
@@ -81,7 +87,8 @@ validator 完成。
 - 新图谱类型必须先声明 authority plane、availability 和 allowed relations；缺失图谱
   作为可验证事实存在，不再靠猜测。
 - 增加 relation 时必须提供真实 semantic endpoint；production artifact/registry
-  存在时悬空引用会失败。
+  存在时悬空引用会失败；Module→Rule 还必须验证 authored `module_rule_ref` 与目标
+  RuleGraph semantic id 相等。
 - system registry 不提供 traversal-to-action、自动裁决、自动 state mutation 或固定
   KP pipeline。需要执行新规则时，仍应扩展其 owning RuleGraph/resolver/subsystem
   垂直切片，而不是给本 registry 加解释器。
