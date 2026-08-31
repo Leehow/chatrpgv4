@@ -376,15 +376,8 @@ def build_candidate(packet: Mapping[str, Any], family: str) -> dict[str, Any]:
 
 
 def runtime_blockers(family: str) -> list[dict[str, Any]]:
-    if family != "sanity":
-        return []
-    return [{
-        "code": "runtime_schedule_differs_from_source",
-        "runtime_claim": "weekly Psychoanalysis treatment trigger",
-        "source_rule": "indefinite treatment checks occur after each month",
-        "source_pdf_indices": [175, 178],
-        "disposition": "excluded-from-source-shard-runtime-policy",
-    }]
+    del family
+    return []
 
 
 def build_family(bundle_root: Path, family: str) -> dict[str, Any]:

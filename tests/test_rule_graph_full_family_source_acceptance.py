@@ -159,13 +159,7 @@ def test_sanity_is_source_accepted_with_one_precise_runtime_blocker():
             if node["node_kind"] == "data-table"} == {
                 "sanity.json", "phobias.json", "manias.json",
             }
-    assert review["runtime_integration_blockers"] == [{
-        "code": "runtime_schedule_differs_from_source",
-        "runtime_claim": "weekly Psychoanalysis treatment trigger",
-        "source_rule": "indefinite treatment checks occur after each month",
-        "source_pdf_indices": [175, 178],
-        "disposition": "excluded-from-source-shard-runtime-policy",
-    }]
+    assert review["runtime_integration_blockers"] == []
 
 
 def test_sanity_family_regenerates_deterministically_when_source_is_available():

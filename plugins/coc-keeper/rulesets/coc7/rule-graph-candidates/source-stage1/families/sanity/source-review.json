@@ -134,16 +134,5 @@
       "source_group": "optional"
     }
   ],
-  "runtime_integration_blockers": [
-    {
-      "code": "runtime_schedule_differs_from_source",
-      "runtime_claim": "weekly Psychoanalysis treatment trigger",
-      "source_rule": "indefinite treatment checks occur after each month",
-      "source_pdf_indices": [
-        175,
-        178
-      ],
-      "disposition": "excluded-from-source-shard-runtime-policy"
-    }
-  ]
+  "runtime_integration_blockers": []
 }

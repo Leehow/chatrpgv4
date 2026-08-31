@@ -1,7 +1,7 @@
 # Sanity family source review
 
 Verdict: **ACCEPTED** for the complete applicable Sanity family source
-semantics, with one explicit runtime-integration blocker.
+semantics, with no remaining runtime-integration blocker in this scope.
 
 Reviewer: `codex-worker-sanity-source-review-20260831` (independent of the
 source-stage1 producer).
@@ -23,11 +23,11 @@ The two derivative `uncompiled` exception nodes were removed. Their source
 rules are represented directly, yielding 20 accepted applicability rows and
 zero unresolved source rules.
 
-Runtime-integration blocker: the current legacy Sanity runtime schedules a
-weekly Psychoanalysis treatment trigger. PDF indices 175 and 178 state that
-indefinite treatment/psychotherapy progress is checked after each month. The
-weekly implementation claim is excluded from this source shard and must not be
-used as evidence for graph cutover.
+The review found that the legacy Sanity runtime scheduled Psychoanalysis after
+one week, while PDF indices 175 and 178 state that treatment/psychotherapy
+progress is checked after each month. The source-review follow-up changed only
+that cadence to one 30-day elapsed-time treatment month, preserving the
+existing trigger handler, safety policy, and idempotent scheduling path.
 
 Accepted shard: `shard:coc7:sanity:section-sanity-complete-source`.
 

@@ -820,7 +820,7 @@ class SanitySession:
     def _trigger_indefinite_insanity(self) -> None:
         """p.168: 1/5+ SAN lost in one day → indefinite insanity.
 
-        When the time layer is attached, also schedules a weekly
+        When the time layer is attached, also schedules a monthly
         ``apply_psychoanalysis_treatment`` trigger (p.164) so the time-trigger
         dispatch can attempt SAN recovery via PsychotherapySession.
         """
@@ -830,12 +830,13 @@ class SanitySession:
             "daily_san_lost": self.daily_san_lost,
             "threshold": max(1, self.day_start_san // 5),
         })
-        self._schedule_weekly_treatment_trigger()
+        self._schedule_monthly_treatment_trigger()
 
-    def _schedule_weekly_treatment_trigger(self) -> str | None:
-        """Schedule a weekly Psychoanalysis treatment trigger (p.164).
+    def _schedule_monthly_treatment_trigger(self) -> str | None:
+        """Schedule a monthly Psychoanalysis treatment trigger (p.164).
 
-        Due at current_elapsed + 7 days, handler
+        Due at current_elapsed + 30 days (the elapsed-time representation of
+        one treatment month), handler
         ``apply_psychoanalysis_treatment``, policy ``auto_apply_if_safe`` so
         treatment only fires once the investigator reaches a safe place. The
         handler dispatch in ``coc_time.process_due_triggers`` rebuilds a
@@ -849,7 +850,7 @@ class SanitySession:
             coc_time.initialize_time_state(self.campaign_dir)  # type: ignore[union-attr]
             state = coc_time.read_time_state(self.campaign_dir)  # type: ignore[union-attr]
         now = int(state.get("clock", {}).get("elapsed_minutes", 0))
-        due = now + 7 * 24 * 60  # one week
+        due = now + 30 * 24 * 60  # one treatment month
         trig_id = coc_time.schedule_trigger(self.campaign_dir, {  # type: ignore[union-attr]
             "kind": "treatment",
             "scope": "investigator",
@@ -862,7 +863,7 @@ class SanitySession:
         self._event("treatment_trigger_scheduled", {
             "trigger_id": trig_id,
             "due_elapsed_minutes": due,
-            "summary": (f"{self.investigator_id} weekly Psychoanalysis treatment "
+            "summary": (f"{self.investigator_id} monthly Psychoanalysis treatment "
                         f"scheduled for elapsed>{due} (auto_apply_if_safe)."),
         })
         return trig_id
