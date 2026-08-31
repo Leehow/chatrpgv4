@@ -306,6 +306,7 @@ class Coc7RuleGraphAdapter:
     def promotion_blockers(family: str) -> list[str]:
         if family in {
             "healing", "core-check", "push-luck", "social", "psychology", "combat",
+            "sanity",
         }:
             return []
         candidate_families = {
@@ -420,6 +421,8 @@ class Coc7RuleGraphAdapter:
             return ("hp", "condition")
         if decision_ref == _LUCK_SPEND_REF:
             return ("luck",)
+        if decision_ref in _SANITY_SETTLE_DECISION_REFS:
+            return ("san", "condition")
         return ()
 
     @staticmethod

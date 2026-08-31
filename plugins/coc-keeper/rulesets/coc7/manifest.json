@@ -47,6 +47,11 @@
       "family_id": "combat",
       "runtime_owner": "graph",
       "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "sanity",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
     }
   ],
   "resources": [

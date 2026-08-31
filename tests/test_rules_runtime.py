@@ -1775,6 +1775,8 @@ def test_coc7_adapter_registers_settlement_state_effect_domains() -> None:
             if decision_ref.startswith("decision:coc7:healing:")
             else ("luck",)
             if decision_ref == "decision:coc7:push-luck:luck-spend"
+            else ("san", "condition")
+            if decision_ref.startswith("decision:coc7:sanity:")
             else ()
         )
         assert coc_rulesets.rule_graph_state_effect_domains(
@@ -2624,6 +2626,47 @@ def test_sanity_graph_gain_fails_without_canonical_pending_receipt():
             tool_error=kernel.ToolError,
         )
     assert failure.value.code == "sanity_gain_receipt_unavailable"
+
+
+@pytest.mark.parametrize(("facts", "added"), [
+    ({}, set()),
+    ({"sanity.bout.pending": True}, {"bout-end", "bout-tick"}),
+    ({"sanity.delusion.active": True}, {"reality-check"}),
+    ({"sanity.treatment.due": True}, {"apply-treatment"}),
+    ({"sanity.recovery.due": True}, {"recover-temporary"}),
+    ({"sanity.insane": True}, {"insane-insight"}),
+    ({"sanity.gain.pending": True}, {"gain-current-san"}),
+])
+def test_sanity_production_cards_follow_exact_canonical_facts(facts, added):
+    package = Path.cwd() / "plugins" / "coc-keeper" / "rulesets" / "coc7"
+    graph = json.loads((package / "rule-graph.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (package / "rule-graph-manifest.json").read_text(encoding="utf-8")
+    )
+    graph["family_runtime_ownership"]["sanity"] = "graph"
+    graph["legacy_surface_lifecycle"]["sanity"] = "hidden"
+    manifest["family_promotion_eligibility"]["sanity"].update({
+        "promotion_eligible": True, "runtime_ownership": "graph",
+    })
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    runtime = coc_rules_runtime.RulesRuntime(
+        graph,
+        ruleset_id="coc7",
+        graph_manifest=manifest,
+        package_manifest={"rule_families": [{
+            "family_id": "sanity", "runtime_owner": "graph",
+            "legacy_surface": "hidden",
+        }]},
+        facts_provider=lambda: {"campaign.ruleset_id": "coc7", **facts},
+        resolver_index=adapter.host_capability_index(),
+        ruleset_adapter=adapter,
+    )
+    cards = {
+        row["decision_ref"].rsplit(":", 1)[-1]
+        for row in runtime.context({"family": "sanity"})["cards"]
+        if row["applicability"] == "applicable"
+    }
+    assert cards == {"check", "context", *added}
 
 
 def test_runtime_settle_exclusion_scopes_are_no_candidate(tmp_path: Path):

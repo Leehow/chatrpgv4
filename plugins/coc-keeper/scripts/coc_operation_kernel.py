@@ -6696,23 +6696,23 @@ def _facts_provider_for(ctx: Ctx, investigator_id: str, ruleset_id: str):
                 isinstance(row, Mapping) and row.get("kind") == "bout_keeper_action"
                 for row in choices
             ),
-            "delusion.active": isinstance(snapshot, Mapping)
+            "sanity.delusion.active": isinstance(snapshot, Mapping)
             and isinstance(snapshot.get("active_delusion"), Mapping),
-            "treatment.due": any(
+            "sanity.treatment.due": any(
                 isinstance(row, Mapping)
                 and row.get("handler") == "apply_psychoanalysis_treatment"
                 for row in due
             ),
-            "recovery.due": any(
+            "sanity.recovery.due": any(
                 isinstance(row, Mapping)
                 and row.get("handler") == "recover_temporary_insanity"
                 for row in due
             ),
-            "insane": isinstance(snapshot, Mapping) and bool(
+            "sanity.insane": isinstance(snapshot, Mapping) and bool(
                 snapshot.get("temporary_insane") or snapshot.get("indefinite_insane")
             ),
             # No canonical pending SAN-gain receipt producer exists yet.
-            "gain.pending": False,
+            "sanity.gain.pending": False,
         })
         return facts
     return provider
