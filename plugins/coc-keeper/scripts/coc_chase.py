@@ -229,13 +229,24 @@ def _validate_chase_action_receipt(
         if action.get("vehicle_id") not in actor_ids:
             raise ValueError("chase snapshot passenger assist vehicle is invalid")
     elif action_type == "fire_while_moving":
-        exact({"type", "moving", "penalty", "movement_action_cost", "hit", "damage",
-               "roll_id", "actions_spent", "target_id"})
+        exact({"type", "moving", "penalty", "movement_action_cost", "delegated",
+               "weapon_id", "combat_turn", "actions_spent", "target_id"})
         expected = 0 if action.get("moving") is True else 1
-        cost(expected)
-        if action.get("movement_action_cost") != expected or action.get("target_id") not in actor_ids:
+        combat_turn = action.get("combat_turn")
+        if (
+            action.get("delegated") is not True
+            or not isinstance(action.get("weapon_id"), str)
+            or not action["weapon_id"]
+            or not isinstance(combat_turn, dict)
+            or action.get("movement_action_cost") != expected
+            or action.get("target_id") not in actor_ids
+        ):
             raise ValueError("chase snapshot firearm action is invalid")
-        roll()
+        cost(expected)
+        for key in ("roll_id", "opposed_roll_id", "damage_roll_id"):
+            value = combat_turn.get(key)
+            if isinstance(value, str) and value:
+                roll_ids.append(value)
     else:
         raise ValueError("chase snapshot turn action discriminator is invalid")
     return roll_ids, new_position, position_before
@@ -524,6 +535,29 @@ class ChaseSession:
             }
         quarries = [p for p in self.participants.values() if p["side"] == "quarry"]
         pursuers = [p for p in self.participants.values() if p["side"] == "pursuer"]
+        excluded = {"escaped_quarries": [], "left_behind_pursuers": []}
+        if quarries and pursuers and (len(quarries) > 1 or len(pursuers) > 1):
+            fastest_pursuer = max(p["mov_adjusted"] for p in pursuers)
+            excluded["escaped_quarries"] = sorted(
+                p["actor_id"] for p in quarries
+                if p["mov_adjusted"] > fastest_pursuer
+            )
+            remaining_quarries = [
+                p for p in quarries
+                if p["actor_id"] not in excluded["escaped_quarries"]
+            ]
+            if remaining_quarries:
+                slowest_quarry = min(p["mov_adjusted"] for p in remaining_quarries)
+                excluded["left_behind_pursuers"] = sorted(
+                    p["actor_id"] for p in pursuers
+                    if p["mov_adjusted"] < slowest_quarry
+                )
+            for actor_id in (
+                excluded["escaped_quarries"] + excluded["left_behind_pursuers"]
+            ):
+                self.participants.pop(actor_id, None)
+            quarries = [p for p in self.participants.values() if p["side"] == "quarry"]
+            pursuers = [p for p in self.participants.values() if p["side"] == "pursuer"]
         if quarries and pursuers:
             if min(q["mov_adjusted"] for q in quarries) > max(
                 pu["mov_adjusted"] for pu in pursuers
@@ -531,7 +565,13 @@ class ChaseSession:
                 self.conclude("escaped")
                 for q in quarries:
                     q["escaped"] = True
-        return {"speed_rolls": results, "chase_proceeds": self.status == "active"}
+        elif excluded["escaped_quarries"]:
+            self.conclude("escaped")
+        return {
+            "speed_rolls": results,
+            "excluded_participants": excluded,
+            "chase_proceeds": self.status == "active",
+        }
 
     # ------------------------------------------------------------------ #
     # Part 2: Cut to the Chase (p.132-133)
@@ -644,7 +684,15 @@ class ChaseSession:
             p for p in self.participants.values()
             if not p["captured"] and not p["escaped"] and not p.get("wrecked")
         ]
-        dex_order = sorted(active, key=lambda p: (-p["dex"], p["actor_id"]))
+        dex_order: list[dict[str, Any]] = []
+        by_dex: dict[int, list[dict[str, Any]]] = {}
+        for participant in active:
+            by_dex.setdefault(int(participant["dex"]), []).append(participant)
+        for dex in sorted(by_dex, reverse=True):
+            group = by_dex[dex]
+            dex_order.extend(
+                group if len(group) == 1 else self._resolve_dex_tie(group)
+            )
         self.rounds.append({
             "round": self._current_round,
             "dex_order": [p["actor_id"] for p in dex_order],
@@ -653,6 +701,31 @@ class ChaseSession:
         self.initiative_cursor = 0
         self.revision += 1
         return self._current_round
+
+    def _resolve_dex_tie(
+        self, participants: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Resolve equal DEX by opposed DEX rolls; tied levels reroll."""
+        buckets: dict[int, list[dict[str, Any]]] = {}
+        for participant in participants:
+            result = coc_roll.percentile_check(int(participant["dex"]), rng=self._rng)
+            roll_id = self._roll_id()
+            self.pending_rolls.append({
+                "roll_id": roll_id,
+                "actor_id": participant["actor_id"],
+                "skill": "DEX",
+                "target": participant["dex"],
+                "roll": result["roll"],
+                "outcome": result["outcome"],
+                "kind": "chase_dex_tiebreak",
+                "round": self._current_round,
+            })
+            buckets.setdefault(LVL[result["outcome"]], []).append(participant)
+        ordered: list[dict[str, Any]] = []
+        for level in sorted(buckets, reverse=True):
+            tied = buckets[level]
+            ordered.extend(tied if len(tied) == 1 else self._resolve_dex_tie(tied))
+        return ordered
 
     def _spend_actions(self, p: dict[str, Any], n: int) -> None:
         p["movement_actions_remaining"] = max(
@@ -1540,6 +1613,7 @@ class ChaseSession:
                     action.get("firearms_target") or p.get("firearms") or 40
                 ),
                 moving=True,
+                weapon_id=str(action.get("weapon_id") or ""),
             )
         return {"type": atype, "result": "unknown"}
 
@@ -1552,52 +1626,66 @@ class ChaseSession:
         target_id: str,
         *,
         firearms_target: int,
+        weapon_id: str,
         moving: bool = True,
     ) -> dict[str, Any]:
-        """Firearms in a chase: moving → +1 penalty, no action cost; stopped → 1 action."""
+        """Delegate chase gunfire to canonical combat weapon resolution."""
         atk = self.participants[attacker_id]
         if target_id not in self.participants:
             raise ValueError(f"unknown target {target_id}")
+        if not weapon_id:
+            raise ValueError("chase firearm attack requires canonical weapon_id")
         if not self.rounds:
             self.begin_round()
         cost = 0 if moving else 1
         if cost:
             self._spend_actions(atk, cost)
-        penalty = 1 if moving else 0
-        res = coc_roll.percentile_check(
-            firearms_target, penalty=penalty, rng=self._rng
+        target = self.participants[target_id]
+        combat = coc_combat.CombatSession(
+            f"{self.chase_id}-ranged-{self._current_round}-{self._turn_counter + 1}",
+            scene_ref="chase",
+            started_at_turn=self._current_round,
+            rng=self._rng,
         )
-        rid = self._roll_id()
-        self.pending_rolls.append({
-            "roll_id": rid, "actor_id": attacker_id, "skill": "Firearms",
-            "target": firearms_target, "roll": res["roll"], "outcome": res["outcome"],
-            "penalty": penalty, "kind": "fire_while_moving",
-        })
-        hit = res["outcome"] not in ("failure", "fumble")
-        damage = 0
-        if hit:
-            damage = self._rng.randint(1, 10)  # generic handgun stand-in
-            # Vehicle armor protects occupants (Table V).
-            tgt = self.participants[target_id]
-            armor = 0
-            if tgt.get("is_vehicle"):
-                armor = int(tgt.get("armor") or 0)
-            elif tgt.get("vehicle_actor_id"):
-                vid = tgt["vehicle_actor_id"]
-                armor = int(self.participants[vid].get("armor") or 0)
-            else:
-                armor = int(tgt.get("armor") or 0)
-            applied = max(0, damage - armor)
-            tgt["hp"] = max(0, int(tgt["hp"]) - applied)
-            damage = applied
+        combat.add_participant(
+            attacker_id, "investigator" if atk["side"] == "quarry" else "npc",
+            dex=max(1, int(atk["dex"])), combat_skill=int(atk.get("fight") or 50),
+            build=int(atk.get("build") or 0), hp_max=int(atk.get("hp_max") or atk["hp"]),
+            weapons=[weapon_id], firearms_skill=firearms_target,
+            dodge_skill=int(atk.get("dodge") or 0), con=int(atk.get("con") or 50),
+        )
+        combat.participants[attacker_id]["hp_current"] = int(atk["hp"])
+        combat.add_participant(
+            target_id, "investigator" if target["side"] == "quarry" else "npc",
+            dex=0, combat_skill=int(target.get("fight") or 50),
+            build=int(target.get("build") or 0), hp_max=int(target.get("hp_max") or target["hp"]),
+            armor=int(target.get("armor") or 0), dodge_skill=int(target.get("dodge") or 0),
+            firearms_skill=int(target.get("firearms") or 0), con=int(target.get("con") or 50),
+        )
+        combat.participants[target_id]["hp_current"] = int(target["hp"])
+        combat.begin_round()
+        turn = combat.declare_and_resolve_turn(
+            attacker_id,
+            "fire during chase",
+            action="attack",
+            target_actor_id=target_id,
+            defense_kind="none",
+            weapon_id=weapon_id,
+            fast_moving=moving,
+        )
+        target["hp"] = int(combat.participants[target_id]["hp_current"])
+        self._normalize_participant_conditions(target)
+        rolls, events = combat.drain_pending()
+        self.pending_rolls.extend(rolls)
+        self.pending_events.extend(events)
         return {
             "type": "fire_while_moving",
             "moving": moving,
-            "penalty": penalty,
+            "penalty": int((turn.get("attack_modifiers") or {}).get("penalty", 0)),
             "movement_action_cost": cost,
-            "hit": hit,
-            "damage": damage,
-            "roll_id": rid,
+            "delegated": True,
+            "weapon_id": weapon_id,
+            "combat_turn": turn,
             "actions_spent": cost,
             "target_id": target_id,
         }

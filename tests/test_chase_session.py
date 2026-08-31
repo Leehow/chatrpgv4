@@ -92,6 +92,18 @@ def test_begin_round_records_dex_order():
     assert order[1] == "cultist"
 
 
+def test_equal_dex_order_uses_opposed_dex_roll_evidence_not_actor_id():
+    c = _make_chase(seed=1)
+    c.add_participant("zeta", "quarry", mov=8, dex=60, con=65)
+    c.add_participant("alpha", "pursuer", mov=8, dex=60, con=55)
+    c.begin_round()
+    order = c.rounds[0]["dex_order"]
+    tie_rolls = [row for row in c.pending_rolls if row["kind"] == "chase_dex_tiebreak"]
+    assert len(tie_rolls) >= 2
+    assert {row["actor_id"] for row in tie_rolls[:2]} == {"zeta", "alpha"}
+    assert order != sorted(order), "actor-id order must not decide an equal-DEX chase tie"
+
+
 def test_advance_moves_position_along_chain():
     c = _make_chase()
     c.add_participant("ada", "quarry", mov=9, dex=60, con=65)
@@ -159,6 +171,21 @@ def test_cut_to_the_chase_default_gap_two():
         assert "label" in loc
         assert "hazard" in loc
         assert "barrier" in loc
+
+
+def test_multi_character_establish_removes_individually_outpaced_participants():
+    c = _make_chase(seed=8)
+    c.add_participant("fast-quarry", "quarry", mov=20, dex=70, con=99)
+    c.add_participant("slow-quarry", "quarry", mov=7, dex=50, con=50)
+    c.add_participant("fast-pursuer", "pursuer", mov=9, dex=60, con=90)
+    c.add_participant("slow-pursuer", "pursuer", mov=3, dex=40, con=20)
+    result = c.establish()
+    assert result["excluded_participants"] == {
+        "escaped_quarries": ["fast-quarry"],
+        "left_behind_pursuers": ["slow-pursuer"],
+    }
+    assert set(c.participants) == {"slow-quarry", "fast-pursuer"}
+    assert result["chase_proceeds"] is True
 
 
 def test_cut_to_the_chase_custom_locations_preserve_slots():
@@ -559,11 +586,15 @@ def test_fire_while_moving_adds_penalty_die_no_extra_action_cost():
         target_id="cultist",
         firearms_target=50,
         moving=True,
+        weapon_id="automatic_45",
     )
     assert result["type"] == "fire_while_moving"
     assert result["penalty"] == 1
     # Does not consume an extra movement action beyond what's already spent.
     assert result["movement_action_cost"] == 0
+    assert result["delegated"] is True
+    assert result["weapon_id"] == "automatic_45"
+    assert result["combat_turn"]["attack_modifiers"]["penalty"] == 1
     assert c.participants["runner"]["movement_actions_remaining"] == actions_before
 
 
@@ -578,11 +609,13 @@ def test_fire_while_stopped_costs_one_movement_action():
         target_id="cultist",
         firearms_target=50,
         moving=False,
+        weapon_id="automatic_45",
     )
     assert result["movement_action_cost"] == 1
     assert c.participants["runner"]["movement_actions_remaining"] == (
         c.participants["runner"]["movement_actions"] - 1
     )
+    assert result["combat_turn"]["attack_modifiers"]["penalty"] == 0
 
 
 def test_choosing_a_route_replaces_upcoming_locations():
