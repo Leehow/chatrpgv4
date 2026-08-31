@@ -118,12 +118,17 @@ def _time_state(ws) -> dict:
 
 def _sanity_check(ws, *, decision_id: str, seed: int, loss_success: str,
                   loss_failure: str, source: str = "structured horror",
-                  trigger_id: str | None = None) -> dict:
+                  trigger_id: str | None = None,
+                  involuntary_action: dict | None = None) -> dict:
     args = {
         "investigator": ws["investigator_id"],
         "source": source,
         "loss_success": loss_success,
         "loss_failure": loss_failure,
+        "involuntary_action": involuntary_action or {
+            "kind": "freeze",
+            "summary": "测试调查员因眼前恐怖僵住片刻。",
+        },
         "decision_id": decision_id,
         "seed": seed,
     }

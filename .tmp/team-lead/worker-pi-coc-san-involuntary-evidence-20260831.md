@@ -8,3 +8,9 @@
 - Generated contract: rebuilt `plugins/coc-keeper/references/mcp-operation-contracts.json` from the canonical toolbox registry.
 - Focused validation: `2 passed` for the new evidence regression and SAN fumble regression. A broader SAN run reached `66 passed, 1 failed`; the only failure was the old fumble fixture missing the newly required field, which was then updated and rerun green.
 - Original pressure evidence remains preserved and unchanged; it is pre-fix evidence and therefore still reports the historical five F5 findings.
+
+## Post-integration fixture follow-up
+
+- Updated only `tests/test_sanity_pipeline_wiring.py`'s shared `_sanity_check` fixture helper to supply a valid structured contingency by default; individual tests may still override the object explicitly.
+- The fixture default is test-only and does not create a production fallback or infer any reaction from prose.
+- Full focused SAN plus required metadata/rulebook gates: `109 passed in 21.16s`.
