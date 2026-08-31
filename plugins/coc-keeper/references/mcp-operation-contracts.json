@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:628dd0df8fc3e655854a6a6a70b77b3eb8cda1a15ce8afc41cd9f024675e7984",
+  "content_sha256": "sha256:4646cc703297402ed7a9f306822e6cda05fbb9b7e8918774cd0a00fdc12513db",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -4123,6 +4123,31 @@
             "description": "investigator id",
             "type": "string"
           },
+          "involuntary_action": {
+            "additionalProperties": true,
+            "description": "Keeper-chosen contingency for a failed SAN roll; persisted only when the check fails",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "jump_in_fright",
+                  "cry_out",
+                  "involuntary_movement",
+                  "involuntary_combat_action",
+                  "freeze"
+                ],
+                "type": "string"
+              },
+              "summary": {
+                "description": "non-empty player-visible realization in the campaign play language",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "summary"
+            ],
+            "type": "object"
+          },
           "loss_failure": {
             "description": "loss on failure (int or dice, e.g. '1D6')",
             "type": "string"
@@ -4148,6 +4173,7 @@
           "campaign",
           "source",
           "loss_failure",
+          "involuntary_action",
           "decision_id"
         ],
         "type": "object"

@@ -504,6 +504,9 @@ class SanitySession:
         # p.166: failed SAN roll always causes involuntary action.
         if res["outcome"] in ("failure", "fumble") and involuntary_kind:
             self._apply_involuntary(involuntary_kind, involuntary_summary, source)
+            involuntary_action = dict(self.involuntary_actions[-1])
+            roll_record["involuntary_action"] = involuntary_action
+            event["payload"]["involuntary_action"] = dict(involuntary_action)
 
         # p.158: while underlying insane (temporary or indefinite, bout over)
         # ANY further SAN loss — even a single point — triggers another bout.

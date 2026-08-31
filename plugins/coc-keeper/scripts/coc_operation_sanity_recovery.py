@@ -74,10 +74,32 @@ def _tool_rules_sanity_check(ctx: Ctx, args: dict[str, Any]):
     events_start = len(session.events)
     source = str(args["source"])
     trigger_id = str(args.get("trigger_id") or "").strip()
+    involuntary_action = args.get("involuntary_action")
+    if not isinstance(involuntary_action, dict):
+        raise ToolError("invalid_param", "involuntary_action must be an object")
+    involuntary_kind = str(involuntary_action.get("kind") or "").strip()
+    if involuntary_kind not in {
+        "jump_in_fright",
+        "cry_out",
+        "involuntary_movement",
+        "involuntary_combat_action",
+        "freeze",
+    }:
+        raise ToolError(
+            "invalid_param",
+            "involuntary_action.kind must be one of the five rulebook kinds",
+        )
+    involuntary_summary = str(involuntary_action.get("summary") or "").strip()
+    if not involuntary_summary:
+        raise ToolError(
+            "invalid_param", "involuntary_action.summary must be a non-empty string"
+        )
     event = session.sanity_check(
         source=source,
         san_loss_success=loss_success,
         san_loss_fail_expr=loss_failure,
+        involuntary_kind=involuntary_kind,
+        involuntary_summary=involuntary_summary,
     )
     session.save(ctx.campaign_dir, strict_mirror=True)
     new_rolls = list(session.pending_rolls[rolls_start:])
@@ -214,13 +236,17 @@ def _tool_rules_sanity_check(ctx: Ctx, args: dict[str, Any]):
         })
         loss_roll_id = loss_record["roll_id"]
 
-    ctx.log_event({
+    settled_involuntary_action = san_roll_record.get("involuntary_action")
+    sanity_loss_event = {
         "event_type": "sanity_loss",
         "investigator_id": investigator_id,
         "loss": san_loss,
         "source": source,
         "trigger_id": trigger_id or None,
-    })
+    }
+    if isinstance(settled_involuntary_action, dict):
+        sanity_loss_event["involuntary_action"] = dict(settled_involuntary_action)
+    ctx.log_event(sanity_loss_event)
     _san_delta = int(san_after) - int(san_before)
     if _san_delta != 0:
         _san_payload: dict[str, Any] = {
@@ -297,6 +323,8 @@ def _tool_rules_sanity_check(ctx: Ctx, args: dict[str, Any]):
         "san_before": san_before,
         "san_after": san_after,
     }
+    if isinstance(settled_involuntary_action, dict):
+        check["involuntary_action"] = dict(settled_involuntary_action)
     data = {
         "investigator_id": investigator_id,
         "source": source,
@@ -326,6 +354,8 @@ def _tool_rules_sanity_check(ctx: Ctx, args: dict[str, Any]):
         "session_events": session_events,
         **roll_ids,
     }
+    if isinstance(settled_involuntary_action, dict):
+        data["involuntary_action"] = dict(settled_involuntary_action)
     if loss_roll_id:
         data["loss_roll_id"] = loss_roll_id
     hints: list[str] = []
@@ -428,6 +458,28 @@ def register_operations(registry) -> None:
         "trigger_id": {
             "type": "string",
             "desc": "authored scene SAN trigger id; marks that trigger fired after settlement",
+        },
+        "involuntary_action": {
+            "type": "object",
+            "required": True,
+            "desc": "Keeper-chosen contingency for a failed SAN roll; persisted only when the check fails",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": [
+                        "jump_in_fright",
+                        "cry_out",
+                        "involuntary_movement",
+                        "involuntary_combat_action",
+                        "freeze",
+                    ],
+                },
+                "summary": {
+                    "type": "string",
+                    "desc": "non-empty player-visible realization in the campaign play language",
+                },
+            },
+            "required_fields": ["kind", "summary"],
         },
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
