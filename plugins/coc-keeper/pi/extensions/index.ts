@@ -4425,7 +4425,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     // a redundant scene.context call.
     clearTurnEntityFacts();
     currentSceneBindingFacts = null;
-    currentCombatBindingFacts = null;
     revokedSceneBindingOperations.clear();
     for (const operation of [
       "state.journal",
@@ -6327,6 +6326,36 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     combat_digest: facts.combatDigest,
     candidates: structuredClone(facts.candidates),
   });
+  const rearmCurrentCombatBinding = (campaignId: string): void => {
+    const retained = currentCombatBindingFacts;
+    if (
+      retained === null
+      || retained.sessionEpoch !== sessionEpoch
+      || retained.campaign !== campaignId
+      || retained.candidates.length === 0
+    ) return;
+    const facts: CombatBindingFacts = {
+      ...retained,
+      sessionEpoch,
+      playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+      stage: canonicalProgress.stage,
+      phase: resolveAclPhase(campaignId),
+    };
+    currentCombatBindingFacts = facts;
+    armTypedBinding(combatResolveCardFromFacts(facts), () => {
+      const current = currentCombatBindingFacts;
+      return current !== null
+        ? combatResolveCardFromFacts({
+            ...current,
+            sessionEpoch,
+            playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+            stage: canonicalProgress.stage,
+            phase: resolveAclPhase(current.campaign),
+          })
+        : null;
+    });
+    revokedSceneBindingOperations.delete("combat.resolve");
+  };
   const armStructuredSceneBindings = (
     campaignId: string,
     params: JsonObject,
@@ -7831,6 +7860,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     faultRecoveryOperation = null;
     pendingFinalizationHydrationState = null;
     draftShapeRecoveryCards.clear();
+    currentCombatBindingFacts = null;
     clearTurnTypedBindings();
     clearTypedBinding("npc.reaction");
     startupSilentResumeQuarantine = null;
@@ -12976,6 +13006,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           newPlayerEpoch: openingContinuationGate.playerTurnEpoch,
           reprojectTools: false,
         });
+        rearmCurrentCombatBinding(campaignId);
         if (
           startupResumeGate === null
           && kpPlayPhase === "live_turn"

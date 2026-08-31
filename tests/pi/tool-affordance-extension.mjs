@@ -1529,6 +1529,86 @@ test("scene combat choices are explicit and combat context replaces them authori
   });
 });
 
+test("resume-projected combat tool rebinds before a stale tool object executes", async () => {
+  const forwarded = [];
+  const resumeEnvelope = {
+    ok: true,
+    tool: "session.resume",
+    wire: { full_result_sha256: `sha256:${"e".repeat(64)}` },
+    cache: { revision: "resume:combat-scene" },
+    data: {
+      schema_version: 1,
+      campaign_id: "tool-affordance-campaign",
+      mode: "awaiting_player",
+      evidence: { table_opening_id: "table-opening:combat-rebind" },
+      next_operations: [],
+      scene_context: {
+        active_scene_id: "corbitt-confrontation",
+        party: ["thomas-hayes"],
+        exits: [],
+        time: { time_precision: "imprecise", local_datetime: null },
+        npcs_present: [{ npc_id: "npc-walter-corbitt" }],
+        action_routes: [{
+          route_id: "conventional-assault",
+          resolution_kind: "combat_engagement",
+        }],
+        clues_here: [],
+      },
+    },
+  };
+  await withPlayHarness(async (h) => {
+    const resumeProjectedTool = h.tools.get("coc_combat_resolve");
+    assert.deepEqual(
+      resumeProjectedTool.parameters.properties.candidate_id.enum,
+      ["attack:npc-walter-corbitt", "combat-route:conventional-assault"],
+    );
+
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我迎向科比特，准备闪避。" }],
+    });
+    const resolved = JSON.parse((await resumeProjectedTool.execute(
+      "stale-resume-projected-combat",
+      {
+        candidate_id: "attack:npc-walter-corbitt",
+        defense_kind: "dodge",
+        investigator: "current-investigator",
+      },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(resolved.ok, true, JSON.stringify(resolved));
+    const combatCall = forwarded.findLast(
+      (params) => params.operation === "combat.resolve",
+    );
+    assert.equal(combatCall.arguments.target_npc_id, "npc-walter-corbitt");
+    assert.equal(Object.hasOwn(combatCall.arguments, "candidate_id"), false);
+    assert.match(
+      combatCall.arguments.decision_id,
+      /^pi-combat-resolve:[^:]+:player-epoch-1:revision-/u,
+    );
+  }, (_name, params) => {
+    forwarded.push(structuredClone(params));
+    if (params.operation === "session.resume") return resumeEnvelope;
+    if (params.operation === "combat.resolve") {
+      if (typeof params.arguments.decision_id !== "string") {
+        return {
+          ok: false,
+          tool: "combat.resolve",
+          error: {
+            code: "missing_param",
+            message: "required parameter: decision_id",
+            retryable: false,
+          },
+        };
+      }
+      return { ok: true, tool: "combat.resolve", data: { accepted: true } };
+    }
+    return { ok: true, tool: params.operation, data: {} };
+  });
+});
+
 test("campaign-bound typed semantic calls use the active campaign before restoration", async () => {
   const forwarded = [];
   const campaign = "tool-affordance-campaign";
