@@ -1965,6 +1965,7 @@ const completeOutputContextData = ({
     : {}),
   finalize_operation: {
     operation: "turn.finalize",
+    invoke_via: agencyReviewRequired ? "coc_turn_finalize" : "coc_invoke",
     prefilled_arguments: { revision: finalizeRevision },
   },
 });
@@ -2000,6 +2001,9 @@ test("non-review output-context accepts the canonical finalize-card revision", a
       row.type === "coc-typed-tool-binding"
       && row.value.operation === "narration.review"
     )), false);
+    assert.ok(h.active.at(-1).includes("coc_invoke"), JSON.stringify(h.active.at(-1)));
+    assert.ok(!h.active.at(-1).includes("coc_narration_review"));
+    assert.ok(!h.active.at(-1).includes("coc_turn_finalize"));
   }, (_name, params) => {
     if (params.operation === "state.journal") {
       return { ok: true, tool: params.operation, data: { turn_id: "turn-non-review" } };

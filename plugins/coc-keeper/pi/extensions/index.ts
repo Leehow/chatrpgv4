@@ -4116,6 +4116,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     controlOverrides: JsonObject[];
     coverageBindingFacts: ReviewedCoverageBindingFacts;
     reviewedAgencyBinding: ReviewedAgencyBinding | null;
+    directGenericFinalize: boolean;
   } | null = null;
   // Exact canonical entity identities retained from observed envelopes so the
   // model can use semantic handles (current-investigator / pc:current-
@@ -5505,9 +5506,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const contractProjection = objectOrNull(data.contract_projection);
       const agencyReviewRequired = contractProjection?.agency_review_required === true;
       const reviewCard = objectOrNull(data.agency_review_operation);
+      const finalizeCard = objectOrNull(data.finalize_operation);
       const revision = agencyReviewRequired
         ? operationCardRevision(reviewCard, "narration.review")
-        : operationCardRevision(data.finalize_operation, "turn.finalize");
+        : operationCardRevision(finalizeCard, "turn.finalize");
+      const directGenericFinalize = (
+        !agencyReviewRequired
+        && finalizeCard?.invoke_via === "coc_invoke"
+      );
       const sourceDigest = typeof data.source_digest === "string"
         ? data.source_digest
         : "";
@@ -5550,6 +5556,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           controlOverrides,
           coverageBindingFacts,
           reviewedAgencyBinding: null,
+          directGenericFinalize,
         };
         if (agencyReviewRequired && retainedOutputContextFacts !== null) {
           const retainedReviewBinding: TypedToolBindingCard = {
@@ -6524,6 +6531,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       "coc_discover",
       "subagent",
       "subagent_wait",
+      ...(
+        canonicalProgress.stage === "output_context_ready"
+        && retainedOutputContextFacts?.directGenericFinalize === true
+          ? ["coc_invoke"]
+          : []
+      ),
       ...extraToolsForSessionRole(role),
     ]);
     if (typeof pi.getAllTools !== "function") {
@@ -8970,6 +8983,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ),
       coverageBindingFacts: structuredClone(coverageBindingFacts),
       reviewedAgencyBinding,
+      directGenericFinalize: false,
     };
     const facts = retainedOutputContextFacts;
     const retainedFinalizeBinding: TypedToolBindingCard = {

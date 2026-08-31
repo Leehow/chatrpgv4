@@ -105,6 +105,16 @@ def test_play_prompt_has_open_turn_recovery_acting_then_closure_guidance() -> No
     assert "open_turn_recovery" not in setup
 
 
+def test_play_prompt_has_contract_driven_single_draft_finalize_guidance() -> None:
+    play = " ".join(PLAY.read_text(encoding="utf-8").split())
+    assert "`agency_review_required=false`" in play
+    assert "player-facing narration is still required" in play
+    assert "treat that first draft as final" in play
+    assert "Do **not** call or discover `narration.review`" in play
+    assert "returned `finalize_operation` exactly once" in play
+    assert "no prose-review or revision loop" in play
+
+
 def test_play_prompt_gives_the_exact_ending_closure_chain() -> None:
     play = PLAY.read_text(encoding="utf-8")
     assert "state.end_session` → `state.journal` → `turn.output_context` → `turn.finalize" in play

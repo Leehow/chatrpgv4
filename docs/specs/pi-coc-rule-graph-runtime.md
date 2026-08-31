@@ -1369,6 +1369,44 @@ Use the repository's required method:
 10. for whole-product/release claims, continue to a natural ending and use the
     canonical battle-report exporter.
 
+#### 19.5.1 Rules/director single-draft test profile
+
+For a focused natural run whose acceptance target is the RuleGraph + Director
+integration rather than repeated prose review, launch the ordinary Pi-Coc RPC
+host with the exact opt-in environment value:
+
+```bash
+COC_PI_ACCEPTANCE_PROFILE=rules-director-single-draft pi-coc --mode rpc --campaign <fresh-campaign-id>
+```
+
+The launcher and MCP child MUST remain in `COC_PI_SESSION_ROLE=play`; this
+profile never replaces or relaxes canonical role ACL. The natural turn stays
+continuous and still requires Grok to produce player-facing narration. Its
+closure is exactly:
+
+```text
+rules + director judgment -> state.journal -> turn.output_context
+-> Grok drafts once -> returned generic turn.finalize once -> exact delivery
+```
+
+For this exact profile only, `turn.output_context` returns
+`agency_review_required=false`, omits `agency_review_operation` and the host
+state-claim compiler lane, and returns a generic `finalize_operation`. Grok
+treats its first draft as final, calls that returned operation once, and does
+not call `narration.review` or enter a prose-revision loop. An absent, misspelled,
+or unknown `COC_PI_ACCEPTANCE_PROFILE` keeps the production review path.
+
+Because a whole turn includes model inference, this focused method uses **180
+seconds wall time per whole turn** as the active diagnostic threshold. At that
+point inspect the exact model/tool trace and whether real turn progress is
+advancing; do not merely keep waiting. The repository's three-second rule still
+applies independently to every non-LLM operation.
+
+This is a **test-only rules/director/runtime profile**. It is not evidence of
+whole-product text-quality acceptance, does not weaken the production Rule 4
+review/finalization default, and cannot support a release-readiness or canonical
+battle-report quality claim.
+
 A focused natural rule-family run proves feature integration only. It is not a
 whole-product acceptance claim unless the full Plugin-Native Acceptance
 Contract is satisfied.

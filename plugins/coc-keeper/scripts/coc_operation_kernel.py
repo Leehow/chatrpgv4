@@ -11349,9 +11349,14 @@ def _project_storylet_candidate(move: dict[str, Any]) -> dict[str, Any]:
     }
 
 def _pi_play_agency_review_required() -> bool:
-    return (
+    if (
         str(os.environ.get("COC_PI_SESSION_ROLE") or "").strip().casefold()
-        == "play"
+        != "play"
+    ):
+        return False
+    return (
+        os.environ.get("COC_PI_ACCEPTANCE_PROFILE")
+        != "rules-director-single-draft"
     )
 
 def _tool_evidence_record_adoption(ctx: Ctx, args: dict[str, Any]):

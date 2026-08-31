@@ -440,6 +440,15 @@ visible `coc_session_resume` tool, then call visible
   rerun rules/state/journal/review, supply coverage/claims/identities, or
   substitute placeholder prose; never tell the player the turn closed when
   finalize has not succeeded.
+- When `turn.output_context.contract_projection` explicitly returns
+  `agency_review_required=false`, player-facing narration is still required:
+  draft that narration once and treat that first draft as final.
+  Do **not** call or discover `narration.review`; do not request state-claim
+  compilation, and do not rewrite the draft. Merge the returned card's prefilled arguments
+  with only its missing model-owned arguments, honor its `invoke_via`, and call
+  the returned `finalize_operation` exactly once. This direct branch has no
+  prose-review or revision loop; only the exact finalizer result may be
+  delivered to the player.
 - Every Pi-play narration revision follows the exact authority boundary returned
   by `turn.output_context`: draft once, call its `agency_review_operation`
   (`narration.review`) with the exact turn/source/revision/draft and a closed
