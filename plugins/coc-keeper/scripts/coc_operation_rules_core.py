@@ -1319,6 +1319,10 @@ def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
         from coc_operation_kernel_runtime import _tool_development_settle
         return _tool_development_settle(active_ctx, active_args)
 
+    def chase_execute(active_ctx: Ctx, active_args: dict[str, Any]):
+        from coc_operation_kernel_runtime import _tool_chase_execute
+        return _tool_chase_execute(active_ctx, active_args)
+
     return dispatch_rules_settle(
         ctx,
         args,
@@ -1347,6 +1351,9 @@ def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
             "magic.learn": magic_learn,
             "state.end_session": end_session,
             "development.settle": development_settle,
+            **{kind: chase_execute for kind in (
+                "chase_start", "chase_move", "chase_hazard", "chase_barrier", "chase_conflict", "chase_end"
+            )},
         },
     )
 

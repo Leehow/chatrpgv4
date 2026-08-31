@@ -127,6 +127,10 @@ _DEVELOPMENT_SETTLE_DECISION_REFS = (
     "decision:coc7:development:end-session",
     "decision:coc7:development:settle-ending",
 )
+_CHASE_SETTLE_DECISION_REFS = tuple(
+    f"decision:coc7:chase:{name}"
+    for name in ("start", "move", "hazard", "barrier", "conflict", "end")
+)
 _GROUP_ONE_SETTLE_DECISION_REFS = (
     *_HEALING_SETTLE_DECISION_REFS,
     *_CORE_SETTLE_DECISION_REFS,
@@ -137,6 +141,7 @@ _GROUP_ONE_SETTLE_DECISION_REFS = (
     *_SANITY_SETTLE_DECISION_REFS,
     *_MAGIC_SETTLE_DECISION_REFS,
     *_DEVELOPMENT_SETTLE_DECISION_REFS,
+    *_CHASE_SETTLE_DECISION_REFS,
 )
 
 
@@ -324,11 +329,7 @@ class Coc7RuleGraphAdapter:
                 "Magic requires canonical known-spell/source grounding and hard "
                 "applicability gates before legacy tools can be hidden"
             ]
-        if family == "chase":
-            return [
-                "Chase requires active/pending/revision/conflict receipt gates and "
-                "a canonical chase-start participant/location binding"
-            ]
+        if family == "chase": return []
         if family == "development":
             return []
         candidate_families = {
@@ -433,6 +434,10 @@ class Coc7RuleGraphAdapter:
                     "source": {"type": "string"},
                     "summary": {"type": "string"},
                     "kind": {"type": "string"},
+                    "pursuer_refs": {"type": "array", "items": {"type": "string"}},
+                    "quarry_refs": {"type": "array", "items": {"type": "string"}},
+                    "location_refs": {"type": "array", "items": {"type": "string"}},
+                    "method": {"type": "string", "enum": ["negotiate", "break"]},
                 },
             },
             "decision_id": {
@@ -466,7 +471,7 @@ class Coc7RuleGraphAdapter:
                     "healing", "core-check", "push-luck", "social", "psychology",
                     "combat",
                     "sanity",
-                    "magic", "development",
+                    "magic", "development", "chase",
                 ],
                 "desc": "source-accepted compiled family",
             },
@@ -502,6 +507,7 @@ class Coc7RuleGraphAdapter:
             "sanity": ("rules.sanity_check", "sanity.context", "sanity.execute"),
             "magic": ("magic.cast", "magic.learn"),
             "development": ("state.end_session", "development.settle"),
+            "chase": ("chase.context", "chase.execute"),
         }
         overrides: dict[str, dict[str, Any]] = {}
         any_graph_visible = False
@@ -557,6 +563,9 @@ class Coc7RuleGraphAdapter:
             "magic.learn": {"adapter": "typed_operation"},
             "state.end_session": {"adapter": "typed_operation"},
             "development.settle": {"adapter": "typed_operation"},
+            **{kind: {"adapter": "chase.execute"} for kind in (
+                "chase_start", "chase_move", "chase_hazard", "chase_barrier", "chase_conflict", "chase_end"
+            )},
         }
 
     @staticmethod
@@ -769,6 +778,10 @@ class Coc7RuleGraphAdapter:
                 for key, value in binding.items():
                     if value is not None:
                         locked[str(key)] = _thaw(value)
+            elif decision_ref in _CHASE_SETTLE_DECISION_REFS:
+                binding = selected.get("_host_chase_binding") if isinstance(selected.get("_host_chase_binding"), Mapping) else {}
+                for key, value in binding.items():
+                    if value is not None: locked[str(key)] = _thaw(value)
             return locked
 
         return provider
@@ -1116,6 +1129,12 @@ class Coc7RuleGraphAdapter:
         elif capability == "development.settle":
             if payload.get("ending_id") is not None:
                 out["ending_id"] = payload.get("ending_id")
+        elif capability.startswith("chase_"):
+            command_id = f"{args['decision_id']}:command"
+            command_payload = {"decision_id": str(args["decision_id"])}
+            for key in ("chase_id", "participants", "locations", "actor_id", "action_id", "choice_id", "skill", "target", "difficulty", "roll_id", "revision", "target_actor_id", "combat_command_id", "outcome", "method"):
+                if payload.get(key) is not None: command_payload[key] = _thaw(payload[key])
+            out["command"] = {"command_id": command_id, "kind": capability, "phase": "start" if capability == "chase_start" else "resolve", "payload": command_payload}
         else:
             raise tool_error(
                 "unsupported_ruleset_operation",

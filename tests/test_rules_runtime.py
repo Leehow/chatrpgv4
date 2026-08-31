@@ -2775,6 +2775,39 @@ def test_development_production_cards_require_pending_settlement(pending, expect
     assert cards == expected
 
 
+def test_chase_generic_start_hydrates_only_current_semantic_refs():
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = SimpleNamespace(
+        world=lambda: {"active_scene_id": "alley"},
+        story_graph={"scenes": [
+            {"scene_id": "alley", "npc_ids": ["npc-pursuer"], "exit_targets": ["market"]},
+            {"scene_id": "market", "npc_ids": []},
+        ]},
+        party_ids=lambda: ["investigator-one"],
+        sheet=lambda _id: {"characteristics": {"DEX": 60, "CON": 50}, "derived": {"HP": 10, "MOV": 8}, "skills": {"Fighting (Brawl)": 40, "Dodge": 30}},
+        inv_state=lambda _id: {"current_hp": 10, "conditions": []},
+        npc_agendas={"npcs": [{"npc_id": "npc-pursuer", "mechanics": {"profile": {"mov": 7, "dex": 50, "con": 50, "hp": 9, "combat_skill": 35, "dodge_skill": 25, "build": 0}}}]},
+    )
+    binding = kernel._canonical_chase_binding(
+        ctx, decision_ref="decision:coc7:chase:start",
+        investigator_id="investigator-one",
+        semantic_inputs={
+            "pursuer_refs": ["npc:npc-pursuer"],
+            "quarry_refs": ["investigator:investigator-one"],
+            "location_refs": ["scene:alley", "scene:market"],
+        },
+    )
+    assert len(binding["participants"]) == 2
+    assert [row["label"] for row in binding["locations"]] == ["alley", "market"]
+    assert binding["locations"][0]["hazard"] is None
+    with pytest.raises(kernel.ToolError):
+        kernel._canonical_chase_binding(
+            ctx, decision_ref="decision:coc7:chase:start",
+            investigator_id="investigator-one",
+            semantic_inputs={"pursuer_refs": ["npc:invented"], "quarry_refs": ["investigator:investigator-one"], "location_refs": ["scene:alley", "scene:market"]},
+        )
+
+
 def test_runtime_settle_exclusion_scopes_are_no_candidate(tmp_path: Path):
     graph, manifest = _build_fixture_graph(tmp_path)
     promo = manifest.setdefault("family_promotion_eligibility", {}).setdefault(

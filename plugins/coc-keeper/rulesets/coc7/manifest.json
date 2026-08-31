@@ -57,6 +57,11 @@
       "family_id": "development",
       "runtime_owner": "graph",
       "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "chase",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
     }
   ],
   "resources": [

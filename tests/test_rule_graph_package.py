@@ -156,7 +156,7 @@ def test_composed_settlement_dispatch_is_owned_by_coc7_package():
     assert adapter.promotion_blockers("sanity") == []
     assert adapter.promotion_blockers("magic")
     assert adapter.promotion_blockers("development") == []
-    assert adapter.promotion_blockers("chase")
+    assert adapter.promotion_blockers("chase") == []
     current = adapter.operation_policy_overrides(ruleset)
     assert current["rules.first_aid"]["audience"] == "host"
     assert current["rules.roll"]["audience"] == "host"
@@ -175,6 +175,8 @@ def test_composed_settlement_dispatch_is_owned_by_coc7_package():
     assert "magic.learn" not in current
     assert current["state.end_session"]["audience"] == "host"
     assert current["development.settle"]["audience"] == "host"
+    assert current["chase.context"]["audience"] == "host"
+    assert current["chase.execute"]["audience"] == "host"
     assert current["rules.settle"]["audience"] == "keeper"
 
     shadowed = json.loads(json.dumps(ruleset))

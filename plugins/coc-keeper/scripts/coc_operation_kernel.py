@@ -6650,6 +6650,76 @@ def _safe_sheet(ctx: Ctx, investigator_id: str) -> dict[str, Any] | None:
     return sheet if isinstance(sheet, dict) else None
 
 
+def _semantic_ref_value(value: Any, prefix: str) -> str | None:
+    text = str(value or "").strip()
+    expected = prefix + ":"
+    return text[len(expected):] if text.startswith(expected) and text[len(expected):] else None
+
+
+def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
+    world = ctx.world()
+    scene_id = str(world.get("active_scene_id") or "")
+    scene = _scene_by_id(ctx.story_graph, scene_id)
+    if not scene_id or not isinstance(scene, Mapping):
+        return {"actors": {}, "locations": {}}
+    actors: dict[str, dict[str, Any]] = {}
+    for party_id in ctx.party_ids():
+        sheet = _safe_sheet(ctx, party_id)
+        if not isinstance(sheet, Mapping):
+            continue
+        state = ctx.inv_state(party_id)
+        chars = sheet.get("characteristics") if isinstance(sheet.get("characteristics"), Mapping) else {}
+        skills = sheet.get("skills") if isinstance(sheet.get("skills"), Mapping) else {}
+        derived = sheet.get("derived") if isinstance(sheet.get("derived"), Mapping) else {}
+        actors[f"investigator:{party_id}"] = {
+            "actor_id": party_id,
+            "mov": int(derived.get("MOV", 8)),
+            "dex": int(chars.get("DEX", 50)),
+            "con": int(chars.get("CON", 50)),
+            "hp": int(state.get("current_hp", derived.get("HP", 10))),
+            "fight": int(skills.get("Fighting (Brawl)", 25)),
+            "dodge": int(skills.get("Dodge", max(1, int(chars.get("DEX", 50)) // 2))),
+            "build": int(state.get("build", 0)),
+            "conditions": list(state.get("conditions") or []),
+        }
+    for npc_id in (scene.get("npc_ids") or []):
+        npc_id = str(npc_id)
+        npc = _npc_by_id(ctx.npc_agendas, npc_id)
+        mechanics = npc.get("mechanics") if isinstance(npc, Mapping) else None
+        profile = mechanics.get("profile") if isinstance(mechanics, Mapping) else None
+        if not isinstance(profile, Mapping):
+            continue
+        actors[f"npc:{npc_id}"] = {
+            "actor_id": npc_id,
+            "mov": int(profile.get("mov", profile.get("MOV", 8))),
+            "dex": int(profile.get("dex", profile.get("DEX", 50))),
+            "con": int(profile.get("con", profile.get("CON", 50))),
+            "hp": int(profile.get("hp", profile.get("HP", 10))),
+            "fight": int(profile.get("combat_skill", profile.get("fight", 25))),
+            "dodge": int(profile.get("dodge_skill", profile.get("dodge", 25))),
+            "build": int(profile.get("build", 0)),
+            "conditions": list(profile.get("conditions") or []),
+        }
+    connected = {scene_id}
+    connected.update(str(value) for value in scene.get("exit_targets") or [] if str(value))
+    for edge in scene.get("scene_edges") or []:
+        if isinstance(edge, Mapping):
+            target = edge.get("target_scene_id") or edge.get("destination_scene_id") or edge.get("to")
+            if isinstance(target, str) and target:
+                connected.add(target)
+    locations: dict[str, dict[str, Any]] = {}
+    for candidate_id in connected:
+        candidate = _scene_by_id(ctx.story_graph, candidate_id)
+        if not isinstance(candidate, Mapping):
+            continue
+        locations[f"scene:{candidate_id}"] = {
+            "label": candidate_id,
+            "hazard": deepcopy(candidate.get("hazard")) if isinstance(candidate.get("hazard"), Mapping) else None,
+            "barrier": deepcopy(candidate.get("barrier")) if isinstance(candidate.get("barrier"), Mapping) else None,
+        }
+    return {"actors": actors, "locations": locations, "scene_id": scene_id}
+
+
 def _facts_provider_for(ctx: Ctx, investigator_id: str, ruleset_id: str):
     """Live facts for card projection: investigator state + campaign clock.
 
@@ -6714,6 +6784,87 @@ def _facts_provider_for(ctx: Ctx, investigator_id: str, ruleset_id: str):
             # No canonical pending SAN-gain receipt producer exists yet.
             "sanity.gain.pending": False,
         })
+        chase = _read_optional_json(ctx.campaign_dir / "save" / "chase.json", None)
+        chase_active = isinstance(chase, Mapping) and chase.get("status") == "active"
+        chase_start = _chase_start_candidates(ctx, investigator_id)
+        chase_choices = [
+            row for row in choices
+            if isinstance(row, Mapping) and row.get("kind") == "chase_action"
+        ]
+        pending_kind = None
+        if len(chase_choices) == 1:
+            actions = {
+                str(option.get("action") or "")
+                for option in chase_choices[0].get("options") or []
+                if isinstance(option, Mapping)
+            }
+            if actions and all(action.startswith("barrier:") for action in actions):
+                pending_kind = "barrier"
+        if chase_active and pending_kind is None:
+            rounds = chase.get("rounds") if isinstance(chase.get("rounds"), list) else []
+            order = rounds[-1].get("dex_order") if rounds and isinstance(rounds[-1], Mapping) else []
+            cursor = int(chase.get("initiative_cursor", 0))
+            participants = {
+                str(row.get("actor_id")): row
+                for row in chase.get("participants") or [] if isinstance(row, Mapping)
+            }
+            if isinstance(order, list) and cursor < len(order):
+                actor = participants.get(str(order[cursor]))
+                chain = chase.get("location_chain") if isinstance(chase.get("location_chain"), list) else []
+                position = int(actor.get("position", 0)) if isinstance(actor, Mapping) else -1
+                nxt = chain[position + 1] if 0 <= position + 1 < len(chain) else None
+                if isinstance(nxt, Mapping) and isinstance(nxt.get("barrier"), Mapping):
+                    pending_kind = "barrier"
+                elif isinstance(nxt, Mapping) and isinstance(nxt.get("hazard"), Mapping):
+                    pending_kind = "hazard"
+                else:
+                    pending_kind = "move"
+            quarries = [
+                row for row in participants.values() if row.get("side") == "quarry"
+            ]
+            if quarries and all(row.get("escaped") or row.get("captured") for row in quarries):
+                pending_kind = "end"
+        facts.update({
+            "chase.session.active": chase_active,
+            "chase.session.inactive": not chase_active,
+            "chase.start.ready": (
+                not chase_active
+                and len(chase_start.get("actors") or {}) >= 2
+                and len(chase_start.get("locations") or {}) >= 2
+            ),
+            "chase.pending.kind": pending_kind,
+            "chase.conflict.receipt-ready": False,
+        })
+        magic = state.get("magic") if isinstance(state.get("magic"), Mapping) else {}
+        facts["magic.known_spells"] = [
+            str(value) for value in magic.get("learned_spells") or []
+            if isinstance(value, str)
+        ]
+        magic_sources: dict[str, list[str]] = {}
+        npc_agendas = getattr(ctx, "npc_agendas", {})
+        npc_rows = npc_agendas.get("npcs") if isinstance(npc_agendas, Mapping) else []
+        if isinstance(npc_rows, Mapping):
+            npc_rows = list(npc_rows.values())
+        for row in npc_rows if isinstance(npc_rows, list) else []:
+            if not isinstance(row, Mapping):
+                continue
+            npc_id = str(row.get("npc_id") or row.get("id") or "")
+            source_kind = str(row.get("magic_source_kind") or "")
+            profile = (
+                (row.get("mechanics") or {}).get("profile")
+                if isinstance(row.get("mechanics"), Mapping) else {}
+            )
+            spells = row.get("spells") or (
+                profile.get("spells") if isinstance(profile, Mapping) else []
+            )
+            if (
+                npc_id and source_kind in {"person", "entity"}
+                and isinstance(spells, list)
+            ):
+                magic_sources[f"{source_kind}:{npc_id}"] = [
+                    str(value) for value in spells if isinstance(value, str)
+                ]
+        facts["magic.learn.sources"] = magic_sources
         ending = coc_development.structured_ending_evidence(ctx.campaign_dir)
         facts["development.settlement.pending"] = bool(
             isinstance(ending, Mapping)
@@ -7384,6 +7535,110 @@ def _canonical_sanity_binding(
     return binding
 
 
+def _canonical_magic_binding(
+    ctx: Ctx,
+    *,
+    investigator_id: str,
+    decision_ref: str,
+    semantic_inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    spell = str(semantic_inputs.get("spell") or "").strip()
+    if not spell:
+        raise ToolError("invalid_semantic_input", "spell must be non-empty")
+    state = ctx.inv_state(investigator_id)
+    magic = state.get("magic") if isinstance(state.get("magic"), Mapping) else {}
+    if decision_ref.endswith(":cast-spell"):
+        learned = {str(value) for value in magic.get("learned_spells") or []}
+        if spell not in learned:
+            raise ToolError(
+                "magic_spell_not_known",
+                "the investigator has no canonical learned-spell record for this spell",
+            )
+        return {
+            "investigator": investigator_id,
+            "is_npc": False,
+            "known_spell_ref": (
+                f"learned-spell:{investigator_id}:"
+                + re.sub(r"[^a-z0-9]+", "-", spell.casefold()).strip("-")
+            ),
+        }
+    source_kind = str(semantic_inputs.get("source") or "")
+    source_ref = str(semantic_inputs.get("source_ref") or "")
+    if source_kind not in {"tome", "person", "entity"} or not source_ref.startswith(
+        source_kind + ":"
+    ):
+        raise ToolError(
+            "magic_source_invalid",
+            "source_ref must match the typed magic learning source",
+        )
+    source_id = source_ref.split(":", 1)[1]
+    row = _npc_by_id(ctx.npc_agendas, source_id) if source_kind in {"person", "entity"} else None
+    profile = (
+        (row.get("mechanics") or {}).get("profile")
+        if isinstance(row, Mapping) and isinstance(row.get("mechanics"), Mapping)
+        else {}
+    )
+    spells = (
+        row.get("spells") if isinstance(row, Mapping) else None
+    ) or (profile.get("spells") if isinstance(profile, Mapping) else None)
+    if not isinstance(spells, list) or spell not in {str(value) for value in spells}:
+        raise ToolError(
+            "magic_source_invalid",
+            "the canonical learning source does not contain the selected spell",
+        )
+    return {"investigator": investigator_id, "is_npc": False}
+
+
+def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: str,
+                             semantic_inputs: Mapping[str, Any]) -> dict[str, Any]:
+    suffix = decision_ref.rsplit(":", 1)[-1]
+    if suffix == "start":
+        candidates = _chase_start_candidates(ctx, investigator_id)
+        actors = candidates.get("actors") or {}
+        locations = candidates.get("locations") or {}
+        pursuers = list(semantic_inputs.get("pursuer_refs") or [])
+        quarries = list(semantic_inputs.get("quarry_refs") or [])
+        location_refs = list(semantic_inputs.get("location_refs") or [])
+        if (not pursuers or not quarries or len(location_refs) < 2
+                or set(pursuers) & set(quarries)
+                or any(ref not in actors for ref in [*pursuers, *quarries])
+                or any(ref not in locations for ref in location_refs)):
+            raise ToolError("chase_candidate_invalid", "chase refs must resolve to current actors and current/connected locations")
+        participants = []
+        for side, refs, position in (("pursuer", pursuers, 0), ("quarry", quarries, 1)):
+            for ref in refs:
+                participants.append({**deepcopy(actors[ref]), "side": side, "current_position": position})
+        chase_id = "chase:" + str(candidates.get("scene_id") or "scene") + ":" + "-vs-".join(
+            re.sub(r"[^a-z0-9-]+", "-", str(ref).casefold()).strip("-") for ref in [quarries[0], pursuers[0]]
+        )
+        return {"chase_id": chase_id, "participants": participants,
+                "locations": [deepcopy(locations[ref]) for ref in location_refs]}
+    chase = _read_optional_json(ctx.campaign_dir / "save" / "chase.json", None)
+    if not isinstance(chase, Mapping) or chase.get("status") != "active":
+        raise ToolError("chase_not_active", "canonical chase is not active")
+    rounds = chase.get("rounds") or []
+    order = rounds[-1].get("dex_order") if rounds and isinstance(rounds[-1], Mapping) else []
+    cursor = int(chase.get("initiative_cursor", 0))
+    actor_id = str(order[cursor]) if isinstance(order, list) and cursor < len(order) else ""
+    participants = {str(row.get("actor_id")): row for row in chase.get("participants") or [] if isinstance(row, Mapping)}
+    actor = participants.get(actor_id) or {}
+    chain = chase.get("location_chain") or []
+    position = int(actor.get("position", 0)) if actor else -1
+    nxt = chain[position + 1] if 0 <= position + 1 < len(chain) else {}
+    binding: dict[str, Any] = {"actor_id": actor_id, "revision": chase.get("revision"), "chase_id": chase.get("chase_id")}
+    if suffix == "move": binding["action_id"] = "advance"
+    elif suffix == "hazard":
+        hazard = nxt.get("hazard") if isinstance(nxt, Mapping) else None
+        if not isinstance(hazard, Mapping): raise ToolError("chase_action_unavailable", "next location has no hazard")
+        binding.update({"action_id": f"hazard:{hazard.get('hazard_id')}", "target": hazard.get("target"), "difficulty": hazard.get("difficulty", "regular")})
+    elif suffix == "barrier":
+        barrier = nxt.get("barrier") if isinstance(nxt, Mapping) else None
+        if not isinstance(barrier, Mapping): raise ToolError("chase_action_unavailable", "next location has no barrier")
+        method = str(semantic_inputs.get("method") or "")
+        binding.update({"action_id": f"barrier:{barrier.get('barrier_id')}:{method}", "target": barrier.get("target"), "difficulty": barrier.get("difficulty", "regular")})
+    return binding
+
+
 def dispatch_rules_settle(
     ctx: Ctx,
     args: dict[str, Any],
@@ -7494,6 +7749,11 @@ def dispatch_rules_settle(
                 )
             binding["ending_id"] = ending.get("ending_id")
         selected["_host_family_binding"] = binding
+    if family == "chase":
+        selected["_host_chase_binding"] = _canonical_chase_binding(
+            ctx, decision_ref=decision_ref, investigator_id=investigator_id,
+            semantic_inputs=semantic_inputs,
+        )
     ruleset_adapter = getattr(runtime, "_ruleset_adapter", None)
     if ruleset_adapter is None:
         raise ToolError(
