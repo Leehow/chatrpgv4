@@ -148,9 +148,14 @@ def test_composed_settlement_dispatch_is_owned_by_coc7_package():
     assert adapter.__class__.__name__ == "Coc7RuleGraphAdapter"
     assert callable(adapter.settle)
     assert adapter.promotion_blockers("healing") == []
+    assert adapter.promotion_blockers("core-check") == []
+    assert adapter.promotion_blockers("push-luck")
     assert adapter.promotion_blockers("social")
     current = adapter.operation_policy_overrides(ruleset)
     assert current["rules.first_aid"]["audience"] == "host"
+    assert current["rules.roll"]["audience"] == "host"
+    assert current["rules.opposed"]["audience"] == "host"
+    assert current["rules.push"]["audience"] == "keeper"
     assert current["rules.settle"]["audience"] == "keeper"
 
     shadowed = json.loads(json.dumps(ruleset))
@@ -160,7 +165,8 @@ def test_composed_settlement_dispatch_is_owned_by_coc7_package():
     })
     switched = adapter.operation_policy_overrides(shadowed)
     assert switched["rules.first_aid"]["audience"] == "keeper"
-    assert switched["rules.settle"]["audience"] == "host"
+    assert switched["rules.settle"]["audience"] == "keeper"
+    assert switched["rules.roll"]["audience"] == "host"
 
 
 def test_packaged_healing_has_no_remaining_promotion_exclusions():

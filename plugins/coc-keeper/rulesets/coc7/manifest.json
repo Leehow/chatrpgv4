@@ -22,6 +22,11 @@
       "family_id": "healing",
       "runtime_owner": "graph",
       "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "core-check",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
     }
   ],
   "resources": [

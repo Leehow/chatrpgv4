@@ -45,6 +45,7 @@ import shutil
 import sys
 import time as _time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -1769,12 +1770,215 @@ def test_coc7_adapter_registers_settlement_state_effect_domains() -> None:
     decision_refs = adapter.settle_schema()["decision_ref"]["enum"]
     assert decision_refs
     for decision_ref in decision_refs:
+        expected = (
+            ("hp", "condition")
+            if decision_ref.startswith("decision:coc7:healing:")
+            else ("luck",)
+            if decision_ref == "decision:coc7:push-luck:luck-spend"
+            else ()
+        )
         assert coc_rulesets.rule_graph_state_effect_domains(
             "coc7", decision_ref,
-        ) == ("hp", "condition")
+        ) == expected
     assert coc_rulesets.rule_graph_state_effect_domains(
         "coc7", "decision:coc7:unknown:not-registered",
     ) == ()
+
+
+def test_coc7_adapter_binds_core_check_refs_without_model_numeric_targets(
+    tmp_path: Path,
+):
+    ws = _fresh_workspace(tmp_path, "adapter-core-bindings")
+    kernel = coc_toolbox.coc_operation_kernel
+    real_ctx = kernel.Ctx(ws["workspace"], ws["campaign_id"])
+    ctx = SimpleNamespace(
+        npc_agendas={
+        "npcs": [{
+            "npc_id": "guard",
+            "skills": {"Spot Hidden": 55},
+        }],
+        },
+        ledger_lookup=lambda *_args: None,
+    )
+    sheet = real_ctx.sheet(ws["investigator_id"])
+    sheet.setdefault("skills", {}).update({
+        "Library Use": 60,
+        "Mechanical Repair": 40,
+        "Electrical Repair": 50,
+        "Stealth": 45,
+    })
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    args = {
+        "investigator": ws["investigator_id"],
+        "decision_id": "adapter-core-check-1",
+    }
+
+    def provider_for(semantic):
+        return adapter.host_locked_provider(
+            ctx,
+            args,
+            {"semantic_inputs": semantic},
+            resolve_investigator=lambda _ctx, _args: ws["investigator_id"],
+            safe_sheet=lambda _ctx, _investigator: sheet,
+            skill_value=lambda current, skill_name: (
+                current.get("skills", {}).get(skill_name)
+            ),
+        )
+
+    ordinary = provider_for({"skill": "Library Use"})(
+        "decision:coc7:core-check:ordinary-check"
+    )
+    assert ordinary == {
+        "investigator_id": ws["investigator_id"],
+        "target": 60,
+    }
+    combined = provider_for({
+        "combined_target_refs": [
+            "skill:mechanical-repair", "skill:electrical-repair",
+        ],
+    })("decision:coc7:core-check:combined-check")
+    assert combined == {
+        "investigator_id": ws["investigator_id"],
+        "combined_targets": [
+            {"label": "Mechanical Repair", "value": 40},
+            {"label": "Electrical Repair", "value": 50},
+        ],
+    }
+    opposed_semantic = {
+        "actor_check_ref": "skill:stealth",
+        "opponent_check_ref": "npc:guard:skill:spot-hidden",
+    }
+    opposed = provider_for(opposed_semantic)(
+        "decision:coc7:core-check:opposed-check"
+    )
+    assert opposed == {
+        "investigator_id": ws["investigator_id"],
+        "investigator_target": 45,
+        "opponent_value": 55,
+    }
+    execution = adapter.executor_args(
+        ctx,
+        {
+            "capability": {"resolver_capability": "opposed"},
+            "command": {"payload": {**opposed_semantic, **opposed}},
+        },
+        {"semantic_inputs": opposed_semantic},
+        args,
+        resolve_investigator=lambda _ctx, _args: ws["investigator_id"],
+        tool_error=kernel.ToolError,
+    )
+    assert execution["contest_kind"] == "noncombat"
+    assert execution["skill"] == "Stealth"
+    assert execution["target"] == 45
+    assert execution["opponent_value"] == 55
+
+
+def test_core_check_graph_compiles_plan_then_calls_existing_executor_once():
+    candidate_root = (
+        Path.cwd() / "plugins" / "coc-keeper" / "rulesets" / "coc7"
+        / "rule-graph-candidates" / "source-stage1" / "accepted" / "core-check"
+    )
+    graph = json.loads((candidate_root / "rule-graph.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (candidate_root / "rule-graph-manifest.json").read_text(encoding="utf-8")
+    )
+    graph["family_runtime_ownership"]["core-check"] = "graph"
+    graph["legacy_surface_lifecycle"]["core-check"] = "hidden"
+    promo = manifest["family_promotion_eligibility"]["core-check"]
+    promo.update({"promotion_eligible": True, "runtime_ownership": "graph"})
+    package_manifest = {
+        "ruleset_id": "coc7",
+        "version": "1.0.0",
+        "rule_families": [{
+            "family_id": "core-check",
+            "runtime_owner": "graph",
+            "legacy_surface": "hidden",
+        }],
+    }
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    runtime = coc_rules_runtime.RulesRuntime(
+        graph,
+        ruleset_id="coc7",
+        graph_manifest=manifest,
+        package_manifest=package_manifest,
+        campaign_id="core-graph-runtime",
+        facts_provider=lambda: {
+            "campaign.ruleset_id": "coc7",
+            "actor.id": "investigator-one",
+        },
+        resolver_index={"check": {}, "opposed": {}},
+        ruleset_adapter=adapter,
+    )
+    decision_ref = "decision:coc7:core-check:ordinary-check"
+    context = runtime.context({
+        "family": "core-check",
+        "selected_affordance_ids": [decision_ref],
+    })
+    assert context["status"] == "ok"
+    assert [row["decision_ref"] for row in context["cards"]] == [decision_ref]
+    runtime._host_locked_provider = lambda _ref: {
+        "target": 60,
+        "investigator_id": "investigator-one",
+    }
+    calls = []
+
+    def executor(plan, decision_id, selected):
+        calls.append((plan, decision_id, selected))
+        assert plan["capability"]["resolver_capability"] == "check"
+        assert plan["command"]["payload"]["target"] == 60
+        return {
+            "investigator_id": "investigator-one",
+            "skill": "Library Use",
+            "target": 60,
+            "difficulty": "regular",
+            "bonus": 0,
+            "penalty": 0,
+            "roll_id": "roll:library-use",
+            "roll": 42,
+            "outcome": "regular",
+        }
+
+    result = runtime.settle(
+        {
+            "decision_ref": decision_ref,
+            "semantic_inputs": {
+                "skill": "Library Use",
+                "difficulty": "regular",
+                "goal": "find the record",
+                "stakes": {
+                    "on_success": "record found",
+                    "on_failure": "time passes",
+                },
+                "difficulty_basis": "environment",
+            },
+        },
+        "core-check-library-use-1",
+        card_grant=context["card_grant"],
+        executor=executor,
+    )
+    assert result["status"] == "settled"
+    assert result["settlement"]["execution"] == "canonical-resolver-subsystem"
+    assert len(calls) == 1
+    replay = runtime.settle(
+        {
+            "decision_ref": decision_ref,
+            "semantic_inputs": {
+                "skill": "Library Use",
+                "difficulty": "regular",
+                "goal": "find the record",
+                "stakes": {
+                    "on_success": "record found",
+                    "on_failure": "time passes",
+                },
+                "difficulty_basis": "environment",
+            },
+        },
+        "core-check-library-use-1",
+        card_grant=context["card_grant"],
+        executor=executor,
+    )
+    assert replay["status"] == "settled"
+    assert len(calls) == 1
 
 
 def test_runtime_settle_exclusion_scopes_are_no_candidate(tmp_path: Path):

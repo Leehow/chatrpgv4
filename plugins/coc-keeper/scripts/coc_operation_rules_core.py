@@ -1285,6 +1285,10 @@ def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
             "medicine": _tool_rules_medicine,
             "dying_check": _tool_rules_dying_check,
             "weekly_recovery": _tool_rules_weekly_recovery,
+            "check": _tool_rules_roll,
+            "opposed": _tool_rules_opposed,
+            "push_policy": _tool_rules_push,
+            "luck_spend": _tool_rules_luck_spend,
         },
     )
 

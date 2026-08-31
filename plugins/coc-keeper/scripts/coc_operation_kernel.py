@@ -6805,6 +6805,37 @@ def _rules_runtime_for_ctx(
     return runtime, owner, surface, loaded
 
 
+def _latest_graph_check_receipt(
+    ctx: Ctx,
+) -> tuple[str, dict[str, Any]] | None:
+    """Latest durable ordinary graph-check receipt for Push/Luck continuity."""
+    ledger = ctx._load_ledger()
+    candidates: list[tuple[str, str, dict[str, Any]]] = []
+    for entry in (ledger.get("entries") or {}).values():
+        if not isinstance(entry, Mapping) or entry.get("tool") != "rules.settle":
+            continue
+        data = entry.get("data") if isinstance(entry.get("data"), Mapping) else {}
+        if (
+            data.get("family") != "core-check"
+            or data.get("decision_ref") != "decision:coc7:core-check:ordinary-check"
+        ):
+            continue
+        settlement = data.get("settlement") if isinstance(data.get("settlement"), Mapping) else {}
+        result = settlement.get("result") if isinstance(settlement.get("result"), Mapping) else {}
+        check = result.get("bound_check") if isinstance(result.get("bound_check"), Mapping) else {}
+        if str(check.get("outcome") or "") != "failure":
+            continue
+        candidates.append((
+            str(entry.get("ts") or ""),
+            str(entry.get("decision_id") or ""),
+            deepcopy(dict(check)),
+        ))
+    if not candidates:
+        return None
+    _ts, decision_id, check = sorted(candidates)[-1]
+    return decision_id, check
+
+
 def _project_healing_decision_cards(
     ctx: Ctx, investigator_id: str | None,
 ) -> dict[str, Any]:
@@ -6864,6 +6895,11 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
         }, [], []
     kind = str(args.get("kind") or "procedure").strip() or "procedure"
     question: dict[str, Any] = {"family": family, "kind": kind}
+    if family == "push-luck":
+        source = _latest_graph_check_receipt(ctx)
+        if source is not None:
+            question["_host_source_decision_id"] = source[0]
+            question["_host_source_receipt"] = source[1]
     selected = args.get("selected_affordance_ids")
     if isinstance(selected, list):
         question["selected_affordance_ids"] = [
@@ -6970,6 +7006,33 @@ def dispatch_rules_settle(
             "rules_graph_unavailable",
             "graph settlement requires the active ruleset adapter",
         )
+    grant = runtime.latest_grant_covering(decision_ref)
+    if grant is None:
+        raise ToolError(
+            "rule_decision_stale",
+            "no live machine-issued card grant covers this decision; refresh context",
+            details={"family": family, "decision_ref": decision_ref},
+        )
+    source_decision_id = str(grant.get("source_decision_id") or "")
+    if source_decision_id:
+        prior = ctx.ledger_lookup("rules.settle", source_decision_id)
+        prior_data = prior.get("data") if isinstance(prior, Mapping) and isinstance(
+            prior.get("data"), Mapping
+        ) else {}
+        settlement = (
+            prior_data.get("settlement")
+            if isinstance(prior_data.get("settlement"), Mapping) else {}
+        )
+        prior_result = (
+            settlement.get("result")
+            if isinstance(settlement.get("result"), Mapping) else {}
+        )
+        source_receipt = (
+            prior_result.get("bound_check")
+            if isinstance(prior_result.get("bound_check"), Mapping) else None
+        )
+        if isinstance(source_receipt, Mapping):
+            selected["_host_source_receipt"] = deepcopy(dict(source_receipt))
     active_resolver = _rules_resolver(ctx, None)
     runtime._host_locked_provider = ruleset_adapter.host_locked_provider(
         ctx,
@@ -6982,14 +7045,8 @@ def dispatch_rules_settle(
                 active_resolver, sheet, skill_name,
             )
         ),
+        card_grant=grant,
     )
-    grant = runtime.latest_grant_covering(decision_ref)
-    if grant is None:
-        raise ToolError(
-            "rule_decision_stale",
-            "no live machine-issued card grant covers this decision; refresh context",
-            details={"family": family, "decision_ref": decision_ref},
-        )
 
     def executor(plan, decision_id, selected_decision):
         capability = (plan.get("capability") or {}).get("resolver_capability")
@@ -6997,7 +7054,7 @@ def dispatch_rules_settle(
         if handler is None:
             raise ToolError(
                 "unsupported_ruleset_operation",
-                f"no internal healing adapter for {capability!r}",
+                f"no internal RuleGraph adapter for {capability!r}",
             )
         adapter_args = ruleset_adapter.executor_args(
             ctx,

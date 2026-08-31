@@ -81,6 +81,21 @@ _HEALING_SETTLE_DECISION_REFS = (
     "decision:coc7:healing:medicine-stabilization",
     "decision:coc7:healing:weekly-major-wound-recovery",
 )
+_CORE_SETTLE_DECISION_REFS = (
+    "decision:coc7:core-check:ordinary-check",
+    "decision:coc7:core-check:combined-check",
+    "decision:coc7:core-check:opposed-check",
+)
+_PUSH_LUCK_SETTLE_DECISION_REFS = (
+    "decision:coc7:push-luck:pushed-roll",
+    "decision:coc7:push-luck:luck-spend",
+    "decision:coc7:push-luck:luck-roll",
+)
+_GROUP_ONE_SETTLE_DECISION_REFS = (
+    *_HEALING_SETTLE_DECISION_REFS,
+    *_CORE_SETTLE_DECISION_REFS,
+    *_PUSH_LUCK_SETTLE_DECISION_REFS,
+)
 
 
 def _observation_inference_ceiling(data: Mapping[str, Any]) -> str | None:
@@ -110,6 +125,74 @@ def _paired_observe_decision_id(realize_decision_id: str) -> str | None:
     if not prefix.startswith("psychology:"):
         return None
     return prefix + PSYCHOLOGY_OBSERVE_DECISION_SUFFIX
+
+
+def _semantic_slug(value: Any) -> str:
+    return "-".join(
+        token for token in "".join(
+            char.lower() if char.isalnum() else " " for char in str(value or "")
+        ).split() if token
+    )
+
+
+def _sheet_check(
+    sheet: Mapping[str, Any], ref: str,
+) -> tuple[str, int] | None:
+    kind, separator, slug = str(ref or "").partition(":")
+    if not separator or not slug:
+        return None
+    if kind == "skill":
+        skills = sheet.get("skills") if isinstance(sheet.get("skills"), Mapping) else {}
+        for label, value in skills.items():
+            if (
+                _semantic_slug(label) == _semantic_slug(slug)
+                and isinstance(value, int) and not isinstance(value, bool)
+                and 0 <= value <= 100
+            ):
+                return str(label), int(value)
+    if kind == "characteristic":
+        values = (
+            sheet.get("characteristics")
+            if isinstance(sheet.get("characteristics"), Mapping) else {}
+        )
+        for label, value in values.items():
+            if (
+                _semantic_slug(label) == _semantic_slug(slug)
+                and isinstance(value, int) and not isinstance(value, bool)
+                and 0 <= value <= 100
+            ):
+                return str(label).upper(), int(value)
+    return None
+
+
+def _npc_check(ctx: Any, ref: str) -> tuple[str, int] | None:
+    parts = str(ref or "").split(":")
+    if len(parts) != 4 or parts[0] != "npc" or parts[2] != "skill":
+        return None
+    npc_id, skill_slug = parts[1], parts[3]
+    document = getattr(ctx, "npc_agendas", None)
+    rows: list[Mapping[str, Any]] = []
+    if isinstance(document, Mapping):
+        raw = document.get("npcs")
+        if isinstance(raw, list):
+            rows = [row for row in raw if isinstance(row, Mapping)]
+        elif isinstance(raw, Mapping):
+            rows = [row for row in raw.values() if isinstance(row, Mapping)]
+    npc = next(
+        (row for row in rows if str(row.get("npc_id") or row.get("id") or "") == npc_id),
+        None,
+    )
+    if npc is None:
+        return None
+    skills = npc.get("skills") if isinstance(npc.get("skills"), Mapping) else {}
+    for label, value in skills.items():
+        if (
+            _semantic_slug(label) == _semantic_slug(skill_slug)
+            and isinstance(value, int) and not isinstance(value, bool)
+            and 0 <= value <= 100
+        ):
+            return f"{npc_id} {label}", int(value)
+    return None
 
 
 _SETTLEMENT_METHOD_BY_DECISION = {
@@ -189,6 +272,13 @@ class Coc7RuleGraphAdapter:
 
     @staticmethod
     def promotion_blockers(family: str) -> list[str]:
+        if family in {"healing", "core-check"}:
+            return []
+        if family == "push-luck":
+            return [
+                "accepted push-luck graph must bind luck-roll to the existing "
+                "check capability before family promotion"
+            ]
         candidate_families = {
             decision_ref.split(":", 3)[2]
             for decision_ref in _SETTLEMENT_METHOD_BY_DECISION
@@ -210,7 +300,7 @@ class Coc7RuleGraphAdapter:
             "decision_ref": {
                 "type": "string",
                 "required": True,
-                "enum": list(_HEALING_SETTLE_DECISION_REFS),
+                "enum": list(_GROUP_ONE_SETTLE_DECISION_REFS),
                 "desc": "semantic decision ref from a machine-projected card",
             },
             "semantic_inputs": {
@@ -225,6 +315,26 @@ class Coc7RuleGraphAdapter:
                     "failure_consequence": {"type": "string"},
                     "complete_rest": {"type": "boolean"},
                     "poor_environment": {"type": "boolean"},
+                    "skill": {"type": "string"},
+                    "characteristic": {"type": "string"},
+                    "combined_target_refs": {
+                        "type": "array", "items": {"type": "string"},
+                    },
+                    "combined_mode": {"type": "string", "enum": ["any", "all"]},
+                    "difficulty": {
+                        "type": "string", "enum": ["regular", "hard", "extreme"],
+                    },
+                    "goal": {"type": "string"},
+                    "stakes": {"type": "object"},
+                    "difficulty_basis": {"type": "string"},
+                    "bonus": {"type": "integer"},
+                    "penalty": {"type": "integer"},
+                    "actor_check_ref": {"type": "string"},
+                    "opponent_check_ref": {"type": "string"},
+                    "method_changed": {"type": "string"},
+                    "failure_consequence": {"type": "string"},
+                    "player_confirmed_risk": {"type": "boolean"},
+                    "points": {"type": "integer"},
                 },
             },
             "decision_id": {
@@ -239,6 +349,8 @@ class Coc7RuleGraphAdapter:
         """Package-owned authority for graph settlement state receipts."""
         if decision_ref in _HEALING_SETTLE_DECISION_REFS:
             return ("hp", "condition")
+        if decision_ref == _LUCK_SPEND_REF:
+            return ("luck",)
         return ()
 
     @staticmethod
@@ -250,7 +362,7 @@ class Coc7RuleGraphAdapter:
             },
             "family": {
                 "type": "string",
-                "enum": ["healing"],
+                "enum": ["healing", "core-check", "push-luck"],
                 "desc": "source-accepted compiled family",
             },
             "selected_affordance_ids": {
@@ -264,42 +376,49 @@ class Coc7RuleGraphAdapter:
     def operation_policy_overrides(
         package_manifest: Mapping[str, Any],
     ) -> dict[str, dict[str, Any]]:
-        owner = "legacy"
-        surface = "visible"
-        for row in package_manifest.get("rule_families") or []:
-            if isinstance(row, Mapping) and row.get("family_id") == "healing":
-                owner = str(row.get("runtime_owner") or owner)
-                surface = str(row.get("legacy_surface") or surface)
-                break
-        legacy_operations = (
-            "rules.first_aid",
-            "rules.dying_check",
-            "rules.medicine",
-            "rules.weekly_recovery",
-        )
-        overrides: dict[str, dict[str, Any]] = {}
-        graph_visible = owner == "graph" and surface in {"hidden", "removed"}
-        for operation in legacy_operations:
-            overrides[operation] = (
-                {
-                    "audience": "host",
-                    "kp_surface": "none",
-                    "phases": ("live_turn",),
-                }
-                if graph_visible
-                else {
-                    "audience": "keeper",
-                    "kp_surface": "rules",
-                    "phases": ("live_turn",),
-                }
+        ownership = {
+            str(row.get("family_id")): (
+                str(row.get("runtime_owner") or "legacy"),
+                str(row.get("legacy_surface") or "visible"),
             )
+            for row in package_manifest.get("rule_families") or []
+            if isinstance(row, Mapping) and isinstance(row.get("family_id"), str)
+        }
+        legacy_by_family = {
+            "healing": (
+                "rules.first_aid", "rules.dying_check", "rules.medicine",
+                "rules.weekly_recovery",
+            ),
+            "core-check": ("rules.roll", "rules.opposed", "rules.check"),
+            "push-luck": ("rules.push", "rules.luck_spend"),
+        }
+        overrides: dict[str, dict[str, Any]] = {}
+        any_graph_visible = False
+        for family, legacy_operations in legacy_by_family.items():
+            owner, surface = ownership.get(family, ("legacy", "visible"))
+            graph_visible = owner == "graph" and surface in {"hidden", "removed"}
+            any_graph_visible = any_graph_visible or graph_visible
+            for operation in legacy_operations:
+                overrides[operation] = (
+                    {
+                        "audience": "host",
+                        "kp_surface": "none",
+                        "phases": ("live_turn",),
+                    }
+                    if graph_visible
+                    else {
+                        "audience": "keeper",
+                        "kp_surface": "rules",
+                        "phases": ("live_turn",),
+                    }
+                )
         overrides["rules.settle"] = (
             {
                 "audience": "keeper",
                 "kp_surface": "rules",
                 "phases": ("live_turn",),
             }
-            if graph_visible
+            if any_graph_visible
             else {
                 "audience": "host",
                 "kp_surface": "none",
@@ -325,6 +444,17 @@ class Coc7RuleGraphAdapter:
         assistant = semantic.get("assistant_rescuer_ref")
         if isinstance(assistant, str) and assistant.strip():
             augmented["intent.rescuer_count"] = 2
+        source_receipt = (
+            selected.get("_host_source_receipt")
+            if isinstance(selected, Mapping)
+            and isinstance(selected.get("_host_source_receipt"), Mapping)
+            else {}
+        )
+        if source_receipt:
+            outcome = source_receipt.get("outcome")
+            if isinstance(outcome, str) and outcome:
+                augmented["receipt.last_outcome"] = outcome
+            augmented["intent.pushed"] = bool(source_receipt.get("pushed", False))
         return augmented
 
     @staticmethod
@@ -336,6 +466,7 @@ class Coc7RuleGraphAdapter:
         resolve_investigator: Callable[[Any, dict[str, Any]], str],
         safe_sheet: Callable[[Any, str], Mapping[str, Any] | None],
         skill_value: Callable[[Mapping[str, Any] | None, str], int | None],
+        card_grant: Mapping[str, Any] | None = None,
     ) -> Callable[[str], Mapping[str, Any]]:
         semantic = (
             selected.get("semantic_inputs")
@@ -384,6 +515,73 @@ class Coc7RuleGraphAdapter:
                 if value is not None:
                     locked["medicine_skill_value"] = value
                     locked["caregiver_id"] = caregiver
+            elif decision_ref in _CORE_SETTLE_DECISION_REFS or decision_ref == "decision:coc7:push-luck:luck-roll":
+                sheet = safe_sheet(ctx, investigator_id) or {}
+                locked["investigator_id"] = investigator_id
+                if decision_ref.endswith(":ordinary-check"):
+                    ref = (
+                        f"skill:{semantic['skill']}" if semantic.get("skill")
+                        else f"characteristic:{semantic['characteristic']}"
+                        if semantic.get("characteristic") else ""
+                    )
+                    resolved = _sheet_check(sheet, ref)
+                    if resolved is not None:
+                        locked["target"] = resolved[1]
+                elif decision_ref.endswith(":combined-check"):
+                    rows = []
+                    for ref in semantic.get("combined_target_refs") or []:
+                        resolved = _sheet_check(sheet, str(ref))
+                        if resolved is not None:
+                            rows.append({"label": resolved[0], "value": resolved[1]})
+                    if rows:
+                        locked["combined_targets"] = rows
+                elif decision_ref.endswith(":opposed-check"):
+                    actor = _sheet_check(sheet, str(semantic.get("actor_check_ref") or ""))
+                    opponent = _npc_check(ctx, str(semantic.get("opponent_check_ref") or ""))
+                    if actor is not None:
+                        locked["investigator_target"] = actor[1]
+                    if opponent is not None:
+                        locked["opponent_value"] = opponent[1]
+                elif decision_ref.endswith(":luck-roll"):
+                    resolved = _sheet_check(sheet, "characteristic:luck")
+                    if resolved is not None:
+                        locked["target"] = resolved[1]
+            elif decision_ref in {_PUSHED_ROLL_REF, _LUCK_SPEND_REF}:
+                source_decision_id = (
+                    str(card_grant.get("source_decision_id") or "")
+                    if isinstance(card_grant, Mapping) else ""
+                )
+                prior = (
+                    ctx.ledger_lookup("rules.settle", source_decision_id)
+                    if source_decision_id else None
+                )
+                prior_data = (
+                    prior.get("data") if isinstance(prior, Mapping)
+                    and isinstance(prior.get("data"), Mapping) else {}
+                )
+                settlement = (
+                    prior_data.get("settlement")
+                    if isinstance(prior_data.get("settlement"), Mapping) else {}
+                )
+                result = (
+                    settlement.get("result")
+                    if isinstance(settlement.get("result"), Mapping) else {}
+                )
+                check = (
+                    result.get("bound_check")
+                    if isinstance(result.get("bound_check"), Mapping) else {}
+                )
+                if source_decision_id and check:
+                    locked.update({
+                        "original_check_decision_id": source_decision_id,
+                        "canonical_roll_receipt": deepcopy(check),
+                        "continuation_grant": deepcopy(dict(card_grant or {})),
+                        "investigator_id": check.get("investigator_id"),
+                        "source_roll_id": check.get("roll_id"),
+                    })
+                    for key in ("target", "difficulty", "bonus", "penalty", "skill"):
+                        if check.get(key) is not None:
+                            locked[key] = check[key]
             return locked
 
         return provider
@@ -472,6 +670,52 @@ class Coc7RuleGraphAdapter:
                 "poor_environment", payload.get("poor_environment")
             )
             for key in ("medicine_skill_value", "caregiver_id"):
+                if payload.get(key) is not None:
+                    out[key] = payload[key]
+        elif capability == "check":
+            for key in (
+                "skill", "characteristic", "target", "combined_targets",
+                "combined_mode", "difficulty", "goal", "stakes",
+                "difficulty_basis", "bonus", "penalty",
+            ):
+                if payload.get(key) is not None:
+                    out[key] = _thaw(payload[key])
+            # Luck-roll's graph constant is authoritative.
+            if payload.get("characteristic") == "LUCK":
+                out["characteristic"] = "LUCK"
+        elif capability == "opposed":
+            actor_ref = str(payload.get("actor_check_ref") or "")
+            kind, _, label = actor_ref.partition(":")
+            if kind == "skill" and label:
+                out["skill"] = label.replace("-", " ").title()
+            elif kind == "characteristic" and label:
+                out["characteristic"] = label.upper()
+            else:
+                raise tool_error(
+                    "invalid_semantic_input",
+                    "actor_check_ref must be skill:<slug> or characteristic:<slug>",
+                )
+            if payload.get("investigator_target") is not None:
+                out["target"] = payload["investigator_target"]
+            if payload.get("opponent_value") is None:
+                raise tool_error(
+                    "missing_param", "host-locked opponent value could not be resolved",
+                )
+            out.update({
+                "contest_kind": "noncombat",
+                "opponent_value": payload["opponent_value"],
+                "opponent_label": str(payload.get("opponent_check_ref") or "opponent"),
+                "reason": "RuleGraph opposed check",
+            })
+        elif capability == "push_policy":
+            for key in (
+                "original_check_decision_id", "method_changed",
+                "failure_consequence",
+            ):
+                if payload.get(key) is not None:
+                    out[key] = payload[key]
+        elif capability == "luck_spend":
+            for key in ("points", "source_roll_id"):
                 if payload.get(key) is not None:
                     out[key] = payload[key]
         else:
@@ -1561,6 +1805,16 @@ class Coc7RuleGraphAdapter:
         }
         if outcome in _CHECK_FAILURE_OUTCOMES:
             result["next_continuations"] = [_PUSHED_ROLL_REF, _LUCK_SPEND_REF]
+            continuation_cards = [
+                self._card(ref, self._facts_for_decision(selected))
+                for ref in result["next_continuations"]
+                if isinstance(self._nodes.get(ref), Mapping)
+            ]
+            if continuation_cards:
+                self._issue_card_grant(
+                    continuation_cards,
+                    source_decision_id=decision_id,
+                )
             hints = list(hints) + [
                 "ordinary failure: the player may push this roll with a "
                 "changed method and an announced consequence, or spend Luck; "
@@ -1581,6 +1835,24 @@ class Coc7RuleGraphAdapter:
             envelope, plan, _freeze(result), warnings, hints,
             extra={"visibility": "public"},
         )
+
+    def _hydrate_original_check(
+        self,
+        payload: Mapping[str, Any],
+    ) -> tuple[str, Mapping[str, Any] | None]:
+        original_id = str(payload.get("original_check_decision_id") or "").strip()
+        original = self._check_frozen.get(original_id) if original_id else None
+        receipt = payload.get("canonical_roll_receipt")
+        if original is None and original_id and isinstance(receipt, Mapping):
+            result = {
+                "bound_check": _thaw(receipt),
+                "outcome": str(receipt.get("outcome") or ""),
+                "pushed": False,
+                "luck_roll": False,
+            }
+            original = {"request_identity": "canonical-receipt", "result": result}
+            self._check_frozen[original_id] = deepcopy(original)
+        return original_id, original
 
     def _settle_luck_roll(
         self,
@@ -1693,8 +1965,7 @@ class Coc7RuleGraphAdapter:
                     "fields": ["player_confirmed_risk"],
                 },
             }
-        original_id = str(payload.get("original_check_decision_id") or "").strip()
-        original = self._check_frozen.get(original_id) if original_id else None
+        original_id, original = self._hydrate_original_check(payload)
         if original is None:
             return {
                 "schema_version": self.SCHEMA_VERSION,
@@ -1850,8 +2121,7 @@ class Coc7RuleGraphAdapter:
                     "missing": ["source_roll_id"],
                 },
             }
-        original_id = str(payload.get("original_check_decision_id") or "").strip()
-        original = self._check_frozen.get(original_id) if original_id else None
+        original_id, original = self._hydrate_original_check(payload)
         if original is not None:
             original_result = original.get("result") or {}
             if original_result.get("luck_roll"):
