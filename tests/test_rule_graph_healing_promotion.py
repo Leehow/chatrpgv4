@@ -91,6 +91,31 @@ def test_packaged_healing_is_source_reviewed_and_graph_owned():
         }
         assert slots["assistant_skill_value"] == "host-locked"
         assert slots["assistant_rescuer_id"] == "host-locked"
+        assert slots["changed_method"] == "optional-semantic"
+        assert slots["failure_consequence"] == "optional-semantic"
+        required = {
+            row["to_node_id"]
+            for row in graph["relations"]
+            if row.get("relation_kind") == "requires-input"
+            and row.get("from_node_id") == decision_ref
+        }
+        assert {
+            "input-slot:coc7:healing:changed-method",
+            "input-slot:coc7:healing:failure-consequence",
+        } <= required
+
+    assert nodes["input-slot:coc7:healing:changed-method"]["properties"] == {
+        "family_id": "healing",
+        "ownership": "optional-semantic",
+        "value_type": "string",
+    }
+    assert nodes[
+        "input-slot:coc7:healing:failure-consequence"
+    ]["properties"] == {
+        "family_id": "healing",
+        "ownership": "optional-semantic",
+        "value_type": "string",
+    }
 
     assert not any(
         row.get("code") == "executor_capability_gap"

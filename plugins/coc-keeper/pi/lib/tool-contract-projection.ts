@@ -2919,6 +2919,7 @@ const CLASSIFIED_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
   "original_hash", "bundle_sha256", "bundle_sha256s", "sha256",
   "payload_sha256", "receipt_digest", "rendered_sha256",
   "baseline_draft_sha256", "data_digest", "row_digest", "content_sha256",
+  "transaction_sha256",
 ]);
 
 /**
@@ -3024,7 +3025,7 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   )],
   ["npc.query", declaredIdentityTable(
     [
-      "clue_id", "deflect_id", "fact_id", "known_fact_ids", "npc_id",
+      "campaign_id", "clue_id", "deflect_id", "fact_id", "known_fact_ids", "npc_id",
       "revealable_fact_ids", "schedule_id", "subject_id",
       "valid_optional_evidence_refs",
     ],
@@ -3089,22 +3090,68 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["attempt_id", "decision_id", "original_check_decision_id", "scene_id"],
     [],
   )],
+  ["rules.push", declaredIdentityTable(
+    ["attempt_id", "decision_id", "original_check_decision_id", "scene_id"],
+    ["integrity_digest"],
+  )],
+  ["rules.luck_spend", declaredIdentityTable(
+    ["decision_id", "rule_ref"],
+    ["integrity_digest"],
+  )],
   ["rules.damage", declaredIdentityTable(
     [],
     [],
     ["roll_id"],
+  )],
+  ["rules.catalog_search", declaredIdentityTable(
+    ["entity_id", "price_id", "ruleset_id"],
+    [],
   )],
   ["rules.context", declaredIdentityTable(
     RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS,
     [],
   )],
   ["rules.settle", declaredIdentityTable(
-    ["actor_id", "day_id", "decision_ref", "rescuer_id", "wound_id"],
+    [
+      "actor_id", "capability_ref", "caregiver_id", "day_id", "decision_ref",
+      "rescuer_id", "rule_ref", "rule_refs", "wound_id",
+    ],
     ["request_digest"],
     ["command_id", "roll_id", "source_command_id", "state_refs"],
   )],
   ["state.advance_time", declaredIdentityTable(
     ["civil_segment_id", "location_id", "source_ref"],
+    [],
+  )],
+  ["state.exceptional_effect", declaredIdentityTable(
+    ["scene_id", "subject_id", "restriction_id", "target_id"],
+    ["integrity_digest"],
+    ["event_id"],
+  )],
+  ["mechanics.ensure", declaredIdentityTable(
+    ["actor_id", "affordance_id", "stable_id", "subject_id"],
+    ["content_sha256"],
+    ["monster_ref"],
+  )],
+  ["sanity.execute", declaredIdentityTable(
+    ["san_trigger_id"],
+    [],
+    ["command_id", "event_id", "state_refs"],
+  )],
+  ["combat.resolve", declaredIdentityTable(
+    [
+      "actor_id", "combat_id", "id", "investigator_id", "rule_ref",
+      "scene_ref", "source_actor_id", "target_actor_id",
+    ],
+    ["transaction_sha256"],
+    [
+      "command_id", "damage_roll_id", "event_id", "executor_id",
+      "attack_command_id", "opposed_roll_id", "resolution_command_id", "skill_owner_id",
+      "source_command_id", "source_turn_id", "state_refs", "turn_id",
+    ],
+  )],
+  ["combat.context", declaredIdentityTable(
+    ["actor_id", "combat_id", "scene_ref", "target_actor_id"],
     [],
   )],
   ["state.inventory_list", declaredIdentityTable(["npc_id"], [])],
@@ -3128,10 +3175,11 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       "authorized_entity_refs", "authorized_route_ids", "clock_id", "clue_id",
       "decision_id", "family_id", "front_id", "last_storylet_id",
       "location_id", "npc_id", "required_obligation_ids", "run_segment_id",
-      "scene_id", "source_ref", "storylet_id", "trope_id",
+      "restriction_id", "scene_id", "source_ref", "storylet_id",
+      "subject_id", "target_id", "trope_id",
     ],
     ["contract_projection_sha256", "mechanics_bundle_sha256", "source_digest", "text_sha256"],
-    ["source_id", "source_receipt_id"],
+    ["event_id", "source_decision_id", "source_id", "source_receipt_id"],
   )],
   ["narration.review", declaredIdentityTable(
     ["decision_id"],
@@ -3851,6 +3899,11 @@ export function stripOpaqueModelIdentity(
   const projected: Record<string, unknown> = {};
   for (const [field, child] of Object.entries(value)) {
     const childPath = fieldPath ? `${fieldPath}.${field}` : field;
+    if (
+      operation === "session.resume"
+      && parentField === "recent_summaries"
+      && (field === "source_ref" || field === "summary_sha256")
+    ) continue;
     if (DENIED_IDENTITY_FIELDS.has(field)) continue;
     if (declaredIdentityDisposition(operation, field) === "host_only") continue;
     if (isIntegrityFieldName(field)) {
@@ -4365,7 +4418,9 @@ function diagnoseUnprojectedIdentityKeys(
     ...RAW_NEVER_MODEL_AUTHORED_FIELDS,
     ...((HOST_OWNED_FIELDS as Record<string, readonly string[] | undefined>)[operation] ?? []),
     ...DENIED_IDENTITY_FIELDS,
+    ...(declarations?.semantic ?? []),
     ...(declarations?.integrity ?? []),
+    ...(declarations?.hostOnly ?? []),
   ]);
   for (const [field, value] of Object.entries(data)) {
     if (known.has(field)) continue;
@@ -5371,16 +5426,21 @@ function isNamespacedSemantic(
 ): boolean {
   const idx = value.indexOf(":");
   if (idx <= 0) return false;
-  if (!namespaces.has(value.slice(0, idx + 1))) return false;
+  const namespace = value.slice(0, idx + 1);
+  if (!namespaces.has(namespace)) return false;
   // The namespace scopes the semantics; the remainder still needs a
   // minimal meaning-bearing form (never one-char arbitrary tokens).
   // Host-presented chains may nest colon-scoped segments (e.g.
   // `scene-route:<scene>:<kind>:<ordinal>`); every segment must be
   // meaning-bearing slug material.
   const remainder = value.slice(idx + 1);
-  // CJK semantic names are often two characters (猎刀); ASCII slugs keep the
-  // four-character minimum.
-  const minimum = /[\u3400-\u9fff]/.test(remainder) ? 2 : 4;
+  // CJK semantic names are often two characters (猎刀). Roll handles may be
+  // host-minted from three-letter CoC characteristics (CON, DEX, POW, SAN,
+  // etc.); those exact live handles remain registry-resolved and therefore
+  // use a three-character minimum. Other ASCII namespaces keep four.
+  const minimum = /[\u3400-\u9fff]/.test(remainder)
+    ? 2
+    : namespace === "roll:" ? 3 : 4;
   if (remainder.length < minimum) return false;
   return remainder.split(":").every((segment) => isSemanticSlugShape(segment));
 }

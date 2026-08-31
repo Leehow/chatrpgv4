@@ -248,6 +248,79 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
   assertModelSafeContent(`family ${family}`, projected, deniedKeys);
 }
 
+// Production-shaped long-tail rule/subsystem envelopes use explicit closed
+// identity dispositions. Internal command/provenance ids stay host-only;
+// authored semantic ids remain visible without weakening the generic boundary.
+{
+  const cases = [
+    ["rules.catalog_search", {
+      ok: true,
+      tool: "rules.catalog_search",
+      data: {
+        ruleset_id: "coc7",
+        candidates: [{ entity_id: "knife_medium", price_id: "eq.1920s.knife-medium" }],
+      },
+    }],
+    ["mechanics.ensure", {
+      ok: true,
+      tool: "mechanics.ensure",
+      data: {
+        subject_id: "npc-walter-corbitt",
+        monster_ref: "Walter Corbitt",
+        affordance_id: "strike-with-his-dagger",
+        mechanics_revision_ref: {
+          stable_id: "npc:walter-corbitt:mechanics",
+          content_sha256: "f".repeat(64),
+        },
+      },
+    }],
+    ["sanity.execute", {
+      ok: true,
+      tool: "sanity.execute",
+      data: {
+        results: [{
+          command_id: "sanity-see-corbitt-body-v1",
+          events: [{ san_trigger_id: "see-corbitt-body", event_id: "se1" }],
+          state_refs: ["save/sanity.json#state"],
+        }],
+      },
+    }],
+    ["combat.resolve", {
+      ok: true,
+      tool: "combat.resolve",
+      data: {
+        events: [{
+          attack_command_id: "combat-corbitt-attack-1",
+          actor_id: "thomas-hayes",
+          target_actor_id: "walter-corbitt",
+          rule_ref: "module.haunting.corbitt-own-dagger",
+        }],
+      },
+    }],
+    ["turn.output_context", {
+      ok: true,
+      tool: "turn.output_context",
+      data: {
+        source_decision_id: "exceptional-push-failure-v1",
+        obligations: [],
+        required_obligation_ids: [],
+        mechanics_summary: { public_check: [], state_delta: [], exceptional_effect: [], concealed_consequence: [] },
+      },
+    }],
+  ];
+  for (const [operation, envelope] of cases) {
+    const diagnostics = { unmapped: [] };
+    const projected = projectModelVisibleCanonicalResult(
+      operation,
+      envelope,
+      emptySemanticProjectionView(),
+      diagnostics,
+    );
+    assert.deepEqual(diagnostics.unmapped, [], `${operation} production identity projection`);
+    assertModelSafeContent(`${operation} production identity projection`, projected);
+  }
+}
+
 // state.journal continuation memory uses item_id as the semantic identity of
 // a do-not-repeat note. It is not an inventory item and must not be routed
 // through the item registry merely because the leaf field shares that name.
@@ -1153,6 +1226,12 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
     }],
   }).ok, true);
   assert.equal(raw({
+    coverage: [{
+      obligation_id: "roll:con",
+      realization: "fictional_beat",
+    }],
+  }).ok, true, "host-minted characteristic handles must pass raw grammar");
+  assert.equal(raw({
     agency_claims: [{ claim_id: "claim-wall-listen-cupboard" }],
   }).ok, true);
   assert.equal(raw({ subject_ref: CURRENT_PC_SUBJECT_HANDLE }).ok, true);
@@ -1348,6 +1427,15 @@ routeOperation("*", { ok: true, data: {} });
 // stay private. A generic session.resume walk previously diagnosed every
 // nested field as undeclared and failed the whole resume.
 const populatedSceneResume = structuredClone(FAMILIES.session_resume);
+populatedSceneResume.data.semantic_capsule = {
+  ...(populatedSceneResume.data.semantic_capsule ?? {}),
+  recent_summaries: [{
+    turn_number: 1,
+    summary: "调查员进入科比特地下藏身处。",
+    source_ref: "memory/session-summaries.jsonl#turn-1",
+    summary_sha256: `sha256:${"7".repeat(64)}`,
+  }],
+};
 populatedSceneResume.data.scene_context = {
   ...populatedSceneResume.data.scene_context,
   active_scene_id: "commission-briefing",
@@ -1513,6 +1601,24 @@ assert.equal(
 assert.equal(
   resumeVisible.data.scene_context.nearby_routes.destinations[0].scene_id,
   "newspaper-morgue",
+);
+assert.equal(
+  resumeVisible.data.semantic_capsule.recent_summaries[0].summary,
+  "调查员进入科比特地下藏身处。",
+);
+assert.equal(
+  Object.hasOwn(
+    resumeVisible.data.semantic_capsule.recent_summaries[0],
+    "source_ref",
+  ),
+  false,
+);
+assert.equal(
+  Object.hasOwn(
+    resumeVisible.data.semantic_capsule.recent_summaries[0],
+    "summary_sha256",
+  ),
+  false,
 );
 assert.equal(
   resumeVisible.data.scene_context.nearby_routes.destinations[0]
@@ -1983,6 +2089,8 @@ assertModelSafeContent("rules.roll content", rulesRollVisible);
     hp_before: 5,
     hp_after: 6,
     hp_gained: 1,
+    caregiver_id: "doctor-one",
+    rule_ref: "core.combat.first_aid",
     skill: "First Aid",
     source_command_id: graphCommandId,
     treatment_scope: {
@@ -2019,7 +2127,7 @@ assertModelSafeContent("rules.roll content", rulesRollVisible);
       decision_ref: "decision:coc7:healing:first-aid-ordinary",
       family: "healing",
       status: "settled",
-      rule_refs: [],
+      rule_refs: ["rule:coc7:healing:first-aid"],
       investigator_id: "thomas-hayes",
       event: graphEvent,
       player_state_receipt: {
@@ -2060,7 +2168,11 @@ assertModelSafeContent("rules.roll content", rulesRollVisible);
           }],
         },
       },
-      next_decisions: [],
+      next_decisions: [{
+        decision_ref: "decision:coc7:healing:medicine-stabilization",
+        capability_ref: "capability:coc7:medicine",
+        rule_refs: ["rule:coc7:healing:medicine"],
+      }],
       authority: "canonical-resolver-state-receipts",
       request_digest: `sha256:${"e".repeat(64)}`,
     },
@@ -2089,6 +2201,16 @@ assertModelSafeContent("rules.roll content", rulesRollVisible);
   assert.equal(settleVisible.data.current_hp, 6);
   assert.equal(settleVisible.data.player_state_receipt.hp.before, 5);
   assert.equal(settleVisible.data.player_state_receipt.hp.after, 6);
+  assert.equal(settleVisible.data.event.rule_ref, "core.combat.first_aid");
+  assert.equal(settleVisible.data.event.caregiver_id, "doctor-one");
+  assert.deepEqual(
+    settleVisible.data.rule_refs,
+    ["rule:coc7:healing:first-aid"],
+  );
+  assert.equal(
+    settleVisible.data.next_decisions[0].capability_ref,
+    "capability:coc7:medicine",
+  );
   assert.equal(settleVisible.data.settlement.result.events[1].dice.total, 8);
   assert.equal(settleVisible.data.settlement.result.events[1].roll_id, undefined);
   assert.equal(settleVisible.data.settlement.result.events[1].actor_id, "thomas-hayes");

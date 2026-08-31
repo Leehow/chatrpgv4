@@ -156,7 +156,11 @@ def _context(tmp_path: Path) -> dict:
     }
 
 
-def _settled_workspace(tmp_path: Path) -> tuple[Path, str, str]:
+def _settled_workspace(
+    tmp_path: Path,
+    *,
+    tracked_post_finalization_overlays: bool = False,
+) -> tuple[Path, str, str]:
     workspace = tmp_path / "settled-workspace"
     campaign_id = "debug-snapshot-source"
     campaign = workspace / ".coc" / "campaigns" / campaign_id
@@ -190,6 +194,28 @@ def _settled_workspace(tmp_path: Path) -> tuple[Path, str, str]:
         schema_generation="campaign-3/world-2/pacing-1/investigator-1",
         note="debug fixture",
     )
+    delivery = campaign / "save" / "continuation" / "delivery-receipts.jsonl"
+    temporal_paths = [
+        campaign / "memory" / "temporal" / name
+        for name in ("backlog.jsonl", "episode-evidence.jsonl", "episodes.jsonl")
+    ]
+    if tracked_post_finalization_overlays:
+        delivery.parent.mkdir(parents=True, exist_ok=True)
+        delivery.write_text(
+            json.dumps({
+                "schema_version": 1,
+                "kind": "coc_delivery_receipt",
+                "campaign_id": campaign_id,
+                "finalization_id": "final-debug-prior-turn",
+                "rendered_text_sha256": "sha256:" + "0" * 64,
+                "status": "confirmed",
+                "ack_kind": "displayed",
+            }) + "\n",
+            encoding="utf-8",
+        )
+        for path in temporal_paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('{"turn":0}\n', encoding="utf-8")
     commit = coc_git_history.commit_finalized_turn(
         workspace,
         campaign_id,
@@ -200,9 +226,8 @@ def _settled_workspace(tmp_path: Path) -> tuple[Path, str, str]:
         rendered_text_sha256="sha256:" + "1" * 64,
         schema_generation="campaign-3/world-2/pacing-1/investigator-1",
     )
-    delivery = campaign / "save" / "continuation" / "delivery-receipts.jsonl"
     delivery.parent.mkdir(parents=True, exist_ok=True)
-    delivery.write_text(json.dumps({
+    current_delivery = json.dumps({
         "schema_version": 1,
         "kind": "coc_delivery_receipt",
         "campaign_id": campaign_id,
@@ -210,7 +235,15 @@ def _settled_workspace(tmp_path: Path) -> tuple[Path, str, str]:
         "rendered_text_sha256": "sha256:" + "1" * 64,
         "status": "confirmed",
         "ack_kind": "displayed",
-    }) + "\n", encoding="utf-8")
+    }) + "\n"
+    if tracked_post_finalization_overlays:
+        with delivery.open("a", encoding="utf-8") as handle:
+            handle.write(current_delivery)
+        for path in temporal_paths:
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write('{"turn":1}\n')
+    else:
+        delivery.write_text(current_delivery, encoding="utf-8")
     return workspace, campaign_id, commit
 
 
@@ -226,7 +259,7 @@ def test_dispatch_starts_reads_and_cancels_one_closed_experiment(tmp_path: Path)
       "player_input":"我检查伤口并更换包扎方法。",
       "lanes":[
         {"id":"production-1","profile":"production"},
-        {"id":"changed-method","profile":"production","player_input":"我改用夹板固定伤处。"}
+        {"id":"changed-method","profile":"rules-all-single-draft","player_input":"我改用夹板固定伤处。"}
       ],
       "record":["rules","director","working_set","timing","state_diff"],
       "concurrency":2,
@@ -440,6 +473,50 @@ def test_git_checkpoint_allows_only_post_finalization_audit_log_drift(
     assert checkpoint["post_finalization_audit_paths"] == [
         "logs/toolbox-calls.jsonl"
     ]
+
+
+def test_git_checkpoint_hashes_and_materializes_tracked_post_finalization_overlays(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    workspace, campaign_id, commit = _settled_workspace(
+        tmp_path,
+        tracked_post_finalization_overlays=True,
+    )
+    campaign = coc_git_history.worktree_path_for(workspace, campaign_id)
+    repo = coc_git_history.repo_path_for(workspace, campaign_id)
+    source_status = module._git(
+        repo, campaign, "status", "--porcelain", "--untracked-files=no",
+    )
+    expected_paths = [
+        "memory/temporal/backlog.jsonl",
+        "memory/temporal/episode-evidence.jsonl",
+        "memory/temporal/episodes.jsonl",
+        "save/continuation/delivery-receipts.jsonl",
+    ]
+
+    adapter = module.GitCheckpointAdapter()
+    checkpoint = adapter.seal_latest({
+        **_context(tmp_path),
+        "workspace_root": str(workspace),
+        "campaign_id": campaign_id,
+    })
+    assert checkpoint["commit"] == commit
+    assert [
+        row["path"] for row in checkpoint["post_finalization_overlays"]
+    ] == expected_paths
+    assert all(
+        len(row["sha256"]) == 64 and row["size_bytes"] > 0
+        for row in checkpoint["post_finalization_overlays"]
+    )
+
+    lane = adapter.materialize(checkpoint, tmp_path / "overlay-lane")
+    lane_campaign = Path(lane["campaign_dir"])
+    for relative in expected_paths:
+        assert (lane_campaign / relative).read_bytes() == (campaign / relative).read_bytes()
+    assert module._git(
+        repo, campaign, "status", "--porcelain", "--untracked-files=no",
+    ) == source_status
 
 
 def test_git_checkpoint_requires_confirmed_delivery_for_tip(tmp_path: Path) -> None:
@@ -667,6 +744,10 @@ def test_rpc_lane_enforces_resume_first_and_exact_final_delivery(tmp_path: Path)
     progress = json.loads((live_root / "progress.json").read_text(encoding="utf-8"))
     assert progress["stage"] == "terminal"
     assert progress["last_event_type"] == "agent_settled"
+
+    preflight = _rpc_lane_run(tmp_path, mode="preflight-read")
+    assert preflight["status"] == "completed"
+    assert preflight["resume_first"] is True
 
 
 def test_rpc_lane_preserves_redacted_stderr_on_early_process_exit(

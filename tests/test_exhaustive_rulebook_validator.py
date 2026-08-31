@@ -52,6 +52,24 @@ def _make_run(root: Path, run_id: str, campaign_id: str,
         "".join(json.dumps(e) + "\n" for e in (events or [])))
 
 
+def _make_debug_run(
+    root: Path,
+    run_id: str,
+    lane_id: str,
+    campaign_id: str,
+    rolls: list[dict],
+) -> None:
+    logs = (
+        root / run_id / "sandboxes" / lane_id / ".coc"
+        / "campaigns" / campaign_id / "logs"
+    )
+    logs.mkdir(parents=True)
+    (logs / "rolls.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rolls),
+        encoding="utf-8",
+    )
+
+
 def test_campaign_discovery_and_violation_detection(tmp_path, capsys):
     # Campaign id deliberately differs from the run id (the layout that used
     # to make the validator sweep zero records and pass vacuously).
@@ -71,6 +89,21 @@ def test_clean_run_passes(tmp_path, capsys):
     rc = validator.main(["prog", str(tmp_path)])
     out = capsys.readouterr().out
     assert rc == 0
+    assert "EXHAUSTIVE CHECK PASSED" in out
+
+
+def test_debug_experiment_lane_discovery_and_distinct_label(tmp_path, capsys):
+    _make_debug_run(
+        tmp_path,
+        "debug-rulegraph-r1",
+        "healing-first-aid",
+        "campaign-healing",
+        [CLEAN_SKILL_ROLL],
+    )
+    rc = validator.main(["prog", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "1 rolls" in out
     assert "EXHAUSTIVE CHECK PASSED" in out
 
 

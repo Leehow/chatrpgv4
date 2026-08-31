@@ -203,6 +203,36 @@ def _assistant_nodes() -> list[dict[str, Any]]:
             },
             "evidence_span_ids": [],
         },
+        {
+            "node_id": "input-slot:coc7:healing:changed-method",
+            "node_kind": "input-slot",
+            "name": "Materially changed First Aid method for a pushed retry",
+            "authority": "keeper-semantic",
+            "audience": "keeper",
+            "visibility": "keeper-only",
+            "hard_gate": False,
+            "properties": {
+                "family_id": "healing",
+                "ownership": "optional-semantic",
+                "value_type": "string",
+            },
+            "evidence_span_ids": [],
+        },
+        {
+            "node_id": "input-slot:coc7:healing:failure-consequence",
+            "node_kind": "input-slot",
+            "name": "Announced consequence if the pushed First Aid attempt fails",
+            "authority": "keeper-semantic",
+            "audience": "keeper",
+            "visibility": "keeper-only",
+            "hard_gate": False,
+            "properties": {
+                "family_id": "healing",
+                "ownership": "optional-semantic",
+                "value_type": "string",
+            },
+            "evidence_span_ids": [],
+        },
     ]
 
 
@@ -212,6 +242,8 @@ def _assistant_relations() -> list[dict[str, Any]]:
         ("assistant-ref", "requires-input", "assistant-rescuer-ref"),
         ("assistant-skill", "locks-input", "assistant-skill-value"),
         ("assistant-id", "locks-input", "assistant-rescuer-id"),
+        ("changed-method", "requires-input", "changed-method"),
+        ("failure-consequence", "requires-input", "failure-consequence"),
     )
     for decision_ref in FIRST_AID_DECISIONS:
         branch = decision_ref.rsplit(":", 1)[-1]
@@ -334,6 +366,9 @@ def build_candidate(packet: Mapping[str, Any]) -> dict[str, Any]:
         for name in ("assistant_skill_value", "assistant_rescuer_id"):
             if not any(row.get("name") == name for row in slots):
                 slots.append({"name": name, "ownership": "host-locked"})
+        for name in ("changed_method", "failure_consequence"):
+            if not any(row.get("name") == name for row in slots):
+                slots.append({"name": name, "ownership": "optional-semantic"})
 
     groups = {name: _spans_for(packet, name) for name in PHRASES}
     all_spans = sorted({span for values in groups.values() for span in values})

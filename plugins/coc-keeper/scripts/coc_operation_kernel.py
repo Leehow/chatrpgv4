@@ -5949,6 +5949,12 @@ def _roll_common(
         consequence = {"summary": str(operation["failure_consequence"])}
         result["failure_consequence"] = consequence
         result["announced_consequence"] = consequence
+    if pushed:
+        result["pushed_roll_protocol"] = {
+            "failure_consequence_source": "keeper",
+            "keeper_foreshadowed_failure": True,
+            "player_confirmation_recorded": True,
+        }
     if operation.get("fumble_consequence"):
         result["fumble_consequence"] = {
             "summary": str(operation["fumble_consequence"])
@@ -11353,7 +11359,7 @@ def _pi_rules_director_single_draft_profile() -> bool:
         str(os.environ.get("COC_PI_SESSION_ROLE") or "").strip().casefold()
         == "play"
         and os.environ.get("COC_PI_ACCEPTANCE_PROFILE")
-        == "rules-director-single-draft"
+        in {"rules-all-single-draft", "rules-director-single-draft"}
     )
 
 

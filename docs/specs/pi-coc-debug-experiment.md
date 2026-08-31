@@ -58,8 +58,10 @@ turn, player input, journal row, or recovery tool scope. Ordinary
 Constraints:
 
 - 1–4 semantic lane ids; duplicates and opaque ids fail closed.
-- Profiles are `production` or the existing exact
-  `rules-director-single-draft` compatibility profile.
+- Profiles are `production`, the narrow graph-only
+  `rules-director-single-draft` profile, or `rules-all-single-draft`. The last
+  profile keeps the full production play skills and working set while
+  disabling only narration review for focused whole-rules-layer diagnostics.
 - `timeout_seconds` is 1–180 and never resets on provider/tool progress.
 - `final` evidence is mandatory even when omitted from `record`.
 - RNG seeds, desired results, arbitrary tools, paths, environment overrides,

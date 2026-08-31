@@ -500,6 +500,11 @@ ordinary Keeper-only `/system` delivery. It never becomes model or player input.
 /system debug report current
 ```
 
+Use `rules-director-single-draft` for the narrow graph-card surface. Use
+`rules-all-single-draft` when a focused debug matrix must retain the full
+production rules/subsystem surface but should draft/finalize once without the
+text-review loop. Neither profile changes the production default.
+
 The host seals the latest finalized and delivery-confirmed `tl-main` tip, gives
 each lane an independent campaign repo/worktree and private Pi home, requires
 `session.resume` first, sends the natural player action once, and applies one

@@ -4970,7 +4970,44 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           lifetime: "player_turn",
         });
       };
-      if (operation === "rules.roll") {
+      const walkCanonicalRows = (
+        value: unknown,
+        visit: (row: Record<string, unknown>) => void,
+      ): void => {
+        if (Array.isArray(value)) {
+          for (const entry of value) walkCanonicalRows(entry, visit);
+          return;
+        }
+        const row = objectOrNull(value);
+        if (row === null) return;
+        visit(row);
+        for (const child of Object.values(row)) {
+          walkCanonicalRows(child, visit);
+        }
+      };
+      if (operation === "sanity.execute" || operation === "combat.resolve") {
+        walkCanonicalRows(data, (row) => {
+          registerRoll(row.roll_id, [
+            row.skill,
+            row.goal,
+            row.roll_role,
+            row.event_type,
+          ]);
+        });
+      }
+      if (operation === "mechanics.ensure" || operation === "combat.resolve") {
+        walkCanonicalRows(data, (row) => {
+          if (typeof row.weapon_id !== "string" || !row.weapon_id.trim()) return;
+          semanticRegistry.register({
+            domain: "weapon",
+            canonicalId: row.weapon_id.trim(),
+            facts: [row.name, row.weapon_label, row.extends, "combat-weapon"],
+            scope,
+            lifetime: "player_turn",
+          });
+        });
+      }
+      if (operation === "rules.roll" || operation === "rules.push") {
         const resolutionContext = objectOrNull(data.resolution_context);
         const rollArguments = objectOrNull(params.arguments);
         registerRoll(data.roll_id, [
@@ -5161,14 +5198,27 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           if (canonicalEffect && canonicalEffect !== effectInput) {
             semanticRegistry.retire("effect", canonicalEffect, scope);
           }
-        } else if (typeof data.effect_id === "string") {
-          semanticRegistry.register({
-            domain: "effect",
-            canonicalId: data.effect_id,
-            facts: [data.kind, operation],
-            scope,
-            lifetime: "authoritative",
-          });
+        } else {
+          const effect = objectOrNull(data.effect);
+          const canonicalEffect = typeof data.effect_id === "string"
+            ? data.effect_id
+            : typeof effect?.effect_id === "string"
+              ? effect.effect_id
+              : "";
+          const effectKind = typeof data.kind === "string"
+            ? data.kind
+            : typeof effect?.effect_kind === "string"
+              ? effect.effect_kind
+              : "effect";
+          if (canonicalEffect) {
+            semanticRegistry.register({
+              domain: "effect",
+              canonicalId: canonicalEffect,
+              facts: [effectKind, operation],
+              scope,
+              lifetime: "authoritative",
+            });
+          }
         }
       } else if (typeof data.effect_id === "string") {
         // Any other envelope naming an effect registers it turn-scoped.

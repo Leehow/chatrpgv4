@@ -367,6 +367,14 @@
               "ownership": "host-locked"
             },
             {
+              "name": "changed_method",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "failure_consequence",
+              "ownership": "optional-semantic"
+            },
+            {
               "name": "assistant_skill_value",
               "ownership": "host-locked"
             },
@@ -411,6 +419,14 @@
             {
               "name": "pushed",
               "ownership": "host-locked"
+            },
+            {
+              "name": "changed_method",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "failure_consequence",
+              "ownership": "optional-semantic"
             },
             {
               "name": "assistant_skill_value",
@@ -660,6 +676,24 @@
       ]
     },
     {
+      "node_id": "input-slot:coc7:healing:changed-method",
+      "node_kind": "input-slot",
+      "name": "Materially changed First Aid method for a pushed retry",
+      "authority": "keeper-semantic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "ownership": "optional-semantic",
+        "value_type": "string"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
       "node_id": "input-slot:coc7:healing:complete-rest",
       "node_kind": "input-slot",
       "name": "Whether the character has complete rest in a comfortable environment this week",
@@ -686,6 +720,24 @@
         "span-wounds-and-healing-page-132-block-40",
         "span-wounds-and-healing-page-133-block-41",
         "span-wounds-and-healing-page-133-block-42"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:healing:failure-consequence",
+      "node_kind": "input-slot",
+      "name": "Announced consequence if the pushed First Aid attempt fails",
+      "authority": "keeper-semantic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "healing",
+        "ownership": "optional-semantic",
+        "value_type": "string"
+      },
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {
@@ -1374,6 +1426,26 @@
       ]
     },
     {
+      "relation_id": "relation:coc7:healing:first-aid-ordinary-changed-method",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "to_node_id": "input-slot:coc7:healing:changed-method",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:first-aid-ordinary-failure-consequence",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-ordinary",
+      "to_node_id": "input-slot:coc7:healing:failure-consequence",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
       "relation_id": "relation:coc7:healing:first-aid-ordinary-rescuer-ref",
       "relation_kind": "requires-input",
       "from_node_id": "decision:coc7:healing:first-aid-ordinary",
@@ -1429,6 +1501,26 @@
         "span-wounds-and-healing-page-131-block-18",
         "span-wounds-and-healing-page-131-block-24",
         "span-wounds-and-healing-page-131-block-8"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:first-aid-stabilization-changed-method",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "input-slot:coc7:healing:changed-method",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:healing:first-aid-stabilization-failure-consequence",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
+      "to_node_id": "input-slot:coc7:healing:failure-consequence",
+      "evidence_span_ids": [
+        "span-wounds-and-healing-page-131-block-18",
+        "span-wounds-and-healing-page-131-block-24"
       ]
     },
     {

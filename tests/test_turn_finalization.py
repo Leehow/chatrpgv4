@@ -23,6 +23,11 @@ from test_toolbox import _finalize_pending_turn_for_test, _run, campaign_ws
             False,
             id="rules-director-single-draft",
         ),
+        pytest.param(
+            "rules-all-single-draft",
+            False,
+            id="rules-all-single-draft",
+        ),
     ],
 )
 def test_pi_play_single_draft_profile_is_exact_opt_in_and_finalizes_once(

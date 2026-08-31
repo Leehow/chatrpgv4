@@ -383,23 +383,43 @@ def check_run_cross(run: str, rolls: list[dict], events: list[dict],
 # --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
-def _find_campaign_log_dirs(run_dir: Path) -> list[Path]:
-    """Campaign dirs under a run's sandbox that actually hold log files.
+def _campaign_log_dirs(
+    campaigns: Path,
+    *,
+    label_prefix: str = "",
+) -> list[tuple[str, Path]]:
+    if not campaigns.is_dir():
+        return []
+    out: list[tuple[str, Path]] = []
+    for campaign in sorted(campaigns.iterdir()):
+        if not campaign.is_dir():
+            continue
+        logs = campaign / "logs"
+        if (logs / "rolls.jsonl").exists() or (logs / "events.jsonl").exists():
+            label = f"{label_prefix}/{campaign.name}" if label_prefix else campaign.name
+            out.append((label, campaign))
+    return out
+
+
+def _find_campaign_log_dirs(run_dir: Path) -> list[tuple[str, Path]]:
+    """Campaign dirs under legacy and DebugExperiment run sandboxes.
 
     Campaign ids are chosen at campaign-creation time and do NOT match the
     playtest run id (e.g. run '0.4.0a-kimi-closure-...' contains campaign
     'the-haunting-qs'), so discovery must scan instead of assuming equality.
+    DebugExperiment adds one semantic lane directory under ``sandboxes/``;
+    include that lane in the label so parallel copies stay distinguishable.
     """
-    campaigns = run_dir / "sandbox" / ".coc" / "campaigns"
-    if not campaigns.is_dir():
-        return []
-    out = []
-    for d in sorted(campaigns.iterdir()):
-        if not d.is_dir():
-            continue
-        logs = d / "logs"
-        if (logs / "rolls.jsonl").exists() or (logs / "events.jsonl").exists():
-            out.append(d)
+    out = _campaign_log_dirs(run_dir / "sandbox" / ".coc" / "campaigns")
+    debug_lanes = run_dir / "sandboxes"
+    if debug_lanes.is_dir():
+        for lane in sorted(debug_lanes.iterdir()):
+            if not lane.is_dir():
+                continue
+            out.extend(_campaign_log_dirs(
+                lane / ".coc" / "campaigns",
+                label_prefix=lane.name,
+            ))
     return out
 
 
@@ -409,8 +429,8 @@ def validate_run(run_dir: Path, V: Violations) -> tuple[int, int]:
     Returns (rolls_swept, events_swept).
     """
     total_rolls = total_events = 0
-    for campaign_dir in _find_campaign_log_dirs(run_dir):
-        label = f"{run_dir.name}/{campaign_dir.name}"
+    for campaign_label, campaign_dir in _find_campaign_log_dirs(run_dir):
+        label = f"{run_dir.name}/{campaign_label}"
         rolls = _load_jsonl(campaign_dir / "logs" / "rolls.jsonl")
         events = _load_jsonl(campaign_dir / "logs" / "events.jsonl")
         total_rolls += len(rolls)

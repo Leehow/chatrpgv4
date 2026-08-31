@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -34,7 +35,11 @@ import coc_git_history  # noqa: E402
 
 _LANE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 _CAMPAIGN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
-_PROFILE_IDS = frozenset({"production", "rules-director-single-draft"})
+_PROFILE_IDS = frozenset({
+    "production",
+    "rules-all-single-draft",
+    "rules-director-single-draft",
+})
 _RECORD_KINDS = frozenset({
     "final",
     "rules",
@@ -57,6 +62,16 @@ _POST_FINALIZATION_AUDIT_PATHS = frozenset({
     "logs/delivery-receipts.jsonl",
     "logs/toolbox-calls.jsonl",
 })
+_POST_FINALIZATION_OVERLAY_PATHS = frozenset({
+    "memory/temporal/backlog.jsonl",
+    "memory/temporal/episode-evidence.jsonl",
+    "memory/temporal/episodes.jsonl",
+    "save/continuation/delivery-receipts.jsonl",
+})
+_POST_FINALIZATION_ALLOWED_PATHS = (
+    _POST_FINALIZATION_AUDIT_PATHS | _POST_FINALIZATION_OVERLAY_PATHS
+)
+_MAX_POST_FINALIZATION_OVERLAY_BYTES = 64 * 1024 * 1024
 
 
 class DebugExperimentError(Exception):
@@ -332,7 +347,7 @@ class GitCheckpointAdapter:
         ]
         unsafe_dirty = sorted(
             path for path in dirty_paths
-            if path not in _POST_FINALIZATION_AUDIT_PATHS
+            if path not in _POST_FINALIZATION_ALLOWED_PATHS
         )
         if unsafe_dirty:
             raise DebugExperimentError(
@@ -360,6 +375,27 @@ class GitCheckpointAdapter:
             finalization_id=trailers["Finalization-Id"],
             rendered_text_sha256=str(trailers.get("Rendered-Text-SHA256") or ""),
         )
+        overlays: list[dict[str, Any]] = []
+        for relative in sorted(
+            set(dirty_paths) & _POST_FINALIZATION_OVERLAY_PATHS
+        ):
+            source = campaign / relative
+            if not source.is_file() or source.is_symlink():
+                raise DebugExperimentError(
+                    "checkpoint_tree_mismatch",
+                    "post-finalization overlay is unavailable or unsafe",
+                )
+            payload = source.read_bytes()
+            if len(payload) > _MAX_POST_FINALIZATION_OVERLAY_BYTES:
+                raise DebugExperimentError(
+                    "checkpoint_tree_mismatch",
+                    "post-finalization overlay exceeds the debug snapshot limit",
+                )
+            overlays.append({
+                "path": relative,
+                "size_bytes": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+            })
         return {
             "campaign_id": campaign_id,
             "timeline_id": timeline_id,
@@ -371,6 +407,7 @@ class GitCheckpointAdapter:
             "source_campaign": str(campaign),
             "source_status": status,
             "post_finalization_audit_paths": sorted(dirty_paths),
+            "post_finalization_overlays": overlays,
             "delivery_receipt": delivery_receipt,
         }
 
@@ -414,6 +451,43 @@ class GitCheckpointAdapter:
             raise DebugExperimentError(
                 "checkpoint_tree_mismatch", "lane checkpoint identity drifted",
             )
+        materialized_overlay_paths: set[str] = set()
+        for row in checkpoint.get("post_finalization_overlays") or []:
+            if not isinstance(row, dict):
+                raise DebugExperimentError(
+                    "checkpoint_tree_mismatch",
+                    "post-finalization overlay manifest is invalid",
+                )
+            relative = row.get("path")
+            if relative not in _POST_FINALIZATION_OVERLAY_PATHS:
+                raise DebugExperimentError(
+                    "checkpoint_tree_mismatch",
+                    "post-finalization overlay path is not allowed",
+                )
+            source = source_campaign / str(relative)
+            if not source.is_file() or source.is_symlink():
+                raise DebugExperimentError(
+                    "checkpoint_tree_mismatch",
+                    "post-finalization overlay source drifted",
+                )
+            payload = source.read_bytes()
+            if (
+                len(payload) != row.get("size_bytes")
+                or hashlib.sha256(payload).hexdigest() != row.get("sha256")
+            ):
+                raise DebugExperimentError(
+                    "checkpoint_tree_mismatch",
+                    "post-finalization overlay content drifted",
+                )
+            target = lane_campaign / str(relative)
+            if target.is_symlink():
+                raise DebugExperimentError(
+                    "checkpoint_tree_mismatch",
+                    "post-finalization overlay target is unsafe",
+                )
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            target.write_bytes(payload)
+            materialized_overlay_paths.add(str(relative))
         delivery_path = (
             lane_campaign / "save" / "continuation" / "delivery-receipts.jsonl"
         )
@@ -426,7 +500,11 @@ class GitCheckpointAdapter:
             checkpoint["delivery_receipt"], ensure_ascii=False,
             separators=(",", ":"),
         )
-        if serialized_delivery not in existing_delivery.splitlines():
+        if (
+            "save/continuation/delivery-receipts.jsonl"
+            not in materialized_overlay_paths
+            and serialized_delivery not in existing_delivery.splitlines()
+        ):
             _append_jsonl(delivery_path, checkpoint["delivery_receipt"])
         if _git(source_repo, source_campaign, "rev-parse", "refs/heads/main") != before_ref:
             raise DebugExperimentError(
@@ -922,8 +1000,8 @@ class PiRpcLaneAdapter:
             ),
             **self.extra_env,
         })
-        if lane.get("profile") == "rules-director-single-draft":
-            environment["COC_PI_ACCEPTANCE_PROFILE"] = "rules-director-single-draft"
+        if lane.get("profile") != "production":
+            environment["COC_PI_ACCEPTANCE_PROFILE"] = str(lane["profile"])
         command = self._command(lane, run, materialized)
         process: subprocess.Popen[str] | None = None
         stderr_thread: threading.Thread | None = None
@@ -1018,7 +1096,11 @@ class PiRpcLaneAdapter:
                             provider_identity_error = "xai_provider_mismatch"
             if event_type in {"tool_execution_start", "tool_execution_end"}:
                 operation = _semantic_operation(tool_name)
-                if event_type == "tool_execution_start" and first_operation is None:
+                if (
+                    event_type == "tool_execution_start"
+                    and first_operation is None
+                    and "." in operation
+                ):
                     first_operation = operation
                 tool_row = {
                     "category": "tools",

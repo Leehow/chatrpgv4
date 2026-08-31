@@ -1958,6 +1958,61 @@ def test_first_aid_one_hour_window_is_a_hard_applicability_gate(tmp_path: Path):
     assert _inv_state(ws)["current_hp"] == 5
 
 
+def test_graph_owned_failed_first_aid_can_be_pushed_with_changed_method(
+    tmp_path: Path, _frozen_clocks,
+):
+    ws = _fresh_workspace(tmp_path, "graph-pushed-first-aid")
+    _dying_state(ws)
+    decision_ref = "decision:coc7:healing:first-aid-stabilization"
+
+    context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "healing",
+        "selected_affordance_ids": [decision_ref],
+    })
+    assert context["ok"] is True, context
+    first = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": decision_ref,
+        "semantic_inputs": {"rescuer_ref": ws["investigator_id"]},
+        "decision_id": "graph-first-aid-initial-failure",
+        "seed": 7,
+    })
+    assert first["ok"] is True, first
+    assert first["data"]["settlement"]["result"]["event"]["outcome"] == "failure"
+    assert _inv_state(ws)["current_hp"] == 0
+
+    refreshed = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "healing",
+        "selected_affordance_ids": [decision_ref],
+    })
+    assert refreshed["ok"] is True, refreshed
+    card = refreshed["data"]["cards"][0]
+    assert {
+        row["name"] for row in card["required_inputs"]
+    } >= {"changed_method", "failure_consequence"}
+
+    pushed = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": decision_ref,
+        "semantic_inputs": {
+            "rescuer_ref": ws["investigator_id"],
+            "changed_method": "use a pressure dressing and reopen the airway",
+            "failure_consequence": "the dying clock resumes immediately",
+        },
+        "decision_id": "graph-first-aid-pushed-success",
+        "seed": 1,
+    })
+    assert pushed["ok"] is True, pushed
+    event = pushed["data"]["settlement"]["result"]["event"]
+    assert event["pushed"] is True
+    assert event["outcome"] in {"success", "regular", "hard", "extreme", "critical"}
+    state = _inv_state(ws)
+    assert state["current_hp"] == 1
+    assert "stabilized" in state["conditions"]
+
+
 def test_dual_rescuer_is_a_compiled_optional_semantic_input():
     facts = coc_rules_runtime.facts_from_state(
         {

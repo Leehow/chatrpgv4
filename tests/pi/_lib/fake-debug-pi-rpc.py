@@ -54,6 +54,8 @@ def main() -> int:
                     "assistantMessageEvent": {"type": "thinking_delta", "delta": "."},
                 })
                 continue
+            if mode == "preflight-read":
+                tool("read")
             tool("coc_scene_context" if mode == "wrong-resume" else "coc_session_resume")
             emit({"type": "agent_end", "willRetry": False})
             emit({"type": "agent_settled"})

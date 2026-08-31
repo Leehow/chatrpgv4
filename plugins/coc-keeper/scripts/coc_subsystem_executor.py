@@ -6840,6 +6840,11 @@ def _healing_roll_evidence(
                 "announced_consequence": {
                     "summary": payload["failure_consequence"]
                 },
+                "pushed_roll_protocol": {
+                    "failure_consequence_source": "keeper",
+                    "keeper_foreshadowed_failure": True,
+                    "player_confirmation_recorded": True,
+                },
             }
             if payload.get("pushed") is True
             else {}
@@ -6929,6 +6934,11 @@ def _healing_team_roll_evidence(
                 "changed_method": payload["changed_method"],
                 "announced_consequence": {
                     "summary": payload["failure_consequence"],
+                },
+                "pushed_roll_protocol": {
+                    "failure_consequence_source": "keeper",
+                    "keeper_foreshadowed_failure": True,
+                    "player_confirmation_recorded": True,
                 },
             })
         evidence.append(record)
