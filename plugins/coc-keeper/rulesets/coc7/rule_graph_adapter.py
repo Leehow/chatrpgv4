@@ -94,11 +94,16 @@ _PUSH_LUCK_SETTLE_DECISION_REFS = (
 _SOCIAL_SETTLE_DECISION_REFS = (
     "decision:coc7:social:adjudicate-difficulty",
 )
+_PSYCHOLOGY_SETTLE_DECISION_REFS = (
+    "decision:coc7:psychology:observe-concealed",
+    "decision:coc7:psychology:realize-player-safe",
+)
 _GROUP_ONE_SETTLE_DECISION_REFS = (
     *_HEALING_SETTLE_DECISION_REFS,
     *_CORE_SETTLE_DECISION_REFS,
     *_PUSH_LUCK_SETTLE_DECISION_REFS,
     *_SOCIAL_SETTLE_DECISION_REFS,
+    *_PSYCHOLOGY_SETTLE_DECISION_REFS,
 )
 
 
@@ -351,6 +356,9 @@ class Coc7RuleGraphAdapter:
                         "type": "string",
                         "enum": ["automatic", "roll", "conditional", "impossible"],
                     },
+                    "target_ref": {"type": "string"},
+                    "question": {"type": "string"},
+                    "external_behavior": {"type": "string"},
                 },
             },
             "decision_id": {
@@ -378,7 +386,9 @@ class Coc7RuleGraphAdapter:
             },
             "family": {
                 "type": "string",
-                "enum": ["healing", "core-check", "push-luck", "social"],
+                "enum": [
+                    "healing", "core-check", "push-luck", "social", "psychology",
+                ],
                 "desc": "source-accepted compiled family",
             },
             "selected_affordance_ids": {
@@ -408,6 +418,7 @@ class Coc7RuleGraphAdapter:
             "core-check": ("rules.roll", "rules.opposed", "rules.check"),
             "push-luck": ("rules.push", "rules.luck_spend"),
             "social": ("rules.social_adjudicate",),
+            "psychology": ("rules.psychology_observe",),
         }
         overrides: dict[str, dict[str, Any]] = {}
         any_graph_visible = False
@@ -610,6 +621,21 @@ class Coc7RuleGraphAdapter:
                 evidence = binding.get("motive_evidence")
                 if isinstance(evidence, (list, tuple)):
                     locked["motive_evidence"] = list(evidence)
+            elif decision_ref in _PSYCHOLOGY_SETTLE_DECISION_REFS:
+                binding = (
+                    selected.get("_host_psychology_binding")
+                    if isinstance(selected.get("_host_psychology_binding"), Mapping)
+                    else {}
+                )
+                for key in (
+                    "investigator_id", "npc_id", "observer_skill",
+                    "target_opposing_social", "conversation_window_id",
+                    "observation_revision", "observer_scope",
+                    "observable_fact_refs", "inference_ceiling",
+                    "observation_receipt_ref",
+                ):
+                    if binding.get(key) is not None:
+                        locked[key] = _thaw(binding[key])
             return locked
 
         return provider
@@ -803,6 +829,44 @@ class Coc7RuleGraphAdapter:
                 }]
             else:
                 out["leverage"] = []
+        elif capability in {"psychology_check_contract", "psychology_policy"}:
+            binding = (
+                selected.get("_host_psychology_binding")
+                if isinstance(selected.get("_host_psychology_binding"), Mapping)
+                else {}
+            )
+            required = (
+                "npc_id", "conversation_window_id", "observation_revision",
+                "observer_scope",
+            )
+            missing = [key for key in required if binding.get(key) is None]
+            if missing:
+                raise tool_error(
+                    "psychology_candidate_stale",
+                    "canonical Psychology target binding is unavailable",
+                    details={"missing": missing},
+                )
+            out.update({
+                "action": (
+                    "realize" if capability == "psychology_policy" else "settle"
+                ),
+                "npc_id": binding["npc_id"],
+                "conversation_window_id": binding["conversation_window_id"],
+                "observation_revision": binding["observation_revision"],
+                "observer_scope": binding["observer_scope"],
+                "question": str(
+                    payload.get("question") or binding.get("question") or ""
+                ),
+            })
+            if capability == "psychology_check_contract":
+                out["observable_fact_refs"] = list(
+                    binding.get("observable_fact_refs") or []
+                )
+            else:
+                out.update({
+                    "insight_id": binding.get("observation_receipt_ref"),
+                    "visible_observation": payload.get("external_behavior"),
+                })
         else:
             raise tool_error(
                 "unsupported_ruleset_operation",
@@ -830,47 +894,18 @@ class Coc7RuleGraphAdapter:
         decision_id: str,
         selected: Mapping[str, Any],
     ) -> dict[str, Any]:
-        if decision_ref != _PSYCHOLOGY_REALIZE_REF:
+        if (
+            decision_ref != _PSYCHOLOGY_REALIZE_REF
+            or isinstance(selected.get("_host_psychology_binding"), Mapping)
+        ):
             return {}
-        view = self._view(runtime)
         observe_id = _paired_observe_decision_id(decision_id)
-        node = runtime._nodes.get(decision_ref)
-        family = (
-            (node.get("properties") or {}).get("family_id") or ""
-            if isinstance(node, Mapping)
-            else ""
+        frozen = (
+            self._view(runtime)._psychology_frozen.get(observe_id)
+            if observe_id is not None else None
         )
-        if observe_id is None:
-            return {"failure_envelope": {
-                "schema_version": runtime.SCHEMA_VERSION,
-                "decision_ref": decision_ref,
-                "decision_id": decision_id,
-                "family": family,
-                "status": "invalid_decision_id",
-                "failure": {
-                    "code": "invalid_decision_id",
-                    "message": (
-                        "realization decision_id must pair with the settle window "
-                        "(shared prefix, :realize-player-safe suffix)"
-                    ),
-                },
-            }}
-        frozen = view._psychology_frozen.get(observe_id)
-        if frozen is None:
-            return {"failure_envelope": {
-                "schema_version": runtime.SCHEMA_VERSION,
-                "decision_ref": decision_ref,
-                "decision_id": decision_id,
-                "family": family,
-                "status": "rule_decision_not_applicable",
-                "failure": {
-                    "code": "rule_decision_not_applicable",
-                    "message": (
-                        "the realization has no frozen observation for its window; "
-                        "settle observe-concealed first"
-                    ),
-                },
-            }}
+        if observe_id is None or frozen is None:
+            return {}
         return {"host_locked": {
             "inference_ceiling": frozen["inference_ceiling"],
         }}
@@ -1152,15 +1187,9 @@ class Coc7RuleGraphAdapter:
         facts: Mapping[str, Any],
         envelope: dict[str, Any],
     ) -> dict[str, Any]:
-        """Concealed psychology observation settlement (spec §11.3).
-
-        Executes the observation once; the runtime FREEZES the settled
-        observation identity (inference ceiling + concealed outcome) keyed by
-        the semantic observe decision_id so the realization can bind it via
-        the paired decision_id.  Concealed dice/outcome never enter public
-        player-visible fields.
-        """
-        if decision_id in self._psychology_frozen:
+        """Execute the existing durable concealed-observation operation once."""
+        durable = isinstance(selected.get("_host_psychology_binding"), Mapping)
+        if not durable and decision_id in self._psychology_frozen:
             record = self._psychology_frozen[decision_id]
             return self._settled_envelope(
                 envelope, plan, _freeze(record), [],
@@ -1182,7 +1211,10 @@ class Coc7RuleGraphAdapter:
                 },
             }
         ceiling = _observation_inference_ceiling(data)
-        if ceiling is None:
+        insight_id = data.get("insight_id")
+        if ceiling is None or (
+            durable and (not isinstance(insight_id, str) or not insight_id)
+        ):
             return {
                 "schema_version": self.SCHEMA_VERSION,
                 "decision_ref": plan["decision_ref"],
@@ -1192,24 +1224,34 @@ class Coc7RuleGraphAdapter:
                 "failure": {
                     "code": "invalid_settlement_result",
                     "message": (
-                        "concealed observation result lacks a frozen inference "
-                        "ceiling"
+                        "concealed observation result lacks durable insight "
+                        "identity or inference ceiling"
                     ),
                 },
             }
-        frozen = {
-            "decision_id": decision_id,
-            "realm": "psychology",
-            "inference_ceiling": ceiling,
-            "concealed": _thaw(data),
-        }
-        self._psychology_frozen[decision_id] = deepcopy(frozen)
+        if durable:
+            continuation = self._card(
+                _PSYCHOLOGY_REALIZE_REF, self._facts_for_decision(selected),
+            )
+            if continuation.get("applicability") == "applicable":
+                self._issue_card_grant(
+                    [continuation], source_decision_id=decision_id,
+                )
+            result = _thaw(data)
+        else:
+            result = {
+                "decision_id": decision_id,
+                "realm": "psychology",
+                "inference_ceiling": ceiling,
+                "concealed": _thaw(data),
+            }
+            self._psychology_frozen[decision_id] = deepcopy(result)
         hints = list(hints) + [
             "the roll and outcome are keeper-concealed: the player sees only "
             "the realization's external_behavior; do not expose the die",
         ]
         return self._settled_envelope(
-            envelope, plan, _freeze(frozen), warnings, hints,
+            envelope, plan, _freeze(result), warnings, hints,
             extra={"visibility": "concealed-result"},
         )
 
@@ -1222,82 +1264,103 @@ class Coc7RuleGraphAdapter:
         facts: Mapping[str, Any],
         envelope: dict[str, Any],
     ) -> dict[str, Any]:
-        """Player-safe realization bound to a frozen observation (spec §11.3).
-
-        The realization decision_id binds the frozen observe-settlement
-        identity: the host re-attaches the observe decision_id (derived by
-        suffix swap — no hash relay, no model echo) and the frozen inference
-        ceiling; the realization performs NO RNG and NO re-execution of the
-        check.  The public player-visible output is exactly the contract's
-        allowlist ({external_behavior}); concealed dice/outcome never enter
-        player-visible fields.
-        """
-        observe_decision_id = _paired_observe_decision_id(decision_id)
-        if observe_decision_id is None:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
+        """Bind player-safe prose through the durable Psychology operation."""
+        if not isinstance(selected.get("_host_psychology_binding"), Mapping):
+            observe_decision_id = _paired_observe_decision_id(decision_id)
+            if observe_decision_id is None:
+                return {
+                    "schema_version": self.SCHEMA_VERSION,
+                    "decision_ref": plan["decision_ref"],
+                    "decision_id": decision_id,
+                    "family": plan["family"],
+                    "status": "invalid_decision_id",
+                    "failure": {
+                        "code": "invalid_decision_id",
+                        "message": "realization decision_id is not paired to an observation",
+                    },
+                }
+            frozen = self._psychology_frozen.get(observe_decision_id)
+            if frozen is None:
+                return {
+                    "schema_version": self.SCHEMA_VERSION,
+                    "decision_ref": plan["decision_ref"],
+                    "decision_id": decision_id,
+                    "family": plan["family"],
+                    "status": "rule_decision_not_applicable",
+                    "failure": {
+                        "code": "rule_decision_not_applicable",
+                        "message": "no frozen observation exists for the realization",
+                    },
+                }
+            request_identity = _json_digest({
                 "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_decision_id",
-                "failure": {
-                    "code": "invalid_decision_id",
-                    "message": (
-                        "realization decision_id must pair with the settle "
-                        "window (shared prefix, :realize-player-safe suffix)"
-                    ),
-                },
+                "semantic": selected.get("semantic_inputs"),
+            })
+            prior = self._psychology_realized.get(decision_id)
+            if prior is not None:
+                if prior.get("request_identity") != request_identity:
+                    return {
+                        "schema_version": self.SCHEMA_VERSION,
+                        "decision_ref": plan["decision_ref"],
+                        "decision_id": decision_id,
+                        "family": plan["family"],
+                        "status": "decision_conflict",
+                        "failure": {
+                            "code": "decision_conflict",
+                            "message": "decision changed; executor not invoked",
+                        },
+                    }
+                return self._settled_envelope(
+                    envelope, plan, _freeze(prior["result"]), [],
+                    ["frozen realization reused: identical decision_id"],
+                    extra={
+                        "visibility": "public",
+                        "player_projection": deepcopy(prior["player_projection"]),
+                        "concealed_result": deepcopy(prior["concealed_result"]),
+                    },
+                )
+            realized = executor(_thaw(plan), decision_id, selected)
+            data, warnings, hints = self._split_executor_result(realized)
+            public = data.get("player_projection") if isinstance(data, Mapping) else None
+            if not isinstance(public, Mapping):
+                return {
+                    "schema_version": self.SCHEMA_VERSION,
+                    "decision_ref": plan["decision_ref"],
+                    "decision_id": decision_id,
+                    "family": plan["family"],
+                    "status": "concealed_projection_violation",
+                    "failure": {"code": "concealed_projection_violation", "message": "missing projection"},
+                }
+            leaked = sorted(set(public) - PSYCHOLOGY_REALIZATION_PUBLIC_KEYS)
+            if leaked:
+                return {
+                    "schema_version": self.SCHEMA_VERSION,
+                    "decision_ref": plan["decision_ref"],
+                    "decision_id": decision_id,
+                    "family": plan["family"],
+                    "status": "concealed_projection_violation",
+                    "failure": {"code": "concealed_projection_violation", "leaked": leaked},
+                }
+            projection = {"external_behavior": _thaw(public.get("external_behavior"))}
+            concealed_outcome = _observation_public_outcome(frozen)
+            result = {
+                "player_projection": _freeze(projection),
+                "bound_to_observe": observe_decision_id,
             }
-        frozen = self._psychology_frozen.get(observe_decision_id)
-        if frozen is None:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "rule_decision_not_applicable",
-                "failure": {
-                    "code": "rule_decision_not_applicable",
-                    "message": (
-                        "the realization has no frozen observation for its "
-                        "window; settle observe-concealed first"
-                    ),
-                },
+            self._psychology_realized[decision_id] = {
+                "request_identity": request_identity,
+                "result": _thaw(result),
+                "player_projection": dict(projection),
+                "concealed_result": dict(concealed_outcome),
             }
-        # No reroll / no re-execution: the realization executor consumes the
-        # frozen ceiling; the runtime never invokes a check plan here.  A
-        # replayed decision_id returns the SAME projection without invoking
-        # the executor again (host re-attach idempotency, spec §13.1).
-        prior = self._psychology_realized.get(decision_id)
-        request_identity = _json_digest({
-            "decision_ref": plan["decision_ref"],
-            "semantic": selected.get("semantic_inputs"),
-        })
-        if prior is not None and prior.get("request_identity") == request_identity:
             return self._settled_envelope(
-                envelope, plan, _freeze(prior["result"]), [],
-                ["frozen realization reused: identical decision_id"],
+                envelope, plan, _freeze(result), warnings, hints,
                 extra={
                     "visibility": "public",
-                    "player_projection": deepcopy(prior["player_projection"]),
-                    "concealed_result": deepcopy(prior["concealed_result"]),
+                    "player_projection": deepcopy(projection),
+                    "concealed_result": concealed_outcome,
                 },
             )
-        if prior is not None:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "decision_conflict",
-                "failure": {
-                    "code": "decision_conflict",
-                    "message": (
-                        "decision_id already bound to a different "
-                        "realization request; executor not invoked"
-                    ),
-                },
-            }
         realized = executor(_thaw(plan), decision_id, selected)
         data, warnings, hints = self._split_executor_result(realized)
         if not isinstance(data, Mapping):
@@ -1347,17 +1410,9 @@ class Coc7RuleGraphAdapter:
                 },
             }
         projection = {"external_behavior": _thaw(public.get("external_behavior"))}
-        concealed_outcome = _observation_public_outcome(frozen)
-        result = {
-            "player_projection": _freeze(projection),
-            "bound_to_observe": observe_decision_id,
-        }
-        self._psychology_realized[decision_id] = {
-            "request_identity": request_identity,
-            "result": _thaw(result),
-            "player_projection": dict(projection),
-            "concealed_result": dict(concealed_outcome),
-        }
+        concealed = data.get("concealed_result")
+        concealed_outcome = _thaw(concealed) if isinstance(concealed, Mapping) else {}
+        result = _thaw(data)
         return self._settled_envelope(
             envelope, plan, _freeze(result), warnings, hints,
             extra={

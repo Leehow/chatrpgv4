@@ -1283,6 +1283,10 @@ def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
         from coc_operation_kernel_runtime import _tool_rules_social_adjudicate
         return _tool_rules_social_adjudicate(active_ctx, active_args)
 
+    def psychology_observe(active_ctx: Ctx, active_args: dict[str, Any]):
+        from coc_operation_kernel_runtime import _tool_rules_psychology_observe
+        return _tool_rules_psychology_observe(active_ctx, active_args)
+
     return dispatch_rules_settle(
         ctx,
         args,
@@ -1296,6 +1300,8 @@ def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
             "push_policy": _tool_rules_push,
             "luck_spend": _tool_rules_luck_spend,
             "social_difficulty": social_adjudicate,
+            "psychology_check_contract": psychology_observe,
+            "psychology_policy": psychology_observe,
         },
     )
 

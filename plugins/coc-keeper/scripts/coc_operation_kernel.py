@@ -7009,6 +7009,110 @@ def _canonical_social_binding(
     }
 
 
+def _canonical_psychology_binding(
+    ctx: Ctx,
+    *,
+    investigator_id: str,
+    semantic_inputs: Mapping[str, Any],
+    observation_result: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Bind one Psychology target/window from semantic ref or durable insight."""
+    observation: Mapping[str, Any] | None = None
+    if isinstance(observation_result, Mapping):
+        insight_id = str(observation_result.get("insight_id") or "")
+        document = _read_optional_json(
+            ctx.campaign_dir / "save" / "psychology-observations.json",
+            {"observations": {}},
+        )
+        rows = document.get("observations") if isinstance(document, Mapping) else {}
+        matches = [
+            row for row in (rows.values() if isinstance(rows, Mapping) else [])
+            if isinstance(row, Mapping) and str(row.get("insight_id") or "") == insight_id
+        ]
+        if len(matches) != 1:
+            raise ToolError(
+                "psychology_observation_stale",
+                "the durable Psychology observation receipt is unavailable or ambiguous",
+            )
+        observation = matches[0]
+        npc_id = str(observation.get("npc_id") or "")
+    else:
+        target_ref = str(semantic_inputs.get("target_ref") or "").strip()
+        prefix = "psychology-target:"
+        if not target_ref.startswith(prefix) or not target_ref[len(prefix):]:
+            raise ToolError(
+                "invalid_semantic_input",
+                "target_ref must use psychology-target:<npc_id>",
+            )
+        npc_id = target_ref[len(prefix):]
+        if ":" in npc_id:
+            raise ToolError(
+                "invalid_semantic_input",
+                "Psychology target must contain one canonical npc id",
+            )
+        active_scene_id = str(ctx.world().get("active_scene_id") or "").strip()
+        scene = _scene_by_id(ctx.story_graph, active_scene_id)
+        authored_present = {
+            str(value) for value in ((scene or {}).get("npc_ids") or []) if str(value)
+        }
+        presence = _load_npc_presence_document(ctx).get("presence") or {}
+        live = presence.get(npc_id) if isinstance(presence, Mapping) else None
+        explicitly_present = (
+            isinstance(live, Mapping)
+            and live.get("status") == "present"
+            and str(live.get("scene_id") or "") == active_scene_id
+        )
+        explicitly_absent = isinstance(live, Mapping) and not explicitly_present
+        if (
+            not active_scene_id
+            or not isinstance(scene, Mapping)
+            or (npc_id not in authored_present and not explicitly_present)
+            or explicitly_absent
+        ):
+            raise ToolError(
+                "psychology_candidate_stale",
+                "the semantic Psychology target is not present in the active scene",
+            )
+        npc = _npc_by_id(ctx.npc_agendas, npc_id)
+        if not isinstance(npc, Mapping):
+            raise ToolError(
+                "psychology_candidate_stale",
+                "the Psychology target has no canonical authored NPC record",
+            )
+        fact_refs = [
+            f"npc_fact:{npc_id}/{row['fact_id']}"
+            for row in (npc.get("facts") or [])
+            if isinstance(row, Mapping) and str(row.get("fact_id") or "")
+        ]
+        if not fact_refs:
+            fact_refs = [f"npc_agenda:{npc_id}"]
+        observation = {
+            "investigator_id": investigator_id,
+            "npc_id": npc_id,
+            "conversation_window_id": (
+                f"conversation:{active_scene_id}:{investigator_id}:{npc_id}"
+            ),
+            "observation_revision": 0,
+            "observer_scope": investigator_id,
+            "observable_fact_refs": fact_refs,
+            "question": str(semantic_inputs.get("question") or ""),
+        }
+    return {
+        "investigator_id": investigator_id,
+        "npc_id": npc_id,
+        "conversation_window_id": observation.get("conversation_window_id"),
+        "observation_revision": observation.get("observation_revision", 0),
+        "observer_scope": observation.get("observer_scope") or investigator_id,
+        "observable_fact_refs": list(observation.get("observable_fact_refs") or []),
+        "question": observation.get("question"),
+        "inference_ceiling": (
+            observation.get("inference_depth")
+            or (observation_result or {}).get("inference_depth")
+        ),
+        "observation_receipt_ref": observation.get("insight_id"),
+    }
+
+
 def dispatch_rules_settle(
     ctx: Ctx,
     args: dict[str, Any],
@@ -7080,6 +7184,15 @@ def dispatch_rules_settle(
             investigator_id=investigator_id,
             semantic_inputs=semantic_inputs,
         )
+    if (
+        family == "psychology"
+        and decision_ref.endswith(":observe-concealed")
+    ):
+        selected["_host_psychology_binding"] = _canonical_psychology_binding(
+            ctx,
+            investigator_id=investigator_id,
+            semantic_inputs=semantic_inputs,
+        )
     ruleset_adapter = getattr(runtime, "_ruleset_adapter", None)
     if ruleset_adapter is None:
         raise ToolError(
@@ -7113,6 +7226,17 @@ def dispatch_rules_settle(
         )
         if isinstance(source_receipt, Mapping):
             selected["_host_source_receipt"] = deepcopy(dict(source_receipt))
+        if (
+            family == "psychology"
+            and decision_ref.endswith(":realize-player-safe")
+            and isinstance(prior_result, Mapping)
+        ):
+            selected["_host_psychology_binding"] = _canonical_psychology_binding(
+                ctx,
+                investigator_id=investigator_id,
+                semantic_inputs=semantic_inputs,
+                observation_result=prior_result,
+            )
     active_resolver = _rules_resolver(ctx, None)
     runtime._host_locked_provider = ruleset_adapter.host_locked_provider(
         ctx,
