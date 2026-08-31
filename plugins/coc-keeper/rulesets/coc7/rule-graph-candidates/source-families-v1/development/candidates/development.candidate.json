@@ -363,7 +363,8 @@
               "ownership": "host-locked"
             }
           ]
-        }
+        },
+        "family_id": "development"
       },
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
@@ -392,7 +393,8 @@
           "op": "eq",
           "path": "campaign.ruleset_id",
           "value": "coc7"
-        }
+        },
+        "family_id": "development"
       },
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
@@ -409,9 +411,9 @@
       ]
     },
     {
-      "node_id": "input-slot:coc7:development:end-session-summary",
+      "node_id": "input-slot:coc7:development:summary",
       "node_kind": "input-slot",
-      "name": "state.end_session input summary",
+      "name": "Typed operation input summary",
       "authority": "deterministic",
       "audience": "keeper",
       "visibility": "public",
@@ -419,7 +421,8 @@
       "properties": {
         "ownership": "player-source",
         "value_type": "semantic",
-        "path": "typed.state.end_session.summary"
+        "path": "typed.summary",
+        "family_id": "development"
       },
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
@@ -436,9 +439,9 @@
       ]
     },
     {
-      "node_id": "input-slot:coc7:development:end-session-kind",
+      "node_id": "input-slot:coc7:development:kind",
       "node_kind": "input-slot",
-      "name": "state.end_session input kind",
+      "name": "Typed operation input kind",
       "authority": "deterministic",
       "audience": "keeper",
       "visibility": "public",
@@ -446,7 +449,8 @@
       "properties": {
         "ownership": "keeper-semantic",
         "value_type": "semantic",
-        "path": "typed.state.end_session.kind"
+        "path": "typed.kind",
+        "family_id": "development"
       },
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
@@ -463,9 +467,9 @@
       ]
     },
     {
-      "node_id": "input-slot:coc7:development:end-session-investigator",
+      "node_id": "input-slot:coc7:development:investigator",
       "node_kind": "input-slot",
-      "name": "state.end_session input investigator",
+      "name": "Typed operation input investigator",
       "authority": "deterministic",
       "audience": "keeper",
       "visibility": "public",
@@ -473,7 +477,8 @@
       "properties": {
         "ownership": "host-locked",
         "value_type": "canonical",
-        "path": "typed.state.end_session.investigator"
+        "path": "typed.investigator",
+        "family_id": "development"
       },
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
@@ -490,9 +495,9 @@
       ]
     },
     {
-      "node_id": "input-slot:coc7:development:end-session-decision-id",
+      "node_id": "input-slot:coc7:development:decision-id",
       "node_kind": "input-slot",
-      "name": "state.end_session input decision_id",
+      "name": "Typed operation input decision_id",
       "authority": "deterministic",
       "audience": "keeper",
       "visibility": "public",
@@ -500,7 +505,8 @@
       "properties": {
         "ownership": "host-locked",
         "value_type": "canonical",
-        "path": "typed.state.end_session.decision_id"
+        "path": "typed.decision_id",
+        "family_id": "development"
       },
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
@@ -525,7 +531,8 @@
       "visibility": "public",
       "hard_gate": false,
       "properties": {
-        "effect_kind": "ending-recorded"
+        "effect_kind": "ending-recorded",
+        "family_id": "development"
       },
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
@@ -550,7 +557,8 @@
       "visibility": "public",
       "hard_gate": false,
       "properties": {
-        "effect_kind": "development-settled"
+        "effect_kind": "development-settled",
+        "family_id": "development"
       },
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
@@ -594,7 +602,8 @@
               "ownership": "host-locked"
             }
           ]
-        }
+        },
+        "family_id": "development"
       },
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
@@ -623,7 +632,8 @@
           "op": "eq",
           "path": "subsystem.kind",
           "value": "development"
-        }
+        },
+        "family_id": "development"
       },
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
@@ -640,9 +650,9 @@
       ]
     },
     {
-      "node_id": "input-slot:coc7:development:settle-ending-ending-id",
+      "node_id": "input-slot:coc7:development:ending-id",
       "node_kind": "input-slot",
-      "name": "development.settle input ending_id",
+      "name": "Typed operation input ending_id",
       "authority": "deterministic",
       "audience": "keeper",
       "visibility": "public",
@@ -650,61 +660,8 @@
       "properties": {
         "ownership": "host-locked",
         "value_type": "canonical",
-        "path": "typed.development.settle.ending_id"
-      },
-      "evidence_span_ids": [
-        "span-development-phase-source-page-105-block-1",
-        "span-development-phase-source-page-105-block-2",
-        "span-development-phase-source-page-106-block-3",
-        "span-development-phase-source-page-106-block-4",
-        "span-development-phase-source-page-106-block-5",
-        "span-development-phase-source-page-110-block-6",
-        "span-development-phase-source-page-110-block-7",
-        "span-development-phase-source-page-180-block-10",
-        "span-development-phase-source-page-180-block-11",
-        "span-development-phase-source-page-180-block-8",
-        "span-development-phase-source-page-180-block-9"
-      ]
-    },
-    {
-      "node_id": "input-slot:coc7:development:settle-ending-investigator",
-      "node_kind": "input-slot",
-      "name": "development.settle input investigator",
-      "authority": "deterministic",
-      "audience": "keeper",
-      "visibility": "public",
-      "hard_gate": false,
-      "properties": {
-        "ownership": "host-locked",
-        "value_type": "canonical",
-        "path": "typed.development.settle.investigator"
-      },
-      "evidence_span_ids": [
-        "span-development-phase-source-page-105-block-1",
-        "span-development-phase-source-page-105-block-2",
-        "span-development-phase-source-page-106-block-3",
-        "span-development-phase-source-page-106-block-4",
-        "span-development-phase-source-page-106-block-5",
-        "span-development-phase-source-page-110-block-6",
-        "span-development-phase-source-page-110-block-7",
-        "span-development-phase-source-page-180-block-10",
-        "span-development-phase-source-page-180-block-11",
-        "span-development-phase-source-page-180-block-8",
-        "span-development-phase-source-page-180-block-9"
-      ]
-    },
-    {
-      "node_id": "input-slot:coc7:development:settle-ending-decision-id",
-      "node_kind": "input-slot",
-      "name": "development.settle input decision_id",
-      "authority": "deterministic",
-      "audience": "keeper",
-      "visibility": "public",
-      "hard_gate": false,
-      "properties": {
-        "ownership": "host-locked",
-        "value_type": "canonical",
-        "path": "typed.development.settle.decision_id"
+        "path": "typed.ending_id",
+        "family_id": "development"
       },
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
@@ -729,7 +686,8 @@
       "visibility": "public",
       "hard_gate": false,
       "properties": {
-        "effect_kind": "skill-improvement"
+        "effect_kind": "skill-improvement",
+        "family_id": "development"
       },
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
@@ -755,7 +713,8 @@
       "hard_gate": false,
       "properties": {
         "effect_kind": "luck-recovery",
-        "resource_key": "luck"
+        "resource_key": "luck",
+        "family_id": "development"
       },
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
@@ -781,7 +740,8 @@
       "hard_gate": false,
       "properties": {
         "effect_kind": "san-reward",
-        "resource_key": "san"
+        "resource_key": "san",
+        "family_id": "development"
       },
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
@@ -1036,7 +996,7 @@
       "relation_id": "relation:coc7:development:end-session:requires-summary",
       "relation_kind": "requires-input",
       "from_node_id": "decision:coc7:development:end-session",
-      "to_node_id": "input-slot:coc7:development:end-session-summary",
+      "to_node_id": "input-slot:coc7:development:summary",
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
         "span-development-phase-source-page-105-block-2",
@@ -1055,7 +1015,7 @@
       "relation_id": "relation:coc7:development:end-session:requires-kind",
       "relation_kind": "requires-input",
       "from_node_id": "decision:coc7:development:end-session",
-      "to_node_id": "input-slot:coc7:development:end-session-kind",
+      "to_node_id": "input-slot:coc7:development:kind",
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
         "span-development-phase-source-page-105-block-2",
@@ -1074,7 +1034,7 @@
       "relation_id": "relation:coc7:development:end-session:requires-investigator",
       "relation_kind": "locks-input",
       "from_node_id": "decision:coc7:development:end-session",
-      "to_node_id": "input-slot:coc7:development:end-session-investigator",
+      "to_node_id": "input-slot:coc7:development:investigator",
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
         "span-development-phase-source-page-105-block-2",
@@ -1093,7 +1053,7 @@
       "relation_id": "relation:coc7:development:end-session:requires-decision-id",
       "relation_kind": "locks-input",
       "from_node_id": "decision:coc7:development:end-session",
-      "to_node_id": "input-slot:coc7:development:end-session-decision-id",
+      "to_node_id": "input-slot:coc7:development:decision-id",
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
         "span-development-phase-source-page-105-block-2",
@@ -1188,7 +1148,7 @@
       "relation_id": "relation:coc7:development:settle-ending:requires-ending-id",
       "relation_kind": "locks-input",
       "from_node_id": "decision:coc7:development:settle-ending",
-      "to_node_id": "input-slot:coc7:development:settle-ending-ending-id",
+      "to_node_id": "input-slot:coc7:development:ending-id",
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
         "span-development-phase-source-page-105-block-2",
@@ -1207,7 +1167,7 @@
       "relation_id": "relation:coc7:development:settle-ending:requires-investigator",
       "relation_kind": "locks-input",
       "from_node_id": "decision:coc7:development:settle-ending",
-      "to_node_id": "input-slot:coc7:development:settle-ending-investigator",
+      "to_node_id": "input-slot:coc7:development:investigator",
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
         "span-development-phase-source-page-105-block-2",
@@ -1226,7 +1186,7 @@
       "relation_id": "relation:coc7:development:settle-ending:requires-decision-id",
       "relation_kind": "locks-input",
       "from_node_id": "decision:coc7:development:settle-ending",
-      "to_node_id": "input-slot:coc7:development:settle-ending-decision-id",
+      "to_node_id": "input-slot:coc7:development:decision-id",
       "evidence_span_ids": [
         "span-development-phase-source-page-105-block-1",
         "span-development-phase-source-page-105-block-2",

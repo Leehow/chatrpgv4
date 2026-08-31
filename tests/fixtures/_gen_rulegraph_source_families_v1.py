@@ -130,26 +130,39 @@ EXECUTABLE_SPECS: dict[str, list[dict[str, Any]]] = {
         {
             "token": token,
             "operation": "chase.execute",
+            "command_kind": command_kind,
             "slots": slots,
             "condition": {"op": "eq", "path": "subsystem.kind", "value": "chase"},
             "effects": effects,
         }
-        for token, slots, effects in (
-            ("start", [("participants", "keeper-semantic"), ("locations", "keeper-semantic"),
+        for token, command_kind, slots, effects in (
+            ("start", "chase_start", [("chase_id", "host-locked"),
+                       ("participants", "host-locked"), ("locations", "host-locked"),
                        ("decision_id", "host-locked")], [("chase-started", None)]),
-            ("move", [("actor", "keeper-semantic"), ("action", "keeper-semantic"),
+            ("move", "chase_move", [("actor_id", "host-locked"),
+                      ("action_id", "host-locked"), ("choice_id", "host-locked"),
                       ("revision", "host-locked"), ("decision_id", "host-locked")],
              [("position-changed", None)]),
-            ("hazard", [("actor", "keeper-semantic"), ("action", "keeper-semantic"),
-                        ("hazard-state", "host-locked"), ("revision", "host-locked")],
+            ("hazard", "chase_hazard", [("actor_id", "host-locked"),
+                        ("action_id", "host-locked"), ("skill", "optional-semantic"),
+                        ("target", "host-locked"), ("difficulty", "host-locked"),
+                        ("roll_id", "host-locked"), ("revision", "host-locked"),
+                        ("decision_id", "host-locked")],
              [("hazard-resolved", None)]),
-            ("barrier", [("actor", "keeper-semantic"), ("action", "keeper-semantic"),
-                         ("barrier-state", "host-locked"), ("revision", "host-locked")],
+            ("barrier", "chase_barrier", [("actor_id", "host-locked"),
+                         ("action_id", "host-locked"), ("method", "keeper-semantic"),
+                         ("choice_id", "host-locked"), ("skill", "optional-semantic"),
+                         ("target", "host-locked"), ("difficulty", "host-locked"),
+                         ("roll_id", "host-locked"), ("revision", "host-locked"),
+                         ("decision_id", "host-locked")],
              [("barrier-resolved", None)]),
-            ("conflict", [("actor", "keeper-semantic"), ("action", "keeper-semantic"),
-                          ("combat-receipt", "host-locked"), ("revision", "host-locked")],
+            ("conflict", "chase_conflict", [("actor_id", "host-locked"),
+                          ("action_id", "host-locked"), ("target_actor_id", "host-locked"),
+                          ("combat_command_id", "host-locked"), ("revision", "host-locked"),
+                          ("decision_id", "host-locked")],
              [("conflict-resolved", None)]),
-            ("end", [("outcome", "keeper-semantic"), ("snapshot", "host-locked"),
+            ("end", "chase_end", [("outcome", "keeper-semantic"),
+                     ("chase_id", "host-locked"), ("revision", "host-locked"),
                      ("decision_id", "host-locked")], [("chase-ended", None)]),
         )
     ],
@@ -233,7 +246,7 @@ def _spans(packet: dict[str, Any], needles: list[str]) -> list[str]:
 
 def _node(family: str, kind: str, token: str, name: str, spans: list[str], **props: Any) -> dict[str, Any]:
     properties = dict(props)
-    if kind in {"rule", "exception", "capability"}:
+    if kind in {"rule", "exception", "capability", "decision", "condition", "input-slot", "effect"}:
         properties.setdefault("family_id", family)
     return {
         "node_id": f"{kind}:coc7:{family}:{token}",
@@ -267,7 +280,7 @@ def _add_executable_graph(
             all_spans,
             implementation={
                 "adapter": "subsystem-command",
-                "kind": operation,
+                "kind": spec.get("command_kind", operation),
                 "phase": "resolve",
                 "payload_constants": {},
                 "payload_slots": [
@@ -299,14 +312,25 @@ def _add_executable_graph(
             "evidence_span_ids": all_spans,
         })
         for name, ownership in spec["slots"]:
-            slot = _node(
-                family, "input-slot", f"{token}-{name.replace('_', '-')}",
-                f"{operation} input {name}", all_spans,
-                ownership=ownership,
-                value_type="semantic" if ownership in {"keeper-semantic", "player-source"} else "canonical",
-                path=f"typed.{operation}.{name}",
+            slot_id = f"input-slot:coc7:{family}:{name.replace('_', '-')}"
+            slot = next(
+                (node for node in nodes if node.get("node_id") == slot_id),
+                None,
             )
-            nodes.append(slot)
+            if slot is None:
+                slot = _node(
+                    family, "input-slot", name.replace('_', '-'),
+                    f"Typed operation input {name}", all_spans,
+                    ownership=ownership,
+                    value_type="semantic" if ownership in {"keeper-semantic", "player-source"} else "canonical",
+                    path=f"typed.{name}",
+                )
+                nodes.append(slot)
+            elif (slot.get("properties") or {}).get("ownership") != ownership:
+                raise ValueError(
+                    f"conflicting ownership for {slot_id}: "
+                    f"{(slot.get('properties') or {}).get('ownership')} != {ownership}"
+                )
             relations.append({
                 "relation_id": f"relation:coc7:{family}:{token}:requires-{name.replace('_', '-')}",
                 "relation_kind": "requires-input" if ownership != "host-locked" else "locks-input",

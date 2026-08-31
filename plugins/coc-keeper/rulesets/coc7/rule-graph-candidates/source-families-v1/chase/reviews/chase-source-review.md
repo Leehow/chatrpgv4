@@ -31,14 +31,15 @@ review, so the accepted revision contains no runtime-gap exception nodes.
 
 ## Executable graph review
 
-Six semantic decisions map source actions to the single existing
-`chase.execute` typed operation: start, move, hazard, barrier, conflict, and
-end. Actor/action/outcome/location choices remain Keeper-semantic; current
-revision, hazard/barrier snapshots, combat receipt, investigator, and
-idempotency identity are host-locked. Every decision has explicit active-chase
-applicability, invokes the existing subsystem capability, and emits a bounded
-state/evidence effect. There is no copied movement/combat algorithm and no
-generic chase resolver. `unresolved_executable_rules` is empty.
+Six semantic decisions invoke the single existing `chase.execute` capability
+through its exact command kinds: `chase_start`, `chase_move`, `chase_hazard`,
+`chase_barrier`, `chase_conflict`, and `chase_end`. Barrier method, optional
+hazard/barrier skill, and terminal outcome remain Keeper-semantic; participant
+state, actor/action identities, revision, pending choice, roll data, chase id,
+and combat command receipt are host-locked. Every decision has explicit
+active-chase applicability and emits a bounded state/evidence effect. There is
+no copied movement/combat algorithm and no generic chase resolver.
+`unresolved_executable_rules` is empty.
 
 Runtime ownership remains `legacy/visible`; production graph/manifest and the
 common adapter are untouched.

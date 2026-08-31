@@ -32,6 +32,26 @@ def _read(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _assert_executable_slots_are_runtime_consumable(candidate, family):
+    nodes = {node["node_id"]: node for node in candidate["nodes"]}
+    decisions = [
+        node for node in nodes.values() if node["node_kind"] == "decision"
+    ]
+    for decision in decisions:
+        assert decision["properties"]["family_id"] == family
+        declared = {
+            slot["name"]
+            for slot in decision["properties"]["implementation"]["payload_slots"]
+        }
+        related = {
+            relation["to_node_id"].rsplit(":", 1)[-1].replace("-", "_")
+            for relation in candidate["relations"]
+            if relation["from_node_id"] == decision["node_id"]
+            and relation["relation_kind"] in {"requires-input", "locks-input"}
+        }
+        assert related == declared
+
+
 def test_development_source_review_is_complete_and_independent():
     root = TREE / "development"
     candidate = _read(root / "candidates" / "development.candidate.json")
@@ -75,6 +95,7 @@ def test_development_source_review_is_complete_and_independent():
             if row["from_node_id"] == decision_id
         }
         assert {"available-when", "invokes", "emits", "locks-input"} <= kinds
+    _assert_executable_slots_are_runtime_consumable(candidate, "development")
 
 
 def test_development_regenerates_byte_identically_from_external_bundle(tmp_path: Path):
@@ -122,14 +143,19 @@ def test_chase_source_review_is_complete_and_records_runtime_mismatches():
         f"decision:coc7:chase:{token}"
         for token in ("start", "move", "hazard", "barrier", "conflict", "end")
     }
+    command_kind = {
+        f"decision:coc7:chase:{token}": f"chase_{token}"
+        for token in ("start", "move", "hazard", "barrier", "conflict", "end")
+    }
     for decision_id, decision in decisions.items():
-        assert decision["properties"]["implementation"]["kind"] == "chase.execute"
+        assert decision["properties"]["implementation"]["kind"] == command_kind[decision_id]
         kinds = {
             row["relation_kind"] for row in candidate["relations"]
             if row["from_node_id"] == decision_id
         }
         assert {"available-when", "invokes", "emits"} <= kinds
         assert {"requires-input", "locks-input"} & kinds
+    _assert_executable_slots_are_runtime_consumable(candidate, "chase")
 
 
 def test_chase_regenerates_byte_identically_from_external_bundle(tmp_path: Path):
@@ -187,6 +213,7 @@ def test_magic_has_complete_accepted_shard_after_source_correction():
             if row["from_node_id"] == decision_id
         }
         assert {"available-when", "invokes", "requires-input", "locks-input", "emits"} <= kinds
+    _assert_executable_slots_are_runtime_consumable(candidate, "magic")
 
 
 def test_removed_magic_spell_names_are_absent_from_exact_source_and_catalog():
