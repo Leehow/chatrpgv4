@@ -46,16 +46,11 @@ def test_packaged_healing_is_source_reviewed_and_graph_owned():
         "runtime_ownership": "graph",
     }
     assert manifest["review_status"] == "accepted"
-    assert manifest["reviewer_identity"] == (
-        "codex-main-healing-source-review-20260830"
+    assert manifest["reviewer_identity"] == "production-composite:accepted-family-reviews"
+    assert any(
+        row["bundle_sha256"] == EXPECTED_BUNDLE_SHA256
+        for row in manifest["source_bundles"]
     )
-    assert manifest["source_bundles"] == [{
-        "source_id": "pdf:coc7-keeper-rulebook-40th",
-        "bundle_sha256": EXPECTED_BUNDLE_SHA256,
-        "file_sha256": (
-            "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
-        ),
-    }]
 
     nodes = {row["node_id"]: row for row in graph["nodes"]}
     assert WINDOW_EXCEPTION not in nodes

@@ -100,9 +100,7 @@ def test_packaged_coc7_rule_graph_conforms_to_r1_contract():
     assert graph["family_runtime_ownership"]["healing"] == "graph"
     assert graph["legacy_surface_lifecycle"]["healing"] == "hidden"
     assert manifest["compiler_identity"] == CONTRACT["compiler_identity"]
-    assert manifest["reviewer_identity"] == (
-        "codex-main-healing-source-review-20260830"
-    )
+    assert manifest["reviewer_identity"] == "production-composite:accepted-family-reviews"
     assert manifest["review_status"] == "accepted"
     medicine = next(
         node for node in graph["nodes"]

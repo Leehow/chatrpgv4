@@ -1,0 +1,22 @@
+{
+  "contract_id": "coc.rule-graph-family-source-review.v1",
+  "schema_version": 1,
+  "family_id": "healing",
+  "reviewer_identity": "codex-main-healing-source-review-20260830",
+  "review_status": "accepted",
+  "coverage": {
+    "healing": "accepted"
+  },
+  "unresolved_applicable_rules": [],
+  "blockers": [],
+  "source_bundles": [
+    {
+      "bundle_id": "healing-promotion-v1",
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "96f09b55e1e9cbe65139e2bbe0498079a063b18140a93b1d94740d15fc25d2d5",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+      "pdf_indices": [131, 132, 133]
+    }
+  ],
+  "accepted_shard_digest": "f9d4560e47c1672008da324c1f23f2a1124f5cfc8519776e160b3ae693bf5805"
+}

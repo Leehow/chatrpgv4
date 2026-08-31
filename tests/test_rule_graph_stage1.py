@@ -96,24 +96,18 @@ def draft_manifest() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_production_graph_contains_only_source_promoted_healing_nodes():
+def test_production_graph_contains_all_source_accepted_families():
     prod = _load(GRAPH)
     assert prod["family_runtime_ownership"]["healing"] == "graph"
     assert prod["legacy_surface_lifecycle"]["healing"] == "hidden"
-    assert all(
-        node["properties"].get("family_id") == "healing"
-        or node["node_id"] in {
-            "resource:coc7:hp",
-            "subsystem:coc7:healing",
-        }
-        for node in prod["nodes"]
-    )
+    assert set(prod["coverage"].values()) == {"accepted"}
+    assert len(prod["coverage"]) == 10
 
 
-def test_production_manifest_keeps_stage1_candidate_families_unresolved():
+def test_production_manifest_accepts_stage1_families_without_cutover():
     manifest = _load(MANIFEST)
     for family in STAGE1_PARTIAL:
-        assert manifest["family_coverage"][family] == "unresolved", family
+        assert manifest["family_coverage"][family] == "accepted", family
         assert manifest["family_promotion_eligibility"][family] == {
             "promotion_eligible": False,
             "runtime_ownership": "legacy",
@@ -631,7 +625,7 @@ def test_accepted_package_is_not_production_integration(accepted_package):
     production_manifest = _load(MANIFEST)
     production_ids = {node["node_id"] for node in production["nodes"]}
     accepted_ids = {node["node_id"] for node in graph["nodes"]}
-    assert production_ids.isdisjoint(accepted_ids)
+    assert accepted_ids <= production_ids
     for family in STAGE1_PARTIAL:
-        assert production_manifest["family_coverage"][family] == "unresolved"
+        assert production_manifest["family_coverage"][family] == "accepted"
     assert graph["coverage"] == manifest["family_coverage"]
