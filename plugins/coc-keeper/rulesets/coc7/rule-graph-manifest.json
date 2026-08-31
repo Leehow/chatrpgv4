@@ -30,7 +30,7 @@
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "05796bb3d98e69a207fc6d0f555058b32020dea055355a39bb68d9fb83c8974d",
+  "graph_content_digest": "ad587a4ecba356704ea538de87f1af18ca82aad4ad87ba678bc78f89e0326166",
   "shards": [
     {
       "shard_id": "shard:coc7:chase:section-chase-complete-source",
@@ -58,7 +58,7 @@
     },
     {
       "shard_id": "shard:coc7:psychology:section-psychology-complete-source",
-      "shard_digest": "251e22f467257f72d2e40d96e6bb793e6aeb4a993185328dc54e3acf79f3af1e"
+      "shard_digest": "e61c29d464e8eafffe2f2576b0b79863f98bced01e8b1d37a79ef46d740d4d97"
     },
     {
       "shard_id": "shard:coc7:push-luck:section-push-luck-source-accepted",
@@ -95,8 +95,8 @@
       "runtime_ownership": "legacy"
     },
     "core-check": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "development": {
       "promotion_eligible": false,
@@ -115,16 +115,16 @@
       "runtime_ownership": "legacy"
     },
     "push-luck": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "sanity": {
       "promotion_eligible": false,
       "runtime_ownership": "legacy"
     },
     "social": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     }
   },
   "data_table_dependencies": [

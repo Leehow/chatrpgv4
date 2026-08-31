@@ -6508,6 +6508,10 @@
               "ownership": "player-source"
             },
             {
+              "name": "target_ref",
+              "ownership": "keeper-semantic"
+            },
+            {
               "name": "investigator_id",
               "ownership": "host-locked"
             },
@@ -15175,6 +15179,29 @@
         "ownership": "host-locked",
         "path": "actor.sheet.opposing_social",
         "value_type": "int"
+      },
+      "visibility": "keeper-only"
+    },
+    {
+      "audience": "host-internal",
+      "authority": "deterministic",
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-215-block-56",
+        "span-psychology-complete-source-page-83-block-21",
+        "span-psychology-complete-source-page-83-block-22",
+        "span-psychology-complete-source-page-84-block-24",
+        "span-psychology-complete-source-page-84-block-25",
+        "span-psychology-complete-source-page-84-block-26"
+      ],
+      "hard_gate": false,
+      "name": "Semantic retained psychology-target:<npc_id> reference",
+      "node_id": "input-slot:coc7:psychology:target-ref",
+      "node_kind": "input-slot",
+      "properties": {
+        "family_id": "psychology",
+        "ownership": "keeper-semantic",
+        "path": "intent.method",
+        "value_type": "string"
       },
       "visibility": "keeper-only"
     },
@@ -38025,6 +38052,20 @@
         "span-psychology-complete-source-page-84-block-26"
       ],
       "from_node_id": "decision:coc7:psychology:observe-concealed",
+      "relation_id": "relation:coc7:psychology:observe-concealed-target-ref",
+      "relation_kind": "requires-input",
+      "to_node_id": "input-slot:coc7:psychology:target-ref"
+    },
+    {
+      "evidence_span_ids": [
+        "span-psychology-complete-source-page-215-block-56",
+        "span-psychology-complete-source-page-83-block-21",
+        "span-psychology-complete-source-page-83-block-22",
+        "span-psychology-complete-source-page-84-block-24",
+        "span-psychology-complete-source-page-84-block-25",
+        "span-psychology-complete-source-page-84-block-26"
+      ],
+      "from_node_id": "decision:coc7:psychology:observe-concealed",
       "relation_id": "relation:coc7:psychology:observe-continues-as-realize",
       "relation_kind": "continues-as",
       "to_node_id": "decision:coc7:psychology:realize-player-safe"
@@ -44222,25 +44263,25 @@
   "family_runtime_ownership": {
     "chase": "legacy",
     "combat": "legacy",
-    "core-check": "legacy",
+    "core-check": "graph",
     "development": "legacy",
     "healing": "graph",
     "magic": "legacy",
     "psychology": "legacy",
-    "push-luck": "legacy",
+    "push-luck": "graph",
     "sanity": "legacy",
-    "social": "legacy"
+    "social": "graph"
   },
   "legacy_surface_lifecycle": {
     "chase": "visible",
     "combat": "visible",
-    "core-check": "visible",
+    "core-check": "hidden",
     "development": "visible",
     "healing": "hidden",
     "magic": "visible",
     "psychology": "visible",
-    "push-luck": "visible",
+    "push-luck": "hidden",
     "sanity": "visible",
-    "social": "visible"
+    "social": "hidden"
   }
 }

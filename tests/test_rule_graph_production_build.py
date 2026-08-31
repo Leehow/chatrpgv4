@@ -47,13 +47,14 @@ def test_production_graph_contains_ten_source_accepted_families():
     assert all(len(row["shard_digest"]) == 64 for row in manifest["shards"])
     assert len(manifest["graph_content_digest"]) == 64
     assert manifest["review_status"] == "accepted"
-    assert graph["family_runtime_ownership"]["healing"] == "graph"
-    assert graph["legacy_surface_lifecycle"]["healing"] == "hidden"
-    assert all(
-        owner == "legacy"
-        for family, owner in graph["family_runtime_ownership"].items()
-        if family != "healing"
-    )
+    package = _load(PACKAGE / "manifest.json")
+    expected_owners = {family: "legacy" for family in graph["coverage"]}
+    expected_surfaces = {family: "visible" for family in graph["coverage"]}
+    for row in package.get("rule_families") or []:
+        expected_owners[row["family_id"]] = row["runtime_owner"]
+        expected_surfaces[row["family_id"]] = row["legacy_surface"]
+    assert graph["family_runtime_ownership"] == expected_owners
+    assert graph["legacy_surface_lifecycle"] == expected_surfaces
 
 
 def test_manifest_source_identities_are_bundle_level_and_source_bound():
