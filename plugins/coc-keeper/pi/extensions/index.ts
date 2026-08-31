@@ -13759,6 +13759,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const externalPlayerText = userMessageText(message);
       const externalUser = externalPlayerText !== null;
       if (externalUser) operatorSystemInstructionScope = null;
+      if (
+        externalUser
+        && startupResumeGate !== null
+        && startupResumeGate.phase === "pending"
+      ) {
+        // The startup branch snapshot is read before this process can receive
+        // a new live player message. Preserve that newer structured fact so an
+        // accepted awaiting_player resume does not quarantine the very turn
+        // that requested it.
+        startupBranchTrailingPlayerUser = true;
+      }
       openingContinuationGate.observeMessageStart(message);
       if (externalUser) {
         stateClaimCompiler.beginExternalTurn();

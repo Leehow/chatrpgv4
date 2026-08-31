@@ -253,6 +253,93 @@ test("failed startup empty follow-up delivery remains retryable exactly once", a
   assert.equal(startupFollowUps(h).length, 1);
 });
 
+const acceptedStartupResume = (campaignId) => ({
+  ok: true,
+  tool: "session.resume",
+  data: {
+    schema_version: 1,
+    campaign_id: campaignId,
+    mode: "awaiting_player",
+    evidence: { table_opening_id: `table-opening:${campaignId}` },
+    next_operations: ["interpret_current_player_message"],
+  },
+});
+
+test("live player input before accepted startup resume keeps ordinary empty recovery armed", async () => {
+  const campaignId = "startup-live-player";
+  const priorRole = process.env[ROLE_ENV];
+  const priorCampaign = process.env[CAMPAIGN_ENV];
+  process.env[ROLE_ENV] = "play";
+  process.env[CAMPAIGN_ENV] = campaignId;
+  try {
+    const h = makeHarness(
+      (_name, params) => params.operation === "session.resume"
+        ? acceptedStartupResume(campaignId)
+        : { ok: true, tool: params.operation, data: {} },
+      undefined,
+      { startupCampaignId: campaignId },
+    );
+    await h.start();
+    const playerText = "开始游戏。";
+    await h.emit("message_start", {
+      role: "user", content: [{ type: "text", text: playerText }],
+    });
+    const resumed = JSON.parse((await h.tools.get("coc_session_resume").execute(
+      "startup-live-resume", {}, undefined, undefined, h.ctx,
+    )).content[0].text);
+    assert.equal(resumed.ok, true, JSON.stringify(resumed));
+    await h.emit("message_end", thinkingOnlyFinal());
+    const recovery = h.sent.filter((row) => (
+      row.message?.customType === main.EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE
+    ));
+    assert.equal(recovery.length, 1, JSON.stringify(h.sent));
+    assert.deepEqual(recovery[0].options, {
+      triggerTurn: true,
+      deliverAs: "followUp",
+    });
+    assert.equal(recovery[0].message.content.includes(playerText), false);
+    assert.equal(h.clientCalls.filter((row) => (
+      row.params.operation === "session.resume"
+    )).length, 1, "empty recovery must not rerun startup receipts");
+  } finally {
+    if (priorRole === undefined) delete process.env[ROLE_ENV];
+    else process.env[ROLE_ENV] = priorRole;
+    if (priorCampaign === undefined) delete process.env[CAMPAIGN_ENV];
+    else process.env[CAMPAIGN_ENV] = priorCampaign;
+  }
+});
+
+test("accepted startup resume without live player input remains silently quarantined", async () => {
+  const campaignId = "startup-silent-auto-open";
+  const priorRole = process.env[ROLE_ENV];
+  const priorCampaign = process.env[CAMPAIGN_ENV];
+  process.env[ROLE_ENV] = "play";
+  process.env[CAMPAIGN_ENV] = campaignId;
+  try {
+    const h = makeHarness(
+      (_name, params) => params.operation === "session.resume"
+        ? acceptedStartupResume(campaignId)
+        : { ok: true, tool: params.operation, data: {} },
+      undefined,
+      { startupCampaignId: campaignId },
+    );
+    await h.start();
+    const resumed = JSON.parse((await h.tools.get("coc_session_resume").execute(
+      "startup-silent-resume", {}, undefined, undefined, h.ctx,
+    )).content[0].text);
+    assert.equal(resumed.ok, true, JSON.stringify(resumed));
+    await h.emit("message_end", thinkingOnlyFinal());
+    assert.equal(h.sent.filter((row) => (
+      row.message?.customType === main.EMPTY_TERMINAL_RECOVERY_CUSTOM_TYPE
+    )).length, 0);
+  } finally {
+    if (priorRole === undefined) delete process.env[ROLE_ENV];
+    else process.env[ROLE_ENV] = priorRole;
+    if (priorCampaign === undefined) delete process.env[CAMPAIGN_ENV];
+    else process.env[CAMPAIGN_ENV] = priorCampaign;
+  }
+});
+
 test("/system opens one hidden bounded recovery scope and restores normal tools", async () => {
   await withPlayHarness(async (h) => {
     assert.ok(h.commands.has("system"));
