@@ -30,7 +30,7 @@
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "9367c46b9708ef5c2643e06bd3a1ad09a14c12f44f8561bd66ef556efd15381a",
+  "graph_content_digest": "85bbb17b07ac399d35164386744290acfb8f0900305505e7ea67dd39c026d2a2",
   "shards": [
     {
       "shard_id": "shard:coc7:chase:section-chase-complete-source",
@@ -87,8 +87,8 @@
   },
   "family_promotion_eligibility": {
     "chase": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "combat": {
       "promotion_eligible": true,
@@ -107,8 +107,8 @@
       "runtime_ownership": "graph"
     },
     "magic": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "psychology": {
       "promotion_eligible": true,

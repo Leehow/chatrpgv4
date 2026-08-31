@@ -45829,24 +45829,24 @@
     "social": "accepted"
   },
   "family_runtime_ownership": {
-    "chase": "legacy",
+    "chase": "graph",
     "combat": "graph",
     "core-check": "graph",
     "development": "graph",
     "healing": "graph",
-    "magic": "legacy",
+    "magic": "graph",
     "psychology": "graph",
     "push-luck": "graph",
     "sanity": "graph",
     "social": "graph"
   },
   "legacy_surface_lifecycle": {
-    "chase": "visible",
+    "chase": "hidden",
     "combat": "hidden",
     "core-check": "hidden",
     "development": "hidden",
     "healing": "hidden",
-    "magic": "visible",
+    "magic": "hidden",
     "psychology": "hidden",
     "push-luck": "hidden",
     "sanity": "hidden",
