@@ -74,7 +74,7 @@
     }
   },
   "authority_laws": [
-    "ModuleGraph declares authored source mechanics but never executes a capability or writes live state.",
+    "ModuleGraph declares authored source mechanics but never executes a capability or writes live state; uses-rule requires its authored module_rule_ref to equal the target RuleGraph semantic id.",
     "RuleGraph is the sole rules ontology; resolver and subsystem registries own deterministic execution.",
     "Director recommendations are advisory and may only be grounded by scene, rule, effect, or fact references.",
     "Text and finalization render settled effects or obligations and have no rules, execution, or state authority.",
@@ -192,10 +192,11 @@
       "coverage": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["graph_kind", "status", "graph_ids", "reason"],
+        "required": ["graph_kind", "status", "composition_status", "graph_ids", "reason"],
         "properties": {
           "graph_kind": {"enum": ["module", "rule", "live-state", "execution", "director", "text"]},
           "status": {"enum": ["production-linked", "runtime-registry-linked", "absent-production-artifact"]},
+          "composition_status": {"enum": ["instance-linked", "no-proven-instance", "not-applicable"]},
           "graph_ids": {
             "type": "array",
             "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)+$"}
