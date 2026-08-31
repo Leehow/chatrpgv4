@@ -511,3 +511,5 @@ each lane an independent campaign repo/worktree and private Pi home, requires
 absolute maximum-180-second watchdog. Debug evidence is selective, redacted,
 retained under `<workspace>/.coc/debug/runs/`, and never enters production
 campaign Git. See [the DebugExperiment specification](../../../docs/specs/pi-coc-debug-experiment.md).
+One run accepts 1–20 semantic lanes. Explicit `concurrency` is limited to
+1–`min(20, lane count)`; when omitted it remains `min(2, lane count)`.

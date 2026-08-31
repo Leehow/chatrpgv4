@@ -156,6 +156,13 @@ def _context(tmp_path: Path) -> dict:
     }
 
 
+def _lane_specs(count: int) -> list[dict[str, str]]:
+    return [
+        {"id": f"lane-{index}", "profile": "production"}
+        for index in range(1, count + 1)
+    ]
+
+
 def _settled_workspace(
     tmp_path: Path,
     *,
@@ -322,6 +329,67 @@ def test_dispatch_rejects_unsafe_or_unknown_run_fields(
     with pytest.raises(module.DebugExperimentError) as exc:
         experiment.dispatch(command, _context(tmp_path))
     assert exc.value.code == "debug_request_invalid"
+
+
+def test_dispatch_accepts_twenty_lanes_and_rejects_capacity_overflow(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    experiment = module.DebugExperiment(
+        store=module.FileRunStore(tmp_path / "accepted"),
+        checkpoint=CheckpointAdapter(),
+        executor=ExecutorAdapter(),
+    )
+    lanes = _lane_specs(20)
+    started = experiment.dispatch(
+        "run " + json.dumps({
+            "player_input": "我检查同一场景。",
+            "lanes": lanes,
+            "concurrency": 20,
+        }, ensure_ascii=False),
+        _context(tmp_path),
+    )
+    assert started["lanes"] == [lane["id"] for lane in lanes]
+    assert experiment.dispatch(
+        "status current", _context(tmp_path),
+    )["spec"]["concurrency"] == 20
+
+    default_experiment = module.DebugExperiment(
+        store=module.FileRunStore(tmp_path / "default"),
+        checkpoint=CheckpointAdapter(),
+        executor=ExecutorAdapter(),
+    )
+    default_experiment.dispatch(
+        "run " + json.dumps({
+            "player_input": "我检查同一场景。",
+            "lanes": _lane_specs(3),
+        }, ensure_ascii=False),
+        _context(tmp_path),
+    )
+    assert default_experiment.dispatch(
+        "status current", _context(tmp_path),
+    )["spec"]["concurrency"] == 2
+
+    for label, lane_count, concurrency in (
+        ("twenty-one-lanes", 21, 20),
+        ("concurrency-twenty-one", 20, 21),
+        ("above-lane-count", 3, 4),
+    ):
+        rejected = module.DebugExperiment(
+            store=module.FileRunStore(tmp_path / label),
+            checkpoint=CheckpointAdapter(),
+            executor=ExecutorAdapter(),
+        )
+        with pytest.raises(module.DebugExperimentError) as exc:
+            rejected.dispatch(
+                "run " + json.dumps({
+                    "player_input": "我检查同一场景。",
+                    "lanes": _lane_specs(lane_count),
+                    "concurrency": concurrency,
+                }, ensure_ascii=False),
+                _context(tmp_path),
+            )
+        assert exc.value.code == "debug_request_invalid", label
 
 
 def test_dispatch_rejects_non_xai_busy_or_non_play_context(tmp_path: Path) -> None:
