@@ -58,7 +58,7 @@ SPECS: dict[str, dict[str, Any]] = {
         "section": "section-chase-complete-source",
         "bundles": ["chase-rules-v1"],
         "coverage": "accepted",
-        "reviewer": "codex-reviewer-chase-source-20260831",
+        "reviewer": "codex-reviewer-chase-applicability-20260831-v2",
         "tables": ["chase.json"],
         "capabilities": ["chase.context", "chase.execute"],
         "rules": [
@@ -136,11 +136,27 @@ EXECUTABLE_SPECS: dict[str, list[dict[str, Any]]] = {
             "operation": "chase.execute",
             "command_kind": command_kind,
             "slots": slots,
-            "condition": {"op": "eq", "path": "subsystem.kind", "value": "chase"},
+            "condition": (
+                {"op": "eq", "path": "chase.session.inactive", "value": True}
+                if token == "start"
+                else {
+                    "op": "all",
+                    "of": [
+                        {"op": "eq", "path": "chase.session.active", "value": True},
+                        {"op": "eq", "path": "chase.pending.kind", "value": token},
+                    ] + ([{
+                        "op": "eq",
+                        "path": "chase.conflict.receipt-ready",
+                        "value": True,
+                    }] if token == "conflict" else []),
+                }
+            ),
+            "hard_gate": True,
             "effects": effects,
         }
         for token, command_kind, slots, effects in (
-            ("start", "chase_start", [("chase_id", "host-locked"),
+            ("start", "chase_start", [("chase_candidate_ref", "keeper-semantic"),
+                       ("chase_id", "host-locked"),
                        ("participants", "host-locked"), ("locations", "host-locked"),
                        ("decision_id", "host-locked")], [("chase-started", None)]),
             ("move", "chase_move", [("actor_id", "host-locked"),
@@ -328,11 +344,27 @@ def _add_executable_graph(
                 None,
             )
             if slot is None:
+                value_type = (
+                    "enum"
+                    if family == "chase" and name in {"method", "outcome"}
+                    else "semantic"
+                    if ownership in {
+                        "keeper-semantic", "player-source", "optional-semantic",
+                    }
+                    else "canonical"
+                )
+                slot_name = (
+                    "Typed operation input method enum negotiate|break"
+                    if family == "chase" and name == "method"
+                    else "Typed operation input outcome enum escaped|captured|concluded"
+                    if family == "chase" and name == "outcome"
+                    else f"Typed operation input {name}"
+                )
                 slot = _node(
                     family, "input-slot", name.replace('_', '-'),
-                    f"Typed operation input {name}", all_spans,
+                    slot_name, all_spans,
                     ownership=ownership,
-                    value_type="semantic" if ownership in {"keeper-semantic", "player-source", "optional-semantic"} else "canonical",
+                    value_type=value_type,
                     path=f"typed.{name}",
                 )
                 nodes.append(slot)

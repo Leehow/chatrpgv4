@@ -15,6 +15,7 @@ TREE = (
     ROOT / "plugins" / "coc-keeper" / "rulesets" / "coc7"
     / "rule-graph-candidates" / "source-families-v1"
 )
+CONTRACT = ROOT / "plugins" / "coc-keeper" / "references" / "rule-graph-contract-v1.json"
 
 
 def _load_generator():
@@ -154,7 +155,7 @@ def test_chase_source_review_is_complete_and_records_runtime_mismatches():
     provenance = _read(root / "provenance" / "chase.provenance.json")
     shard = _read(root / "accepted" / "chase.accepted-shard.json")
     assert candidate["coverage"] == {"chase": "accepted"}
-    assert provenance["reviewer_identity"] == "codex-reviewer-chase-source-20260831"
+    assert provenance["reviewer_identity"] == "codex-reviewer-chase-applicability-20260831-v2"
     assert provenance["review_status"] == "accepted"
     assert provenance["unresolved_applicable_rules"] == []
     assert shard["receipt"]["shard_sha256"] == provenance["accepted_shard_digest"]
@@ -188,6 +189,42 @@ def test_chase_source_review_is_complete_and_records_runtime_mismatches():
         assert {"available-when", "invokes", "emits"} <= kinds
         assert {"requires-input", "locks-input"} & kinds
     _assert_executable_slots_are_runtime_consumable(candidate, "chase")
+    nodes = {node["node_id"]: node for node in candidate["nodes"]}
+    relations = candidate["relations"]
+    expected_conditions = {
+        "start": {"op": "eq", "path": "chase.session.inactive", "value": True},
+        **{
+            token: {
+                "op": "all",
+                "of": [
+                    {"op": "eq", "path": "chase.session.active", "value": True},
+                    {"op": "eq", "path": "chase.pending.kind", "value": token},
+                ] + ([{
+                    "op": "eq", "path": "chase.conflict.receipt-ready", "value": True,
+                }] if token == "conflict" else []),
+            }
+            for token in ("move", "hazard", "barrier", "conflict", "end")
+        },
+    }
+    for token, expression in expected_conditions.items():
+        decision_id = f"decision:coc7:chase:{token}"
+        link = next(
+            row for row in relations
+            if row["relation_kind"] == "available-when"
+            and row["from_node_id"] == decision_id
+        )
+        condition = nodes[link["to_node_id"]]
+        assert condition["hard_gate"] is True
+        assert condition["properties"]["expression"] == expression
+    start_slots = {
+        row["name"]: row["ownership"]
+        for row in decisions["decision:coc7:chase:start"]["properties"]["implementation"]["payload_slots"]
+    }
+    assert start_slots["chase_candidate_ref"] == "keeper-semantic"
+    assert nodes["input-slot:coc7:chase:method"]["properties"]["value_type"] == "enum"
+    assert "negotiate|break" in nodes["input-slot:coc7:chase:method"]["name"]
+    assert nodes["input-slot:coc7:chase:outcome"]["properties"]["value_type"] == "enum"
+    assert "escaped|captured|concluded" in nodes["input-slot:coc7:chase:outcome"]["name"]
 
 
 def test_chase_regenerates_byte_identically_from_external_bundle(tmp_path: Path):
@@ -246,6 +283,12 @@ def test_magic_has_complete_accepted_shard_after_source_correction():
         }
         assert {"available-when", "invokes", "requires-input", "locks-input", "emits"} <= kinds
     _assert_executable_slots_are_runtime_consumable(candidate, "magic")
+def test_chase_registered_applicability_paths_are_closed():
+    registered = set(_read(CONTRACT)["registered_condition_paths"])
+    assert {
+        "chase.session.active", "chase.session.inactive", "chase.pending.kind",
+        "chase.conflict.receipt-ready",
+    } <= registered
 
 
 def test_removed_magic_spell_names_are_absent_from_exact_source_and_catalog():
