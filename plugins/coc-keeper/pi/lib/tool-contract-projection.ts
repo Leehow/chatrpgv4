@@ -3652,6 +3652,10 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["decision_id", "item_id", "thread_id"],
     [],
   )],
+  ["state.end_session", declaredIdentityTable(
+    ["scene_id", "rule_ref", "scenario_san_reward_rule_ref"],
+    [],
+  )],
   ["turn.output_context", declaredIdentityTable(
     [
       "authorized_entity_refs", "authorized_route_ids", "clock_id", "clue_id",
@@ -4619,6 +4623,130 @@ const OUTPUT_CONTEXT_KEPT_FIELDS = [
   "candidate_factors",
   "pending_narration_draft_status",
 ] as const;
+
+function selectedFields(
+  source: Record<string, unknown>,
+  fields: readonly string[],
+): Record<string, unknown> {
+  return Object.fromEntries(
+    fields.filter((field) => field in source).map((field) => [field, source[field]]),
+  );
+}
+
+function projectDevelopmentMechanics(value: unknown): Record<string, unknown> | null {
+  if (!isPlainObject(value)) return null;
+  const projected = selectedFields(value, [
+    "schema_version", "rendered_lines", "rendered_text", "complete",
+  ]);
+  if (Array.isArray(value.required_roll_ids)) {
+    projected.required_roll_count = value.required_roll_ids.length;
+  }
+  if (Array.isArray(value.missing_roll_ids)) {
+    projected.missing_roll_count = value.missing_roll_ids.length;
+  }
+  return projected;
+}
+
+/** Closed state.end_session view: ending disposition plus public settlement. */
+function projectEndSessionData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const view = selectedFields(
+    data,
+    ["session_ending", "kind", "reason", "scene_id", "player_visible", "status"],
+  );
+  const development = isPlainObject(data.development) ? data.development : null;
+  if (development !== null) {
+    const developmentView = selectedFields(development, ["status"]);
+    if (Array.isArray(development.settlements)) {
+      developmentView.settlements = development.settlements.flatMap((entry) => {
+        if (!isPlainObject(entry)) return [];
+        const settlement = selectedFields(
+          entry,
+          ["investigator_id", "status", "attempts"],
+        );
+        const receipt = isPlainObject(entry.receipt) ? entry.receipt : null;
+        if (receipt === null) return [settlement];
+        const receiptView = selectedFields(
+          receipt,
+          ["schema_version", "status", "kind"],
+        );
+        const result = isPlainObject(receipt.result) ? receipt.result : null;
+        if (result !== null) {
+          const resultView = selectedFields(result, [
+            "skills_checked", "san_reward_expr", "san_reward_planned_delta",
+            "scenario_san_reward_expr", "scenario_san_reward_planned_delta",
+            "scenario_san_reward_applied", "merge_policy",
+          ]);
+          for (const field of ["improvement_checks", "skills_improved"] as const) {
+            if (Array.isArray(result[field])) {
+              resultView[field] = result[field].flatMap((row) =>
+                isPlainObject(row)
+                  ? [selectedFields(row, [
+                    "skill", "check_roll", "gain", "value_before",
+                    "planned_value_after", "current_value_before_apply",
+                    "applied_delta", "value_after", "improved", "merge_policy",
+                  ])]
+                  : []
+              );
+            }
+          }
+          for (const field of [
+            "san_reward", "san_reward_roll", "development_san_reward",
+            "scenario_san_reward", "scenario_san_reward_roll",
+          ] as const) {
+            if (isPlainObject(result[field])) {
+              resultView[field] = selectedFields(result[field], [
+                "expression", "rolls", "total", "planned_san_before",
+                "planned_san_delta", "san_before", "san_gained", "san_after",
+                "san_max", "value_before", "applied_delta", "value_after",
+                "replayed", "rule_ref",
+              ]);
+            }
+          }
+          if (isPlainObject(result.luck_recovery)) {
+            resultView.luck_recovery = selectedFields(result.luck_recovery, [
+              "roll", "success", "gained", "luck_before", "luck_after",
+              "planned_luck_before", "planned_luck_after", "planned_gained",
+              "current_luck_before_apply", "applied_delta", "merge_policy",
+              "rule_ref",
+            ]);
+          }
+          const endingEvidence = isPlainObject(result.ending_evidence)
+            ? result.ending_evidence
+            : null;
+          if (
+            endingEvidence !== null
+            && typeof endingEvidence.scenario_san_reward_rule_ref === "string"
+          ) {
+            resultView.scenario_san_reward_rule_ref =
+              endingEvidence.scenario_san_reward_rule_ref;
+          }
+          const mechanics = projectDevelopmentMechanics(
+            result.player_facing_mechanics,
+          );
+          if (mechanics !== null) resultView.player_facing_mechanics = mechanics;
+          receiptView.result = resultView;
+        }
+        const mechanics = projectDevelopmentMechanics(
+          receipt.player_facing_mechanics,
+        );
+        if (mechanics !== null) receiptView.player_facing_mechanics = mechanics;
+        settlement.receipt = receiptView;
+        return [settlement];
+      });
+    }
+    view.development = developmentView;
+  }
+  return sanitizeEnvelopeBranch(
+    view,
+    semanticIds,
+    diagnostics,
+    "state.end_session",
+  ) as Record<string, unknown>;
+}
 
 function projectOutputContextContractProjection(data: Record<string, unknown>): unknown {
   const raw = isPlainObject(data.contract_projection)
@@ -5797,6 +5925,8 @@ export function projectModelVisibleCanonicalResult(
         }
       }
       projected.data = resumeView;
+    } else if (operation === "state.end_session") {
+      projected.data = projectEndSessionData(data, semanticIds, diagnostics);
     } else if (operation === "turn.output_context") {
       projected.data = projectOutputContextData(data, semanticIds, diagnostics);
     } else if (

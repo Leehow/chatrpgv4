@@ -2836,6 +2836,20 @@ def test_pi_gateway_projects_module_context_semantic_ids():
     }
 
 
+def test_pi_gateway_projects_development_end_session_semantics():
+    result = _node(
+        ROOT / "tests/pi/development-end-session-projection.mjs",
+        str(ROOT),
+    )
+    assert result == {
+        "ok": True,
+        "kind": "conclusion",
+        "developmentStatus": "PASS",
+        "mechanicsComplete": True,
+        "opaqueFieldsAbsent": True,
+    }
+
+
 def test_pi_auto_dispatch_uses_named_paths_bounded_queues_and_scene_priority():
     """The Node contract includes Pi-only source-bound scene priority."""
     run_env = dict(os.environ)
