@@ -213,6 +213,54 @@
       "locator": "receipt.last_outcome"
     },
     {
+      "ref_id": "ref:live-state:sanity-bout-pending",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:sanity-bout-pending",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "sanity.bout.pending"
+    },
+    {
+      "ref_id": "ref:live-state:sanity-delusion-active",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:sanity-delusion-active",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "sanity.delusion.active"
+    },
+    {
+      "ref_id": "ref:live-state:sanity-gain-pending",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:sanity-gain-pending",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "sanity.gain.pending"
+    },
+    {
+      "ref_id": "ref:live-state:sanity-insane",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:sanity-insane",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "sanity.insane"
+    },
+    {
+      "ref_id": "ref:live-state:sanity-recovery-due",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:sanity-recovery-due",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "sanity.recovery.due"
+    },
+    {
+      "ref_id": "ref:live-state:sanity-treatment-due",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:sanity-treatment-due",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "sanity.treatment.due"
+    },
+    {
       "ref_id": "ref:live-state:subsystem-kind",
       "graph_id": "graph:live-state:campaign",
       "semantic_id": "fact:live-state:subsystem-kind",
@@ -428,6 +476,55 @@
       "ref_id": "ref:rule:coc7:decision-coc7-push-luck-pushed-roll",
       "graph_id": "graph:rule:coc7",
       "semantic_id": "decision:coc7:push-luck:pushed-roll",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-sanity-apply-treatment",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:sanity:apply-treatment",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-sanity-bout-end",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:sanity:bout-end",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-sanity-bout-tick",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:sanity:bout-tick",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-sanity-gain-current-san",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:sanity:gain-current-san",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-sanity-insane-insight",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:sanity:insane-insight",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-sanity-reality-check",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:sanity:reality-check",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-sanity-recover-temporary",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:sanity:recover-temporary",
       "reference_kind": "artifact-node",
       "node_kind": "decision"
     },
@@ -1305,6 +1402,48 @@
       "relation_kind": "requires-live-state-fact",
       "from_ref": "ref:rule:coc7:decision-coc7-push-luck-luck-spend",
       "to_ref": "ref:live-state:receipt-last-outcome"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-sanity-apply-treatment-treatment-due-available:requires:sanity-treatment-due",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-sanity-apply-treatment",
+      "to_ref": "ref:live-state:sanity-treatment-due"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-sanity-bout-end-bout-pending-available:requires:sanity-bout-pending",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-sanity-bout-end",
+      "to_ref": "ref:live-state:sanity-bout-pending"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-sanity-bout-tick-bout-pending-available:requires:sanity-bout-pending",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-sanity-bout-tick",
+      "to_ref": "ref:live-state:sanity-bout-pending"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-sanity-gain-current-san-gain-pending-available:requires:sanity-gain-pending",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-sanity-gain-current-san",
+      "to_ref": "ref:live-state:sanity-gain-pending"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-sanity-insane-insight-insane-available:requires:sanity-insane",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-sanity-insane-insight",
+      "to_ref": "ref:live-state:sanity-insane"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-sanity-reality-check-delusion-active-available:requires:sanity-delusion-active",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-sanity-reality-check",
+      "to_ref": "ref:live-state:sanity-delusion-active"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-sanity-recover-temporary-recovery-due-available:requires:sanity-recovery-due",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-sanity-recover-temporary",
+      "to_ref": "ref:live-state:sanity-recovery-due"
     },
     {
       "relation_id": "relation:system:relation-coc7-social-adjudicate-available:requires:campaign-ruleset-id",

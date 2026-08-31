@@ -30,7 +30,7 @@
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "63c82c55999c0571e344874f992812f8d514d219cc579b6182a95d448da71ac6",
+  "graph_content_digest": "3261a8dfe641f85cf16638d1b6e87ec68b09436d00e61967f6d82f99b00bc488",
   "shards": [
     {
       "shard_id": "shard:coc7:chase:section-chase-complete-source",
@@ -66,7 +66,7 @@
     },
     {
       "shard_id": "shard:coc7:sanity:section-sanity-complete-source",
-      "shard_digest": "6b94c4f69e090bac5a771d5da88a175b75d67f1277e3ceb833ffeeb350f52e0a"
+      "shard_digest": "2c098117e957e2258f565aa146d9d32babe5b4c1f4b303e414144e865a97cbfd"
     },
     {
       "shard_id": "shard:coc7:social:section-social-source-accepted",
@@ -91,8 +91,8 @@
       "runtime_ownership": "legacy"
     },
     "combat": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "core-check": {
       "promotion_eligible": true,
