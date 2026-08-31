@@ -91,10 +91,14 @@ _PUSH_LUCK_SETTLE_DECISION_REFS = (
     "decision:coc7:push-luck:luck-spend",
     "decision:coc7:push-luck:luck-roll",
 )
+_SOCIAL_SETTLE_DECISION_REFS = (
+    "decision:coc7:social:adjudicate-difficulty",
+)
 _GROUP_ONE_SETTLE_DECISION_REFS = (
     *_HEALING_SETTLE_DECISION_REFS,
     *_CORE_SETTLE_DECISION_REFS,
     *_PUSH_LUCK_SETTLE_DECISION_REFS,
+    *_SOCIAL_SETTLE_DECISION_REFS,
 )
 
 
@@ -272,7 +276,7 @@ class Coc7RuleGraphAdapter:
 
     @staticmethod
     def promotion_blockers(family: str) -> list[str]:
-        if family in {"healing", "core-check", "push-luck"}:
+        if family in {"healing", "core-check", "push-luck", "social"}:
             return []
         candidate_families = {
             decision_ref.split(":", 3)[2]
@@ -330,6 +334,23 @@ class Coc7RuleGraphAdapter:
                     "failure_consequence": {"type": "string"},
                     "player_confirmed_risk": {"type": "boolean"},
                     "points": {"type": "integer"},
+                    "described_action": {"type": "string"},
+                    "target_ref": {"type": "string"},
+                    "commitment_ref": {"type": "string"},
+                    "approach": {
+                        "type": "string",
+                        "enum": ["charm", "fast_talk", "intimidate", "persuade"],
+                    },
+                    "motive_direction": {
+                        "type": "string",
+                        "enum": ["support", "neutral", "oppose"],
+                    },
+                    "motive_intensity": {"type": "integer"},
+                    "supporting_action": {"type": "object"},
+                    "feasibility": {
+                        "type": "string",
+                        "enum": ["automatic", "roll", "conditional", "impossible"],
+                    },
                 },
             },
             "decision_id": {
@@ -357,7 +378,7 @@ class Coc7RuleGraphAdapter:
             },
             "family": {
                 "type": "string",
-                "enum": ["healing", "core-check", "push-luck"],
+                "enum": ["healing", "core-check", "push-luck", "social"],
                 "desc": "source-accepted compiled family",
             },
             "selected_affordance_ids": {
@@ -386,6 +407,7 @@ class Coc7RuleGraphAdapter:
             ),
             "core-check": ("rules.roll", "rules.opposed", "rules.check"),
             "push-luck": ("rules.push", "rules.luck_spend"),
+            "social": ("rules.social_adjudicate",),
         }
         overrides: dict[str, dict[str, Any]] = {}
         any_graph_visible = False
@@ -579,6 +601,15 @@ class Coc7RuleGraphAdapter:
                         for key in ("target", "difficulty", "bonus", "penalty", "skill"):
                             if check.get(key) is not None:
                                 locked[key] = check[key]
+            elif decision_ref in _SOCIAL_SETTLE_DECISION_REFS:
+                binding = (
+                    selected.get("_host_social_binding")
+                    if isinstance(selected.get("_host_social_binding"), Mapping)
+                    else {}
+                )
+                evidence = binding.get("motive_evidence")
+                if isinstance(evidence, (list, tuple)):
+                    locked["motive_evidence"] = list(evidence)
             return locked
 
         return provider
@@ -673,7 +704,8 @@ class Coc7RuleGraphAdapter:
             for key in (
                 "skill", "characteristic", "target", "combined_targets",
                 "combined_mode", "difficulty", "goal", "stakes",
-                "difficulty_basis", "bonus", "penalty",
+                "difficulty_basis", "bonus", "penalty", "npc_id",
+                "social_adjudication_ref",
             ):
                 if payload.get(key) is not None:
                     out[key] = _thaw(payload[key])
@@ -715,6 +747,62 @@ class Coc7RuleGraphAdapter:
             for key in ("points", "source_roll_id"):
                 if payload.get(key) is not None:
                     out[key] = payload[key]
+        elif capability == "social_difficulty":
+            binding = (
+                selected.get("_host_social_binding")
+                if isinstance(selected.get("_host_social_binding"), Mapping)
+                else {}
+            )
+            required_binding = (
+                "npc_id", "conversation_window_id", "commitment_id",
+                "motive_evidence",
+            )
+            missing = [key for key in required_binding if not binding.get(key)]
+            if missing:
+                raise tool_error(
+                    "social_candidate_stale",
+                    "canonical social target binding is unavailable",
+                    details={"missing": missing},
+                )
+            out.update({
+                "npc_id": binding["npc_id"],
+                "conversation_window_id": binding["conversation_window_id"],
+                "commitment_id": binding["commitment_id"],
+                "approach": payload.get("approach"),
+                "goal_summary": payload.get("goal"),
+                "motive": {
+                    "direction": payload.get("motive_direction"),
+                    "intensity": payload.get("motive_intensity"),
+                    "evidence_refs": list(binding["motive_evidence"]),
+                },
+                "feasibility": payload.get("feasibility"),
+                "feasibility_refs": list(binding["motive_evidence"]),
+            })
+            if payload.get("npc_defense") is not None:
+                out["npc_defense_value"] = payload["npc_defense"]
+            supporting = payload.get("supporting_action")
+            if isinstance(supporting, Mapping) and supporting.get("level") == 1:
+                source_ref = str(supporting.get("source_ref") or "").strip()
+                if not source_ref:
+                    raise tool_error(
+                        "invalid_semantic_input",
+                        "supporting_action level 1 requires canonical source_ref",
+                    )
+                out["leverage"] = [{
+                    "leverage_id": str(
+                        supporting.get("leverage_id") or f"support:{source_ref}"
+                    ),
+                    "source_ref": source_ref,
+                    "independence_group": str(
+                        supporting.get("independence_group") or source_ref
+                    ),
+                    "credibility": "verified",
+                    "relevance": "direct",
+                    "reason": str(supporting.get("description") or "supporting case"),
+                    "type": str(supporting.get("type") or "supporting_action"),
+                }]
+            else:
+                out["leverage"] = []
         else:
             raise tool_error(
                 "unsupported_ruleset_operation",
@@ -1029,7 +1117,8 @@ class Coc7RuleGraphAdapter:
             "penalty": int(adjudication.get("penalty_dice") or 0),
             "difficulty_basis": "opponent_skill",
             "goal": payload.get("goal"),
-            "social_adjudication_ref": plan["decision_ref"],
+            "npc_id": adjudication.get("npc_id"),
+            "social_adjudication_ref": adjudication.get("goal_key"),
         }
         return {
             "schema_version": self.SCHEMA_VERSION,

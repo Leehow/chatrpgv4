@@ -6935,6 +6935,80 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
     return public, [], []
 
 
+def _canonical_social_binding(
+    ctx: Ctx,
+    *,
+    investigator_id: str,
+    semantic_inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Rebuild the retained SocialInteractionCandidate from canonical state.
+
+    Pi keeps its retained candidate in host memory, so the toolbox rebuilds
+    the same deterministic identity from semantic target + current scene.
+    This is intentionally narrower than accepting a model-authored NPC or
+    conversation id.
+    """
+    target_ref = str(semantic_inputs.get("target_ref") or "").strip()
+    prefix = "social-target:"
+    if not target_ref.startswith(prefix) or not target_ref[len(prefix):]:
+        raise ToolError(
+            "invalid_semantic_input",
+            "target_ref must use social-target:<npc_id>",
+        )
+    npc_id = target_ref[len(prefix):]
+    if ":" in npc_id:
+        raise ToolError(
+            "invalid_semantic_input",
+            "social target must contain one canonical npc id",
+        )
+    commitment_id = str(semantic_inputs.get("commitment_ref") or "").strip()
+    if not commitment_id.startswith("commitment:") or len(commitment_id) <= 11:
+        raise ToolError(
+            "invalid_semantic_input",
+            "commitment_ref must use commitment:<semantic-slug>",
+        )
+    active_scene_id = str(ctx.world().get("active_scene_id") or "").strip()
+    scene = _scene_by_id(ctx.story_graph, active_scene_id)
+    if not active_scene_id or not isinstance(scene, Mapping):
+        raise ToolError(
+            "social_candidate_stale",
+            "no canonical active scene is available for the social target",
+        )
+    authored_present = {
+        str(value) for value in (scene.get("npc_ids") or []) if str(value)
+    }
+    presence = _load_npc_presence_document(ctx).get("presence") or {}
+    live = presence.get(npc_id) if isinstance(presence, Mapping) else None
+    explicitly_present = (
+        isinstance(live, Mapping)
+        and live.get("status") == "present"
+        and str(live.get("scene_id") or "") == active_scene_id
+    )
+    explicitly_absent = isinstance(live, Mapping) and not explicitly_present
+    if (npc_id not in authored_present and not explicitly_present) or explicitly_absent:
+        raise ToolError(
+            "social_candidate_stale",
+            "the semantic social target is not present in the active scene",
+            details={"target_ref": target_ref, "active_scene_id": active_scene_id},
+        )
+    if not isinstance(_npc_by_id(ctx.npc_agendas, npc_id), Mapping):
+        raise ToolError(
+            "social_candidate_stale",
+            "the social target has no canonical authored NPC record",
+            details={"target_ref": target_ref},
+        )
+    evidence_ref = f"npc_agenda:{npc_id}"
+    return {
+        "target_ref": target_ref,
+        "npc_id": npc_id,
+        "conversation_window_id": (
+            f"conversation:{active_scene_id}:{investigator_id}:{npc_id}"
+        ),
+        "commitment_id": commitment_id,
+        "motive_evidence": [evidence_ref],
+    }
+
+
 def dispatch_rules_settle(
     ctx: Ctx,
     args: dict[str, Any],
@@ -7000,6 +7074,12 @@ def dispatch_rules_settle(
         "decision_ref": decision_ref,
         "semantic_inputs": dict(semantic_inputs),
     }
+    if family == "social":
+        selected["_host_social_binding"] = _canonical_social_binding(
+            ctx,
+            investigator_id=investigator_id,
+            semantic_inputs=semantic_inputs,
+        )
     ruleset_adapter = getattr(runtime, "_ruleset_adapter", None)
     if ruleset_adapter is None:
         raise ToolError(

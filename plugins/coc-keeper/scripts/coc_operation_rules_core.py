@@ -1277,6 +1277,12 @@ def _healing_tool_data(
     return data
 
 def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
+    def social_adjudicate(active_ctx: Ctx, active_args: dict[str, Any]):
+        # Loaded after this operation cell; resolve lazily from the shared
+        # kernel namespace so graph settlement reuses the canonical tool.
+        from coc_operation_kernel_runtime import _tool_rules_social_adjudicate
+        return _tool_rules_social_adjudicate(active_ctx, active_args)
+
     return dispatch_rules_settle(
         ctx,
         args,
@@ -1289,6 +1295,7 @@ def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
             "opposed": _tool_rules_opposed,
             "push_policy": _tool_rules_push,
             "luck_spend": _tool_rules_luck_spend,
+            "social_difficulty": social_adjudicate,
         },
     )
 

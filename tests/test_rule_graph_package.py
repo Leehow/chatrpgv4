@@ -150,13 +150,14 @@ def test_composed_settlement_dispatch_is_owned_by_coc7_package():
     assert adapter.promotion_blockers("healing") == []
     assert adapter.promotion_blockers("core-check") == []
     assert adapter.promotion_blockers("push-luck") == []
-    assert adapter.promotion_blockers("social")
+    assert adapter.promotion_blockers("social") == []
     current = adapter.operation_policy_overrides(ruleset)
     assert current["rules.first_aid"]["audience"] == "host"
     assert current["rules.roll"]["audience"] == "host"
     assert current["rules.opposed"]["audience"] == "host"
     assert current["rules.push"]["audience"] == "host"
     assert current["rules.luck_spend"]["audience"] == "host"
+    assert current["rules.social_adjudicate"]["audience"] == "host"
     assert current["rules.settle"]["audience"] == "keeper"
 
     shadowed = json.loads(json.dumps(ruleset))

@@ -2129,6 +2129,152 @@ def test_push_restart_hydrates_canonical_receipt_and_continuation_grant():
     assert len(calls) == 1
 
 
+def _social_binding_ctx(active_npc_ids=("npc-knott",)):
+    return SimpleNamespace(
+        world=lambda: {"active_scene_id": "commission-briefing"},
+        story_graph={
+            "scenes": [{
+                "scene_id": "commission-briefing",
+                "npc_ids": list(active_npc_ids),
+            }],
+        },
+        npc_agendas={
+            "npcs": [{
+                "npc_id": "npc-knott",
+                "skills": {"Persuade": 45, "Psychology": 55},
+            }],
+        },
+    )
+
+
+def test_social_canonical_rebuild_binds_existing_adjudication_args(monkeypatch):
+    kernel = coc_toolbox.coc_operation_kernel
+    monkeypatch.setattr(
+        kernel, "_load_npc_presence_document",
+        lambda _ctx: {"presence": {}},
+    )
+    ctx = _social_binding_ctx()
+    semantic = {
+        "described_action": "出示有签名的委托信",
+        "target_ref": "social-target:npc-knott",
+        "commitment_ref": "commitment:increase-cooperation",
+        "approach": "persuade",
+        "goal": "请诺特完整说明委托经过",
+        "motive_direction": "oppose",
+        "motive_intensity": 1,
+        "supporting_action": None,
+        "feasibility": "roll",
+    }
+    binding = kernel._canonical_social_binding(
+        ctx, investigator_id="thomas-hayes", semantic_inputs=semantic,
+    )
+    assert binding == {
+        "target_ref": "social-target:npc-knott",
+        "npc_id": "npc-knott",
+        "conversation_window_id": (
+            "conversation:commission-briefing:thomas-hayes:npc-knott"
+        ),
+        "commitment_id": "commitment:increase-cooperation",
+        "motive_evidence": ["npc_agenda:npc-knott"],
+    }
+
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    selected = {
+        "semantic_inputs": semantic,
+        "_host_social_binding": binding,
+    }
+    provider = adapter.host_locked_provider(
+        ctx,
+        {"investigator": "thomas-hayes", "decision_id": "social-settle-1"},
+        selected,
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        safe_sheet=lambda *_args: {},
+        skill_value=lambda *_args: None,
+    )
+    locked = provider("decision:coc7:social:adjudicate-difficulty")
+    assert locked == {"motive_evidence": ["npc_agenda:npc-knott"]}
+    execution = adapter.executor_args(
+        ctx,
+        {
+            "capability": {"resolver_capability": "social_difficulty"},
+            "command": {"payload": {**semantic, **locked}},
+        },
+        selected,
+        {"investigator": "thomas-hayes", "decision_id": "social-settle-1"},
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        tool_error=kernel.ToolError,
+    )
+    assert execution["npc_id"] == "npc-knott"
+    assert execution["conversation_window_id"] == binding["conversation_window_id"]
+    assert execution["commitment_id"] == "commitment:increase-cooperation"
+    assert execution["motive"]["evidence_refs"] == ["npc_agenda:npc-knott"]
+    assert execution["feasibility_refs"] == ["npc_agenda:npc-knott"]
+    bound_plan = adapter._social_bound_check_plan.__func__(
+        SimpleNamespace(SCHEMA_VERSION=1),
+        {
+            "decision_ref": "decision:coc7:social:adjudicate-difficulty",
+            "family": "social",
+            "command": {"payload": {"goal": semantic["goal"]}},
+            "rule_refs": [],
+            "source_refs": [],
+        },
+        {
+            "npc_id": "npc-knott",
+            "goal_key": "canonical-social-goal",
+            "approach_skill": "Persuade",
+            "final_difficulty": "hard",
+            "bonus_dice": 0,
+            "penalty_dice": 0,
+        },
+    )
+    check_args = adapter.executor_args(
+        ctx,
+        coc_rules_runtime._thaw(bound_plan),
+        selected,
+        {"investigator": "thomas-hayes", "decision_id": "social-settle-1"},
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        tool_error=kernel.ToolError,
+    )
+    assert check_args["npc_id"] == "npc-knott"
+    assert check_args["social_adjudication_ref"] == "canonical-social-goal"
+
+
+def test_social_canonical_rebuild_rejects_stale_target(monkeypatch):
+    kernel = coc_toolbox.coc_operation_kernel
+    monkeypatch.setattr(
+        kernel, "_load_npc_presence_document",
+        lambda _ctx: {"presence": {}},
+    )
+    with pytest.raises(kernel.ToolError) as failure:
+        kernel._canonical_social_binding(
+            _social_binding_ctx(active_npc_ids=()),
+            investigator_id="thomas-hayes",
+            semantic_inputs={
+                "target_ref": "social-target:npc-knott",
+                "commitment_ref": "commitment:increase-cooperation",
+            },
+        )
+    assert failure.value.code == "social_candidate_stale"
+
+
+def test_social_canonical_rebuild_rejects_forged_free_text_target(monkeypatch):
+    kernel = coc_toolbox.coc_operation_kernel
+    monkeypatch.setattr(
+        kernel, "_load_npc_presence_document",
+        lambda _ctx: {"presence": {}},
+    )
+    with pytest.raises(kernel.ToolError) as failure:
+        kernel._canonical_social_binding(
+            _social_binding_ctx(),
+            investigator_id="thomas-hayes",
+            semantic_inputs={
+                "target_ref": "诺特先生",
+                "commitment_ref": "commitment:increase-cooperation",
+            },
+        )
+    assert failure.value.code == "invalid_semantic_input"
+
+
 def test_runtime_settle_exclusion_scopes_are_no_candidate(tmp_path: Path):
     graph, manifest = _build_fixture_graph(tmp_path)
     promo = manifest.setdefault("family_promotion_eligibility", {}).setdefault(

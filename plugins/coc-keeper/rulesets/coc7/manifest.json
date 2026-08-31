@@ -32,6 +32,11 @@
       "family_id": "push-luck",
       "runtime_owner": "graph",
       "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "social",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
     }
   ],
   "resources": [
