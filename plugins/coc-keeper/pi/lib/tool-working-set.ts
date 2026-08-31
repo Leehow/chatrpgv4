@@ -89,6 +89,8 @@ export type RecoveryRoute =
 
 export type ToolWorkingSetSnapshot = LoadScope & {
   canonicalProgressRevision: number;
+  /** Exact opt-in test profile. Omitted is the production/default surface. */
+  acceptanceProfile?: "rules-director-single-draft";
   /** Resolved from extraToolsForSessionRole(role) by the host adapter. */
   roleManifestToolNames: readonly string[];
   hostTools: readonly ModelVisibleHostTool[];
@@ -232,6 +234,12 @@ const PLAY_ACTING_BASELINE = [
   "state.journal",
 ] as const;
 
+const RULES_DIRECTOR_ACTING_BASELINE = [
+  "scene.context",
+  "actions.list",
+  "state.journal",
+] as const;
+
 const OPEN_TURN_PRE_JOURNAL_FORBIDDEN = new Set([
   "turn.output_context",
   "narration.review",
@@ -283,7 +291,10 @@ function grantKey(scope: LoadScope): string {
 }
 
 function revisionContextKey(snapshot: ToolWorkingSetSnapshot): string {
-  return `${grantKey(snapshot)}:progress-${snapshot.canonicalProgressRevision}`;
+  const profile = snapshot.acceptanceProfile === undefined
+    ? ""
+    : `:profile-${snapshot.acceptanceProfile}`;
+  return `${grantKey(snapshot)}${profile}:progress-${snapshot.canonicalProgressRevision}`;
 }
 
 function loadMatchesSnapshot(load: LoadScope, snapshot: ToolWorkingSetSnapshot): boolean {
@@ -342,14 +353,20 @@ function actingBaseline(snapshot: ToolWorkingSetSnapshot): readonly string[] {
   }
   if (snapshot.phase === "recovery") {
     return isVerifiedOpenTurnRecovery(snapshot)
-      ? PLAY_ACTING_BASELINE
+      ? (
+          snapshot.acceptanceProfile === "rules-director-single-draft"
+            ? RULES_DIRECTOR_ACTING_BASELINE
+            : PLAY_ACTING_BASELINE
+        )
       : ["session.resume"];
   }
   if (snapshot.phase === "ending") return ["state.journal"];
   if (snapshot.phase === "opening" || snapshot.phase === "cold_start") {
     return ["session.resume", "scene.context", "actions.list", "evidence.table_opening"];
   }
-  return PLAY_ACTING_BASELINE;
+  return snapshot.acceptanceProfile === "rules-director-single-draft"
+    ? RULES_DIRECTOR_ACTING_BASELINE
+    : PLAY_ACTING_BASELINE;
 }
 
 function baselineOperations(snapshot: ToolWorkingSetSnapshot): readonly string[] {
@@ -475,6 +492,16 @@ function invalidSnapshot(snapshot: ToolWorkingSetSnapshot): WorkingSetFailure | 
       code: "invalid_snapshot",
       message: "canonicalProgressRevision must be a non-negative safe integer",
       details: { canonicalProgressRevision: snapshot.canonicalProgressRevision },
+    };
+  }
+  if (
+    snapshot.acceptanceProfile !== undefined
+    && snapshot.acceptanceProfile !== "rules-director-single-draft"
+  ) {
+    return {
+      code: "invalid_snapshot",
+      message: "acceptanceProfile is not a supported exact test profile",
+      details: { acceptanceProfile: snapshot.acceptanceProfile },
     };
   }
   if (

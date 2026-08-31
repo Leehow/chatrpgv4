@@ -1627,6 +1627,94 @@ def test_pi_coc_repo_local_launches_pin_the_package_that_owns_the_launcher(
     assert list(agent_dir.glob(".settings.json.pi-coc-*.tmp")) == []
 
 
+def test_pi_coc_rules_director_profile_assembles_focused_play_package(
+    tmp_path: Path,
+):
+    worktree_root = tmp_path / "chatrpgv4-profile-worktree"
+    (worktree_root / "plugins" / "coc-keeper").mkdir(parents=True)
+    shutil.copytree(
+        PLUGIN / "pi",
+        worktree_root / "plugins" / "coc-keeper" / "pi",
+    )
+    for relative in (
+        "plugins/coc-keeper/skills/coc-keeper-play",
+        "plugins/coc-keeper/skills/coc-story-director",
+        "plugins/coc-keeper/rulesets/coc7/skills/coc-rules-engine",
+    ):
+        target = worktree_root / relative
+        target.mkdir(parents=True)
+        (target / "SKILL.md").write_text("---\nname: fixture\n---\n", encoding="utf-8")
+    (worktree_root / "package.json").write_text(
+        json.dumps({"name": "@chatrpg/coc-keeper-pi"}) + "\n",
+        encoding="utf-8",
+    )
+
+    settings, models = _supported_pi_settings()
+    agent_dir, fake_bin = _pi_coc_test_home(
+        tmp_path / "profile-run",
+        settings={**settings, "packages": [str(ROOT)]},
+        models=models,
+    )
+    fake_uv = fake_bin / "uv"
+    fake_uv.write_text(
+        '#!/bin/sh\n'
+        'if [ "$1" = "--version" ]; then printf "uv 0.11.16\\n"; '
+        'else printf "play\\n"; fi\n',
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o755)
+    args_path = tmp_path / "profile-run" / "pi-args.txt"
+    env_path = tmp_path / "profile-run" / "pi-env.txt"
+    fake_pi = fake_bin / "pi"
+    fake_pi.write_text(
+        '#!/bin/sh\n'
+        'for arg in "$@"; do printf "%s\\n" "$arg"; done > "$PI_COC_TEST_ARGS"\n'
+        'printf "role=%s\\nprofile=%s\\n" "$COC_PI_SESSION_ROLE" '
+        '"$COC_PI_ACCEPTANCE_PROFILE" > "$PI_COC_TEST_ENVDUMP"\n',
+        encoding="utf-8",
+    )
+    fake_pi.chmod(0o755)
+    completed = subprocess.run(
+        [
+            str(worktree_root / "plugins" / "coc-keeper" / "pi" / "bin" / "pi-coc"),
+            "--campaign", "profile-campaign", "--mode", "rpc",
+        ],
+        cwd=worktree_root,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "PI_COC_AGENT_DIR": str(agent_dir),
+            "PI_COC_TEST_ARGS": str(args_path),
+            "PI_COC_TEST_ENVDUMP": str(env_path),
+            "COC_PI_ACCEPTANCE_PROFILE": "rules-director-single-draft",
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    args = args_path.read_text(encoding="utf-8").splitlines()
+    skill_paths = [
+        args[index + 1]
+        for index, value in enumerate(args[:-1])
+        if value == "--skill"
+    ]
+    assert skill_paths == [
+        str(worktree_root / "plugins/coc-keeper/skills/coc-keeper-play"),
+        str(worktree_root / "plugins/coc-keeper/skills/coc-story-director"),
+        str(worktree_root / "plugins/coc-keeper/rulesets/coc7/skills/coc-rules-engine"),
+    ]
+    prompt_index = args.index("--append-system-prompt")
+    assert args[prompt_index + 1] == str(
+        worktree_root / "plugins/coc-keeper/pi/prompts/host-system-play.md"
+    )
+    assert env_path.read_text(encoding="utf-8") == (
+        "role=play\nprofile=rules-director-single-draft\n"
+    )
+    written = json.loads((agent_dir / "settings.json").read_text(encoding="utf-8"))
+    assert written["packages"] == [str(worktree_root.resolve())]
+
+
 def test_pi_coc_prefers_uv_project_environment_python(tmp_path: Path):
     """Packaged desktop relocates the venv via UV_PROJECT_ENVIRONMENT.
 

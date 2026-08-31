@@ -22,6 +22,7 @@ const {
 
 const ROLE_ENV = "COC_PI_SESSION_ROLE";
 const CAMPAIGN_ENV = "PI_COC_CAMPAIGN_ID";
+const PROFILE_ENV = "COC_PI_ACCEPTANCE_PROFILE";
 
 // This harness drives the root KP extension surface directly. A worker-shell
 // PI_SUBAGENT_CHILD=1 would silence applyKpActiveTools/setActiveTools and
@@ -1034,6 +1035,53 @@ test("RuleDecisionCard survives resume, scene, exact context, and typed settle",
     }
     return { ok: true, tool: params.operation, data: {} };
   });
+});
+
+test("rules-director profile activates healing card without discovery or broad tools", async () => {
+  const priorProfile = process.env[PROFILE_ENV];
+  process.env[PROFILE_ENV] = "rules-director-single-draft";
+  try {
+    const resumeEnvelope = {
+      ok: true,
+      tool: "session.resume",
+      data: {
+        schema_version: 1,
+        campaign_id: "tool-affordance-campaign",
+        mode: "awaiting_player",
+        next_operations: [],
+        scene_context: healingSceneData(),
+      },
+    };
+    const sceneEnvelope = contextReceipt(
+      "ruledecision-profile-card",
+      healingSceneData(),
+    );
+    await withPlayHarness(async (h) => {
+      await h.emit("message_start", {
+        role: "user",
+        content: [{ type: "text", text: "我按住伤口，重新仔细包扎。" }],
+      });
+      const scene = await invokeCompat(
+        h,
+        "ruledecision-profile-scene",
+        "scene.context",
+      );
+      assert.equal(JSON.parse(scene.content[0].text).ok, true);
+      assert.deepEqual(h.active.at(-1), [
+        "coc_actions_list",
+        "coc_rules_settle",
+        "coc_scene_context",
+        "coc_state_journal",
+      ]);
+    }, (_name, params) => {
+      if (params.operation === "session.resume") return resumeEnvelope;
+      if (params.operation === "scene.context") return sceneEnvelope;
+      return { ok: true, tool: params.operation, data: {} };
+    });
+  } finally {
+    if (priorProfile === undefined) delete process.env[PROFILE_ENV];
+    else process.env[PROFILE_ENV] = priorProfile;
+  }
 });
 
 test("RuleDecisionCard rejects opaque or malformed semantic references", async () => {

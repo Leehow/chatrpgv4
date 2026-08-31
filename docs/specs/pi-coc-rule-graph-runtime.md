@@ -1389,6 +1389,22 @@ rules + director judgment -> state.journal -> turn.output_context
 -> Grok drafts once -> returned generic turn.finalize once -> exact delivery
 ```
 
+The profile pins `settings.packages` to the exact checkout/worktree that owns
+the running launcher and narrows the loaded play skills to Keeper play, Story
+Director, and the active rules engine. During the acting stage it advertises
+only `scene.context`, `actions.list`, `state.journal`, and current canonical
+affordances such as `rules.settle`; `read`, `coc_discover`, subagents,
+`npc.query`, and the generic `rules.roll` baseline are deliberately absent.
+An applicable graph card is therefore a prerequisite, not something the
+model may replace with catalog browsing or an invented operation name.
+
+When a focused rule-family test needs pre-existing canonical state (for
+example, healing needs an active wound), prepare that prerequisite through an
+explicit deterministic setup receipt before the player turn and label it as
+fixture evidence. Do not spend the measured player turn asking the model to
+invent an unrelated, not-yet-promoted generic rule operation merely to create
+the precondition.
+
 For this exact profile only, `turn.output_context` returns
 `agency_review_required=false`, omits `agency_review_operation` and the host
 state-claim compiler lane, and returns a generic `finalize_operation`. Grok

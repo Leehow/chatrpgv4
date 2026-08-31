@@ -119,6 +119,7 @@ import {
   validOpenTurnAnchor,
   type OpenTurnAnchor,
 } from "../lib/open-turn-player-input.ts";
+
 import { createContextFold, readFoldSettings } from "../lib/context-fold.ts";
 import {
   registerCocWelcome,
@@ -254,6 +255,13 @@ export {
   registerPlayerPdfBindInstruction,
 } from "../lib/player-pdf-bind.ts";
 export type { PlayerPdfBindDetection } from "../lib/player-pdf-bind.ts";
+
+const RULES_DIRECTOR_SINGLE_DRAFT_PROFILE = "rules-director-single-draft";
+
+function rulesDirectorSingleDraftProfileActive(): boolean {
+  return process.env.COC_PI_ACCEPTANCE_PROFILE
+    === RULES_DIRECTOR_SINGLE_DRAFT_PROFILE;
+}
 
 const emptySchema = { type: "object", properties: {}, additionalProperties: false } as const;
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
@@ -6527,18 +6535,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     applyKpActiveTools();
   };
   const resolvedWorkingSetHostTools = (role: SessionRole): ModelVisibleHostTool[] => {
-    const desiredNames = new Set([
-      "coc_discover",
-      "subagent",
-      "subagent_wait",
-      ...(
-        canonicalProgress.stage === "output_context_ready"
-        && retainedOutputContextFacts?.directGenericFinalize === true
-          ? ["coc_invoke"]
-          : []
-      ),
-      ...extraToolsForSessionRole(role),
-    ]);
+    const directFinalize = (
+      canonicalProgress.stage === "output_context_ready"
+      && retainedOutputContextFacts?.directGenericFinalize === true
+    );
+    const desiredNames = new Set(
+      rulesDirectorSingleDraftProfileActive() && role === "play"
+        ? (directFinalize ? ["coc_invoke"] : [])
+        : [
+            "coc_discover",
+            "subagent",
+            "subagent_wait",
+            ...(directFinalize ? ["coc_invoke"] : []),
+            ...extraToolsForSessionRole(role),
+          ],
+    );
     if (typeof pi.getAllTools !== "function") {
       // Explicit compatibility lane for old focused ExtensionAPI fakes. The
       // production Pi runtime always resolves the registered definitions.
@@ -6603,6 +6614,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       stage: canonicalProgress.stage,
       playerTurnEpoch: canonicalProgress.playerTurnEpoch,
       canonicalProgressRevision: canonicalProgress.canonicalProgressRevision,
+      ...(
+        role === "play" && rulesDirectorSingleDraftProfileActive()
+          ? { acceptanceProfile: RULES_DIRECTOR_SINGLE_DRAFT_PROFILE as const }
+          : {}
+      ),
       roleManifestToolNames: extraToolsForSessionRole(role),
       hostTools: resolvedWorkingSetHostTools(role),
       affordances: {

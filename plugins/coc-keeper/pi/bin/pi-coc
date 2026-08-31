@@ -182,7 +182,7 @@ if [ -f "$PI_CODING_AGENT_DIR/settings.json" ]; then
     );
     let fd;
     try {
-      fd = fs.openSync(tempPath, "wx", fs.statSync(settingsPath).mode);
+      fd = fs.openSync(tempPath, "wx", fs.statSync(settingsPath).mode & 0o777);
       fs.writeFileSync(fd, JSON.stringify(settings, null, 2) + "\n", "utf8");
       fs.fsyncSync(fd);
       fs.closeSync(fd);
@@ -349,6 +349,7 @@ assemble_campaign_role() {
             const manifestPath = process.argv[1];
             const role = process.argv[2];
             const repoRoot = process.argv[3];
+            const acceptanceProfile = process.argv[4];
             let manifest;
             try {
               manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
@@ -356,7 +357,14 @@ assemble_campaign_role() {
               process.stderr.write("pi-coc: session-roles.json unreadable; using full skill set\n");
               process.exit(1);
             }
-            const entry = manifest[role];
+            const profileEntry = (
+              role === "play"
+              && acceptanceProfile === "rules-director-single-draft"
+              && manifest.profiles
+              && manifest.profiles[acceptanceProfile]
+              && manifest.profiles[acceptanceProfile].role === "play"
+            ) ? manifest.profiles[acceptanceProfile] : null;
+            const entry = profileEntry || manifest[role];
             if (!entry || !Array.isArray(entry.skills) || typeof entry.prompt !== "string") {
               process.stderr.write("pi-coc: session-roles.json missing " + role + "; using full skill set\n");
               process.exit(1);
@@ -364,7 +372,7 @@ assemble_campaign_role() {
             const prompt = path.join(repoRoot, entry.prompt);
             const skills = entry.skills.map((rel) => path.join(repoRoot, rel));
             process.stdout.write([prompt, ...skills].join("\n"));
-          ' "$MANIFEST" "$ROLE_OUT" "$REPO_ROOT") || ROLE_PACK=
+          ' "$MANIFEST" "$ROLE_OUT" "$REPO_ROOT" "${COC_PI_ACCEPTANCE_PROFILE:-}") || ROLE_PACK=
           if [[ -n "${ROLE_PACK}" ]]; then
             PROMPT_LINE=
             SKILL_LINES=()

@@ -13,13 +13,24 @@ const MANIFEST_PATH = join(
   "../session-roles.json",
 );
 
+const RULES_DIRECTOR_SINGLE_DRAFT_PROFILE = "rules-director-single-draft";
+
 export function extraToolsForSessionRole(role: SessionRole | null): string[] {
   try {
     const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as {
       setup?: { tools?: unknown };
       play?: { tools?: unknown };
+      profiles?: Record<string, { role?: unknown; tools?: unknown }>;
     };
-    const tools = role === "play" ? manifest.play?.tools : manifest.setup?.tools;
+    const profile = process.env.COC_PI_ACCEPTANCE_PROFILE;
+    const profileEntry = (
+      role === "play"
+      && profile === RULES_DIRECTOR_SINGLE_DRAFT_PROFILE
+      && manifest.profiles?.[profile]?.role === "play"
+    ) ? manifest.profiles[profile] : null;
+    const tools = role === "play"
+      ? (profileEntry ?? manifest.play)?.tools
+      : manifest.setup?.tools;
     if (!Array.isArray(tools)) {
       return role === "play" ? [] : ["coc_chargen_delegate"];
     }

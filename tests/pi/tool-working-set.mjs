@@ -489,6 +489,62 @@ test("play acting keeps graph healing settle card-driven", () => {
   );
 });
 
+test("rules-director single-draft profile keeps only focused acting operations", () => {
+  const priorProfile = process.env.COC_PI_ACCEPTANCE_PROFILE;
+  process.env.COC_PI_ACCEPTANCE_PROFILE = "rules-director-single-draft";
+  assert.deepEqual(roleToolsModule.extraToolsForSessionRole("play"), []);
+  const source = snapshot({
+    acceptanceProfile: "rules-director-single-draft",
+    roleManifestToolNames: [],
+    hostTools: [],
+    affordances: {
+      operations: [{ operation: "rules.settle", source: "scene" }],
+    },
+  });
+  const projected = workingSet.projectToolWorkingSet(source);
+  assert.equal(projected.ok, true, projected.error?.message);
+  assert.deepEqual(projected.activeOperationNames, [
+    "actions.list",
+    "rules.settle",
+    "scene.context",
+    "state.journal",
+  ]);
+  assert.deepEqual(projected.activeToolNames, [
+    "coc_actions_list",
+    "coc_rules_settle",
+    "coc_scene_context",
+    "coc_state_journal",
+  ]);
+  for (const forbidden of [
+    "coc_discover", "read", "subagent", "subagent_wait",
+    "coc_npc_query", "coc_rules_roll", "coc_source_assets",
+  ]) {
+    assert.ok(!projected.activeToolNames.includes(forbidden), forbidden);
+  }
+  const ordinary = workingSet.projectToolWorkingSet(snapshot({
+    affordances: {
+      operations: [{ operation: "rules.settle", source: "scene" }],
+    },
+  }));
+  assert.equal(ordinary.ok, true, ordinary.error?.message);
+  assert.ok(projected.schemaBytes < ordinary.schemaBytes);
+  assert.notEqual(projected.revision, ordinary.revision);
+
+  const invalid = workingSet.projectToolWorkingSet({
+    ...source,
+    acceptanceProfile: "unknown-profile",
+  });
+  assert.equal(invalid.ok, false);
+  assert.equal(invalid.error.code, "invalid_snapshot");
+  process.env.COC_PI_ACCEPTANCE_PROFILE = "unknown-profile";
+  assert.deepEqual(
+    roleToolsModule.extraToolsForSessionRole("play"),
+    ["coc_source_assets", "read"],
+  );
+  if (priorProfile === undefined) delete process.env.COC_PI_ACCEPTANCE_PROFILE;
+  else process.env.COC_PI_ACCEPTANCE_PROFILE = priorProfile;
+});
+
 test("rules.context is exact-loadable only and grants expire on epoch change", () => {
   const source = snapshot();
   const baseline = workingSet.projectToolWorkingSet(source);
