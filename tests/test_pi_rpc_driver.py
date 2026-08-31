@@ -109,15 +109,19 @@ class DaemonFixture:
         message: str,
         timeout: int = 60,
         extra_env: dict[str, str] | None = None,
+        profile: str | None = None,
     ) -> subprocess.CompletedProcess:
         env = os.environ.copy()
         if extra_env:
             env.update(extra_env)
+        command = [
+            sys.executable, os.fspath(self.workspace / "rpc_driver.py"),
+            "turn", message, "--timeout", str(timeout),
+        ]
+        if profile is not None:
+            command.extend(["--profile", profile])
         return subprocess.run(
-            [
-                sys.executable, os.fspath(self.workspace / "rpc_driver.py"),
-                "turn", message, "--timeout", str(timeout),
-            ],
+            command,
             cwd=self.workspace, capture_output=True, text=True, env=env,
         )
 
@@ -321,6 +325,31 @@ def test_driver_waits_through_settled_output_recovery(daemon: DaemonFixture):
         event for event in record["events"]
         if event.get("type") == "agent_settled"
     ]) == 2
+
+
+def test_driver_exhausted_recovery_terminal_settle_does_not_burn_timeout(
+    daemon: DaemonFixture,
+):
+    """One exhausted recovery epoch closes promptly on its terminal settle.
+
+    Campaign-11 emitted one empty-terminal marker, two claimed settled-output
+    markers, an exhausted marker and terminal fault for the same player epoch,
+    then one ``agent_settled``. Historical markers are state transitions, not
+    three concurrently in-flight recoveries.
+    """
+    started = time.monotonic()
+    completed = daemon.turn("__EXHAUSTED_RECOVERY__ 诺特面试", timeout=8)
+    elapsed = time.monotonic() - started
+
+    assert completed.returncode == 5, completed.stderr
+    assert "undelivered settle" in completed.stderr
+    record = _latest_turn_record(daemon)
+    assert record["settled"] is True
+    assert record["settle_class"] == "undelivered_settle_with_tools"
+    assert record["recovery_markers"] == 4
+    assert record["empty_terminal_recovery_markers"] == 1
+    assert record["settled_output_recovery_markers"] == 3
+    assert elapsed < 6, f"must not wait out the timeout; elapsed={elapsed:.1f}s"
 
 
 def _abort_recovery_delivered_fixture() -> dict:
@@ -827,6 +856,53 @@ def test_driver_ordinary_tools_without_settle_fails_closed(daemon: DaemonFixture
     assert record.get("session_role") is None
     assert elapsed >= 1.5
     assert elapsed < 6, f"waited the timeout, not 900s; elapsed={elapsed:.1f}s"
+
+
+def test_rules_director_profile_absolute_budget_aborts_once_with_diagnosis(
+    daemon: DaemonFixture,
+):
+    """Progress cannot reset the rules/director acceptance wall budget."""
+    started = time.monotonic()
+    completed = daemon.turn(
+        "__RULES_DIRECTOR_BUDGET__ 持续规则结算",
+        timeout=1,
+        profile="rules-director",
+    )
+    elapsed = time.monotonic() - started
+
+    assert completed.returncode == 6, completed.stderr
+    assert elapsed >= 0.8
+    assert elapsed < 4, f"absolute budget did not abort promptly: {elapsed:.1f}s"
+    record = _latest_turn_record(daemon)
+    assert record["profile"] == "rules-director"
+    timeout_fault = record["absolute_budget_timeout"]
+    assert timeout_fault["code"] == "turn_absolute_budget_exceeded"
+    assert timeout_fault["budget_seconds"] == 1
+    assert timeout_fault["abort_sent"] is True
+    assert timeout_fault["abort_response_observed"] is True
+    assert timeout_fault["agent_settled_observed"] is True
+    assert timeout_fault["diagnosis"]["provider"] == {
+        "provider": "fake-provider",
+        "model": "fake-rules-director",
+    }
+    assert timeout_fault["diagnosis"]["active_tools"] == [{
+        "tool_call_id": "call-rules-director-budget",
+        "tool": "coc_rules_settle",
+    }]
+    assert timeout_fault["diagnosis"]["last_event_type"] == "message_update"
+    event_rows = [
+        json.loads(line)
+        for line in daemon.module.EVENTS.read_text(encoding="utf-8").splitlines()
+    ]
+    abort_responses = [
+        row for row in event_rows
+        if row.get("type") == "response" and row.get("command") == "abort"
+    ]
+    assert len(abort_responses) == 1
+
+    assert daemon.module.stop() == 0
+    assert _wait_for(lambda: not daemon.module.PID.exists())
+    assert _wait_for(lambda: not daemon.module.HEARTBEAT.exists())
 
 
 def test_driver_play_exit_42_fails_closed(play_daemon: DaemonFixture):

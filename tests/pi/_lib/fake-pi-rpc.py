@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 import time
 
 
@@ -126,6 +127,10 @@ def emit_campaign08_live_handoff() -> None:
 
 
 def main() -> int:
+    progress_stop = threading.Event()
+    progress_thread: threading.Thread | None = None
+    active_budget_tool = False
+
     for raw in sys.stdin:
         line = raw.strip()
         if not line:
@@ -152,6 +157,39 @@ def main() -> int:
                 # Live launcher re-exec: envelope + setup.complete + UI
                 # freeze, outer process stays alive, no driver_pi_exited.
                 emit_campaign08_live_handoff()
+            elif message_text.startswith("__RULES_DIRECTOR_BUDGET__"):
+                # Keep emitting real RPC progress while one tool is in flight.
+                # An idle watchdog would never fire; the acceptance profile's
+                # absolute wall budget must still send one protocol abort.
+                active_budget_tool = True
+                print(json.dumps({"type": "agent_start"}), flush=True)
+                print(json.dumps({
+                    "type": "message_start",
+                    "message": {
+                        "role": "assistant",
+                        "provider": "fake-provider",
+                        "model": "fake-rules-director",
+                        "content": [],
+                    },
+                }), flush=True)
+                print(json.dumps({
+                    "type": "tool_execution_start",
+                    "toolCallId": "call-rules-director-budget",
+                    "toolName": "coc_rules_settle",
+                }), flush=True)
+
+                def emit_progress() -> None:
+                    while not progress_stop.wait(0.05):
+                        print(json.dumps({
+                            "type": "message_update",
+                            "assistantMessageEvent": {
+                                "type": "thinking_delta",
+                                "delta": ".",
+                            },
+                        }), flush=True)
+
+                progress_thread = threading.Thread(target=emit_progress, daemon=True)
+                progress_thread.start()
             elif message_text.startswith("__HANDOFF_THEN_READER_ERROR__"):
                 # Valid envelope first, then invalid UTF-8 kills the reader,
                 # then exit 42. The waiter must not freeze on the envelope.
@@ -344,6 +382,86 @@ def main() -> int:
                     },
                 }), flush=True)
                 print(json.dumps({"type": "agent_settled"}), flush=True)
+            elif message_text.startswith("__EXHAUSTED_RECOVERY__"):
+                # Campaign-11 evidence shape: one empty-terminal recovery and
+                # repeated settled-output claims all belong to the same player
+                # epoch. The final exhausted marker plus terminal fault closes
+                # that recovery state; the following settle is terminal even
+                # though no player-visible prose was delivered.
+                epoch = 2
+                print(json.dumps({
+                    "type": "tool_execution_start",
+                    "toolCallId": "call-exhausted-recovery",
+                    "toolName": "coc_turn_output_context",
+                }), flush=True)
+                print(json.dumps({
+                    "type": "tool_execution_end",
+                    "toolCallId": "call-exhausted-recovery",
+                    "toolName": "coc_turn_output_context",
+                }), flush=True)
+                print(json.dumps({
+                    "type": "entry_appended",
+                    "entry": {
+                        "type": "custom",
+                        "customType": "coc-empty-terminal-recovery",
+                        "data": {
+                            "schema_version": 1,
+                            "kind": "empty_terminal_recovery",
+                            "status": "scheduled",
+                            "player_turn_epoch": epoch,
+                        },
+                    },
+                }), flush=True)
+                for _attempt in range(2):
+                    print(json.dumps({
+                        "type": "entry_appended",
+                        "entry": {
+                            "type": "custom",
+                            "customType": "coc-settled-output-recovery",
+                            "data": {
+                                "schema_version": 1,
+                                "status": "claimed",
+                                "player_turn_epoch": epoch,
+                                "canonical_progress_revision": 0,
+                                "stage": "acting",
+                            },
+                        },
+                    }), flush=True)
+                print(json.dumps({
+                    "type": "entry_appended",
+                    "entry": {
+                        "type": "custom",
+                        "customType": "coc-settled-output-recovery",
+                        "data": {
+                            "schema_version": 1,
+                            "status": "exhausted",
+                            "player_turn_epoch": epoch,
+                            "canonical_progress_revision": 0,
+                            "stage": "acting",
+                        },
+                    },
+                }), flush=True)
+                print(json.dumps({
+                    "type": "entry_appended",
+                    "entry": {
+                        "type": "custom",
+                        "customType": "coc-turn-processing-fault",
+                        "data": {
+                            "schema_version": 1,
+                            "contract_id": "coc.pi-turn-processing-fault.v1",
+                            "kind": "turn_processing_fault",
+                            "status": "terminal",
+                            "stage": "finalization_repair",
+                            "code": "settled_output_recovery_exhausted",
+                            "retryable": False,
+                            "will_retry": False,
+                            "pending_turn_preserved": True,
+                            "player_turn_epoch": epoch,
+                        },
+                    },
+                }), flush=True)
+                print(json.dumps({"type": "agent_settled"}), flush=True)
+                time.sleep(30)
             elif message_text.startswith("__EMPTY_RECOVER__"):
                 # Empty settle followed by the hidden recovery marker, then
                 # the recovered follow-up turn delivers visible output and
@@ -383,12 +501,25 @@ def main() -> int:
                 time.sleep(30)
                 print(json.dumps({"type": "agent_settled"}), flush=True)
         elif kind == "abort":
+            progress_stop.set()
+            if progress_thread is not None:
+                progress_thread.join(timeout=1)
+                progress_thread = None
+            if active_budget_tool:
+                print(json.dumps({
+                    "type": "tool_execution_end",
+                    "toolCallId": "call-rules-director-budget",
+                    "toolName": "coc_rules_settle",
+                    "isError": True,
+                }), flush=True)
+                active_budget_tool = False
             print(json.dumps({
                 "id": command.get("id"),
                 "type": "response",
                 "command": "abort",
                 "success": True,
             }), flush=True)
+            print(json.dumps({"type": "agent_settled"}), flush=True)
     return 0
 
 
