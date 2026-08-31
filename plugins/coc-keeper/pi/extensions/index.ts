@@ -9935,6 +9935,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           return hostFailureResult(hostBindingFailure(typedDefinition.operation, error));
         }
       }
+      if (
+        typedDefinition.operation === "state.advance_time"
+        && !Object.hasOwn(params, "decision_id")
+      ) {
+        // The model schema intentionally omits decision_id. A precise scene
+        // card supplies the retained host binding; ordinary unbound time
+        // advances still need the same stable host-owned idempotency key.
+        // Attach it only after raw model validation/binding so model input is
+        // never confused with host provenance.
+        params = {
+          ...params,
+          decision_id: semanticDecisionId("state.advance_time"),
+        };
+      }
       if (armedRecoveryCampaign !== null && !Object.hasOwn(params, "campaign")) {
         // Host-derived routing identity only, so the wrapped envelope names
         // the campaign; every other argument stays raw model input for the

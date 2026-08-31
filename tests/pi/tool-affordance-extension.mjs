@@ -2061,6 +2061,113 @@ test("campaign-bound typed semantic calls use the active campaign before restora
   });
 });
 
+test("unbound state.advance_time receives one stable host decision identity", async () => {
+  const forwarded = [];
+  await withPlayHarness(async (h) => {
+    await h.emit("message_start", {
+      role: "user",
+      content: [{ type: "text", text: "我花半天查阅资料。" }],
+    });
+    const timeDiscovery = JSON.parse((await h.tools.get("coc_discover").execute(
+      "discover-unbound-time",
+      { operation: "state.advance_time" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(timeDiscovery.ok, true);
+    assert.equal(Object.hasOwn(
+      timeDiscovery.data.operation_card.parameters.properties,
+      "decision_id",
+    ), false);
+
+    const modelArguments = {
+      minutes: 360,
+      reason: "暂时撤离并用半天查阅资料",
+      day_phase_after: "afternoon",
+      display_after: "下午",
+    };
+    const first = JSON.parse((await h.tools.get("coc_state_advance_time").execute(
+      "unbound-time-first",
+      modelArguments,
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(first.ok, true, JSON.stringify(first));
+    const firstCall = forwarded.findLast((row) => (
+      row.operation === "state.advance_time"
+    ));
+    assert.match(firstCall.arguments.decision_id, /^pi-state-advance_time:/u);
+    assert.equal(Object.hasOwn(modelArguments, "decision_id"), false);
+
+    const second = JSON.parse((await h.tools.get("coc_state_advance_time").execute(
+      "unbound-time-idempotent-replay",
+      modelArguments,
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(second.ok, true, JSON.stringify(second));
+    const timeCalls = forwarded.filter((row) => (
+      row.operation === "state.advance_time"
+    ));
+    assert.equal(timeCalls.length, 2);
+    assert.equal(
+      timeCalls[1].arguments.decision_id,
+      timeCalls[0].arguments.decision_id,
+      "same semantic time request in one unchanged host epoch is idempotent",
+    );
+
+    const purchaseDiscovery = JSON.parse((await h.tools.get("coc_discover").execute(
+      "discover-purchase-decision-ownership",
+      { operation: "state.purchase" },
+      undefined,
+      undefined,
+      h.ctx,
+    )).content[0].text);
+    assert.equal(purchaseDiscovery.ok, true);
+    assert.equal(Object.hasOwn(
+      purchaseDiscovery.data.operation_card.parameters.properties,
+      "decision_id",
+    ), true, "state.purchase keeps its model-owned semantic decision id");
+    assert.ok(
+      purchaseDiscovery.data.operation_card.parameters.required.includes("decision_id"),
+    );
+  }, (_name, params) => {
+    if (params.operation === "state.advance_time") {
+      forwarded.push(structuredClone(params));
+      if (typeof params.arguments.decision_id !== "string") {
+        return {
+          ok: false,
+          tool: "state.advance_time",
+          error: {
+            code: "missing_param",
+            message: "required parameter: decision_id",
+            retryable: false,
+          },
+        };
+      }
+      return {
+        ok: true,
+        tool: "state.advance_time",
+        data: { elapsed_minutes: 360, changed: true },
+      };
+    }
+    return params.operation === "session.resume"
+      ? {
+          ok: true,
+          tool: "session.resume",
+          data: {
+            mode: "awaiting_player",
+            evidence: { table_opening_id: "table-opening:unbound-time" },
+            next_operations: [],
+          },
+        }
+      : { ok: true, tool: params.operation, data: {} };
+  });
+});
+
 test("campaign-bound typed semantic calls fail closed without an active campaign", async () => {
   const priorRole = process.env[ROLE_ENV];
   const priorCampaign = process.env[CAMPAIGN_ENV];

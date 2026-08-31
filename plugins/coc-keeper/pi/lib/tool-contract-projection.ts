@@ -3538,6 +3538,14 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ],
     [],
   )],
+  ["director.advise", declaredIdentityTable(
+    [
+      "active_scene_id", "clock_id", "front_id", "id", "location_id",
+      "npc_id", "san_trigger_id",
+    ],
+    [],
+    ["decision_id", "monster_ref"],
+  )],
   ["state.move_scene", declaredIdentityTable(
     [
       "asset_root_id", "from_location_id", "from_scene_id", "scene_id",
