@@ -1579,6 +1579,15 @@ test("scene plus npc query bind social and Psychology identity without model ids
       undefined, undefined, h.ctx,
     )).content[0].text);
     assert.equal(socialResult.ok, true, JSON.stringify({ socialResult, appended: h.appended.slice(-20), properties: Object.keys(social.parameters.properties) }));
+    assert.equal(socialResult.data.npc_id, "npc-steven-knott");
+    assert.equal(socialResult.data.commitment_id, "commitment:raise-knott-cooperation");
+    assert.equal(socialResult.data.source_digest, undefined);
+    assert.equal(socialResult.data.request_digest, undefined);
+    assert.equal(socialResult.data.goal_key, undefined);
+    assert.equal(
+      socialResult.data.roll_operation.prefilled_arguments.social_adjudication_ref,
+      undefined,
+    );
     const socialCall = forwarded.findLast((row) => row.operation === "rules.social_adjudicate");
     assert.equal(socialCall.arguments.investigator, "thomas-hayes");
     assert.equal(socialCall.arguments.npc_id, "npc-steven-knott");
@@ -1594,6 +1603,18 @@ test("scene plus npc query bind social and Psychology identity without model ids
       undefined, undefined, h.ctx,
     )).content[0].text);
     assert.equal(psychologyResult.ok, true, JSON.stringify(psychologyResult));
+    assert.equal(psychologyResult.data.insight_id, undefined);
+    assert.equal(psychologyResult.data.conversation_window_id, undefined);
+    assert.match(psychologyResult.data.roll_id, /^roll:/u);
+    assert.notEqual(psychologyResult.data.roll_id, "toolbox-social-surface-000001");
+    assert.deepEqual(psychologyResult.data.observable_fact_refs, [{
+      source_ref: "npc_fact:npc-steven-knott/fact-knott-commission",
+      kind: "npc_fact",
+      identifier: "npc-steven-knott/fact-knott-commission",
+      player_known: false,
+      grounding_scope: "keeper_target_truth",
+    }]);
+    assert.equal(psychologyResult.data.request_digest, undefined);
     const psychologyCall = forwarded.findLast((row) => row.operation === "rules.psychology_observe");
     assert.equal(psychologyCall.arguments.investigator, "thomas-hayes");
     assert.equal(psychologyCall.arguments.npc_id, "npc-steven-knott");
@@ -1605,6 +1626,55 @@ test("scene plus npc query bind social and Psychology identity without model ids
     forwarded.push(structuredClone(params));
     if (params.operation === "scene.context") return scene;
     if (params.operation === "npc.query") return npcQuery;
+    if (params.operation === "rules.social_adjudicate") return {
+      ok: true,
+      tool: params.operation,
+      data: {
+        investigator_id: "thomas-hayes",
+        npc_id: "npc-steven-knott",
+        conversation_window_id: "conversation:commission-briefing:thomas-hayes:npc-steven-knott",
+        commitment_id: "commitment:raise-knott-cooperation",
+        approach: "charm",
+        goal_summary: "请诺特更充分地配合调查",
+        goal_key: "cb45f81061371aa8",
+        source_digest: `sha256:${"c".repeat(64)}`,
+        request_digest: `sha256:${"d".repeat(64)}`,
+        roll_operation: {
+          operation: "rules.roll",
+          invoke_via: "coc_rules_roll",
+          prefilled_arguments: {
+            investigator: "thomas-hayes",
+            npc_id: "npc-steven-knott",
+            skill: "Charm",
+            social_adjudication_ref: "cb45f81061371aa8",
+          },
+          missing_arguments: ["stakes", "decision_id"],
+        },
+      },
+    };
+    if (params.operation === "rules.psychology_observe") return {
+      ok: true,
+      tool: params.operation,
+      data: {
+        resolution: "settled",
+        insight_id: "psych-insight-56f70e80826a",
+        window_key: "team:party:opaque-window",
+        question: "诺特此刻在回避什么可见问题？",
+        conversation_window_id: "conversation:commission-briefing:thomas-hayes:npc-steven-knott",
+        observation_revision: 0,
+        outcome: "hard",
+        roll_id: "toolbox-social-surface-000001",
+        observable_fact_refs: [{
+          source_ref: "npc_fact:npc-steven-knott/fact-knott-commission",
+          kind: "npc_fact",
+          identifier: "npc-steven-knott/fact-knott-commission",
+          player_known: false,
+          record_digest: `sha256:${"e".repeat(64)}`,
+          grounding_scope: "keeper_target_truth",
+        }],
+        request_digest: `sha256:${"f".repeat(64)}`,
+      },
+    };
     return { ok: true, tool: params.operation, data: { accepted: true } };
   });
 });

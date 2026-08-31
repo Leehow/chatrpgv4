@@ -5123,6 +5123,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           rollArguments?.decision_id,
         ]);
       }
+      if (operation === "rules.psychology_observe") {
+        registerRoll(data.roll_id, [
+          data.question,
+          data.outcome,
+          "psychology-observation",
+        ]);
+      }
       if (operation === "npc.reaction") {
         registerRoll(data.roll_id, [
           data.npc_display_name,
