@@ -36,6 +36,8 @@ test("sanity.execute hides scheduled and pending-choice machine identities", () 
         status: "pending_choice",
         events: [{
           event_id: "se4",
+          source_command_id:
+            "pi-sanity-execute:sanity_check:see-corbitt-body:revision-1",
           trigger_id: "trg-3e3e1d283010",
           due_elapsed_minutes: 420,
           summary: "temporary-insanity recovery scheduled",
@@ -59,6 +61,7 @@ test("sanity.execute hides scheduled and pending-choice machine identities", () 
   assert.equal(visible.data.results[0].events[0].summary,
     "temporary-insanity recovery scheduled");
   assert.equal(visible.data.results[0].events[0].trigger_id, undefined);
+  assert.equal(visible.data.results[0].events[0].source_command_id, undefined);
   assert.equal(visible.data.results[0].pending_choice.choice_id, undefined);
   assert.equal(visible.data.results[0].pending_choice.command_id, undefined);
   assert.ok(!JSON.stringify(visible).includes("3e3e1d283010"));
