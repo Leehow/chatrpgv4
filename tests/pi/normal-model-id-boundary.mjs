@@ -321,6 +321,110 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
   }
 }
 
+// R11 SAN output keeps player-facing numbers/events while routing every roll
+// identity through the existing semantic roll registry. Internal event,
+// command, bout, and decision ids remain host-only.
+{
+  const rollView = {
+    ...emptySemanticProjectionView(),
+    rolls: new Map([
+      ["toolbox-campaign-000001", "roll:san-check"],
+      ["toolbox-campaign-000002", "roll:int-check"],
+      ["toolbox-campaign-000003", "roll:bout-duration"],
+      ["toolbox-campaign-000004", "roll:bout-table"],
+      ["toolbox-campaign-000005", "roll:bout-rounds"],
+      ["toolbox-campaign-000006", "roll:san-loss"],
+      ["pi-sanity-command", "roll:san-command-check"],
+    ]),
+  };
+  const flatDiagnostics = { unmapped: [] };
+  const flat = projectModelVisibleCanonicalResult(
+    "rules.sanity_check",
+    {
+      ok: true,
+      tool: "rules.sanity_check",
+      data: {
+        investigator_id: "thomas-hayes",
+        check: {
+          skill: "SAN",
+          target: 55,
+          roll: 89,
+          outcome: "failure",
+          trigger_id: "trigger:see-corbitt-body",
+          san_loss: 5,
+        },
+        san_before: 55,
+        san_after: 50,
+        trigger_id: "trigger:see-corbitt-body",
+        active_bout_id: "thomas-hayes:bout:1",
+        session_roll_ids: [
+          "toolbox-campaign-000001",
+          "toolbox-campaign-000002",
+        ],
+        session_events: [{
+          event_id: "se1",
+          event_type: "bout_of_madness",
+          bout_id: "thomas-hayes:bout:1",
+          trigger_id: "trigger:see-corbitt-body",
+          summary: "The investigator flees in panic.",
+        }],
+        check_roll_id: "toolbox-campaign-000001",
+        int_roll_id: "toolbox-campaign-000002",
+        bout_duration_roll_id: "toolbox-campaign-000003",
+        bout_table_roll_id: "toolbox-campaign-000004",
+        bout_rounds_roll_id: "toolbox-campaign-000005",
+        loss_roll_id: "toolbox-campaign-000006",
+      },
+    },
+    rollView,
+    flatDiagnostics,
+  );
+  assert.deepEqual(flatDiagnostics.unmapped, []);
+  assert.equal(flat.data.san_before, 55);
+  assert.equal(flat.data.san_after, 50);
+  assert.equal(flat.data.check.trigger_id, "trigger:see-corbitt-body");
+  assert.deepEqual(flat.data.session_roll_ids, ["roll:san-check", "roll:int-check"]);
+  assert.equal(flat.data.check_roll_id, "roll:san-check");
+  assert.equal(flat.data.loss_roll_id, "roll:san-loss");
+  assert.equal(flat.data.session_events[0].summary, "The investigator flees in panic.");
+  assert.ok(!("event_id" in flat.data.session_events[0]));
+  assert.ok(!("bout_id" in flat.data.session_events[0]));
+  assert.ok(!("active_bout_id" in flat.data));
+
+  const subsystemDiagnostics = { unmapped: [] };
+  const subsystem = projectModelVisibleCanonicalResult(
+    "sanity.execute",
+    {
+      ok: true,
+      tool: "sanity.execute",
+      data: {
+        results: [{
+          command_id: "pi-sanity-command",
+          events: [{
+            roll_id: "pi-sanity-command",
+            decision_id: "pi-sanity-command",
+            event_id: "se2",
+            rule_ref: "rule:coc7:sanity-check",
+            san_trigger_id: "trigger:see-corbitt-body",
+            roll: 32,
+            san_loss: 1,
+            san_before: 54,
+            san_after: 53,
+          }],
+        }],
+      },
+    },
+    rollView,
+    subsystemDiagnostics,
+  );
+  assert.deepEqual(subsystemDiagnostics.unmapped, []);
+  assert.equal(subsystem.data.results[0].events[0].roll_id, "roll:san-command-check");
+  assert.equal(subsystem.data.results[0].events[0].rule_ref, "rule:coc7:sanity-check");
+  assert.equal(subsystem.data.results[0].events[0].san_loss, 1);
+  assert.ok(!("decision_id" in subsystem.data.results[0].events[0]));
+  assert.ok(!("event_id" in subsystem.data.results[0].events[0]));
+}
+
 // state.journal continuation memory uses item_id as the semantic identity of
 // a do-not-repeat note. It is not an inventory item and must not be routed
 // through the item registry merely because the leaf field shares that name.
