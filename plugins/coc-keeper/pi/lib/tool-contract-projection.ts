@@ -3141,6 +3141,7 @@ const CLASSIFIED_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
   "payload_sha256", "receipt_digest", "rendered_sha256",
   "baseline_draft_sha256", "data_digest", "row_digest", "content_sha256",
   "transaction_sha256",
+  "record_digest",
 ]);
 
 /**
@@ -3323,6 +3324,16 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [],
     [],
     ["roll_id"],
+  )],
+  ["rules.social_adjudicate", declaredIdentityTable(
+    ["npc_id", "commitment_id"],
+    ["source_digest", "request_digest"],
+    ["conversation_window_id", "social_adjudication_ref"],
+  )],
+  ["rules.psychology_observe", declaredIdentityTable(
+    ["source_ref"],
+    ["record_digest", "request_digest"],
+    ["insight_id", "conversation_window_id"],
   )],
   ["rules.catalog_search", declaredIdentityTable(
     ["entity_id", "price_id", "ruleset_id"],
@@ -3764,6 +3775,16 @@ function projectSemanticIdField(
   diagnostics: ProjectionIdentityDiagnostics | null,
   operation: string | null = null,
 ): { action: "keep"; value?: unknown } | { action: "drop" } | null {
+  if (
+    operation === "rules.psychology_observe"
+    && parentField === "observable_fact_refs"
+    && field === "source_ref"
+    && typeof value === "string"
+  ) {
+    if (isNpcFactEvidenceRef(value)) return { action: "keep", value };
+    diagnostics?.unmapped.push({ field, parentField, domain: "evidence" });
+    return { action: "drop" };
+  }
   // continuation_delta.do_not_repeat[].item_id names a semantic memory note,
   // not an inventory entity. Keep that operation-owned journal identity in
   // the closed grammar instead of consulting the live item registry.
@@ -5158,6 +5179,18 @@ export function projectModelVisibleCanonicalResult(
       projected.data = projectNpcEngagementData(data, semanticIds, diagnostics);
     } else if (operation === "state.deliver_handout") {
       projected.data = projectHandoutDeliveryData(data, semanticIds, diagnostics);
+    } else if (operation === "rules.social_adjudicate") {
+      const view = { ...data };
+      delete view.goal_key;
+      projected.data = sanitizeEnvelopeBranch(
+        view, semanticIds, diagnostics, operationName,
+      );
+    } else if (operation === "rules.psychology_observe") {
+      const view = { ...data };
+      delete view.window_key;
+      projected.data = sanitizeEnvelopeBranch(
+        view, semanticIds, diagnostics, operationName,
+      );
     } else if (operation === "session.resume") {
       const sceneContext = isPlainObject(data.scene_context)
         ? data.scene_context
