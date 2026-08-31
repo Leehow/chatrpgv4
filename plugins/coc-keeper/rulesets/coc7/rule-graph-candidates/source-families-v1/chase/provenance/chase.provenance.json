@@ -1,0 +1,147 @@
+{
+  "contract_id": "coc.rule-graph-family-source-review.v1",
+  "schema_version": 1,
+  "family_id": "chase",
+  "section_id": "section-chase-complete-source",
+  "reviewer_identity": "codex-reviewer-chase-source-20260831",
+  "review_status": "accepted",
+  "coverage": {
+    "chase": "accepted"
+  },
+  "unresolved_applicable_rules": [],
+  "blockers": [],
+  "visual_review": {
+    "pdf_file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+    "contact_sheet": "/private/tmp/pi-coc-rule-families-20260831/visual-review/chase-contact.jpg"
+  },
+  "source_bundles": [
+    {
+      "bundle_id": "chase-rules-v1",
+      "bundle_sha256": "172147b9cfe5a2565d7e2d6448d1a258a3d4ee42cf2bfc7023b3d1aa5bf8907d",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+      "pages": [
+        {
+          "pdf_index": 141,
+          "text_sha256": "94ea0e4269e06ac4d145e405cbac21d9706e99615e98fd99309de14ab54d3409",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.99413
+        },
+        {
+          "pdf_index": 142,
+          "text_sha256": "974a87bb19718c0a2d266d08da70b94fa600d89ae0b57f3b35e8e5eaf2b61fe2",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.867751
+        },
+        {
+          "pdf_index": 143,
+          "text_sha256": "9491ca8eed9b6b46a05fedbeb214c970f160101f43c8abc7b1c6f28ec70e7290",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.996619
+        },
+        {
+          "pdf_index": 144,
+          "text_sha256": "557d8a6ec8300fb0582d375014cc4e6cc27d8dbc41971d700a45e342a0fb4a6a",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.996871
+        },
+        {
+          "pdf_index": 145,
+          "text_sha256": "31d5c08a4fd23e43f15d205a9018bcd7d5ed095f077568d87f7716958c41f7fe",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.99035
+        },
+        {
+          "pdf_index": 146,
+          "text_sha256": "92df15554530738ea6eed999b122ead0c601652e422c5e8aacc4484e42ee946c",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.996135
+        },
+        {
+          "pdf_index": 147,
+          "text_sha256": "189937f3976d4c8ab13f990dbfd661e29c107c51af11a4bbb9e6d527982d1543",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.994847
+        },
+        {
+          "pdf_index": 148,
+          "text_sha256": "ef85febadd7a16204985f018b4f6ffc63e08bac07e453e72fc43ff3cfb1f2028",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.996523
+        },
+        {
+          "pdf_index": 149,
+          "text_sha256": "a57179c0cc48019aa4be589726caa0421d124b94aabf78a4233b9e574627e4c1",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.997038
+        },
+        {
+          "pdf_index": 150,
+          "text_sha256": "f125bdbd594c9982dc85abe8901766e31e6dae43014fb72340cafac2acbb1429",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.995974
+        },
+        {
+          "pdf_index": 151,
+          "text_sha256": "f740c699902ca42e349eecb4f36d1a4602a2c7f4a3d5bd1d881868faa96c7b51",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.992516
+        },
+        {
+          "pdf_index": 152,
+          "text_sha256": "727bf7f028ca5d34725286c6b7b730b7c23d8d5b1ffdaa5f1007bc7750e1c3cc",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.997326
+        },
+        {
+          "pdf_index": 153,
+          "text_sha256": "d49c7fbc4611b2d0f3f24058095e39cd25ae72a3e75531ac868ba4fc8b13177b",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.997106
+        },
+        {
+          "pdf_index": 154,
+          "text_sha256": "17ef169a519bf21ee60baeffb3ad780178e476678d9acf3957a6219dab29f776",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.995251
+        },
+        {
+          "pdf_index": 155,
+          "text_sha256": "891383d54c969d47d086140b1f30e8dd32c47a5aea2d052daf1fdba818cff5e8",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.996058
+        },
+        {
+          "pdf_index": 156,
+          "text_sha256": "729c68bd8f0a9da79328315eeaa46cde144e016cc803c5a486ab31d37d2ad5a1",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.997039
+        },
+        {
+          "pdf_index": 157,
+          "text_sha256": "c66cfb65865757adcfa2c9526669d3dd7c1ab9d5a632738a03dccd685d315b6d",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.998089
+        },
+        {
+          "pdf_index": 158,
+          "text_sha256": "c2fc0d79791c580104f90706b9602a0a0e216d542b3f88c88dfe8dd21391ae3b",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.981083
+        },
+        {
+          "pdf_index": 159,
+          "text_sha256": "2e2219972cde9d02055528b32d1d5ef0dbd707d06874711e850a1e72a182e2c7",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.997007
+        },
+        {
+          "pdf_index": 160,
+          "text_sha256": "48b8bf32b1531bf79a0c814449b02915f42fa07eb6f5c98bb03cccacf06af34b",
+          "review_state": "auto_accepted",
+          "parse_confidence": 0.996785
+        }
+      ]
+    }
+  ],
+  "accepted_shard_digest": "fd577a1207ce46edcb99cf181537b9f05e99b0edbc50ab9c09813bcb0d5d2681"
+}
