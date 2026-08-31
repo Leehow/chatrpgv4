@@ -1981,6 +1981,154 @@ def test_core_check_graph_compiles_plan_then_calls_existing_executor_once():
     assert len(calls) == 1
 
 
+def test_push_restart_hydrates_canonical_receipt_and_continuation_grant():
+    package = Path.cwd() / "plugins" / "coc-keeper" / "rulesets" / "coc7"
+    graph = json.loads((package / "rule-graph.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (package / "rule-graph-manifest.json").read_text(encoding="utf-8")
+    )
+    for family in ("core-check", "push-luck"):
+        graph["family_runtime_ownership"][family] = "graph"
+        graph["legacy_surface_lifecycle"][family] = "hidden"
+        manifest["family_promotion_eligibility"][family].update({
+            "promotion_eligible": True,
+            "runtime_ownership": "graph",
+        })
+    package_manifest = {
+        "ruleset_id": "coc7",
+        "version": "1.0.0",
+        "rule_families": [{
+            "family_id": family,
+            "runtime_owner": "graph",
+            "legacy_surface": "hidden",
+        } for family in ("core-check", "push-luck")],
+    }
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+
+    def runtime():
+        return coc_rules_runtime.RulesRuntime(
+            graph,
+            ruleset_id="coc7",
+            graph_manifest=manifest,
+            package_manifest=package_manifest,
+            campaign_id="push-restart-runtime",
+            facts_provider=lambda: {
+                "campaign.ruleset_id": "coc7",
+                "actor.id": "investigator-one",
+            },
+            resolver_index={
+                "check": {}, "opposed": {}, "push_policy": {},
+                "luck_spend": {},
+            },
+            ruleset_adapter=adapter,
+        )
+
+    first = runtime()
+    ordinary_ref = "decision:coc7:core-check:ordinary-check"
+    ordinary_context = first.context({
+        "family": "core-check",
+        "selected_affordance_ids": [ordinary_ref],
+    })
+    first._host_locked_provider = lambda _ref: {
+        "target": 60,
+        "investigator_id": "investigator-one",
+    }
+    ordinary_selected = {
+        "decision_ref": ordinary_ref,
+        "semantic_inputs": {
+            "skill": "Library Use",
+            "difficulty": "regular",
+            "goal": "find the record",
+            "stakes": {"on_success": "found", "on_failure": "not found"},
+            "difficulty_basis": "environment",
+        },
+    }
+    ordinary_id = "core-check-failed-before-restart"
+    failed_roll = {
+        "investigator_id": "investigator-one",
+        "skill": "Library Use",
+        "target": 60,
+        "difficulty": "regular",
+        "bonus": 0,
+        "penalty": 0,
+        "roll_id": "roll:library-use-failed",
+        "roll": 72,
+        "outcome": "failure",
+    }
+    settled = first.settle(
+        ordinary_selected,
+        ordinary_id,
+        card_grant=ordinary_context["card_grant"],
+        executor=lambda *_args: failed_roll,
+    )
+    assert settled["status"] == "settled"
+    continuation = first.latest_grant_covering(
+        "decision:coc7:push-luck:pushed-roll"
+    )
+    assert continuation is not None
+    assert continuation["source_decision_id"] == ordinary_id
+
+    ledger_data = {
+        "family": "core-check",
+        "decision_ref": ordinary_ref,
+        "settlement": {"result": settled["settlement"]["result"]},
+    }
+    fake_ctx = SimpleNamespace(
+        npc_agendas={},
+        ledger_lookup=lambda tool, decision_id: (
+            {"data": ledger_data}
+            if tool == "rules.settle" and decision_id == ordinary_id else None
+        ),
+    )
+
+    restarted = runtime()
+    push_ref = "decision:coc7:push-luck:pushed-roll"
+    push_context = restarted.context({
+        "family": "push-luck",
+        "selected_affordance_ids": [push_ref],
+        "_host_source_decision_id": ordinary_id,
+        "_host_source_receipt": failed_roll,
+    })
+    assert push_context["status"] == "ok"
+    push_grant = push_context["card_grant"]
+    assert push_grant["source_decision_id"] == ordinary_id
+    push_semantic = {
+        "method_changed": "search the municipal index instead",
+        "failure_consequence": "the archive closes for the night",
+        "player_confirmed_risk": True,
+    }
+    provider = adapter.host_locked_provider(
+        fake_ctx,
+        {"investigator": "investigator-one", "decision_id": "push-after-restart"},
+        {"semantic_inputs": push_semantic},
+        resolve_investigator=lambda _ctx, _args: "investigator-one",
+        safe_sheet=lambda *_args: {},
+        skill_value=lambda *_args: None,
+        card_grant=push_grant,
+    )
+    restarted._host_locked_provider = provider
+    calls = []
+
+    def push_executor(plan, decision_id, selected):
+        calls.append((plan, decision_id, selected))
+        assert plan["command"]["payload"]["canonical_roll_receipt"] == failed_roll
+        return {**failed_roll, "roll": 22, "outcome": "hard", "pushed": True}
+
+    pushed = restarted.settle(
+        {
+            "decision_ref": push_ref,
+            "semantic_inputs": push_semantic,
+            "_host_source_receipt": failed_roll,
+        },
+        "push-after-restart",
+        card_grant=push_grant,
+        executor=push_executor,
+    )
+    assert pushed["status"] == "settled"
+    assert pushed["settlement"]["result"]["original_check_decision_id"] == ordinary_id
+    assert len(calls) == 1
+
+
 def test_runtime_settle_exclusion_scopes_are_no_candidate(tmp_path: Path):
     graph, manifest = _build_fixture_graph(tmp_path)
     promo = manifest.setdefault("family_promotion_eligibility", {}).setdefault(

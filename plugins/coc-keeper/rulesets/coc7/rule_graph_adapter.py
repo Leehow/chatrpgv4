@@ -272,13 +272,8 @@ class Coc7RuleGraphAdapter:
 
     @staticmethod
     def promotion_blockers(family: str) -> list[str]:
-        if family in {"healing", "core-check"}:
+        if family in {"healing", "core-check", "push-luck"}:
             return []
-        if family == "push-luck":
-            return [
-                "accepted push-luck graph must bind luck-roll to the existing "
-                "check capability before family promotion"
-            ]
         candidate_families = {
             decision_ref.split(":", 3)[2]
             for decision_ref in _SETTLEMENT_METHOD_BY_DECISION
@@ -574,14 +569,16 @@ class Coc7RuleGraphAdapter:
                 if source_decision_id and check:
                     locked.update({
                         "original_check_decision_id": source_decision_id,
-                        "canonical_roll_receipt": deepcopy(check),
-                        "continuation_grant": deepcopy(dict(card_grant or {})),
+                        "canonical_roll_receipt": _thaw(check),
+                        "continuation_grant": _thaw(dict(card_grant or {})),
                         "investigator_id": check.get("investigator_id"),
-                        "source_roll_id": check.get("roll_id"),
                     })
-                    for key in ("target", "difficulty", "bonus", "penalty", "skill"):
-                        if check.get(key) is not None:
-                            locked[key] = check[key]
+                    if decision_ref == _LUCK_SPEND_REF:
+                        locked["source_roll_id"] = check.get("roll_id")
+                    else:
+                        for key in ("target", "difficulty", "bonus", "penalty", "skill"):
+                            if check.get(key) is not None:
+                                locked[key] = check[key]
             return locked
 
         return provider
@@ -1805,10 +1802,18 @@ class Coc7RuleGraphAdapter:
         }
         if outcome in _CHECK_FAILURE_OUTCOMES:
             result["next_continuations"] = [_PUSHED_ROLL_REF, _LUCK_SPEND_REF]
+            continuation_selected = {
+                **dict(selected),
+                "_host_source_receipt": _thaw(data),
+            }
             continuation_cards = [
-                self._card(ref, self._facts_for_decision(selected))
+                self._card(ref, self._facts_for_decision(continuation_selected))
                 for ref in result["next_continuations"]
                 if isinstance(self._nodes.get(ref), Mapping)
+            ]
+            continuation_cards = [
+                card for card in continuation_cards
+                if card.get("applicability") == "applicable"
             ]
             if continuation_cards:
                 self._issue_card_grant(
