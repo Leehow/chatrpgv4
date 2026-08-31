@@ -3382,6 +3382,7 @@ _load_operation_module('rules-core', 'coc_operation_rules_core.py')
 _load_operation_module('social-psychology', 'coc_operation_social_psychology.py')
 _load_operation_module('combat', 'coc_operation_combat.py')
 _load_operation_module('chase', 'coc_operation_chase.py')
+_load_operation_module('magic', 'coc_operation_magic.py')
 _load_operation_module('sanity-recovery', 'coc_operation_sanity_recovery.py')
 _load_operation_module('finance', 'coc_operation_finance.py')
 _load_operation_module('inventory-mechanics', 'coc_operation_inventory_mechanics.py')
@@ -3420,6 +3421,8 @@ _MUTATING_TOOLS = frozenset({
     "combat.resolve",
     "combat.end",
     "chase.execute",
+    "magic.cast",
+    "magic.learn",
     "sanity.execute",
     "development.settle",
     "evidence.record_adoption",

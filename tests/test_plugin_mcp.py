@@ -1986,6 +1986,32 @@ def test_coc_discover_operation_and_domain(monkeypatch):
         "minutes", "reason", "decision_id",
     ]
 
+    magic_cast = server._call_tool(
+        "coc_discover", {"operation": "magic.cast"}
+    )["data"]
+    assert magic_cast["canonical_operation"] == "magic.cast"
+    assert magic_cast["operation"]["inputSchema"]["required"] == [
+        "campaign", "spell", "decision_id",
+    ]
+    assert set(
+        magic_cast["operation"]["inputSchema"]["properties"]
+    ) == {
+        "root", "campaign", "investigator", "spell", "pushed",
+        "interrupted", "is_npc", "decision_id",
+    }
+    assert set(magic_cast["invoke_card"]["arguments_schema"]["properties"]) == {
+        "investigator", "spell", "pushed", "interrupted", "is_npc",
+        "decision_id",
+    }
+
+    magic_learn = server._call_tool(
+        "coc_discover", {"operation": "magic.learn"}
+    )["data"]
+    assert magic_learn["canonical_operation"] == "magic.learn"
+    assert magic_learn["invoke_card"]["missing_arguments"] == [
+        "spell", "decision_id",
+    ]
+
     opening = server._call_tool(
         "coc_discover", {"operation": "progressive.prepare_opening"}
     )["data"]

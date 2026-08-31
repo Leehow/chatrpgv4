@@ -28,6 +28,8 @@ const SPOTLIGHT = [
   "rules.roll",
   "rules.psychology_observe",
   "rules.social_adjudicate",
+  "magic.cast",
+  "magic.learn",
   "npc.reaction",
   "state.cash_grant",
   "state.cash_query",
