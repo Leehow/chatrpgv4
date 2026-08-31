@@ -134,7 +134,7 @@ Contract: `plugins/coc-keeper/references/director-graph-contract-v1.json`
 | `node_kind` | Migrates from | Count |
 | --- | --- | --- |
 | `director-action` | `ACTIONS` | 10 |
-| `player-signal` | `_LOW_AGENCY_TAGS`, `_ROUTINE_PROGRESS_TAGS`, `_DRAMATIC_PROGRESS_ADVANCE_UNTIL`, request/delivery kind sets | 28 (11+8+6+1+2) |
+| `player-signal` | `_LOW_AGENCY_TAGS`, `_LOW_AGENCY_RECENT_CLASSES`, `_ROUTINE_PROGRESS_TAGS`, `_DRAMATIC_PROGRESS_ADVANCE_UNTIL`, request/delivery kind sets | 34 (11+6+8+6+1+2) |
 | `structure-type` | `structure-weights.json` `types` | 7 |
 | `conflict-level` | `storylet-library.json` `conflict_levels` | 4 |
 | `storylet` | `storylet-library.json` `storylets` | 77 |

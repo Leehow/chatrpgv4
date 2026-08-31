@@ -8,6 +8,15 @@
 > reason today. This file is the evidence base for
 > `docs/specs/pi-coc-director-graph-runtime.md` slice D2.
 > **Basis:** `claude/pi-coc-director-graph-20260831-docs` off `0.8.1a@60c1c4b4`.
+>
+> **Superseded for day-to-day use by** [director-doctrine-ledger.md](director-doctrine-ledger.md),
+> which is generated from the built DirectorGraph and is therefore drift-proof.
+> This inventory is retained as the pre-migration measurement it was: the
+> estimates below (~119 tunables, 28 player-signal items) were refined during
+> implementation to the exact figures the ledger reports (135 tunable values
+> across 115 doctrine nodes; 34 player-signal items, because
+> `_LOW_AGENCY_RECENT_CLASSES` proved to be a hand-written subset rather than a
+> derivation and was migrated as its own signal group).
 
 ## Method
 

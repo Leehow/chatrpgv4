@@ -1,0 +1,28 @@
+{
+  "contract_id": "coc.director-graph-build-manifest.v1",
+  "schema_version": 1,
+  "graph_id": "graph:director:production",
+  "graph_content_digest": "6be5ceb57c27bcfc111dcc2efbc64f780ab4cd5c5dc25d7d2a722dc883b8b647",
+  "shards": [
+    "shard:director:doctrine",
+    "shard:director:vocabulary"
+  ],
+  "plane_coverage": {
+    "vocabulary": "accepted",
+    "doctrine": "accepted"
+  },
+  "compiler_identity": "coc.director-graph-compiler.v1",
+  "node_counts": {
+    "affinity-ladder": 1,
+    "conflict-level": 4,
+    "director-action": 10,
+    "player-signal": 34,
+    "scoring-rule": 19,
+    "storylet": 77,
+    "structure-type": 7,
+    "structure-weight": 70,
+    "threshold": 24,
+    "tiebreak-order": 1,
+    "time-cost-category": 16
+  }
+}

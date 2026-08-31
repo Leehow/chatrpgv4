@@ -37,8 +37,9 @@
       "graph_id": "graph:director:production",
       "graph_kind": "director",
       "authority_plane": "advisory",
-      "availability": "absent-production-artifact",
-      "reason": "The production has advisory Director code and receipts, but no source-controlled DirectorGraph machine artifact to reference."
+      "availability": "production-artifact",
+      "ontology_contract": "coc.director-graph.v1",
+      "artifact_path": "plugins/coc-keeper/references/director-graph.json"
     },
     {
       "graph_id": "graph:text:production",
@@ -243,10 +244,10 @@
     },
     {
       "graph_kind": "director",
-      "status": "absent-production-artifact",
-      "composition_status": "not-applicable",
+      "status": "production-linked",
+      "composition_status": "no-proven-instance",
       "graph_ids": ["graph:director:production"],
-      "reason": "No production DirectorGraph artifact exists, so no instance link is fabricated."
+      "reason": "The production DirectorGraph artifact carries the Director vocabulary and doctrine planes. No grounded-by relation is claimed yet: cross-graph grounding to ModuleGraph scenes and RuleGraph decisions is slice D3, and fabricating one now would assert a dependency the artifact does not declare."
     },
     {
       "graph_kind": "text",
