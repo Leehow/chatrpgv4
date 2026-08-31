@@ -2108,6 +2108,165 @@ assertModelSafeContent(
     sanityCall.arguments.command.payload.decision_id,
     sanityCall.arguments.decision_id,
   );
+
+  const boutChoiceId = "pi-sanity:opaque:bout";
+  const boutSourceCommandId = "pi-sanity:opaque";
+  const boutId = "inv-x6a217e22-e0532209:bout:1";
+  routeOperation("sanity.context", {
+    ok: true,
+    tool: "sanity.context",
+    data: {
+      investigator_id: "inv-x6a217e22-e0532209",
+      active: true,
+      snapshot: {
+        investigator_id: "inv-x6a217e22-e0532209",
+        bout_active: true,
+        active_bout_id: boutId,
+        bout_rounds_remaining: 2,
+      },
+      pending_choices: [{
+        choice_id: boutChoiceId,
+        command_id: boutSourceCommandId,
+        kind: "bout_keeper_action",
+        responder: "keeper",
+        revision: 0,
+        prompt: "Advance or end the active Keeper-controlled bout?",
+        options: [
+          { action: "tick", label: "Advance Keeper-controlled round" },
+          { action: "end", label: "End the bout now" },
+        ],
+      }],
+    },
+  });
+  await executeTool("coc_sanity_context", {
+    campaign,
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+  });
+  const boutVisible = JSON.parse(modelContents.at(-1).text);
+  assertModelSafeContent("sanity.context active bout", boutVisible);
+  assert.ok(!JSON.stringify(boutVisible).includes(boutChoiceId));
+  assert.ok(!JSON.stringify(boutVisible).includes(boutSourceCommandId));
+  assert.ok(!JSON.stringify(boutVisible).includes(boutId));
+
+  const armedSanityCommand = tools.get("coc_sanity_execute")
+    .parameters.properties.command;
+  assert.deepEqual(
+    tools.get("coc_sanity_execute").parameters.properties.investigator.enum,
+    [CURRENT_INVESTIGATOR_HANDLE],
+  );
+  assert.deepEqual(armedSanityCommand.oneOf.map((branch) => (
+    branch.properties.action.const
+  )), ["tick", "end"]);
+  assert.ok(!JSON.stringify(armedSanityCommand).includes(boutChoiceId));
+
+  const tickDigest = "543a58c34816235b79c8897f511511e22f1d338dc5d105514fb43c7764d9803b";
+  const tickCommandId = `resume:${tickDigest}:confirm`;
+  routeOperation("sanity.execute", {
+    ok: true,
+    tool: "sanity.execute",
+    data: {
+      investigator_id: "inv-x6a217e22-e0532209",
+      results: [{
+        command_id: tickCommandId,
+        kind: "bout_tick",
+        status: "pending_choice",
+        events: [{
+          event_id: "san-bout-tick-event-1",
+          event_type: "bout_tick",
+          bout_id: boutId,
+          remaining_rounds: 1,
+        }],
+        pending_choice: {
+          choice_id: boutChoiceId,
+          command_id: tickCommandId,
+          kind: "bout_keeper_action",
+          responder: "keeper",
+          revision: 1,
+          prompt: "Advance or end the active Keeper-controlled bout?",
+          options: [
+            { action: "tick", label: "Advance Keeper-controlled round" },
+            { action: "end", label: "End the bout now" },
+          ],
+        },
+      }],
+    },
+  });
+  const tickResult = await executeTool("coc_sanity_execute", {
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    command: { action: "tick" },
+  });
+  assert.equal(
+    JSON.parse(modelContents.at(-1).text).ok,
+    true,
+    JSON.stringify(tickResult.details),
+  );
+  const tickCall = clientCalls.filter((call) => (
+    call.operation === "sanity.execute"
+  )).at(-1);
+  assert.equal(tickCall.arguments.decision_id, `resume-${tickDigest.slice(0, 32)}`);
+  assert.deepEqual(tickCall.arguments.command, {
+    command_id: tickCommandId,
+    kind: "bout_tick",
+    phase: "resolve",
+    payload: {
+      choice_id: boutChoiceId,
+      responder: "keeper",
+      revision: 0,
+      action: "tick",
+      terminal_command_ids: [tickCommandId],
+      decision_id: `resume-${tickDigest.slice(0, 32)}`,
+    },
+  });
+
+  const endDigest = "749835543e9df9f2abc8d6d5e785e06249494a89312566fd9e43e9ef7e6dc87f";
+  const endCommandId = `resume:${endDigest}:confirm`;
+  routeOperation("sanity.execute", {
+    ok: true,
+    tool: "sanity.execute",
+    data: {
+      investigator_id: "inv-x6a217e22-e0532209",
+      results: [{
+        command_id: endCommandId,
+        kind: "bout_end",
+        status: "completed",
+        events: [{ event_type: "bout_ended", bout_id: boutId }],
+        pending_choice: null,
+      }],
+    },
+  });
+  const endResult = await executeTool("coc_sanity_execute", {
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    command: { action: "end" },
+  });
+  assert.equal(
+    JSON.parse(modelContents.at(-1).text).ok,
+    true,
+    JSON.stringify(endResult.details),
+  );
+  const endCall = clientCalls.filter((call) => (
+    call.operation === "sanity.execute"
+  )).at(-1);
+  assert.equal(endCall.arguments.decision_id, `resume-${endDigest.slice(0, 32)}`);
+  assert.equal(endCall.arguments.command.command_id, endCommandId);
+  assert.equal(endCall.arguments.command.kind, "bout_end");
+  assert.equal(endCall.arguments.command.payload.revision, 1);
+
+  const callsAfterEnd = clientCalls.filter((call) => (
+    call.operation === "sanity.execute"
+  )).length;
+  const staleEnd = await executeTool("coc_sanity_execute", {
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    command: { action: "end" },
+  });
+  const staleVisible = JSON.parse(modelContents.at(-1).text);
+  assert.equal(staleVisible.ok, false);
+  assert.equal(staleVisible.error.code, "binding_context_missing");
+  assert.equal(staleEnd.isError, true);
+  assert.equal(
+    clientCalls.filter((call) => call.operation === "sanity.execute").length,
+    callsAfterEnd,
+    "a consumed/stale semantic choice must not reach canonical transport",
+  );
 }
 
 // 2c) Canonical mutation success must survive the model projection. These

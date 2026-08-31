@@ -73,6 +73,8 @@ export {
   type CombatTargetCandidate,
   type ChaseActionCandidate,
   type ChaseExecuteBindingCard,
+  type SanityBoutActionCandidate,
+  type SanityBoutBindingCard,
   type CurrentTypedToolHostContext,
   type NarrationReviewBindingCard,
   type ReviewedAgencyBinding,
