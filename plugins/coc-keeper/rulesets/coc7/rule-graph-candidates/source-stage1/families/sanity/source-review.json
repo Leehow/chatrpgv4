@@ -3,7 +3,7 @@
   "schema_version": 1,
   "ruleset_id": "coc7",
   "family_id": "sanity",
-  "reviewer_identity": "codex-worker-sanity-source-review-20260831",
+  "reviewer_identity": "codex-worker-sanity-applicability-review-20260831-v2",
   "review_status": "accepted",
   "source": {
     "source_id": "pdf:coc7-keeper-rulebook-40th",
@@ -29,7 +29,7 @@
     ]
   },
   "accepted_shard_id": "shard:coc7:sanity:section-sanity-complete-source",
-  "accepted_shard_digest": "d8c147e31f10d438673e5b25df41f5b92bec053a0a857cbcbc3254fedf531604",
+  "accepted_shard_digest": "7e5f37f22f87284b7ef20e637d767036474e747a25ca1b69007c663de9c78087",
   "coverage": "accepted",
   "unresolved_applicable_rules": [],
   "applicability_ledger": [

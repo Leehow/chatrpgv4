@@ -15,6 +15,9 @@ FAMILIES = (
     ROOT / "plugins" / "coc-keeper" / "rulesets" / "coc7"
     / "rule-graph-candidates" / "source-stage1" / "families"
 )
+RULE_GRAPH_CONTRACT = (
+    ROOT / "plugins" / "coc-keeper" / "references" / "rule-graph-contract-v1.json"
+)
 
 
 def _load_generator():
@@ -316,10 +319,10 @@ def test_sanity_is_source_accepted_with_one_precise_runtime_blocker():
     assert review["unresolved_applicable_rules"] == []
     assert review["accepted_shard_digest"] == shard["receipt"]["shard_sha256"]
     assert review["accepted_shard_digest"] == (
-        "d8c147e31f10d438673e5b25df41f5b92bec053a0a857cbcbc3254fedf531604"
+        "7e5f37f22f87284b7ef20e637d767036474e747a25ca1b69007c663de9c78087"
     )
     assert review["reviewer_identity"] == (
-        "codex-worker-sanity-source-review-20260831"
+        "codex-worker-sanity-applicability-review-20260831-v2"
     )
     assert review["source"]["file_sha256"] == gen.FILE_SHA256
     assert review["source"]["bundle_sha256"] == (
@@ -436,6 +439,41 @@ def test_sanity_is_source_accepted_with_one_precise_runtime_blocker():
         and row["relation_kind"] == "continues-as"
         for row in relations
     )
+
+    expected_conditions = {
+        "bout-tick": "sanity.bout.pending",
+        "bout-end": "sanity.bout.pending",
+        "reality-check": "sanity.delusion.active",
+        "apply-treatment": "sanity.treatment.due",
+        "recover-temporary": "sanity.recovery.due",
+        "insane-insight": "sanity.insane",
+        "gain-current-san": "sanity.gain.pending",
+    }
+    condition_nodes = {
+        node["node_id"]: node for node in candidate["nodes"]
+        if node["node_kind"] == "condition"
+    }
+    for decision_slug, path in expected_conditions.items():
+        decision_ref = f"decision:coc7:sanity:{decision_slug}"
+        matching = [
+            row for row in relations
+            if row["relation_kind"] == "available-when"
+            and row["from_node_id"] == decision_ref
+        ]
+        assert len(matching) == 1
+        condition = condition_nodes[matching[0]["to_node_id"]]
+        assert condition["hard_gate"] is True
+        assert condition["properties"]["expression"] == {
+            "op": "eq", "path": path, "value": True,
+        }
+    for always_visible in ("context", "check"):
+        assert not any(
+            row["relation_kind"] == "available-when"
+            and row["from_node_id"] == f"decision:coc7:sanity:{always_visible}"
+            for row in relations
+        )
+    registered = set(_read(RULE_GRAPH_CONTRACT)["registered_condition_paths"])
+    assert set(expected_conditions.values()) <= registered
 
 
 def test_sanity_family_regenerates_deterministically_when_source_is_available():

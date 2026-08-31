@@ -128,7 +128,13 @@
     "receipt.last_outcome",
     "time.day",
     "time.minutes_since_injury",
-    "clock.dying"
+    "clock.dying",
+    "sanity.bout.pending",
+    "sanity.delusion.active",
+    "sanity.treatment.due",
+    "sanity.recovery.due",
+    "sanity.insane",
+    "sanity.gain.pending"
   ],
   "extraction_packet_keys": [
     "contract_id",

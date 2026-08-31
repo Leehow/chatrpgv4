@@ -3,7 +3,7 @@
 Verdict: **ACCEPTED** for the complete applicable Sanity family source
 semantics, with no remaining runtime-integration blocker in this scope.
 
-Reviewer: `codex-worker-sanity-source-review-20260831` (independent of the
+Reviewer: `codex-worker-sanity-applicability-review-20260831-v2` (independent of the
 source-stage1 producer).
 
 Source identity:
@@ -43,7 +43,16 @@ check-to-bout, repeated tick, and tick-to-end continuations. Every accepted
 Sanity rule invokes an exact existing capability; the generic `sanity_runtime`
 placeholder and process-local continuity are absent.
 
+Applicability re-review adds six registered, machine-projected Sanity facts.
+Bout tick/end require `sanity.bout.pending`; reality check requires
+`sanity.delusion.active`; monthly treatment and temporary recovery require
+their respective due facts; insane insight requires `sanity.insane`; and
+current-SAN gain requires a canonical `sanity.gain.pending` receipt. Every
+condition is a hard `eq true` gate. Context and ordinary SAN check remain
+normally available. Missing facts fail closed and no amount is inferred from
+free text.
+
 Accepted shard: `shard:coc7:sanity:section-sanity-complete-source`.
 
 Accepted shard digest:
-`d8c147e31f10d438673e5b25df41f5b92bec053a0a857cbcbc3254fedf531604`.
+`7e5f37f22f87284b7ef20e637d767036474e747a25ca1b69007c663de9c78087`.

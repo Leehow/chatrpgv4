@@ -52,7 +52,7 @@ FAMILY_CONFIG: dict[str, dict[str, Any]] = {
         "bundle_sha256": "ce3c510abac55d751b3d8f35e418d5a17e378baaa3317b2fe75604f3ab2c6754",
         "pages": [*range(165, 181)],
         "section_id": "section-sanity-complete-source",
-        "reviewer_identity": "codex-worker-sanity-source-review-20260831",
+        "reviewer_identity": "codex-worker-sanity-applicability-review-20260831-v2",
     },
 }
 
@@ -742,6 +742,47 @@ def _sanity_executable(
                 decision_ref, slot_id, all_spans,
             ))
     nodes.extend(slot_nodes.values())
+    condition_specs = {
+        "bout-pending": (
+            "sanity.bout.pending",
+            sorted(set(groups["bout-real"] + groups["bout-summary"])),
+            ("bout-tick", "bout-end"),
+        ),
+        "delusion-active": (
+            "sanity.delusion.active", groups["reality"], ("reality-check",),
+        ),
+        "treatment-due": (
+            "sanity.treatment.due", groups["treatment"], ("apply-treatment",),
+        ),
+        "recovery-due": (
+            "sanity.recovery.due", groups["temporary-recovery"],
+            ("recover-temporary",),
+        ),
+        "insane": (
+            "sanity.insane", groups["optional"], ("insane-insight",),
+        ),
+        "gain-pending": (
+            "sanity.gain.pending", groups["san-gain"], ("gain-current-san",),
+        ),
+    }
+    for condition_slug, (path, spans, decision_slugs) in condition_specs.items():
+        condition_ref = f"condition:coc7:sanity:{condition_slug}"
+        condition = node(
+            family, condition_ref, "condition",
+            f"Canonical {path} fact is true", spans,
+            properties={
+                "family_id": family,
+                "expression": {"op": "eq", "path": path, "value": True},
+            },
+        )
+        condition["hard_gate"] = True
+        nodes.append(condition)
+        for decision_slug in decision_slugs:
+            relations.append(relation(
+                family, f"{decision_slug}-{condition_slug}-available",
+                "available-when", f"decision:coc7:sanity:{decision_slug}",
+                condition_ref, spans,
+            ))
     for slug in capability_specs:
         relations.append(relation(
             family, f"{slug}-implemented-by-session", "implemented-by",

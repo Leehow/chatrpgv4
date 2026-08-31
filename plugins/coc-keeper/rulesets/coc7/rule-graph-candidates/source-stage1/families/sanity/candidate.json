@@ -500,6 +500,144 @@
       ]
     },
     {
+      "node_id": "condition:coc7:sanity:bout-pending",
+      "node_kind": "condition",
+      "name": "Canonical sanity.bout.pending fact is true",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": true,
+      "properties": {
+        "family_id": "sanity",
+        "expression": {
+          "op": "eq",
+          "path": "sanity.bout.pending",
+          "value": true
+        }
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-175-block-139"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:sanity:delusion-active",
+      "node_kind": "condition",
+      "name": "Canonical sanity.delusion.active fact is true",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": true,
+      "properties": {
+        "family_id": "sanity",
+        "expression": {
+          "op": "eq",
+          "path": "sanity.delusion.active",
+          "value": true
+        }
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:sanity:gain-pending",
+      "node_kind": "condition",
+      "name": "Canonical sanity.gain.pending fact is true",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": true,
+      "properties": {
+        "family_id": "sanity",
+        "expression": {
+          "op": "eq",
+          "path": "sanity.gain.pending",
+          "value": true
+        }
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-166"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:sanity:insane",
+      "node_kind": "condition",
+      "name": "Canonical sanity.insane fact is true",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": true,
+      "properties": {
+        "family_id": "sanity",
+        "expression": {
+          "op": "eq",
+          "path": "sanity.insane",
+          "value": true
+        }
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:sanity:recovery-due",
+      "node_kind": "condition",
+      "name": "Canonical sanity.recovery.due fact is true",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": true,
+      "properties": {
+        "family_id": "sanity",
+        "expression": {
+          "op": "eq",
+          "path": "sanity.recovery.due",
+          "value": true
+        }
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-175-block-139"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:sanity:treatment-due",
+      "node_kind": "condition",
+      "name": "Canonical sanity.treatment.due fact is true",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": true,
+      "properties": {
+        "family_id": "sanity",
+        "expression": {
+          "op": "eq",
+          "path": "sanity.treatment.due",
+          "value": true
+        }
+      },
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-175-block-140"
+      ]
+    },
+    {
       "node_id": "data-table:coc7:manias",
       "node_kind": "data-table",
       "name": "manias.json",
@@ -4092,6 +4230,16 @@
       ]
     },
     {
+      "relation_id": "relation:coc7:sanity:apply-treatment-treatment-due-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:sanity:apply-treatment",
+      "to_node_id": "condition:coc7:sanity:treatment-due",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-166-block-34",
+        "span-sanity-complete-source-page-175-block-140"
+      ]
+    },
+    {
       "relation_id": "relation:coc7:sanity:apply-treatment-treatment-trigger-ref",
       "relation_kind": "locks-input",
       "from_node_id": "decision:coc7:sanity:apply-treatment",
@@ -4151,6 +4299,26 @@
         "span-sanity-complete-source-page-180-block-166",
         "span-sanity-complete-source-page-180-block-167",
         "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:bout-end-bout-pending-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:sanity:bout-end",
+      "to_node_id": "condition:coc7:sanity:bout-pending",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-175-block-139"
       ]
     },
     {
@@ -4598,6 +4766,26 @@
       "to_node_id": "rule-family:coc7:sanity",
       "evidence_span_ids": [
         "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-175-block-139"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:bout-tick-bout-pending-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:sanity:bout-tick",
+      "to_node_id": "condition:coc7:sanity:bout-pending",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
         "span-sanity-complete-source-page-168-block-61",
         "span-sanity-complete-source-page-169-block-83",
         "span-sanity-complete-source-page-169-block-84",
@@ -6033,6 +6221,17 @@
       ]
     },
     {
+      "relation_id": "relation:coc7:sanity:gain-current-san-gain-pending-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:sanity:gain-current-san",
+      "to_node_id": "condition:coc7:sanity:gain-pending",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-165-block-6",
+        "span-sanity-complete-source-page-178-block-159",
+        "span-sanity-complete-source-page-180-block-166"
+      ]
+    },
+    {
       "relation_id": "relation:coc7:sanity:gain-current-san-gain-source",
       "relation_kind": "requires-input",
       "from_node_id": "decision:coc7:sanity:gain-current-san",
@@ -6513,6 +6712,17 @@
       "evidence_span_ids": [
         "span-sanity-complete-source-page-166-block-34",
         "span-sanity-complete-source-page-175-block-140"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:insane-insight-insane-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:sanity:insane-insight",
+      "to_node_id": "condition:coc7:sanity:insane",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-180-block-165",
+        "span-sanity-complete-source-page-180-block-166",
+        "span-sanity-complete-source-page-180-block-168"
       ]
     },
     {
@@ -7150,6 +7360,17 @@
       ]
     },
     {
+      "relation_id": "relation:coc7:sanity:reality-check-delusion-active-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:sanity:reality-check",
+      "to_node_id": "condition:coc7:sanity:delusion-active",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-170-block-100",
+        "span-sanity-complete-source-page-173-block-129",
+        "span-sanity-complete-source-page-174-block-132"
+      ]
+    },
+    {
       "relation_id": "relation:coc7:sanity:reality-check-implemented-by-session",
       "relation_kind": "implemented-by",
       "from_node_id": "capability:coc7:sanity-reality-check",
@@ -7676,6 +7897,15 @@
         "span-sanity-complete-source-page-180-block-166",
         "span-sanity-complete-source-page-180-block-167",
         "span-sanity-complete-source-page-180-block-168"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:sanity:recover-temporary-recovery-due-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:sanity:recover-temporary",
+      "to_node_id": "condition:coc7:sanity:recovery-due",
+      "evidence_span_ids": [
+        "span-sanity-complete-source-page-175-block-139"
       ]
     },
     {
