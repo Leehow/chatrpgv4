@@ -582,6 +582,10 @@ def test_pre_slice_golden_legacy_envelopes(campaign_ws):
         "source": "golden corpse",
         "loss_success": "0",
         "loss_failure": "1",
+        "involuntary_action": {
+            "kind": "freeze",
+            "summary": "Thomas freezes at the sight of the corpse.",
+        },
         "seed": 3,
         "decision_id": "golden-san",
     })
