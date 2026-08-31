@@ -3580,6 +3580,16 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["entity_id", "price_id", "ruleset_id"],
     [],
   )],
+  ["magic.cast", declaredIdentityTable(
+    [],
+    [],
+    ["operation_id"],
+  )],
+  ["magic.learn", declaredIdentityTable(
+    [],
+    [],
+    ["completion_trigger_id", "operation_id"],
+  )],
   ["rules.skill_describe", declaredIdentityTable(
     ["catalog_skill_ids"],
     [],

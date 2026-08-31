@@ -159,13 +159,23 @@ console.log(JSON.stringify({
     surface_buckets = {
         surface: sorted(
             name for name in canonical_names
-            if toolbox.operation_policy(name)["kp_surface"] == surface
+            if (
+                toolbox.operation_policy(name)["kp_surface"] == surface
+                and toolbox.operation_policy(name)["discovery"] == "surface"
+            )
         )
         for surface in sorted(
             toolbox.coc_operation_policy.KP_SURFACES - {"none"}
         )
     }
     expected_surfaced = sorted(
+        name for name in canonical_names
+        if (
+            toolbox.operation_policy(name)["kp_surface"] != "none"
+            and toolbox.operation_policy(name)["discovery"] == "surface"
+        )
+    )
+    expected_typed = sorted(
         name for name in canonical_names
         if toolbox.operation_policy(name)["kp_surface"] != "none"
     )
@@ -177,7 +187,7 @@ console.log(JSON.stringify({
         "archiveNames": canonical_names,
         "archivePolicies": archive_policies,
         "surfaced": expected_surfaced,
-        "typedOperations": expected_surfaced,
+        "typedOperations": expected_typed,
         "missing": "serial_campaign",
         "unknown": "serial_campaign",
         "dangerous": "serial_campaign",
