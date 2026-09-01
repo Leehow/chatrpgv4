@@ -5493,7 +5493,9 @@ def _compile_new_percentile_invocation(
             for existing in existing_pushes.values()
         )
         push_verdict = _rules_resolver(ctx, "push_policy").push_policy(
-            original["data"].get("outcome"), already_pushed
+            original["data"].get("outcome"),
+            already_pushed,
+            original.get("operation", {}).get("skill"),
         )
         if push_verdict is not None:
             raise ToolError("invalid_push", push_verdict)
@@ -5915,6 +5917,23 @@ def _settle_contextual_route(
     })
     return completion, route_warnings
 
+def _skill_is_pushable(ctx: Ctx, skill: Any) -> bool:
+    """Whether the active ruleset lets a failed check on ``skill`` be pushed.
+
+    CoC7 takes the push option away from combat rolls, so a failed Fighting,
+    Firearms, Dodge, or Artillery check must not be offered a push it would be
+    refused at settlement. The scope is the ruleset's, not the kernel's: a
+    ruleset that does not declare ``skill_pushable`` states no such
+    restriction and every failed check stays pushable.
+    """
+    if not str(skill or "").strip():
+        return True
+    try:
+        resolver = _rules_resolver(ctx, "skill_pushable")
+    except ToolError:
+        return True
+    return bool(resolver.skill_pushable(skill))
+
 def _push_operation_opportunity(
     ctx: Ctx,
     receipt: dict[str, Any],
@@ -6021,6 +6040,11 @@ def _open_attempt_opportunities_from_document(
         ):
             continue
         data = receipt.get("data") if isinstance(receipt.get("data"), dict) else {}
+        if data.get("push_eligible") is False:
+            # The receipt already recorded that its own skill cannot be
+            # pushed. A combat roll has no push to leave open: its failure is
+            # closed by the next attack, not by a second roll at the same one.
+            continue
         context = data.get("resolution_context")
         if not isinstance(context, dict):
             continue
@@ -6358,9 +6382,22 @@ def _roll_common(
         hints.append(
             "fumble: before state.journal apply a source-bound cost with state.exceptional_effect and realize its causal complication"
         )
-    if outcome == "failure" and not pushed and not is_combined:
+    push_offer_open = (
+        outcome == "failure"
+        and not pushed
+        and not is_combined
+        and _skill_is_pushable(ctx, operation.get("skill"))
+    )
+    if push_offer_open:
         hints.append(
             "failed: the player may push this roll with a changed method and an announced consequence (rules.push)"
+        )
+    elif outcome == "failure" and not pushed and not is_combined:
+        result["push_eligible"] = False
+        hints.append(
+            f"failed: {label} is a combat skill, so this roll cannot be pushed "
+            "(Keeper Rulebook 'No Pushing Combat Rolls'); the next attempt is "
+            "the next attack or shot, not a second roll at the same one"
         )
     if pushed and not success:
         hints.append(
@@ -6392,7 +6429,7 @@ def _roll_common(
             f"{active_modifier['effect_id']}; call state.exceptional_effect "
             "action=consume with this roll_id before state.journal"
         )
-    if outcome == "failure" and not pushed and not is_combined:
+    if push_offer_open:
         result["operation_opportunities"] = [
             _push_operation_opportunity(
                 ctx,
@@ -6425,7 +6462,7 @@ def _roll_common(
         result["player_projection"] = projection
         roll_record["player_projection"] = deepcopy(projection)
         roll_record["payload"]["player_projection"] = deepcopy(projection)
-    if outcome == "failure" and not pushed and not is_combined:
+    if push_offer_open:
         result["operation_opportunities"][0]["source"]["roll_id"] = result[
             "roll_id"
         ]
@@ -13473,6 +13510,7 @@ OPERATION_RUNTIME_EXPORTS = (
     '_settle_pending_roll_side_effect',
     '_skill_catalog',
     '_skill_check_clues_missing_roll_evidence',
+    '_skill_is_pushable',
     '_source_claiming_pack_task',
     '_source_coordinator_dispatch',
     '_source_direct_single_dispatch',

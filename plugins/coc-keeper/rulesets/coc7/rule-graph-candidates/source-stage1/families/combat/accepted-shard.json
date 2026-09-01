@@ -2253,6 +2253,26 @@
         "audience": "host-internal",
         "authority": "deterministic",
         "evidence_span_ids": [
+          "span-combat-complete-source-page-115-block-61"
+        ],
+        "hard_gate": true,
+        "name": "The check being pushed is not a combat roll",
+        "node_id": "condition:coc7:combat:source-check-not-combat-roll",
+        "node_kind": "condition",
+        "properties": {
+          "expression": {
+            "op": "neq",
+            "path": "receipt.push_eligible",
+            "value": false
+          },
+          "family_id": "combat"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
           "span-combat-complete-source-page-113-block-17",
           "span-combat-complete-source-page-113-block-20",
           "span-combat-complete-source-page-113-block-22",
@@ -3161,6 +3181,21 @@
             ],
             "phase": "resolve-reload"
           }
+        },
+        "visibility": "public"
+      },
+      {
+        "audience": "keeper",
+        "authority": "mixed",
+        "evidence_span_ids": [
+          "span-combat-complete-source-page-115-block-61"
+        ],
+        "hard_gate": false,
+        "name": "Push a failed non-pushed ordinary check after the Keeper announces the consequence and the player confirms the risk",
+        "node_id": "decision:coc7:push-luck:pushed-roll",
+        "node_kind": "decision",
+        "properties": {
+          "family_id": "push-luck"
         },
         "visibility": "public"
       },
@@ -4917,7 +4952,7 @@
       }
     ],
     "receipt": {
-      "candidate_sha256": "97b6a9ade5022c9d653db541cfba82f09f0f9b45fb27afe2603d21ba426e9636",
+      "candidate_sha256": "d7353ecc035a10305ca171383a503f92627b042aeaff5a0e5130446f9c38d385",
       "contract_id": "coc.rule-graph-review-receipt.v1",
       "family_id": "combat",
       "packet_sha256": "4480d501cedc9e85669dfa0f9ca7f0d1d4c64508e553942b03d281e356dff9ea",
@@ -4925,7 +4960,7 @@
       "schema_version": 1,
       "section_id": "section-combat-complete-source",
       "shard_id": "shard:coc7:combat:section-combat-complete-source",
-      "shard_sha256": "f69ec2c1b3f167a93ccce336bb1aee2605cdd9a284379360c2e5c7174d8700bf"
+      "shard_sha256": "dfdcc90660d5a10e55641356934b34a6ed2e95a557748f83fb3ab4ea511fac06"
     },
     "relations": [
       {
@@ -6112,6 +6147,15 @@
         "relation_id": "relation:coc7:combat:combat-rolls-not-pushable-applies-maneuver",
         "relation_kind": "applies-to",
         "to_node_id": "decision:coc7:combat:maneuver"
+      },
+      {
+        "evidence_span_ids": [
+          "span-combat-complete-source-page-115-block-61"
+        ],
+        "from_node_id": "rule:coc7:combat:combat-rolls-not-pushable",
+        "relation_id": "relation:coc7:combat:combat-rolls-not-pushable-forbids-push",
+        "relation_kind": "forbids",
+        "to_node_id": "decision:coc7:push-luck:pushed-roll"
       },
       {
         "evidence_span_ids": [
@@ -8524,6 +8568,15 @@
         "relation_id": "relation:coc7:combat:maneuver-target-npc-id",
         "relation_kind": "locks-input",
         "to_node_id": "input-slot:coc7:combat:target-npc-id"
+      },
+      {
+        "evidence_span_ids": [
+          "span-combat-complete-source-page-115-block-61"
+        ],
+        "from_node_id": "decision:coc7:push-luck:pushed-roll",
+        "relation_id": "relation:coc7:combat:no-push-guards-pushed-roll",
+        "relation_kind": "available-when",
+        "to_node_id": "condition:coc7:combat:source-check-not-combat-roll"
       },
       {
         "evidence_span_ids": [

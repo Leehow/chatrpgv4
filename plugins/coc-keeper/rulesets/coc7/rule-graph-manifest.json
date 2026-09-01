@@ -30,7 +30,7 @@
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "bd30d1dc2650599794c360cad5db9e711fde83eed74794a4d6717986b410bd18",
+  "graph_content_digest": "f64acd653cb28c65e5125f7602531df0cf19e21a95155b4a76c7e6f7d45aed0d",
   "shards": [
     {
       "shard_id": "shard:coc7:chase:section-chase-complete-source",
@@ -38,7 +38,7 @@
     },
     {
       "shard_id": "shard:coc7:combat:section-combat-complete-source",
-      "shard_digest": "8f7541c32d46d259bee72eb520e9d1b0d9800585da5ffe5045e1efd611a5d348"
+      "shard_digest": "2c93d8cdfaf6f398f567b96d4f0a81a98ddb71659d5cae7f039f0a5e737f6f32"
     },
     {
       "shard_id": "shard:coc7:core-check:section-core-check-source-accepted",

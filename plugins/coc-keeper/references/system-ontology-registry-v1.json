@@ -277,6 +277,14 @@
       "locator": "receipt.last_outcome"
     },
     {
+      "ref_id": "ref:live-state:receipt-push-eligible",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:receipt-push-eligible",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "receipt.push_eligible"
+    },
+    {
       "ref_id": "ref:live-state:sanity-bout-pending",
       "graph_id": "graph:live-state:campaign",
       "semantic_id": "fact:live-state:sanity-bout-pending",
@@ -1056,6 +1064,12 @@
       "relation_kind": "may-emit-effect",
       "from_ref": "ref:rule:coc7:decision-coc7-chase-start",
       "to_ref": "ref:rule:coc7:effect-coc7-chase-start-chase-started"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-combat-no-push-guards-pushed-roll:requires:receipt-push-eligible",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-push-luck-pushed-roll",
+      "to_ref": "ref:live-state:receipt-push-eligible"
     },
     {
       "relation_id": "relation:system:relation-coc7-core-check-binding-invokes-check",

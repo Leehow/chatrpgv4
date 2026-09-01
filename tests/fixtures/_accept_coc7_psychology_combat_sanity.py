@@ -191,6 +191,7 @@ def node(
     authority: str = "deterministic",
     audience: str = "host-internal",
     visibility: str = "keeper-only",
+    hard_gate: bool = False,
     properties: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
@@ -200,7 +201,7 @@ def node(
         "authority": authority,
         "audience": audience,
         "visibility": visibility,
-        "hard_gate": False,
+        "hard_gate": hard_gate,
         "properties": dict(properties or ({"family_id": family} if kind in {
             "rule", "decision", "capability", "effect", "continuation", "exception"
         } else {})),
@@ -595,7 +596,70 @@ def _combat_executable(
                 family, f"{slug}-applies-{decision_slug}", "applies-to",
                 rule_id, f"decision:coc7:combat:{decision_slug}", groups[group],
             ))
+    nodes.extend(_no_push_applicability_nodes(groups["no-push"]))
+    relations.extend(_no_push_applicability_relations(groups["no-push"]))
     return nodes, relations
+
+
+# ``rule:coc7:combat:combat-rolls-not-pushable`` already states the "No
+# Pushing Combat Rolls" sidebar, but it only ever pointed at the combat
+# decisions. The rulebook's restriction is about the *push*: a failed
+# Fighting, Firearms, Dodge, or Artillery check is not a pushable check, so it
+# is the push decision's applicability that has to know. These three pieces
+# give that statement an executable form.
+_PUSHED_ROLL_REF = "decision:coc7:push-luck:pushed-roll"
+_NOT_COMBAT_ROLL = "condition:coc7:combat:source-check-not-combat-roll"
+
+
+def _no_push_applicability_nodes(spans: list[str]) -> list[dict[str, Any]]:
+    return [
+        node(
+            "combat", _NOT_COMBAT_ROLL, "condition",
+            "The check being pushed is not a combat roll",
+            spans,
+            hard_gate=True,
+            properties={
+                "family_id": "combat",
+                # The host publishes ``push_eligible`` on the canonical check
+                # receipt; only a rulebook-excluded skill sets it False, so a
+                # receipt that stays silent leaves the push available.
+                "expression": {
+                    "op": "neq",
+                    "path": "receipt.push_eligible",
+                    "value": False,
+                },
+            },
+        ),
+        # Declared identically to the push-luck shard's own node so ``build``
+        # merges the two and unions their evidence; a relation has to close
+        # inside its own shard, and this is what lets combat state the guard
+        # at all. Same technique the social shard uses for the push
+        # continuation. Only node_kind/name/authority/audience/visibility/
+        # hard_gate are compared on merge; the implementation block stays with
+        # push-luck, which owns it.
+        node(
+            "combat", _PUSHED_ROLL_REF, "decision",
+            "Push a failed non-pushed ordinary check after the Keeper "
+            "announces the consequence and the player confirms the risk",
+            spans,
+            authority="mixed", audience="keeper", visibility="public",
+            properties={"family_id": "push-luck"},
+        ),
+    ]
+
+
+def _no_push_applicability_relations(spans: list[str]) -> list[dict[str, Any]]:
+    return [
+        relation(
+            "combat", "no-push-guards-pushed-roll", "available-when",
+            _PUSHED_ROLL_REF, _NOT_COMBAT_ROLL, spans,
+        ),
+        relation(
+            "combat", "combat-rolls-not-pushable-forbids-push", "forbids",
+            "rule:coc7:combat:combat-rolls-not-pushable", _PUSHED_ROLL_REF,
+            spans,
+        ),
+    ]
 
 
 def _sanity_executable(
@@ -1053,9 +1117,14 @@ def build_family(bundle_root: Path, family: str) -> dict[str, Any]:
         "runtime_integration_blockers": runtime_blockers(family),
     }
     if family in {"psychology", "combat", "sanity"}:
+        # This family's own executable decisions. A decision declared only so
+        # a cross-family relation can close inside this shard (see the combat
+        # no-push guard) belongs to the family that implements it, and must
+        # not be reported here as something this family executes.
         review["executable_decisions"] = sorted(
             node["node_id"] for node in candidate["nodes"]
             if node["node_kind"] == "decision"
+            and (node.get("properties") or {}).get("family_id") == family
         )
         review["unresolved_executable_rules"] = []
     return {"candidate": candidate, "envelope": envelope, "review": review}

@@ -179,7 +179,7 @@ def test_combat_is_source_accepted_for_the_full_chapter_and_weapon_rules():
     assert review["runtime_integration_blockers"] == []
     assert review["accepted_shard_digest"] == shard["receipt"]["shard_sha256"]
     assert review["accepted_shard_digest"] == (
-        "f69ec2c1b3f167a93ccce336bb1aee2605cdd9a284379360c2e5c7174d8700bf"
+        "dfdcc90660d5a10e55641356934b34a6ed2e95a557748f83fb3ab4ea511fac06"
     )
     assert review["reviewer_identity"] == (
         "codex-worker-combat-end-slot-review-20260831-v2"
@@ -203,6 +203,7 @@ def test_combat_is_source_accepted_for_the_full_chapter_and_weapon_rules():
     decisions = {
         node["node_id"]: node for node in candidate["nodes"]
         if node["node_kind"] == "decision"
+        and node["properties"]["family_id"] == "combat"
     }
     assert set(decisions) == {
         f"decision:coc7:combat:{suffix}" for suffix in (
@@ -211,6 +212,18 @@ def test_combat_is_source_accepted_for_the_full_chapter_and_weapon_rules():
         )
     }
     assert review["executable_decisions"] == sorted(decisions)
+    # The one non-combat decision this shard declares exists so the no-push
+    # guard relation can close inside its own shard; ``build`` merges it with
+    # the push-luck shard's node, which owns the implementation. It must stay
+    # a bare declaration, or the merge would fight over the payload contract.
+    shared = [
+        node for node in candidate["nodes"]
+        if node["node_kind"] == "decision" and node["node_id"] not in decisions
+    ]
+    assert [node["node_id"] for node in shared] == [
+        "decision:coc7:push-luck:pushed-roll"
+    ]
+    assert shared[0]["properties"] == {"family_id": "push-luck"}
     assert review["unresolved_executable_rules"] == []
     capabilities = {
         node["node_id"]: (

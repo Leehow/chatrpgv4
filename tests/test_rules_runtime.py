@@ -2203,6 +2203,100 @@ def test_packaged_push_settle_accepts_universal_investigator_routing_field(
     assert result["original_check_decision_id"] == original_id
 
 
+@pytest.mark.parametrize("skill", [
+    "Dodge", "Fighting (Brawl)", "Firearms (Handgun)", "Artillery",
+])
+def test_packaged_failed_combat_skill_check_is_never_offered_a_push(
+    tmp_path: Path,
+    skill: str,
+):
+    """A failed combat-skill check must not reach the pushed roll at all.
+
+    The rulebook states this once per combat skill -- Artillery (p.71), Dodge
+    (p.75), Fighting and Firearms (p.76) each close with "Note: as a combat
+    skill, this cannot be pushed." -- and once categorically in the Chapter 6
+    "No Pushing Combat Rolls" sidebar (p.116). Three surfaces used to ignore
+    it: the ordinary check projected a Push continuation, ``rules.context``
+    listed the Push card as applicable, and ``rules.push`` settled the roll.
+
+    All three are asserted here because closing only the last one would still
+    leave the engine advertising a move the rulebook forbids.
+    """
+    ws = _fresh_workspace(tmp_path, f"push-{skill[:8].strip().lower()}")
+    _set_sheet_skill(ws, skill, 40)
+    ordinary_ref = "decision:coc7:core-check:ordinary-check"
+    assert _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "core-check",
+        "selected_affordance_ids": [ordinary_ref],
+    })["ok"] is True
+
+    original_id = "roll-combat-skill-original-v1"
+    failed = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": ordinary_ref,
+        "semantic_inputs": {
+            "skill": skill,
+            "difficulty": "regular",
+            "goal": "act under pressure",
+            "stakes": {"on_success": "it lands", "on_failure": "it does not"},
+            "difficulty_basis": "environment",
+        },
+        "decision_id": original_id,
+        "seed": 88,
+    })
+    assert failed["ok"] is True, failed
+    result = failed["data"]["settlement"]["result"]
+    assert result["outcome"] == "failure"
+    # Luck spend is a separate rule and stays available; only Push is gone.
+    assert result["next_continuations"] == ["decision:coc7:push-luck:luck-spend"]
+    assert result["bound_check"]["push_eligible"] is False
+
+    context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "push-luck",
+    })
+    assert context["ok"] is True, context
+    assert "decision:coc7:push-luck:pushed-roll" not in {
+        card["decision_ref"] for card in context["data"]["cards"]
+    }
+
+    pushed = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": "decision:coc7:push-luck:pushed-roll",
+        "semantic_inputs": {
+            "method_changed": "throw everything into the next attempt",
+            "failure_consequence": "the opening closes for good",
+            "player_confirmed_risk": True,
+        },
+        "decision_id": "push-combat-skill-v1",
+        "seed": 2,
+    })
+    assert pushed["ok"] is False, pushed
+
+
+def test_packaged_failed_non_combat_check_still_reaches_the_push(
+    tmp_path: Path,
+):
+    """The combat-skill guard must not cost an ordinary skill its push."""
+    ws = _fresh_workspace(tmp_path, "push-non-combat-unaffected")
+    original_id = "roll-library-index-still-pushable-v1"
+    _settle_failed_packaged_core_check(ws, original_id)
+    pushed = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": "decision:coc7:push-luck:pushed-roll",
+        "semantic_inputs": {
+            "method_changed": "cross-check the index against the court docket",
+            "failure_consequence": "the clerk bars further access tonight",
+            "player_confirmed_risk": True,
+        },
+        "decision_id": "push-library-index-still-pushable-v1",
+        "seed": 2,
+    })
+    assert pushed["ok"] is True, pushed
+    assert pushed["data"]["settlement"]["result"]["pushed"] is True
+
+
 def test_packaged_push_context_accepts_actor_bound_social_failure(
     tmp_path: Path,
 ):
