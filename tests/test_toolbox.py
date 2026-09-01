@@ -4568,7 +4568,10 @@ def test_combat_resolve_uses_compiled_module_npc_mechanics(campaign_ws):
         row for row in result["data"]["combat"]["participants"]
         if row["actor_id"] == "npc-walter-corbitt"
     )
-    assert pinned["combat_skill"] == 90
+    # p.459 of the bound source prints "Fighting 50% (Hard 25%/Extreme10%)";
+    # the 90 this used to pin was the affordance spec lifting STR/POW instead
+    # of the printed skill line.
+    assert pinned["combat_skill"] == 50
     assert pinned["dodge_skill"] == 17
     assert pinned["mechanics_revision_ref"]["authority"] == "source_authored"
     assert pinned["mechanics_revision_ref"]["stable_id"] == (

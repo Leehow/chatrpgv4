@@ -6,7 +6,11 @@
       "origin": "source",
       "description": "Walter Corbitt's undead will haunts the house: misdirection upstairs, then lethal force in the basement.",
       "source_refs": [
-        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 435, "grep_anchor": "He haunts the place"}
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 435,
+          "grep_anchor": "He haunts the place"
+        }
       ],
       "dangers": [
         {
@@ -84,7 +88,11 @@
       "origin": "source",
       "description": "The Chapel of Contemplation's burned residue and Pastor Thomas's escape still stain the paper trail — color and optional danger, not the main fight.",
       "source_refs": [
-        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "Chapel of Contemplation"}
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 438,
+          "grep_anchor": "Chapel of Contemplation"
+        }
       ],
       "dangers": [
         {

@@ -5,26 +5,48 @@
       "quest_id": "quest-knott-commission",
       "title": "The Corbitt House Commission",
       "player_safe_summary": "Mr. Knott offers a daily fee for investigating the tenants' disappearance and the strange disturbances in the house, then asks for a written report.",
-      "quest_kinds": ["commission", "visit-explore"],
+      "quest_kinds": [
+        "commission",
+        "visit-explore"
+      ],
       "importance": "core",
-      "giver": {"kind": "npc", "ref_id": "npc-steven-knott"},
+      "giver": {
+        "kind": "npc",
+        "ref_id": "npc-steven-knott"
+      },
       "brief": "Keeper-only: Knott pays $20/day plus keys and address, and wants a report that lets him rent or sell the inherited house. He knows only rumor and the Macario tragedy — nothing of Corbitt's undead nature — and will not believe Mythos explanations without hard proof. He pressures the investigators if research exceeds a day. The report's content is the KP's call: a whitewash he can accept, or hard proof that forces him to face the truth. Finding Corbitt's remains in the basement is the decisive evidence any credible report needs.",
       "target_refs": [
-        {"kind": "npc", "ref_id": "npc-steven-knott"},
-        {"kind": "scene", "ref_id": "corbitt-house-ground"},
-        {"kind": "clue", "ref_id": "clue-corbitt-body-found"}
+        {
+          "kind": "npc",
+          "ref_id": "npc-steven-knott"
+        },
+        {
+          "kind": "scene",
+          "ref_id": "corbitt-house-ground"
+        },
+        {
+          "kind": "clue",
+          "ref_id": "clue-corbitt-body-found"
+        }
       ],
       "destination_scene_id": "corbitt-house-ground",
       "deadline": null,
       "completion": {
         "all": [
-          {"kind": "clue_discovered", "clue_id": "clue-corbitt-body-found"}
+          {
+            "kind": "clue_discovered",
+            "clue_id": "clue-corbitt-body-found"
+          }
         ],
         "narrative": "The investigators deliver a report Knott accepts (a clean bill for the house, or hard proof he cannot dodge); the KP semantically confirms the commission is discharged."
       },
       "failure": {
         "any": [
-          {"kind": "clock_reaches", "clock_id": "landlord-impatience", "threshold": 3}
+          {
+            "kind": "clock_reaches",
+            "clock_id": "landlord-impatience",
+            "threshold": 3
+          }
         ],
         "narrative": "Knott withdraws the commission or hires someone cheaper, or the investigation is abandoned with nothing to show for it."
       },
@@ -47,18 +69,26 @@
       "quest_id": "quest-retrieve-chapel-journal",
       "title": "Recover the Chapel Records",
       "player_safe_summary": "Visit the ruined chapel and recover records left by the Chapel of Contemplation; they are said to contain writings connected to Corbitt.",
-      "quest_kinds": ["retrieve-collect"],
+      "quest_kinds": [
+        "retrieve-collect"
+      ],
       "importance": "optional",
       "giver": null,
       "brief": "Keeper-only: An optional research side path. The Chapel of Contemplation was broken up by a police raid and burned in 1912; its ruins still hold Father Thomas's journal-style records showing Corbitt's body was buried in the house basement per his will. Dooley or the court file can point investigators at the ruins. The journal materially shortcuts the basement search, so it recycles into the mainline even though the visit itself is optional.",
       "target_refs": [
-        {"kind": "clue", "ref_id": "clue-chapel-journal-burial"}
+        {
+          "kind": "clue",
+          "ref_id": "clue-chapel-journal-burial"
+        }
       ],
       "destination_scene_id": "chapel-of-contemplation-ruins",
       "deadline": null,
       "completion": {
         "all": [
-          {"kind": "clue_discovered", "clue_id": "clue-chapel-journal-burial"}
+          {
+            "kind": "clue_discovered",
+            "clue_id": "clue-chapel-journal-burial"
+          }
         ]
       },
       "failure": null,
@@ -80,13 +110,21 @@
       "quest_id": "quest-end-corbitt-threat",
       "title": "End the Corbitt Threat",
       "player_safe_summary": "Identify and end the malicious presence in the house—whether with its own ritual dagger, a cleansing rite, or another effective means—and bring the place lasting peace.",
-      "quest_kinds": ["prevent-disrupt"],
+      "quest_kinds": [
+        "prevent-disrupt"
+      ],
       "importance": "core",
       "giver": null,
       "brief": "Keeper-only: The scenario's mainline goal, arising once the haunting is confirmed rather than from any NPC's mouth. Corbitt animates his own corpse from the sealed basement; his own ritual dagger bypasses Flesh Ward and reduces him to ash (Vittorio's bible line hints at it). Ends only by KP semantic closure: dagger-to-ash, an equivalent sanctioned destruction, or banishment the KP accepts as final. Purely narrative completion — no machine condition can witness a destruction.",
       "target_refs": [
-        {"kind": "npc", "ref_id": "npc-walter-corbitt"},
-        {"kind": "clue", "ref_id": "clue-own-dagger-ends-him"}
+        {
+          "kind": "npc",
+          "ref_id": "npc-walter-corbitt"
+        },
+        {
+          "kind": "clue",
+          "ref_id": "clue-own-dagger-ends-him"
+        }
       ],
       "destination_scene_id": "corbitt-confrontation",
       "deadline": null,

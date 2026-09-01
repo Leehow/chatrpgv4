@@ -239,20 +239,20 @@
             "kind": "skill_check",
             "difficulty": "regular",
             "stakes": "permission to enter the newspaper clipping room",
-          "ordinary_failure": {
-            "mode": "no_progress",
-            "summary": "Arty refuses access to the clipping room; the investigator may try another route or propose a changed method for a pushed attempt."
+            "ordinary_failure": {
+              "mode": "no_progress",
+              "summary": "Arty refuses access to the clipping room; the investigator may try another route or propose a changed method for a pushed attempt."
             },
-          "fumble_consequence": {
-            "summary": "Arty takes grave offence, summons the maintenance staff, and has the investigator ejected and permanently barred from the clipping room.",
-            "effect": {
+            "fumble_consequence": {
+              "summary": "Arty takes grave offence, summons the maintenance staff, and has the investigator ejected and permanently barred from the clipping room.",
+              "effect": {
                 "kind": "route_closed",
                 "route_id": "persuade-arty"
               }
             },
-          "push_failure_consequence": {
-            "summary": "Arty has the investigator ejected and permanently bars them from the newspaper clipping room.",
-            "effect": {
+            "push_failure_consequence": {
+              "summary": "Arty has the investigator ejected and permanently bars them from the newspaper clipping room.",
+              "effect": {
                 "kind": "route_closed",
                 "route_id": "persuade-arty"
               }
@@ -1728,7 +1728,7 @@
               "actor_id": "walter-corbitt",
               "monster_ref": "Walter Corbitt",
               "side": "monster",
-              "combat_skill": 90,
+              "combat_skill": 50,
               "dodge_skill": 17,
               "magic_points": 18,
               "weapons": [
@@ -1790,7 +1790,7 @@
               "actor_id": "walter-corbitt",
               "monster_ref": "Walter Corbitt",
               "side": "monster",
-              "combat_skill": 90,
+              "combat_skill": 50,
               "dodge_skill": 17,
               "magic_points": 18,
               "weapons": [
