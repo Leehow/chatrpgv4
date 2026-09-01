@@ -351,3 +351,61 @@ def test_projected_npc_mechanics_satisfy_the_combat_contract():
     assert carried["profile"]["characteristics"]["STR"] == 80
     # The consumer's own validator must accept what the projection carried.
     mechanics.validate_mechanics_record(carried, subject_kind="npc")
+
+
+def test_extracted_numbers_that_never_reach_combat_are_a_finding():
+    """The fingerprint for this whole class: extraction succeeded, delivery did not.
+
+    A graph node holding a stat block while its projected NPC record carries no
+    `mechanics` is the exact silent failure that shipped: the numbers were
+    parsed correctly and combat still had none. The check keys off the shape of
+    the extracted numbers, not one blessed field name, so renaming `stats`
+    cannot slip past it.
+    """
+    graph = _synthetic_graph()
+    for node in graph["nodes"]:
+        if node["node_id"] == "scene-alpha":
+            node["properties"]["stats"] = {"STR": 50, "CON": 70, "SIZ": 45}
+    payload = {
+        "filename": "npc-agendas.json",
+        "root": {},
+        "collections": [{
+            "name": "npcs",
+            "records": [{
+                "node_id": "scene-alpha",
+                "record": {"npc_id": "npc-example", "agenda": "hold the line"},
+            }],
+        }],
+    }
+
+    findings = projection.validate_projection_records(graph, payload)
+
+    codes = {row["code"] for row in findings}
+    assert "stats_not_delivered_to_mechanics" in codes
+    assert any("mechanics.profile" in row["message"] for row in findings)
+
+
+def test_the_reader_less_stats_field_is_refused():
+    graph = _synthetic_graph()
+    payload = {
+        "filename": "npc-agendas.json",
+        "root": {},
+        "collections": [{
+            "name": "npcs",
+            "records": [{
+                "node_id": "scene-alpha",
+                "record": {
+                    "npc_id": "npc-example",
+                    "agenda": "hold the line",
+                    "stats": {"STR": 50},
+                    "stats_absent": {"APP": "not printed"},
+                },
+            }],
+        }],
+    }
+
+    findings = projection.validate_projection_records(graph, payload)
+
+    unregistered = [row for row in findings if row["code"] == "unregistered_fields"]
+    assert unregistered
+    assert "stats" in unregistered[0]["message"]

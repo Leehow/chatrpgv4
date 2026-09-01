@@ -96,15 +96,16 @@ RECORD_FIELD_REGISTRY: dict[str, dict[str, frozenset[str]]] = {
             "keeper_note", "known_fact_ids", "leverage_ids", "lie_options",
             # `mechanics` is what combat and chase actually read
             # (coc_operation_combat: agenda["mechanics"]["profile"], validated
-            # by coc_mechanics.validate_mechanics_record). `stats` is the
-            # extraction pipeline's own shape and has no reader anywhere, so a
-            # module whose numbers land only there still has no combat-ready
-            # NPC.
+            # by coc_mechanics.validate_mechanics_record). The extraction
+            # pipeline's own `stats`/`stats_absent` shape has no reader
+            # anywhere and is deliberately NOT registered: a module whose
+            # numbers land only there has no combat-ready NPC, and this
+            # registry is where that has to be loud instead of silent.
             "mechanics",
             "name", "npc_id", "origin", "player_safe_summary",
             "relationship_to_investigators",
             "revealable_fact_ids", "schedule", "secret", "social_role",
-            "source_refs", "stats", "stats_absent", "voice",
+            "source_refs", "voice",
         }),
     },
     "threat-fronts.json": {
@@ -385,6 +386,33 @@ def project_module_documents(
             document[name] = rows
         documents[filename] = document
     return documents
+
+
+def _numbers_the_graph_extracted(node: Any) -> list[str]:
+    """Property keys on a graph node that hold extracted stat-block numbers.
+
+    Extraction pipelines name this differently over time (`stats` today), so
+    the fingerprint looks for the shape — a mapping of short uppercase
+    characteristic keys to integers — rather than one blessed key name.
+    """
+    properties = node.get("properties") if isinstance(node, dict) else None
+    if not isinstance(properties, dict):
+        return []
+    found: list[str] = []
+    for key, value in properties.items():
+        if not isinstance(value, dict) or not value:
+            continue
+        keys = [k for k in value if isinstance(k, str)]
+        if not keys or len(keys) != len(value):
+            continue
+        looks_like_stats = all(
+            k.isupper() and 2 <= len(k) <= 5 for k in keys
+        ) and any(
+            isinstance(v, int) and not isinstance(v, bool) for v in value.values()
+        )
+        if looks_like_stats:
+            found.append(key)
+    return sorted(found)
 
 
 def install_projected_scenario(
@@ -674,6 +702,21 @@ def validate_projection_records(
                     f"{row_path}/record",
                     "record carries CJK text outside the graph source languages",
                 )
+            # Fingerprint for the failure this registry exists to stop: the
+            # graph holds an extracted stat block, but the projected record
+            # carries no `mechanics`, so combat still has no numbers. The
+            # extraction succeeded and the delivery silently did not.
+            if filename == "npc-agendas.json" and node_id in by_id:
+                carriers = _numbers_the_graph_extracted(by_id[node_id])
+                if carriers and not record.get("mechanics"):
+                    finding(
+                        "stats_not_delivered_to_mechanics",
+                        f"{row_path}/record",
+                        f"graph node {node_id} carries extracted numbers "
+                        f"({', '.join(carriers)}) but the projected record has "
+                        "no `mechanics`; combat reads mechanics.profile, so "
+                        "these numbers would never reach the table",
+                    )
     return findings
 
 
