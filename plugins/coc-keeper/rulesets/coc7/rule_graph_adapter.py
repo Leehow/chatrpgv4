@@ -1436,13 +1436,29 @@ class Coc7RuleGraphAdapter:
         if not isinstance(payload, Mapping):
             payload = {}
         rule_refs = list(plan.get("rule_refs") or [])
+        goal = str(payload.get("goal") or "").strip()
         check_payload: dict[str, Any] = {
             "skill": str(adjudication.get("approach_skill") or ""),
             "difficulty": str(adjudication.get("final_difficulty") or "regular"),
             "bonus": int(adjudication.get("bonus_dice") or 0),
             "penalty": int(adjudication.get("penalty_dice") or 0),
             "difficulty_basis": "opponent_skill",
-            "goal": payload.get("goal"),
+            "goal": goal,
+            # `stakes` belongs to the derived percentile-check contract, not
+            # to the closed Social card inputs.  Bind both consequences to
+            # the already validated Social goal so the nested Core resolver
+            # keeps its ordinary-check invariant without leaking a Core-only
+            # model field into the Social decision.
+            "stakes": {
+                "on_success": (
+                    "the described social action achieves its declared goal: "
+                    + goal
+                ),
+                "on_failure": (
+                    "the described social action does not achieve its declared goal: "
+                    + goal
+                ),
+            },
             "npc_id": adjudication.get("npc_id"),
             "social_adjudication_ref": adjudication.get("goal_key"),
         }
