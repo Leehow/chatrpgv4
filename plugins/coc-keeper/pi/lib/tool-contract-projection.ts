@@ -7567,7 +7567,6 @@ const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["weapon_effect_refs", stringSet(["effect:"])],
   ["target_id", stringSet([])],
   ["target_npc_id", stringSet(["npc:"])],
-  ["target_actor_id", stringSet(["npc:", "actor:"])],
   ["affordance_id", stringSet(["affordance:"])],
   ["matched_affordance_ids", stringSet(["affordance:"])],
   ["selected_affordance_ids", stringSet(["affordance:"])],

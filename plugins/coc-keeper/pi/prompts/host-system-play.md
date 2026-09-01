@@ -80,7 +80,7 @@ Take over from the ready table and open play.
   | `base_weapon_id` | multi-token semantic slug or namespace `weapon:`, `item:` | `weapon:example-slug` | ✗ never `route:example-slug` |
   | `campaign_id` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
   | `candidate_id` | multi-token semantic slug or namespace `scene-route:`, `attack:`, `combat-route:`, `combat:`, `storylet-candidate:`, `advice:` | `scene-route:example-slug` | ✗ never `route:example-slug` |
-  | `candidate_ref` | exact handle `storylet:current-candidate` or namespace `storylet-candidate:` | `storylet:current-candidate` | ✗ never `current-candidate` |
+  | `candidate_ref` | exact handle `storylet:current-candidate` or namespace `storylet-candidate:`; combat settles take `attack:<npc_id>` or `combat-route:<affordance_id>` | `attack:npc-example-slug` | ✗ never `current-candidate` |
   | `caregiver_id` | multi-token semantic slug or namespace `npc:`, `person:` | `npc:example-slug` | ✗ never `route:example-slug` |
   | `claim_id` | `{prefix}{slug}` with prefix `claim-`, `agency-` | `claim-sit-notebook-smoke` | ✗ never `sit-notebook-smoke` |
   | `clock_id` | multi-token semantic slug or namespace `clock:` | `clock:example-slug` | ✗ never `route:example-slug` |
