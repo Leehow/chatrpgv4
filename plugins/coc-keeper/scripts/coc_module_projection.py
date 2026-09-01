@@ -94,6 +94,13 @@ RECORD_FIELD_REGISTRY: dict[str, dict[str, frozenset[str]]] = {
             "active_reactions", "agenda", "availability", "deflect_options",
             "disclosure_order", "facts", "fear", "foreign_dialogue",
             "keeper_note", "known_fact_ids", "leverage_ids", "lie_options",
+            # `mechanics` is what combat and chase actually read
+            # (coc_operation_combat: agenda["mechanics"]["profile"], validated
+            # by coc_mechanics.validate_mechanics_record). `stats` is the
+            # extraction pipeline's own shape and has no reader anywhere, so a
+            # module whose numbers land only there still has no combat-ready
+            # NPC.
+            "mechanics",
             "name", "npc_id", "origin", "player_safe_summary",
             "relationship_to_investigators",
             "revealable_fact_ids", "schedule", "secret", "social_role",
