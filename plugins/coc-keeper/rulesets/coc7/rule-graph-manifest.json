@@ -30,7 +30,7 @@
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "85bbb17b07ac399d35164386744290acfb8f0900305505e7ea67dd39c026d2a2",
+  "graph_content_digest": "bd30d1dc2650599794c360cad5db9e711fde83eed74794a4d6717986b410bd18",
   "shards": [
     {
       "shard_id": "shard:coc7:chase:section-chase-complete-source",
@@ -70,7 +70,7 @@
     },
     {
       "shard_id": "shard:coc7:social:section-social-source-accepted",
-      "shard_digest": "f8d10e1e2427284e9bafbcd97bf90302b32d5ef2529417832071969b71844a18"
+      "shard_digest": "538f05d20a22d95c2b7325124f41e97bb50986410989565dfcad48010b65092f"
     }
   ],
   "family_coverage": {

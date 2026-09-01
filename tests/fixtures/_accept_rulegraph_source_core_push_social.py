@@ -685,6 +685,30 @@ def social_candidate(packet: dict[str, Any]) -> dict[str, Any]:
         "Charm, Fast Talk, Intimidate, and Persuade Skills: Difficulty Levels",
         "Verbal Conflicts",
     ))
+    # Evidence that a failed social check continues as a pushed roll. Each of
+    # the four interpersonal skills this family models carries its own pushing
+    # guidance in the source, so the continuation is stated four times over,
+    # not inferred from the general "any failed skill roll may be pushed" rule.
+    # Every phrase below anchors exactly one span, and each of those spans is
+    # about pushing one of Charm, Fast Talk, Intimidate, or Persuade.
+    push_evidence = _matching_spans(packet, (
+        # Charm (p70): pushing examples, its consequences, and the source's
+        # own statement that switching approach to get a second roll IS a push.
+        "overtly flattering the target with affection",
+        "Remember this is about being charming",
+        "the target takes offence and will have nothing further to do with you",
+        # Fast Talk (p75)
+        "Remember this is Fast Talk",
+        "cause great offence leading to violence, outrage, or criminal proceedings",
+        # Intimidate (p77)
+        "When Pushing an Intimidation roll",
+        "Remember that this is Intimidation",
+        "Pushing an Intimidate roll means taking things to the limit",
+        # Persuade (p82)
+        "appeal to the target's reason",
+        "Remember that this is Persuade",
+        "the target takes great offence and refuses to have any more to do with you",
+    ))
     for row in nodes:
         row["evidence_span_ids"] = list(evidence)
         if row["node_id"] == "rule:coc7:social:opposing-difficulty":
@@ -914,6 +938,22 @@ def social_candidate(packet: dict[str, Any]) -> dict[str, Any]:
             },
             evidence=evidence,
         ),
+        # Shared with the push-luck shard, declared identically so `build`
+        # merges the two into one node and unions their evidence. The social
+        # chapter is independent evidence for this continuation existing, so
+        # the merged node ends up citing both the general push rules and the
+        # per-skill social guidance. Relations must close inside their own
+        # shard, so declaring it here is what lets the social family state the
+        # edge at all.
+        _node(
+            "continuation:coc7:push-luck:after-fail-push",
+            "continuation",
+            "After an ordinary failure the player may push with a changed method",
+            audience="host-internal",
+            visibility="keeper-only",
+            properties={"family_id": "push-luck"},
+            evidence=push_evidence,
+        ),
     ]
     nodes.extend(additions)
     family_id = "rule-family:coc7:social"
@@ -943,6 +983,19 @@ def social_candidate(packet: dict[str, Any]) -> dict[str, Any]:
         _relation("relation:coc7:social:reads-skill-descriptions", "reads-table", decision, "data-table:coc7:skill-descriptions", evidence),
         _relation("relation:coc7:social:pc-refusal-offered", "offers-choice", "rule:coc7:social:pc-agency-and-penalty", "pending-choice:coc7:social:pc-refusal", evidence),
         _relation("relation:coc7:social:pc-refusal-emits", "emits", "pending-choice:coc7:social:pc-refusal", "effect:coc7:social:pc-refusal-penalty", evidence),
+        # A failed social check continues as the push continuation, exactly as
+        # sanity:check continues to a bout and first-aid continues to medicine.
+        # Runtime already reaches the pushed roll through the canonical
+        # failed-check grant, so this edge changes no behavior; it closes the
+        # source graph's account of a continuation the rulebook states for each
+        # of Charm, Fast Talk, Intimidate, and Persuade.
+        _relation(
+            "relation:coc7:social:failure-continues-as-push",
+            "continues-as",
+            decision,
+            "continuation:coc7:push-luck:after-fail-push",
+            push_evidence,
+        ),
     ])
     candidate = {
         "contract_id": rg.CANDIDATE_CONTRACT_ID,

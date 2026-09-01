@@ -10,11 +10,11 @@
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "b41e3d1365e0ebf686f6f81297e1f512e34ddc888e38aee3c73569deaf3d74a9",
+  "graph_content_digest": "b287c4db1647207e8bea0acf7429fb4d0995785109178da15d3259e1e15bbf18",
   "shards": [
     {
       "shard_id": "shard:coc7:social:section-social-source-accepted",
-      "shard_digest": "f8d10e1e2427284e9bafbcd97bf90302b32d5ef2529417832071969b71844a18"
+      "shard_digest": "538f05d20a22d95c2b7325124f41e97bb50986410989565dfcad48010b65092f"
     }
   ],
   "family_coverage": {

@@ -57,6 +57,46 @@ def test_production_graph_contains_ten_source_accepted_families():
     assert graph["legacy_surface_lifecycle"] == expected_surfaces
 
 
+def test_social_failure_continues_as_push_is_evidence_bound():
+    """A failed social check continues as a pushed roll, stated in the source.
+
+    Runtime already reaches the pushed roll through the canonical failed-check
+    grant, so this edge changes no behavior; it closes an Ontology gap where
+    the source graph described thirteen continuations and omitted this one.
+
+    The edge is only worth having because it is evidence-bound. The rulebook
+    states the continuation once per interpersonal skill this family models --
+    Charm (p70), Fast Talk (p75), Intimidate (p77), Persuade (p82) -- rather
+    than leaving it to the general "any failed skill roll may be pushed" rule,
+    so the relation cites those per-skill spans and nothing else.
+    """
+    graph = _load(PACKAGE / "rule-graph.json")
+    relations = {row["relation_id"]: row for row in graph["relations"]}
+    edge = relations["relation:coc7:social:failure-continues-as-push"]
+    assert edge["relation_kind"] == "continues-as"
+    assert edge["from_node_id"] == "decision:coc7:social:adjudicate-difficulty"
+    assert edge["to_node_id"] == "continuation:coc7:push-luck:after-fail-push"
+
+    # Both endpoints must be real nodes; a continuation edge that dangles
+    # would be worse than the gap it closes.
+    node_ids = {row["node_id"] for row in graph["nodes"]}
+    assert edge["from_node_id"] in node_ids
+    assert edge["to_node_id"] in node_ids
+
+    # Every cited span must come from the accepted social shard's own evidence
+    # binding, so the edge can never be justified by an invented span id.
+    shard = _load(
+        PACKAGE / "rule-graph-candidates/source-stage1/accepted/social/accepted-shard.json"
+    )
+    bound = {row["span_id"] for row in shard["evidence_binding"]["spans"]}
+    assert edge["evidence_span_ids"]
+    assert set(edge["evidence_span_ids"]) <= bound
+    # All four modeled interpersonal skills carry their own push guidance.
+    pages = {int(span.rsplit("-page-", 1)[1].split("-block-")[0])
+             for span in edge["evidence_span_ids"]}
+    assert {70, 75, 77, 82} <= pages
+
+
 def test_manifest_source_identities_are_bundle_level_and_source_bound():
     manifest = _load(PACKAGE / "rule-graph-manifest.json")
     assert len(manifest["source_bundles"]) == 5
