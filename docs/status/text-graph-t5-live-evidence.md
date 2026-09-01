@@ -163,3 +163,46 @@ well, with the identical `state.move_scene` / `missing_param: decision_id`
 loop. Six failures of the same call shape across two turns, no delivery to the
 player either time, and no new finalization: the run holds exactly one
 finalized turn.
+
+## Gate 4 — not measured, and the reason is not the one I first proposed
+
+Final state of this run: **6 player replies, 60 canonical calls, 2 finalized
+turns, and zero `narration.review` calls.** Zero calls means zero findings, but
+those are different claims and only the first is measured here.
+
+### A hypothesis I formed and then refuted
+
+`_pi_play_agency_review_required()` in `coc_operation_kernel.py` is a hardcoded
+`return False`, added by `ab634acd` (2026-08-31, *"make normal play direct
+single draft"*) with the comment that Pi play "no longer opt[s] production into
+or out of a second narration/rewrite pass". That looked like a structural
+explanation for zero reviews.
+
+**It is not.** `dirgraph-smoke-20260901` ran on 2026-09-01 — same day, same
+pi-coc play path, same grok-4.5 model, after that commit — and made **7**
+`narration.review` calls in 45 canonical calls. So the flag means the review is
+not *required*; the Keeper still calls it voluntarily. The hypothesis is
+recorded here with its refutation rather than deleted, because it is the kind
+of explanation that would have been comfortable to keep.
+
+### What can and cannot be concluded
+
+| claim | status |
+| --- | --- |
+| This run produced 0 `narration.review` calls in 60 canonical calls | measured |
+| Therefore 0 findings in this run | trivially true, and uninformative |
+| The published enum does not move `findings` off zero | **not shown** — the operation carrying findings never ran |
+| Those rule ids should be retired | **not shown**, and not supportable from this run |
+
+A comparable pre-T4 run the same day got 7 reviews where this got 0. That
+difference is real and I cannot attribute it: n=1 against n=1, with this run
+additionally degraded by the `state.move_scene` loop that cost two turns. It
+could be turn content, it could be the model, and it could in principle be
+something T4 changed in what the Keeper sees. Resolving it needs several runs
+on each side, which is a T5 experiment in its own right rather than a
+conclusion available now.
+
+**Gate 4 verdict: not measured.** The spec says recording a negative is a pass;
+it does not say inventing one is. The honest outcome here is neither "the ids
+are used" nor "the ids should be retired" — it is that this run never exercised
+the operation that would tell us.
