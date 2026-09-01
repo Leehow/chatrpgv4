@@ -124,3 +124,37 @@ def test_starter_graph_context_does_not_expand_through_module_hub():
         "member-of",
         "occurs-at",
     }
+
+
+def test_every_starter_npc_with_mechanics_resolves_for_combat():
+    """Combat reads npcs[].mechanics.profile; whatever a starter ships must work.
+
+    The starter shipped with no NPC mechanics at all, so `combat.resolve` could
+    not settle a single encounter — including the scenario's own antagonist.
+    The two NPCs whose stat blocks the rulebook prints (Walter Corbitt on page
+    459, the rat pack on page 457) must validate through the consumer's own
+    contract and build a combat participant; the social NPCs the source never
+    stats must stay without mechanics rather than carry invented numbers.
+    """
+    mechanics = _load("coc_mechanics_starter_tests", SCRIPTS / "coc_mechanics.py")
+    npcs = json.loads((STARTER / "npc-agendas.json").read_text(encoding="utf-8"))["npcs"]
+
+    with_mechanics = {
+        row["npc_id"] for row in npcs if row.get("mechanics")
+    }
+    assert with_mechanics == {"npc-walter-corbitt", "npc-rat-pack"}
+
+    for row in npcs:
+        record = row.get("mechanics")
+        if record is None:
+            continue
+        mechanics.validate_mechanics_record(record, subject_kind="npc")
+        participant = mechanics.actor_combat_participant(
+            row["npc_id"], record["profile"]
+        )
+        assert participant["hp_max"] > 0
+        # Source-printed values, not the runtime's silent fallbacks.
+        assert participant["combat_skill"] != 25
+        assert record["source_refs"] and all(
+            isinstance(ref.get("pdf_index"), int) for ref in record["source_refs"]
+        )

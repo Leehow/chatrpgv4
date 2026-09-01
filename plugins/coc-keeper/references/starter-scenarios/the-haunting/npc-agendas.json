@@ -753,6 +753,99 @@
           "armor_rule": "Each point of armor reduces the damage received by 1 point. Corbitt has cast Flesh Ward already: roll 2D6 for his armor. Reduce his armor by one point for each point of damage he suffers."
         }
       }
+    },
+    {
+      "npc_id": "npc-rat-pack",
+      "name": "Rat Pack",
+      "origin": "source",
+      "agenda": "Defend the crawl space nest; swarm whoever breaks into it.",
+      "fear": "Fire and open flame in the confined crawl space.",
+      "secret": "They nest in Corbitt's hidden crawl space and their filth marks the wall carved 'Chapel of Contemplation'.",
+      "voice": "No speech — squealing, scrabbling claws, and the press of bodies in the dark.",
+      "relationship_to_investigators": "adversary",
+      "keeper_note": "Printed encounter in the cellar crawl space (page 457). As a pack they may Overwhelm a single investigator with the Fighting maneuver rules, gaining one bonus die for their numbers.",
+      "mechanics": {
+        "status": "authored",
+        "subject_kind": "npc",
+        "profile": {
+          "profile_kind": "actor",
+          "characteristic_scale": "percentile",
+          "authority": "source_authored",
+          "characteristics": {
+            "STR": 35,
+            "CON": 55,
+            "SIZ": 35,
+            "POW": 50,
+            "DEX": 70
+          },
+          "derived": {
+            "HP": 9,
+            "MOV": 9,
+            "Build": -1,
+            "DB": "-1"
+          },
+          "skills": {
+            "Fighting": 40,
+            "Dodge": 42
+          },
+          "attacks": [
+            "Fighting 40% (Hard 20/Extreme 8), damage 1D3 — rats attack with teeth and claws",
+            "Overwhelm (fighting maneuver) damage 2D6 — as a pack they swarm a single target, gaining one bonus die on the attack because of their numbers"
+          ],
+          "attacks_per_round": 1
+        },
+        "source_refs": [
+          {
+            "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+            "pdf_index": 457,
+            "grep_anchor": "RAT PACK"
+          }
+        ],
+        "provenance": {
+          "authority": "source_authored",
+          "basis": "Stat block, combat lines and the Overwhelm maneuver are printed verbatim on page 457 (RAT PACK)."
+        },
+        "fields_observed": [
+          "attacks",
+          "attacks_per_round",
+          "characteristics.CON",
+          "characteristics.DEX",
+          "characteristics.POW",
+          "characteristics.SIZ",
+          "characteristics.STR",
+          "derived.Build",
+          "derived.DB",
+          "derived.HP",
+          "derived.MOV",
+          "skills"
+        ],
+        "fields_extracted": [
+          "attacks",
+          "attacks_per_round",
+          "characteristics.CON",
+          "characteristics.DEX",
+          "characteristics.POW",
+          "characteristics.SIZ",
+          "characteristics.STR",
+          "derived.Build",
+          "derived.DB",
+          "derived.HP",
+          "derived.MOV",
+          "skills"
+        ],
+        "fields_not_authored": [
+          "armor",
+          "armor_rule",
+          "characteristics.APP",
+          "characteristics.EDU",
+          "characteristics.INT",
+          "derived.MP",
+          "derived.SAN",
+          "san_loss_to_see",
+          "spells",
+          "weapons"
+        ]
+      }
     }
   ]
 }
