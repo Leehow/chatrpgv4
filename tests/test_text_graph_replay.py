@@ -33,17 +33,25 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO / "plugins" / "coc-keeper" / "scripts"
 
-# Counts measured on the preserved corpus and recorded in
-# docs/status/text-layer-obligation-inventory.md §2.1.
-EXPECTED_RECORDS = 506
-EXPECTED_ROLL_OBLIGATIONS = 370
+# Counts measured on the preserved corpus. The inventory (§2.1) recorded 506
+# records / 370 roll obligations / 418 coverage rows; the T5 live run
+# (.coc/playtests/textgraph-t5-en-20260901/) added two finalizations, one of
+# them carrying a roll obligation and a coverage row, so the corpus legitimately
+# grew. The gate caught the drift, which is what pinning exact counts is for.
+#
+# The two added records matter more than their size: they were produced by the
+# T4 code itself, so the replay now re-derives at least one obligation that the
+# graph-driven derivation created in live play rather than only ones inherited
+# from the pre-migration era.
+EXPECTED_RECORDS = 508
+EXPECTED_ROLL_OBLIGATIONS = 371
 EXPECTED_FIRST_IMPRESSION_OBLIGATIONS = 48
-EXPECTED_COVERAGE_ROWS = 418
+EXPECTED_COVERAGE_ROWS = 419
 EXPECTED_SEGMENT_TYPES = {
-    "fiction": 1746,
+    "fiction": 1750,
     "public_check": 346,
-    "asset_delta": 60,
-    "state_delta": 47,
+    "asset_delta": 61,
+    "state_delta": 48,
     "exceptional_effect": 20,
 }
 
