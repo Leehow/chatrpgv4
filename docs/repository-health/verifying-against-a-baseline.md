@@ -44,6 +44,12 @@ Two asymmetries to keep straight, because both look like good news and are not:
   them fails there and passes here. On the DirectorGraph work that accounted
   for all 32 of the baseline's extra failures (18 in `test_pi_package` alone).
   Never report those as an improvement.
+- **Nested worktrees are not your change.** `.claude/worktrees/` and
+  `.pi/worktrees/` hold other agents' checkouts inside this repository. They
+  exist in the working tree and not in a fresh baseline worktree, so a contract
+  scan that walks them reports their files as newly introduced. The tool filters
+  those paths out of the content diff; without the filter it flagged two files
+  from an unrelated agent's branch as masked violations.
 - **A target the baseline does not have collapses the comparison.** Naming a
   test file the change adds makes the baseline run collect nothing, so every
   failure here reads as a regression. The tool splits those out as

@@ -51,6 +51,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 _PATH_IN_OUTPUT = re.compile(r"[A-Za-z0-9_./-]+\.(?:md|py|json|ts|mjs|sh)")
+
+# Nested worktrees live inside the repository (.claude/worktrees, .pi/worktrees)
+# and belong to other agents. They exist in the working tree and not in a fresh
+# baseline worktree, so a contract scan that walks them reports their files as
+# "new" — a false positive that has nothing to do with the change under test.
+_FOREIGN_TREE_PARTS = (".claude/worktrees/", ".pi/worktrees/", "node_modules/")
+
+
+def _is_foreign(path: str) -> bool:
+    return any(part in path for part in _FOREIGN_TREE_PARTS)
 _OUTCOME = re.compile(r"^(?:FAILED|ERROR) (\S+)")
 
 
@@ -78,7 +88,7 @@ def _failures(output: str) -> set[str]:
 
 
 def _named_paths(output: str) -> set[str]:
-    return set(_PATH_IN_OUTPUT.findall(output))
+    return {p for p in _PATH_IN_OUTPUT.findall(output) if not _is_foreign(p)}
 
 
 def main(argv: list[str] | None = None) -> int:
