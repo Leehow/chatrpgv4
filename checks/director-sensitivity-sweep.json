@@ -1,0 +1,1056 @@
+{
+  "schema_version": 1,
+  "kind": "director-sensitivity-sweep",
+  "campaign_id": "memory-playtest-20260820",
+  "checkpoint_structure_type": "branching_investigation",
+  "matrix_rows": 150,
+  "scope": "Perturbation sensitivity of Director doctrine values over the D4 decision matrix. 'inert-in-matrix' means inert in THIS matrix on THIS checkpoint, not globally. A decision change is not a quality judgement.",
+  "counts": {
+    "tested": 146,
+    "inert_in_matrix": 18,
+    "decision_changing": 17,
+    "not_exercised": 111,
+    "not_perturbable": 0
+  },
+  "results": [
+    {
+      "node_id": "multiplier:storylet-selection:conflict-rank-gap",
+      "value": [
+        0.35,
+        0.25
+      ],
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:family-repeat-penalty",
+      "value": 0.45,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:polarity-match",
+      "value": 1.35,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:scene-tag-generic-suppression",
+      "value": 0.01,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:scene-tag-summoned-boost",
+      "value": 5.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:serves-deepen-npc",
+      "value": 1.15,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:serves-reveal-clue",
+      "value": 1.25,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:serves-surface-choice",
+      "value": 1.1,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:serves-tick-front",
+      "value": 1.2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:trope-repeat-penalty",
+      "value": 0.6,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "scoring-rule:character:agenda-npc-in-scene",
+      "value": 0.7,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "scoring-rule:choice:two-undiscovered-clues",
+      "value": 0.7,
+      "perturbed_to": 0.9,
+      "verdict": "decision-changing",
+      "changed_rows": 9
+    },
+    {
+      "node_id": "scoring-rule:cut:exit-condition-met",
+      "value": 0.8,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "scoring-rule:cut:explicit-move-intent",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "scoring-rule:cut:main-line-complete",
+      "value": 0.7,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "scoring-rule:cut:stalled-transition-pressure",
+      "value": [
+        0.45,
+        0.15,
+        0.85
+      ],
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "scoring-rule:deepen:dramatic-question-present",
+      "value": 0.5,
+      "perturbed_to": 0.7,
+      "verdict": "decision-changing",
+      "changed_rows": 1
+    },
+    {
+      "node_id": "scoring-rule:montage:montage-intent",
+      "value": 0.6,
+      "perturbed_to": 0.8,
+      "verdict": "decision-changing",
+      "changed_rows": 1
+    },
+    {
+      "node_id": "scoring-rule:payoff:structured-entity-overlap",
+      "value": [
+        0.15,
+        0.12,
+        0.85
+      ],
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "scoring-rule:pressure:baseline",
+      "value": 0.2,
+      "perturbed_to": 0.4,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "scoring-rule:pressure:cautious-posture-adjust",
+      "value": -0.1,
+      "perturbed_to": 0.1,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "scoring-rule:pressure:clock-near-full-or-stalled",
+      "value": 0.8,
+      "perturbed_to": 0.6,
+      "verdict": "decision-changing",
+      "changed_rows": 2
+    },
+    {
+      "node_id": "scoring-rule:pressure:pushed-fail-nudge",
+      "value": 0.1,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "scoring-rule:pressure:reckless-posture-adjust",
+      "value": 0.1,
+      "perturbed_to": 0.3,
+      "verdict": "decision-changing",
+      "changed_rows": 14
+    },
+    {
+      "node_id": "scoring-rule:pressure:yielded-scene",
+      "value": 0.85,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "scoring-rule:recover:stalled-turns",
+      "value": 0.85,
+      "perturbed_to": 0.65,
+      "verdict": "decision-changing",
+      "changed_rows": 22
+    },
+    {
+      "node_id": "scoring-rule:reveal:investigate-intent",
+      "value": 0.9,
+      "perturbed_to": 0.7,
+      "verdict": "decision-changing",
+      "changed_rows": 4
+    },
+    {
+      "node_id": "scoring-rule:reveal:social-intent",
+      "value": 0.75,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "scoring-rule:subsystem:combat-flee-cast-intent",
+      "value": 0.9,
+      "perturbed_to": 0.7,
+      "verdict": "decision-changing",
+      "changed_rows": 6
+    },
+    {
+      "node_id": "structure-weight:branching-investigation:character",
+      "value": 0.9,
+      "perturbed_to": 0.7,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "structure-weight:branching-investigation:choice",
+      "value": 1.3,
+      "perturbed_to": 1.1,
+      "verdict": "decision-changing",
+      "changed_rows": 6
+    },
+    {
+      "node_id": "structure-weight:branching-investigation:cut",
+      "value": 0.8,
+      "perturbed_to": 0.6,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "structure-weight:branching-investigation:deepen",
+      "value": 1.1,
+      "perturbed_to": 0.9,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "structure-weight:branching-investigation:montage",
+      "value": 0.9,
+      "perturbed_to": 0.7,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "structure-weight:branching-investigation:payoff",
+      "value": 0.9,
+      "perturbed_to": 0.7,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "structure-weight:branching-investigation:pressure",
+      "value": 1.0,
+      "perturbed_to": 0.8,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "structure-weight:branching-investigation:recover",
+      "value": 1.1,
+      "perturbed_to": 0.9,
+      "verdict": "decision-changing",
+      "changed_rows": 22
+    },
+    {
+      "node_id": "structure-weight:branching-investigation:reveal",
+      "value": 1.2,
+      "perturbed_to": 1.0,
+      "verdict": "decision-changing",
+      "changed_rows": 4
+    },
+    {
+      "node_id": "structure-weight:branching-investigation:subsystem",
+      "value": 1.0,
+      "perturbed_to": 0.8,
+      "verdict": "decision-changing",
+      "changed_rows": 6
+    },
+    {
+      "node_id": "structure-weight:campaign-sequel:character",
+      "value": 1.3,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'campaign-sequel'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:campaign-sequel:choice",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'campaign-sequel'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:campaign-sequel:cut",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'campaign-sequel'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:campaign-sequel:deepen",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'campaign-sequel'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:campaign-sequel:montage",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'campaign-sequel'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:campaign-sequel:payoff",
+      "value": 1.3,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'campaign-sequel'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:campaign-sequel:pressure",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'campaign-sequel'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:campaign-sequel:recover",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'campaign-sequel'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:campaign-sequel:reveal",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'campaign-sequel'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:campaign-sequel:subsystem",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'campaign-sequel'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hub-sandbox:character",
+      "value": 1.1,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hub-sandbox'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hub-sandbox:choice",
+      "value": 1.3,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hub-sandbox'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hub-sandbox:cut",
+      "value": 0.7,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hub-sandbox'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hub-sandbox:deepen",
+      "value": 0.9,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hub-sandbox'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hub-sandbox:montage",
+      "value": 1.1,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hub-sandbox'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hub-sandbox:payoff",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hub-sandbox'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hub-sandbox:pressure",
+      "value": 0.8,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hub-sandbox'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hub-sandbox:recover",
+      "value": 1.2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hub-sandbox'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hub-sandbox:reveal",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hub-sandbox'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hub-sandbox:subsystem",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hub-sandbox'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hybrid-mega:character",
+      "value": 1.1,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hybrid-mega'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hybrid-mega:choice",
+      "value": 1.1,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hybrid-mega'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hybrid-mega:cut",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hybrid-mega'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hybrid-mega:deepen",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hybrid-mega'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hybrid-mega:montage",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hybrid-mega'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hybrid-mega:payoff",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hybrid-mega'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hybrid-mega:pressure",
+      "value": 1.2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hybrid-mega'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hybrid-mega:recover",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hybrid-mega'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hybrid-mega:reveal",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hybrid-mega'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:hybrid-mega:subsystem",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'hybrid-mega'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:linear-acts:character",
+      "value": 0.9,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'linear-acts'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:linear-acts:choice",
+      "value": 0.7,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'linear-acts'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:linear-acts:cut",
+      "value": 1.2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'linear-acts'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:linear-acts:deepen",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'linear-acts'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:linear-acts:montage",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'linear-acts'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:linear-acts:payoff",
+      "value": 0.8,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'linear-acts'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:linear-acts:pressure",
+      "value": 0.9,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'linear-acts'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:linear-acts:recover",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'linear-acts'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:linear-acts:reveal",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'linear-acts'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:linear-acts:subsystem",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'linear-acts'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:multi-faction:character",
+      "value": 1.3,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'multi-faction'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:multi-faction:choice",
+      "value": 1.3,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'multi-faction'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:multi-faction:cut",
+      "value": 0.8,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'multi-faction'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:multi-faction:deepen",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'multi-faction'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:multi-faction:montage",
+      "value": 0.9,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'multi-faction'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:multi-faction:payoff",
+      "value": 0.9,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'multi-faction'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:multi-faction:pressure",
+      "value": 1.2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'multi-faction'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:multi-faction:recover",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'multi-faction'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:multi-faction:reveal",
+      "value": 0.8,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'multi-faction'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:multi-faction:subsystem",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'multi-faction'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:time-loop:character",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'time-loop'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:time-loop:choice",
+      "value": 0.9,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'time-loop'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:time-loop:cut",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'time-loop'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:time-loop:deepen",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'time-loop'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:time-loop:montage",
+      "value": 0.8,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'time-loop'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:time-loop:payoff",
+      "value": 1.3,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'time-loop'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:time-loop:pressure",
+      "value": 1.3,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'time-loop'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:time-loop:recover",
+      "value": 1.2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'time-loop'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:time-loop:reveal",
+      "value": 0.9,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'time-loop'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "structure-weight:time-loop:subsystem",
+      "value": 1.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "structure weight for 'time-loop'; this checkpoint is 'branching-investigation'"
+    },
+    {
+      "node_id": "threshold:choice-undiscovered-clue-count",
+      "value": 2,
+      "perturbed_to": 3,
+      "verdict": "decision-changing",
+      "changed_rows": 18
+    },
+    {
+      "node_id": "threshold:clue-policy-lead-count",
+      "value": 2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:clue-route-default-priority",
+      "value": 0.5,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:compression-max-beats-ceiling",
+      "value": 8,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:compression-max-beats-default",
+      "value": 4,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:compression-max-beats-floor",
+      "value": 2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:compression-max-minutes-ceiling",
+      "value": 30,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:compression-max-minutes-default",
+      "value": 10,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:compression-min-beats-default",
+      "value": 2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:cut-stalled-transition-turns",
+      "value": 2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:default-clock-segments",
+      "value": 6,
+      "perturbed_to": 7,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "threshold:fair-warning-lethal-chances",
+      "value": 3,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:fumble-tick-bound",
+      "value": 4,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:live-affordance-merge-cap",
+      "value": 6,
+      "perturbed_to": 7,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "threshold:live-affordance-minimum",
+      "value": 2,
+      "perturbed_to": 3,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "threshold:live-affordance-return-cap",
+      "value": 3,
+      "perturbed_to": 4,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "threshold:live-affordance-route-cap",
+      "value": 3,
+      "perturbed_to": 4,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "threshold:low-agency-max-beats-fallback",
+      "value": 4,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:memory-callback-candidate-floor",
+      "value": 20,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:memory-callback-overlap-weight",
+      "value": 4,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:memory-callback-refs-multiplier",
+      "value": 5,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:memory-callback-score-digits",
+      "value": 3,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:mythos-signature-sample",
+      "value": 2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:override-low-agency-count",
+      "value": 2,
+      "perturbed_to": 3,
+      "verdict": "decision-changing",
+      "changed_rows": 15
+    },
+    {
+      "node_id": "threshold:override-stalled-turns",
+      "value": 3,
+      "perturbed_to": 4,
+      "verdict": "decision-changing",
+      "changed_rows": 3
+    },
+    {
+      "node_id": "threshold:pressure-clock-near-full-fraction",
+      "value": [
+        2,
+        3
+      ],
+      "perturbed_to": [
+        3,
+        4
+      ],
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "threshold:pressure-move-low-agency-count",
+      "value": 2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:pressure-move-stalled-gate",
+      "value": 1,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:pressure-posture-ceiling",
+      "value": 0.95,
+      "perturbed_to": 0.75,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "threshold:pressure-posture-floor",
+      "value": 0.05,
+      "perturbed_to": 0.25,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "threshold:pressure-stalled-turns",
+      "value": 1,
+      "perturbed_to": 2,
+      "verdict": "decision-changing",
+      "changed_rows": 6
+    },
+    {
+      "node_id": "threshold:pressure-yielded-low-agency-count",
+      "value": 2,
+      "perturbed_to": 3,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "threshold:recent-intent-window",
+      "value": 5,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:recover-stalled-turns",
+      "value": 2,
+      "perturbed_to": 3,
+      "verdict": "decision-changing",
+      "changed_rows": 24
+    },
+    {
+      "node_id": "threshold:scene-exit-pressure-continue-count",
+      "value": 2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:score-precision-digits",
+      "value": 4,
+      "perturbed_to": 5,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "threshold:storylet-need-stalled-turns",
+      "value": 3,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:storylet-recent-window",
+      "value": 8,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:storylet-used-targets-window",
+      "value": 16,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:storylet-used-window",
+      "value": 999,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:time-advance-confidence-digits",
+      "value": 2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:time-advance-deadline-confidence",
+      "value": 0.6,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:time-advance-deadline-delta-minutes",
+      "value": 5,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:time-advance-default-confidence",
+      "value": 0.7,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:time-advance-exhaustion-confidence",
+      "value": 0.85,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:time-advance-exhaustion-delta-minutes",
+      "value": 480,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:time-advance-exhaustion-hours",
+      "value": 18,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    }
+  ]
+}
