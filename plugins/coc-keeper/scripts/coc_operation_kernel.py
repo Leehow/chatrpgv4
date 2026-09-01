@@ -6772,22 +6772,68 @@ def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
             "build": int(state.get("build", 0)),
             "conditions": list(state.get("conditions") or []),
         }
+    # NPC chase actors come from the same presence authority combat uses:
+    # the authored scene roster PLUS the live presence overlay, minus anyone
+    # the overlay marks elsewhere. Reading only `scene.npc_ids` made a
+    # pursuit structurally impossible the first time it was actually played:
+    # the Keeper marked the pursuer present in the fled-through scene with
+    # `state.npc_presence` — the overlay combat honors — and the chase
+    # candidates ignored it, so `rules.context(chase)` returned no cards
+    # while the fiction had claws on the investigator's coat.
+    try:
+        presence_overlay = _load_npc_presence_document(ctx).get("presence") or {}
+    except (AttributeError, ToolError):
+        # A caller that supplies only world/story_graph (focused runtime
+        # tests, projection probes) has no campaign_dir; the authored scene
+        # roster alone is then the presence authority, exactly as before.
+        presence_overlay = {}
+    npc_candidate_ids: list[str] = []
     for npc_id in (scene.get("npc_ids") or []):
         npc_id = str(npc_id)
+        live = presence_overlay.get(npc_id)
+        if isinstance(live, Mapping) and (
+            live.get("status") != "present"
+            or str(live.get("scene_id") or "") != scene_id
+        ):
+            continue
+        npc_candidate_ids.append(npc_id)
+    for npc_id, live in presence_overlay.items():
+        npc_id = str(npc_id)
+        if npc_id in npc_candidate_ids:
+            continue
+        if (
+            isinstance(live, Mapping)
+            and live.get("status") == "present"
+            and str(live.get("scene_id") or "") == scene_id
+        ):
+            npc_candidate_ids.append(npc_id)
+    for npc_id in npc_candidate_ids:
         npc = _npc_by_id(ctx.npc_agendas, npc_id)
         mechanics = npc.get("mechanics") if isinstance(npc, Mapping) else None
         profile = mechanics.get("profile") if isinstance(mechanics, Mapping) else None
         if not isinstance(profile, Mapping):
             continue
+        # Canonical actor profiles nest characteristics/derived/skills; the
+        # flat names are the legacy compact-opponent shape. Read both, or a
+        # source-authored stat block silently degrades to defaults.
+        chars = profile.get("characteristics") if isinstance(profile.get("characteristics"), Mapping) else {}
+        derived = profile.get("derived") if isinstance(profile.get("derived"), Mapping) else {}
+        skills = profile.get("skills") if isinstance(profile.get("skills"), Mapping) else {}
+        fight = skills.get(
+            "Fighting (Brawl)", skills.get("Brawl", skills.get("Fighting")),
+        )
         actors[f"npc:{npc_id}"] = {
             "actor_id": npc_id,
-            "mov": int(profile.get("mov", profile.get("MOV", 8))),
-            "dex": int(profile.get("dex", profile.get("DEX", 50))),
-            "con": int(profile.get("con", profile.get("CON", 50))),
-            "hp": int(profile.get("hp", profile.get("HP", 10))),
-            "fight": int(profile.get("combat_skill", profile.get("fight", 25))),
-            "dodge": int(profile.get("dodge_skill", profile.get("dodge", 25))),
-            "build": int(profile.get("build", 0)),
+            "mov": int(derived.get("MOV", profile.get("mov", profile.get("MOV", 8)))),
+            "dex": int(chars.get("DEX", profile.get("dex", profile.get("DEX", 50)))),
+            "con": int(chars.get("CON", profile.get("con", profile.get("CON", 50)))),
+            "hp": int(derived.get("HP", profile.get("hp", profile.get("HP", 10)))),
+            "fight": int(
+                fight if fight is not None
+                else profile.get("combat_skill", profile.get("fight", 25))
+            ),
+            "dodge": int(skills.get("Dodge", profile.get("dodge_skill", profile.get("dodge", 25)))),
+            "build": int(derived.get("Build", profile.get("build", 0))),
             "conditions": list(profile.get("conditions") or []),
         }
     connected = {scene_id}

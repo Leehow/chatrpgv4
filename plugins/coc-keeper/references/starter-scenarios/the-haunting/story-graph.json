@@ -1879,7 +1879,13 @@
           }
         ]
       },
-      "scene_edges": [],
+      "scene_edges": [
+        {
+          "target_scene_id": "basement-rites",
+          "kind": "passage",
+          "note": "The dug tunnel runs both ways; fleeing the burial chamber returns through it."
+        }
+      ],
       "source_refs": [
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
