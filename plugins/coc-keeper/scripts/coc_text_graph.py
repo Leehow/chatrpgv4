@@ -710,8 +710,336 @@ def obligation_shard() -> dict[str, Any]:
     }
 
 
+# --------------------------------------------------------------------------
+# Frozen craft-plane transcription (slice T4).
+#
+# Unlike the obligation plane, none of this is derived from a settled receipt:
+# it is house doctrine about how prose should read. It therefore carries the
+# full accountability burden — rationale, origin, falsifiable_by — and the
+# origin is `unknown-legacy-tuning` wherever no spec was found. The inventory
+# searched: no Keeper-craft page is cited anywhere in coc_narration_style.py,
+# unlike coc_story_director.py which cites nine. Nothing here is classified
+# rulebook-source, because inventing a citation to improve the distribution is
+# exactly what the contract forbids.
+# --------------------------------------------------------------------------
+
+UNKNOWN = "unknown-legacy-tuning"
+DELETED_MATCHER_ORIGIN = (
+    "coc_narration_style.audit_player_visible_text, deleted in slice T4"
+)
+
+# (legacy_key, hard_gate, citable, rationale, origin)
+#
+# The first four were already enforced by narration.review. The last five are
+# the semantic ids the deleted matchers raised; they survive as rules the
+# Keeper may cite, which is what makes the deletion a migration rather than a
+# loss. unnatural_spatial_phrase is deliberately absent — see review_rule_law.
+LEGACY_REVIEW_RULES: tuple[tuple[str, bool, bool, str, str], ...] = (
+    ("agency_violation", True, True,
+     "the sole hard narrative finding: prose claimed a player-owned "
+     "proposition without an authorizing override", UNKNOWN),
+    ("semantic_repetition", False, True,
+     "an already established fact, clue or quotation was restated in full "
+     "instead of compressed", UNKNOWN),
+    ("scope_overreach", False, True,
+     "the draft reached past the settled turn into material the turn did not "
+     "settle", UNKNOWN),
+    ("over_length", False, True,
+     "the draft ran past twice its derived length budget; advisory, and the "
+     "only finding the code raises on its own", UNKNOWN),
+    ("ai_summary_voice", False, True,
+     "the draft read as report or log voice rather than table narration",
+     DELETED_MATCHER_ORIGIN),
+    ("expository_choice_summary", False, True,
+     "option or blocking logic was exposed as explanation instead of being "
+     "rendered as scene", DELETED_MATCHER_ORIGIN),
+    ("camera_direction_staging", False, True,
+     "body parts were staged like camera directions instead of naming the "
+     "person and what they look at", DELETED_MATCHER_ORIGIN),
+    ("passive_translation_ese", False, True,
+     "literary passive construction read as translated prose rather than "
+     "spoken narration", DELETED_MATCHER_ORIGIN),
+    ("abstract_psychological_explanation", False, True,
+     "inner state was explained abstractly instead of shown through "
+     "observable behaviour first", DELETED_MATCHER_ORIGIN),
+)
+
+# (directive_id, declares, rationale, origin)
+LEGACY_CRAFT_DIRECTIVES: tuple[tuple[str, str, str, str], ...] = (
+    ("observable-before-interpretation", "required_rule",
+     "show observable behaviour before interpreting it", UNKNOWN),
+    ("player-action-uptake", "required_rule",
+     "enact a committed player action as world-perspective prose before or "
+     "alongside its settled outcome", UNKNOWN),
+    ("rewrite-abstract-explanation-to-action", "required_rule",
+     "replace abstract inner-state explanation with action, voice, posture, "
+     "gaze, hesitation or physical evidence", UNKNOWN),
+    ("skill-interpretation-after-visible-evidence", "required_rule",
+     "place a skill-justified interpretation after the visible evidence, not "
+     "before it", UNKNOWN),
+    ("crisis-scene-clarity", "required_rule",
+     "draft urgent physical scenes through the render frame so space, force, "
+     "risk and handles are clear before prose is sent", UNKNOWN),
+    ("final-prose-guard-before-output", "required_rule",
+     "review a genuinely difficult draft semantically before release", UNKNOWN),
+    ("repetition-policy", "policy",
+     "compress an established fact; the current player action is not "
+     "repetition and must still be enacted in the Keeper's own words", UNKNOWN),
+    ("action-uptake-review", "policy",
+     "check semantically that the draft enacts the player action without "
+     "cloning the player's sentence structure", UNKNOWN),
+    ("final-output-pass", "policy",
+     "narration.review is advisory and invoked when the draft is hard, not on "
+     "every routine turn", UNKNOWN),
+    ("rewrite-ai-summary-voice", "rewrite_guidance",
+     "express the same information through scene detail or NPC speech instead "
+     "of report phrasing", DELETED_MATCHER_ORIGIN),
+    ("rewrite-expository-choice-summary", "rewrite_guidance",
+     "render the spatial setup, motion, force, worsening risk and visible "
+     "handles as scene prose", DELETED_MATCHER_ORIGIN),
+    ("rewrite-camera-direction-staging", "rewrite_guidance",
+     "name the person and the visible focus in one natural sentence",
+     DELETED_MATCHER_ORIGIN),
+    ("rewrite-passive-translation-ese", "rewrite_guidance",
+     "rewrite into active voice with a clear subject and concrete action",
+     DELETED_MATCHER_ORIGIN),
+    ("rewrite-abstract-psychological-explanation", "rewrite_guidance",
+     "lead with observable behaviour and add interpretation only after visible "
+     "evidence or a relevant skill result", DELETED_MATCHER_ORIGIN),
+)
+
+LEGACY_RENDER_SLOTS: tuple[str, ...] = (
+    "viewpoint_anchor", "spatial_anchor", "active_motion",
+    "connection_or_force", "risk_progression", "visible_affordance",
+    "player_entry",
+)
+
+LEGACY_RENDER_PROHIBITIONS: tuple[str, ...] = (
+    "slot_labels", "expository_choice_summary", "if_then_option_dump",
+)
+
+# (legacy_key, axis, language_applicability)
+#
+# translationese is the one axis the generic register drops, which is the only
+# language-dependent thing left in this layer once the matchers are gone.
+LEGACY_STYLE_AXES: tuple[tuple[str, str, str], ...] = (
+    ("translationese", "avoid", "zh-Hans"),
+    ("ai_summary_voice", "avoid", "all"),
+    ("log_style_summary", "avoid", "all"),
+    ("semantic_repetition", "avoid", "all"),
+    ("abstract_psychological_explanation", "avoid", "all"),
+    ("short_sentences", "prefer", "all"),
+    ("concrete_sensory_detail", "prefer", "all"),
+    ("observable_behavior", "prefer", "all"),
+    ("open_ended_prompt", "prefer", "all"),
+)
+
+# (legacy_key, max_chars, max_paragraphs) in first-match-wins ladder order.
+LEGACY_BUDGET_MODES: tuple[tuple[str, int, int], ...] = (
+    ("climax_or_madness", 1500, 8),
+    ("reveal_or_transition", 900, 5),
+    ("costly_result", 550, 3),
+    ("routine_resolution", 350, 2),
+)
+
+# (legacy_key, owning budget mode). routine_resolution is the fallback and has
+# no triggers, which is why it is absent here.
+LEGACY_BUDGET_TRIGGERS: tuple[tuple[str, str], ...] = (
+    ("bout_of_madness", "climax_or_madness"),
+    ("indefinite_insanity", "climax_or_madness"),
+    ("permanent_insanity", "climax_or_madness"),
+    ("session_ending", "climax_or_madness"),
+    ("scene_transition", "reveal_or_transition"),
+    ("major_reveal", "reveal_or_transition"),
+    ("exceptional_effect_apply", "reveal_or_transition"),
+    ("hp_change", "costly_result"),
+    ("sanity_loss", "costly_result"),
+    ("luck_spend", "costly_result"),
+)
+
+# (threshold_id, value, comparison, subject, rationale)
+LEGACY_TEXT_THRESHOLDS: tuple[tuple[str, float | int, str, str, str], ...] = (
+    ("over-length-multiplier", 2, "gt", "draft chars over budget max_chars",
+     "how far past its budget a draft runs before over_length is recorded"),
+    ("recent-event-window", 12, "lte", "recent events read for budget",
+     "how much recent event history the length budget is derived from"),
+    ("excerpt-repair-similarity", 0.5, "gte", "excerpt to paragraph ratio",
+     "how close a near-miss excerpt must be before it is repaired rather "
+     "than rejected"),
+    ("excerpt-repair-min-match", 8, "gte", "longest common run length",
+     "the shortest run that may be treated as a recovered verbatim excerpt"),
+    ("max-accepted-revision", 2, "lte", "accepted narration revisions",
+     "how many narration-only revisions one settlement allows"),
+)
+
+
+def _craft_node(
+    kind: str,
+    key: str,
+    name: str,
+    ordinal: int,
+    properties: dict[str, Any],
+    rationale: str,
+    origin: str,
+) -> dict[str, Any]:
+    return {
+        "node_id": f"{kind}:{_slug(key)}",
+        "node_kind": kind,
+        "plane": "craft",
+        "name": name,
+        "evidence_class": "authored-house-doctrine",
+        "rationale": rationale,
+        "origin": origin,
+        "falsifiable_by": _falsifiable_by(kind),
+        "properties": properties,
+    }
+
+
+_FALSIFIABLE_BY = {
+    "review-rule": (
+        "run a production-profile session with the rule published in the "
+        "narration.review enum and one without it, over more than one turn per "
+        "arm, and compare whether the Keeper cites it and whether the cited "
+        "drafts read worse to a reader who is not told which arm they came from"
+    ),
+    "craft-directive": (
+        "remove the directive from the style contract for one arm of a "
+        "multi-turn production-profile session and compare the drafts blind"
+    ),
+    "render-slot": (
+        "drop the slot from the crisis render frame for one arm and check "
+        "whether players ask more clarifying questions about the scene"
+    ),
+    "render-prohibition": (
+        "permit the prohibited shape for one arm and compare whether readers "
+        "can still tell what the scene offers"
+    ),
+    "style-axis": (
+        "remove the axis from the register for one arm of a multi-turn session "
+        "and compare drafts blind"
+    ),
+    "narration-budget-mode": (
+        "change the rung's max_chars for one arm and measure whether "
+        "over_length findings and player follow-up questions move together"
+    ),
+    "narration-budget-trigger": (
+        "remove the event type from the rung for one arm and check whether the "
+        "turns it used to select are now under-written"
+    ),
+    "text-threshold": (
+        "perturb the value and replay the preserved corpus: a threshold no "
+        "replay outcome is sensitive to is a candidate for retirement"
+    ),
+}
+
+
+def _falsifiable_by(kind: str) -> str:
+    return _FALSIFIABLE_BY[kind]
+
+
+def craft_shard() -> dict[str, Any]:
+    """Compose the T4 craft shard from the frozen legacy declarations."""
+    nodes: list[dict[str, Any]] = []
+    relations: list[dict[str, Any]] = []
+
+    for ordinal, (key, hard, citable, why, origin) in enumerate(LEGACY_REVIEW_RULES):
+        nodes.append(_craft_node(
+            "review-rule", key, f"review rule {key}", ordinal,
+            {"legacy_key": key, "ordinal": ordinal,
+             "hard_gate": hard, "citable": citable},
+            why, origin,
+        ))
+
+    for ordinal, (did, declares, why, origin) in enumerate(LEGACY_CRAFT_DIRECTIVES):
+        nodes.append(_craft_node(
+            "craft-directive", did, f"craft directive {did}", ordinal,
+            {"directive_id": did, "ordinal": ordinal, "declares": declares},
+            why, origin,
+        ))
+
+    for ordinal, key in enumerate(LEGACY_RENDER_SLOTS):
+        nodes.append(_craft_node(
+            "render-slot", key, f"render slot {key}", ordinal,
+            {"legacy_key": key, "ordinal": ordinal},
+            "one blocking slot of the crisis render frame, checked for "
+            "presence only and never for wording", UNKNOWN,
+        ))
+
+    for ordinal, key in enumerate(LEGACY_RENDER_PROHIBITIONS):
+        nodes.append(_craft_node(
+            "render-prohibition", key, f"render prohibition {key}", ordinal,
+            {"legacy_key": key, "ordinal": ordinal},
+            "a shape player-visible text must not take", UNKNOWN,
+        ))
+
+    for ordinal, (key, axis, lang) in enumerate(LEGACY_STYLE_AXES):
+        nodes.append(_craft_node(
+            "style-axis", f"{axis}-{key}", f"{axis} {key}", ordinal,
+            {"legacy_key": key, "ordinal": ordinal, "axis": axis,
+             "language_applicability": lang},
+            f"register guidance: {axis} {key}", UNKNOWN,
+        ))
+
+    for ordinal, (key, chars, paras) in enumerate(LEGACY_BUDGET_MODES):
+        nodes.append(_craft_node(
+            "narration-budget-mode", key, f"length budget {key}", ordinal,
+            {"legacy_key": key, "ordinal": ordinal,
+             "max_chars": chars, "max_paragraphs": paras},
+            "how long a turn of this kind should run before length becomes "
+            "an advisory finding", UNKNOWN,
+        ))
+
+    for ordinal, (key, mode) in enumerate(LEGACY_BUDGET_TRIGGERS):
+        nodes.append(_craft_node(
+            "narration-budget-trigger", key, f"budget trigger {key}", ordinal,
+            {"legacy_key": key, "ordinal": ordinal, "budget_mode": mode},
+            "a settled event type that selects this length rung", UNKNOWN,
+        ))
+        relations.append({
+            "relation_id": f"relation:text:budget-trigger-{_slug(key)}:part-of",
+            "relation_kind": "part-of",
+            "from_node_id": f"narration-budget-trigger:{_slug(key)}",
+            "to_node_id": f"narration-budget-mode:{_slug(mode)}",
+        })
+
+    for ordinal, (tid, value, comparison, subject, why) in enumerate(
+        LEGACY_TEXT_THRESHOLDS
+    ):
+        nodes.append(_craft_node(
+            "text-threshold", tid, f"threshold {tid}", ordinal,
+            {"threshold_id": tid, "ordinal": ordinal, "value": value,
+             "comparison": comparison, "subject": subject},
+            why, UNKNOWN,
+        ))
+
+    # Each rewrite directive advises the rule whose matcher it replaces.
+    for directive, rule in (
+        ("rewrite-ai-summary-voice", "ai_summary_voice"),
+        ("rewrite-expository-choice-summary", "expository_choice_summary"),
+        ("rewrite-camera-direction-staging", "camera_direction_staging"),
+        ("rewrite-passive-translation-ese", "passive_translation_ese"),
+        ("rewrite-abstract-psychological-explanation",
+         "abstract_psychological_explanation"),
+    ):
+        relations.append({
+            "relation_id": f"relation:text:{_slug(directive)}:advises",
+            "relation_kind": "advises",
+            "from_node_id": f"craft-directive:{_slug(directive)}",
+            "to_node_id": f"review-rule:{_slug(rule)}",
+        })
+
+    return {
+        "contract_id": SHARD_CONTRACT_ID,
+        "schema_version": SCHEMA_VERSION,
+        "shard_id": "shard:text:craft-doctrine",
+        "plane": "craft",
+        "nodes": nodes,
+        "relations": relations,
+    }
+
+
 def build_from_legacy_sources() -> dict[str, Any]:
-    return build([obligation_shard()])
+    return build([obligation_shard(), craft_shard()])
 
 
 def main(argv: list[str] | None = None) -> int:

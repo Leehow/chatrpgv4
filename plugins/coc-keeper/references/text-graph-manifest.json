@@ -2,24 +2,33 @@
   "contract_id": "coc.text-graph-build-manifest.v1",
   "schema_version": 1,
   "graph_id": "graph:text:production",
-  "graph_content_digest": "178762289d47ad82bff33360ec02b1edd5f75e66bd22a21819c69648cfd773ea",
+  "graph_content_digest": "8c0259f902ba27380a39a344708ae5a0364d508df1569bbfef8bdd169dcdfcde",
   "shards": [
+    "shard:text:craft-doctrine",
     "shard:text:obligation-vocabulary"
   ],
   "plane_coverage": {
     "obligation": "accepted",
-    "craft": "unresolved"
+    "craft": "accepted"
   },
   "compiler_identity": "coc.text-graph-compiler.v1",
   "node_counts": {
     "agency-claim-type": 8,
     "coverage-field": 9,
+    "craft-directive": 14,
+    "narration-budget-mode": 4,
+    "narration-budget-trigger": 10,
     "obligation-kind": 3,
     "obligation-source-kind": 5,
     "player-input-handling": 3,
     "realization-mode": 2,
+    "render-prohibition": 3,
+    "render-slot": 7,
+    "review-rule": 9,
     "roll-visibility-class": 6,
     "segment-type": 5,
-    "substantive-effect-status": 3
+    "style-axis": 9,
+    "substantive-effect-status": 3,
+    "text-threshold": 5
   }
 }
