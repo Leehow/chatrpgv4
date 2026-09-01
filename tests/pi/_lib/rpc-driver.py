@@ -938,9 +938,22 @@ def _acknowledge_delivery(payload: dict, rows: list[dict]) -> None:
     delivered = _delivered_finalization(rows)
     if delivered is None:
         return
-    script = ROOT / "plugins" / "coc-keeper" / "scripts" / "coc_toolbox.py"
-    if not script.is_file():
+    # The gate probe launches the repo's `pi-coc` from a workspace that is not
+    # itself a checkout, so the canonical toolbox lives next to that launcher
+    # rather than under ROOT.
+    launcher = os.environ.get("PI_COC_LAUNCHER")
+    roots = []
+    if launcher:
+        roots.append(Path(launcher).resolve().parents[4])
+    roots.append(ROOT)
+    for candidate in roots:
+        script = candidate / "plugins" / "coc-keeper" / "scripts" / "coc_toolbox.py"
+        if script.is_file():
+            break
+    else:
+        log("delivery ack skipped: canonical toolbox not found")
         return
+    campaign_id = os.environ.get("PI_COC_CAMPAIGN_ID") or delivered["campaign_id"]
     arguments = {
         "finalization_id": delivered["finalization_id"],
         "rendered_sha256": delivered["rendered_sha256"],
@@ -952,8 +965,8 @@ def _acknowledge_delivery(payload: dict, rows: list[dict]) -> None:
             [
                 "uv", "run", "--frozen", "python", str(script),
                 "session.delivery_ack",
-                "--root", str(ROOT),
-                "--campaign", delivered["campaign_id"],
+                    "--root", str(ROOT),
+                "--campaign", campaign_id,
                 "--json", json.dumps(arguments, ensure_ascii=False),
             ],
             cwd=ROOT, capture_output=True, text=True, timeout=120,
