@@ -12435,6 +12435,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               };
             }
           }
+          if (
+            startupSilentResumeQuarantine === null
+            && livePlayerMessageForOpenTurn !== null
+            && livePlayerMessageForOpenTurn.campaignId === selectedCampaignId
+            && livePlayerMessageForOpenTurn.playerTurnEpoch
+              === canonicalProgress.playerTurnEpoch
+          ) {
+            // The player message that reached this process before the startup
+            // resume classified it owns this turn — the quarantine above is
+            // disarmed precisely so the agent finishes it with ordinary tools.
+            // state.journal is one of those tools and its player_text is
+            // host-owned, so without arming here the Keeper spends the whole
+            // turn on missing_param and the player gets an empty reply.
+            openingContinuationGate.currentExternalPlayerText =
+              livePlayerMessageForOpenTurn.text;
+            armJournalBinding(selectedCampaignId);
+          }
           startupResumeGate = null;
           if (startupGateOrigin === "role_null_handoff") {
             refreshTypedToolDefinition("session.resume");

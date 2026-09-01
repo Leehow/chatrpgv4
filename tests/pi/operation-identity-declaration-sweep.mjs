@@ -140,3 +140,62 @@ test("the three operations fixed in this sweep stay declared", () => {
     "npc.query lie_id must stay declared",
   );
 });
+
+test("the recall and worldline families stay declared", () => {
+  // The ledger was 35 operations deep, and two of them reached a live table
+  // on 2026-09-01: the Keeper asked memory.recall and transcript.locate what
+  // it remembered of the previous loop and got semantic_identity_unavailable
+  // for the whole result. A time-loop module is unplayable if the Keeper
+  // cannot read its own memory, so these families do not go back on the
+  // ledger.
+  const observed = observedGaps();
+  for (const operation of [
+    "memory.recall", "memory.adjudicate", "memory.extraction_settle",
+    "memory.extraction_status", "history.diff", "history.query",
+    "transcript.locate", "transcript.read", "timeline.fork_request",
+    "timeline.fork_confirm", "timeline.confluence_query",
+    "timeline.confluence_confirm", "timeline.transfer", "narration.brief",
+    "npc.advise", "quest.improvise", "quest.offer", "quest.settle",
+    "setup.invoke", "state.set_flag", "state.time_marker",
+    "steward.deliveries", "steward.scene_supply", "actions.advise",
+    "state.record_clue", "progressive.status", "progressive.follow_mentions",
+    "progressive.request_locator_pass", "progressive.request_opening_pack",
+    "progressive.opening_bootstrap", "progressive.prepare_opening",
+    "progressive.project_opening",
+  ]) {
+    assert.deepEqual(
+      [...(observed.get(operation) ?? [])],
+      [],
+      `${operation} fails closed again on a field this sweep declared`,
+    );
+  }
+});
+
+test("the ledger's remainder is a fixture artifact, not a declaration gap", () => {
+  // What is left is `campaign_id` on three operations, and it is not a
+  // missing disposition: all three declare it semantic. The corpus was
+  // captured from a campaign literally named "toolbox-test", and `toolbox-`
+  // is a RAW_REJECTED_PREFIXES machine prefix, so the VALUE is refused by
+  // design. Declaring it differently would not close it — loosening the
+  // grammar would, and that is the wrong trade. This test proves the
+  // distinction so the remainder is never mistaken for unpaid debt.
+  assert.deepEqual(Object.keys(outstanding).sort(), [
+    "npc.query", "scene.context", "setup.phase",
+  ]);
+  for (const [operation, fields] of Object.entries(outstanding)) {
+    assert.deepEqual(fields, ["campaign_id"], `${operation} carries a real gap`);
+    const diagnostics = { unmapped: [] };
+    projection.projectModelVisibleCanonicalResult(
+      operation,
+      { ok: true, tool: operation, data: { campaign_id: "amaranthine-run3" } },
+      registry.emptySemanticProjectionView(),
+      diagnostics,
+    );
+    assert.deepEqual(
+      diagnostics.unmapped,
+      [],
+      `${operation} drops campaign_id for an ordinary campaign name too, so `
+        + "this is a genuine declaration gap and not the toolbox- prefix",
+    );
+  }
+});

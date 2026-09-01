@@ -3669,6 +3669,12 @@ const CLASSIFIED_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
   "baseline_draft_sha256", "data_digest", "row_digest", "content_sha256",
   "transaction_sha256",
   "record_digest",
+  // Source-ingestion digests. Every progressive.* result carries the file,
+  // page and evidence hashes its own provenance is built from; none of them
+  // was named here, so each ingestion operation failed the whole result
+  // closed the first time a Keeper reached it.
+  "file_sha256", "source_file_sha256", "page_text_sha256",
+  "projection_input_sha256", "source_evidence_sha256",
 ]);
 
 /**
@@ -3781,6 +3787,10 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   ["scene.context", declaredIdentityTable(
     SCENE_CONTEXT_SEMANTIC_IDENTITY_FIELDS,
     [],
+    // Flag provenance points at the save file and record that set the flag
+    // ("save/flags.json#flag_provenance/<flag>"). It is bookkeeping about
+    // where a value lives, not something the Keeper narrates from.
+    ["source_ref"],
   )],
   ["clues.query", declaredIdentityTable(
     [
@@ -3810,7 +3820,8 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["clue_id", "clue_ids", "npc_id", "npc_ids", "scene_id"],
     [],
   )],
-  ["steward.scene_supply", declaredIdentityTable(["scene_id"], [])],
+  // Supplied scenes are keyed by a bare `id` beside `scene_id`.
+  ["steward.scene_supply", declaredIdentityTable(["id", "scene_id"], [])],
   // `projection_sha256` is NOT declared here: it is transport-authored and
   // covered once by TRANSPORT_COLLAPSE_INTEGRITY_FIELDS for every operation.
   ["setup.inspect", declaredIdentityTable(
@@ -3818,6 +3829,8 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [],
   )],
   ["setup.phase", declaredIdentityTable(["asset_root_id", "campaign_id"], [])],
+  // Same shape as setup.investigator_contract: the ruleset slug is ordinary.
+  ["setup.invoke", declaredIdentityTable(["campaign_id", "ruleset_id"], [])],
   ["setup.adopt_source_facts", declaredIdentityTable(["campaign_id"], [])],
   ["setup.investigator_contract", declaredIdentityTable(
     // The ruleset the contract is bound to ("coc7") is an ordinary slug.
@@ -3860,6 +3873,10 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       "authorized_entity_refs", "authorized_route_ids", "clock_id", "clue_id",
       "family_id", "front_id", "last_storylet_id", "location_id", "npc_id",
       "scene_id", "storylet_id", "trope_id",
+      // The advised attempt names the route affordance it would spend
+      // ("route:newspaper-morgue:persuade-arty"): authored meaning, not a
+      // handle.
+      "attempt_id",
     ],
     [],
   )],
@@ -3967,6 +3984,23 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["civil_segment_id", "location_id", "source_ref"],
     [],
   )],
+  // Recording an NPC engagement carries the scene the route completed in, and
+  // nothing declared it: the first talk with a beggar failed the whole result
+  // closed on `route_completion.scene_id` while the engagement itself had
+  // already been written. The registry-backed identity/receipt refs stay
+  // host-only — they are digests, not meaning the Keeper acts on.
+  ["state.record_npc_engagement", declaredIdentityTable(
+    [
+      "active_scene_id", "campaign_id", "decision_id", "investigator_id",
+      "npc_id", "route_id", "scene_id", "schedule_id",
+    ],
+    [],
+    [
+      "effect_id", "event_id", "expected_identity_ref", "first_impression_ref",
+      "identity_ref", "profile_revision_ref", "run_id", "source_receipt_id",
+      "source_roll_id",
+    ],
+  )],
   ["state.exceptional_effect", declaredIdentityTable(
     ["scene_id", "subject_id", "restriction_id", "target_id"],
     ["integrity_digest"],
@@ -4024,6 +4058,10 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   ["state.record_clue", declaredIdentityTable(
     ["clue_id", "decision_id", "route_id", "scene_id"],
     [],
+    // The tool-operation event this record was written by
+    // ("tool-operation-v1:<hex>") is a machine handle for the write, and
+    // carries entropy that could never pass the semantic grammar.
+    ["source_event_id"],
   )],
   ["state.deliver_handout", declaredIdentityTable(
     ["asset_id", "image_ref"],
@@ -4058,6 +4096,153 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       "accepted_draft_sha256", "contract_projection_sha256", "integrity_digest",
       "rendered_text_sha256", "source_digest", "payload_sha256",
     ],
+  )],
+  /*
+   * Recall, history and worldline operations.
+   *
+   * These were the whole outstanding ledger: 35 operations that named an
+   * identity-shaped field nobody had given a disposition, so each one handed
+   * the Keeper `semantic_identity_unavailable` for its entire result the
+   * first time a table reached it. Two of them did exactly that on
+   * 2026-09-01 (memory.recall and transcript.locate, campaign
+   * amaranthine-run3) — the Keeper asked what it remembered of the previous
+   * loop and was told the tool had failed, while the answer sat in host-only
+   * details. Every field below is classified from the value the producer
+   * actually emits in tests/pi/fixtures/operation-identity-corpus.json.
+   *
+   * Timeline coordinates (`tl-main`, `tl-atlantic`) are the worldline
+   * vocabulary the Keeper narrates in, so they are semantic wherever they
+   * appear. They are declared per operation rather than globally because
+   * `campaign_id` — the other shared coordinate — is deliberately host-only
+   * in two operations, which proves this family is not operation-neutral.
+   */
+  ["history.diff", declaredIdentityTable(["timeline_id"], [])],
+  ["history.query", declaredIdentityTable(["campaign_id", "timeline_id"], [])],
+  ["memory.recall", declaredIdentityTable(
+    ["assertion_id", "campaign_id", "subject_id", "timeline_id"],
+    [],
+  )],
+  ["memory.adjudicate", declaredIdentityTable(
+    ["adjudication_id", "candidate_id", "promoted_assertion_id"],
+    [],
+  )],
+  ["memory.extraction_settle", declaredIdentityTable(
+    ["backlog_id", "episode_id", "timeline_id"],
+    [],
+  )],
+  ["memory.extraction_status", declaredIdentityTable(
+    ["backlog_id", "campaign_id", "timeline_id"],
+    [],
+  )],
+  ["transcript.locate", declaredIdentityTable(
+    // `xscript:<timeline>:turn-N:<side>:<kind>:<slug>` is a readable
+    // coordinate, not a digest: it says which turn and speaker to read.
+    ["campaign_id", "timeline_id", "transcript_ref"],
+    [],
+  )],
+  ["transcript.read", declaredIdentityTable(
+    ["campaign_id", "requested_timeline_id", "timeline_id", "transcript_ref"],
+    ["text_sha256"],
+    // Rows cite where the text lives, and the shapes are mixed: two are
+    // readable coordinates ("state.journal#journal-cellar-push") but the
+    // finalization rows are file paths with an anchor
+    // ("logs/turn-finalizations.jsonl#fin-t1"), which no semantic grammar
+    // accepts. One field takes one disposition, so this is host-only and the
+    // Keeper reads the row through `transcript_ref`, which names it exactly.
+    ["source_ref"],
+  )],
+  ["timeline.fork_request", declaredIdentityTable(
+    ["source_episode_id", "source_timeline_id", "timeline_id"],
+    [],
+  )],
+  ["timeline.fork_confirm", declaredIdentityTable(
+    [
+      "active_timeline_id", "request_decision_id", "source_episode_id",
+      "source_timeline_id", "timeline_id",
+    ],
+    [],
+  )],
+  ["timeline.confluence_query", declaredIdentityTable(
+    ["campaign_id", "conflict_id", "confluence_id", "timeline_id"],
+    [],
+  )],
+  ["timeline.confluence_confirm", declaredIdentityTable(
+    ["active_timeline_id", "campaign_id", "confluence_id", "timeline_id"],
+    [],
+  )],
+  ["timeline.transfer", declaredIdentityTable(
+    ["campaign_id", "request_id", "subject_id", "timeline_id", "transfer_id"],
+    [],
+  )],
+  /*
+   * Table-facing content operations. Scenes, quests, NPC moves, flags and
+   * deliveries are named by authored slugs the Keeper reads aloud.
+   */
+  ["narration.brief", declaredIdentityTable(
+    [
+      "active_scene_after_id", "active_scene_before_id", "active_scene_id",
+      "scene_id",
+    ],
+    [],
+  )],
+  ["npc.advise", declaredIdentityTable(["move_id", "npc_id"], [])],
+  ["quest.improvise", declaredIdentityTable(["asset_root_id", "quest_id"], [])],
+  ["quest.offer", declaredIdentityTable(["quest_id"], [])],
+  ["quest.settle", declaredIdentityTable(["quest_id"], [])],
+  ["state.set_flag", declaredIdentityTable(
+    ["flag_id"],
+    [],
+    // Same save-file provenance as scene.context.
+    ["source_ref"],
+  )],
+  ["state.time_marker", declaredIdentityTable(["marker_id"], [])],
+  ["steward.deliveries", declaredIdentityTable(["delivery_id"], [])],
+  /*
+   * Source ingestion. The asset root, source and entity slugs are the
+   * module's own vocabulary; the sha256 family is provenance integrity; and
+   * `host_request_id` / `work_group_id` are job handles carrying entropy
+   * ("job-276f1d364792", "source-work-8b01ebb92a4655a0") that name a unit of
+   * host work and mean nothing at the table.
+   */
+  ["progressive.status", declaredIdentityTable(
+    ["asset_root_id", "source_id", "target_id"],
+    ["file_sha256"],
+    ["work_group_id"],
+  )],
+  ["progressive.follow_mentions", declaredIdentityTable(
+    [
+      "asset_root_id", "canonical_scene_id", "entity_id", "ref_id",
+      "source_id", "target_id",
+    ],
+    ["bundle_sha256s", "file_sha256", "page_text_sha256"],
+  )],
+  ["progressive.request_locator_pass", declaredIdentityTable(
+    ["asset_root_id", "source_id"],
+    ["bundle_sha256", "file_sha256", "text_sha256"],
+  )],
+  ["progressive.request_opening_pack", declaredIdentityTable(
+    [
+      "asset_root_id", "campaign_id", "id", "source_id", "start_location_id",
+      "target_id",
+    ],
+    ["bundle_sha256", "file_sha256", "text_sha256"],
+    ["host_request_id", "work_group_id"],
+  )],
+  ["progressive.opening_bootstrap", declaredIdentityTable(
+    ["asset_root_id", "campaign_id", "source_id", "start_location_id"],
+    ["bundle_sha256", "file_sha256", "source_file_sha256", "text_sha256"],
+    ["host_request_id"],
+  )],
+  ["progressive.prepare_opening", declaredIdentityTable(
+    [
+      "asset_root_id", "entity_id", "selected_start_location_id", "source_id",
+      "start_location_id",
+    ],
+    ["bundle_sha256", "file_sha256", "source_file_sha256", "text_sha256"],
+  )],
+  ["progressive.project_opening", declaredIdentityTable(
+    ["asset_root_id", "scene_id", "start_location_id"],
+    ["projection_input_sha256", "source_evidence_sha256"],
   )],
   ["state.purchase", declaredIdentityTable(
     ["decision_id"],
@@ -4733,6 +4918,20 @@ const PDF_PAGE_REF = /^pdf_index-\d+$/;
 const RULE_SOURCE_SPAN_REF = /^span-[a-z0-9]+(?:-[a-z0-9]+)+$/;
 const PROVENANCE_SOURCE_NAMESPACES = stringSet(["pdf:", "module:", "source:", "handout:"]);
 const RULE_DECISION_REF_NAMESPACE = stringSet(["decision:"]);
+/**
+ * `possible_continuations` names whatever a `continues-as` relation points
+ * at, and the rule graph authors two node kinds there: decisions and
+ * `continuation` nodes. Accepting only `decision:` failed the whole
+ * rules.context result closed for any card with a continuation target — on a
+ * live table (2026-09-01) that was `social:adjudicate-difficulty`, so the
+ * Keeper asked for the social rules mid-conversation and was told the tool
+ * had failed. `coc_mcp_wire.RULE_CONTINUATION_REF_PREFIXES` is the same set
+ * on the producing side.
+ */
+const RULE_CONTINUATION_REF_NAMESPACE = stringSet([
+  "decision:",
+  "continuation:",
+]);
 const RULE_CAPABILITY_REF_NAMESPACE = stringSet(["capability:"]);
 const RULE_RULE_REF_NAMESPACE = stringSet(["rule:"]);
 const RULE_EFFECT_REF_NAMESPACE = stringSet(["effect:"]);
@@ -4815,7 +5014,7 @@ function projectRuleDecisionCard(
   for (const [field, namespaces, domain] of [
     ["rule_refs", RULE_RULE_REF_NAMESPACE, "rule"],
     ["effect_refs", RULE_EFFECT_REF_NAMESPACE, "effect"],
-    ["possible_continuations", RULE_DECISION_REF_NAMESPACE, "decision"],
+    ["possible_continuations", RULE_CONTINUATION_REF_NAMESPACE, "decision"],
   ] as const) {
     if (!Object.hasOwn(card, field)) continue;
     const values = card[field];
