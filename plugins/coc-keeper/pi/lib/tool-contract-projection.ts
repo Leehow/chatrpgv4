@@ -7398,7 +7398,14 @@ const RAW_HANDLE_OR_NAMESPACE: ReadonlyMap<
   }],
   ["candidate_ref", {
     handles: stringSet([CURRENT_CANDIDATE_HANDLE]),
-    namespaces: stringSet(["storylet-candidate:"]),
+    // `attack:` and `combat-route:` are the forms the combat settle binding
+    // REQUIRES ("combat candidate_ref must use attack:<npc_id> or
+    // combat-route:<affordance_id>"). The grammar listing only the storylet
+    // namespaces meant the Keeper's correct first call was refused and the
+    // rejection taught it the storylet form — which the kernel then refused
+    // in turn. Two host layers demanding mutually exclusive forms of the
+    // same field cost four settle round trips in the first live combat.
+    namespaces: stringSet(["storylet-candidate:", "attack:", "combat-route:"]),
   }],
 ]);
 
@@ -7698,11 +7705,14 @@ function rawIdentityFieldRule(
     if (RAW_NAMESPACE_ONLY_ECHOED_FIELDS.has(field)) {
       return (value) => isNamespacedSemantic(value, echoed);
     }
-    if (field === "weapon_id") {
+    if (field === "weapon_id" || field === "weapon_ref") {
       // `unarmed` is the ruleset's canonical built-in weapon vocabulary,
       // not an opaque entity id. Keeping this one literal lets a model
       // preserve fists/kicks without inventing a registry handle or silently
-      // selecting another owned weapon.
+      // selecting another owned weapon. `weapon_ref` takes the same literal:
+      // the combat settle binding strips the `weapon:` prefix and accepts
+      // bare `unarmed` — a grammar that refuses it forces a wasted retry on
+      // the most common weapon in the game.
       return (value) => value === "unarmed" || isEchoedSemanticRef(value, echoed);
     }
     return (value) => isEchoedSemanticRef(value, echoed);
