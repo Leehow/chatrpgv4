@@ -6,19 +6,92 @@
   "matrix_rows": 150,
   "scope": "Perturbation sensitivity of Director doctrine values over the D4 decision matrix. 'inert-in-matrix' means inert in THIS matrix on THIS checkpoint, not globally. A decision change is not a quality judgement.",
   "counts": {
-    "tested": 113,
-    "inert_in_matrix": 36,
+    "tested": 145,
+    "inert_in_matrix": 18,
     "decision_changing": 17,
-    "not_exercised": 60,
+    "not_exercised": 110,
     "not_perturbable": 0
   },
   "results": [
     {
+      "node_id": "multiplier:storylet-selection:conflict-rank-gap",
+      "value": [
+        0.35,
+        0.25
+      ],
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:family-repeat-penalty",
+      "value": 0.45,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:polarity-match",
+      "value": 1.35,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:scene-tag-generic-suppression",
+      "value": 0.01,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:scene-tag-summoned-boost",
+      "value": 5.0,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:serves-deepen-npc",
+      "value": 1.15,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:serves-reveal-clue",
+      "value": 1.25,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:serves-surface-choice",
+      "value": 1.1,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:serves-tick-front",
+      "value": 1.2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "multiplier:storylet-selection:trope-repeat-penalty",
+      "value": 0.6,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
       "node_id": "scoring-rule:character:agenda-npc-in-scene",
       "value": 0.7,
-      "perturbed_to": 0.9,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "scoring-rule:choice:two-undiscovered-clues",
@@ -30,23 +103,23 @@
     {
       "node_id": "scoring-rule:cut:exit-condition-met",
       "value": 0.8,
-      "perturbed_to": 0.6,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "scoring-rule:cut:explicit-move-intent",
       "value": 1.0,
-      "perturbed_to": 0.8,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "scoring-rule:cut:main-line-complete",
       "value": 0.7,
-      "perturbed_to": 0.9,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "scoring-rule:cut:stalled-transition-pressure",
@@ -55,13 +128,9 @@
         0.15,
         0.85
       ],
-      "perturbed_to": [
-        0.65,
-        0.35,
-        0.65
-      ],
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "scoring-rule:deepen:dramatic-question-present",
@@ -84,13 +153,9 @@
         0.12,
         0.85
       ],
-      "perturbed_to": [
-        0.35,
-        0.32,
-        0.65
-      ],
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "scoring-rule:pressure:baseline",
@@ -116,9 +181,9 @@
     {
       "node_id": "scoring-rule:pressure:pushed-fail-nudge",
       "value": 0.1,
-      "perturbed_to": 0.3,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "scoring-rule:pressure:reckless-posture-adjust",
@@ -130,9 +195,9 @@
     {
       "node_id": "scoring-rule:pressure:yielded-scene",
       "value": 0.85,
-      "perturbed_to": 0.65,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "scoring-rule:recover:stalled-turns",
@@ -151,9 +216,9 @@
     {
       "node_id": "scoring-rule:reveal:social-intent",
       "value": 0.75,
-      "perturbed_to": 0.55,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "scoring-rule:subsystem:combat-flee-cast-intent",
@@ -660,60 +725,67 @@
       "changed_rows": 18
     },
     {
+      "node_id": "threshold:clue-policy-lead-count",
+      "value": 2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
       "node_id": "threshold:clue-route-default-priority",
       "value": 0.5,
-      "perturbed_to": 0.7,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "threshold:compression-max-beats-ceiling",
       "value": 8,
-      "perturbed_to": 9,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "threshold:compression-max-beats-default",
       "value": 4,
-      "perturbed_to": 5,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "threshold:compression-max-beats-floor",
       "value": 2,
-      "perturbed_to": 3,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "threshold:compression-max-minutes-ceiling",
       "value": 30,
-      "perturbed_to": 31,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "threshold:compression-max-minutes-default",
       "value": 10,
-      "perturbed_to": 11,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "threshold:compression-min-beats-default",
       "value": 2,
-      "perturbed_to": 3,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "threshold:cut-stalled-transition-turns",
       "value": 2,
-      "perturbed_to": 3,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "threshold:default-clock-segments",
@@ -725,6 +797,41 @@
     {
       "node_id": "threshold:fair-warning-lethal-chances",
       "value": 3,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:fumble-tick-bound",
+      "value": 4,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:live-affordance-merge-cap",
+      "value": 6,
+      "perturbed_to": 7,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "threshold:live-affordance-minimum",
+      "value": 2,
+      "perturbed_to": 3,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "threshold:live-affordance-return-cap",
+      "value": 3,
+      "perturbed_to": 4,
+      "verdict": "inert-in-matrix",
+      "changed_rows": 0
+    },
+    {
+      "node_id": "threshold:live-affordance-route-cap",
+      "value": 3,
       "perturbed_to": 4,
       "verdict": "inert-in-matrix",
       "changed_rows": 0
@@ -732,9 +839,44 @@
     {
       "node_id": "threshold:low-agency-max-beats-fallback",
       "value": 4,
-      "perturbed_to": 5,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:memory-callback-candidate-floor",
+      "value": 20,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:memory-callback-overlap-weight",
+      "value": 4,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:memory-callback-refs-multiplier",
+      "value": 5,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:memory-callback-score-digits",
+      "value": 3,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:mythos-signature-sample",
+      "value": 2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "threshold:override-low-agency-count",
@@ -766,16 +908,16 @@
     {
       "node_id": "threshold:pressure-move-low-agency-count",
       "value": 2,
-      "perturbed_to": 3,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "threshold:pressure-move-stalled-gate",
       "value": 1,
-      "perturbed_to": 2,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "threshold:pressure-posture-ceiling",
@@ -815,9 +957,9 @@
     {
       "node_id": "threshold:scene-exit-pressure-continue-count",
       "value": 2,
-      "perturbed_to": 3,
-      "verdict": "inert-in-matrix",
-      "changed_rows": 0
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "threshold:score-precision-digits",
@@ -825,6 +967,83 @@
       "perturbed_to": 5,
       "verdict": "inert-in-matrix",
       "changed_rows": 0
+    },
+    {
+      "node_id": "threshold:storylet-need-stalled-turns",
+      "value": 3,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:storylet-recent-window",
+      "value": 8,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:storylet-used-targets-window",
+      "value": 16,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:storylet-used-window",
+      "value": 999,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:time-advance-confidence-digits",
+      "value": 2,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:time-advance-deadline-confidence",
+      "value": 0.6,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:time-advance-deadline-delta-minutes",
+      "value": 5,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:time-advance-default-confidence",
+      "value": 0.7,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:time-advance-exhaustion-confidence",
+      "value": 0.85,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:time-advance-exhaustion-delta-minutes",
+      "value": 480,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
+    },
+    {
+      "node_id": "threshold:time-advance-exhaustion-hours",
+      "value": 18,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     }
   ]
 }

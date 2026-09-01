@@ -24,7 +24,8 @@
     "tiebreak-order",
     "threshold",
     "affinity-ladder",
-    "craft-directive"
+    "craft-directive",
+    "multiplier"
   ],
   "vocabulary_node_kinds": [
     "director-action",
@@ -40,7 +41,8 @@
     "tiebreak-order",
     "threshold",
     "affinity-ladder",
-    "craft-directive"
+    "craft-directive",
+    "multiplier"
   ],
   "relation_kinds": [
     "part-of",
@@ -99,9 +101,10 @@
         "threshold"
       ],
       "to": [
+        "affinity-ladder",
         "director-action",
-        "scoring-rule",
-        "affinity-ladder"
+        "multiplier",
+        "scoring-rule"
       ]
     },
     "ranks": {
@@ -273,6 +276,12 @@
     "craft-directive": [
       "directive_id",
       "declares"
+    ],
+    "multiplier": [
+      "scope",
+      "condition_id",
+      "value",
+      "value_kind"
     ]
   },
   "signal_groups": [
@@ -314,5 +323,9 @@
   "expected_node_counts_law": "expected_node_counts pins the D1 vocabulary migration against the measured inventory. A build whose counts differ from this table is rejected: either the source data changed and the table must be updated in the same reviewed change, or the migration lost something.",
   "ordinal_law": "Every vocabulary node carries ordinal, its zero-based index in the legacy declaration it was migrated from. Declaration order is behaviourally observable: select_action seeds its score dict from ACTIONS order, falls back to ACTIONS as the tiebreak order when the weights table omits one, and returns candidates[0] when the tiebreak order cannot resolve a tie. The runtime MUST reconstruct legacy order from ordinal rather than from node_id sort order.",
   "craft_directive_law": "A craft-directive declares, as structured data, a Director control decision that the scoring implementation performs in code. It is not documentation: its declares payload must agree with the branch it describes, and that agreement is asserted by test so the two cannot drift. A craft-directive never changes control flow.",
-  "no_body_copy_law": "Vocabulary nodes carry identity and order, never the body of the record they name. storylet-library.json and time-costs.json remain the owning sources for storylet and time-cost content, and coc_storylets and coc_time keep reading them. Copying those bodies into this graph would create two copies of one semantics with no retirement owner, which is the pattern this refactor exists to remove. The round-trip build still reads those files live, so an added or removed record fails the build."
+  "no_body_copy_law": "Vocabulary nodes carry identity and order, never the body of the record they name. storylet-library.json and time-costs.json remain the owning sources for storylet and time-cost content, and coc_storylets and coc_time keep reading them. Copying those bodies into this graph would create two copies of one semantics with no retirement owner, which is the pattern this refactor exists to remove. The round-trip build still reads those files live, so an added or removed record fails the build.",
+  "multiplier_scopes": [
+    "storylet-selection"
+  ],
+  "multiplier_law": "A multiplier is a doctrine value applied outside the director-action scoring engine — the storylet scheduler multiplies candidate weights rather than scoring the ten director actions, so its values carry a scope instead of an action_ref. The same accountability rules apply."
 }

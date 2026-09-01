@@ -410,7 +410,7 @@ def _live_scene_affordances(active_scene_state: dict[str, Any], scenario_doc: di
             route = _choice_affordance(choice, index)
             if route is not None:
                 affordances.append(route)
-            if len(affordances) >= 3:
+            if len(affordances) >= _LIVE_AFFORDANCE_ROUTE_CAP:
                 break
 
     visible = active_scene_state.get("visible_affordances")
@@ -419,10 +419,10 @@ def _live_scene_affordances(active_scene_state: dict[str, Any], scenario_doc: di
             route = _visible_affordance(affordance, index)
             if route is not None:
                 affordances.append(route)
-            if len(affordances) >= 3:
+            if len(affordances) >= _LIVE_AFFORDANCE_ROUTE_CAP:
                 break
 
-    if len(affordances) < 2:
+    if len(affordances) < _LIVE_AFFORDANCE_MINIMUM:
         summary = (
             active_scene_state.get("summary")
             or scenario_doc.get("opening_scene")
@@ -441,7 +441,7 @@ def _live_scene_affordances(active_scene_state: dict[str, Any], scenario_doc: di
             "fork_eligible": False,
             "source": "save.active-scene.summary",
         })
-    if len(affordances) < 2:
+    if len(affordances) < _LIVE_AFFORDANCE_MINIMUM:
         affordances.append({
             "id": "live-investigator-angle",
             "route_type": "live_resume_affordance",
@@ -461,7 +461,7 @@ def _live_scene_affordances(active_scene_state: dict[str, Any], scenario_doc: di
             continue
         seen.add(cue)
         deduped.append(affordance)
-    return deduped[:3]
+    return deduped[:_LIVE_AFFORDANCE_RETURN_CAP]
 
 
 def _merge_live_active_scene(
@@ -504,7 +504,7 @@ def _merge_live_active_scene(
             seen.add(key)
         combined.append(affordance)
     if combined:
-        merged["affordances"] = combined[:6]
+        merged["affordances"] = combined[:_LIVE_AFFORDANCE_MERGE_CAP]
 
     for key in ("npc_ids", "pressure_moves"):
         live_value = active_scene_state.get(key)
@@ -1009,6 +1009,14 @@ _PRESSURE_CEILING = _DIRECTOR_DOCTRINE.threshold("pressure-posture-ceiling")
 _PRESSURE_FLOOR = _DIRECTOR_DOCTRINE.threshold("pressure-posture-floor")
 _DEFAULT_CLOCK_SEGMENTS = _DIRECTOR_DOCTRINE.threshold("default-clock-segments")
 _SCORE_PRECISION = _DIRECTOR_DOCTRINE.threshold("score-precision-digits")
+_LIVE_AFFORDANCE_ROUTE_CAP = _DIRECTOR_DOCTRINE.threshold("live-affordance-route-cap")
+_LIVE_AFFORDANCE_MINIMUM = _DIRECTOR_DOCTRINE.threshold("live-affordance-minimum")
+_LIVE_AFFORDANCE_RETURN_CAP = _DIRECTOR_DOCTRINE.threshold(
+    "live-affordance-return-cap"
+)
+_LIVE_AFFORDANCE_MERGE_CAP = _DIRECTOR_DOCTRINE.threshold(
+    "live-affordance-merge-cap"
+)
 
 ACTIONS = list(_DIRECTOR_VOCABULARY["actions"])
 
@@ -2569,7 +2577,7 @@ def _derive_time_advance(
     mode = profile.get("mode", "none")
     category = profile.get("category")
     delta = int(profile.get("delta_minutes", 0))
-    confidence = 0.7
+    confidence = _DIRECTOR_DOCTRINE.threshold("time-advance-default-confidence")
     reason = f"director proposal for {action}"
 
     # Exhaustion override: if the investigator has not rested in >18h and the
@@ -2577,26 +2585,31 @@ def _derive_time_advance(
     # layer can advance the clock through a sleep period (which fires healing
     # / sanity-day-reset triggers).
     hours_since_rest = float(time_signals.get("hours_since_last_rest", 0) or 0)
-    if hours_since_rest > 18 and action not in ("RECOVER", "MONTAGE", "PAYOFF"):
+    if hours_since_rest > _DIRECTOR_DOCTRINE.threshold(
+        "time-advance-exhaustion-hours"
+    ) and action not in ("RECOVER", "MONTAGE", "PAYOFF"):
         mode = "downtime"
         category = "sleep_night"
-        delta = 480
-        confidence = 0.85
+        delta = _DIRECTOR_DOCTRINE.threshold("time-advance-exhaustion-delta-minutes")
+        confidence = _DIRECTOR_DOCTRINE.threshold("time-advance-exhaustion-confidence")
         reason = f"exhausted ({hours_since_rest}h since last rest) → propose sleep"
 
     # High time-pressure: don't propose large jumps when a deadline is imminent.
     if time_signals.get("time_pressure") == "high" and mode == "downtime":
         mode = "elapsed"
         category = "quick_observation"
-        delta = 5
-        confidence = 0.6
+        delta = _DIRECTOR_DOCTRINE.threshold("time-advance-deadline-delta-minutes")
+        confidence = _DIRECTOR_DOCTRINE.threshold("time-advance-deadline-confidence")
         reason = "deadline imminent; minimal time advance"
 
     return {
         "mode": mode,
         "category": category,
         "delta_minutes": delta,
-        "confidence": round(confidence, 2),
+        "confidence": round(
+            confidence,
+            _DIRECTOR_DOCTRINE.threshold("time-advance-confidence-digits"),
+        ),
         "reason": reason,
     }
 
@@ -2778,7 +2791,7 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     leads: list[str] = []
     if action == "CHOICE":
         ranked = sorted(available, key=lambda cid: _clue_route_priority(cid, clue_graph), reverse=True)
-        leads = ranked[:2]
+        leads = ranked[:_DIRECTOR_DOCTRINE.threshold("clue-policy-lead-count")]
 
     policy = {"reveal": reveal, "withhold": list(secret_ids), "fallback_routes": fallback,
               "clue_type": _clue_type, "skill": _clue_skill, "difficulty": _clue_diff,
@@ -2826,7 +2839,7 @@ def _typed_fumble_effect(value: Any) -> bool:
             and bool(value["clock_id"].strip())
             and isinstance(value.get("ticks"), int)
             and not isinstance(value.get("ticks"), bool)
-            and 1 <= value["ticks"] <= 4
+            and 1 <= value["ticks"] <= _DIRECTOR_DOCTRINE.threshold("fumble-tick-bound")
         )
     if kind == "condition":
         return (
@@ -3175,7 +3188,11 @@ def _callback_candidates(ctx: dict[str, Any]) -> list[dict[str, Any]]:
         try:
             found = coc_canonical_events.lookup_entities(
                 logs_dir, refs=union_refs, privacy="all",
-                limit=max(20, len(union_refs) * 5),
+                limit=max(
+                    _DIRECTOR_DOCTRINE.threshold("memory-callback-candidate-floor"),
+                    len(union_refs)
+                    * _DIRECTOR_DOCTRINE.threshold("memory-callback-refs-multiplier"),
+                ),
             )
             for match in found.get("matches") or []:
                 ref = str(match.get("entity_ref") or "")
@@ -3227,7 +3244,11 @@ def _callback_candidates(ctx: dict[str, Any]) -> list[dict[str, Any]]:
             "entity_refs": hook_refs,
             "provenance_events": recent_turns,
             "overlap_entities": overlap,
-            "score": round(4 * len(overlap), 3),
+            "score": round(
+                _DIRECTOR_DOCTRINE.threshold("memory-callback-overlap-weight")
+                * len(overlap),
+                _DIRECTOR_DOCTRINE.threshold("memory-callback-score-digits"),
+            ),
             "reason": (
                 f"open {kind} assertion overlaps current scene "
                 + (f"entities {', '.join(overlap)}" if overlap else "context")
@@ -3546,7 +3567,9 @@ def _mythos_presentation_directive(ctx: dict[str, Any], action: str) -> dict[str
     if not signature:
         return None
     rng = ctx.get("rng") or random.Random()
-    sample_n = min(2, len(signature))
+    sample_n = min(
+        _DIRECTOR_DOCTRINE.threshold("mythos-signature-sample"), len(signature)
+    )
     sample = rng.sample(signature, sample_n) if sample_n else []
     pacing_entry = _current_pacing_entry(ctx)
     raw_horror = pacing_entry.get("horror_stage", "wrongness")

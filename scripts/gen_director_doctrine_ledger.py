@@ -101,8 +101,10 @@ def main() -> int:
             "the value moves real decisions; settling it needs a play experiment |")
         add(f"| `inert-in-matrix` | {counts['inert_in_matrix']} | exercised by this "
             "checkpoint, but perturbing it changed no decision |")
-        add(f"| `not-exercised` | {counts['not_exercised']} | belongs to a structure "
-            "type this checkpoint is not; the sweep says nothing about it |")
+        add(f"| `not-exercised` | {counts['not_exercised']} | the probe never "
+            "reads it — another structure type, or a layer (storylet "
+            "scheduling, time advance, affordance budget) this matrix does "
+            "not exercise; the sweep says nothing about it |")
         add("")
         add("`inert-in-matrix` is a statement about this matrix on this")
         add("checkpoint, never a claim that a value is globally irrelevant. A")

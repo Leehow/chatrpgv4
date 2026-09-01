@@ -234,6 +234,169 @@
       }
     },
     {
+      "node_id": "multiplier:storylet-selection:conflict-rank-gap",
+      "node_kind": "multiplier",
+      "plane": "doctrine",
+      "name": "storylet-selection / conflict-rank-gap",
+      "properties": {
+        "scope": "storylet-selection",
+        "condition_id": "conflict-rank-gap",
+        "value": [
+          0.35,
+          0.25
+        ],
+        "value_kind": "capped-linear"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "A storylet one conflict level away from the target keeps three quarters of its weight and never drops below about a third, so an off-level beat stays reachable when nothing on-level qualifies.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes where only off-level storylets pass the gates; vary the floor and compare whether an off-level beat is picked or none is."
+    },
+    {
+      "node_id": "multiplier:storylet-selection:family-repeat-penalty",
+      "node_kind": "multiplier",
+      "plane": "doctrine",
+      "name": "storylet-selection / family-repeat-penalty",
+      "properties": {
+        "scope": "storylet-selection",
+        "condition_id": "family-repeat-penalty",
+        "value": 0.45,
+        "value_kind": "constant"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "A storylet whose family has already been used this session keeps under half its weight, so families rotate without a family ever becoming unusable.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes on a checkpoint whose ledger already used one family; vary the penalty and compare how often that family returns."
+    },
+    {
+      "node_id": "multiplier:storylet-selection:polarity-match",
+      "node_kind": "multiplier",
+      "plane": "doctrine",
+      "name": "storylet-selection / polarity-match",
+      "properties": {
+        "scope": "storylet-selection",
+        "condition_id": "polarity-match",
+        "value": 1.35,
+        "value_kind": "constant"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "Matching the trigger's polarity outweighs every individual serves bonus, so tone alignment beats mechanical usefulness by one step.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes where a polarity-matched storylet serves nothing and a clue-serving storylet is off-polarity; compare the pick."
+    },
+    {
+      "node_id": "multiplier:storylet-selection:scene-tag-generic-suppression",
+      "node_kind": "multiplier",
+      "plane": "doctrine",
+      "name": "storylet-selection / scene-tag-generic-suppression",
+      "properties": {
+        "scope": "storylet-selection",
+        "condition_id": "scene-tag-generic-suppression",
+        "value": 0.01,
+        "value_kind": "constant"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "While a scene tag has summoned a beat, generic storylets are suppressed to a hundredth rather than zero, so a generic remains a fallback when no summoned candidate passes the other gates.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes where every summoned candidate is gated out; set the suppression to zero and confirm whether the turn loses its beat entirely."
+    },
+    {
+      "node_id": "multiplier:storylet-selection:scene-tag-summoned-boost",
+      "node_kind": "multiplier",
+      "plane": "doctrine",
+      "name": "storylet-selection / scene-tag-summoned-boost",
+      "properties": {
+        "scope": "storylet-selection",
+        "condition_id": "scene-tag-summoned-boost",
+        "value": 5.0,
+        "value_kind": "constant"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "A storylet summoned by a scene tag is boosted far above the ordinary range, because the generic ambient pool's aggregate weight grows with its size and a modest boost leaks.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes on a scene-tag-summoned turn with a large generic pool; lower the boost and count how often a generic still wins."
+    },
+    {
+      "node_id": "multiplier:storylet-selection:serves-deepen-npc",
+      "node_kind": "multiplier",
+      "plane": "doctrine",
+      "name": "storylet-selection / serves-deepen-npc",
+      "properties": {
+        "scope": "storylet-selection",
+        "condition_id": "serves-deepen-npc",
+        "value": 1.15,
+        "value_kind": "constant"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "A storylet that can deepen a present NPC ranks below front-ticking.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes with an agenda NPC present and a live front; compare the pick."
+    },
+    {
+      "node_id": "multiplier:storylet-selection:serves-reveal-clue",
+      "node_kind": "multiplier",
+      "plane": "doctrine",
+      "name": "storylet-selection / serves-reveal-clue",
+      "properties": {
+        "scope": "storylet-selection",
+        "condition_id": "serves-reveal-clue",
+        "value": 1.25,
+        "value_kind": "constant"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "A storylet that can carry an available clue is the strongest of the four serves bonuses.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes on a checkpoint with an available clue and both clue-serving and front-serving candidates; compare which is picked."
+    },
+    {
+      "node_id": "multiplier:storylet-selection:serves-surface-choice",
+      "node_kind": "multiplier",
+      "plane": "doctrine",
+      "name": "storylet-selection / serves-surface-choice",
+      "properties": {
+        "scope": "storylet-selection",
+        "condition_id": "serves-surface-choice",
+        "value": 1.1,
+        "value_kind": "constant"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "Surfacing a choice is the weakest of the four serves bonuses.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes with a choice frame and an available clue; compare the pick."
+    },
+    {
+      "node_id": "multiplier:storylet-selection:serves-tick-front",
+      "node_kind": "multiplier",
+      "plane": "doctrine",
+      "name": "storylet-selection / serves-tick-front",
+      "properties": {
+        "scope": "storylet-selection",
+        "condition_id": "serves-tick-front",
+        "value": 1.2,
+        "value_kind": "constant"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "A storylet that can tick a live threat front ranks just below one that can reveal a clue.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes with a near-full front and an available clue; compare the pick."
+    },
+    {
+      "node_id": "multiplier:storylet-selection:trope-repeat-penalty",
+      "node_kind": "multiplier",
+      "plane": "doctrine",
+      "name": "storylet-selection / trope-repeat-penalty",
+      "properties": {
+        "scope": "storylet-selection",
+        "condition_id": "trope-repeat-penalty",
+        "value": 0.6,
+        "value_kind": "constant"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "A repeated trope is penalised less than a repeated family, so a family rotates faster than the tropes inside it.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes with a used trope but unused family; vary the penalty and compare trope repetition across a session."
+    },
+    {
       "node_id": "player-signal:dramatic-progress-advance-until:meaningful-choice",
       "node_kind": "player-signal",
       "plane": "vocabulary",
@@ -2828,6 +2991,22 @@
       "falsifiable_by": "Lanes with one and two undiscovered clues under stuck intent; compare CHOICE availability."
     },
     {
+      "node_id": "threshold:clue-policy-lead-count",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "clue-policy-lead-count",
+      "properties": {
+        "threshold_id": "clue-policy-lead-count",
+        "value": 2,
+        "comparison": "lte",
+        "subject": "clue_policy.leads"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "A clue policy offers at most two leads, so the Keeper is pointed rather than handed the whole route ledger.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes on a scene with five available clues; vary the lead count and compare whether the Keeper's reveal stays focused."
+    },
+    {
       "node_id": "threshold:clue-route-default-priority",
       "node_kind": "threshold",
       "plane": "doctrine",
@@ -2990,6 +3169,86 @@
       "origin": "Keeper Rulebook 40th Anniversary p.209, cited in coc_story_director._apply_fair_warning_ladder"
     },
     {
+      "node_id": "threshold:fumble-tick-bound",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "fumble-tick-bound",
+      "properties": {
+        "threshold_id": "fumble-tick-bound",
+        "value": 4,
+        "comparison": "lte",
+        "subject": "exceptional_effect.ticks"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "A typed fumble effect may advance a clock by at most four ticks; anything larger is rejected as malformed rather than applied.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Not a pacing choice so much as an accepted bound; vary it and confirm whether any authored effect legitimately exceeds it."
+    },
+    {
+      "node_id": "threshold:live-affordance-merge-cap",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "live-affordance-merge-cap",
+      "properties": {
+        "threshold_id": "live-affordance-merge-cap",
+        "value": 6,
+        "comparison": "lte",
+        "subject": "live_scene.affordances.merged"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "At most six affordances survive the merge of authored and live scene state, twice the projection cap so de-duplication has room to work.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes on a scene whose authored and live affordances overlap heavily; vary the merge cap and compare what reaches the projection."
+    },
+    {
+      "node_id": "threshold:live-affordance-minimum",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "live-affordance-minimum",
+      "properties": {
+        "threshold_id": "live-affordance-minimum",
+        "value": 2,
+        "comparison": "lt",
+        "subject": "live_scene.affordances"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "Below two affordances the projection backfills a resume line and an investigator angle, so a live scene is never presented with a single thing to do.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes on a scene with exactly one authored route; vary the minimum and compare the presented options."
+    },
+    {
+      "node_id": "threshold:live-affordance-return-cap",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "live-affordance-return-cap",
+      "properties": {
+        "threshold_id": "live-affordance-return-cap",
+        "value": 3,
+        "comparison": "lte",
+        "subject": "live_scene.affordances.returned"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "At most three affordances survive de-duplication into the projection.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes on a scene with five distinct affordances; vary the cap and compare Keeper choice quality."
+    },
+    {
+      "node_id": "threshold:live-affordance-route-cap",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "live-affordance-route-cap",
+      "properties": {
+        "threshold_id": "live-affordance-route-cap",
+        "value": 3,
+        "comparison": "gte",
+        "subject": "live_scene.affordances"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "Route scanning stops once three live affordances are collected, bounding how much of a scene's exit surface one context projection carries.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes on a scene with six routes; vary the cap and compare whether the Keeper still finds the route the player wanted."
+    },
+    {
       "node_id": "threshold:low-agency-max-beats-fallback",
       "node_kind": "threshold",
       "plane": "doctrine",
@@ -3004,6 +3263,86 @@
       "rationale": "When neither a compression budget nor a bridge fallback is authored, four beats is the low-agency cap.",
       "origin": "unknown-legacy-tuning",
       "falsifiable_by": "Lanes on an unbudgeted bridge scene; vary the fallback and compare when the bridge exhausts."
+    },
+    {
+      "node_id": "threshold:memory-callback-candidate-floor",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "memory-callback-candidate-floor",
+      "properties": {
+        "threshold_id": "memory-callback-candidate-floor",
+        "value": 20,
+        "comparison": "gte",
+        "subject": "memory.callback_query.limit"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "A memory callback query asks for at least twenty candidates regardless of how few references the turn carries.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes on a turn with two references; vary the floor and compare whether a relevant callback is found."
+    },
+    {
+      "node_id": "threshold:memory-callback-overlap-weight",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "memory-callback-overlap-weight",
+      "properties": {
+        "threshold_id": "memory-callback-overlap-weight",
+        "value": 4,
+        "comparison": "eq",
+        "subject": "memory.callback.score"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "Each overlapping entity is worth four points of callback score, which is what ranks candidate callbacks against each other.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes where a one-entity and a three-entity callback compete; vary the weight and compare the pick."
+    },
+    {
+      "node_id": "threshold:memory-callback-refs-multiplier",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "memory-callback-refs-multiplier",
+      "properties": {
+        "threshold_id": "memory-callback-refs-multiplier",
+        "value": 5,
+        "comparison": "eq",
+        "subject": "memory.callback_query.limit"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "The callback query scales at five candidates per reference, so a reference-rich turn searches proportionally wider.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes on a reference-rich turn; vary the multiplier and compare callback quality."
+    },
+    {
+      "node_id": "threshold:memory-callback-score-digits",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "memory-callback-score-digits",
+      "properties": {
+        "threshold_id": "memory-callback-score-digits",
+        "value": 3,
+        "comparison": "eq",
+        "subject": "memory.callback.score"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "Callback scores are rounded to three decimals.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Not independently falsifiable in play; recorded so the value is not an untracked literal."
+    },
+    {
+      "node_id": "threshold:mythos-signature-sample",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "mythos-signature-sample",
+      "properties": {
+        "threshold_id": "mythos-signature-sample",
+        "value": 2,
+        "comparison": "lte",
+        "subject": "mythos_directive.signature_sample"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "At most two signature elements are sampled into a mythos presentation directive, so the Keeper gets a hint rather than the creature's full description.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes on a mythos encounter; vary the sample size and compare how much the narration gives away."
     },
     {
       "node_id": "threshold:override-low-agency-count",
@@ -3199,6 +3538,182 @@
       "rationale": "Weighted scores are rounded to four decimals before comparison, which decides how often two actions tie and fall through to the tiebreak order.",
       "origin": "unknown-legacy-tuning",
       "falsifiable_by": "Lanes with two and six digits of precision on a checkpoint where two actions score within 1e-5; compare tiebreak frequency."
+    },
+    {
+      "node_id": "threshold:storylet-need-stalled-turns",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "storylet-need-stalled-turns",
+      "properties": {
+        "threshold_id": "storylet-need-stalled-turns",
+        "value": 3,
+        "comparison": "gte",
+        "subject": "rule_signals.stalled_turns"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "Three stalled turns make the storylet scheduler infer a recovery-shaped story need. NOTE: this is a second copy of the same number as override-stalled-turns, maintained independently in coc_storylets.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes at two, three and four stalled turns; compare when the inferred story need changes and whether it should move with the Layer-3 override."
+    },
+    {
+      "node_id": "threshold:storylet-recent-window",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "storylet-recent-window",
+      "properties": {
+        "threshold_id": "storylet-recent-window",
+        "value": 8,
+        "comparison": "lte",
+        "subject": "storylet_ledger.recent_families"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "The anti-repeat 'recent' window holds eight entries, which is what makes a family or trope count as recently used and therefore excluded.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes over a long session with a four and a sixteen entry window; compare how quickly families become reusable."
+    },
+    {
+      "node_id": "threshold:storylet-used-targets-window",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "storylet-used-targets-window",
+      "properties": {
+        "threshold_id": "storylet-used-targets-window",
+        "value": 16,
+        "comparison": "lte",
+        "subject": "storylet_ledger.used_targets"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "Used targets are remembered for sixteen entries, twice the recent window.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes over a session revisiting one target; vary the window and compare repetition."
+    },
+    {
+      "node_id": "threshold:storylet-used-window",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "storylet-used-window",
+      "properties": {
+        "threshold_id": "storylet-used-window",
+        "value": 999,
+        "comparison": "lte",
+        "subject": "storylet_ledger.used_families"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "The 'used' window is effectively unbounded at 999 entries, so the softer family and trope repeat penalties apply for the whole campaign rather than expiring.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes over a long session with a bounded used window; compare whether early families ever return to full weight."
+    },
+    {
+      "node_id": "threshold:time-advance-confidence-digits",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "time-advance-confidence-digits",
+      "properties": {
+        "threshold_id": "time-advance-confidence-digits",
+        "value": 2,
+        "comparison": "eq",
+        "subject": "director_plan.time_advance.confidence"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "Reported confidence is rounded to two decimals.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Not independently falsifiable in play; recorded so the value is not an untracked literal."
+    },
+    {
+      "node_id": "threshold:time-advance-deadline-confidence",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "time-advance-deadline-confidence",
+      "properties": {
+        "threshold_id": "time-advance-deadline-confidence",
+        "value": 0.6,
+        "comparison": "eq",
+        "subject": "director_plan.time_advance.confidence"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "Under high time pressure the proposal is reported at the lowest confidence of the three, because it is a suppression rather than a positive estimate.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes with an imminent deadline; vary the confidence and compare downstream handling."
+    },
+    {
+      "node_id": "threshold:time-advance-deadline-delta-minutes",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "time-advance-deadline-delta-minutes",
+      "properties": {
+        "threshold_id": "time-advance-deadline-delta-minutes",
+        "value": 5,
+        "comparison": "eq",
+        "subject": "director_plan.time_advance.delta_minutes"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "With a deadline imminent the proposal collapses to five minutes, the smallest advance that still moves the clock.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes with an imminent deadline; vary the minimal advance and compare deadline pressure across a scene."
+    },
+    {
+      "node_id": "threshold:time-advance-default-confidence",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "time-advance-default-confidence",
+      "properties": {
+        "threshold_id": "time-advance-default-confidence",
+        "value": 0.7,
+        "comparison": "eq",
+        "subject": "director_plan.time_advance.confidence"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "A time proposal derived from the action's own profile is reported at moderate confidence, so the apply layer treats it as a proposal rather than a settled advance.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes comparing a low and a high default confidence on an ordinary turn; compare whether the apply layer's handling of the proposal changes."
+    },
+    {
+      "node_id": "threshold:time-advance-exhaustion-confidence",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "time-advance-exhaustion-confidence",
+      "properties": {
+        "threshold_id": "time-advance-exhaustion-confidence",
+        "value": 0.85,
+        "comparison": "eq",
+        "subject": "director_plan.time_advance.confidence"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "An exhaustion-driven sleep proposal is reported at higher confidence than an ordinary one, because the trigger is a measured elapsed-time signal rather than an action default.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes on an exhausted investigator; vary the confidence and compare downstream handling."
+    },
+    {
+      "node_id": "threshold:time-advance-exhaustion-delta-minutes",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "time-advance-exhaustion-delta-minutes",
+      "properties": {
+        "threshold_id": "time-advance-exhaustion-delta-minutes",
+        "value": 480,
+        "comparison": "eq",
+        "subject": "director_plan.time_advance.delta_minutes"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "The exhaustion proposal advances eight hours, one night's sleep.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes with a six-hour and an eight-hour sleep; compare which day-reset triggers fire."
+    },
+    {
+      "node_id": "threshold:time-advance-exhaustion-hours",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "time-advance-exhaustion-hours",
+      "properties": {
+        "threshold_id": "time-advance-exhaustion-hours",
+        "value": 18,
+        "comparison": "gt",
+        "subject": "time_signals.hours_since_last_rest"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "Beyond eighteen hours without rest the Director proposes a sleep downtime instead of the action's own profile, so healing and sanity day-reset triggers can fire.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes at sixteen, eighteen and twenty hours since rest; compare when the sleep proposal appears."
     },
     {
       "node_id": "tiebreak-order:default",

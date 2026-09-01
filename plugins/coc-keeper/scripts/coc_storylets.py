@@ -29,10 +29,26 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_cache
+import coc_director_runtime
 import coc_fileio
 import coc_rulesets
 
 RULES_DIR = coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
+
+# D2b — the scheduler is a second scoring engine. Its multipliers are owned by
+# the DirectorGraph, not by this module; see
+# docs/specs/pi-coc-director-graph-runtime.md §7. Values are transcribed, never
+# retuned, and the runtime fails closed rather than falling back to literals.
+_DOCTRINE = coc_director_runtime.doctrine()
+
+
+def _mul(condition_id: str):
+    return _DOCTRINE.multiplier("storylet-selection", condition_id)
+
+
+_RECENT_WINDOW = _DOCTRINE.threshold("storylet-recent-window")
+_USED_WINDOW = _DOCTRINE.threshold("storylet-used-window")
+_USED_TARGETS_WINDOW = _DOCTRINE.threshold("storylet-used-targets-window")
 _SCHEMA_VERSION = 1
 
 CONFLICT_LEVELS = ["low", "medium", "high", "climax"]
@@ -402,7 +418,9 @@ def infer_story_need(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any
         if action == "REVEAL" and _available_clues(plan, ctx):
             need_id = "clue_delivery"
             reason = "director_reveal"
-        elif action == "RECOVER" or int(signals.get("stalled_turns", 0) or 0) >= 3:
+        elif action == "RECOVER" or int(signals.get("stalled_turns", 0) or 0) >= _DOCTRINE.threshold(
+        "storylet-need-stalled-turns"
+    ):
             need_id = "recovery_redirection"
             reason = "recovery_or_stall"
         elif (
@@ -1059,9 +1077,9 @@ def _repeat_penalty(
         return 0.0
     penalty = 1.0
     if family in _as_list(ledger.get("used_families")):
-        penalty *= 0.45
+        penalty *= _mul("family-repeat-penalty")
     if trope in _as_list(ledger.get("used_tropes")):
-        penalty *= 0.6
+        penalty *= _mul("trope-repeat-penalty")
     return penalty
 
 
@@ -1083,22 +1101,23 @@ def _score_storylet(
         return 0.0
     score = float(storylet.get("base_weight", 1.0) or 1.0) * penalty
     rank_gap = abs(_CONFLICT_RANK.get(storylet.get("conflict_level", "low"), 0) - _CONFLICT_RANK.get(target_level, 0))
-    score *= max(0.35, 1.0 - rank_gap * 0.25)
+    _floor, _step = _mul("conflict-rank-gap")
+    score *= max(_floor, 1.0 - rank_gap * _step)
     serves = storylet.get("serves") or {}
     if isinstance(serves, dict):
         if serves.get("can_reveal_clue") and _available_clues(plan, ctx):
-            score *= 1.25
+            score *= _mul("serves-reveal-clue")
         if serves.get("can_tick_front") and (ctx.get("threat_fronts") or {}).get("fronts"):
-            score *= 1.2
+            score *= _mul("serves-tick-front")
         if serves.get("can_deepen_npc") and (ctx.get("active_scene") or {}).get("npc_ids"):
-            score *= 1.15
+            score *= _mul("serves-deepen-npc")
         if serves.get("can_surface_choice") and (plan.get("choice_frame") or {}).get("routes"):
-            score *= 1.1
+            score *= _mul("serves-surface-choice")
     trigger = ctx.get("storylet_trigger") or {}
     polarity = _non_empty_str(trigger.get("polarity") or (ctx.get("storylet_policy") or {}).get("polarity"))
     allowed_polarity = set(_as_list(storylet.get("trigger_polarity") or storylet.get("polarity")))
     if polarity and allowed_polarity and (polarity in allowed_polarity or "mixed" in allowed_polarity):
-        score *= 1.35
+        score *= _mul("polarity-match")
     # C2: priority for scene-tag-summoned beats. A `scene_tag_beat` trigger means
     # the scene's `storylet_tags` matched on entry and explicitly asked for a
     # tagged beat — so a summoned storylet must reliably win selection over the
@@ -1111,9 +1130,9 @@ def _score_storylet(
     # picked as a fallback if no summoned candidate passes the other gates.
     if _non_empty_str(trigger.get("reason")) == "scene_tag_beat":
         if _is_scene_tag_summoned(storylet, ctx):
-            score *= 5.0
+            score *= _mul("scene-tag-summoned-boost")
         else:
-            score *= 0.01
+            score *= _mul("scene-tag-generic-suppression")
     # W1-5: director may boost early-horror tropes via narrative_directives.
     trope_boosts = ((plan.get("narrative_directives") or {}).get("storylet_trope_weight_boosts") or {})
     trope_id = storylet.get("trope_id")
@@ -1325,7 +1344,7 @@ def project_ledger_update(ledger: dict[str, Any], selected: dict[str, Any]) -> d
     target = bound.get("npc_id") or bound.get("location_id")
     session_number = _session_number(ledger)
 
-    def append_recent(values: list[Any], value: Any, limit: int = 8) -> list[Any]:
+    def append_recent(values: list[Any], value: Any, limit: int) -> list[Any]:
         out = [v for v in values if v != value]
         if value:
             out.append(value)
@@ -1334,17 +1353,17 @@ def project_ledger_update(ledger: dict[str, Any], selected: dict[str, Any]) -> d
     used_entries = list(_as_list(ledger.get("used_storylets")))
     if sid:
         used_entries.append({"storylet_id": sid, "session_number": session_number})
-        used_entries = used_entries[-999:]
+        used_entries = used_entries[-_USED_WINDOW:]
 
     return {
         "schema_version": _SCHEMA_VERSION,
         "session_number": session_number,
         "used_storylets": used_entries,
-        "used_families": append_recent(_as_list(ledger.get("used_families")), family, limit=999),
-        "used_tropes": append_recent(_as_list(ledger.get("used_tropes")), trope, limit=999),
-        "recent_families": append_recent(_as_list(ledger.get("recent_families")), family, limit=8),
-        "recent_tropes": append_recent(_as_list(ledger.get("recent_tropes")), trope, limit=8),
-        "used_targets": append_recent(_as_list(ledger.get("used_targets")), target, limit=16),
+        "used_families": append_recent(_as_list(ledger.get("used_families")), family, limit=_USED_WINDOW),
+        "used_tropes": append_recent(_as_list(ledger.get("used_tropes")), trope, limit=_USED_WINDOW),
+        "recent_families": append_recent(_as_list(ledger.get("recent_families")), family, limit=_RECENT_WINDOW),
+        "recent_tropes": append_recent(_as_list(ledger.get("recent_tropes")), trope, limit=_RECENT_WINDOW),
+        "used_targets": append_recent(_as_list(ledger.get("used_targets")), target, limit=_USED_TARGETS_WINDOW),
         "last_storylet_id": sid,
     }
 

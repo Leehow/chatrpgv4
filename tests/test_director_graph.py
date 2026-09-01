@@ -419,47 +419,112 @@ def test_clock_fraction_is_stored_as_a_numerator_denominator_pair():
     assert 5 in diverging
 
 
-def test_no_doctrine_literal_remains_in_the_migrated_functions():
-    """Residue gate. A hit means a value was missed — add it to the graph.
+# Every numeric literal still allowed to live in the Director decision
+# surface, with the reason it is not doctrine. Anything not listed here must
+# be in the DirectorGraph. Adding an entry is a claim that a reviewer has to
+# agree with, which is the point: the boundary is enforced, not remembered.
+#
+# An earlier version of this gate covered only the ten functions the first
+# migration touched, which made it a gate that could only ever confirm its
+# own work. It now covers the whole surface.
+PLUMBING_ALLOWLIST: dict[str, dict[tuple[str, float | int], str]] = {
+    "coc_story_director.py": {
+        ("_short_text", 96): "default text truncation length",
+        ("_choice_affordance", 80): "cue text truncation",
+        ("_visible_affordance", 80): "cue text truncation",
+        ("_live_scene_affordances", 80): "benefit text truncation",
+        ("_build_scene_pressure_move", 140): "symptom text truncation",
+        ("_projection_unavailable_warning", 200): "error text truncation",
+        ("_retrieve_memory_for_ctx", 5): "debug reference list truncation",
+        ("_retrieve_memory_for_ctx", 200): "debug text truncation",
+        ("write_director_plan", 2): "json.dumps indent",
+        # CoC7 character-sheet fallbacks. These belong to the rules layer, not
+        # to Director doctrine: they are the values a sheet is read as when a
+        # field is absent, and changing them would be a rules change.
+        ("build_director_context", 10): "sheet fallback: HP",
+        ("build_director_context", 50): "sheet fallback: characteristics and Luck",
+        ("build_director_context", 25): "sheet fallback: Fighting (Brawl)",
+        ("build_director_context", 2): "sheet fallback: Dodge is DEX // 2",
+        ("_build_rules_requests", 50): "sheet fallback: attack target percent",
+        ("_build_rules_requests", 100): "percentile ceiling",
+    },
+    "coc_storylets.py": {
+        ("_stable_int_seed", 16): "hex digest slice width for seeding",
+        ("start_new_session", 2): "json indent",
+        ("storylet_eligibility_index", 8): "in-process cache size",
+        ("select_storylet_moves", 5): "debug trace example cap",
+    },
+    "coc_director_strategies.py": {},
+}
 
-    The allowlist is deliberately tiny and holds only plumbing: loop
-    sentinels, list indices, the empty-score default and the neutral weight.
+
+def test_no_doctrine_literal_remains_in_the_director_decision_surface():
+    """Residue gate over the whole surface, not just the migrated functions.
+
+    A hit means either a doctrine value was missed — in which case it goes
+    into the graph — or it is plumbing, in which case it goes into
+    PLUMBING_ALLOWLIST with a written reason. It never goes nowhere.
     """
     import ast
 
-    source_path = SCRIPTS / "coc_story_director.py"
-    text = source_path.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    migrated = {
-        "_base_score", "select_action", "_compression_budget",
-        "_low_agency_max_beats", "_scene_exit_pressure_directive",
-        "apply_rule_signal_overrides", "_build_pressure_moves",
-        "_clue_route_priority", "_apply_fair_warning_ladder",
-        "_load_structure_weights",
-    }
     allow_int = {0, 1, -1}
     allow_float = {0.0, 1.0}
-
     residue = []
-    for node in ast.walk(ast.parse(text)):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        if node.name not in migrated:
-            continue
-        for sub in ast.walk(node):
-            if not isinstance(sub, ast.Constant):
+    unused_allowlist = []
+
+    for filename, allowed in PLUMBING_ALLOWLIST.items():
+        path = SCRIPTS / filename
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        hit: set[tuple[str, float | int]] = set()
+        for node in ast.walk(ast.parse(text)):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
-            value = sub.value
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                continue
-            if isinstance(value, int) and value in allow_int:
-                continue
-            if isinstance(value, float) and value in allow_float:
-                continue
-            residue.append(
-                f"{node.name} L{sub.lineno}: {value!r} -- {lines[sub.lineno - 1].strip()}"
-            )
-    assert not residue, "doctrine literals left behind:\n" + "\n".join(residue)
+            for sub in ast.walk(node):
+                if not isinstance(sub, ast.Constant):
+                    continue
+                value = sub.value
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    continue
+                if isinstance(value, int) and value in allow_int:
+                    continue
+                if isinstance(value, float) and value in allow_float:
+                    continue
+                key = (node.name, value)
+                hit.add(key)
+                if key in allowed:
+                    continue
+                residue.append(
+                    f"{filename}:{node.name} L{sub.lineno}: {value!r}"
+                    f" -- {lines[sub.lineno - 1].strip()}"
+                )
+        unused_allowlist.extend(
+            f"{filename}:{fn}:{value!r}"
+            for (fn, value) in allowed
+            if (fn, value) not in hit
+        )
+
+    assert not residue, (
+        "doctrine literals left in the Director decision surface — put each "
+        "one in the DirectorGraph, or in PLUMBING_ALLOWLIST with a reason:\n"
+        + "\n".join(residue)
+    )
+    assert not unused_allowlist, (
+        "PLUMBING_ALLOWLIST entries no longer present in the source; remove "
+        "them so the allowlist cannot quietly grow stale:\n"
+        + "\n".join(unused_allowlist)
+    )
+
+
+def test_the_residue_gate_actually_covers_the_whole_surface():
+    """Guard against the gate narrowing back to a self-confirming subset."""
+    assert set(PLUMBING_ALLOWLIST) == {
+        "coc_story_director.py",
+        "coc_storylets.py",
+        "coc_director_strategies.py",
+    }
+    # coc_director_apply.py is out of scope by specification, not by omission.
+    assert "coc_director_apply.py" not in PLUMBING_ALLOWLIST
 
 
 def test_doctrine_accountability_ledger_is_complete():
@@ -649,23 +714,46 @@ def test_sweep_classifies_every_valued_doctrine_node():
     assert sweep["counts"]["tested"] == len(valued)
 
 
-def test_sweep_does_not_call_unexercised_weights_inert():
+def test_sweep_does_not_call_unexercised_values_inert():
     """The honesty gate on this deliverable.
 
-    A structure weight for a structure type the checkpoint is not cannot move
-    a decision, and reporting that as 'inert' would read as evidence the value
-    does not matter. It must be classified as not-exercised instead.
+    'inert-in-matrix' must mean "the probe read this value and perturbing it
+    changed nothing". A value the probe never reads is a different claim
+    entirely, and reporting it as inert would read as evidence it does not
+    matter. Two ways a value goes unread here: it belongs to a structure type
+    this checkpoint is not, or it belongs to a layer (storylet scheduling,
+    time advance, affordance budget) the decision matrix does not exercise.
     """
     sweep = json.loads(SWEEP_PATH.read_text(encoding="utf-8"))
     exercised = str(sweep["checkpoint_structure_type"]).replace("_", "-")
     for row in sweep["results"]:
         if not row["node_id"].startswith("structure-weight:"):
             continue
-        structure = row["node_id"].split(":")[1]
-        if structure != exercised:
+        if row["node_id"].split(":")[1] != exercised:
             assert row["verdict"] == "not-exercised", row["node_id"]
-        else:
-            assert row["verdict"] != "not-exercised", row["node_id"]
+
+    by_id = {row["node_id"]: row for row in sweep["results"]}
+    # The storylet scheduler is invoked by storylets.suggest, not by
+    # select_action, so the decision matrix cannot speak to its multipliers.
+    for node_id in by_id:
+        if node_id.startswith("multiplier:storylet-selection:"):
+            assert by_id[node_id]["verdict"] == "not-exercised", node_id
+    # Same for the time layer.
+    assert by_id["threshold:time-advance-exhaustion-hours"]["verdict"] == (
+        "not-exercised"
+    )
+
+
+def test_sweep_inert_verdicts_were_actually_read():
+    """Every inert verdict must come from a value the probe demonstrably read."""
+    sweep = json.loads(SWEEP_PATH.read_text(encoding="utf-8"))
+    inert = [r for r in sweep["results"] if r["verdict"] == "inert-in-matrix"]
+    assert inert, "no inert verdicts at all would mean the probe reads nothing"
+    for row in inert:
+        assert row["changed_rows"] == 0, row["node_id"]
+        assert "reason" not in row, (
+            f"{row['node_id']}: an inert row must not carry a not-exercised reason"
+        )
 
 
 def test_sweep_states_its_limits():

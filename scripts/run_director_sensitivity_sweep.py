@@ -35,6 +35,23 @@ GRAPH = ROOT / "plugins" / "coc-keeper" / "references" / "director-graph.json"
 OUT = ROOT / "checks" / "director-sensitivity-sweep.json"
 
 sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(SCRIPTS))
+
+
+def _access_key(node: dict) -> str:
+    """The key the runtime records when this node's value is read."""
+    kind = node["node_kind"]
+    props = node["properties"]
+    if kind == "scoring-rule":
+        action = props["action_ref"].split(":", 1)[1]
+        return f"{action.upper().replace('-', '_')}:{props['condition_id']}"
+    if kind == "threshold":
+        return props["threshold_id"]
+    if kind == "multiplier":
+        return f"{props['scope']}:{props['condition_id']}"
+    if kind == "structure-weight":
+        return "*"
+    return props.get("ladder_id", "")
 
 
 def _perturb(value):
@@ -61,7 +78,15 @@ def main(argv: list[str] | None = None) -> int:
     original_text = GRAPH.read_text(encoding="utf-8")
     graph = json.loads(original_text)
 
+    # Record which doctrine values the probe actually reads. Without this,
+    # a value the matrix never reaches is indistinguishable from one that
+    # provably does not matter, and reporting the first as "inert" would read
+    # as evidence it can be ignored.
+    runtime = importlib.import_module("coc_director_runtime")
+    runtime.start_access_recording()
     reference = baseline_mod.build(args.campaign_id)
+    accessed = runtime.stop_access_recording()
+    accessed_keys = {key for _kind, key in accessed}
     reference_rows = reference["rows"]
 
     # A structure weight for a structure type this checkpoint is not cannot
@@ -99,6 +124,17 @@ def main(argv: list[str] | None = None) -> int:
                     "reason": (
                         f"structure weight for {node_id.split(':')[1]!r}; this "
                         f"checkpoint is {exercised_structure!r}"
+                    ),
+                })
+                continue
+            if _access_key(node) not in accessed_keys:
+                results.append({
+                    "node_id": node_id, "value": original,
+                    "verdict": "not-exercised",
+                    "changed_rows": None,
+                    "reason": (
+                        "the decision probe never reads this value; it belongs "
+                        "to a layer the matrix does not exercise"
                     ),
                 })
                 continue

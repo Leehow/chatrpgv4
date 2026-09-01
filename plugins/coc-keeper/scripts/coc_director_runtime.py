@@ -144,7 +144,10 @@ class _Doctrine:
     flow while the values themselves become accountable graph data.
     """
 
-    __slots__ = ("_scores", "_thresholds", "_weights", "_tiebreak", "_ladders")
+    __slots__ = (
+        "_scores", "_thresholds", "_weights", "_tiebreak", "_ladders",
+        "_multipliers",
+    )
 
     def __init__(self, nodes: list[dict[str, Any]]) -> None:
         self._scores: dict[tuple[str, str], Any] = {}
@@ -152,6 +155,7 @@ class _Doctrine:
         self._weights: dict[str, dict[str, float]] = {}
         self._tiebreak: list[str] = []
         self._ladders: dict[str, list[dict[str, Any]]] = {}
+        self._multipliers: dict[tuple[str, str], Any] = {}
         # Semantic ids are kebab-case; the runtime must hand back the exact
         # legacy tokens (ACTIONS are uppercase, structure types snake_case),
         # so resolve every reference through the vocabulary plane.
@@ -177,9 +181,14 @@ class _Doctrine:
                 self._tiebreak = list(props["order"])
             elif kind == "affinity-ladder":
                 self._ladders[props["ladder_id"]] = list(props["rungs"])
+            elif kind == "multiplier":
+                self._multipliers[(props["scope"], props["condition_id"])] = (
+                    props["value"]
+                )
 
     def score(self, action: str, condition_id: str) -> Any:
         key = (action, condition_id)
+        _record("scoring-rule", f"{action}:{condition_id}")
         try:
             return self._scores[key]
         except KeyError:
@@ -188,6 +197,7 @@ class _Doctrine:
             ) from None
 
     def threshold(self, threshold_id: str) -> Any:
+        _record("threshold", threshold_id)
         try:
             return self._thresholds[threshold_id]
         except KeyError:
@@ -195,7 +205,17 @@ class _Doctrine:
                 f"DirectorGraph declares no threshold {threshold_id!r}"
             ) from None
 
+    def multiplier(self, scope: str, condition_id: str) -> Any:
+        _record("multiplier", f"{scope}:{condition_id}")
+        try:
+            return self._multipliers[(scope, condition_id)]
+        except KeyError:
+            raise DirectorGraphUnavailable(
+                f"DirectorGraph declares no {scope!r} multiplier {condition_id!r}"
+            ) from None
+
     def ladder(self, ladder_id: str) -> list[dict[str, Any]]:
+        _record("affinity-ladder", ladder_id)
         try:
             return self._ladders[ladder_id]
         except KeyError:
@@ -205,6 +225,7 @@ class _Doctrine:
 
     def structure_weights(self) -> dict[str, Any]:
         """Return the legacy structure-weights document shape."""
+        _record("structure-weights", "*")
         return {
             "weights": {
                 structure: dict(row) for structure, row in self._weights.items()
@@ -214,6 +235,29 @@ class _Doctrine:
 
 
 _DOCTRINE_CACHE: _Doctrine | None = None
+
+# Optional access recording. The sensitivity sweep needs to tell "perturbed
+# and nothing changed" from "never read at all" — without it, a value the
+# probe never reaches looks identical to one that provably does not matter.
+# Off by default and never consulted in production paths.
+_ACCESS_LOG: set[tuple[str, str]] | None = None
+
+
+def start_access_recording() -> None:
+    global _ACCESS_LOG
+    _ACCESS_LOG = set()
+
+
+def stop_access_recording() -> set[tuple[str, str]]:
+    global _ACCESS_LOG
+    recorded = _ACCESS_LOG or set()
+    _ACCESS_LOG = None
+    return recorded
+
+
+def _record(kind: str, key: str) -> None:
+    if _ACCESS_LOG is not None:
+        _ACCESS_LOG.add((kind, key))
 
 
 def doctrine() -> _Doctrine:
