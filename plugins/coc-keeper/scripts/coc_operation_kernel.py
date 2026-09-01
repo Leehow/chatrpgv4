@@ -10156,6 +10156,32 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             "moves": _pressure[:2],
             "reason": "authored pressure moves are available; escalate tension",
         }
+    # A lethal pressure move on a clock that is still running outranks a
+    # routine agenda beat. The agenda branch above wins whenever any present
+    # NPC has one, which in an authored climax is always, so the PRESSURE
+    # branch could not be reached in the scenes it was written for: 30 live
+    # turns in `scene-church-climax` never surfaced it while `clock-loop-doom`
+    # sat at 0/6 and the scene's own dramatic question was "before the bell
+    # rings". Lethality and the tick are authored facts, not a pacing opinion.
+    _live_clocks = {
+        row["clock_id"] for row in data["threat_clocks"] if not row["full"]
+    }
+    _urgent = [
+        move for move in _pressure
+        if isinstance(move, dict)
+        and move.get("lethal") is True
+        and move.get("clock_id") in _live_clocks
+    ]
+    if _urgent and _next_beat["action"] != "PRESSURE":
+        _next_beat = {
+            "action": "PRESSURE",
+            "moves": _urgent[:2],
+            "reason": (
+                "a lethal authored pressure move advances a clock that is "
+                "still running; its consequence is unreachable until it ticks"
+            ),
+            "superseded_action": _next_beat["action"],
+        }
     data["recommended_next_beat"] = _next_beat
     hints: list[str] = []
     undiscovered = [c for c in clues if not c.get("discovered")]

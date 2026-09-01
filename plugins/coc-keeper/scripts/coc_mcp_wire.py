@@ -1557,6 +1557,12 @@ def _compact_scene(
             # producer and correct at the Keeper's identity projection, and
             # arrived as null because the RPC path did not name it.
             "threat_clocks",
+            # The forward nudge the kernel has computed on every scene read
+            # since it was written, and that nothing has ever delivered: one
+            # producer line, no consumer anywhere. The comment beside it
+            # promised the KP a beat "without a separate director.advise
+            # call"; the RPC path did not name it, so no Keeper ever saw one.
+            "recommended_next_beat",
         ),
     )
     # Where the main line stands. This is the second projection between the

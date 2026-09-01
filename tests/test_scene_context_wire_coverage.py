@@ -46,7 +46,6 @@ WITHHELD = {
     "compiled_archive": "archive provenance metadata; the Keeper reads content, not revisions",
     "covered_domains": "a self-description of this result's own coverage",
     "recovery": "duplicated by rule_decision_cards on the bounded view",
-    "recommended_next_beat": "advisory nudge the KP surface delivers as a hint",
     "pending_handouts": "body-free card metadata; delivery is its own operation",
     "scene_contract": "improvisation budget bookkeeping, not table-facing",
 }
