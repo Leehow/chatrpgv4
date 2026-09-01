@@ -1,8 +1,9 @@
 # Pi-Coc TextGraph specification
 
-> **Status:** T0–T3 implemented on `claude/pi-coc-text-graph-20260901`.
-> T4–T5 are specified and **not** authorized; T4 deletes the style module and
-> needs its own authorization. Both slices are
+> **Status:** T0–T4 implemented on `claude/pi-coc-text-graph-20260901`.
+> T5 is specified and **not** authorized. T4 deleted the prose matchers and
+> published the review vocabulary, which is the one deliberate model-visible
+> behaviour change in this line. Both slices are
 > behaviour-preserving: every migrated vocabulary is bit-identical, the
 > model-visible contract archive rebuilds byte-identical, and the whole
 > preserved corpus of 418 coverage rows replays byte-for-byte. See the
@@ -12,7 +13,7 @@
 > adapters, prompts, launchers, tests, and documentation remain off-limits.
 > **Scope owner:** the settled-output presentation surface inside
 > `plugins/coc-keeper/`.
-> **Last updated:** 2026-09-01 (T3 implementation pass; see the Implementation log)
+> **Last updated:** 2026-09-01 (T4 implementation pass; see the Implementation log)
 > **Depends on:** [ADR 0003 system ontology composition registry](../adr/0003-system-ontology-composition-registry.md),
 > [DirectorGraph](pi-coc-director-graph-runtime.md) (structural template and
 > implementation log), [`docs/ruleset-contract.md`](../ruleset-contract.md).
@@ -639,7 +640,8 @@ What the slices actually produced, including where this specification was wrong.
 | T1 | Contract, compiler, 39 obligation-plane nodes, registry promotion, and the cross-language residue gate. Behaviour unchanged; the model-visible contract archive rebuilds byte-identical. |
 | T2 | Derivation reads the graph. 44 nodes, first 5 relations. 418/418 coverage rows replay byte-for-byte. Fixed a fabricated value T1 shipped. |
 | T3 | Grounding plane: live validator, keeper-only guard, and **zero edges** — the measured outcome, not unfinished work. Coverage stays `no-proven-instance`. |
-| T4–T5 | Not started. |
+| T4 | Craft plane, 105 nodes. Matchers deleted outright; review vocabulary published. The layer stops being zh-only. |
+| T5 | Not started. |
 
 ### T1, as built
 
@@ -890,3 +892,83 @@ T3 adds no new `.coc/` dependency: the ledger is computed from
 figures in correction 14 — zero effect ids in 506 finalizations — are recorded
 evidence from the preserved logs, not a CI-enforced assertion. T2's replay
 remains the one gate that does not run in a checkout without the evidence.
+
+### T4, as built
+
+- 61 craft nodes (105 total), 20 relations. Every craft node is
+  `authored-house-doctrine` carrying `rationale`, `origin` and
+  `falsifiable_by`; **nothing is `rulebook-source`**, because the inventory
+  found no Keeper-craft page cited anywhere in `coc_narration_style.py`.
+- `coc_narration_style.py`: **519 → 270 lines, 8 → 0 compiled expressions**, no
+  `import re`.
+- The review vocabulary is published: `narration.review.findings` gained a
+  closed `items` schema with a nine-id enum built from the graph's `citable`
+  property. 147 operations before and after.
+- `allowed_rule_ids`, the budget ladder, the over-length multiplier, the
+  recent-event window, the render slots, prohibitions, required rules and the
+  register axes all read the graph.
+
+### Corrections this specification needed (T4)
+
+17. **Gate 2 said "the six rule ids survive". It is five, and the sixth is
+    retired.** T0's own split had already assigned `unnatural_spatial_phrase`
+    to the delete-outright bucket: both entries of `_UNNATURAL_SPATIAL_PHRASES`
+    are fragments of the same White War sentence that the 13-pair substitution
+    table also carried. Following gate 2 literally would have created a
+    `review-rule` node for a rule that exists only because one NPC once stared
+    down one trench — an instance patch promoted to craft doctrine, and the
+    same class of defect as T1's fabricated `source_kind`.
+
+    So the gate is **five survive, one retired**, and the retirement is
+    asserted by test rather than left as an absence.
+
+18. **The consumer check had to run in both directions.** T1 shipped a value
+    nothing read; T3 avoided 22 edges nothing could honour. T4's risk is the
+    mirror image, so `review_rule_law` requires that every citable rule appear
+    in the operation's accepted set *and* in the published enum. A node with no
+    way to be raised now fails the build.
+
+19. **Gate 1 had to be scoped to prose matchers, not to `re`.**
+    `coc_turn_finalization.py` compiles `_OPAQUE_HEX_RUN` to detect opaque hex
+    digests for the Model-Facing Identifier Law. That matches identifier
+    *shape*, never prose, and deleting it would have broken a different law to
+    satisfy this one. It is carried in an allowlist with a written reason, and
+    a second test fails if the entry outlives the code it excuses.
+
+20. **`deterministic_guard` was the zh-only artefact itself.** The field
+    reported the availability of the matcher: `non_authoritative_surface_smoke`
+    for zh-Hans, `unavailable` for everything else. Leaving it would have kept
+    the layer announcing a capability gap that no longer exists, so it is
+    removed rather than set to a constant. Both languages now receive the same
+    contract keys, and the only difference in the entire vocabulary is the
+    single `translationese` register axis.
+
+21. **Deleting a matcher deletes its tests, and that is not weakening a gate.**
+    Fourteen tests in `tests/test_narration_style.py` exercised the deleted
+    matchers and went with them; seven covering the contract, the crisis frame
+    and the horror profile remain. One assertion about `deterministic_guard`
+    became an assertion that it is absent. To show nothing was quietly
+    loosened, `test_narration_budget.py`'s 17 failures were diffed before and
+    after in a scratch worktree at `7852f18d`: the failure sets are identical.
+
+22. **A generated ledger can rot in a direction its test does not see.** The
+    T3 grounding ledger derived its text-layer vocabulary by scraping
+    `_narration_budget`'s body for event types. T4 moved those into the graph,
+    so the scrape returned nothing and the ledger silently reported "no token
+    match" — erasing the T3 finding that the only cross-graph correspondence is
+    the keeper-only `luck_spend` effect. The drift test compared the generator
+    against its own output, so both moved together and it stayed green. The
+    generator now reads the graph.
+
+### Which gates run in CI (updated)
+
+| Slice | Gate | Runs without `.coc/`? |
+| --- | --- | --- |
+| T1 | contract, compiler, residue census, registry | **yes** |
+| T2 | bit-identity, archive byte-identity, `fiction` literals, label grammar | **yes** |
+| T2 | **the 418-row replay** | **no** — skips, with a stated reason |
+| T3 | keeper-only guard, validator probes, ledger drift, registry | **yes** |
+| T4 | matcher deletion, both-direction rule check, published enum, budget identity, language parity | **yes** |
+
+T4 adds no new `.coc/` dependency. T2's replay remains the only gate that does
+not run in a checkout without the preserved evidence.
