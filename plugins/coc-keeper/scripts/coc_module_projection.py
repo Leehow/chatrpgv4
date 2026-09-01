@@ -23,6 +23,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import coc_compiled_archive
 import coc_fileio
 import coc_module_graph
 
@@ -430,6 +431,18 @@ def install_projected_scenario(
     answer questions this module has already answered.
     """
     documents = project_module_documents(graph, sidecar)
+    # The compiled archive consumes exactly these; handouts and quests are
+    # optional. Installing a partial set leaves the Keeper with a scenario the
+    # archive cannot read, which is the same silent half-install the graph
+    # pointer check exists to stop, one layer up.
+    required = set(coc_compiled_archive.CANONICAL_IR_FILES)
+    missing = sorted(required - set(documents))
+    if missing:
+        raise ModuleProjectionError(
+            "projection does not cover the canonical runtime documents "
+            f"{missing}; the compiled archive reads every one of "
+            f"{sorted(required)}"
+        )
     root = Path(workspace)
     coc_root = root if root.name == ".coc" else root / ".coc"
     campaign_dir = coc_root / "campaigns" / campaign_id
@@ -524,6 +537,39 @@ def install_projected_scenario(
         "documents": sorted(documents),
         "active_scene_id": opening,
     }
+
+
+def audit_projection_fields(
+    graph: dict[str, Any], sidecar: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Report registered record fields that no projected record populates.
+
+    Deliberately a report, not a rule. A required-field list would be a hidden
+    claim about what every module must contain; what is worth surfacing is the
+    silence — a field the consumer reads and this module never filled, so a
+    reviewer can decide whether the source simply has nothing to say.
+    """
+    documents = project_module_documents(graph, sidecar)
+    report: dict[str, Any] = {}
+    for filename, document in documents.items():
+        for name, _kind, id_field in COLLECTION_SPECS.get(filename, ()):
+            if id_field is None:
+                continue
+            rows = [row for row in (document.get(name) or []) if isinstance(row, dict)]
+            registry = RECORD_FIELD_REGISTRY.get(filename, {}).get(name, frozenset())
+            if not registry:
+                continue
+            populated = {
+                field for row in rows for field, value in row.items()
+                if value not in (None, "", [], {})
+            }
+            unpopulated = sorted(registry - populated)
+            report[f"{filename}:{name}"] = {
+                "records": len(rows),
+                "populated_fields": sorted(populated & registry),
+                "unpopulated_registered_fields": unpopulated,
+            }
+    return report
 
 
 def check_projection_parity(
@@ -809,6 +855,10 @@ def build_parser() -> argparse.ArgumentParser:
     install.add_argument("--workspace", required=True)
     install.add_argument("--campaign", required=True)
 
+    audit = sub.add_parser("audit")
+    audit.add_argument("--graph", required=True)
+    audit.add_argument("--sidecar")
+
     for name in ("validate", "project", "parity", "prepare-packet"):
         cmd = sub.add_parser(name)
         cmd.add_argument("--graph", required=True)
@@ -840,6 +890,8 @@ def main(argv: list[str] | None = None) -> int:
             _print_json(project_module_documents(graph, sidecar))
         elif args.command == "parity":
             _print_json(check_projection_parity(graph, args.ir_dir, sidecar))
+        elif args.command == "audit":
+            _print_json(audit_projection_fields(graph, sidecar))
         elif args.command == "install":
             _print_json(install_projected_scenario(
                 args.workspace, args.campaign, graph, sidecar

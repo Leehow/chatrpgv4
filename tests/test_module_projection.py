@@ -409,3 +409,84 @@ def test_the_reader_less_stats_field_is_refused():
     unregistered = [row for row in findings if row["code"] == "unregistered_fields"]
     assert unregistered
     assert "stats" in unregistered[0]["message"]
+
+
+def test_install_applies_the_modules_authored_start_clock(tmp_path):
+    """A module that authored its opening moment owns the table clock.
+
+    Without this the campaign opened on the era default (1890-09-15 for a
+    module whose own first line is 1895-01-25 02:00), which a live Keeper
+    printed as the scene's time.
+    """
+    starter_graph = _load(
+        "coc_starter_graph_clock", SCRIPTS / "coc_starter_graph.py"
+    )
+    coc_state = _load("coc_state_clock", SCRIPTS / "coc_state.py")
+    coc_root = tmp_path / ".coc"
+    coc_state.ensure_workspace(coc_root)
+    coc_state.create_campaign(coc_root, "clocked", "Clocked", era="1920s")
+    graph = _starter_graph()
+    starter_graph.install_starter_graph(tmp_path, graph)
+
+    projection.install_projected_scenario(tmp_path, "clocked", graph)
+
+    meta = json.loads(
+        (coc_root / "campaigns" / "clocked" / "scenario" / "module-meta.json")
+        .read_text(encoding="utf-8")
+    )
+    authored = meta.get("start_clock") or {}
+    time_state = json.loads(
+        (coc_root / "campaigns" / "clocked" / "save" / "time-state.json")
+        .read_text(encoding="utf-8")
+    )
+    if authored.get("local_datetime"):
+        assert time_state["clock"]["local_datetime"] == authored["local_datetime"]
+    assert meta.get("era")
+    campaign = json.loads(
+        (coc_root / "campaigns" / "clocked" / "campaign.json").read_text(encoding="utf-8")
+    )
+    assert campaign["era"] == meta["era"]
+    assert campaign["era_source"] == "declared"
+
+
+def test_install_refuses_a_projection_missing_a_canonical_runtime_document(tmp_path):
+    """The compiled archive reads seven documents; a partial set is a half-install."""
+    starter_graph = _load(
+        "coc_starter_graph_partial", SCRIPTS / "coc_starter_graph.py"
+    )
+    coc_state = _load("coc_state_partial", SCRIPTS / "coc_state.py")
+    archive = _load("coc_compiled_archive_partial", SCRIPTS / "coc_compiled_archive.py")
+    coc_root = tmp_path / ".coc"
+    coc_state.ensure_workspace(coc_root)
+    coc_state.create_campaign(coc_root, "partial", "Partial", era="1920s")
+    graph = _starter_graph()
+    starter_graph.install_starter_graph(tmp_path, graph)
+
+    module = next(
+        row for row in graph["nodes"] if row["node_id"] == "module-the-haunting"
+    )
+    documents = module["properties"]["runtime_projection"]["documents"]
+    dropped = "pacing-map.json"
+    assert dropped in archive.CANONICAL_IR_FILES
+    module["properties"]["runtime_projection"]["documents"] = [
+        row for row in documents if row["filename"] != dropped
+    ]
+
+    with pytest.raises(projection.ModuleProjectionError, match="canonical runtime"):
+        projection.install_projected_scenario(tmp_path, "partial", graph)
+
+
+def test_audit_names_registered_fields_no_record_populates():
+    """Make silence visible without hardcoding what a module must contain."""
+    report = projection.audit_projection_fields(_starter_graph())
+
+    scenes = report["story-graph.json:scenes"]
+    assert scenes["records"] > 0
+    assert "dramatic_question" in scenes["populated_fields"]
+    # Every reported field is one the projection registry knows about.
+    registry = projection.RECORD_FIELD_REGISTRY["story-graph.json"]["scenes"]
+    assert set(scenes["unpopulated_registered_fields"]) <= registry
+    assert not (
+        set(scenes["unpopulated_registered_fields"])
+        & set(scenes["populated_fields"])
+    )
