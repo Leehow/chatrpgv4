@@ -864,3 +864,132 @@ def test_the_segment_vocabulary_still_unions_the_way_the_source_did():
         finalizer.LEADING_SEGMENT_TYPE, *finalizer.MECHANIC_SEGMENT_TYPES
     }
     assert finalizer.LEADING_SEGMENT_TYPE not in finalizer.MECHANIC_SEGMENT_TYPES
+
+
+# ===========================================================================
+# T3 — grounding plane
+# ===========================================================================
+
+RULE_GRAPH = json.loads(
+    (REPO / "plugins/coc-keeper/rulesets/coc7/rule-graph.json").read_text("utf-8")
+)
+RULE_EFFECTS = {
+    node["node_id"]: node
+    for node in RULE_GRAPH["nodes"]
+    if node["node_kind"] == "effect"
+}
+KEEPER_ONLY_EFFECTS = {
+    node_id for node_id, node in RULE_EFFECTS.items()
+    if node.get("visibility") != "public"
+}
+
+
+def _probe_edge(target: str) -> set[str]:
+    """Accept a shard carrying one synthetic renders-settled-output edge."""
+    shard = coc_text_graph.obligation_shard()
+    shard["relations"] = shard["relations"] + [{
+        "relation_id": "relation:text:probe",
+        "relation_kind": "renders-settled-output",
+        "from_node_id": "segment-type:state-delta",
+        "to_node_id": target,
+    }]
+    return {finding["code"] for finding in coc_text_graph.accept(shard)}
+
+
+# --- gate 4: the one with a consequence at the table ----------------------
+
+def test_a_keeper_only_effect_can_never_be_declared_rendered():
+    """Presentation must not claim keeper-only material reaches the player.
+
+    Every other T3 gate is structural — a dangling reference fails a
+    validator. This one is a secrecy defect that would show up at the table.
+    """
+    assert KEEPER_ONLY_EFFECTS, "expected at least one keeper-only effect to guard"
+    for effect_id in sorted(KEEPER_ONLY_EFFECTS):
+        assert "keeper_only_target" in _probe_edge(effect_id), effect_id
+
+
+def test_the_keeper_only_guard_fails_if_visibility_widens():
+    """Teeth, not a snapshot of the current arrangement.
+
+    If `push-luck:luck-spend-mutate` is ever reclassified to public, this
+    fails and forces the question to be re-answered deliberately rather than
+    silently unlocking a target presentation may currently never claim.
+    """
+    node = RULE_EFFECTS.get("effect:coc7:push-luck:luck-spend-mutate")
+    assert node is not None, "the guarded effect disappeared from the RuleGraph"
+    assert node["visibility"] == "keeper-only", (
+        "luck-spend-mutate is no longer keeper-only. The TextGraph guard was "
+        "written when it was the single non-public effect and the single exact "
+        "vocabulary match with the text layer. Re-answer whether presentation "
+        "may now render it before relaxing this test."
+    )
+    assert node["audience"] == "host-internal"
+
+
+def test_the_guard_covers_every_non_public_effect_not_just_the_known_one():
+    """A newly added keeper-only effect must be guarded automatically."""
+    for node_id, node in RULE_EFFECTS.items():
+        if node.get("visibility") == "public":
+            continue
+        assert "keeper_only_target" in _probe_edge(node_id), node_id
+
+
+# --- gates 1-3: structural ------------------------------------------------
+
+def test_a_public_effect_is_an_acceptable_target():
+    """The validator must not be vacuously strict."""
+    public = sorted(set(RULE_EFFECTS) - KEEPER_ONLY_EFFECTS)
+    assert public
+    assert _probe_edge(public[0]) == set()
+
+
+def test_a_dangling_or_wrong_kind_target_fails_closed():
+    assert "unknown_rule_effect" in _probe_edge("effect:coc7:does:not-exist")
+    assert "unknown_rule_effect" in _probe_edge("decision:coc7:chase:barrier")
+
+
+def test_only_renders_settled_output_may_leave_this_graph():
+    """ADR 0003 authority boundary, not a stylistic rule."""
+    outward = {"grounded-by", "uses-rule", "invokes-capability",
+               "requires-module-fact", "may-emit-effect"}
+    for relation in ARTIFACT["relations"]:
+        assert relation["relation_kind"] not in outward
+    contract_kinds = set(CONTRACT["relation_kinds"])
+    assert not (contract_kinds & outward)
+    assert "renders-settled-output" in contract_kinds
+
+
+# --- the recorded gap -----------------------------------------------------
+
+def test_the_grounding_ledger_matches_the_artifacts():
+    """Regenerate and compare, so the recorded gap cannot rot."""
+    generator = _load(
+        "gen_text_grounding_ledger_test", "scripts/gen_text_grounding_ledger.py"
+    )
+    on_disk = (REPO / "docs/status/text-grounding-gap.md").read_text("utf-8")
+    assert generator.render(generator.build()) == on_disk
+
+
+def test_zero_edges_is_the_measured_outcome_not_unfinished_work():
+    data = _load(
+        "gen_text_grounding_ledger_measure", "scripts/gen_text_grounding_ledger.py"
+    ).build()
+    assert data["edges"] == 0
+    assert len(data["effects"]) == 23
+    assert data["public"] == 22 and data["keeper_only"] == 1
+    # The single vocabulary correspondence belongs to the keeper-only effect.
+    assert data["token_matches"] == ["luck_spend"]
+    matched = [r for r in data["effects"] if r["text_layer_token_match"]]
+    assert len(matched) == 1
+    assert matched[0]["visibility"] == "keeper-only"
+    assert "grounding_gap_law" in CONTRACT
+
+
+def test_the_registry_does_not_claim_an_instance_it_does_not_have():
+    registry = json.loads(
+        (REFERENCES / "system-ontology-registry-v1.json").read_text("utf-8")
+    )
+    coverage = next(c for c in registry["coverage"] if c["graph_kind"] == "text")
+    assert coverage["composition_status"] == "no-proven-instance"
+    assert "text-grounding-gap.md" in coverage["reason"]

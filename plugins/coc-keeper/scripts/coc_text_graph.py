@@ -44,6 +44,7 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 REFERENCES_DIR = SCRIPT_DIR.parent / "references"
 CONTRACT_PATH = REFERENCES_DIR / "text-graph-contract-v1.json"
+RULE_GRAPH_PATH = SCRIPT_DIR.parent / "rulesets" / "coc7" / "rule-graph.json"
 
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
 
@@ -76,6 +77,23 @@ SEMANTIC_ID_RE = re.compile(str(CONTRACT["semantic_id_pattern"]))
 # or live-state semantic id, so reference closure is a slice-T3 job against the
 # system ontology registry, not a within-artifact lookup.
 EXTERNAL_TARGET_RELATION_KINDS = frozenset({"renders-settled-output"})
+
+
+def _renderable_rule_effects() -> dict[str, str]:
+    """Return {effect node id: visibility} from the production RuleGraph.
+
+    Read live, so an effect that is renamed, removed, or reclassified in the
+    RuleGraph breaks the TextGraph build instead of leaving a stale edge.
+    """
+    try:
+        graph = json.loads(RULE_GRAPH_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {
+        str(node["node_id"]): str(node.get("visibility") or "")
+        for node in graph.get("nodes") or []
+        if isinstance(node, dict) and node.get("node_kind") == "effect"
+    }
 
 # --------------------------------------------------------------------------
 # Frozen legacy declarations being migrated out of coc_turn_finalization.py.
@@ -409,7 +427,41 @@ def accept(
                     findings.append(_finding(
                         "dangling_relation", f"{path}/{endpoint}", target
                     ))
+            if relation_kind == "renders-settled-output":
+                findings.extend(_renders_settled_output_findings(relation, path))
     return findings
+
+
+def _renders_settled_output_findings(
+    relation: dict[str, Any], path: str
+) -> list[dict[str, str]]:
+    """Contract renders_settled_output_law.
+
+    The keeper-only check is the one with a consequence outside the validator:
+    an edge here declares that the effect reaches the player, so pointing it at
+    keeper-only material is a secrecy defect that would show up at the table.
+    """
+    target = str(relation.get("to_node_id") or "")
+    effects = _renderable_rule_effects()
+    if not effects:
+        return [_finding(
+            "rule_graph_unavailable", f"{path}/to_node_id",
+            "renders-settled-output cannot be validated without the production "
+            "RuleGraph; the build fails closed rather than accepting an "
+            "unverifiable cross-graph claim",
+        )]
+    if target not in effects:
+        return [_finding(
+            "unknown_rule_effect", f"{path}/to_node_id",
+            f"{target} is not an effect node in the production RuleGraph",
+        )]
+    if effects[target] != "public":
+        return [_finding(
+            "keeper_only_target", f"{path}/to_node_id",
+            f"{target} is {effects[target]!r}; presentation may not declare it "
+            "rendered to the player",
+        )]
+    return []
 
 
 def _accountability_findings(node: dict[str, Any], path: str) -> list[dict[str, str]]:

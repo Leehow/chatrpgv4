@@ -1656,7 +1656,7 @@
       "graph_ids": [
         "graph:text:production"
       ],
-      "reason": "The production TextGraph carries the obligation plane: the closed vocabularies that decide what a coverage row may say, which settled rolls face the player, and how mechanics segments are ordered. It declares no renders-settled-output relation yet, so no text-to-effect instance is claimed; binding the obligation kinds to the twenty-three coc7 RuleGraph effect nodes is slice T3. The craft plane is unresolved until slice T4."
+      "reason": "The production TextGraph carries the obligation plane and its derivation reads it. It declares no renders-settled-output relation, and that is the measured outcome rather than unfinished work: slice T3 compared all twenty-three coc7 RuleGraph effect nodes against the text layer and found no rendering path for any of them. The text layer renders turn-effect-v1 and exceptional-effect-v1 state effects, a disjoint namespace, and no code in the tree reads an effect:coc7 id. The single exact vocabulary correspondence is luck_spend, which belongs to the one keeper-only effect and is therefore the one target presentation may never claim. See docs/status/text-grounding-gap.md. The compiler's renders-settled-output validator is live, so the first real bridge is checkable the day it is built."
     }
   ]
 }
