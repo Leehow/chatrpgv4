@@ -46,6 +46,13 @@ def _agent_home(tmp_path: Path) -> Path:
 def _fake_pi(tmp_path: Path, *, first_exit: int, flip_campaign: Path | None) -> Path:
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
+    (fake_bin / "package.json").write_text(
+        json.dumps({
+            "name": "@earendil-works/pi-coding-agent",
+            "version": "0.84.2",
+        }),
+        encoding="utf-8",
+    )
     flip = str(flip_campaign) if flip_campaign else ""
     _write_exec(
         fake_bin / "pi",
@@ -108,6 +115,7 @@ def _run_launcher(
     env = {
         **os.environ,
         "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "COC_PI_CLI": str(fake_bin / "pi"),
         "PI_COC_AGENT_DIR": str(agent),
         "COC_WORKSPACE": str(workspace),
         "PI_COC_TEST_LOG": str(log),

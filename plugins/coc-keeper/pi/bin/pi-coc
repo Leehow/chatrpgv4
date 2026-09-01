@@ -241,25 +241,96 @@ else
 fi
 
 resolve_pi_cli() {
-  if command -v pi >/dev/null 2>&1; then
-    printf '%s\n' "pi"
-    return 0
+  local adapter_root expected_version cli package_json installed_version
+  adapter_root=$REPO_ROOT/runtime/adapters/keeper
+  expected_version=$(node -e '
+    const fs = require("fs");
+    const packagePath = process.argv[1];
+    const lockPath = process.argv[2];
+    try {
+      const manifest = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+      const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
+      const expected = manifest.dependencies?.["@earendil-works/pi-coding-agent"];
+      const coding = lock.packages?.["node_modules/@earendil-works/pi-coding-agent"]?.version;
+      const core = lock.packages?.["node_modules/@earendil-works/pi-agent-core"]?.version;
+      if (typeof expected !== "string" || !/^\d+\.\d+\.\d+$/.test(expected)) {
+        throw new Error("package.json must pin an exact pi-coding-agent version");
+      }
+      if (coding !== expected || core !== expected) {
+        throw new Error(`package-lock.json must pin pi-coding-agent and pi-agent-core to ${expected}`);
+      }
+      process.stdout.write(expected);
+    } catch (error) {
+      process.stderr.write(`pi-coc: invalid bundled Pi version contract: ${error.message}\n`);
+      process.exit(1);
+    }
+  ' "$adapter_root/package.json" "$adapter_root/package-lock.json") || return 1
+
+  if [[ ${COC_PI_CLI+x} ]]; then
+    cli=${COC_PI_CLI:-}
+    if [[ -z "$cli" || "$cli" != /* || ! -f "$cli" || ! -x "$cli" ]]; then
+      printf '%s\n' \
+        "pi-coc: COC_PI_CLI must be an absolute executable file; refusing fallback" >&2
+      return 1
+    fi
+    package_json=$(node -e '
+      const fs = require("fs");
+      const path = require("path");
+      let cursor = path.dirname(fs.realpathSync(process.argv[1]));
+      while (true) {
+        const candidate = path.join(cursor, "package.json");
+        if (fs.existsSync(candidate)) {
+          try {
+            const value = JSON.parse(fs.readFileSync(candidate, "utf8"));
+            if (value.name === "@earendil-works/pi-coding-agent") {
+              process.stdout.write(candidate);
+              process.exit(0);
+            }
+          } catch { /* keep walking for the owning package */ }
+        }
+        const parent = path.dirname(cursor);
+        if (parent === cursor) break;
+        cursor = parent;
+      }
+      process.exit(1);
+    ' "$cli") || {
+      printf '%s\n' \
+        "pi-coc: COC_PI_CLI is not owned by an @earendil-works/pi-coding-agent package; refusing fallback" >&2
+      return 1
+    }
+  else
+    package_json=$adapter_root/node_modules/@earendil-works/pi-coding-agent/package.json
+    cli=$adapter_root/node_modules/@earendil-works/pi-coding-agent/dist/cli.js
+    if [[ ! -f "$cli" || ! -x "$cli" || ! -f "$package_json" ]]; then
+      printf '%s\n' \
+        "pi-coc: bundled Pi ${expected_version} is missing or not executable at $cli" >&2
+      printf '%s\n' \
+        "Fix: run 'npm ci' in $adapter_root; a global Pi is not a patched substitute" >&2
+      return 1
+    fi
   fi
-  if [ -n "${COC_PI_CLI:-}" ] && [ -f "$COC_PI_CLI" ]; then
-    printf '%s\n' "$COC_PI_CLI"
-    return 0
+
+  installed_version=$(node -e '
+    const fs = require("fs");
+    try {
+      const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      if (value.name !== "@earendil-works/pi-coding-agent" || typeof value.version !== "string") {
+        throw new Error("unexpected package identity");
+      }
+      process.stdout.write(value.version);
+    } catch (error) {
+      process.stderr.write(`pi-coc: cannot validate Pi package: ${error.message}\n`);
+      process.exit(1);
+    }
+  ' "$package_json") || return 1
+  if [[ "$installed_version" != "$expected_version" ]]; then
+    printf '%s\n' \
+      "pi-coc: required ${expected_version} from the repository contract, found ${installed_version} at $package_json" >&2
+    return 1
   fi
-  bundled=$REPO_ROOT/runtime/adapters/keeper/node_modules/@earendil-works/pi-coding-agent/dist/cli.js
-  if [ -f "$bundled" ]; then
-    printf '%s\n' "$bundled"
-    return 0
-  fi
-  return 1
+  printf '%s\n' "$cli"
 }
-if ! resolve_pi_cli >/dev/null; then
-  printf '%s\n' "pi-coc: 'pi' not found on PATH (install @earendil-works/pi-coding-agent)" >&2
-  exit 1
-fi
+PI_CLI=$(resolve_pi_cli) || exit 1
 
 # Pi looks up fd/rg under $PI_CODING_AGENT_DIR/bin. Bind PATH copies into this
 # project home; never share ~/.pi/agent/bin.
@@ -503,11 +574,6 @@ elif [ -x "$REPO_ROOT/.venv/bin/python3" ]; then
 else
   printf '%s\n' "pi-coc: no project python at ${UV_PROJECT_ENVIRONMENT:-$REPO_ROOT/.venv}/bin/python3; run 'uv sync --frozen'" >&2
 fi
-
-PI_CLI=$(resolve_pi_cli) || {
-  printf '%s\n' "pi-coc: 'pi' not found on PATH (install @earendil-works/pi-coding-agent)" >&2
-  exit 1
-}
 
 run_pi() {
   case "$PI_CLI" in
