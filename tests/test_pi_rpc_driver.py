@@ -1143,3 +1143,133 @@ def test_delivered_finalization_is_none_without_a_finalization(tmp_path):
         "type": "tool_execution_end",
         "result": {"finalization_id": "turn-effect-v1:abc", "rendered_text_sha256": "sha256:x"},
     }]) is None
+
+
+# --- launch configuration -------------------------------------------------
+#
+# Two divergent copies of the driver used to exist: this version-controlled one
+# launched a bare `pi` with no campaign, while the variant that actually ran
+# Gate 9 acceptance lived only as untracked copies inside playtest workspaces
+# and launched the repo's `pi-coc` with `--campaign`. Fixes had to be
+# hand-copied between them, and one that was not copied -- the delivery
+# acknowledgement -- stayed broken unnoticed. `_launch_plan` collapses both
+# shapes into this file so the tracked copy is the copy that runs; these tests
+# pin both shapes so they cannot silently drift apart again.
+
+BARE_PI_ARGV = [
+    "pi", "--no-builtin-tools", "--approve", "--no-context-files",
+    "--append-system-prompt", "plugins/coc-keeper/pi/prompts/host-system.md",
+    "--mode", "rpc", "--no-session",
+]
+
+
+def test_launch_plan_without_launcher_keeps_the_bare_pi_command(tmp_path: Path):
+    """No PI_COC_LAUNCHER means the historical bare-`pi` launch, unchanged.
+
+    Every other test in this file drives the driver through this path against a
+    fake `pi` on PATH, so this argv is load-bearing for the whole suite.
+    """
+    driver = _install_driver(tmp_path)
+    cmd, overrides = driver._launch_plan({"PATH": "/usr/bin"})
+    assert cmd == BARE_PI_ARGV
+    # ROOT is a checkout in this mode, so the host adapters resolve against it.
+    assert overrides["COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND"] == str(
+        driver.ROOT / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter"
+    )
+    assert overrides["COC_PROGRESSIVE_OCR_COMMAND"] == str(
+        driver.ROOT / "plugins/coc-keeper/pi/bin/coc-ocr-adapter.py"
+    )
+    assert overrides["COC_HOST"] == "pi"
+    assert overrides["PI_CODING_AGENT_DIR"] == str(driver.ROOT / "agent-home")
+    # A bare launch has no workspace to name.
+    assert "COC_WORKSPACE" not in overrides
+    # The home bin dir is prepended, never dropped.
+    assert overrides["PATH"].endswith(os.pathsep + "/usr/bin")
+    assert overrides["PATH"].startswith(str(Path.home() / ".local/bin"))
+
+
+def test_launch_plan_with_launcher_binds_the_campaign(tmp_path: Path):
+    """PI_COC_LAUNCHER switches to the repo's `pi-coc` bound to a campaign."""
+    driver = _install_driver(tmp_path)
+    cmd, overrides = driver._launch_plan({
+        "PATH": "/usr/bin",
+        "PI_COC_LAUNCHER": "/repo/plugins/coc-keeper/pi/bin/pi-coc",
+        "PI_COC_CAMPAIGN_ID": "gate9-depth",
+    })
+    assert cmd == [
+        "/repo/plugins/coc-keeper/pi/bin/pi-coc",
+        "--mode", "rpc",
+        "--campaign", "gate9-depth",
+        "--model", "xai/grok-4.5",
+        "--thinking", "high",
+        "--no-session",
+    ]
+    # ROOT is the playtest workspace here, not a checkout, so ROOT-relative
+    # adapter paths would not exist; the workspace is named instead.
+    assert overrides["COC_WORKSPACE"] == str(driver.ROOT)
+    assert "COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND" not in overrides
+    assert "COC_PROGRESSIVE_OCR_COMMAND" not in overrides
+    assert overrides["COC_HOST"] == "pi"
+
+
+def test_launch_plan_campaign_model_and_thinking_are_overridable(tmp_path: Path):
+    """Acceptance picks the model/effort per run; the defaults are fallbacks."""
+    driver = _install_driver(tmp_path)
+    cmd, _ = driver._launch_plan({
+        "PI_COC_LAUNCHER": "/repo/plugins/coc-keeper/pi/bin/pi-coc",
+        "PI_COC_CAMPAIGN_ID": "gate9-depth",
+        "PI_COC_MODEL": "anthropic/claude-opus-4",
+        "PI_COC_THINKING": "low",
+    })
+    assert cmd[cmd.index("--model") + 1] == "anthropic/claude-opus-4"
+    assert cmd[cmd.index("--thinking") + 1] == "low"
+    assert cmd[cmd.index("--campaign") + 1] == "gate9-depth"
+
+
+def test_launch_plan_rejects_a_launcher_without_a_campaign(tmp_path: Path):
+    """A campaign launch missing its campaign fails closed and names the gap.
+
+    Starting `pi-coc` with no campaign would bring up a host that silently
+    plays nothing, which is exactly the kind of failure this driver exists to
+    make diagnosable.
+    """
+    driver = _install_driver(tmp_path)
+    with pytest.raises(driver.LaunchConfigError) as excinfo:
+        driver._launch_plan({"PI_COC_LAUNCHER": "/repo/plugins/coc-keeper/pi/bin/pi-coc"})
+    assert "PI_COC_CAMPAIGN_ID" in str(excinfo.value)
+    # An empty value is as unusable as an absent one.
+    with pytest.raises(driver.LaunchConfigError):
+        driver._launch_plan({
+            "PI_COC_LAUNCHER": "/repo/plugins/coc-keeper/pi/bin/pi-coc",
+            "PI_COC_CAMPAIGN_ID": "",
+        })
+
+
+def test_serve_logs_a_launch_config_refusal_instead_of_dying_silently(tmp_path: Path):
+    """`start` detaches serve, so a bad launch config must reach the log.
+
+    An uncaught error in the detached process would leave the operator with no
+    heartbeat, no pi, and no explanation.
+    """
+    driver = _install_driver(tmp_path)
+    evidence = tmp_path / "evidence"
+    evidence.mkdir(exist_ok=True)
+    driver.DRIVER_LOG = evidence / "rpc-driver.log"
+    previous = {
+        key: os.environ.get(key)
+        for key in ("PI_COC_LAUNCHER", "PI_COC_CAMPAIGN_ID")
+    }
+    os.environ["PI_COC_LAUNCHER"] = "/repo/plugins/coc-keeper/pi/bin/pi-coc"
+    os.environ.pop("PI_COC_CAMPAIGN_ID", None)
+    try:
+        assert driver.serve() == 2
+    finally:
+        driver._driver_log_handle = None
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+    log_text = driver.DRIVER_LOG.read_text(encoding="utf-8")
+    assert "serve refused to start" in log_text
+    assert "PI_COC_CAMPAIGN_ID" in log_text

@@ -57,6 +57,17 @@ This driver keeps the same CLI (``start``/``serve``/``set-model``/``turn``/
    lookalike events, malformed handoff rows, and any later signal,
    non-42 exit, reader/EPIPE/non-JSON evidence fail closed.
 
+6. **Environment-driven launch** (``_launch_plan``): with no
+   ``PI_COC_LAUNCHER`` the driver starts a bare ``pi`` for the unit tests;
+   with one set it starts that launcher bound to ``PI_COC_CAMPAIGN_ID``
+   (``PI_COC_MODEL`` / ``PI_COC_THINKING`` select the provider and effort)
+   for live acceptance.  These were previously two divergent copies of this
+   file -- the tracked one here and untracked ones inside playtest
+   workspaces -- so every fix had to be hand-copied, and the one that was not
+   copied (the delivery acknowledgement) stayed broken unnoticed.  One
+   tracked file now serves both, and the copy under version control is the
+   copy that runs.
+
 The upstream pi gap (EPIPE on RPC stdout kills the whole agent) is reported
 separately; this driver makes the peer death survivable and diagnosable on the
 repo side.
@@ -98,8 +109,21 @@ TURN_BUDGET_ABORT_DRAIN_SECONDS = 2.0
 # After envelope+exit 42, keep collecting so late reader/EPIPE/non-JSON
 # or a non-42 exit cannot arrive after the window was frozen.
 HANDOFF_DRAIN_SECONDS = 1.5
+# Launch configuration. Setting LAUNCHER_ENV switches this driver from the bare
+# `pi` it starts by default to the repo's `pi-coc` bound to a campaign, so one
+# version-controlled driver serves both the unit tests and live acceptance.
+LAUNCHER_ENV = "PI_COC_LAUNCHER"
+CAMPAIGN_ID_ENV = "PI_COC_CAMPAIGN_ID"
+MODEL_ENV = "PI_COC_MODEL"
+THINKING_ENV = "PI_COC_THINKING"
+DEFAULT_CAMPAIGN_MODEL = "xai/grok-4.5"
+DEFAULT_CAMPAIGN_THINKING = "high"
 
 _driver_log_handle = None
+
+
+class LaunchConfigError(RuntimeError):
+    """The environment asked for a campaign launch it did not fully describe."""
 
 
 def log(message: str) -> None:
@@ -952,7 +976,7 @@ def _acknowledge_delivery(payload: dict, rows: list[dict]) -> None:
     # The gate probe launches the repo's `pi-coc` from a workspace that is not
     # itself a checkout, so the canonical toolbox lives next to that launcher
     # rather than under ROOT.
-    launcher = os.environ.get("PI_COC_LAUNCHER")
+    launcher = os.environ.get(LAUNCHER_ENV)
     roots = []
     if launcher:
         roots.append(Path(launcher).resolve().parents[4])
@@ -964,7 +988,7 @@ def _acknowledge_delivery(payload: dict, rows: list[dict]) -> None:
     else:
         log("delivery ack skipped: canonical toolbox not found")
         return
-    campaign_id = os.environ.get("PI_COC_CAMPAIGN_ID") or delivered["campaign_id"]
+    campaign_id = os.environ.get(CAMPAIGN_ID_ENV) or delivered["campaign_id"]
     arguments = {
         "finalization_id": delivered["finalization_id"],
         "rendered_sha256": delivered["rendered_sha256"],
@@ -1267,25 +1291,81 @@ def submit(payload: dict, timeout: int, *, profile: str | None = None) -> int:
     )
 
 
-def serve() -> int:
-    env = os.environ.copy()
-    env.update({
+def _launch_plan(environ: dict) -> tuple[list[str], dict[str, str]]:
+    """Resolve the pi process this driver owns from the environment alone.
+
+    Two launch shapes existed as two divergent copies of this file: the
+    version-controlled one launched a bare ``pi`` with no campaign, while the
+    variant that actually ran Gate 9 acceptance lived only as untracked copies
+    inside playtest workspaces and launched the repo's ``pi-coc`` with
+    ``--campaign``. Every driver fix therefore had to be hand-copied into each
+    workspace, and one that was not copied -- the delivery acknowledgement --
+    stayed broken without anyone noticing.
+
+    Making the launch configuration environment-driven collapses both shapes
+    into this one file, so the copy under version control is the copy that
+    runs. ``PI_COC_LAUNCHER`` selects campaign mode; its absence keeps the
+    original bare-``pi`` behavior byte for byte.
+    """
+    home_bin = str(Path.home() / ".local/bin")
+    overrides = {
         "PI_CODING_AGENT_DIR": str(ROOT / "agent-home"),
         "COC_HOST": "pi",
-        "COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND": str(ROOT / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter"),
-        "PATH": str(Path.home() / ".local/bin") + os.pathsep + env.get("PATH", ""),
-        "COC_PROGRESSIVE_OCR_COMMAND": str(ROOT / "plugins/coc-keeper/pi/bin/coc-ocr-adapter.py"),
-        "COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND": str(ROOT / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter"),
+        "PATH": home_bin + os.pathsep + environ.get("PATH", ""),
         "COC_KEEPER_ENV_FILE": str(Path.home() / ".config/coc-keeper/secrets.env"),
-    })
+    }
+    launcher = environ.get(LAUNCHER_ENV)
+    if not launcher:
+        # Bare mode: ROOT is a repository checkout, so the host adapters
+        # resolve against it.
+        overrides["COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND"] = str(
+            ROOT / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter"
+        )
+        overrides["COC_PROGRESSIVE_OCR_COMMAND"] = str(
+            ROOT / "plugins/coc-keeper/pi/bin/coc-ocr-adapter.py"
+        )
+        cmd = [
+            "pi", "--no-builtin-tools", "--approve", "--no-context-files",
+            "--append-system-prompt", "plugins/coc-keeper/pi/prompts/host-system.md",
+            "--mode", "rpc", "--no-session",
+        ]
+        return cmd, overrides
+    campaign_id = environ.get(CAMPAIGN_ID_ENV)
+    if not campaign_id:
+        # Fail closed and name the missing variable: a campaign launch with no
+        # campaign would otherwise start a host that silently plays nothing.
+        raise LaunchConfigError(
+            f"{LAUNCHER_ENV} is set but {CAMPAIGN_ID_ENV} is missing; "
+            "a campaign launch needs both."
+        )
+    # Campaign mode: ROOT is the playtest workspace, not a checkout, so the
+    # adapter paths under it do not exist. The launcher carries its own repo,
+    # and the workspace is named explicitly instead.
+    overrides["COC_WORKSPACE"] = str(ROOT)
     cmd = [
-        "pi", "--no-builtin-tools", "--approve", "--no-context-files",
-        "--append-system-prompt", "plugins/coc-keeper/pi/prompts/host-system.md",
-        "--mode", "rpc", "--no-session",
+        launcher,
+        "--mode", "rpc",
+        "--campaign", campaign_id,
+        "--model", environ.get(MODEL_ENV) or DEFAULT_CAMPAIGN_MODEL,
+        "--thinking", environ.get(THINKING_ENV) or DEFAULT_CAMPAIGN_THINKING,
+        "--no-session",
     ]
+    return cmd, overrides
+
+
+def serve() -> int:
+    env = os.environ.copy()
     global _driver_log_handle
     DRIVER_LOG.parent.mkdir(exist_ok=True)
     _driver_log_handle = DRIVER_LOG.open("a", encoding="utf-8")
+    try:
+        cmd, overrides = _launch_plan(env)
+    except LaunchConfigError as exc:
+        # `start` detaches this process, so an uncaught error here would vanish.
+        # The driver log is the one place the operator is told to look.
+        log(f"serve refused to start: {exc}")
+        return 2
+    env.update(overrides)
     log("serve starting: " + " ".join(cmd))
     proc = subprocess.Popen(cmd, cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=STDERR.open("a", encoding="utf-8"), text=True, bufsize=1, env=env)
