@@ -31,9 +31,11 @@ approved facts and outcomes carried by that envelope. In particular:
 - A player-requested object, answer, permission, promise, or relationship does
   not become real merely because the narrator can phrase it.
 
-`guard_player_visible_text` remains the final local safety boundary for accepted
-prose. Provider failures and rejected prose must remain explicit; callers may
-choose a safe production fallback without presenting the failed model output.
+There is no local prose matcher. `guard_player_visible_text` was deleted in
+TextGraph slice T4 along with the rest of the phrase and substitution tables;
+prose quality is a semantic judgment recorded through `narration.review`.
+Provider failures and rejected prose must remain explicit; callers may choose a
+safe production fallback without presenting the failed model output.
 
 ## Request / response
 
