@@ -90,6 +90,16 @@ one player (this session), one turn at a time through the repo's own
    archive and `scene.context` but could not be carried. Registered after
    confirming each against its consumer.
 
+5. **An installed projection could leave the graph unreachable.** The
+   projection installed the materialized views but bound nothing to the graph's
+   asset root, so `module.context` answered `unbound` on exactly the campaigns
+   this pipeline produces — the Keeper had the scenario but no graph to consult.
+   The projected `module-meta.json` now carries the canonical
+   `module_graph_asset_root_id` pointer (the same one starters use), and the
+   installer fails closed when no installed graph answers there. Verified on
+   the real campaign: Keeper search for 莎拉 returns her neighbourhood and a
+   `concept-time-loop` expansion returns the loop's rules and reset event.
+
 ## 5. Open defect that stopped deeper play (not owned by this work)
 
 On a fumbled STR roll the turn could not settle:

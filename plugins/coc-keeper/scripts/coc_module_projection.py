@@ -413,6 +413,25 @@ def install_projected_scenario(
         )
 
     meta = documents.get("module-meta.json") or {}
+    # The Keeper reaches a graph-backed module through the campaign's card
+    # roots, which resolve from this pointer (coc_module_project
+    # .campaign_handout_asset_root_ids). Installing the views while the graph
+    # stays unreachable is the silent half-install this check exists to stop:
+    # module.context answers `unbound` and the Keeper simply has no graph.
+    graph_root_id = str(meta.get("module_graph_asset_root_id") or "").strip()
+    if graph_root_id:
+        try:
+            coc_module_graph.load_installed_module_graph_installation(
+                root, asset_root_id=graph_root_id,
+            )
+        except Exception as exc:
+            raise ModuleProjectionError(
+                f"module-meta names module_graph_asset_root_id "
+                f"{graph_root_id!r} but no installed graph answers there "
+                f"({exc}); build and install the graph into that asset root "
+                "before installing its projection, or the Keeper's "
+                "module.context stays unbound"
+            ) from exc
     scenario_id = str(meta.get("scenario_id") or "")
     scenes = (documents.get("story-graph.json") or {}).get("scenes") or []
     opening = str(meta.get("opening_scene") or "")
