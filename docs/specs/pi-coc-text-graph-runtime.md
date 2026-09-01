@@ -1,7 +1,8 @@
 # Pi-Coc TextGraph specification
 
-> **Status:** T0, T1 and T2 implemented on `claude/pi-coc-text-graph-20260901`.
-> T3–T5 are specified and **not** authorized. Both slices are
+> **Status:** T0–T3 implemented on `claude/pi-coc-text-graph-20260901`.
+> T4–T5 are specified and **not** authorized; T4 deletes the style module and
+> needs its own authorization. Both slices are
 > behaviour-preserving: every migrated vocabulary is bit-identical, the
 > model-visible contract archive rebuilds byte-identical, and the whole
 > preserved corpus of 418 coverage rows replays byte-for-byte. See the
@@ -11,7 +12,7 @@
 > adapters, prompts, launchers, tests, and documentation remain off-limits.
 > **Scope owner:** the settled-output presentation surface inside
 > `plugins/coc-keeper/`.
-> **Last updated:** 2026-09-01 (T2 implementation pass; see the Implementation log)
+> **Last updated:** 2026-09-01 (T3 implementation pass; see the Implementation log)
 > **Depends on:** [ADR 0003 system ontology composition registry](../adr/0003-system-ontology-composition-registry.md),
 > [DirectorGraph](pi-coc-director-graph-runtime.md) (structural template and
 > implementation log), [`docs/ruleset-contract.md`](../ruleset-contract.md).
@@ -637,7 +638,8 @@ What the slices actually produced, including where this specification was wrong.
 | T0 | This document plus the inventory. Four brief figures corrected. |
 | T1 | Contract, compiler, 39 obligation-plane nodes, registry promotion, and the cross-language residue gate. Behaviour unchanged; the model-visible contract archive rebuilds byte-identical. |
 | T2 | Derivation reads the graph. 44 nodes, first 5 relations. 418/418 coverage rows replay byte-for-byte. Fixed a fabricated value T1 shipped. |
-| T3–T5 | Not started. |
+| T3 | Grounding plane: live validator, keeper-only guard, and **zero edges** — the measured outcome, not unfinished work. Coverage stays `no-proven-instance`. |
+| T4–T5 | Not started. |
 
 ### T1, as built
 
@@ -810,3 +812,81 @@ What the slices actually produced, including where this specification was wrong.
     the `0.8.1a@bb0575d5` merge had grown another slice's TypeScript copies from
     59 to 61 — unrelated to this work, and visible only because the count was
     pinned.
+
+### T3, as built
+
+- The compiler validates every `renders-settled-output` edge against the live
+  production RuleGraph: the target must exist, be an `effect` node, and be
+  `public`. Dangling ids, wrong node kinds and keeper-only targets all fail the
+  build, and all four cases are probed by test so the validator is not
+  vacuously strict.
+- `scripts/gen_text_grounding_ledger.py` and
+  [`docs/status/text-grounding-gap.md`](../status/text-grounding-gap.md),
+  regenerated and compared by test.
+- Registry coverage stays `no-proven-instance`, with the measurement as its
+  reason.
+- **Zero `renders-settled-output` edges.**
+
+### Corrections this specification needed (T3)
+
+14. **§8 T3 assumed a bridge that does not exist.** It said to add edges "from
+    obligation kinds and segment types to the RuleGraph `effect` nodes they
+    render" and to upgrade coverage to `instance-linked`. Neither is possible
+    honestly. All 23 effect nodes were measured against the text layer:
+
+    | check | result |
+    | --- | --- |
+    | `effect:coc7:*` ids read by any code in the tree | **none** — they appear only in `rule-graph.json` and the ontology registry |
+    | `effect:coc7:*` ids in 506 preserved finalizations | **zero** |
+    | RuleGraph `effect_kind` values matching `coc_exceptional_effects.EFFECT_KINDS` | **none** |
+    | RuleGraph `effect_kind` values matching effect kinds seen in settled bundles | **none** |
+
+    The text layer renders `turn-effect-v1` and `exceptional-effect-v1` state
+    effects — `item`, `cash`, `scalar`, `time`, `scene_event`, `penalty_die` —
+    a namespace disjoint from the RuleGraph's `mp-spent`, `chase-ended`,
+    `one-use-penalty-die`. Nothing maps between them.
+
+    Drawing 22 edges anyway would have declared a rendering path no consumer
+    could honour: the same defect as T1's fabricated `source_kind`, one slice
+    later and with the graph's own authority plane behind it. The edges are not
+    drawn, the validator is live so the first real bridge is checkable, and the
+    gap is a generated ledger rather than a sentence that can rot.
+
+15. **The only place the two graphs touch is the effect that must not be
+    rendered.** The single exact correspondence between the RuleGraph's 23
+    `effect_kind` values and any vocabulary the text layer uses is
+    `luck_spend` — `effect:coc7:push-luck:luck-spend-mutate`, the one
+    `keeper-only`, `host-internal` effect. The text layer names it in
+    `_narration_budget`, where it selects a length budget and is never
+    rendered.
+
+    That makes gate 4 the substantive gate it was expected to be, for a reason
+    the specification did not anticipate. The guard is derived from the
+    RuleGraph rather than hardcoded, so a newly added keeper-only effect is
+    covered automatically; and a second test fails if `luck-spend-mutate`'s
+    visibility ever widens, so relaxing it requires re-answering the question
+    rather than silently unlocking a target presentation may currently never
+    claim.
+
+16. **Under-connection had to be made legible.** A graph with no outward edges
+    looks identical whether it was measured or skipped. `grounding_gap_law` in
+    the contract, the generated ledger, and the registry's reason all state
+    which one it is, and `test_zero_edges_is_the_measured_outcome_not_unfinished_work`
+    asserts the measurement rather than the emptiness.
+
+### Which gates run in CI
+
+Stated precisely, because a gate that skips is not coverage:
+
+| Slice | Gate | Runs without `.coc/`? |
+| --- | --- | --- |
+| T1 | contract, compiler, residue census, registry | **yes** |
+| T2 | bit-identity, archive byte-identity, `fiction` literals, label grammar | **yes** |
+| T2 | **the 418-row replay** | **no** — skips, with a stated reason |
+| T3 | keeper-only guard, validator probes, ledger drift, registry | **yes** |
+
+T3 adds no new `.coc/` dependency: the ledger is computed from
+`rule-graph.json`, `text-graph.json` and two source files only. The corpus
+figures in correction 14 — zero effect ids in 506 finalizations — are recorded
+evidence from the preserved logs, not a CI-enforced assertion. T2's replay
+remains the one gate that does not run in a checkout without the evidence.
