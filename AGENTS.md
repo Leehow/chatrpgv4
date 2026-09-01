@@ -245,6 +245,17 @@ direction may change them.
 - Every player-visible string uses active `play_language` (default `zh-Hans`):
   narration, dialogue, delivered handouts, rolls, visible mechanics, choices,
   prompts, and recaps.
+- Prose is **written in the player's language, not looked up**. `play_language`
+  is a free-form tag, never an enum of supported languages, and there is no
+  `language_profile` label bundle — it was removed after every one of its keys
+  proved to have zero readers. Do not add one back; see
+  `docs/status/play-language-layer-is-unnecessary.md`.
+- The two surviving tables are not exceptions waiting to be cleaned up.
+  `DEFAULT_LOCALIZED_TERMS` holds rulebook terminology, where cross-turn
+  consistency is the point. `TABLE_MECHANICS_LABELS` holds chrome for
+  deterministic mechanics blocks, which the host composes and hashes into
+  `rendered_text_sha256` — the Keeper must not author them, so an output
+  instruction cannot reach them.
 - Source modules and machine IR may remain in source language. Prefer
   `localized_text` / `localized_terms`; otherwise faithfully render the full
   substance in table language. Do not append source English unless asked.
