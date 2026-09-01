@@ -64,15 +64,23 @@ COLLECTION_SPECS: dict[str, tuple[tuple[str, str, str | None], ...]] = {
 # finding, never silently carried (the keeper_notes dead-field class).
 RECORD_FIELD_REGISTRY: dict[str, dict[str, frozenset[str]]] = {
     "story-graph.json": {
+        # Field set confirmed against coc-scenario-import's
+        # story-graph-schema.md §2 (six-field scene contract, structured
+        # edges/threat affinity, time-loop signals) plus the committed
+        # starter's legacy fields.
         "scenes": frozenset({
             "affordances", "allowed_improvisation", "available_clues",
             "conclusion_contract", "destination_access", "destination_identity",
             "display_name", "dramatic_question", "entry_conditions",
-            "exit_conditions", "is_final", "is_start", "location_tags",
-            "npc_ids", "npc_presence_requirements", "on_enter",
-            "optional_rules", "origin", "pressure_moves", "read_aloud",
-            "scene_edges", "scene_id", "scene_type", "source_refs",
-            "storylet_tags", "tone",
+            "exit_conditions", "exit_options", "failure_modes", "faction_ids",
+            "goals", "is_final", "is_start", "location_tags", "loop_boundary",
+            "mentions", "mode_affinity", "npc_ids",
+            "npc_presence_requirements", "on_enter", "optional_rules",
+            "origin", "player_retained_memory_ids", "player_safe_summary",
+            "pressure_moves",
+            "read_aloud", "required_reveals", "scene_contract", "scene_edges",
+            "scene_function", "scene_id", "scene_tags", "scene_type",
+            "source_refs", "storylet_tags", "threat_front_ids", "tone",
         }),
     },
     "clue-graph.json": {
@@ -84,16 +92,18 @@ RECORD_FIELD_REGISTRY: dict[str, dict[str, frozenset[str]]] = {
     "npc-agendas.json": {
         "npcs": frozenset({
             "active_reactions", "agenda", "availability", "deflect_options",
-            "disclosure_order", "facts", "fear", "keeper_note",
-            "known_fact_ids", "leverage_ids", "lie_options", "name", "npc_id",
-            "origin", "relationship_to_investigators", "revealable_fact_ids",
-            "schedule", "secret", "social_role", "source_refs", "stats",
-            "stats_absent", "voice",
+            "disclosure_order", "facts", "fear", "foreign_dialogue",
+            "keeper_note", "known_fact_ids", "leverage_ids", "lie_options",
+            "name", "npc_id", "origin", "player_safe_summary",
+            "relationship_to_investigators",
+            "revealable_fact_ids", "schedule", "secret", "social_role",
+            "source_refs", "stats", "stats_absent", "voice",
         }),
     },
     "threat-fronts.json": {
         "fronts": frozenset({
-            "clocks", "dangers", "description", "front_id", "origin", "scope",
+            "clocks", "dangers", "description", "faction_ids", "front_id",
+            "origin", "scene_ids", "scene_tags_any", "scope", "severity",
             "source_refs",
         }),
     },
