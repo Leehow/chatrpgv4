@@ -3899,13 +3899,18 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS,
     [],
   )],
+  // `roll_id` is deliberately NOT host-only here: a graph-settled
+  // critical/fumble is the source roll `state.exceptional_effect` must bind,
+  // so the settled percentile evidence needs a model-consumable handle. The
+  // field routes through the roll registry (mapped → semantic handle,
+  // unmapped → fail-closed drop) instead of being silently hidden.
   ["rules.settle", declaredIdentityTable(
     [
       "actor_id", "capability_ref", "caregiver_id", "day_id", "decision_ref",
       "rescuer_id", "rule_ref", "rule_refs", "wound_id",
     ],
     ["request_digest"],
-    ["command_id", "roll_id", "source_command_id", "state_refs"],
+    ["command_id", "source_command_id", "state_refs"],
   )],
   ["state.advance_time", declaredIdentityTable(
     ["civil_segment_id", "location_id", "source_ref"],
@@ -6382,6 +6387,7 @@ function rewriteCanonicalIdsInText(
   text: string,
   semanticIds: SemanticIdMap | null,
   stripResidualHex: boolean,
+  residualIdentityValues: readonly string[] = [],
 ): string {
   if (!text) return text;
   let out = text;
@@ -6404,13 +6410,54 @@ function rewriteCanonicalIdsInText(
       if (out.includes(from)) out = out.split(from).join(to);
     }
   }
+  // Identity values the sanitizer dropped from this error's structured
+  // fields must not survive in its prose either. Mapped values were already
+  // rewritten to handles above; whatever remains verbatim is unmapped
+  // machine identity and is scrubbed (same substring-safety floor as the
+  // handle rewrites).
+  for (const value of residualIdentityValues) {
+    if (value.length < 12) continue;
+    for (const candidate of [value, `roll:${value}`, `first-impression:${value}`]) {
+      if (out.includes(candidate)) out = out.split(candidate).join("");
+    }
+  }
   if (stripResidualHex) out = out.replace(OPAQUE_HEX_RUN, "");
   return out.replace(/ {2,}/g, " ").replace(/ ,/g, ",").trim();
+}
+
+/**
+ * Identity-bearing string values named by one canonical error, collected
+ * BEFORE sanitization so residual machine ids can be scrubbed from the
+ * error's prose even when no live handle maps them. Values are only ever
+ * used to REMOVE text — they are never echoed into model content.
+ */
+export function collectErrorIdentityValues(error: unknown): string[] {
+  const values = new Set<string>();
+  const visit = (value: unknown, field: string | null): void => {
+    if (Array.isArray(value)) {
+      for (const entry of value) visit(entry, field);
+      return;
+    }
+    if (isPlainObject(value)) {
+      for (const [key, child] of Object.entries(value)) visit(child, key);
+      return;
+    }
+    if (typeof value !== "string" || !value || field === null) return;
+    if (
+      DISCOVERY_IDENTITY_NAME.test(field)
+      || DISCOVERY_INFRA_NAME.test(field)
+    ) {
+      values.add(value);
+    }
+  };
+  visit(error, null);
+  return [...values];
 }
 
 function rewriteCanonicalIdsInError(
   error: unknown,
   semanticIds: SemanticIdMap | null,
+  residualIdentityValues: readonly string[] = [],
 ): unknown {
   if (!isPlainObject(error)) return error;
   const code = typeof error.code === "string" ? error.code : "";
@@ -6420,7 +6467,7 @@ function rewriteCanonicalIdsInError(
   const rewritten: Record<string, unknown> = { ...error };
   if (typeof rewritten.message === "string") {
     rewritten.message = rewriteCanonicalIdsInText(
-      rewritten.message, semanticIds, stripResidualHex,
+      rewritten.message, semanticIds, stripResidualHex, residualIdentityValues,
     );
   }
   if (Array.isArray(rewritten.violations)) {
@@ -6429,7 +6476,7 @@ function rewriteCanonicalIdsInError(
       return {
         ...row,
         message: rewriteCanonicalIdsInText(
-          row.message, semanticIds, stripResidualHex,
+          row.message, semanticIds, stripResidualHex, residualIdentityValues,
         ),
       };
     });
@@ -6583,6 +6630,7 @@ export function projectModelVisibleCanonicalResult(
     }
   }
   if (projected.error !== undefined) {
+    const residualIdentityValues = collectErrorIdentityValues(projected.error);
     projected.error = rewriteCanonicalIdsInError(
       sanitizeEnvelopeBranch(
         projected.error,
@@ -6591,6 +6639,7 @@ export function projectModelVisibleCanonicalResult(
         operationName,
       ),
       semanticIds,
+      residualIdentityValues,
     );
   }
   // Hints are Pi-authored from structured fields; canonical hint prose is

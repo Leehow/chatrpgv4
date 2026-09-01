@@ -5195,6 +5195,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           "random-dice-roll",
         ]);
       }
+      if (operation === "rules.settle") {
+        // RuleGraph settlement records its canonical percentile evidence in
+        // nested result rows (settlement.result.bound_check and family
+        // variants), never through a rules.roll envelope this gateway would
+        // observe. Without registration a graph-settled critical/fumble has
+        // no live roll handle: state.exceptional_effect can never bind the
+        // source roll and the turn cannot close.
+        const settleArguments = objectOrNull(params.arguments);
+        walkCanonicalRows(data, (row) => {
+          registerRoll(row.roll_id, [
+            settleArguments?.decision_id,
+            row.skill,
+            row.outcome ?? row.achieved_level,
+            "settled-check",
+          ]);
+        });
+      }
       if (operation === "rules.opposed") {
         registerRoll(data.investigator_roll_id, [
           data.skill,
@@ -11152,7 +11169,29 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       // While an armed recovery owns this result, its closed semantic
       // whitelist is the projection — the hostile canonical payload never
       // reaches the identity discovery path.
-      if (diagnostics.unmapped.length > 0 && !recoveryFinalizeActive) {
+      //
+      // A canonical FAILURE envelope with a structured code is exempt from
+      // the wholesale identity mask: nothing is being narrated from it, and
+      // replacing an actionable code (e.g.
+      // substantive_exceptional_effect_required, which names its exact
+      // recovery operation) with the generic identity error leaves the model
+      // no path to close the turn. The projected error has already dropped
+      // every unmapped identity field and scrubbed residual machine ids from
+      // its prose, so it is safe to deliver; the diagnostics ride along
+      // host-only in `details`.
+      const canonicalErrorCode = canonical.ok === false
+        ? objectOrNull(canonical.error)?.code
+        : undefined;
+      const actionableCanonicalError = (
+        typeof canonicalErrorCode === "string"
+        && canonicalErrorCode.trim() !== ""
+        && objectOrNull(objectOrNull(baseVisible)?.error) !== null
+      );
+      if (
+        diagnostics.unmapped.length > 0
+        && !recoveryFinalizeActive
+        && !actionableCanonicalError
+      ) {
         const operation = String(params.operation || "");
         const domains = [...new Set(diagnostics.unmapped.map((entry) => entry.domain))];
         return {
@@ -11192,9 +11231,26 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const visible = recoveryFinalizeActive
         ? projectRecoveryFinalizeResult(baseVisible, recoveryVisibleRecovery)
         : baseVisible;
-      const internalDetails = recoveryCanonicalDetails
+      const baseInternalDetails = recoveryCanonicalDetails
         ?? canonicalDetailsOverride
         ?? canonical;
+      // Identity diagnostics on a delivered actionable error stay host-only,
+      // exactly as the masked path records them (same pattern as
+      // `coc_transport` below). An armed recovery keeps its exact preserved
+      // canonical envelope untouched.
+      const internalDetails = actionableCanonicalError
+          && !recoveryFinalizeActive
+          && diagnostics.unmapped.length > 0
+        ? {
+          ...baseInternalDetails,
+          semantic_identity_diagnostics: diagnostics.unmapped.map((entry) => ({
+            field: entry.field,
+            parent_field: entry.parentField,
+            domain: entry.domain,
+            ...(entry.path !== undefined ? { path: entry.path } : {}),
+          })),
+        }
+        : baseInternalDetails;
       const rendered = { ...result(visible), details: internalDetails };
       const resumeData = objectOrNull(canonical.data);
       const resumeCampaign = typeof params.campaign === "string"

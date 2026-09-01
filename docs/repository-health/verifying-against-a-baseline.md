@@ -50,6 +50,14 @@ Two asymmetries to keep straight, because both look like good news and are not:
   scan that walks them reports their files as newly introduced. The tool filters
   those paths out of the content diff; without the filter it flagged two files
   from an unrelated agent's branch as masked violations.
+- **A file outside the tree gets two spellings.** pytest renders a traceback
+  frame relative when `..` can reach it and absolute otherwise, so the same
+  CPython stdlib file appears as `../../../Library/...` from a shallow tree and
+  as `/Users/.../Library/...` from a deep one. That alone produced a
+  `regressions` verdict on a run whose own counts were `regressions: 0`. Paths
+  are now resolved against their owning tree and anything landing outside it is
+  dropped — a stdlib or site-packages frame is not a file this change could
+  have introduced a violation into.
 - **Absolute paths are not comparable across the two trees.** Failure output
   mixes absolute and relative paths, and the baseline lives in a temporary
   worktree at a different root, so comparing raw strings makes every absolute
