@@ -2203,6 +2203,90 @@ def test_packaged_push_settle_accepts_universal_investigator_routing_field(
     assert result["original_check_decision_id"] == original_id
 
 
+def test_packaged_push_context_accepts_actor_bound_social_failure(
+    tmp_path: Path,
+):
+    """A failed graph-owned Social D100 is the same immutable Push source.
+
+    Social settles its canonical D100 under ``bound_check``.  The Push/Luck
+    context must recover that actor-bound receipt after the Social settlement
+    instead of requiring the Keeper to rerun the check through core-check.
+    """
+    ws = _fresh_workspace(tmp_path, "packaged-push-social-source")
+    _set_sheet_skill(ws, "Persuade", 40)
+    social_ref = "decision:coc7:social:adjudicate-difficulty"
+    social_context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "social",
+        "selected_affordance_ids": [social_ref],
+    })
+    assert social_context["ok"] is True, social_context
+    assert [
+        card["decision_ref"] for card in social_context["data"]["cards"]
+    ] == [social_ref]
+
+    original_id = "roll-social-knott-terms-source-v1"
+    social = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": social_ref,
+        "semantic_inputs": {
+            "approach": "persuade",
+            "described_action": (
+                "push the commission back and ask for a two-day advance"
+            ),
+            "goal": "secure a two-day advance before accepting the job",
+            "target_ref": "social-target:npc-steven-knott",
+            "feasibility": "roll",
+            "motive_direction": "support",
+            "motive_intensity": 1,
+            "supporting_action": {"present": False},
+            "commitment_ref": "commitment:knott-two-day-advance",
+        },
+        "decision_id": original_id,
+        "seed": 88,
+    })
+    assert social["ok"] is True, social
+    bound_check = social["data"]["settlement"]["result"]["bound_check"]
+    assert bound_check["outcome"] == "failure"
+    assert bound_check["investigator_id"] == ws["investigator_id"]
+
+    push_ref = "decision:coc7:push-luck:pushed-roll"
+    other_investigator = _add_eleanor_to_party(ws)
+    foreign_context = _run(ws, "rules.context", {
+        "investigator": other_investigator,
+        "family": "push-luck",
+        "selected_affordance_ids": [push_ref],
+    })
+    assert foreign_context["ok"] is True, foreign_context
+    assert foreign_context["data"]["cards"] == []
+
+    push_context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "push-luck",
+        "selected_affordance_ids": [push_ref],
+    })
+    assert push_context["ok"] is True, push_context
+    assert [
+        card["decision_ref"] for card in push_context["data"]["cards"]
+    ] == [push_ref]
+
+    pushed = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": push_ref,
+        "semantic_inputs": {
+            "method_changed": "offer a written expense ledger and references",
+            "failure_consequence": "Knott withdraws the advance entirely",
+            "player_confirmed_risk": True,
+        },
+        "decision_id": "push-social-knott-references-v1",
+        "seed": 2,
+    })
+    assert pushed["ok"] is True, pushed
+    result = pushed["data"]["settlement"]["result"]
+    assert result["pushed"] is True
+    assert result["original_check_decision_id"] == original_id
+
+
 def test_packaged_push_context_does_not_offer_another_investigators_failure(
     tmp_path: Path,
 ):

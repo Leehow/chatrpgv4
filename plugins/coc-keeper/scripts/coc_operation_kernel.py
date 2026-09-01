@@ -7025,17 +7025,27 @@ def _latest_graph_check_receipt(
     *,
     investigator_id: str,
 ) -> tuple[str, dict[str, Any]] | None:
-    """Latest actor-owned ordinary receipt for Push/Luck continuity."""
+    """Latest actor-owned graph D100 receipt for Push/Luck continuity."""
     ledger = ctx._load_ledger()
     candidates: list[tuple[str, str, dict[str, Any]]] = []
     for entry in (ledger.get("entries") or {}).values():
         if not isinstance(entry, Mapping) or entry.get("tool") != "rules.settle":
             continue
         data = entry.get("data") if isinstance(entry.get("data"), Mapping) else {}
-        if (
-            data.get("family") != "core-check"
-            or data.get("decision_ref") != "decision:coc7:core-check:ordinary-check"
-        ):
+        source_decision = (
+            str(data.get("family") or ""),
+            str(data.get("decision_ref") or ""),
+        )
+        if source_decision not in {
+            (
+                "core-check",
+                "decision:coc7:core-check:ordinary-check",
+            ),
+            (
+                "social",
+                "decision:coc7:social:adjudicate-difficulty",
+            ),
+        }:
             continue
         settlement = data.get("settlement") if isinstance(data.get("settlement"), Mapping) else {}
         result = settlement.get("result") if isinstance(settlement.get("result"), Mapping) else {}

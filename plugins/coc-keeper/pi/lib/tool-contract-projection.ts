@@ -5021,6 +5021,45 @@ function projectSocialRulesSettleData(
     // retained in host details; later semantic continuations come from the
     // outer next_decisions rather than by relaying this opaque id.
     delete boundCheckView.roll_id;
+    // Ordinary-check failure advice is also copied into the completed roll.
+    // It carries host correlation under source and recommends the hidden
+    // legacy rules.push operation. Preserve only human-meaningful failure
+    // choices; neither the receipt nor the ungranted invocation template is
+    // part of the settled Social model contract.
+    const operationOpportunities = Array.isArray(
+      boundCheckView.operation_opportunities,
+    )
+      ? boundCheckView.operation_opportunities
+        .filter(isPlainObject)
+        .map((opportunity) => {
+          const visible = selectedFields(opportunity, [
+            "schema_version",
+            "kind",
+            "authority",
+            "hard_gate",
+            "reason_code",
+            "attempt_pressure",
+            "alternatives",
+          ]);
+          if (isPlainObject(opportunity.retry_status)) {
+            visible.retry_status = selectedFields(
+              opportunity.retry_status,
+              [
+                "schema_version",
+                "authority",
+                "hard_gate",
+                "eligible",
+                "status",
+              ],
+            );
+          }
+          return visible;
+        })
+      : [];
+    delete boundCheckView.operation_opportunities;
+    if (operationOpportunities.length > 0) {
+      boundCheckView.operation_opportunities = operationOpportunities;
+    }
     projectedResult.bound_check = stripOpaqueModelIdentity(
       boundCheckView,
       null,

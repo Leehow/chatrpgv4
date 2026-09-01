@@ -1493,7 +1493,7 @@ test("RuleDecisionCard survives resume, scene, baseline context, and typed settl
 
 test("RuleGraph Social settlement keeps semantic result and hides host correlation", async () => {
   const socialGoalKey = "cb45f81061371aa8";
-  const socialRollId = "toolbox-gate9-social-projection-000001";
+  const socialRollId = "toolbox-gate9-a8-social-28d3853d-000002";
   const canonicalSocialSettle = {
     ok: true,
     tool: "rules.settle",
@@ -1576,13 +1576,63 @@ test("RuleGraph Social settlement keeps semantic result and hides host correlati
               on_failure: "诺特坚持原条件",
             },
             skill: "Persuade",
-            roll: 66,
+            roll: 52,
             target: 40,
             required_level: "regular",
             outcome: "failure",
             passed: false,
             success: false,
             roll_id: socialRollId,
+            operation_opportunities: [{
+              schema_version: 1,
+              kind: "open_push_or_context_change",
+              authority: "advisory",
+              hard_gate: false,
+              reason_code: "ordinary_failure_has_unresolved_attempt",
+              source: {
+                decision_id: "roll-social-knott-terms-v1",
+                roll_id: socialRollId,
+                attempt_id: null,
+                scene_id: null,
+                route_id: null,
+                roll_density_group: null,
+              },
+              suggested_operation: {
+                operation: "rules.push",
+                invoke_via: "coc_invoke",
+                prefilled_arguments: {
+                  original_check_decision_id: "roll-social-knott-terms-v1",
+                },
+                missing_arguments: [
+                  "method_changed",
+                  "failure_consequence",
+                  "decision_id",
+                ],
+                contract_ref: "rules.push@3917db63e82accdf",
+                discovery_required: false,
+              },
+              attempt_pressure: {
+                schema_version: 1,
+                same_goal_no_progress_count: 1,
+                level: "first_ordinary_failure",
+                authority: "advisory",
+                hard_gate: false,
+              },
+              retry_status: {
+                schema_version: 1,
+                authority: "advisory",
+                hard_gate: false,
+                eligible: false,
+                policy: null,
+                status: "no_authored_reset_policy",
+                reason: "Use the open Push, change method or goal, or let the failed consequence stand.",
+              },
+              alternatives: [
+                "accept the failed result and let its consequence change play",
+                "change the fictional method or goal",
+                "record structured reset_evidence after time, access, position, or circumstances materially change",
+              ],
+            }],
           },
           bound_check_plan: {
             schema_version: 1,
@@ -1649,15 +1699,18 @@ test("RuleGraph Social settlement keeps semantic result and hides host correlati
       "让诺特接受两天定金预付，并将事故写入书面委托",
     );
     assert.equal(result.bound_check.skill, "Persuade");
-    assert.equal(result.bound_check.roll, 66);
+    assert.equal(result.bound_check.roll, 52);
     assert.equal(result.bound_check.target, 40);
+    assert.equal(result.bound_check.required_level, "regular");
     assert.equal(result.bound_check.outcome, "failure");
     assert.equal(result.bound_check.passed, false);
+    assert.equal(result.bound_check.success, false);
     assert.equal(
       result.bound_check.goal,
       "让诺特接受两天定金预付，并将事故写入书面委托",
     );
     assert.equal(result.bound_check.stakes.on_success, "诺特接受条款");
+    assert.equal(result.bound_check.stakes.on_failure, "诺特坚持原条件");
     assert.equal(result.adjudication.goal_key, undefined);
     assert.equal(result.adjudication.source_digest, undefined);
     assert.equal(result.adjudication.request_digest, undefined);
@@ -1674,10 +1727,31 @@ test("RuleGraph Social settlement keeps semantic result and hides host correlati
     assert.equal(result.bound_check.social_goal_key, undefined);
     assert.equal(result.bound_check.social_adjudication_ref, undefined);
     assert.equal(result.bound_check.roll_id, undefined);
+    assert.equal(result.bound_check.operation_opportunities.length, 1);
+    const failureChoice = result.bound_check.operation_opportunities[0];
+    assert.equal(failureChoice.kind, "open_push_or_context_change");
+    assert.equal(
+      failureChoice.reason_code,
+      "ordinary_failure_has_unresolved_attempt",
+    );
+    assert.equal(failureChoice.attempt_pressure.level, "first_ordinary_failure");
+    assert.equal(failureChoice.retry_status.eligible, false);
+    assert.equal(failureChoice.retry_status.status, "no_authored_reset_policy");
+    assert.deepEqual(failureChoice.alternatives, [
+      "accept the failed result and let its consequence change play",
+      "change the fictional method or goal",
+      "record structured reset_evidence after time, access, position, or circumstances materially change",
+    ]);
+    assert.equal(failureChoice.source, undefined);
+    assert.equal(failureChoice.suggested_operation, undefined);
     assert.equal(result.bound_check_plan, undefined);
     assert.equal(visible.data.request_digest, undefined);
     assert.ok(!settled.content[0].text.includes(socialGoalKey));
     assert.ok(!settled.content[0].text.includes(socialRollId));
+    assert.ok(
+      !settled.content[0].text.includes("rules.push"),
+      "hidden legacy rules.push must not be recommended by Social settlement",
+    );
     assert.deepEqual(
       settled.details,
       canonicalSocialSettle,
