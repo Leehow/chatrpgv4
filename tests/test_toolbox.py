@@ -3116,7 +3116,16 @@ def test_same_attempt_retry_is_soft_advice_and_survives_resume(campaign_ws):
     assert first["data"]["success"] is False
     opportunity = first["data"]["operation_opportunities"][0]
     assert opportunity["hard_gate"] is False
-    assert opportunity["suggested_operation"]["operation"] == "rules.push"
+    # The advice must name something the Keeper can actually reach. coc7 has
+    # promoted push-luck to the graph, so the legacy `rules.push` is
+    # `kp_surface: "none"` and suggesting it would be a guaranteed refusal;
+    # the ruleset-agnostic discovery path is the honest advice there. A
+    # ruleset that has not promoted the family still gets `rules.push`.
+    suggested = opportunity["suggested_operation"]
+    assert suggested["operation"] in {"rules.push", "rules.context"}
+    assert suggested["invoke_via"], suggested
+    if suggested["operation"] == "rules.context":
+        assert suggested["prefilled_arguments"]["family"] == "push-luck"
     assert opportunity["attempt_pressure"]["same_goal_no_progress_count"] == 1
     assert opportunity["retry_status"]["status"] == "waiting"
 
