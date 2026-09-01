@@ -1307,3 +1307,41 @@ def test_review_rules_are_language_independent():
         and node["properties"]["language_applicability"] != "all"
     ]
     assert scoped == ["translationese"]
+
+
+# ---------------------------------------------------------------------------
+# T5 gate 1 — the craft half, across more than one non-default language
+# ---------------------------------------------------------------------------
+
+def test_only_one_craft_key_differs_by_language_and_only_by_one_axis():
+    """A diff wider than `translationese` is a finding, not noise.
+
+    Checked across several languages rather than just `en`, so a rule that
+    happens to special-case English would not pass unnoticed.
+    """
+    languages = ("zh-Hans", "en", "ja", "fr")
+    planes = {lang: coc_text_runtime.craft(lang) for lang in languages}
+    base = planes["zh-Hans"]
+
+    differing = {
+        key for key in base
+        if any(planes[lang][key] != base[key] for lang in languages)
+    }
+    assert differing == {"avoid"}, differing
+
+    for lang in languages:
+        if lang == "zh-Hans":
+            continue
+        only_zh = set(base["avoid"]) - set(planes[lang]["avoid"])
+        only_other = set(planes[lang]["avoid"]) - set(base["avoid"])
+        assert only_zh == {"translationese"}, (lang, only_zh)
+        assert only_other == set(), (lang, only_other)
+
+    # Everything a Keeper is judged by is identical in every language.
+    for key in (
+        "citable_review_rule_ids", "hard_gate_review_rule_ids",
+        "craft_directives", "render_slots", "render_prohibitions",
+        "budget_modes", "thresholds", "prefer",
+    ):
+        for lang in languages:
+            assert planes[lang][key] == base[key], (key, lang)
