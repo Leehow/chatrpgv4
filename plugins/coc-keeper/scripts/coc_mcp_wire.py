@@ -225,6 +225,24 @@ def _pick(value: Any, fields: tuple[str, ...]) -> dict[str, Any]:
     }
 
 
+def _model_invocation_tool(operation: str) -> str | None:
+    """Tool the model may reach ``operation`` through, or None if host-private.
+
+    Resolved through the canonical operation policy so this projection and the
+    Pi execute ACL cannot disagree. Import failure yields ``None``: a card with
+    no invocation is inert, whereas a wrongly advertised one is refused by the
+    ACL and costs the Keeper a round trip.
+    """
+    try:
+        import coc_operation_policy
+    except ImportError:
+        return None
+    try:
+        return coc_operation_policy.model_invocation_tool(operation)
+    except (KeyError, ValueError):
+        return None
+
+
 def _operation_card(
     operation: str,
     *,
@@ -232,9 +250,27 @@ def _operation_card(
     missing: list[str] | None = None,
     inline_argument_schema: bool = False,
 ) -> dict[str, Any]:
+    """Semantic replay/continuation card for one canonical operation.
+
+    ``invoke_via`` names the tool the model may actually call. It is NOT
+    unconditionally ``coc_invoke``: that is the hidden compatibility wrapper
+    for a closed set of host-private operations, and the Pi execute ACL
+    refuses every other ``kp_surface: "none"`` operation sent through it with
+    ``host_private_operation``.
+
+    A host-private operation therefore gets ``invoke_via: None`` plus
+    ``model_invocable: False`` rather than an invitation the model cannot
+    accept. This matters beyond tidiness: the ten-family RuleGraph cutover
+    moved the legacy family operations to ``kp_surface: "none"``, so a bounded
+    projection of, for example, a ``combat.end`` result used to hand the Keeper
+    a ``coc_invoke`` card that could only ever be denied — one wasted model
+    round trip against a 180-second turn budget, and an invitation to retry.
+    """
+    invoke_via = _model_invocation_tool(operation)
     card = {
         "operation": operation,
-        "invoke_via": "coc_invoke",
+        "invoke_via": invoke_via,
+        "model_invocable": invoke_via is not None,
         "prefilled_arguments": deepcopy(prefilled or {}),
         "missing_arguments": list(missing or []),
         "authority": "advisory",
@@ -2985,12 +3021,18 @@ def _decorate_cards(
         if key != INLINE_ARGUMENT_SCHEMA_MARKER
     }
     operation = decorated.get("operation")
+    # Decorate any card the model can actually act on. `invoke_via` used to be
+    # the constant "coc_invoke" for every builder-produced card; it now names
+    # the operation's real model-facing tool (a `coc_*` domain tool, the
+    # compatibility wrapper, or the typed gateway) and is None for host-private
+    # operations. A host-private card carries no contract_ref, no argument
+    # schema and no discovery flag, because there is no call to prepare.
+    invoke_via = decorated.get("invoke_via")
     if (
         isinstance(operation, str)
         and operation
-        and decorated.get("invoke_via") in {
-            "coc_invoke", "canonical_typed_operation_gateway",
-        }
+        and isinstance(invoke_via, str)
+        and invoke_via
     ):
         decorated.setdefault(
             "contract_ref",

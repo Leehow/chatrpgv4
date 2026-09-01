@@ -1823,6 +1823,11 @@ assertModelSafeContent(
 // wire to an identity-only replay card. Its projection digest remains
 // host-only, while the replay operation must survive the FIRST response so
 // the model does not repeat an already-authoritative combat mutation.
+//
+// Since the ten-family RuleGraph cutover, combat.end is `kp_surface: "none"`
+// and outside the coc_invoke compatibility set: it has NO model-facing
+// invocation. The card must therefore name the operation without advertising
+// one, and a direct coc_invoke must be refused rather than silently accepted.
 {
   const combatProjectionDigest = `sha256:${"9".repeat(64)}`;
   const combatEndCanonical = {
@@ -1844,7 +1849,8 @@ assertModelSafeContent(
       projection_sha256: combatProjectionDigest,
       replay_operation: {
         operation: "combat.end",
-        invoke_via: "coc_invoke",
+        invoke_via: null,
+        model_invocable: false,
         prefilled_arguments: {},
         missing_arguments: [],
         authority: "advisory",
@@ -1862,16 +1868,35 @@ assertModelSafeContent(
   const callsBefore = clientCalls.filter(
     (call) => call.operation === "combat.end",
   ).length;
-  const combatEndResult = await executeTool("coc_invoke", {
-    operation: "combat.end",
-    root: testRoot,
-    campaign,
-    arguments: {
-      outcome: "investigator escaped the confrontation",
-      decision_id: "combat-end-corbitt-escape-v1",
-    },
-  });
-  const combatEndVisible = JSON.parse(modelContents.at(-1).text);
+  // The model has no route to a host-private operation. Attempting the hidden
+  // compatibility wrapper must fail closed at the ACL, and must not reach the
+  // canonical client.
+  await assert.rejects(
+    () => executeTool("coc_invoke", {
+      operation: "combat.end",
+      root: testRoot,
+      campaign,
+      arguments: {
+        outcome: "investigator escaped the confrontation",
+        decision_id: "combat-end-corbitt-escape-v1",
+      },
+    }),
+    /combat\.end is not on the live KP domain surface/,
+    "a host-private operation has no coc_invoke route",
+  );
+  assert.equal(
+    clientCalls.filter((call) => call.operation === "combat.end").length,
+    callsBefore,
+    "a refused host-private call must not reach the canonical client",
+  );
+  // The identity-only projection of that same canonical result still hides the
+  // digest and still names the operation — it just does not invite a call.
+  const combatEndVisible = projectModelVisibleCanonicalResult(
+    "combat.end",
+    combatEndCanonical,
+    null,
+    { unmapped: [] },
+  );
   assert.equal(combatEndVisible.ok, true, JSON.stringify(combatEndVisible));
   assert.equal(combatEndVisible.data.projection_sha256, undefined);
   assert.equal(
@@ -1879,12 +1904,12 @@ assertModelSafeContent(
     "combat.end",
   );
   assert.equal(
-    clientCalls.filter((call) => call.operation === "combat.end").length,
-    callsBefore + 1,
-    "the first authoritative combat.end result must remain usable",
+    combatEndVisible.data.replay_operation.invoke_via,
+    null,
+    "a host-private replay card must not advertise an invocation",
   );
-  assert.ok(!modelContents.at(-1).text.includes(combatProjectionDigest));
-  assert.deepEqual(combatEndResult.details, combatEndCanonical);
+  assert.equal(combatEndVisible.data.replay_operation.model_invocable, false);
+  assert.ok(!JSON.stringify(combatEndVisible).includes(combatProjectionDigest));
   assertModelSafeContent("combat.end identity-only content", combatEndVisible);
 }
 // Random dice and opposed checks are authoritative rolls too. Their exact

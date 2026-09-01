@@ -1570,7 +1570,7 @@
       "graph_ids": [
         "graph:module:the-haunting"
       ],
-      "reason": "The production The Haunting ModuleGraph is available, but its authored module.haunting.* rules have no matching Rule/Decision identity in the current production healing-only RuleGraph; no Module-to-Rule instance is claimed."
+      "reason": "The production The Haunting ModuleGraph is available, but its authored module.haunting.* rules have no Rule/Decision semantic id that is exactly equal to one in the production coc7 RuleGraph, which now carries all ten source-accepted families; no Module-to-Rule instance is claimed."
     },
     {
       "graph_kind": "rule",
