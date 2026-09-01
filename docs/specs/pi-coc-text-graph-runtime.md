@@ -1,9 +1,9 @@
 # Pi-Coc TextGraph specification
 
 > **Status:** T0–T4 implemented on `claude/pi-coc-text-graph-20260901`.
-> T5 is specified and **not** authorized. T4 deleted the prose matchers and
-> published the review vocabulary, which is the one deliberate model-visible
-> behaviour change in this line. Both slices are
+> T5 attempted: gate 1's structural half passes, its live half is blocked on a
+> product gap, and gates 3–4 are **not measured**. See the Implementation log
+> and [the T5 live evidence](../status/text-graph-t5-live-evidence.md). Both slices are
 > behaviour-preserving: every migrated vocabulary is bit-identical, the
 > model-visible contract archive rebuilds byte-identical, and the whole
 > preserved corpus of 418 coverage rows replays byte-for-byte. See the
@@ -641,7 +641,7 @@ What the slices actually produced, including where this specification was wrong.
 | T2 | Derivation reads the graph. 44 nodes, first 5 relations. 418/418 coverage rows replay byte-for-byte. Fixed a fabricated value T1 shipped. |
 | T3 | Grounding plane: live validator, keeper-only guard, and **zero edges** — the measured outcome, not unfinished work. Coverage stays `no-proven-instance`. |
 | T4 | Craft plane, 105 nodes. Matchers deleted outright; review vocabulary published. The layer stops being zh-only. |
-| T5 | Not started. |
+| T5 | Gate 1 structural **pass**; gate 1 live **blocked** (no `play_language` input exists); gate 2 real play run, degraded; gates 3–4 **not measured**. |
 
 ### T1, as built
 
@@ -972,3 +972,59 @@ remains the one gate that does not run in a checkout without the evidence.
 
 T4 adds no new `.coc/` dependency. T2's replay remains the only gate that does
 not run in a checkout without the preserved evidence.
+
+### T5, attempted
+
+One real `pi-coc --mode rpc` session, grok-4.5 as live KP, this session as sole
+player, six replies one at a time. Evidence and every finding are in
+[`docs/status/text-graph-t5-live-evidence.md`](../status/text-graph-t5-live-evidence.md);
+the run is preserved at `.coc/playtests/textgraph-t5-en-20260901/`.
+
+| gate | outcome |
+| --- | --- |
+| 1 structural | **pass** — no language parameter or helper reaches the derivation; across four languages exactly one craft key differs, by exactly `translationese` |
+| 1 live | **blocked** — see correction 23 |
+| 2 real play | run, and degraded: 2 turns finalized, 2 undelivered, 1 opening |
+| 3 retune experiment | **not started** — it depends on gate 4 |
+| 4 `findings` | **not measured** — see correction 24 |
+
+### Corrections this specification needed (T5)
+
+23. **Gate 1's live half cannot be run: the product cannot seat a non-Chinese
+    table.** No operation in the 147-op surface accepts a `play_language`
+    input. `setup.quick_start` has no language parameter; the only schemas
+    mentioning `play_language` read it; `DEFAULT_PLAY_LANGUAGE` is `zh-Hans`
+    and every write in the tree is a read-side projection. Asked as a player
+    for an English table, the Keeper wrote English prose and the campaign was
+    still created `zh-Hans`, returning Chinese labels around English content.
+
+    The only way to obtain an English campaign is to hand-edit `campaign.json`,
+    which AGENTS.md forbids. T4 made the *layer* language-independent; the
+    *product* still cannot seat the table that would prove it end to end. The
+    gate is blocked on a gap outside this specification's scope, and the
+    structural half stands on its own evidence.
+
+24. **Gate 4 is not measured, and a comfortable explanation for that was
+    wrong.** The run produced zero `narration.review` calls in 60 canonical
+    calls, so it produced zero findings — but those are different claims, and
+    only the first is measured. The published enum cannot be shown not to work
+    by a run in which the operation carrying findings never executed.
+
+    The tempting structural explanation — `_pi_play_agency_review_required()`
+    is a hardcoded `False` since `ab634acd` — is refuted by
+    `dirgraph-smoke-20260901`, which ran the same day on the same path with the
+    same model after that commit and made 7 `narration.review` calls. The flag
+    means not-required, not not-called.
+
+    What remains is an unattributed difference (7 reviews against 0, n=1 each
+    way, this run degraded by a `state.move_scene` loop that cost two turns).
+    Attributing it needs several runs per arm, which is the T5 experiment
+    rather than a conclusion available from this one. §8 T5 says recording a
+    negative outcome is a pass; it does not license manufacturing one.
+
+25. **The live run retired an open question the corpus could not.** Finding 10
+    recorded that `concealed_no_player_visible_beat` had never occurred in 506
+    preserved finalizations and might be unreachable. The first live turn on T4
+    code closed a concealed roll with exactly that realization, accepted through
+    the graph-derived vocabulary, alongside `fiction` and `asset_delta`
+    segments. It is reachable.
