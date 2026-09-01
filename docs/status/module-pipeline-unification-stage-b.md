@@ -123,9 +123,20 @@ patched from here.
 - Not claimed: the external `coc-pdf-pipeline` extract waves are not retired;
   per the spec's freeze rule they remain the operating route until Stage D.
 - Bundle note: the external producer's `source_id`
-  (`pdf:COC--An-Amaranthine-Desire`) is legal under the repository's PDF bundle
+  (`pdf:COC--An-Amaranthine-Desire`) was legal under the repository's PDF bundle
   contract but not a semantic slug, and the Pi identity grammar drops it —
   which first surfaced as `semantic_identity_unavailable` on every Keeper read.
   The bundle was relabeled `pdf:an-amaranthine-desire` (labels only; page and
-  file hashes unchanged) and the graph rebuilt from the same candidates. A
-  producer-side or bind-time normalization rule is the systemic follow-up.
+  file hashes unchanged) and the graph rebuilt from the same candidates.
+
+  That relabel was only the instance. The systemic repair now lives in the
+  bundle contract: `coc_pdf_bundle.semantic_source_id_problem` refuses a
+  non-projectable `source_id` **at bind time**, naming the exact defect and the
+  fix, so the failure can no longer wait until the table. `scenario.bind_pdf`
+  on the original bundle now stops with that message, and the relabeled bundle
+  binds. `tests/test_pdf_bundle_source_id.py` parses the consumer's own regex
+  and namespace set out of `tool-contract-projection.ts` and asserts the
+  invariant *everything the bundle accepts, the Keeper can read* — so the two
+  contracts cannot drift apart again without a red test. Test fixtures that
+  used `pdf:Demo-Module` were renamed to the semantic form; nothing was
+  exercising uppercase support.

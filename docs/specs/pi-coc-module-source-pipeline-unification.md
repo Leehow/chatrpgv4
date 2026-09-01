@@ -108,6 +108,14 @@ PDF（仓库外，永不进 repo）
 - MinerU（本地 / leehow-pc VLM）作为 producer 接入 bundle 合同是独立小活，
   不阻塞任何 Stage；接入时 MUST 满足既有 `coc_pdf_bundle` 合同原样，不得
   为它开合同分叉。
+- **producer 的 `source_id` MUST 是模型可投影的语义 id**（命名空间 ∈
+  `pdf:/module:/source:/handout:`，其后为小写 kebab/点/下划线段，无空段、无
+  hash 形 token）。它会随 `source_refs` 一路进入 KP 的模型面：消费端
+  （`tool-contract-projection.ts` 的 `isNamespacedSemantic`）读不懂的 id 会被
+  丢弃，而任一身份被丢弃就使整份 canonical result fail closed。因此这条在
+  **bind 时 fail closed**（`coc_pdf_bundle.semantic_source_id_problem`），
+  报错直接给出改法；`tests/test_pdf_bundle_source_id.py` 从消费端源码里解析
+  其正则与命名空间集合做等价钉死，两边不得再各自漂移。
 
 ### D3 — 渐进机制统一为 coverage 驱动的一套
 
