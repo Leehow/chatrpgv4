@@ -3724,6 +3724,11 @@ const SCENE_CONTEXT_SEMANTIC_IDENTITY_FIELDS = [
   "active_scene_id", "affordance_id", "asset_root_id", "campaign_id",
   "civil_segment_id", "clock_id", "clue_id", "clue_ids",
   "conclusion_id", "drilldown_refs", "flag_id", "grants_clue_ids",
+  // Structured pressure moves and threat dangers name themselves with a bare
+  // authored `id` (story-graph-schema.md §2/§6). The value grammar still
+  // requires a meaning-bearing multi-token slug, so machine ids cannot ride
+  // in on this declaration.
+  "id",
   "location_id", "mechanics_ref", "npc_id", "npc_ids", "ref_id",
   "scene_id", "source_ref", "trigger_id",
   ...RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS,
@@ -3736,7 +3741,11 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   ["session.resume", declaredIdentityTable(
     [
       "active_scene_id", "asset_root_id", "campaign_id", "civil_segment_id",
-      "clue_id", "decision_id", "location_id", "run_segment_id",
+      "clue_id", "decision_id",
+      // resume carries the same authored scene context, including structured
+      // pressure moves whose members are named by a bare `id`.
+      "id",
+      "location_id", "run_segment_id",
       "scenario_id", "source_ref", "table_opening_id",
     ],
     [

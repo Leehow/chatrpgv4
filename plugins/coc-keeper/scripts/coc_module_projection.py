@@ -380,6 +380,85 @@ def project_module_documents(
     return documents
 
 
+def install_projected_scenario(
+    workspace: Path | str,
+    campaign_id: str,
+    graph: dict[str, Any],
+    sidecar: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Install a graph-backed module into a campaign as a complete scenario.
+
+    A graph-backed module already carries its whole playable IR, so it installs
+    the way a starter does — write the materialized views, take the era the
+    module authored, and activate the opening scene — rather than entering the
+    raw-PDF progressive lane, whose opening-projection coordinator exists to
+    answer questions this module has already answered.
+    """
+    documents = project_module_documents(graph, sidecar)
+    root = Path(workspace)
+    coc_root = root if root.name == ".coc" else root / ".coc"
+    campaign_dir = coc_root / "campaigns" / campaign_id
+    if not campaign_dir.is_dir():
+        raise ModuleProjectionError(f"unknown campaign: {campaign_id}")
+    scenario_dir = campaign_dir / "scenario"
+    scenario_dir.mkdir(parents=True, exist_ok=True)
+    for filename in documents:
+        if (scenario_dir / filename).exists():
+            raise ModuleProjectionError(
+                f"campaign {campaign_id} already has scenario file {filename}"
+            )
+    for filename, document in documents.items():
+        coc_fileio.write_json_atomic(
+            scenario_dir / filename, document, indent=1, trailing_newline=True
+        )
+
+    meta = documents.get("module-meta.json") or {}
+    scenario_id = str(meta.get("scenario_id") or "")
+    scenes = (documents.get("story-graph.json") or {}).get("scenes") or []
+    opening = str(meta.get("opening_scene") or "")
+    if not any(str(row.get("scene_id")) == opening for row in scenes):
+        opening = str(scenes[0].get("scene_id")) if scenes else ""
+
+    campaign_path = campaign_dir / "campaign.json"
+    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    campaign["active_scenario_id"] = scenario_id or campaign.get("active_scenario_id")
+    campaign["active_scene_id"] = opening or campaign.get("active_scene_id")
+    authored_era = str(meta.get("era") or "").strip()
+    if authored_era:
+        # The installer is an explicit caller supplying the module's own era,
+        # which is what `declared` means; it is not a creation-time placeholder.
+        campaign["era"] = authored_era
+        campaign["era_source"] = "declared"
+    coc_fileio.write_json_atomic(
+        campaign_path, campaign, indent=2, trailing_newline=True
+    )
+
+    world_path = campaign_dir / "save" / "world-state.json"
+    world = (
+        json.loads(world_path.read_text(encoding="utf-8"))
+        if world_path.is_file() else {}
+    )
+    world["scenario_id"] = scenario_id or world.get("scenario_id")
+    world["status"] = "active"
+    world["active_subsystem"] = "play"
+    if opening:
+        world["active_scene_id"] = opening
+        visited = [str(v) for v in (world.get("visited_scene_ids") or []) if str(v)]
+        if opening not in visited:
+            visited.append(opening)
+        world["visited_scene_ids"] = visited
+    coc_fileio.write_json_atomic(
+        world_path, world, indent=2, trailing_newline=True
+    )
+    return {
+        "campaign_id": campaign_id,
+        "scenario_id": scenario_id,
+        "scenario_dir": str(scenario_dir),
+        "documents": sorted(documents),
+        "active_scene_id": opening,
+    }
+
+
 def check_projection_parity(
     graph: dict[str, Any],
     ir_dir: Path | str,
@@ -642,6 +721,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
+    install = sub.add_parser("install")
+    install.add_argument("--graph", required=True)
+    install.add_argument("--sidecar")
+    install.add_argument("--workspace", required=True)
+    install.add_argument("--campaign", required=True)
+
     for name in ("validate", "project", "parity", "prepare-packet"):
         cmd = sub.add_parser(name)
         cmd.add_argument("--graph", required=True)
@@ -673,6 +758,10 @@ def main(argv: list[str] | None = None) -> int:
             _print_json(project_module_documents(graph, sidecar))
         elif args.command == "parity":
             _print_json(check_projection_parity(graph, args.ir_dir, sidecar))
+        elif args.command == "install":
+            _print_json(install_projected_scenario(
+                args.workspace, args.campaign, graph, sidecar
+            ))
         elif args.command == "prepare-packet":
             _print_json(prepare_projection_packet(graph, args.document))
         elif args.command == "validate-records":
