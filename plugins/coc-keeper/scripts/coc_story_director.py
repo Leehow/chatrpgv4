@@ -43,6 +43,9 @@ coc_first_impression = _load_sibling(
     "coc_first_impression", "coc_first_impression.py"
 )
 coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
+coc_director_runtime = _load_sibling(
+    "coc_director_runtime", "coc_director_runtime.py"
+)
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_threat_state = _load_sibling("coc_threat_state", "coc_threat_state.py")
 coc_scenario_compile = _load_sibling("coc_scenario_compile", "coc_scenario_compile.py")
@@ -407,7 +410,7 @@ def _live_scene_affordances(active_scene_state: dict[str, Any], scenario_doc: di
             route = _choice_affordance(choice, index)
             if route is not None:
                 affordances.append(route)
-            if len(affordances) >= 3:
+            if len(affordances) >= _LIVE_AFFORDANCE_ROUTE_CAP:
                 break
 
     visible = active_scene_state.get("visible_affordances")
@@ -416,10 +419,10 @@ def _live_scene_affordances(active_scene_state: dict[str, Any], scenario_doc: di
             route = _visible_affordance(affordance, index)
             if route is not None:
                 affordances.append(route)
-            if len(affordances) >= 3:
+            if len(affordances) >= _LIVE_AFFORDANCE_ROUTE_CAP:
                 break
 
-    if len(affordances) < 2:
+    if len(affordances) < _LIVE_AFFORDANCE_MINIMUM:
         summary = (
             active_scene_state.get("summary")
             or scenario_doc.get("opening_scene")
@@ -438,7 +441,7 @@ def _live_scene_affordances(active_scene_state: dict[str, Any], scenario_doc: di
             "fork_eligible": False,
             "source": "save.active-scene.summary",
         })
-    if len(affordances) < 2:
+    if len(affordances) < _LIVE_AFFORDANCE_MINIMUM:
         affordances.append({
             "id": "live-investigator-angle",
             "route_type": "live_resume_affordance",
@@ -458,7 +461,7 @@ def _live_scene_affordances(active_scene_state: dict[str, Any], scenario_doc: di
             continue
         seen.add(cue)
         deduped.append(affordance)
-    return deduped[:3]
+    return deduped[:_LIVE_AFFORDANCE_RETURN_CAP]
 
 
 def _merge_live_active_scene(
@@ -501,7 +504,7 @@ def _merge_live_active_scene(
             seen.add(key)
         combined.append(affordance)
     if combined:
-        merged["affordances"] = combined[:6]
+        merged["affordances"] = combined[:_LIVE_AFFORDANCE_MERGE_CAP]
 
     for key in ("npc_ids", "pressure_moves"):
         live_value = active_scene_state.get(key)
@@ -980,50 +983,61 @@ RULES_DIR = coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
 
 
 def _load_structure_weights() -> dict[str, Any]:
-    path = RULES_DIR / "structure-weights.json"
-    if not path.exists():
-        return {"weights": {}, "tiebreak_order": []}
-    return coc_cache.load_json_cached(path)
+    """Layer-2 weights and tiebreak order, owned by the DirectorGraph.
+
+    Returns the same document shape the retired ``structure-weights.json``
+    read produced, so ``select_action`` is unchanged.
+    """
+    return _DIRECTOR_DOCTRINE.structure_weights()
 
 
-ACTIONS = ["REVEAL", "DEEPEN", "PRESSURE", "CHARACTER", "CHOICE", "CUT", "MONTAGE", "SUBSYSTEM", "RECOVER", "PAYOFF"]
+# D1 — Director vocabulary is owned by the DirectorGraph artifact, not by this
+# module. See docs/specs/pi-coc-director-graph-runtime.md §7. The runtime fails
+# closed on a missing or invalid artifact; there is deliberately no fallback to
+# embedded literals. Shapes and declaration order are preserved exactly:
+# ACTIONS stays an ordered list because select_action seeds its score dict from
+# it, uses it as the fallback tiebreak order, and returns candidates[0].
+_DIRECTOR_VOCABULARY = coc_director_runtime.vocabulary()
+# D2 — every Layer-1/2/3 score, weight, threshold and ladder is graph data.
+# Values are transcribed, never retuned; see the contract's identity_law.
+_DIRECTOR_DOCTRINE = coc_director_runtime.doctrine()
+_PRESSURE_AFFINITY_RANKS = {
+    rung["kind"]: rung["rank"]
+    for rung in _DIRECTOR_DOCTRINE.ladder("pressure-move-scene-affinity")
+}
+_PRESSURE_CEILING = _DIRECTOR_DOCTRINE.threshold("pressure-posture-ceiling")
+_PRESSURE_FLOOR = _DIRECTOR_DOCTRINE.threshold("pressure-posture-floor")
+_DEFAULT_CLOCK_SEGMENTS = _DIRECTOR_DOCTRINE.threshold("default-clock-segments")
+_SCORE_PRECISION = _DIRECTOR_DOCTRINE.threshold("score-precision-digits")
+_LIVE_AFFORDANCE_ROUTE_CAP = _DIRECTOR_DOCTRINE.threshold("live-affordance-route-cap")
+_LIVE_AFFORDANCE_MINIMUM = _DIRECTOR_DOCTRINE.threshold("live-affordance-minimum")
+_LIVE_AFFORDANCE_RETURN_CAP = _DIRECTOR_DOCTRINE.threshold(
+    "live-affordance-return-cap"
+)
+_LIVE_AFFORDANCE_MERGE_CAP = _DIRECTOR_DOCTRINE.threshold(
+    "live-affordance-merge-cap"
+)
 
-# P0-2: 低主动身份单一来源。所有 tag/class 字符串统一在此定义，
-# 消除 _LOW_AGENCY_RECENT_CLASSES / _LOW_AGENCY_CONTINUE_TAGS / 部分 routine tag 的分裂。
-_LOW_AGENCY_TAGS = frozenset({
-    "move",
-    "continue",
-    "follow",
-    "follow_group",
-    "low_agency_continue",
-    "passive_follow",
-    "continue_without_new_goal",
-    "keep_following",
-    "move_with_group",
-    "yield_initiative",
-    "continue_existing_strategy",
-})
-# 派生：用于 class 字符串匹配（保持向后兼容子集）
-_LOW_AGENCY_RECENT_CLASSES = frozenset({
-    "move", "continue", "follow", "follow_group", "low_agency_continue", "passive_follow",
-})
+ACTIONS = list(_DIRECTOR_VOCABULARY["actions"])
+
+# 低主动身份单一来源现在是 DirectorGraph 的 player-signal 词表。
+_LOW_AGENCY_TAGS = _DIRECTOR_VOCABULARY["low_agency_tags"]
+# 用于 class 字符串匹配的 6 项子集。注意：旧注释称其为“派生”，但没有任何代码
+# 计算它——它是一份独立手写清单，因此在图里作为自己的 signal group 固定下来。
+_LOW_AGENCY_RECENT_CLASSES = _DIRECTOR_VOCABULARY["low_agency_recent_classes"]
 # continue_existing_strategy 同时保留为 routine 标记（用于压缩进度），但不再是"非低主动"
-_ROUTINE_PROGRESS_TAGS = frozenset({
-    "routine_action", "routine_search", "routine_travel", "routine_professional_action",
-    "connective_action", "continue_existing_strategy", "maintain_posture", "low_risk_action",
-})
+_ROUTINE_PROGRESS_TAGS = _DIRECTOR_VOCABULARY["routine_progress_tags"]
 # _LOW_AGENCY_CONTINUE_TAGS 由 _LOW_AGENCY_TAGS 派生（向后兼容）
 _LOW_AGENCY_CONTINUE_TAGS = _LOW_AGENCY_TAGS
-_DRAMATIC_PROGRESS_ADVANCE_UNTIL = [
-    "threat_approaches",
-    "new_clue_or_obvious_information",
-    "npc_requests_specialist_judgment",
-    "meaningful_choice",
-    "risk_requires_roll",
-    "scene_arrival_or_transition",
-]
-_NON_BLOCKING_RULE_REQUEST_KINDS = {"npc_assist"}
-_SOCIAL_REVEAL_DELIVERY_KINDS = {"npc_dialogue", "social"}
+_DRAMATIC_PROGRESS_ADVANCE_UNTIL = list(
+    _DIRECTOR_VOCABULARY["dramatic_progress_advance_until"]
+)
+_NON_BLOCKING_RULE_REQUEST_KINDS = set(
+    _DIRECTOR_VOCABULARY["non_blocking_rule_request_kinds"]
+)
+_SOCIAL_REVEAL_DELIVERY_KINDS = set(
+    _DIRECTOR_VOCABULARY["social_reveal_delivery_kinds"]
+)
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -1358,12 +1372,27 @@ def _compression_budget(scene: dict[str, Any]) -> dict[str, int]:
     raw = contract.get("compression_budget") or contract.get("progress_budget") or {}
     if not isinstance(raw, dict):
         raw = {}
-    max_beats = _bounded_int(raw.get("max_beats"), 4, 2, 8)
-    min_beats = _bounded_int(raw.get("min_beats"), 2, 1, max_beats)
+    max_beats = _bounded_int(
+        raw.get("max_beats"),
+        _DIRECTOR_DOCTRINE.threshold("compression-max-beats-default"),
+        _DIRECTOR_DOCTRINE.threshold("compression-max-beats-floor"),
+        _DIRECTOR_DOCTRINE.threshold("compression-max-beats-ceiling"),
+    )
+    min_beats = _bounded_int(
+        raw.get("min_beats"),
+        _DIRECTOR_DOCTRINE.threshold("compression-min-beats-default"),
+        1,
+        max_beats,
+    )
     return {
         "min_beats": min_beats,
         "max_beats": max_beats,
-        "max_minutes": _bounded_int(raw.get("max_minutes"), 10, 1, 30),
+        "max_minutes": _bounded_int(
+            raw.get("max_minutes"),
+            _DIRECTOR_DOCTRINE.threshold("compression-max-minutes-default"),
+            1,
+            _DIRECTOR_DOCTRINE.threshold("compression-max-minutes-ceiling"),
+        ),
     }
 
 
@@ -1374,12 +1403,19 @@ def _has_explicit_compression_budget(scene: dict[str, Any]) -> bool:
 
 def _low_agency_max_beats(scene: dict[str, Any]) -> int:
     if _has_explicit_compression_budget(scene):
-        return _compression_budget(scene).get("max_beats", 4)
+        return _compression_budget(scene).get(
+        "max_beats", _DIRECTOR_DOCTRINE.threshold("low-agency-max-beats-fallback")
+    )
     contract = _progress_contract(scene)
     fallback_turns = contract.get("max_low_agency_turns")
     if fallback_turns is not None:
-        return _positive_int(fallback_turns, 4)
-    return _compression_budget(scene).get("max_beats", 4)
+        return _positive_int(
+            fallback_turns,
+            _DIRECTOR_DOCTRINE.threshold("low-agency-max-beats-fallback"),
+        )
+    return _compression_budget(scene).get(
+        "max_beats", _DIRECTOR_DOCTRINE.threshold("low-agency-max-beats-fallback")
+    )
 
 
 def _ordered_unique(values: list[Any]) -> list[str]:
@@ -1597,7 +1633,9 @@ def _scene_exit_pressure_directive(
     scene = ctx.get("active_scene") or {}
     continue_count = int((ctx.get("rule_signals") or {}).get("low_agency_continue_count", 0) or 0)
     reasons: list[str] = []
-    if _is_low_agency_continue(ctx) and continue_count >= 2:
+    if _is_low_agency_continue(ctx) and continue_count >= _DIRECTOR_DOCTRINE.threshold(
+        "scene-exit-pressure-continue-count"
+    ):
         reasons.append("low_agency_repetition")
     if _low_agency_budget_exceeded(ctx):
         reasons.append("budget_exceeded")
@@ -1683,28 +1721,44 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
         if not avail:
             return 0.0
         if intent == "investigate":
-            return 0.9
+            return _DIRECTOR_DOCTRINE.score("REVEAL", "investigate-intent")
         if intent == "social":
-            return 0.75
+            return _DIRECTOR_DOCTRINE.score("REVEAL", "social-intent")
         return 0.0
 
     if action == "DEEPEN":
         if intent not in ("investigate", "social"):
             return 0.0
-        return 0.5 if scene.get("dramatic_question") else 0.0
+        return (
+            _DIRECTOR_DOCTRINE.score("DEEPEN", "dramatic-question-present")
+            if scene.get("dramatic_question") else 0.0
+        )
 
     if action == "PRESSURE":
         fronts = ctx.get("threat_fronts", {}).get("fronts", [])
+        # Numerator/denominator pair, not a quotient: the source computes
+        # segments * 2 / 3, which is not float-equivalent to multiplying by
+        # 0.6666666666666666 for 65 of the first 199 segment counts.
+        _num, _den = _DIRECTOR_DOCTRINE.threshold("pressure-clock-near-full-fraction")
         near_full = any(
-            any(_clock_segments(c, "current_segments", 0) >= _clock_segments(c, "segments", 6) * 2 / 3
+            any(_clock_segments(c, "current_segments", 0) >= _clock_segments(c, "segments", _DEFAULT_CLOCK_SEGMENTS) * _num / _den
                 for c in f.get("clocks", []))
             for f in fronts
         )
         yielded_scene = (
-            sig.get("low_agency_continue_count", 0) >= 2
+            sig.get("low_agency_continue_count", 0)
+            >= _DIRECTOR_DOCTRINE.threshold("pressure-yielded-low-agency-count")
             and sig.get("scene_pressure_available", False)
         )
-        base = 0.85 if yielded_scene else (0.8 if (near_full or sig["stalled_turns"] >= 1) else 0.2)
+        _stall_gate = _DIRECTOR_DOCTRINE.threshold("pressure-stalled-turns")
+        base = (
+            _DIRECTOR_DOCTRINE.score("PRESSURE", "yielded-scene") if yielded_scene
+            else (
+                _DIRECTOR_DOCTRINE.score("PRESSURE", "clock-near-full-or-stalled")
+                if (near_full or sig["stalled_turns"] >= _stall_gate)
+                else _DIRECTOR_DOCTRINE.score("PRESSURE", "baseline")
+            )
+        )
         # Rich-intent risk posture adjustment: a reckless player invites more
         # pressure (clocks tick faster toward them); a cautious player tempers
         # it. No-op when rich intent is absent (legacy single-class path).
@@ -1712,27 +1766,37 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
         if rich:
             posture = rich.get("risk_posture", "neutral")
             if posture == "reckless":
-                base = min(0.95, base + 0.1)
+                base = min(_PRESSURE_CEILING, base + _DIRECTOR_DOCTRINE.score(
+                    "PRESSURE", "reckless-posture-adjust"))
             elif posture == "cautious":
-                base = max(0.05, base - 0.1)
+                base = max(_PRESSURE_FLOOR, base + _DIRECTOR_DOCTRINE.score(
+                    "PRESSURE", "cautious-posture-adjust"))
         # p.83-85: legal pushed-roll failure pending → nudge PRESSURE once.
         # Flag is a structured pacing bool (set by apply); cleared when apply
         # lands a plan whose rule_signals carried the consumed signal.
         if sig.get("pushed_fail_pending"):
-            base = min(0.95, round(base + 0.1, 4))
+            base = min(_PRESSURE_CEILING, round(base + _DIRECTOR_DOCTRINE.score(
+                "PRESSURE", "pushed-fail-nudge"), _SCORE_PRECISION))
         return base
 
     if action == "CHARACTER":
         npcs_in_scene = scene.get("npc_ids", [])
         agendas = ctx.get("npc_agendas", {}).get("npcs", [])
         has_agenda_npc = any(n["npc_id"] in npcs_in_scene and n.get("agenda") for n in agendas)
-        return 0.7 if has_agenda_npc else 0.0
+        return (
+            _DIRECTOR_DOCTRINE.score("CHARACTER", "agenda-npc-in-scene")
+            if has_agenda_npc else 0.0
+        )
 
     if action == "CHOICE":
         if intent not in ("idle", "ambiguous", "stuck"):
             return 0.0
         avail = [c for c in scene.get("available_clues", []) if c not in discovered]
-        return 0.7 if len(avail) >= 2 else 0.0
+        return (
+            _DIRECTOR_DOCTRINE.score("CHOICE", "two-undiscovered-clues")
+            if len(avail) >= _DIRECTOR_DOCTRINE.threshold(
+                "choice-undiscovered-clue-count") else 0.0
+        )
 
     if action == "CUT":
         # CUT needs structured movement authority. A satisfied exit condition
@@ -1759,7 +1823,7 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
                 resolution.get("matched_destination_scene_id") or ""
             ).strip():
                 return 0.0
-            return 1.0
+            return _DIRECTOR_DOCTRINE.score("CUT", "explicit-move-intent")
         if not _is_low_agency_continue(ctx):
             return 0.0
         # Same rule the apply layer uses: prose is not a machine condition, so a
@@ -1773,29 +1837,41 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
             scene_clues = [str(c) for c in (scene.get("available_clues") or []) if c]
             exit_met = bool(scene_clues) and all(c in discovered_ids for c in scene_clues)
         if exit_met:
-            return 0.8
+            return _DIRECTOR_DOCTRINE.score("CUT", "exit-condition-met")
         # The main line is the other reason a scene is done: once every core
         # objective has been worked out, the story wants its ending, and a scene
         # that is not the ending is holding it up. Pressure, not a gate — it
         # scores below a met exit condition and the Keeper overrides either by
         # simply moving.
         if _main_line_complete(ctx) and not scene.get("is_final"):
-            return 0.7
+            return _DIRECTOR_DOCTRINE.score("CUT", "main-line-complete")
         # Existing stalled_turns pacing raises transition pressure when a
         # reachable unlocked target already exists (no new keyword system).
         stalled = int(sig.get("stalled_turns", 0) or 0)
-        if stalled >= 2:
-            return min(0.85, 0.45 + 0.15 * stalled)
+        if stalled >= _DIRECTOR_DOCTRINE.threshold("cut-stalled-transition-turns"):
+            _base, _step, _cap = _DIRECTOR_DOCTRINE.score(
+                "CUT", "stalled-transition-pressure")
+            return min(_cap, _base + _step * stalled)
         return 0.0
 
     if action == "MONTAGE":
-        return 0.6 if intent == "montage" else 0.0
+        return (
+            _DIRECTOR_DOCTRINE.score("MONTAGE", "montage-intent")
+            if intent == "montage" else 0.0
+        )
 
     if action == "SUBSYSTEM":
-        return 0.9 if intent in ("combat", "flee", "cast") else 0.0
+        return (
+            _DIRECTOR_DOCTRINE.score("SUBSYSTEM", "combat-flee-cast-intent")
+            if intent in ("combat", "flee", "cast") else 0.0
+        )
 
     if action == "RECOVER":
-        return 0.85 if sig["stalled_turns"] >= 2 else 0.0
+        return (
+            _DIRECTOR_DOCTRINE.score("RECOVER", "stalled-turns")
+            if sig["stalled_turns"] >= _DIRECTOR_DOCTRINE.threshold(
+                "recover-stalled-turns") else 0.0
+        )
 
     if action == "PAYOFF":
         cards = _retrieve_memory_for_ctx(ctx)
@@ -1811,7 +1887,9 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
         top = max(len(query & set(card.get("entities") or [])) for card in cards)
         if top <= 0:
             return 0.0
-        return min(0.85, 0.15 + top * 0.12)
+        _base, _step, _cap = _DIRECTOR_DOCTRINE.score(
+            "PAYOFF", "structured-entity-overlap")
+        return min(_cap, _base + top * _step)
 
     return 0.0
 
@@ -1995,10 +2073,12 @@ def apply_rule_signal_overrides(ctx: dict[str, Any]) -> dict[str, Any] | None:
                 "the public choices without inventing a clue or rolling"
             ),
         }
-    if sig.get("low_agency_continue_count", 0) >= 2 and sig.get("scene_pressure_available", False):
+    if sig.get("low_agency_continue_count", 0) >= _DIRECTOR_DOCTRINE.threshold(
+        "override-low-agency-count"
+    ) and sig.get("scene_pressure_available", False):
         return {"scene_action": "PRESSURE", "handoff": "narration",
                 "rationale": "repeated low-agency continuation yields initiative to authored scene pressure"}
-    if sig["stalled_turns"] >= 3:
+    if sig["stalled_turns"] >= _DIRECTOR_DOCTRINE.threshold("override-stalled-turns"):
         return {"scene_action": "RECOVER", "handoff": "narration",
                 "rationale": "3 stalled turns forces Idea Roll recovery valve"}
     return None
@@ -2023,7 +2103,7 @@ def select_action(ctx: dict[str, Any]) -> tuple[str, dict[str, float]]:
     for action in ACTIONS:
         base = _base_score(action, ctx)
         w = weights.get(action, 1.0)
-        scores[action] = round(base * w, 4)
+        scores[action] = round(base * w, _SCORE_PRECISION)
 
     # pick max; tiebreak by order
     max_score = max(scores.values()) if scores else 0.0
@@ -2497,7 +2577,7 @@ def _derive_time_advance(
     mode = profile.get("mode", "none")
     category = profile.get("category")
     delta = int(profile.get("delta_minutes", 0))
-    confidence = 0.7
+    confidence = _DIRECTOR_DOCTRINE.threshold("time-advance-default-confidence")
     reason = f"director proposal for {action}"
 
     # Exhaustion override: if the investigator has not rested in >18h and the
@@ -2505,26 +2585,31 @@ def _derive_time_advance(
     # layer can advance the clock through a sleep period (which fires healing
     # / sanity-day-reset triggers).
     hours_since_rest = float(time_signals.get("hours_since_last_rest", 0) or 0)
-    if hours_since_rest > 18 and action not in ("RECOVER", "MONTAGE", "PAYOFF"):
+    if hours_since_rest > _DIRECTOR_DOCTRINE.threshold(
+        "time-advance-exhaustion-hours"
+    ) and action not in ("RECOVER", "MONTAGE", "PAYOFF"):
         mode = "downtime"
         category = "sleep_night"
-        delta = 480
-        confidence = 0.85
+        delta = _DIRECTOR_DOCTRINE.threshold("time-advance-exhaustion-delta-minutes")
+        confidence = _DIRECTOR_DOCTRINE.threshold("time-advance-exhaustion-confidence")
         reason = f"exhausted ({hours_since_rest}h since last rest) → propose sleep"
 
     # High time-pressure: don't propose large jumps when a deadline is imminent.
     if time_signals.get("time_pressure") == "high" and mode == "downtime":
         mode = "elapsed"
         category = "quick_observation"
-        delta = 5
-        confidence = 0.6
+        delta = _DIRECTOR_DOCTRINE.threshold("time-advance-deadline-delta-minutes")
+        confidence = _DIRECTOR_DOCTRINE.threshold("time-advance-deadline-confidence")
         reason = "deadline imminent; minimal time advance"
 
     return {
         "mode": mode,
         "category": category,
         "delta_minutes": delta,
-        "confidence": round(confidence, 2),
+        "confidence": round(
+            confidence,
+            _DIRECTOR_DOCTRINE.threshold("time-advance-confidence-digits"),
+        ),
         "reason": reason,
     }
 
@@ -2550,15 +2635,16 @@ def _find_clue_conclusion(clue_id: str, clue_graph: dict[str, Any]) -> dict[str,
 
 def _clue_route_priority(clue_id: str | None, clue_graph: dict[str, Any]) -> float:
     """Read a clue's route_priority (default 0.5 if absent). Higher = more direct route."""
+    default = _DIRECTOR_DOCTRINE.threshold("clue-route-default-priority")
     if not clue_id:
-        return 0.5
+        return default
     clue = _find_clue(clue_id, clue_graph)
     if clue is None:
-        return 0.5
+        return default
     try:
-        return float(clue.get("route_priority", 0.5))
+        return float(clue.get("route_priority", default))
     except (TypeError, ValueError):
-        return 0.5
+        return default
 
 
 def _resolve_clue_delivery(clue_id: str | None, clue_graph: dict[str, Any]) -> tuple[str, str | None, str | None]:
@@ -2705,7 +2791,7 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     leads: list[str] = []
     if action == "CHOICE":
         ranked = sorted(available, key=lambda cid: _clue_route_priority(cid, clue_graph), reverse=True)
-        leads = ranked[:2]
+        leads = ranked[:_DIRECTOR_DOCTRINE.threshold("clue-policy-lead-count")]
 
     policy = {"reveal": reveal, "withhold": list(secret_ids), "fallback_routes": fallback,
               "clue_type": _clue_type, "skill": _clue_skill, "difficulty": _clue_diff,
@@ -2753,7 +2839,7 @@ def _typed_fumble_effect(value: Any) -> bool:
             and bool(value["clock_id"].strip())
             and isinstance(value.get("ticks"), int)
             and not isinstance(value.get("ticks"), bool)
-            and 1 <= value["ticks"] <= 4
+            and 1 <= value["ticks"] <= _DIRECTOR_DOCTRINE.threshold("fumble-tick-bound")
         )
     if kind == "condition":
         return (
@@ -3102,7 +3188,11 @@ def _callback_candidates(ctx: dict[str, Any]) -> list[dict[str, Any]]:
         try:
             found = coc_canonical_events.lookup_entities(
                 logs_dir, refs=union_refs, privacy="all",
-                limit=max(20, len(union_refs) * 5),
+                limit=max(
+                    _DIRECTOR_DOCTRINE.threshold("memory-callback-candidate-floor"),
+                    len(union_refs)
+                    * _DIRECTOR_DOCTRINE.threshold("memory-callback-refs-multiplier"),
+                ),
             )
             for match in found.get("matches") or []:
                 ref = str(match.get("entity_ref") or "")
@@ -3154,7 +3244,11 @@ def _callback_candidates(ctx: dict[str, Any]) -> list[dict[str, Any]]:
             "entity_refs": hook_refs,
             "provenance_events": recent_turns,
             "overlap_entities": overlap,
-            "score": round(4 * len(overlap), 3),
+            "score": round(
+                _DIRECTOR_DOCTRINE.threshold("memory-callback-overlap-weight")
+                * len(overlap),
+                _DIRECTOR_DOCTRINE.threshold("memory-callback-score-digits"),
+            ),
             "reason": (
                 f"open {kind} assertion overlaps current scene "
                 + (f"entities {', '.join(overlap)}" if overlap else "context")
@@ -3473,7 +3567,9 @@ def _mythos_presentation_directive(ctx: dict[str, Any], action: str) -> dict[str
     if not signature:
         return None
     rng = ctx.get("rng") or random.Random()
-    sample_n = min(2, len(signature))
+    sample_n = min(
+        _DIRECTOR_DOCTRINE.threshold("mythos-signature-sample"), len(signature)
+    )
     sample = rng.sample(signature, sample_n) if sample_n else []
     pacing_entry = _current_pacing_entry(ctx)
     raw_horror = pacing_entry.get("horror_stage", "wrongness")
@@ -3604,7 +3700,8 @@ def _apply_fair_warning_ladder(
     """
     tclock = (ctx.get("rule_signals") or {}).get("tension_clock") or {}
     used = int(tclock.get("lethal_chances_used", 0) or 0)
-    if used >= 3 or tclock.get("death_allowed") is True:
+    _lethal_cap = _DIRECTOR_DOCTRINE.threshold("fair-warning-lethal-chances")
+    if used >= _lethal_cap or tclock.get("death_allowed") is True:
         return pressure_moves
 
     evidence = _collect_lethal_evidence(ctx, pressure_moves, rules_requests)
@@ -3613,7 +3710,7 @@ def _apply_fair_warning_ladder(
 
     narrative_directives["fair_warning"] = {
         "warning_number": used + 1,
-        "remaining": max(0, 3 - used - 1),
+        "remaining": max(0, _lethal_cap - used - 1),
         "rule_ref": "core.pacing.fair_warning",
     }
 
@@ -3652,11 +3749,14 @@ def _apply_fair_warning_ladder(
 def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
     """Tick clocks when PRESSURE or stalled."""
     moves = []
-    if action not in ("PRESSURE", "RECOVER") and ctx["rule_signals"]["stalled_turns"] < 1:
+    if action not in ("PRESSURE", "RECOVER") and ctx["rule_signals"][
+        "stalled_turns"
+    ] < _DIRECTOR_DOCTRINE.threshold("pressure-move-stalled-gate"):
         return moves
     if (
         action == "PRESSURE"
-        and ctx["rule_signals"].get("low_agency_continue_count", 0) >= 2
+        and ctx["rule_signals"].get("low_agency_continue_count", 0)
+        >= _DIRECTOR_DOCTRINE.threshold("pressure-move-low-agency-count")
         and _scene_pressure_available(ctx)
     ):
         scene_move = _build_scene_pressure_move(ctx)
@@ -3693,7 +3793,7 @@ def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, An
             if not isinstance(clock, dict):
                 continue
             current = _clock_segments(clock, "current_segments", 0)
-            if current >= _clock_segments(clock, "segments", 6):
+            if current >= _clock_segments(clock, "segments", _DEFAULT_CLOCK_SEGMENTS):
                 continue
             severity_raw = clock.get("severity", front_severity)
             severity = severity_raw if isinstance(severity_raw, int) and not isinstance(severity_raw, bool) else front_severity
@@ -3713,22 +3813,25 @@ def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, An
                 if value
             }
             clock_id = str(clock.get("clock_id") or "")
+            # Rank order is graph doctrine; the match tests themselves stay
+            # here because they read structured scene/front state.
             if clock_id and clock_id in scene_clock_ids:
-                affinity_kind, matched, affinity_rank = "scene_clock_refs", [clock_id], 6
+                affinity_kind, matched = "scene_clock_refs", [clock_id]
             elif scene_danger_ids & front_danger_ids:
-                affinity_kind, matched, affinity_rank = (
-                    "danger_ids", sorted(scene_danger_ids & front_danger_ids), 5
+                affinity_kind, matched = (
+                    "danger_ids", sorted(scene_danger_ids & front_danger_ids)
                 )
             elif scene_id and scene_id in scene_ids:
-                affinity_kind, matched, affinity_rank = "scene_ids", [scene_id], 4
+                affinity_kind, matched = "scene_ids", [scene_id]
             elif front_id and front_id in scene_front_ids:
-                affinity_kind, matched, affinity_rank = "threat_front_ids", [front_id], 3
+                affinity_kind, matched = "threat_front_ids", [front_id]
             elif scene_tags & tags:
-                affinity_kind, matched, affinity_rank = "scene_tags_any", sorted(scene_tags & tags), 2
+                affinity_kind, matched = "scene_tags_any", sorted(scene_tags & tags)
             elif scene_factions & factions:
-                affinity_kind, matched, affinity_rank = "faction_ids", sorted(scene_factions & factions), 1
+                affinity_kind, matched = "faction_ids", sorted(scene_factions & factions)
             else:
-                affinity_kind, matched, affinity_rank = "fallback", [], 0
+                affinity_kind, matched = "fallback", []
+            affinity_rank = _PRESSURE_AFFINITY_RANKS[affinity_kind]
             # A scenario-wide clock is not automatically observable in every
             # location. Without a structured scene/front/tag/faction match its
             # symptom could instantiate a supernatural object or route in the

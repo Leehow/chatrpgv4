@@ -988,3 +988,85 @@ def test_cli_rejects_symlinked_debug_evidence_root(tmp_path: Path) -> None:
     assert completed.returncode == 2
     assert json.loads(completed.stdout)["error"]["code"] == "evidence_root_unsafe"
     assert list(outside.iterdir()) == []
+
+
+# --- per-lane doctrine overrides (D5b enablement) -------------------------
+
+def _valid_spec(**lane_extra):
+    lane = {"id": "arm-b", "profile": "production"}
+    lane.update(lane_extra)
+    return {
+        "player_input": "同一场景的默认玩家行动",
+        "lanes": [{"id": "arm-a", "profile": "production"}, lane],
+    }
+
+
+def test_lane_may_override_exactly_one_doctrine_value():
+    """D5b needs two lanes that differ by one number and nothing else."""
+    module = _module()
+    spec = module._normalize_run_spec(
+        _valid_spec(doctrine_overrides={"threshold:override-stalled-turns": 4})
+    )
+    assert spec["lanes"][0]["doctrine_overrides"] == {}
+    assert spec["lanes"][1]["doctrine_overrides"] == {
+        "threshold:override-stalled-turns": 4
+    }
+
+
+@pytest.mark.parametrize(
+    "overrides, reason",
+    [
+        ({"threshold:not-a-real-node": 1}, "not a doctrine node"),
+        ({"director-action:reveal": "X"}, "not a doctrine node"),
+        ({"threshold:override-stalled-turns": 3}, "equals the production value"),
+        ({"threshold:override-stalled-turns": "three"}, "expects a value shaped"),
+        ({}, "must not be empty"),
+    ],
+)
+def test_lane_doctrine_overrides_fail_closed(overrides, reason):
+    """An override may only change an existing doctrine value, to a new one
+    of the same shape. It can never add a node or reach a vocabulary node."""
+    module = _module()
+    with pytest.raises(module.DebugExperimentError) as excinfo:
+        module._normalize_run_spec(_valid_spec(doctrine_overrides=overrides))
+    assert reason in str(excinfo.value)
+
+
+def test_lane_graph_is_written_and_read_back_by_the_runtime(tmp_path):
+    """The whole point: the same runtime must see a different value per lane."""
+    module = _module()
+    patched = module._write_lane_director_graph(
+        tmp_path / ".coc" / "director-graph.json",
+        {"threshold:override-stalled-turns": 4},
+    )
+    assert patched.is_file()
+
+    probe = (
+        "import importlib.util, json, sys\n"
+        "from pathlib import Path\n"
+        f"S = Path({str(SCRIPTS)!r})\n"
+        "sp = importlib.util.spec_from_file_location('rt', S / 'coc_director_runtime.py')\n"
+        "rt = importlib.util.module_from_spec(sp); sys.modules['rt'] = rt\n"
+        "sp.loader.exec_module(rt)\n"
+        "print(rt.doctrine().threshold('override-stalled-turns'))\n"
+    )
+    import os
+
+    def read(env_extra):
+        env = dict(os.environ)
+        env.update(env_extra)
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        out = subprocess.run(
+            [sys.executable, "-c", probe], capture_output=True, text=True, env=env
+        )
+        assert out.returncode == 0, out.stderr
+        return out.stdout.strip().splitlines()[-1]
+
+    assert read({}) == "3"
+    assert read({"COC_DIRECTOR_GRAPH": str(patched)}) == "4"
+
+
+def test_a_lane_without_overrides_leaves_the_runtime_on_production():
+    module = _module()
+    spec = module._normalize_run_spec(_valid_spec())
+    assert all(lane["doctrine_overrides"] == {} for lane in spec["lanes"])

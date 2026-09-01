@@ -37,8 +37,9 @@
       "graph_id": "graph:director:production",
       "graph_kind": "director",
       "authority_plane": "advisory",
-      "availability": "absent-production-artifact",
-      "reason": "The production has advisory Director code and receipts, but no source-controlled DirectorGraph machine artifact to reference."
+      "availability": "production-artifact",
+      "ontology_contract": "coc.director-graph.v1",
+      "artifact_path": "plugins/coc-keeper/references/director-graph.json"
     },
     {
       "graph_id": "graph:text:production",
@@ -940,6 +941,27 @@
       "semantic_id": "decision:coc7:healing:weekly-major-wound-recovery",
       "reference_kind": "artifact-node",
       "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:dying-entry",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "rule:coc7:healing:dying-entry",
+      "reference_kind": "artifact-node",
+      "node_kind": "rule"
+    },
+    {
+      "ref_id": "ref:director:dying-clock-kind",
+      "graph_id": "graph:director:production",
+      "semantic_id": "craft-directive:dying-clock-kind",
+      "reference_kind": "artifact-node",
+      "node_kind": "craft-directive"
+    },
+    {
+      "ref_id": "ref:director:dying-forces-rescue-subsystem",
+      "graph_id": "graph:director:production",
+      "semantic_id": "craft-directive:dying-forces-rescue-subsystem",
+      "reference_kind": "artifact-node",
+      "node_kind": "craft-directive"
     }
   ],
   "relations": [
@@ -1560,6 +1582,24 @@
       "relation_kind": "may-emit-effect",
       "from_ref": "ref:rule:coc7:pending-choice-coc7-social-pc-refusal",
       "to_ref": "ref:rule:coc7:effect-coc7-social-pc-refusal-penalty"
+    },
+    {
+      "relation_id": "relation:system:director-dying-clock-grounded-hour",
+      "relation_kind": "grounded-by",
+      "from_ref": "ref:director:dying-clock-kind",
+      "to_ref": "ref:rule:coc7:dying-hour-clock"
+    },
+    {
+      "relation_id": "relation:system:director-dying-clock-grounded-round",
+      "relation_kind": "grounded-by",
+      "from_ref": "ref:director:dying-clock-kind",
+      "to_ref": "ref:rule:coc7:dying-round-clock"
+    },
+    {
+      "relation_id": "relation:system:director-dying-subsystem-grounded",
+      "relation_kind": "grounded-by",
+      "from_ref": "ref:director:dying-forces-rescue-subsystem",
+      "to_ref": "ref:rule:coc7:dying-entry"
     }
   ],
   "coverage": [
@@ -1601,12 +1641,12 @@
     },
     {
       "graph_kind": "director",
-      "status": "absent-production-artifact",
-      "composition_status": "not-applicable",
+      "status": "production-linked",
+      "composition_status": "instance-linked",
       "graph_ids": [
         "graph:director:production"
       ],
-      "reason": "No production DirectorGraph artifact exists, so no instance link is fabricated."
+      "reason": "The production DirectorGraph carries the Director vocabulary and doctrine planes, and its dying-clock and dying-subsystem craft directives are grounded in the coc7 RuleGraph dying decisions and dying-entry rule. Grounding stops there on purpose: the Director's remaining doctrine reads pacing state and Scenario IR projections, not registered condition paths, and the push-luck and pacing rule families it would otherwise cite are still unresolved in the RuleGraph."
     },
     {
       "graph_kind": "text",

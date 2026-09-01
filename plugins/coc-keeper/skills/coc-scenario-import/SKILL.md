@@ -518,11 +518,39 @@ uv run --frozen python plugins/coc-keeper/scripts/coc_module_graph.py \
   --seed <semantic-node-id> --depth 2 --audience keeper --json
 ```
 
-After the graph build and diagnostic report, STOP. This phase does not project
-the graph into Scenario IR, query it from the KP, mutate campaign state, or
-claim live-play support. Existing Story-Graph Compilation below remains its
-own path until a later Graph-to-KP integration specification selects one
-authority and retires duplicate extraction.
+After the graph build and diagnostic report, STOP. This phase does not author
+Scenario IR by itself, query the graph from the KP, mutate campaign state, or
+claim live-play support.
+
+For a graph that already carries `coc.module-graph-runtime-projection.v1`
+records (embedded, or a digest-bound `runtime-projection.json` sidecar), the
+module-agnostic projection core owns deterministic materialization and parity
+(spec:
+[`pi-coc-module-source-pipeline-unification.md`](../../../../docs/specs/pi-coc-module-source-pipeline-unification.md)):
+
+```bash
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_projection.py \
+  validate --graph /path/to/module-graph.json [--sidecar /path/to/runtime-projection.json]
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_projection.py \
+  project --graph /path/to/module-graph.json [--sidecar ...]
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_projection.py \
+  parity --graph /path/to/module-graph.json --ir-dir /path/to/scenario [--sidecar ...]
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_projection.py \
+  prepare-packet --graph /path/to/module-graph.json --document story-graph.json
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_projection.py \
+  validate-records --graph /path/to/module-graph.json --payload /path/to/records.json
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_projection.py \
+  attach --graph /path/to/module-graph.json --payload /path/to/records.json \
+  --out /path/to/runtime-projection.json
+```
+
+`prepare-packet` emits the closed packet for the projection extraction pass
+(runtime records restating graph semantics; no new entities or numbers), and
+`validate-records`/`attach` are its deterministic acceptance. Until that
+forward path passes real-module plus real-play acceptance (unification spec
+Stage B), do not author projection records for a live import: existing
+Story-Graph Compilation below remains the operating route, and duplicate
+extraction retires per the unification spec's staged plan.
 
 ## 剧情图编译（Story-Graph Compilation）
 
