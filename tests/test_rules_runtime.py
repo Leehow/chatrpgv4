@@ -3187,6 +3187,20 @@ def test_development_production_cards_require_pending_settlement(pending, expect
     assert cards == expected
 
 
+# Walter Corbitt as printed in The Haunting (p.448), in the canonical nested
+# actor-profile shape ``coc_mechanics.validate_actor_profile`` accepts.
+_CORBITT_PROFILE = {
+    "profile_kind": "actor",
+    "characteristic_scale": "percentile",
+    "characteristics": {
+        "STR": 90, "CON": 115, "SIZ": 55, "DEX": 35,
+        "INT": 80, "APP": 5, "POW": 90, "EDU": 80,
+    },
+    "derived": {"HP": 16, "MP": 18, "SAN": 0, "MOV": 8, "Build": 1, "DB": "+1D4"},
+    "skills": {"Fighting (Brawl)": 50, "Dodge": 17, "Stealth": 72},
+}
+
+
 def test_chase_generic_start_hydrates_only_current_semantic_refs():
     kernel = coc_toolbox.coc_operation_kernel
     ctx = SimpleNamespace(
@@ -3198,7 +3212,7 @@ def test_chase_generic_start_hydrates_only_current_semantic_refs():
         party_ids=lambda: ["investigator-one"],
         sheet=lambda _id: {"characteristics": {"DEX": 60, "CON": 50}, "derived": {"HP": 10, "MOV": 8}, "skills": {"Fighting (Brawl)": 40, "Dodge": 30}},
         inv_state=lambda _id: {"current_hp": 10, "conditions": []},
-        npc_agendas={"npcs": [{"npc_id": "npc-pursuer", "mechanics": {"profile": {"mov": 7, "dex": 50, "con": 50, "hp": 9, "combat_skill": 35, "dodge_skill": 25, "build": 0}}}]},
+        npc_agendas={"npcs": [{"npc_id": "npc-pursuer", "mechanics": {"profile": _CORBITT_PROFILE}}]},
     )
     binding = kernel._canonical_chase_binding(
         ctx, decision_ref="decision:coc7:chase:start",
@@ -3210,6 +3224,11 @@ def test_chase_generic_start_hydrates_only_current_semantic_refs():
         },
     )
     assert len(binding["participants"]) == 2
+    # The authored numbers must survive to the chase surface unchanged, not be
+    # replaced by defaults invented from flat keys the profile never carries.
+    npc = next(row for row in binding["participants"] if row["actor_id"] == "npc-pursuer")
+    assert (npc["dex"], npc["con"], npc["hp"]) == (35, 115, 16)
+    assert (npc["fight"], npc["dodge"], npc["build"], npc["mov"]) == (50, 17, 1, 8)
     assert [row["label"] for row in binding["locations"]] == ["alley", "market"]
     assert binding["locations"][0]["hazard"] is None
     with pytest.raises(kernel.ToolError):
@@ -3223,8 +3242,46 @@ def test_chase_generic_start_hydrates_only_current_semantic_refs():
 def test_chase_candidates_are_empty_without_world_context():
     kernel = coc_toolbox.coc_operation_kernel
     assert kernel._chase_start_candidates(SimpleNamespace(), "investigator-one") == {
-        "actors": {}, "locations": {}, "scene_id": None,
+        "actors": {}, "locations": {}, "actor_errors": {}, "scene_id": None,
     }
+
+
+def test_chase_withholds_unreadable_npc_profile_and_names_it_on_settle():
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = SimpleNamespace(
+        world=lambda: {"active_scene_id": "alley"},
+        story_graph={"scenes": [
+            {"scene_id": "alley", "npc_ids": ["npc-pursuer"], "exit_targets": ["market"]},
+            {"scene_id": "market", "npc_ids": []},
+        ]},
+        party_ids=lambda: [],
+        sheet=lambda _id: {},
+        inv_state=lambda _id: {},
+        # DEX and POW missing: the profile cannot be normalized.
+        npc_agendas={"npcs": [{"npc_id": "npc-pursuer", "mechanics": {"profile": {
+            "profile_kind": "actor",
+            "characteristic_scale": "percentile",
+            "characteristics": {"STR": 50, "CON": 50, "SIZ": 50},
+        }}}]},
+    )
+    candidates = kernel._chase_start_candidates(ctx, "investigator-one")
+    # Withheld rather than filled in with invented stats.
+    assert "npc:npc-pursuer" not in candidates["actors"]
+    assert "npc:npc-pursuer" in candidates["actor_errors"]
+    with pytest.raises(kernel.ToolError) as excinfo:
+        kernel._canonical_chase_binding(
+            ctx, decision_ref="decision:coc7:chase:start",
+            investigator_id="investigator-one",
+            semantic_inputs={
+                "pursuer_refs": ["npc:npc-pursuer"],
+                "quarry_refs": ["investigator:investigator-one"],
+                "location_refs": ["scene:alley", "scene:market"],
+            },
+        )
+    # The specific reason, not a generic chase_candidate_invalid.
+    assert excinfo.value.code == "npc_profile_invalid"
+    assert "npc:npc-pursuer" in excinfo.value.message
+    assert "DEX" in excinfo.value.message
 
 
 def test_runtime_settle_exclusion_scopes_are_no_candidate(tmp_path: Path):

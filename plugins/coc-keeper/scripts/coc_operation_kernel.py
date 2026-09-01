@@ -6746,13 +6746,14 @@ def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
     world_provider = getattr(ctx, "world", None)
     story_graph = getattr(ctx, "story_graph", None)
     if not callable(world_provider) or not isinstance(story_graph, Mapping):
-        return {"actors": {}, "locations": {}, "scene_id": None}
+        return {"actors": {}, "locations": {}, "actor_errors": {}, "scene_id": None}
     world = world_provider()
     scene_id = str(world.get("active_scene_id") or "")
     scene = _scene_by_id(story_graph, scene_id)
     if not scene_id or not isinstance(scene, Mapping):
-        return {"actors": {}, "locations": {}}
+        return {"actors": {}, "locations": {}, "actor_errors": {}}
     actors: dict[str, dict[str, Any]] = {}
+    actor_errors: dict[str, str] = {}
     for party_id in ctx.party_ids():
         sheet = _safe_sheet(ctx, party_id)
         if not isinstance(sheet, Mapping):
@@ -6779,16 +6780,31 @@ def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
         profile = mechanics.get("profile") if isinstance(mechanics, Mapping) else None
         if not isinstance(profile, Mapping):
             continue
+        # A canonical actor profile is nested (characteristics/derived/skills).
+        # Read it through the same normalizer combat uses, so an authored NPC
+        # carries one set of numbers across both surfaces.
+        try:
+            part = coc_mechanics.actor_combat_participant(
+                npc_id, deepcopy(dict(profile)),
+            )
+        except coc_mechanics.MechanicsError as exc:
+            # Never invent stats for a profile we cannot read. Withhold the
+            # actor and carry the reason to the settle path, which names it.
+            actor_errors[f"npc:{npc_id}"] = str(exc)
+            continue
+        derived = profile.get("derived") if isinstance(profile.get("derived"), Mapping) else {}
         actors[f"npc:{npc_id}"] = {
             "actor_id": npc_id,
-            "mov": int(profile.get("mov", profile.get("MOV", 8))),
-            "dex": int(profile.get("dex", profile.get("DEX", 50))),
-            "con": int(profile.get("con", profile.get("CON", 50))),
-            "hp": int(profile.get("hp", profile.get("HP", 10))),
-            "fight": int(profile.get("combat_skill", profile.get("fight", 25))),
-            "dodge": int(profile.get("dodge_skill", profile.get("dodge", 25))),
-            "build": int(profile.get("build", 0)),
-            "conditions": list(profile.get("conditions") or []),
+            # MOV is a chase-only characteristic; the combat normalizer,
+            # which has no use for it, does not carry it.
+            "mov": int(derived.get("MOV", 8)),
+            "dex": part["dex"],
+            "con": part["con"],
+            "hp": part["hp_current"],
+            "fight": part["combat_skill"],
+            "dodge": part["dodge_skill"],
+            "build": part["build"],
+            "conditions": list(part["conditions"]),
         }
     connected = {scene_id}
     connected.update(str(value) for value in scene.get("exit_targets") or [] if str(value))
@@ -6807,7 +6823,8 @@ def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
             "hazard": deepcopy(candidate.get("hazard")) if isinstance(candidate.get("hazard"), Mapping) else None,
             "barrier": deepcopy(candidate.get("barrier")) if isinstance(candidate.get("barrier"), Mapping) else None,
         }
-    return {"actors": actors, "locations": locations, "scene_id": scene_id}
+    return {"actors": actors, "locations": locations,
+            "actor_errors": actor_errors, "scene_id": scene_id}
 
 
 def _facts_provider_for(ctx: Ctx, investigator_id: str, ruleset_id: str):
@@ -7733,6 +7750,13 @@ def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: st
         pursuers = list(semantic_inputs.get("pursuer_refs") or [])
         quarries = list(semantic_inputs.get("quarry_refs") or [])
         location_refs = list(semantic_inputs.get("location_refs") or [])
+        actor_errors = candidates.get("actor_errors") or {}
+        blocked = [ref for ref in [*pursuers, *quarries] if ref in actor_errors]
+        if blocked:
+            raise ToolError(
+                "npc_profile_invalid",
+                "; ".join(f"{ref}: {actor_errors[ref]}" for ref in blocked),
+            )
         if (not pursuers or not quarries or len(location_refs) < 2
                 or set(pursuers) & set(quarries)
                 or any(ref not in actors for ref in [*pursuers, *quarries])
