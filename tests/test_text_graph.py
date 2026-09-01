@@ -96,7 +96,7 @@ def test_compiler_round_trip_is_byte_stable():
 def test_built_node_counts_match_the_contract_census():
     counts = collections.Counter(node["node_kind"] for node in ARTIFACT["nodes"])
     assert dict(counts) == CONTRACT["expected_node_counts"]
-    assert sum(counts.values()) == 44
+    assert sum(counts.values()) == 105
 
 
 def test_expected_node_counts_law_rejects_a_lost_vocabulary():
@@ -110,13 +110,28 @@ def test_expected_node_counts_law_rejects_a_lost_vocabulary():
         coc_text_graph.build([shard])
 
 
-def test_every_node_declares_an_evidence_class_and_its_derivation():
+def test_every_node_declares_an_evidence_class_and_its_accountability():
+    """Obligation nodes are derived; craft nodes are house doctrine.
+
+    Nothing is rulebook-source: the inventory found no Keeper-craft page cited
+    anywhere in coc_narration_style.py, and gate 4 forbids inventing one.
+    """
     for node in ARTIFACT["nodes"]:
-        assert node["evidence_class"] == "settled-effect-derived", node["node_id"]
-        assert node["derived_from"].strip(), node["node_id"]
-    # The obligation plane is derived, which is why it needs no source corpus.
+        if node["plane"] == "obligation":
+            assert node["evidence_class"] == "settled-effect-derived", node["node_id"]
+            assert node["derived_from"].strip(), node["node_id"]
+        else:
+            assert node["evidence_class"] == "authored-house-doctrine", node["node_id"]
+            for field in ("rationale", "origin", "falsifiable_by"):
+                assert node[field].strip(), f"{node['node_id']} missing {field}"
     classes = {node["evidence_class"] for node in ARTIFACT["nodes"]}
-    assert classes == {"settled-effect-derived"}
+    assert classes == {"settled-effect-derived", "authored-house-doctrine"}
+
+
+def test_no_node_claims_a_rulebook_page():
+    for node in ARTIFACT["nodes"]:
+        assert node["evidence_class"] != "rulebook-source", node["node_id"]
+        assert "source_refs" not in node, node["node_id"]
 
 
 def test_accept_rejects_an_unaccountable_node():
@@ -146,12 +161,18 @@ def test_the_only_relations_are_the_load_bearing_ones():
     namespace may write.
     """
     relations = ARTIFACT["relations"]
-    assert len(relations) == 5
-    assert {r["relation_kind"] for r in relations} == {"part-of"}
-    assert all(r["from_node_id"].startswith("obligation-source-kind:") for r in relations)
-    assert all(r["to_node_id"].startswith("obligation-kind:") for r in relations)
+    assert len(relations) == 20
+    assert {r["relation_kind"] for r in relations} == {"part-of", "advises"}
+    part_of = [r for r in relations if r["relation_kind"] == "part-of"]
+    advises = [r for r in relations if r["relation_kind"] == "advises"]
+    # 5 source kinds -> obligation kinds, 10 budget triggers -> budget rungs.
+    assert len(part_of) == 15
+    # Each rewrite directive advises the rule whose matcher it replaced.
+    assert len(advises) == 5
+    assert all(r["from_node_id"].startswith("craft-directive:") for r in advises)
+    assert all(r["to_node_id"].startswith("review-rule:") for r in advises)
     assert "empty_relations_law" in CONTRACT
-    assert ARTIFACT["coverage"] == {"obligation": "accepted", "craft": "unresolved"}
+    assert ARTIFACT["coverage"] == {"obligation": "accepted", "craft": "accepted"}
 
 
 def test_the_roll_namespace_source_kinds_are_the_ones_play_produced():
@@ -201,7 +222,10 @@ def test_accept_rejects_a_node_that_embeds_a_foreign_body():
 
 def test_the_artifact_stays_small():
     """DirectorGraph's D1 shipped 464KB by embedding record bodies."""
-    assert ARTIFACT_PATH.stat().st_size < 64 * 1024
+    # 105 nodes carrying accountability prose. The real body-copy guards are
+    # the property-key and nested-payload assertions above; this bound only
+    # catches a record body being pasted in wholesale.
+    assert ARTIFACT_PATH.stat().st_size < 128 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +269,13 @@ def test_the_leading_segment_law_is_data_not_a_bare_string():
     # play (1746 of 2219 preserved segments).
     assert leading[0]["properties"]["mechanic"] is False
     assert leading[0]["properties"]["mechanic_placement_order"] is None
+
+
+def test_every_node_carries_an_identity_key_for_its_kind():
+    """Most kinds key on legacy_key; craft-directive and text-threshold do not."""
+    for node in ARTIFACT["nodes"]:
+        keys = set(node["properties"])
+        assert keys & {"legacy_key", "directive_id", "threshold_id"}, node["node_id"]
 
 
 def test_every_node_carries_a_dense_ordinal_within_its_kind():
@@ -449,107 +480,128 @@ CLASSIFICATIONS = frozenset({
 # spelling is counted) rather than under-reporting, because a gate that misses
 # a copy is worse than one that asks a question.
 CENSUS: dict[str, dict[str, tuple[int, str, str]]] = {
-    "plugins/coc-keeper/scripts/coc_turn_finalization.py": {
-        "obligation-source-kind": (19, "declaration-migrated", "the concealed_roll/first_impression/sanity_bout source kinds and their three semantic lookup keys; T2 replaced the fabricated `source_kind: \"roll\"` with the vocabulary play actually produces"),
-        "agency-claim-type": (2, "declaration-migrated", "AGENCY_CLAIM_TYPES and VOLUNTARY_CLAIM_TYPES now read from the graph; the two remaining literals are the forced_behavior and involuntary_physiology branch comparisons"),
-        "coverage-field": (71, "declaration-migrated", "COVERAGE_FIELDS reads from the graph; the rest are per-field accesses inside coverage construction and validation, which T2 migrates with the derivation laws"),
-        "obligation-kind": (6, "usage-only", "namespace names appearing in messages and comments; the grammars themselves are migrated"),
-        "obligation-prefix": (1, "declaration-migrated", "T2 cut this over: 13 -> 1. The three id grammars are now composed from the graph's id_prefix, and the single remaining occurrence is the semantic key that looks the prefix up"),
-        "realization-mode": (1, "declaration-migrated", "T2 cut this over: 5 -> 1. The remaining occurrence is the semantic key for CONCEALED_REALIZATION"),
-        "roll-visibility-class": (7, "declaration-migrated", "both visibility frozensets read from the graph; the rest are per-value comparisons"),
-        "segment-type": (43, "declaration-migrated", "T2 cut this over: 51 -> 43. The eight bare 'fiction' sites and the leading-segment ordering law now read LEADING_SEGMENT_TYPE and SEGMENT_TYPES from the graph"),
-        "substantive-effect-status": (5, "declaration-migrated", "T2 cut this over: the applied/missing/not_required conditional now reads graph-validated tokens; the remaining occurrences are their three semantic lookup keys plus two comments"),
+    'plugins/coc-keeper/pi/lib/tool-contract-projection.ts': {
+        'agency-claim-type': (18, 'second-declaration', 'THREE independent TypeScript copies: exported const REVIEWED_AGENCY_CLAIM_TYPES (line 36) and inline claim_types arrays (lines 1290, 1673). A Python-only residue gate cannot see any of them. This is DirectorGraph correction 6 in another language'),
+        'coverage-field': (27, 'second-declaration', 'coverage row field names re-declared in TypeScript types and projections (lines 1717, 2445, 2704)'),
+        'narration-budget-trigger': (2, 'usage-only', 'two event-type comparisons'),
+        'obligation-kind': (10, 'usage-only', 'source_kind comparisons'),
+        'obligation-prefix': (61, 'second-declaration', 'the full roll:/first-impression:/sanity_bout: triple appears four times plus prose, and roll: alone at roughly thirty more sites. Count grew 59 -> 61 in the 0.8.1a@bb0575d5 merge, which added a `roll:`/`first-impression:` candidate list from another slice; the gate caught the growth, which is what pinning the count is for'),
+        'obligation-source-kind': (1, 'usage-only', 'one source_kind comparison in the TypeScript projection'),
+        'player-input-handling': (9, 'second-declaration', 're-declared as a TypeScript union and projection literals (lines 2435, 2797)'),
+        'realization-mode': (9, 'second-declaration', 're-declared as a TypeScript union type at line 99 and as literals at lines 1276, 1756'),
+        'roll-visibility-class': (2, 'usage-only', 'two comparisons'),
     },
-    "plugins/coc-keeper/scripts/coc_operation_turn_output.py": {
-        "obligation-source-kind": (2, "usage-only", "two source_kind comparisons in the output projection"),
-        "coverage-field": (21, "reads-from-graph", "the turn.finalize input schema is built from coc_turn_finalization.COVERAGE_FIELDS, which now resolves through the graph; the rest are field accesses"),
-        "obligation-prefix": (1, "second-declaration", "line 433 builds a sanity_bout: source_ref for a control override; owned by slice T2"),
-        "player-input-handling": (1, "reads-from-graph", "published as a schema enum from the migrated frozenset"),
-        "roll-visibility-class": (9, "usage-only", "per-value comparisons in the output projection"),
-        "segment-type": (8, "usage-only", "per-type comparisons in mechanics placement"),
-        "substantive-effect-status": (2, "usage-only", "status labels copied onto the projection"),
+    'plugins/coc-keeper/pi/prompts/host-system-play.md': {
+        'coverage-field': (8, 'model-facing-copy', 'the host prompt republishes the coverage row field names to the KP'),
+        'obligation-prefix': (26, 'model-facing-copy', 'the host prompt republishes the obligation namespaces to the KP'),
+        'realization-mode': (1, 'model-facing-copy', 'one realization value named in prompt prose'),
+        'review-rule': (1, 'model-facing-copy', 'host prompt names agency_violation'),
     },
-    "plugins/coc-keeper/scripts/coc_narration_style.py": {},
-    "plugins/coc-keeper/scripts/coc_narration_contract.py": {
-        "obligation-source-kind": (2, "usage-only", "first_impression labels on narration envelope rows"),
-        "coverage-field": (1, "usage-only", "a single field access"),
-        "obligation-kind": (9, "usage-only", "roll and first_impression labels on narration envelope rows"),
-        "roll-visibility-class": (7, "second-declaration", "line 826 inlines {'public', 'consequence_public'} — an independent copy of PLAYER_FACING_ROLL_VISIBILITIES found by this gate; recorded, not repaired in T1"),
+    'plugins/coc-keeper/references/mcp-operation-contracts.json': {
+        'agency-claim-type': (8, 'reads-from-graph', 'generated archive: the enum is built from the migrated frozenset and rebuilds byte-identically'),
+        'coverage-field': (27, 'reads-from-graph', 'generated archive'),
+        'obligation-kind': (2, 'reads-from-graph', 'generated archive'),
+        'obligation-source-kind': (10, 'reads-from-graph', 'generated archive; source_kind values reach the model contract through the migrated derivation'),
+        'player-input-handling': (3, 'reads-from-graph', 'generated archive'),
+        'realization-mode': (2, 'reads-from-graph', 'generated archive'),
+        'render-prohibition': (1, 'reads-from-graph', 'generated archive'),
+        'review-rule': (9, 'reads-from-graph', 'the nine-id enum published in T4, generated from the graph citable property'),
+        'roll-visibility-class': (6, 'reads-from-graph', 'generated archive'),
+        'segment-type': (4, 'reads-from-graph', 'generated archive'),
+        'style-axis': (3, 'reads-from-graph', 'generated archive'),
     },
-    "plugins/coc-keeper/scripts/coc_turn_manifest.py": {},
-    "plugins/coc-keeper/scripts/coc_state_authority.py": {
-        "coverage-field": (8, "usage-only", "claim rows reuse exact_excerpt and source_ref spellings"),
-        "segment-type": (2, "second-declaration", "line 357 iterates ('state_delta', 'asset_delta') as mechanics bundle bucket names — a partial copy of the segment vocabulary; recorded, not repaired in T1"),
+    'plugins/coc-keeper/scripts/coc_live_turn_runner.py': {
+        'narration-budget-trigger': (9, 'usage-only', 'event-type spellings in the legacy headless runtime path'),
+        'substantive-effect-status': (5, 'usage-only', "FALSE POSITIVE: these are {'applied': bool} dict keys in the legacy runtime path, not the substantive-effect-status token. Kept in the census so the count is pinned rather than filtered away by a heuristic"),
     },
-    "plugins/coc-keeper/scripts/coc_live_turn_runner.py": {
-        "substantive-effect-status": (5, "usage-only", "FALSE POSITIVE: these are {'applied': bool} dict keys in the legacy runtime path, not the substantive-effect-status token. Kept in the census so the count is pinned rather than filtered away by a heuristic"),
+    'plugins/coc-keeper/scripts/coc_narration_contract.py': {
+        'coverage-field': (1, 'usage-only', 'a single field access'),
+        'narration-budget-trigger': (1, 'usage-only', 'one event-type spelling'),
+        'obligation-kind': (9, 'usage-only', 'roll and first_impression labels on narration envelope rows'),
+        'obligation-source-kind': (2, 'usage-only', 'first_impression labels on narration envelope rows'),
+        'render-prohibition': (3, 'second-declaration', 'its own copy of the player-visible prohibitions at line 1908; recorded not repaired'),
+        'render-slot': (13, 'second-declaration', 'its own envelope-validation copy of the crisis slots at lines 1855+; found by this gate in T4, recorded not repaired'),
+        'review-rule': (4, 'usage-only', 'rule-id spellings in envelope validation messages'),
+        'roll-visibility-class': (7, 'second-declaration', "line 826 inlines {'public', 'consequence_public'} — an independent copy of PLAYER_FACING_ROLL_VISIBILITIES found by this gate; recorded, not repaired in T1"),
+        'style-axis': (8, 'second-declaration', 'its own required_avoid/required_prefer sets at lines 1846-1847, including translationese; recorded not repaired'),
     },
-    "plugins/coc-keeper/scripts/coc_npc_state.py": {
-        "coverage-field": (1, "usage-only", "a single field access"),
-        "obligation-prefix": (1, "second-declaration", "line 1290 builds a first-impression: memory id in the same namespace; owned by slice T2"),
+    'plugins/coc-keeper/scripts/coc_narration_style.py': {
+        'render-slot': (7, 'declaration-migrated', 'build_crisis_scene_render_frame names each slot as a keyword argument; the membership list itself reads the graph'),
     },
-    "plugins/coc-keeper/pi/lib/tool-contract-projection.ts": {
-        "obligation-source-kind": (1, "usage-only", "one source_kind comparison in the TypeScript projection"),
-        "agency-claim-type": (18, "second-declaration", "THREE independent TypeScript copies: exported const REVIEWED_AGENCY_CLAIM_TYPES (line 36) and inline claim_types arrays (lines 1290, 1673). A Python-only residue gate cannot see any of them. This is DirectorGraph correction 6 in another language"),
-        "coverage-field": (27, "second-declaration", "coverage row field names re-declared in TypeScript types and projections (lines 1717, 2445, 2704)"),
-        "obligation-kind": (10, "usage-only", "source_kind comparisons"),
-        "obligation-prefix": (61, "second-declaration", "the full roll:/first-impression:/sanity_bout: triple appears four times plus prose, and roll: alone at roughly thirty more sites. Count grew 59 -> 61 in the 0.8.1a@bb0575d5 merge, which added a `roll:`/`first-impression:` candidate list from another slice; the gate caught the growth, which is what pinning the count is for"),
-        "player-input-handling": (9, "second-declaration", "re-declared as a TypeScript union and projection literals (lines 2435, 2797)"),
-        "realization-mode": (9, "second-declaration", "re-declared as a TypeScript union type at line 99 and as literals at lines 1276, 1756"),
-        "roll-visibility-class": (2, "usage-only", "two comparisons"),
+    'plugins/coc-keeper/scripts/coc_npc_state.py': {
+        'coverage-field': (1, 'usage-only', 'a single field access'),
+        'obligation-prefix': (1, 'second-declaration', 'line 1290 builds a first-impression: memory id in the same namespace; owned by slice T2'),
     },
-    "plugins/coc-keeper/pi/prompts/host-system-play.md": {
-        "coverage-field": (8, "model-facing-copy", "the host prompt republishes the coverage row field names to the KP"),
-        "obligation-prefix": (26, "model-facing-copy", "the host prompt republishes the obligation namespaces to the KP"),
-        "realization-mode": (1, "model-facing-copy", "one realization value named in prompt prose"),
+    'plugins/coc-keeper/scripts/coc_operation_turn_output.py': {
+        'coverage-field': (21, 'reads-from-graph', 'the turn.finalize input schema is built from coc_turn_finalization.COVERAGE_FIELDS, which now resolves through the graph; the rest are field accesses'),
+        'narration-budget-trigger': (13, 'declaration-migrated', 'the budget ladder reads the graph; remaining occurrences are event-type comparisons elsewhere in the projection'),
+        'obligation-prefix': (1, 'second-declaration', 'line 433 builds a sanity_bout: source_ref for a control override; owned by slice T2'),
+        'obligation-source-kind': (2, 'usage-only', 'two source_kind comparisons in the output projection'),
+        'player-input-handling': (1, 'reads-from-graph', 'published as a schema enum from the migrated frozenset'),
+        'review-rule': (4, 'declaration-migrated', 'allowed_rule_ids and the published enum are built from the graph; the remaining occurrences are agency_violation branch checks'),
+        'roll-visibility-class': (9, 'usage-only', 'per-value comparisons in the output projection'),
+        'segment-type': (8, 'usage-only', 'per-type comparisons in mechanics placement'),
+        'substantive-effect-status': (2, 'usage-only', 'status labels copied onto the projection'),
     },
-    "plugins/coc-keeper/references/mcp-operation-contracts.json": {
-        "obligation-source-kind": (10, "reads-from-graph", "generated archive; source_kind values reach the model contract through the migrated derivation"),
-        "agency-claim-type": (8, "reads-from-graph", "generated archive: the enum is built from the migrated frozenset and rebuilds byte-identically"),
-        "coverage-field": (27, "reads-from-graph", "generated archive"),
-        "obligation-kind": (2, "reads-from-graph", "generated archive"),
-        "player-input-handling": (3, "reads-from-graph", "generated archive"),
-        "realization-mode": (2, "reads-from-graph", "generated archive"),
-        "roll-visibility-class": (6, "reads-from-graph", "generated archive"),
-        "segment-type": (4, "reads-from-graph", "generated archive"),
+    'plugins/coc-keeper/scripts/coc_state_authority.py': {
+        'coverage-field': (8, 'usage-only', 'claim rows reuse exact_excerpt and source_ref spellings'),
+        'segment-type': (2, 'second-declaration', "line 357 iterates ('state_delta', 'asset_delta') as mechanics bundle bucket names — a partial copy of the segment vocabulary; recorded, not repaired in T1"),
     },
-    "plugins/coc-keeper/skills/coc-export-battle-report/scripts/export_battle_report.py": {
-        "obligation-source-kind": (2, "usage-only", "source_kind comparisons while rendering evidence"),
-        "agency-claim-type": (8, "usage-only", "report rendering reads claim_type values off accepted finalizations"),
-        "coverage-field": (3, "usage-only", "field accesses"),
-        "obligation-kind": (15, "usage-only", "source_kind comparisons while rendering evidence"),
-        "obligation-prefix": (1, "second-declaration", "line 485 parses the sanity_bout: prefix; owned by slice T2"),
-        "roll-visibility-class": (15, "second-declaration", "lines 684-689 reimplement the visibility classification and return 'superseded'/'public'/'keeper_only' independently, alongside a documented import of SUPERSEDED_ROLL_VISIBILITIES; recorded, not repaired in T1"),
-        "segment-type": (4, "usage-only", "segment rendering comparisons"),
-        "substantive-effect-status": (3, "usage-only", "status labels rendered into the report"),
+    'plugins/coc-keeper/scripts/coc_turn_finalization.py': {
+        'agency-claim-type': (2, 'declaration-migrated', 'AGENCY_CLAIM_TYPES and VOLUNTARY_CLAIM_TYPES now read from the graph; the two remaining literals are the forced_behavior and involuntary_physiology branch comparisons'),
+        'coverage-field': (71, 'declaration-migrated', 'COVERAGE_FIELDS reads from the graph; the rest are per-field accesses inside coverage construction and validation, which T2 migrates with the derivation laws'),
+        'narration-budget-trigger': (1, 'usage-only', 'one settled event-type spelling'),
+        'obligation-kind': (6, 'usage-only', 'namespace names appearing in messages and comments; the grammars themselves are migrated'),
+        'obligation-prefix': (1, 'declaration-migrated', "T2 cut this over: 13 -> 1. The three id grammars are now composed from the graph's id_prefix, and the single remaining occurrence is the semantic key that looks the prefix up"),
+        'obligation-source-kind': (19, 'declaration-migrated', 'the concealed_roll/first_impression/sanity_bout source kinds and their three semantic lookup keys; T2 replaced the fabricated `source_kind: "roll"` with the vocabulary play actually produces'),
+        'realization-mode': (1, 'declaration-migrated', 'T2 cut this over: 5 -> 1. The remaining occurrence is the semantic key for CONCEALED_REALIZATION'),
+        'roll-visibility-class': (7, 'declaration-migrated', 'both visibility frozensets read from the graph; the rest are per-value comparisons'),
+        'segment-type': (43, 'declaration-migrated', "T2 cut this over: 51 -> 43. The eight bare 'fiction' sites and the leading-segment ordering law now read LEADING_SEGMENT_TYPE and SEGMENT_TYPES from the graph"),
+        'substantive-effect-status': (5, 'declaration-migrated', 'T2 cut this over: the applied/missing/not_required conditional now reads graph-validated tokens; the remaining occurrences are their three semantic lookup keys plus two comments'),
     },
-    "plugins/coc-keeper/skills/coc-keeper-play/SKILL.md": {
-        "coverage-field": (1, "model-facing-copy", "Skill prose"),
-        "obligation-prefix": (1, "model-facing-copy", "Skill prose"),
+    'plugins/coc-keeper/scripts/coc_turn_manifest.py': {
     },
-    "plugins/coc-keeper/skills/coc-keeper-play/references/compound-and-causal-finalization.md": {
-        "coverage-field": (19, "model-facing-copy", "Skill reference republishes the coverage row shape to the KP"),
-        "realization-mode": (1, "model-facing-copy", "Skill reference"),
-        "segment-type": (1, "model-facing-copy", "Skill reference"),
+    'plugins/coc-keeper/skills/coc-export-battle-report/scripts/export_battle_report.py': {
+        'agency-claim-type': (8, 'usage-only', 'report rendering reads claim_type values off accepted finalizations'),
+        'coverage-field': (3, 'usage-only', 'field accesses'),
+        'narration-budget-trigger': (9, 'usage-only', 'event-type spellings in report rendering'),
+        'obligation-kind': (15, 'usage-only', 'source_kind comparisons while rendering evidence'),
+        'obligation-prefix': (1, 'second-declaration', 'line 485 parses the sanity_bout: prefix; owned by slice T2'),
+        'obligation-source-kind': (2, 'usage-only', 'source_kind comparisons while rendering evidence'),
+        'review-rule': (1, 'usage-only', 'agency_violation check while rendering evidence'),
+        'roll-visibility-class': (15, 'second-declaration', "lines 684-689 reimplement the visibility classification and return 'superseded'/'public'/'keeper_only' independently, alongside a documented import of SUPERSEDED_ROLL_VISIBILITIES; recorded, not repaired in T1"),
+        'segment-type': (4, 'usage-only', 'segment rendering comparisons'),
+        'substantive-effect-status': (3, 'usage-only', 'status labels rendered into the report'),
     },
-    # Scanned and clean. Present so the census covers the whole glob: a file
-    # that starts spelling an owned vocabulary must show up as a count change,
-    # not as an unnoticed new entry.
-    "plugins/coc-keeper/skills/coc-keeper-play/references/horror-san-content-endings.md": {},
-    "plugins/coc-keeper/skills/coc-keeper-play/references/style-scene-craft.md": {},
-    "plugins/coc-keeper/skills/coc-keeper-play/references/declaration-adjudication-and-improv.md": {
-        "roll-visibility-class": (1, "model-facing-copy", "Skill reference"),
+    'plugins/coc-keeper/skills/coc-keeper-play/SKILL.md': {
+        'coverage-field': (1, 'model-facing-copy', 'Skill prose'),
+        'obligation-prefix': (1, 'model-facing-copy', 'Skill prose'),
+        'review-rule': (1, 'model-facing-copy', 'Skill prose'),
     },
-    "plugins/coc-keeper/skills/coc-keeper-play/references/investigators-horror-npc.md": {
-        "coverage-field": (1, "model-facing-copy", "Skill reference"),
+    'plugins/coc-keeper/skills/coc-keeper-play/references/compound-and-causal-finalization.md': {
+        'coverage-field': (19, 'model-facing-copy', 'Skill reference republishes the coverage row shape to the KP'),
+        'realization-mode': (1, 'model-facing-copy', 'Skill reference'),
+        'review-rule': (1, 'model-facing-copy', 'Skill reference'),
+        'segment-type': (1, 'model-facing-copy', 'Skill reference'),
     },
-    "plugins/coc-keeper/skills/coc-keeper-play/references/turn-tooling-and-typed-ops.md": {
-        "obligation-source-kind": (1, "model-facing-copy", "Skill reference"),
-        "coverage-field": (1, "model-facing-copy", "Skill reference"),
-        "obligation-kind": (1, "model-facing-copy", "Skill reference"),
-        "obligation-prefix": (25, "model-facing-copy", "Skill reference republishes the obligation namespaces to the KP"),
-        "roll-visibility-class": (1, "model-facing-copy", "Skill reference"),
-        "substantive-effect-status": (1, "model-facing-copy", "Skill reference"),
+    'plugins/coc-keeper/skills/coc-keeper-play/references/declaration-adjudication-and-improv.md': {
+        'roll-visibility-class': (1, 'model-facing-copy', 'Skill reference'),
+    },
+    'plugins/coc-keeper/skills/coc-keeper-play/references/horror-san-content-endings.md': {
+    },
+    'plugins/coc-keeper/skills/coc-keeper-play/references/investigators-horror-npc.md': {
+        'coverage-field': (1, 'model-facing-copy', 'Skill reference'),
+    },
+    'plugins/coc-keeper/skills/coc-keeper-play/references/style-scene-craft.md': {
+    },
+    'plugins/coc-keeper/skills/coc-keeper-play/references/turn-tooling-and-typed-ops.md': {
+        'coverage-field': (1, 'model-facing-copy', 'Skill reference'),
+        'obligation-kind': (1, 'model-facing-copy', 'Skill reference'),
+        'obligation-prefix': (25, 'model-facing-copy', 'Skill reference republishes the obligation namespaces to the KP'),
+        'obligation-source-kind': (1, 'model-facing-copy', 'Skill reference'),
+        'review-rule': (1, 'model-facing-copy', 'Skill reference'),
+        'roll-visibility-class': (1, 'model-facing-copy', 'Skill reference'),
+        'substantive-effect-status': (1, 'model-facing-copy', 'Skill reference'),
     },
 }
 
@@ -587,7 +639,12 @@ EXPLICIT_EXCLUSIONS = {
 def _owned_tokens() -> dict[str, set[str]]:
     by_kind: dict[str, set[str]] = collections.defaultdict(set)
     for node in ARTIFACT["nodes"]:
-        by_kind[node["node_kind"]].add(node["properties"]["legacy_key"])
+        # craft-directive and text-threshold key on directive_id/threshold_id
+        # and have no source spelling to census: the code derives them from the
+        # graph rather than repeating them as literals.
+        token = node["properties"].get("legacy_key")
+        if token is not None:
+            by_kind[node["node_kind"]].add(token)
     by_kind["obligation-prefix"] = {
         node["properties"]["id_prefix"]
         for node in ARTIFACT["nodes"]
@@ -993,3 +1050,260 @@ def test_the_registry_does_not_claim_an_instance_it_does_not_have():
     coverage = next(c for c in registry["coverage"] if c["graph_kind"] == "text")
     assert coverage["composition_status"] == "no-proven-instance"
     assert "text-grounding-gap.md" in coverage["reason"]
+
+
+# ===========================================================================
+# T4 — the craft plane, and the deletion
+# ===========================================================================
+
+TEXT_LAYER_SOURCES = (
+    "plugins/coc-keeper/scripts/coc_narration_style.py",
+    "plugins/coc-keeper/scripts/coc_narration_contract.py",
+    "plugins/coc-keeper/scripts/coc_operation_turn_output.py",
+    "plugins/coc-keeper/scripts/coc_turn_finalization.py",
+)
+
+# The rule ids the deleted matchers raised. Five survive as review rules; the
+# sixth is retired with the instance patch that raised it.
+MATCHER_RULE_IDS = (
+    "ai_summary_voice",
+    "expository_choice_summary",
+    "camera_direction_staging",
+    "passive_translation_ese",
+    "abstract_psychological_explanation",
+)
+RETIRED_RULE_ID = "unnatural_spatial_phrase"
+
+
+def _craft():
+    return coc_text_runtime.craft()
+
+
+# --- gate 1: no matcher survives ------------------------------------------
+
+# The one compiled expression the text layer may still hold, with its reason.
+# It matches identifier shape, never prose: the Model-Facing Identifier Law
+# needs to know whether a token is an opaque hex digest before showing it to a
+# model. no_matcher_law is about judging text, not about the word "re".
+ALLOWED_COMPILED_EXPRESSIONS = {
+    "plugins/coc-keeper/scripts/coc_turn_finalization.py": {
+        "_OPAQUE_HEX_RUN": "detects opaque hex digests in a semantic id",
+    },
+}
+
+
+def test_no_prose_matcher_remains_in_the_text_layer():
+    """Gate 1. Every compiled expression is either gone or explicitly excused."""
+    import re as _re
+
+    unexplained = []
+    for relative in TEXT_LAYER_SOURCES:
+        source = (REPO / relative).read_text("utf-8")
+        allowed = ALLOWED_COMPILED_EXPRESSIONS.get(relative, {})
+        for line in source.splitlines():
+            if "re.compile" not in line:
+                continue
+            name = line.split("=")[0].strip()
+            if name in allowed:
+                continue
+            unexplained.append(f"{relative}: {line.strip()}")
+    assert not unexplained, (
+        "compiled expressions left in the text layer with no stated reason:\n  "
+        + "\n  ".join(unexplained)
+    )
+    # The module the slice exists to disarm keeps none at all.
+    style = (SCRIPTS / "coc_narration_style.py").read_text("utf-8")
+    assert "re.compile" not in style
+    assert "import re" not in style
+
+
+def test_every_excused_expression_still_exists_and_states_why():
+    """An allowlist that outlives its entries rots into permission."""
+    for relative, entries in ALLOWED_COMPILED_EXPRESSIONS.items():
+        source = (REPO / relative).read_text("utf-8")
+        for name, reason in entries.items():
+            assert f"{name} = re.compile" in source, f"{relative}:{name} is stale"
+            assert len(reason) > 20, name
+
+
+def test_no_phrase_or_substitution_table_remains():
+    style = (SCRIPTS / "coc_narration_style.py").read_text("utf-8")
+    for name in (
+        "_AI_SUMMARY_PHRASES", "_EXPLANATION_PHRASES", "_INNER_STATE_TERMS",
+        "_ABSTRACT_ACTIONS", "_UNNATURAL_SPATIAL_PHRASES",
+        "_ZH_FINAL_REWRITE_REPLACEMENTS", "_EXPOSITORY_CHOICE_SUMMARY_RES",
+        "_CAMERA_DIRECTION_RE", "_PASSIVE_TRANSLATION_RE",
+    ):
+        assert name not in style, name
+
+
+def test_the_guard_chain_is_gone_entirely_not_shimmed():
+    """No shim, no flag, no commented-out block."""
+    for relative in (
+        "plugins/coc-keeper/scripts/coc_narration_style.py",
+        "plugins/coc-keeper/scripts/coc_narration_contract.py",
+        "plugins/coc-keeper/scripts/coc_live_turn_runner.py",
+    ):
+        source = (REPO / relative).read_text("utf-8")
+        for symbol in (
+            "guard_player_visible_text", "audit_player_visible_text",
+            "audit_player_visible_fields", "audit_final_text",
+            "append_narration_audit_records", "NarrationGuardBlockedError",
+            "is_blocking_severity", "narration_audit", "deterministic_guard",
+        ):
+            assert symbol not in source, f"{relative} still mentions {symbol}"
+
+
+def test_the_artifact_carries_no_matcher_either():
+    """no_matcher_law applies to the graph, not only to the code."""
+    raw = ARTIFACT_PATH.read_text("utf-8")
+    for marker in ("re.compile", "(?:", "[^", ".*", "regex"):
+        assert marker not in raw, marker
+    assert "no_matcher_law" in CONTRACT
+
+
+# --- gate 2: none lost, none invented -------------------------------------
+
+def test_every_matcher_rule_id_survives_as_a_citable_review_rule():
+    citable = set(_craft()["citable_review_rule_ids"])
+    for rule_id in MATCHER_RULE_IDS:
+        assert rule_id in citable, f"{rule_id} was lost in the deletion"
+
+
+def test_the_instance_patch_rule_is_retired_not_migrated():
+    """The sixth id gets no node, and that is a decision with a reason.
+
+    Both entries of the table that raised `unnatural_spatial_phrase` were
+    fragments of one sentence from one playtest, which the deleted substitution
+    table also carried. A node for it would promote one NPC staring down one
+    trench into a general craft rule.
+    """
+    owned = {
+        node["properties"]["legacy_key"] for node in ARTIFACT["nodes"]
+        if node["node_kind"] == "review-rule"
+    }
+    assert RETIRED_RULE_ID not in owned
+    assert RETIRED_RULE_ID not in _craft()["citable_review_rule_ids"]
+    assert "review_rule_law" in CONTRACT
+
+
+def test_no_review_rule_exists_that_nothing_can_raise():
+    """The reverse check: every node must have a consumer by construction."""
+    turn_output = _load(
+        "coc_operation_turn_output_rules",
+        "plugins/coc-keeper/scripts/coc_operation_turn_output.py",
+    )
+    citable = set(_craft()["citable_review_rule_ids"])
+    assert set(turn_output.CITABLE_REVIEW_RULE_IDS) == citable
+    published = json.loads(
+        (REFERENCES / "mcp-operation-contracts.json").read_text("utf-8")
+    )["operations"]["narration.review"]["inputSchema"]["properties"]["findings"]
+    assert set(published["items"]["properties"]["rule_id"]["enum"]) == citable
+
+
+def test_exactly_one_review_rule_is_a_hard_gate():
+    craft = _craft()
+    assert craft["hard_gate_review_rule_ids"] == frozenset({"agency_violation"})
+    assert len(craft["citable_review_rule_ids"]) == 9
+
+
+# --- gate 3: the published enum -------------------------------------------
+
+def test_the_review_vocabulary_is_published_as_a_closed_enum():
+    """Before T4 `findings` was a bare array: three enforced ids were unpublishable."""
+    findings = json.loads(
+        (REFERENCES / "mcp-operation-contracts.json").read_text("utf-8")
+    )["operations"]["narration.review"]["inputSchema"]["properties"]["findings"]
+    assert findings["type"] == "array"
+    items = findings["items"]
+    assert items["additionalProperties"] is False
+    assert sorted(items["required"]) == [
+        "reason", "rule_id", "source_ref", "subject_ref"
+    ]
+    enum = items["properties"]["rule_id"]["enum"]
+    # Order comes from the graph's ordinal, so the enum is stable per rebuild.
+    assert enum == list(_craft()["citable_review_rule_ids"])
+    for previously_unpublished in (
+        "semantic_repetition", "scope_overreach", "over_length"
+    ):
+        assert previously_unpublished in enum
+
+
+# --- gate 5: no value retuned ---------------------------------------------
+
+def test_the_narration_budget_numbers_moved_unchanged():
+    """The eight numbers and their ten trigger event types, bit-identical."""
+    expected = {
+        "climax_or_madness": (1500, 8, {
+            "bout_of_madness", "indefinite_insanity",
+            "permanent_insanity", "session_ending"}),
+        "reveal_or_transition": (900, 5, {
+            "scene_transition", "major_reveal", "exceptional_effect_apply"}),
+        "costly_result": (550, 3, {"hp_change", "sanity_loss", "luck_spend"}),
+        "routine_resolution": (350, 2, set()),
+    }
+    ladder = _craft()["budget_modes"]
+    assert [rung["mode"] for rung in ladder] == list(expected)
+    for rung in ladder:
+        chars, paras, triggers = expected[rung["mode"]]
+        assert rung["max_chars"] == chars, rung["mode"]
+        assert rung["max_paragraphs"] == paras, rung["mode"]
+        assert set(rung["triggers"]) == triggers, rung["mode"]
+
+
+def test_the_thresholds_moved_unchanged():
+    assert _craft()["thresholds"] == {
+        "over-length-multiplier": 2,
+        "recent-event-window": 12,
+        "excerpt-repair-similarity": 0.5,
+        "excerpt-repair-min-match": 8,
+        "max-accepted-revision": 2,
+    }
+
+
+# --- gate 6: the layer is no longer zh-only -------------------------------
+
+def test_both_languages_receive_the_same_craft_vocabulary():
+    """Demonstrated, not asserted: the whole vocabulary, both languages."""
+    style = _load(
+        "coc_narration_style_language",
+        "plugins/coc-keeper/scripts/coc_narration_style.py",
+    )
+    zh = style.player_facing_style_contract("zh-Hans")
+    en = style.player_facing_style_contract("en")
+
+    assert sorted(zh) == sorted(en)
+    assert zh["prefer"] == en["prefer"]
+    assert zh["repetition_policy"] == en["repetition_policy"]
+    assert zh["style_guard"]["required_rules"] == en["style_guard"]["required_rules"]
+    assert (
+        zh["render_contract"]["required_slots"]
+        == en["render_contract"]["required_slots"]
+    )
+    assert (
+        zh["render_contract"]["player_visible_must_not"]
+        == en["render_contract"]["player_visible_must_not"]
+    )
+
+    # The single legitimate difference, and it is one register axis.
+    assert set(zh["avoid"]) - set(en["avoid"]) == {"translationese"}
+    assert set(en["avoid"]) - set(zh["avoid"]) == set()
+    assert "language_law" in CONTRACT
+
+
+def test_review_rules_are_language_independent():
+    """An obligation or a review rule may not depend on play_language."""
+    assert (
+        coc_text_runtime.craft("zh-Hans")["citable_review_rule_ids"]
+        == coc_text_runtime.craft("en")["citable_review_rule_ids"]
+    )
+    for node in ARTIFACT["nodes"]:
+        if node["node_kind"] == "style-axis":
+            continue
+        assert "language_applicability" not in node["properties"], node["node_id"]
+    scoped = [
+        node["properties"]["legacy_key"] for node in ARTIFACT["nodes"]
+        if node["node_kind"] == "style-axis"
+        and node["properties"]["language_applicability"] != "all"
+    ]
+    assert scoped == ["translationese"]

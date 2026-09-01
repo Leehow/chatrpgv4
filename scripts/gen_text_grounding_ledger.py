@@ -31,14 +31,25 @@ LEDGER = ROOT / "docs" / "status" / "text-grounding-gap.md"
 
 
 def _text_layer_effect_vocabulary() -> set[str]:
-    """Every effect-kind token the text layer actually uses."""
+    """Every effect-kind token the text layer actually uses.
+
+    Two sources, both authoritative rather than scraped guesses: the
+    exceptional-effect registry, and the TextGraph budget triggers. Slice T4
+    moved the budget trigger vocabulary out of a source literal and into the
+    graph, so this reads the graph — scraping _narration_budget's body would
+    now silently return nothing and turn a real correspondence into a false
+    "none".
+    """
     tokens: set[str] = set()
     exceptional = (PLUGIN / "scripts" / "coc_exceptional_effects.py").read_text("utf-8")
     block = exceptional[exceptional.index("EFFECT_KINDS = frozenset({"):]
     tokens |= set(re.findall(r'"(\w+)"', block[: block.index("})")]))
-    output = (PLUGIN / "scripts" / "coc_operation_turn_output.py").read_text("utf-8")
-    budget = output[output.index("def _narration_budget"): output.index("def _control_overrides")]
-    tokens |= set(re.findall(r'"(\w+)"', budget))
+    text_graph = json.loads(TEXT_GRAPH.read_text("utf-8"))
+    tokens |= {
+        node["properties"]["legacy_key"]
+        for node in text_graph["nodes"]
+        if node["node_kind"] == "narration-budget-trigger"
+    }
     return tokens
 
 
