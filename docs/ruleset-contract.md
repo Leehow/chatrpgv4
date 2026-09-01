@@ -7,7 +7,8 @@ a ruleset packages its L1 data, L1 resolver code, L2 behavioral material,
 L3 index, state extensions, audit snapshots, and character creation under
 one directory, and the kernel binds exactly one ruleset per campaign.
 
-Status: contract v1. `coc7` is the reference production package. A deliberately
+Status: contract v1; last reviewed 2026-08-31 against the ten-family CoC7
+RuleGraph cutover. `coc7` is the reference production package. A deliberately
 small test package proves the public multi-ruleset vertical without advertising
 an unimplemented second game system. Everything here is binding on new
 production rulesets; deviations require amending this document, not silent
@@ -202,6 +203,26 @@ Rules:
   family. A half-flip (one artifact graph/hidden, another shadow/visible)
   fails closed (`ownership_mismatch` / `rules_graph_unavailable`); the
   runtime never silently prefers the package entry.
+- A family at `runtime_owner: "graph"` must also have a **closed model view of
+  its settled result**. The three ownership sources above agree about who
+  *executes*; they say nothing about whether the Keeper can *see* what was
+  executed. When a settled canonical result carries host-owned identity that
+  the generic sanitizer cannot map — a correlation digest, an integrity digest,
+  an internal receipt — projection fails closed and the Keeper receives
+  `semantic_identity_unavailable` instead of the settlement. The mechanics have
+  already been committed at that point, so the only thing the Keeper can do is
+  settle again. Every recorded instance produced that loop
+  (`push-luck:pushed-roll`, `psychology:observe-concealed`).
+
+  Concretely, promoting a family to `graph` requires, in the host that presents
+  it: (a) a closed projector for any settled result that embeds a canonical
+  sub-product, and (b) an exact semantic domain for every identity-bearing
+  `semantic_inputs` ref the family declares, taken from the validator that
+  already resolves that ref rather than invented. Both are covered by
+  `tests/pi/rules-settle-recorded-projection.mjs` and
+  `tests/pi/normal-model-id-boundary.mjs`. A family that compiles, promotes and
+  passes ownership agreement but fails either of these is promoted, not
+  playable.
 
 ## 3. L1 data — rules-json/
 

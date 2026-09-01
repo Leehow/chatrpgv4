@@ -1,0 +1,86 @@
+{
+  "decision_ref": "decision:coc7:push-luck:pushed-roll",
+  "family": "push-luck",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:push-luck:canonical-continuation-hydration"
+  ],
+  "investigator_id": "thomas-hayes",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "bound_check": {
+        "base_target": 40,
+        "target": 40,
+        "required_level": "regular",
+        "difficulty": "regular",
+        "required_target": 40,
+        "effective_target": 40,
+        "achieved_level": "failure",
+        "passed": false,
+        "success": false,
+        "surplus_levels": 0,
+        "outcome": "failure",
+        "bonus": 0,
+        "penalty": 0,
+        "roll": 42,
+        "unmodified_roll": 42,
+        "tens_values": [],
+        "units": null,
+        "investigator_id": "thomas-hayes",
+        "skill": "Persuade",
+        "target_source": "sheet",
+        "pushed": true,
+        "goal": "get Knott to accept deposit and written incident terms",
+        "stakes": {
+          "on_success": "the described social action achieves its declared goal: get Knott to accept deposit and written incident terms",
+          "on_failure": "the described social action does not achieve its declared goal: get Knott to accept deposit and written incident terms"
+        },
+        "difficulty_basis": "opponent_skill",
+        "npc_id": "npc-steven-knott",
+        "social_goal_key": "c53fb45214298d29",
+        "social_adjudication_ref": "c53fb45214298d29",
+        "outcome_ceiling": {
+          "goal_scope": "get Knott to accept deposit and written incident terms",
+          "npc_knowledge_refs": [],
+          "scene_truth_max_tier": null,
+          "forbidden_fact_refs": [],
+          "resolved_npc_knowledge_refs": [],
+          "resolved_forbidden_fact_refs": []
+        },
+        "method_changed": "reframes terms as landlord liability risk if known incidents are withheld",
+        "failure_consequence": {
+          "summary": "Knott becomes thoroughly angry and may cancel the commission entirely"
+        },
+        "announced_consequence": {
+          "summary": "Knott becomes thoroughly angry and may cancel the commission entirely"
+        },
+        "pushed_roll_protocol": {
+          "failure_consequence_source": "keeper",
+          "keeper_foreshadowed_failure": true,
+          "player_confirmation_recorded": true
+        },
+        "original_check": {
+          "tool": "rules.roll",
+          "decision_id": "roll-social-adjudicate-knott-terms-v2",
+          "roll_id": "toolbox-gate9-a10-social-push-06f5baaa-000002",
+          "integrity_digest": "sha256:10c9a7d2895977c55c8672521f214fcb1ad262e84b5f08295cc667e320c9ab09"
+        },
+        "roll_id": "toolbox-gate9-a10-social-push-06f5baaa-000003"
+      },
+      "outcome": "failure",
+      "pushed": true,
+      "original_check_decision_id": "roll-social-adjudicate-knott-terms-v2",
+      "failure_consequence": "Knott becomes thoroughly angry and may cancel the commission entirely",
+      "method_changed": "reframes terms as landlord liability risk if known incidents are withheld",
+      "player_confirmed_risk": true
+    }
+  },
+  "next_decisions": [],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:2be39b420ea5d2d2c66094489e25eb2c0bf9ab08c3a05dd50c2a77b05cbeb156"
+}

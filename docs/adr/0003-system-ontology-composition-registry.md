@@ -57,6 +57,35 @@ graph interpreter 越过现有 resolver、subsystem、state、Keeper 与 finaliz
 artifact 缺失的 Effect nodes 与 `emits` relations。它们引用已有 source evidence，
 不复制 resolver 实现，也不改变 healing settlement 行为。
 
+> **Amendment (2026-08-31) — 决策不变，事实基础已变。**
+>
+> 上面第 7 条与本段写于 production RuleGraph 只有 healing 一族的时候。该前提
+> 已经失效：production CoC7 RuleGraph 现在含十族（healing、core-check、
+> push-luck、social、psychology、combat、chase、sanity、magic、development），
+> 433 nodes / 665 relations，全部 `family_runtime_ownership=graph`、
+> `legacy_surface_lifecycle=hidden`。
+>
+> 本 ADR 的**决策本身不变**——registry 仍然只登记语义引用与 typed relation，
+> 不复制 node body，不做 universal interpreter。变化的只是覆盖面。具体地：
+>
+> - 第 6 条仍然成立：仍然没有 source-controlled production DirectorGraph 或
+>   TextGraph artifact，coverage ledger 仍应记 `absent-production-artifact`。
+> - 第 7 条的**理由**已过时：Module→Rule 仍记 `no-proven-instance`，但原因不再
+>   是「RuleGraph 只有 healing」，而是 The Haunting 的 `module.haunting.*`
+>   authored identity 至今没有与任一 RuleGraph Rule/Decision semantic id 精确
+>   相等。弱地板伤害仍不足以伪造 `uses-rule`。
+> - `plugins/coc-keeper/references/system-ontology-registry-v1.json` 里 module
+>   那一行的 `reason` 仍写着 "the current production healing-only RuleGraph"，
+>   与同文件 rule 行的 "ten source-accepted families" 自相矛盾。该字符串是
+>   registry（跨轨共享文件）内容，未在本次改动中修正——见 CURRENT.md 的待办。
+>
+> 另外记录一条本 ADR 当时未预见、但由十族 cutover 暴露的边界：一个 family 进入
+> production graph 并不等于它可玩。settlement 的 canonical result 还必须有闭合的
+> model view；投影失败时机制已经落账，Keeper 却只拿到
+> `semantic_identity_unavailable`，只能重新结算。这属于 RuleGraph 与 Pi 投影层的
+> 接缝，不改变本 ADR 的 authority plane 划分。详见
+> `docs/specs/pi-coc-rule-graph-runtime.md` §0 与 §16.1。
+
 ## Why a registry, not a universal interpreter
 
 Registry 回答“这个语义引用由谁拥有、能否解析、允许怎样连接”；它不回答“如何运行

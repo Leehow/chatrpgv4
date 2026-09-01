@@ -1,0 +1,56 @@
+{
+  "decision_ref": "decision:coc7:core-check:ordinary-check",
+  "family": "core-check",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:core-check:canonical-target-binding",
+    "rule:coc7:core-check:combined",
+    "rule:coc7:push-luck:luck-roll"
+  ],
+  "investigator_id": "thomas-hayes",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "bound_check": {
+        "base_target": 40,
+        "target": 40,
+        "required_level": "regular",
+        "difficulty": "regular",
+        "required_target": 40,
+        "effective_target": 40,
+        "achieved_level": "extreme",
+        "passed": true,
+        "success": true,
+        "surplus_levels": 2,
+        "outcome": "extreme",
+        "bonus": 0,
+        "penalty": 0,
+        "roll": 4,
+        "unmodified_roll": 4,
+        "tens_values": [],
+        "units": null,
+        "investigator_id": "thomas-hayes",
+        "skill": "Persuade",
+        "target_source": "explicit",
+        "pushed": false,
+        "goal": "persuade Knott to accept two-day deposit at twenty a day and write known incidents into the commission",
+        "stakes": {
+          "on_success": "Knott accepts both conditions and continues the hire",
+          "on_failure": "Knott balks, tightens terms, or refuses the written-incident demand"
+        },
+        "difficulty_basis": "keeper_judgment",
+        "roll_id": "toolbox-gate9-a8-social-28d3853d-000003"
+      },
+      "outcome": "extreme",
+      "pushed": false,
+      "next_continuations": []
+    }
+  },
+  "next_decisions": [],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:2bfd7ec8ddee15122bb54547a183988a8e4cd5e3c5b5d17e7a6fc59ddf2ecc69"
+}

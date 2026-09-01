@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "description": "Canonical rules.settle payloads copied verbatim from real Gate 9 RPC runs. Each one is a settlement the host actually committed; the model view must project every one of them with no unmapped identity. Families absent from this corpus have never produced a recorded settlement.",
+  "payloads": [
+    {
+      "file": "core-check-ordinary-check-1b8ba8a5.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-chase-magic-development-8d454eb8/chase/evidence/turn-p-c4161b5a2433.json"
+    },
+    {
+      "file": "core-check-ordinary-check-54624108.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-ten-family-8d454eb8/a6-investigation-social/evidence/turn-p-657f85817ec0.json"
+    },
+    {
+      "file": "core-check-ordinary-check-9b9e3bf8.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-ten-family-cf77062e/a7-social/evidence/turn-p-9eb3799d639f.json"
+    },
+    {
+      "file": "core-check-ordinary-check-bcd9accb.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-chase-magic-development-8d454eb8/chase/evidence/turn-p-e9776198508d.json"
+    },
+    {
+      "file": "core-check-ordinary-check-c9193db8.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-ten-family-8d454eb8/a6-investigation-social/evidence/turn-p-44b03a608b6b.json"
+    },
+    {
+      "file": "core-check-ordinary-check-cb896492.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-ten-family-28d3853d/a8-social/evidence/turn-p-0cac64b24901.json"
+    },
+    {
+      "file": "core-check-ordinary-check-d05a10c4.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-chase-magic-development-8d454eb8/chase/evidence/turn-p-402798bc4e5a.json"
+    },
+    {
+      "file": "development-end-session-669615aa.json",
+      "decision_ref": "decision:coc7:development:end-session",
+      "family": "development",
+      "recorded_in": "pi-coc-gate9-chase-magic-development-8d454eb8/development/evidence/turn-p-2087f44be0f0.json"
+    },
+    {
+      "file": "development-end-session-77259a66.json",
+      "decision_ref": "decision:coc7:development:end-session",
+      "family": "development",
+      "recorded_in": "pi-coc-gate9-chase-magic-development-8d454eb8/development/evidence/turn-p-2087f44be0f0.json"
+    },
+    {
+      "file": "development-end-session-a2c01539.json",
+      "decision_ref": "decision:coc7:development:end-session",
+      "family": "development",
+      "recorded_in": "pi-coc-gate9-ten-family-38a3a4af/d2-development/evidence/turn-p-23b2d9ba3c6c.json"
+    },
+    {
+      "file": "psychology-observe-concealed-62cbcea6.json",
+      "decision_ref": "decision:coc7:psychology:observe-concealed",
+      "family": "psychology",
+      "recorded_in": "pi-coc-gate9-ten-family-8d454eb8/a6-investigation-social/evidence/turn-p-ccf739145800.json"
+    },
+    {
+      "file": "push-luck-pushed-roll-d13fe32e.json",
+      "decision_ref": "decision:coc7:push-luck:pushed-roll",
+      "family": "push-luck",
+      "recorded_in": "pi-coc-gate9-ten-family-06f5baaa/a10-social-push/evidence/turn-p-1d0e467bcdb6.json"
+    },
+    {
+      "file": "social-adjudicate-difficulty-105f8dfa.json",
+      "decision_ref": "decision:coc7:social:adjudicate-difficulty",
+      "family": "social",
+      "recorded_in": "pi-coc-gate9-ten-family-28d3853d/a8-social/evidence/turn-p-0cac64b24901.json"
+    },
+    {
+      "file": "social-adjudicate-difficulty-2df29585.json",
+      "decision_ref": "decision:coc7:social:adjudicate-difficulty",
+      "family": "social",
+      "recorded_in": "pi-coc-gate9-ten-family-06f5baaa/a10-social-push/evidence/turn-p-b651aa2b3e41.json"
+    },
+    {
+      "file": "social-adjudicate-difficulty-6cb8551c.json",
+      "decision_ref": "decision:coc7:social:adjudicate-difficulty",
+      "family": "social",
+      "recorded_in": "pi-coc-gate9-ten-family-cf77062e/a7-social/evidence/turn-p-9eb3799d639f.json"
+    }
+  ]
+}

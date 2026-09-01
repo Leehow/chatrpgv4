@@ -5122,6 +5122,201 @@ function projectDevelopmentEndSessionRulesSettleData(
   return projected;
 }
 
+/**
+ * Closed model view of the completed pushed check embedded under
+ * `rules.settle`. The pushed D100 and its announced consequence are the
+ * Keeper's product; the host-owned join back into the original receipt and
+ * into a Social adjudication is not.
+ *
+ * Hidden here, with the model-facing substitute in brackets:
+ * - `original_check` — the raw `rules.roll` receipt (`roll_id` under the
+ *   machine `toolbox-` namespace plus its `integrity_digest`). The push
+ *   already consumed it; the model's join is the sibling
+ *   `original_check_decision_id`, which is a model-facing decision id.
+ * - `social_adjudication_ref` / `social_goal_key` — the digest-backed
+ *   correlation into the one canonical social roll. The Social projector
+ *   hides the same value as `goal_key`; relaying it here
+ *   would reopen that correlation through the Push lane.
+ * - `npc_id` — the host-internal social-target id carried along with that
+ *   correlation. [the scene's own npc roster is the model-facing source]
+ * - `roll_id` — this settlement's own `toolbox-` roll identity, hidden on the
+ *   Social bound check for the same reason.
+ *
+ * Mechanics are never rerun: every retained field is copied from the
+ * already-settled canonical result.
+ */
+function projectPushedRollBoundCheckData(
+  value: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  fieldPath = "",
+): Record<string, unknown> {
+  const view = { ...value };
+  delete view.roll_id;
+  delete view.original_check;
+  delete view.social_adjudication_ref;
+  delete view.social_goal_key;
+  delete view.npc_id;
+  return stripOpaqueModelIdentity(
+    view,
+    null,
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+    fieldPath,
+  ) as Record<string, unknown>;
+}
+
+/**
+ * RuleGraph settles `decision:coc7:push-luck:pushed-roll` by embedding the
+ * already-executed pushed check under `settlement.result.bound_check`. Project
+ * that branch through its own closed contract instead of judging the whole
+ * composite as flat rules.settle output — the generic sanitizer fails closed
+ * on the host correlation fields the canonical push legitimately carries, and
+ * a failed projection is what sends the Keeper back around the tool loop.
+ */
+function projectPushLuckRulesSettleData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const settlement = isPlainObject(data.settlement) ? data.settlement : null;
+  const result = settlement !== null && isPlainObject(settlement.result)
+    ? settlement.result
+    : null;
+  const boundCheck = result !== null && isPlainObject(result.bound_check)
+    ? result.bound_check
+    : null;
+  if (settlement === null || result === null || boundCheck === null) {
+    return sanitizeEnvelopeBranch(
+      data,
+      semanticIds,
+      diagnostics,
+      "rules.settle",
+    ) as Record<string, unknown>;
+  }
+
+  const genericResult: Record<string, unknown> = { ...result };
+  delete genericResult.bound_check;
+  const projected = sanitizeEnvelopeBranch(
+    {
+      ...data,
+      settlement: { ...settlement, result: genericResult },
+    },
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+  ) as Record<string, unknown>;
+  const projectedSettlement = isPlainObject(projected.settlement)
+    ? projected.settlement
+    : null;
+  const projectedResult = projectedSettlement !== null
+    && isPlainObject(projectedSettlement.result)
+    ? projectedSettlement.result
+    : null;
+  if (projectedSettlement === null || projectedResult === null) return projected;
+  projectedResult.bound_check = projectPushedRollBoundCheckData(
+    boundCheck,
+    semanticIds,
+    diagnostics,
+    "settlement.result.bound_check",
+  );
+  return projected;
+}
+
+/**
+ * Closed model view of a settled Psychology `observe-concealed` result.
+ *
+ * The Keeper's product is what the observation concluded: the resolution, the
+ * question asked, how reliable the read is, and which target facts were in
+ * scope. The host correlation that produced it is not:
+ * - `insight_id` / `window_key` / `conversation_window_id` — the host-minted
+ *   observation-window identity (`window_key` additionally embeds a team
+ *   digest and NUL separators). `conversation_window_id` is already
+ *   never-model-authored on the way in; it is host-only on the way out too.
+ * - `roll_id` / `request_digest` — this settlement's machine identity.
+ * - each observable fact's `source_ref` (the host record locator) and
+ *   `record_digest` (integrity). `kind` + `identifier` carry the same meaning
+ *   to the Keeper without relaying either.
+ */
+function projectPsychologyObserveConcealedData(
+  value: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  fieldPath = "",
+): Record<string, unknown> {
+  const view = { ...value };
+  delete view.insight_id;
+  delete view.window_key;
+  delete view.conversation_window_id;
+  delete view.roll_id;
+  delete view.request_digest;
+  if (Array.isArray(view.observable_fact_refs)) {
+    view.observable_fact_refs = view.observable_fact_refs
+      .filter(isPlainObject)
+      .map((row) => selectedFields(row, [
+        "kind",
+        "identifier",
+        "player_known",
+        "grounding_scope",
+      ]));
+  }
+  return stripOpaqueModelIdentity(
+    view,
+    null,
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+    fieldPath,
+  ) as Record<string, unknown>;
+}
+
+/**
+ * RuleGraph settles `decision:coc7:psychology:observe-concealed` with an
+ * observation receipt whose window identity and per-fact record digests have
+ * no model consumer. Without this closed branch the generic sanitizer fails
+ * the whole result closed (`semantic_identity_unavailable`), which is what
+ * the a6 Gate 9 turn hit after the settlement had already committed.
+ */
+function projectPsychologyRulesSettleData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const settlement = isPlainObject(data.settlement) ? data.settlement : null;
+  const result = settlement !== null && isPlainObject(settlement.result)
+    ? settlement.result
+    : null;
+  if (settlement === null || result === null) {
+    return sanitizeEnvelopeBranch(
+      data,
+      semanticIds,
+      diagnostics,
+      "rules.settle",
+    ) as Record<string, unknown>;
+  }
+  const genericSettlement: Record<string, unknown> = { ...settlement };
+  delete genericSettlement.result;
+  const projected = sanitizeEnvelopeBranch(
+    { ...data, settlement: genericSettlement },
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+  ) as Record<string, unknown>;
+  const projectedSettlement = isPlainObject(projected.settlement)
+    ? projected.settlement
+    : null;
+  if (projectedSettlement === null) return projected;
+  projectedSettlement.result = projectPsychologyObserveConcealedData(
+    result,
+    semanticIds,
+    diagnostics,
+    "settlement.result",
+  );
+  projected.settlement = projectedSettlement;
+  return projected;
+}
+
 /** Closed family-aware compositor for embedded rules.settle products. */
 function projectRulesSettleData(
   data: Record<string, unknown>,
@@ -5130,6 +5325,18 @@ function projectRulesSettleData(
 ): Record<string, unknown> {
   if (data.family === "social") {
     return projectSocialRulesSettleData(data, semanticIds, diagnostics);
+  }
+  if (
+    data.family === "psychology"
+    && data.decision_ref === "decision:coc7:psychology:observe-concealed"
+  ) {
+    return projectPsychologyRulesSettleData(data, semanticIds, diagnostics);
+  }
+  if (
+    data.family === "push-luck"
+    && data.decision_ref === "decision:coc7:push-luck:pushed-roll"
+  ) {
+    return projectPushLuckRulesSettleData(data, semanticIds, diagnostics);
   }
   if (
     data.family === "development"
@@ -7077,6 +7284,37 @@ const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["rescuer_ref", stringSet(["npc:", "person:", "actor:"])],
   ["assistant_rescuer_ref", stringSet(["npc:", "person:", "actor:"])],
   ["base_weapon_id", stringSet(["weapon:", "item:"])],
+  // ── RuleGraph `rules.settle` semantic_inputs refs (ten-family cutover) ──
+  // Every domain below is copied from the canonical validator that already
+  // resolves the field; none is a new or broadened allowance. A bare
+  // multi-token slug is NOT accepted for the eight strict fields — see
+  // RAW_NAMESPACE_ONLY_ECHOED_FIELDS — because their validators partition on
+  // the namespace and reject a namespace-free value.
+  //
+  // core-check `opposed-check` / `combined-check`: rule_graph_adapter
+  // `_sheet_check` partitions on `skill:` / `characteristic:`.
+  ["actor_check_ref", stringSet(["skill:", "characteristic:"])],
+  ["combined_target_refs", stringSet(["skill:", "characteristic:"])],
+  // core-check `opposed-check` opponent: rule_graph_adapter `_npc_check`
+  // requires exactly `npc:<npc_id>:skill:<slug>` (four segments).
+  ["opponent_check_ref", stringSet(["npc:"])],
+  // social `adjudicate-difficulty`: coc_operation_kernel requires
+  // `commitment:<semantic-slug>`.
+  ["commitment_ref", stringSet(["commitment:"])],
+  // social and psychology each bind their own target namespace in
+  // coc_operation_kernel (`social-target:<npc_id>` / `psychology-target:<npc_id>`).
+  ["target_ref", stringSet(["social-target:", "psychology-target:"])],
+  // chase `start`: refs must be keys of the canonical candidate maps —
+  // actors are `investigator:<id>` / `npc:<id>`, locations are `scene:<id>`.
+  ["pursuer_refs", stringSet(["investigator:", "npc:"])],
+  ["quarry_refs", stringSet(["investigator:", "npc:"])],
+  ["location_refs", stringSet(["scene:"])],
+  // sanity `check` and combat `attack`/`aim` accept the namespaced form or
+  // the bare canonical id (their kernel bindings strip the prefix when
+  // present), so these three keep the ordinary echoed grammar.
+  ["trigger_ref", stringSet(["san-trigger:"])],
+  ["weapon_ref", stringSet(["weapon:", "item:"])],
+  ["weapon_effect_refs", stringSet(["effect:"])],
   ["target_id", stringSet([])],
   ["target_npc_id", stringSet(["npc:"])],
   ["affordance_id", stringSet(["affordance:"])],
@@ -7119,6 +7357,29 @@ const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["route_refs", stringSet(["route:"])],
   ["source_roll_ids", stringSet(["roll:"])],
   ["substantive_effect_ids", stringSet(["effect:"])],
+]);
+
+/**
+ * Echoed fields whose validator partitions on the namespace and therefore
+ * rejects a namespace-free value. For these the bare multi-token-slug half
+ * of the echoed grammar is closed: `isNamespacedSemantic` is the whole rule.
+ *
+ * The affordance binding pair is the original member (campaigns 04/05/10
+ * failed by guessing `route:` → `affordance:` → bare slug); the RuleGraph
+ * `rules.settle` refs joined it because a bare slug reaches their canonical
+ * binding as an unresolvable candidate key.
+ */
+const RAW_NAMESPACE_ONLY_ECHOED_FIELDS: ReadonlySet<string> = new Set([
+  "matched_affordance_ids",
+  "selected_affordance_ids",
+  "actor_check_ref",
+  "combined_target_refs",
+  "opponent_check_ref",
+  "commitment_ref",
+  "target_ref",
+  "pursuer_refs",
+  "quarry_refs",
+  "location_refs",
 ]);
 
 /**
@@ -7255,9 +7516,7 @@ function rawIdentityFieldRule(
     // Affordance binding fields are closed to the `affordance:` namespace:
     // the exact copy-verbatim handle is the only accepted form (campaign
     // 04/05/10 namespace-guessing ladder fails closed here).
-    if (
-      field === "matched_affordance_ids" || field === "selected_affordance_ids"
-    ) {
+    if (RAW_NAMESPACE_ONLY_ECHOED_FIELDS.has(field)) {
       return (value) => isNamespacedSemantic(value, echoed);
     }
     if (field === "weapon_id") {
@@ -7419,6 +7678,10 @@ export function closedIdentityGrammarSpec(
     const namespaces = [...echoed];
     const nsText = field === "weapon_id"
       ? "literal `unarmed`, a multi-token semantic slug, or namespace `weapon:`, `item:`"
+      // Namespace-only fields reject the bare-slug half of the grammar: their
+      // canonical binding partitions on the namespace to resolve the value.
+      : RAW_NAMESPACE_ONLY_ECHOED_FIELDS.has(field)
+      ? `namespace ${namespaces.map((n) => `\`${n}\``).join(", ")} only`
       : namespaces.length > 0
       ? `multi-token semantic slug or namespace ${namespaces.map((n) => `\`${n}\``).join(", ")}`
       : "multi-token semantic slug (no colon namespace)";
@@ -7457,7 +7720,9 @@ export function closedIdentityGrammarSpec(
       : GRAMMAR_EXAMPLE_SLUG;
     const wrong = echoedWrongExample(namespaces);
     const marker = `Closed ${field} grammar`;
-    const extra = namespaces.length > 0
+    const extra = RAW_NAMESPACE_ONLY_ECHOED_FIELDS.has(field)
+      ? "No other namespaces, and no bare slug. "
+      : namespaces.length > 0
       ? "No other namespaces. "
       : "No colon namespace. ";
     return {

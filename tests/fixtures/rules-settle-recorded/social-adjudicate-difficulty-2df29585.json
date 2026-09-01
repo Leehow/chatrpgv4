@@ -1,0 +1,250 @@
+{
+  "decision_ref": "decision:coc7:social:adjudicate-difficulty",
+  "family": "social",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:social:canonical-motive-evidence-binding"
+  ],
+  "investigator_id": "thomas-hayes",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "adjudication": {
+        "schema_version": 2,
+        "investigator_id": "thomas-hayes",
+        "npc_id": "npc-steven-knott",
+        "conversation_window_id": "conversation:commission-briefing:thomas-hayes:npc-steven-knott",
+        "commitment_id": "commitment:knott-terms-deposit-and-incidents",
+        "approach": "persuade",
+        "approach_skill": "Persuade",
+        "goal_summary": "get Knott to accept deposit and written incident terms",
+        "goal_key": "c53fb45214298d29",
+        "feasibility": "roll",
+        "defense_value": null,
+        "defense_source": "unknown",
+        "defense_key": null,
+        "base_difficulty": "regular",
+        "motive": {
+          "direction": "support",
+          "intensity": 1,
+          "evidence_refs": [
+            "npc_agenda:npc-steven-knott"
+          ],
+          "resolved_evidence": [
+            {
+              "source_ref": "npc_agenda:npc-steven-knott",
+              "kind": "npc_agenda",
+              "identifier": "npc-steven-knott",
+              "player_known": false,
+              "record_digest": "sha256:a1c616b3e1bf8d0a9b71f277db608c94f1c9f4d878a52d628a6eaec76992568a"
+            }
+          ]
+        },
+        "motive_delta": -1,
+        "leverage": [],
+        "leverage_delta": 0,
+        "final_difficulty": "regular",
+        "bonus_dice": 0,
+        "penalty_dice": 0,
+        "requirements": [],
+        "feasibility_refs": [
+          {
+            "source_ref": "npc_agenda:npc-steven-knott",
+            "kind": "npc_agenda",
+            "identifier": "npc-steven-knott",
+            "player_known": false,
+            "record_digest": "sha256:a1c616b3e1bf8d0a9b71f277db608c94f1c9f4d878a52d628a6eaec76992568a"
+          }
+        ],
+        "outcome_ceiling": {
+          "goal_scope": "get Knott to accept deposit and written incident terms",
+          "npc_knowledge_refs": [],
+          "scene_truth_max_tier": null,
+          "forbidden_fact_refs": [],
+          "resolved_npc_knowledge_refs": [],
+          "resolved_forbidden_fact_refs": []
+        },
+        "source_digest": "sha256:b607dca2278feb72a80a99a4e093f44b92b472dd3df33e28c7564fa80130d70c",
+        "resolution": "new",
+        "replayed": false,
+        "request_digest": "sha256:a3eae6f4b66e826bafdd3908fc177143d492c64df2f7cf9e507dac5578609d8c",
+        "roll_operation": {
+          "operation": "rules.roll",
+          "invoke_via": "coc_rules_roll",
+          "prefilled_arguments": {
+            "investigator": "thomas-hayes",
+            "npc_id": "npc-steven-knott",
+            "skill": "Persuade",
+            "difficulty": "regular",
+            "bonus": 0,
+            "penalty": 0,
+            "goal": "get Knott to accept deposit and written incident terms",
+            "difficulty_basis": "opponent_skill",
+            "social_adjudication_ref": "c53fb45214298d29"
+          },
+          "missing_arguments": [
+            "stakes",
+            "decision_id"
+          ],
+          "argument_boundary": {
+            "submission_shape": "prefilled_plus_missing_only",
+            "forbidden_arguments": [
+              "target",
+              "reason"
+            ]
+          }
+        }
+      },
+      "bound_check": {
+        "base_target": 40,
+        "target": 40,
+        "required_level": "regular",
+        "difficulty": "regular",
+        "required_target": 40,
+        "effective_target": 40,
+        "achieved_level": "failure",
+        "passed": false,
+        "success": false,
+        "surplus_levels": 0,
+        "outcome": "failure",
+        "bonus": 0,
+        "penalty": 0,
+        "roll": 80,
+        "unmodified_roll": 80,
+        "tens_values": [],
+        "units": null,
+        "investigator_id": "thomas-hayes",
+        "skill": "Persuade",
+        "target_source": "sheet",
+        "pushed": false,
+        "goal": "get Knott to accept deposit and written incident terms",
+        "stakes": {
+          "on_success": "the described social action achieves its declared goal: get Knott to accept deposit and written incident terms",
+          "on_failure": "the described social action does not achieve its declared goal: get Knott to accept deposit and written incident terms"
+        },
+        "difficulty_basis": "opponent_skill",
+        "npc_id": "npc-steven-knott",
+        "social_goal_key": "c53fb45214298d29",
+        "social_adjudication_ref": "c53fb45214298d29",
+        "outcome_ceiling": {
+          "goal_scope": "get Knott to accept deposit and written incident terms",
+          "npc_knowledge_refs": [],
+          "scene_truth_max_tier": null,
+          "forbidden_fact_refs": [],
+          "resolved_npc_knowledge_refs": [],
+          "resolved_forbidden_fact_refs": []
+        },
+        "operation_opportunities": [
+          {
+            "schema_version": 1,
+            "kind": "open_push_or_context_change",
+            "authority": "advisory",
+            "hard_gate": false,
+            "reason_code": "ordinary_failure_has_unresolved_attempt",
+            "source": {
+              "decision_id": "roll-social-adjudicate-knott-terms-v2",
+              "roll_id": "toolbox-gate9-a10-social-push-06f5baaa-000002",
+              "attempt_id": null,
+              "scene_id": null,
+              "route_id": null,
+              "roll_density_group": null
+            },
+            "suggested_operation": {
+              "operation": "rules.push",
+              "invoke_via": "coc_invoke",
+              "prefilled_arguments": {
+                "original_check_decision_id": "roll-social-adjudicate-knott-terms-v2"
+              },
+              "missing_arguments": [
+                "method_changed",
+                "failure_consequence",
+                "decision_id"
+              ],
+              "contract_ref": "rules.push@3917db63e82accdf",
+              "discovery_required": false
+            },
+            "attempt_pressure": {
+              "schema_version": 1,
+              "same_goal_no_progress_count": 1,
+              "level": "first_ordinary_failure",
+              "authority": "advisory",
+              "hard_gate": false
+            },
+            "retry_status": {
+              "schema_version": 1,
+              "authority": "advisory",
+              "hard_gate": false,
+              "eligible": false,
+              "policy": null,
+              "status": "no_authored_reset_policy",
+              "reason": "Use the open Push, change method or goal, or let the failed consequence stand."
+            },
+            "alternatives": [
+              "accept the failed result and let its consequence change play",
+              "change the fictional method or goal",
+              "record structured reset_evidence after time, access, position, or circumstances materially change"
+            ]
+          }
+        ],
+        "roll_id": "toolbox-gate9-a10-social-push-06f5baaa-000002"
+      },
+      "bound_check_plan": {
+        "schema_version": 1,
+        "decision_ref": "decision:coc7:social:adjudicate-difficulty",
+        "family": "social",
+        "capability": {
+          "ref": "capability:coc7:check",
+          "adapter": "resolver",
+          "resolver_capability": "check"
+        },
+        "command": {
+          "kind": "check",
+          "phase": "resolve",
+          "payload": {
+            "skill": "Persuade",
+            "difficulty": "regular",
+            "bonus": 0,
+            "penalty": 0,
+            "difficulty_basis": "opponent_skill",
+            "goal": "get Knott to accept deposit and written incident terms",
+            "stakes": {
+              "on_success": "the described social action achieves its declared goal: get Knott to accept deposit and written incident terms",
+              "on_failure": "the described social action does not achieve its declared goal: get Knott to accept deposit and written incident terms"
+            },
+            "npc_id": "npc-steven-knott",
+            "social_adjudication_ref": "c53fb45214298d29"
+          }
+        },
+        "rule_refs": [
+          "rule:coc7:social:canonical-motive-evidence-binding"
+        ],
+        "source_refs": [
+          "span-social-source-accepted-page-104-block-169",
+          "span-social-source-accepted-page-208-block-182",
+          "span-social-source-accepted-page-208-block-183",
+          "span-social-source-accepted-page-70-block-17",
+          "span-social-source-accepted-page-71-block-30",
+          "span-social-source-accepted-page-71-block-37",
+          "span-social-source-accepted-page-75-block-57",
+          "span-social-source-accepted-page-75-block-61",
+          "span-social-source-accepted-page-77-block-90",
+          "span-social-source-accepted-page-82-block-121",
+          "span-social-source-accepted-page-82-block-126",
+          "span-social-source-accepted-page-84-block-138"
+        ],
+        "resource_effects": [],
+        "visibility": "keeper-only",
+        "pending_choices": [],
+        "next_decisions": [],
+        "machine_derived": true
+      }
+    }
+  },
+  "next_decisions": [],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:3c9005840c0de8d0ed8e7dabd84bf82982842494ab58723093b267d173fb9d1e"
+}
