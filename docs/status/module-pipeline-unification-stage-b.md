@@ -201,6 +201,80 @@ one player (this session), one turn at a time through the repo's own
     progressive operations this paid down. Verified live: the next alms
     deducted correctly (5.00 → 4.99).
 
+11. **The conversation the module is built around could not be recorded.**
+    `state.record_npc_engagement` had no identity declaration at all, so the
+    first real talk with an NPC failed closed on `route_completion.scene_id`
+    — after the engagement had already been written. Declared from the fields
+    its own canonical result carries: authored slugs semantic, the
+    registry-backed identity and receipt refs host-only.
+
+12. **The first player turn after a restart got an empty reply.**
+    `state.journal` declares `player_text` and `decision_id` host-owned, and
+    the host arms that binding at message start — but that arming is skipped
+    while the startup resume gate is still pending, which is exactly when the
+    player's message reaches a freshly restarted process. Nothing re-armed
+    once the resume was accepted. The Keeper spent eight minutes cycling
+    `missing_param` → `nonretryable_repeat_blocked` and the player received
+    nothing; the turn only recovered because the Keeper eventually opened a
+    turn and the `open_turn_recovery` path adopted the live message. The
+    accepted-resume path now arms the binding for the message that owns the
+    turn. Verified live: the next restart turn journaled on its first attempt
+    and the player got a full reply. `tests/pi/startup-resume-journal-binding.mjs`
+    pins it (and fails without the fix).
+
+13. **The core social rule was missing from every Keeper's rules context.**
+    A decision card's `possible_continuations` names whatever its `continues-as`
+    relation points at, and the coc7 rule graph authors two node kinds there —
+    11 decisions and 3 dedicated `continuation` nodes. Both consumers accepted
+    only `decision:`, and both fail destructively rather than partially: the
+    Python wire returns `None` for the whole list and its caller then drops the
+    entire card; Pi reports the field unmapped and the extension replaces the
+    entire envelope with `semantic_identity_unavailable`. Since
+    `decision:coc7:social:adjudicate-difficulty` continues as
+    `continuation:coc7:push-luck:after-fail-push`, the Keeper asking for social
+    rules mid-conversation was told the tool had failed. Both sides now share
+    one prefix set, and `tests/test_rule_continuation_namespaces.py` reads the
+    authored graph plus both consumers' own declarations, so a new continuation
+    target kind fails there instead of deleting a rule card in play. Verified
+    live: `rules.context` returned the social card and the next social settle
+    succeeded.
+
+14. **The Keeper could not read its own memory of the previous loop.** The
+    identity-declaration ledger stood at 35 operations and 122 fields, and two
+    of them reached the table in one evening: `memory.recall` and
+    `transcript.locate` both returned `semantic_identity_unavailable` for the
+    whole result when the Keeper asked what it remembered of the loop before
+    this one — which a time-loop module cannot survive. Every field was
+    classified from the value its producer actually emits in the sweep corpus,
+    paying the ledger down to three entries. Those three are proved to be a
+    fixture artifact rather than debt: the corpus campaign is named
+    `toolbox-test`, and `toolbox-` is a machine prefix the value grammar
+    refuses by design, so no declaration can close them and loosening the
+    grammar would be the wrong trade.
+
+15. **A whole scene was lost to two of the most ordinary slugs in the system.**
+    `state.npc_presence` had no declaration, so placing Henry Scott in the
+    scene failed closed on `npc_id` and `scene_id`; the social roll that
+    followed was then refused as `social_candidate_stale`, because the scene
+    had nobody in it to talk to. The operation was not in the sweep corpus at
+    all — and neither are 88 of the registry's 147 operations, so the sweep was
+    watching 40% of the surface while the other 60% waited to fail at a table.
+    That is the actual root cause of findings 11, 14 and 15.
+
+    The systemic repair does not require capturing 88 more envelopes. A result
+    echoes the identity-shaped fields of its own input, and every keeper-facing
+    contract's `inputSchema` is already in the registry, so
+    `tests/pi/operation-input-identity-coverage.mjs` projects each one as if
+    echoed. That found 19 operations that would fail closed, each now
+    classified from the value its own contract description names. The test also
+    asserts the declared fields accept their documented value shapes and still
+    refuse entropy, UUIDs and digests — a disposition says what a field means,
+    it does not wave it through. It is a companion to the corpus sweep, not a
+    replacement: a result also names fields that were never inputs
+    (`active_scene_id`, `lie_id`, `possible_continuations`), and only a real
+    envelope shows those. Verified live: the presence write succeeded and the
+    following intimidate roll settled through the rules path.
+
 ## 5. Open defect that stopped deeper play (not owned by this work)
 
 On a fumbled STR roll the turn could not settle:
