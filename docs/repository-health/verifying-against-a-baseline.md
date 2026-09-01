@@ -17,9 +17,12 @@ is empty keeps failing whether the list has three entries or four. A newly
 introduced violation is then invisible in pass/fail.
 
 This is not hypothetical. During the DirectorGraph work
-`scripts/gen_director_decision_baseline.py` was written with a bare
-`python scripts/...` line in its usage docstring, violating the repository's
-single-interpreter contract. `tests/test_python_contract.py` was already red
+`scripts/gen_director_decision_baseline.py` was written with a usage
+docstring that invoked the interpreter directly instead of through
+`uv run --frozen`, violating the repository's single-interpreter contract.
+(Quoting the offending form here would itself trip the check, which is a fair
+illustration of how blunt these contract scans are.)
+`tests/test_python_contract.py` was already red
 from unrelated findings, so the violation produced no signal at all. It was
 found by diffing the *contents* of that already-failing test between the
 working tree and the baseline.
