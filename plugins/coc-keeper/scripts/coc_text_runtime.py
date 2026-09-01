@@ -145,10 +145,21 @@ def vocabulary() -> dict[str, Any]:
         "obligation_kinds": {
             row["properties"]["legacy_key"]: {
                 "id_prefix": row["properties"]["id_prefix"],
-                "source_kind": row["properties"]["source_kind"],
                 "builder": row["properties"]["builder"],
             }
             for row in _ordered(_nodes_of_kind("obligation-kind"))
+        },
+        "obligation_source_kinds": _keys("obligation-source-kind"),
+        "source_kinds_by_obligation_kind": {
+            owner: frozenset(
+                row["properties"]["legacy_key"]
+                for row in _nodes_of_kind("obligation-source-kind")
+                if row["properties"]["obligation_kind"] == owner
+            )
+            for owner in {
+                row["properties"]["obligation_kind"]
+                for row in _nodes_of_kind("obligation-source-kind")
+            }
         },
         "coverage_fields": _keys("coverage-field"),
         "realization_values": _keys("realization-mode"),

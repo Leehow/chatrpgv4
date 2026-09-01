@@ -91,11 +91,29 @@ EXTERNAL_TARGET_RELATION_KINDS = frozenset({"renders-settled-output"})
 # _build_sanity_bout_obligations (sanity_bout:). These three id namespaces are
 # the entire obligation vocabulary; a fourth would be a new kind of thing the
 # player must be told about.
-LEGACY_OBLIGATION_KINDS: tuple[tuple[str, str, str, str], ...] = (
-    # (legacy_key, id_prefix, source_kind, builder)
-    ("roll", "roll:", "roll", "_build_obligations"),
-    ("first-impression", "first-impression:", "first_impression", "_build_obligations"),
-    ("sanity_bout", "sanity_bout:", "sanity_bout", "_build_sanity_bout_obligations"),
+LEGACY_OBLIGATION_KINDS: tuple[tuple[str, str, str], ...] = (
+    # (legacy_key, id_prefix, builder)
+    ("roll", "roll:", "_build_obligations"),
+    ("first-impression", "first-impression:", "_build_obligations"),
+    ("sanity_bout", "sanity_bout:", "_build_sanity_bout_obligations"),
+)
+
+# The source_kind each namespace may write onto an obligation row.
+#
+# T1 carried a single `source_kind: "roll"` scalar on the roll namespace. That
+# value never occurs: `_build_obligations` writes "concealed_roll" for a hidden
+# roll and otherwise whatever `_roll_kind` returns, which is "amount" or
+# "check". Replaying the preserved corpus produced check 355, amount 11,
+# concealed_roll 4 and first_impression 48 — and no "roll" at all. A node
+# property that names nothing is exactly the unaccountable value this graph
+# exists to remove, so the scalar is gone and the real vocabulary is here.
+LEGACY_OBLIGATION_SOURCE_KINDS: tuple[tuple[str, str], ...] = (
+    # (legacy_key, owning obligation-kind legacy_key)
+    ("check", "roll"),
+    ("amount", "roll"),
+    ("concealed_roll", "roll"),
+    ("first_impression", "first-impression"),
+    ("sanity_bout", "sanity_bout"),
 )
 
 LEGACY_COVERAGE_FIELDS: tuple[str, ...] = (
@@ -167,6 +185,11 @@ DERIVED_FROM: dict[str, str] = {
         "settled receipts in the pending turn window: rules.roll/rules.push roll "
         "receipts, first-impression context effects, and sanity bout events"
     ),
+    "obligation-source-kind": (
+        "the source_kind written onto each obligation row by _build_obligations "
+        "and _build_sanity_bout_obligations: the roll's visibility decides "
+        "concealed_roll, otherwise _roll_kind returns amount or check"
+    ),
     "coverage-field": (
         "the closed coverage row schema turn.finalize accepts, validated by "
         "coc_turn_finalization.validate_coverage"
@@ -209,6 +232,7 @@ def legacy_vocabulary() -> dict[str, list[str]]:
     """Return every legacy vocabulary token, keyed by target node_kind."""
     return {
         "obligation-kind": [row[0] for row in LEGACY_OBLIGATION_KINDS],
+        "obligation-source-kind": [row[0] for row in LEGACY_OBLIGATION_SOURCE_KINDS],
         "coverage-field": list(LEGACY_COVERAGE_FIELDS),
         "realization-mode": list(LEGACY_REALIZATION_VALUES),
         "player-input-handling": list(LEGACY_PLAYER_INPUT_HANDLING_VALUES),
@@ -541,11 +565,17 @@ def obligation_shard() -> dict[str, Any]:
     """Compose the T1 obligation shard from the frozen legacy declarations."""
     nodes: list[dict[str, Any]] = []
 
-    for ordinal, (key, prefix, source_kind, builder) in enumerate(LEGACY_OBLIGATION_KINDS):
+    for ordinal, (key, prefix, builder) in enumerate(LEGACY_OBLIGATION_KINDS):
         nodes.append(_node(
             "obligation-kind", key,
             f"obligations in the {prefix} namespace", ordinal,
-            {"id_prefix": prefix, "source_kind": source_kind, "builder": builder},
+            {"id_prefix": prefix, "builder": builder},
+        ))
+
+    for ordinal, (key, owner) in enumerate(LEGACY_OBLIGATION_SOURCE_KINDS):
+        nodes.append(_node(
+            "obligation-source-kind", key,
+            f"source kind {key}", ordinal, {"obligation_kind": owner},
         ))
 
     for ordinal, key in enumerate(LEGACY_COVERAGE_FIELDS):
@@ -591,14 +621,25 @@ def obligation_shard() -> dict[str, Any]:
             f"substantive effect status {key}", ordinal,
         ))
 
+    # The first load-bearing edges: the derivation reads them to decide which
+    # source_kind an obligation may carry. See empty_relations_law.
+    relations = [
+        {
+            "relation_id": f"relation:text:source-kind-{_slug(key)}:part-of",
+            "relation_kind": "part-of",
+            "from_node_id": f"obligation-source-kind:{_slug(key)}",
+            "to_node_id": f"obligation-kind:{_slug(owner)}",
+        }
+        for key, owner in LEGACY_OBLIGATION_SOURCE_KINDS
+    ]
+
     return {
         "contract_id": SHARD_CONTRACT_ID,
         "schema_version": SCHEMA_VERSION,
         "shard_id": "shard:text:obligation-vocabulary",
         "plane": "obligation",
         "nodes": nodes,
-        # Deliberately empty; see the contract's empty_relations_law.
-        "relations": [],
+        "relations": relations,
     }
 
 

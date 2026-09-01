@@ -226,7 +226,6 @@
         "legacy_key": "first-impression",
         "ordinal": 1,
         "id_prefix": "first-impression:",
-        "source_kind": "first_impression",
         "builder": "_build_obligations"
       }
     },
@@ -241,7 +240,6 @@
         "legacy_key": "roll",
         "ordinal": 0,
         "id_prefix": "roll:",
-        "source_kind": "roll",
         "builder": "_build_obligations"
       }
     },
@@ -256,8 +254,72 @@
         "legacy_key": "sanity_bout",
         "ordinal": 2,
         "id_prefix": "sanity_bout:",
-        "source_kind": "sanity_bout",
         "builder": "_build_sanity_bout_obligations"
+      }
+    },
+    {
+      "node_id": "obligation-source-kind:amount",
+      "node_kind": "obligation-source-kind",
+      "plane": "obligation",
+      "name": "source kind amount",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the source_kind written onto each obligation row by _build_obligations and _build_sanity_bout_obligations: the roll's visibility decides concealed_roll, otherwise _roll_kind returns amount or check",
+      "properties": {
+        "legacy_key": "amount",
+        "ordinal": 1,
+        "obligation_kind": "roll"
+      }
+    },
+    {
+      "node_id": "obligation-source-kind:check",
+      "node_kind": "obligation-source-kind",
+      "plane": "obligation",
+      "name": "source kind check",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the source_kind written onto each obligation row by _build_obligations and _build_sanity_bout_obligations: the roll's visibility decides concealed_roll, otherwise _roll_kind returns amount or check",
+      "properties": {
+        "legacy_key": "check",
+        "ordinal": 0,
+        "obligation_kind": "roll"
+      }
+    },
+    {
+      "node_id": "obligation-source-kind:concealed-roll",
+      "node_kind": "obligation-source-kind",
+      "plane": "obligation",
+      "name": "source kind concealed_roll",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the source_kind written onto each obligation row by _build_obligations and _build_sanity_bout_obligations: the roll's visibility decides concealed_roll, otherwise _roll_kind returns amount or check",
+      "properties": {
+        "legacy_key": "concealed_roll",
+        "ordinal": 2,
+        "obligation_kind": "roll"
+      }
+    },
+    {
+      "node_id": "obligation-source-kind:first-impression",
+      "node_kind": "obligation-source-kind",
+      "plane": "obligation",
+      "name": "source kind first_impression",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the source_kind written onto each obligation row by _build_obligations and _build_sanity_bout_obligations: the roll's visibility decides concealed_roll, otherwise _roll_kind returns amount or check",
+      "properties": {
+        "legacy_key": "first_impression",
+        "ordinal": 3,
+        "obligation_kind": "first-impression"
+      }
+    },
+    {
+      "node_id": "obligation-source-kind:sanity-bout",
+      "node_kind": "obligation-source-kind",
+      "plane": "obligation",
+      "name": "source kind sanity_bout",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the source_kind written onto each obligation row by _build_obligations and _build_sanity_bout_obligations: the roll's visibility decides concealed_roll, otherwise _roll_kind returns amount or check",
+      "properties": {
+        "legacy_key": "sanity_bout",
+        "ordinal": 4,
+        "obligation_kind": "sanity_bout"
       }
     },
     {
@@ -516,7 +578,38 @@
       }
     }
   ],
-  "relations": [],
+  "relations": [
+    {
+      "relation_id": "relation:text:source-kind-amount:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "obligation-source-kind:amount",
+      "to_node_id": "obligation-kind:roll"
+    },
+    {
+      "relation_id": "relation:text:source-kind-check:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "obligation-source-kind:check",
+      "to_node_id": "obligation-kind:roll"
+    },
+    {
+      "relation_id": "relation:text:source-kind-concealed-roll:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "obligation-source-kind:concealed-roll",
+      "to_node_id": "obligation-kind:roll"
+    },
+    {
+      "relation_id": "relation:text:source-kind-first-impression:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "obligation-source-kind:first-impression",
+      "to_node_id": "obligation-kind:first-impression"
+    },
+    {
+      "relation_id": "relation:text:source-kind-sanity-bout:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "obligation-source-kind:sanity-bout",
+      "to_node_id": "obligation-kind:sanity-bout"
+    }
+  ],
   "coverage": {
     "obligation": "accepted",
     "craft": "unresolved"
