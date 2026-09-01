@@ -154,6 +154,22 @@ one player (this session), one turn at a time through the repo's own
    foreign language) and `source_refs` (deliberately kept out of runtime
    records; the evidence lives in the graph) as unpopulated.
 
+8. **The scene never moved, because nobody owned its idempotency key.**
+   `decision_id` is declared host-owned for `state.move_scene`, so the model
+   schema hides it — but unlike `state.journal` and `state.advance_time`,
+   nothing supplied a value. On a live table the Keeper called the operation
+   four times, each rejected with `missing_param`, was then repeat-blocked,
+   and narrated the crossing into 1287 anyway: the fiction moved while the
+   authoritative scene stayed on the 1895 opening. The host now supplies the
+   key, named after the destination so two different moves in one turn stay
+   distinct and a repeated identical move stays idempotent.
+
+   Verified by re-running the table: the Keeper still sends only `scene_id`
+   (it cannot see the field), `state.move_scene` succeeds first try, and
+   `world-state.json` moves to `scene-the-woods` with the opening marked
+   exhausted. Evidence: `.rpc-evidence-run2/` (the failure) and
+   `.rpc-evidence-run3/` (the fix).
+
 ## 5. Open defect that stopped deeper play (not owned by this work)
 
 On a fumbled STR roll the turn could not settle:

@@ -10285,6 +10285,30 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         }
       }
       if (
+        typedDefinition.operation === "state.move_scene"
+        && !Object.hasOwn(params, "decision_id")
+      ) {
+        // `decision_id` is declared host-owned for state.move_scene, so the
+        // model schema hides it — but nothing supplied a value, and the
+        // canonical operation requires one. The Keeper then fails the write,
+        // retries identically, is repeat-blocked, and narrates a transition
+        // that never landed: fiction and authoritative scene diverge, which
+        // is the one outcome the state contract exists to prevent. Observed
+        // on a live table (2026-09-01) and once before it. The key names the
+        // destination so two different moves in one turn stay distinct while
+        // a repeated identical move stays idempotent.
+        const destination = typeof params.scene_id === "string"
+            && params.scene_id.trim()
+          ? params.scene_id.trim()
+          : typeof params.candidate_id === "string" && params.candidate_id.trim()
+          ? params.candidate_id.trim()
+          : "scene";
+        params = {
+          ...params,
+          decision_id: semanticDecisionId(`state.move_scene:${destination}`),
+        };
+      }
+      if (
         typedDefinition.operation === "state.advance_time"
         && !Object.hasOwn(params, "decision_id")
       ) {
