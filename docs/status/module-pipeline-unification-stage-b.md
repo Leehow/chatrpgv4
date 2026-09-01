@@ -170,6 +170,24 @@ one player (this session), one turn at a time through the repo's own
    exhausted. Evidence: `.rpc-evidence-run2/` (the failure) and
    `.rpc-evidence-run3/` (the fix).
 
+9. **A restart mid-turn bricked the campaign permanently.** The durable
+   open-turn player-input cache is only written when an anchor already exists,
+   and a fresh process has none until its first `session.resume` — so the first
+   message after a restart was never persisted. If that turn stayed open, the
+   next resume reported `player_input_binding_unavailable`, the startup gate
+   stayed pending (an `open_turn_recovery` disposition never clears it), the ACL
+   held the phase at `recovery`, and `state.journal` was denied for want of a
+   recovery binding. Exiting recovery needed the journal; the journal needed the
+   input; the input could no longer exist. A new session did not help: the dead
+   end is in campaign state, so the table was unplayable for good.
+
+   The host now keeps the live player message in memory regardless of phase and,
+   when a resume finds the durable cache empty, adopts it as the open turn's
+   input — recorded durably so the next restart recovers it the ordinary way,
+   and audited as `adopted_live_message` rather than a cache recovery, because
+   the provenance differs. Verified against the campaign this bricked: it
+   resumed and played on into the mill fire. Evidence: `.rpc-evidence-run3/`.
+
 ## 5. Open defect that stopped deeper play (not owned by this work)
 
 On a fumbled STR roll the turn could not settle:
