@@ -289,28 +289,30 @@ decisions; the baseline is committed as evidence.
 
 ### D5 — first accountable retune
 
-**Blocked on a tool gap found during implementation; D5a is delivered, D5b is
-not.** This section records the gap rather than working around it.
+**D5a is delivered. The tool gap that blocked D5b is closed; the experiment
+itself is still not run.**
 
-#### The gap
+#### The gap, and how it was closed
 
 D5 needs two lanes that differ by **one doctrine value**. DebugExperiment lanes
-differ only by `profile` and `player_input`; its run contract explicitly rejects
-environment overrides, paths and arbitrary tools. It therefore cannot vary a
-doctrine value between lanes, and the acceptance instrument this specification
-originally named for D5 does not support D5's experiment shape.
+originally differed only by `profile` and `player_input`, and its run contract
+rejects environment overrides, paths and arbitrary tools — so the instrument
+this specification named for D5 could not express D5's experiment.
 
-Two honest ways forward, neither of which this slice takes without its own
-authorization:
+A lane may now carry `doctrine_overrides`. The override is validated against
+the production artifact and may only change the value of an existing doctrine
+node, to a value of the same shape, that differs from production. It cannot
+add a node, reach a vocabulary node, or inject anything the contract would
+otherwise reject. The lane runs against a private patched copy of the graph
+which the runtime reads through `COC_DIRECTOR_GRAPH`; production leaves that
+unset. Because the override redirects a file read rather than injecting a
+value, the fail-closed and accountability rules still apply to whatever the
+lane's graph contains.
 
-- extend DebugExperiment with a per-lane doctrine override (a shared-host
-  change, needs its own authorization);
-- run the two arms as sequential DebugExperiment runs against the same sealed
-  checkpoint, changing the graph value in between.
-
-A further limit applies to both: one turn per arm is very weak evidence about a
-pacing weight. Presenting a single-turn arm as a settled retune would be the
-hollow delivery §1 already forbids.
+One limit is unchanged and is not a tooling problem: **one turn per arm is very
+weak evidence about a pacing weight.** Presenting a single-turn arm as a
+settled retune would be the hollow delivery §1 already forbids, which is why
+D5b's gates below require more than one turn per arm.
 
 #### D5a — deterministic sensitivity triage (delivered)
 
@@ -390,7 +392,7 @@ What the slices actually produced, including where the specification was wrong.
 | D3 | Two grounded craft directives; director coverage `instance-linked`. |
 | D4 | 150-decision determinism baseline in `checks/`. |
 | D5a | Sensitivity triage: 17 decision-changing, 36 inert, 60 not-exercised. |
-| D5b | **Not delivered** — DebugExperiment cannot vary a doctrine value per lane. |
+| D5b | **Not run** — the tool gap is closed (per-lane `doctrine_overrides`); the experiment itself is still outstanding. |
 | D6 | Apply-layer duplicates removed; residue gate covers all four files. |
 
 Corrections this specification needed:
@@ -411,7 +413,8 @@ Corrections this specification needed:
    `segments * 2 / 3`; multiplying by `0.6666666666666666` diverges for 65 of
    the first 199 segment counts, a 5-segment clock among them. It is stored as
    `[2, 3]`.
-5. **DebugExperiment is the wrong instrument for D5**, as recorded in §8.
+5. **DebugExperiment could not express D5's experiment**, as recorded in §8.
+   The gap was later closed by adding per-lane `doctrine_overrides`.
 6. **"Out of scope" was hiding duplicate copies.** `coc_director_apply.py`
    was excluded by §3 decision 9 and never scanned, so it kept its own literals
    for four values the graph already owned. Excluding a file from migration is

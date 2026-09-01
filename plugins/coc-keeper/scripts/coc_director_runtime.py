@@ -25,12 +25,21 @@ Two contract laws are enforced at this seam:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REFERENCES_DIR = SCRIPT_DIR.parent / "references"
-GRAPH_PATH = REFERENCES_DIR / "director-graph.json"
+
+# A DebugExperiment lane may run against a patched copy of the artifact so two
+# lanes can differ by exactly one doctrine value — the comparison the graph
+# exists to make possible. The override names a file; it can only redirect the
+# read, never inject a value, so the contract's fail-closed and accountability
+# rules still apply to whatever the file contains. Unset in production.
+GRAPH_PATH_ENV = "COC_DIRECTOR_GRAPH"
+_ENV_GRAPH = os.environ.get(GRAPH_PATH_ENV)
+GRAPH_PATH = Path(_ENV_GRAPH) if _ENV_GRAPH else REFERENCES_DIR / "director-graph.json"
 CONTRACT_PATH = REFERENCES_DIR / "director-graph-contract-v1.json"
 
 GRAPH_CONTRACT_ID = "coc.director-graph.v1"
