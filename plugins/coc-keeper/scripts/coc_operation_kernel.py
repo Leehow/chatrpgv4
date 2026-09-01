@@ -7533,7 +7533,13 @@ def _canonical_combat_binding(
         "combat_revision": int(combat.get("revision", 0)),
     }
     if action == "end":
-        binding["combat_outcome"] = combat.get("outcome")
+        # No `combat_outcome` here: the graph's end decision declares only
+        # investigator_id / outcome / combat_revision, so this host-locked
+        # extra was rejected as an undeclared slot the moment the subsystem
+        # had recorded an outcome — the second end of a live fight failed
+        # with "host-locked input 'combat_outcome' is not a declared slot"
+        # while the first (outcome still null) had slipped through. The
+        # resolver reads the concluded outcome from combat state itself.
         return binding
     candidate_ref = str(semantic_inputs.get("candidate_ref") or "").strip()
     if action in {"attack", "maneuver"}:
