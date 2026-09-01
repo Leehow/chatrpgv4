@@ -356,6 +356,40 @@ This is a rules/turn-domain defect (roll-handle lifecycle plus error masking),
 independent of module projection, and is left for its owning track rather than
 patched from here.
 
+### 5.1 An authored consequence with no canonical path: POW drain
+
+The module authors "与鬼魂交战损失 POW" as a scene failure mode, and on
+2026-09-01 the table reached it: the ghost struck, the investigator failed an
+ordinary POW check (92 vs 60), and the Keeper had no operation that could
+record the loss.
+
+- `rules.resource_delta` is the generic characteristic arithmetic and is
+  `audience: host`, `kp_surface: none`.
+- `state.exceptional_effect` does carry `effect_kind: resource_delta`, but its
+  `source_roll_id` must be a critical, fumble, failed pushed check, or
+  exceptional first impression. An ordinary failure does not qualify.
+- The compiled rule graph has **zero** decision nodes touching POW, and none of
+  its ten families is characteristic drain, so `rules.settle` cannot reach it
+  either.
+
+What the Keeper did instead is the diagnostic: it applied `rules.damage` with
+`kind: damage, amount: 2D10` and the source note "POW 被抽走", taking HP 11 → 0
+with `dying` and `major_wound`; noticed its own category error; and issued a
+compensating `kind: heal, amount: 11` labelled "纠正：幽灵之击抽走的是意志而非
+肉体生命". HP came back and `dying` cleared, but `major_wound` stayed — a heal
+is not a retraction, and correctly does not clear a major wound. The
+investigator now carries a major wound from damage that was withdrawn.
+
+The residue is a symptom, not the defect. The defect is that an authored
+consequence has no canonical path, which leaves the Keeper choosing between the
+wrong operation and narrating state that never lands.
+
+Not patched from here on purpose: every route to a fix widens the Keeper's
+authority over characteristics, and the current narrowness looks deliberate
+(host-only arithmetic, an exceptional-roll gate on the one KP-facing door).
+That is an authority decision for the rules track and its owner, not a 4am
+judgement call from the module-projection branch.
+
 ## 6. Honest boundary
 
 - Proven: graph → deterministic projection → complete install → live Keeper
