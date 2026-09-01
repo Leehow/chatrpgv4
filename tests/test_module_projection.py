@@ -286,3 +286,126 @@ def test_install_refuses_a_projection_whose_graph_root_is_unreachable(tmp_path):
     with pytest.raises(projection.ModuleProjectionError, match="module_graph_asset_root_id"):
         projection.install_projected_scenario(tmp_path, "no-graph", _starter_graph())
     del starter_graph
+
+
+def test_projected_npc_mechanics_satisfy_the_combat_contract():
+    """Combat reads npcs[].mechanics.profile; a projection must be able to carry it.
+
+    The extraction pipeline's own `stats` shape has no reader anywhere, so a
+    module whose numbers land only there is invisible to combat. This pins the
+    field the consumer actually validates.
+    """
+    mechanics = _load("coc_mechanics_projection_tests", SCRIPTS / "coc_mechanics.py")
+    graph = _synthetic_graph()
+    payload = {
+        "filename": "npc-agendas.json",
+        "root": {},
+        "collections": [{
+            "name": "npcs",
+            "records": [{
+                "node_id": "scene-alpha",
+                "record": {
+                    "npc_id": "npc-example-guard",
+                    "agenda": "hold the gate",
+                    "mechanics": {
+                        "status": "authored",
+                        "subject_kind": "npc",
+                        "profile": {
+                            "profile_kind": "actor",
+                            "characteristic_scale": "percentile",
+                            "characteristics": {
+                                "STR": 80, "CON": 75, "SIZ": 65,
+                                "DEX": 60, "INT": 55, "APP": 45,
+                                "POW": 50, "EDU": 50,
+                            },
+                            "derived": {"HP": 14, "MP": 10, "MOV": 7, "Build": 1, "DB": "+1D4"},
+                            "skills": {"Listen": 45, "Spot Hidden": 45},
+                        },
+                        "source_refs": [{"source_id": "pdf:test", "pdf_index": 34}],
+                        "provenance": {"authority": "source_authored"},
+                        "fields_observed": [],
+                        "fields_extracted": [],
+                        "fields_not_authored": [],
+                    },
+                },
+            }],
+        }],
+    }
+    observed = sorted(
+        field for field in mechanics.ACTOR_FIELD_IDS
+        if field.startswith("characteristics.")
+        or field in {"derived.HP", "derived.MP", "derived.MOV", "derived.Build", "derived.DB", "skills"}
+    )
+    record = payload["collections"][0]["records"][0]["record"]["mechanics"]
+    record["fields_observed"] = observed
+    record["fields_extracted"] = list(observed)
+    record["fields_not_authored"] = sorted(
+        set(mechanics.ACTOR_FIELD_IDS) - set(observed)
+    )
+
+    assert projection.validate_projection_records(graph, payload) == []
+
+    sidecar = projection.build_projection_sidecar(graph, [payload])
+    projected = projection.project_module_documents(graph, sidecar)
+    carried = projected["npc-agendas.json"]["npcs"][0]["mechanics"]
+    assert carried["profile"]["characteristics"]["STR"] == 80
+    # The consumer's own validator must accept what the projection carried.
+    mechanics.validate_mechanics_record(carried, subject_kind="npc")
+
+
+def test_extracted_numbers_that_never_reach_combat_are_a_finding():
+    """The fingerprint for this whole class: extraction succeeded, delivery did not.
+
+    A graph node holding a stat block while its projected NPC record carries no
+    `mechanics` is the exact silent failure that shipped: the numbers were
+    parsed correctly and combat still had none. The check keys off the shape of
+    the extracted numbers, not one blessed field name, so renaming `stats`
+    cannot slip past it.
+    """
+    graph = _synthetic_graph()
+    for node in graph["nodes"]:
+        if node["node_id"] == "scene-alpha":
+            node["properties"]["stats"] = {"STR": 50, "CON": 70, "SIZ": 45}
+    payload = {
+        "filename": "npc-agendas.json",
+        "root": {},
+        "collections": [{
+            "name": "npcs",
+            "records": [{
+                "node_id": "scene-alpha",
+                "record": {"npc_id": "npc-example", "agenda": "hold the line"},
+            }],
+        }],
+    }
+
+    findings = projection.validate_projection_records(graph, payload)
+
+    codes = {row["code"] for row in findings}
+    assert "stats_not_delivered_to_mechanics" in codes
+    assert any("mechanics.profile" in row["message"] for row in findings)
+
+
+def test_the_reader_less_stats_field_is_refused():
+    graph = _synthetic_graph()
+    payload = {
+        "filename": "npc-agendas.json",
+        "root": {},
+        "collections": [{
+            "name": "npcs",
+            "records": [{
+                "node_id": "scene-alpha",
+                "record": {
+                    "npc_id": "npc-example",
+                    "agenda": "hold the line",
+                    "stats": {"STR": 50},
+                    "stats_absent": {"APP": "not printed"},
+                },
+            }],
+        }],
+    }
+
+    findings = projection.validate_projection_records(graph, payload)
+
+    unregistered = [row for row in findings if row["code"] == "unregistered_fields"]
+    assert unregistered
+    assert "stats" in unregistered[0]["message"]
