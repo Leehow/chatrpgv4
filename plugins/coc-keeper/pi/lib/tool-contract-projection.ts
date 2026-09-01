@@ -3775,9 +3775,11 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [],
   )],
   ["steward.scene_supply", declaredIdentityTable(["scene_id"], [])],
+  // `projection_sha256` is NOT declared here: it is transport-authored and
+  // covered once by TRANSPORT_COLLAPSE_INTEGRITY_FIELDS for every operation.
   ["setup.inspect", declaredIdentityTable(
     ["active_scenario_id", "campaign_id", "pregen_id", "scenario_id"],
-    ["projection_sha256"],
+    [],
   )],
   ["setup.phase", declaredIdentityTable(["asset_root_id", "campaign_id"], [])],
   ["setup.adopt_source_facts", declaredIdentityTable(["campaign_id"], [])],
@@ -3945,10 +3947,9 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       "source_command_id", "source_turn_id", "state_refs", "turn_id",
     ],
   )],
-  ["combat.end", declaredIdentityTable(
-    [],
-    ["projection_sha256"],
-  )],
+  // `combat.end` had no operation-local disposition beyond the
+  // transport-authored `projection_sha256`, which is now declared once for
+  // every operation; the entry itself is the instance patch and is retired.
   ["combat.context", declaredIdentityTable(
     ["actor_id", "combat_id", "scene_ref", "target_actor_id"],
     [],
@@ -4015,9 +4016,54 @@ const GLOBAL_SEMANTIC_IDENTITY_FIELDS: ReadonlySet<string> = new Set([
   "civil_segment_id",
 ]);
 
-// Closed-universe check: every operation-declared integrity field must be a
-// member of the classified integrity-name universe — per-operation
-// declarations narrow the boundary; they never extend the name universe.
+/**
+ * Transport-authored integrity fields: machine integrity the BOUNDED WIRE
+ * writes onto a result, not evidence any canonical operation emitted.
+ *
+ * `_minimal_identity` in `plugins/coc-keeper/scripts/coc_mcp_wire.py` is the
+ * last-resort projection for a result that exceeds `MAX_INLINE_BYTES`. It
+ * collapses the payload to identity fields picked out of the canonical data
+ * and then unconditionally stamps `projection_sha256: canonical_digest(data)`
+ * — for EVERY operation, since every operation can overflow. That digest is
+ * therefore operation-neutral by construction: the wire is its sole producer
+ * repository-wide, and the exact canonical envelope always remains in
+ * host-only `details.canonical`, so declaring it costs no evidence.
+ *
+ * Declaring it per operation instead was the bug. `setup.inspect` and
+ * `combat.end` each earned a private `["projection_sha256"]` line the first
+ * time production overflowed them; every other operation kept failing closed
+ * with `semantic_identity_unavailable` the first time IT overflowed. That is
+ * what silenced `rules.context` for the four rule families whose decision
+ * cards exceed the cap (sanity 30,199 B; combat 27,797 B; magic 26,046 B;
+ * chase 19,331 B): the Keeper called for combat rules, the canonical result
+ * was fine, and the host handed back an error. An operation-neutral field
+ * gets an operation-neutral declaration, so the next family to overflow
+ * cannot re-open the same hole.
+ *
+ * Scope is deliberately narrow: ONLY the names the collapse itself authors.
+ * The integrity names it merely `_pick`s out of the canonical data
+ * (`source_digest`, `rendered_text_sha256`, `contract_projection_sha256`,
+ * `rendered_sha256`) stay per-operation — they are the emitting operation's
+ * own evidence, they are already present on the un-collapsed result, and the
+ * operation that emits them is the one that must account for them.
+ */
+const TRANSPORT_COLLAPSE_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
+  "projection_sha256",
+]);
+
+// Closed-universe check: every declared integrity field — operation-local or
+// transport-authored — must be a member of the classified integrity-name
+// universe. Declarations narrow the boundary; they never extend the name
+// universe.
+for (const field of TRANSPORT_COLLAPSE_INTEGRITY_FIELDS) {
+  if (!CLASSIFIED_INTEGRITY_FIELDS.has(field)) {
+    throw new ToolContractProjectionError(
+      "integrity_declaration_outside_universe",
+      `integrity field ${field} is transport-declared but outside the ` +
+        "classified integrity universe",
+    );
+  }
+}
 for (const declarations of OPERATION_IDENTITY_DECLARATIONS.values()) {
   for (const field of declarations.integrity) {
     if (!CLASSIFIED_INTEGRITY_FIELDS.has(field)) {
@@ -4043,6 +4089,10 @@ function declaredIdentityDisposition(
     if (declarations?.integrity.has(field)) return "integrity";
     if (declarations?.semantic.has(field)) return "semantic";
   }
+  // The bounded wire stamps these onto ANY over-cap result, so they are
+  // declared once for every operation rather than re-declared per operation
+  // the first time each one happens to overflow.
+  if (TRANSPORT_COLLAPSE_INTEGRITY_FIELDS.has(field)) return "integrity";
   if (GLOBAL_SEMANTIC_IDENTITY_FIELDS.has(field)) return "semantic";
   // One classifier already inventories identities authored by the model.
   // Composed ids, decisions, and exact semantic handles remain the same
@@ -6003,6 +6053,7 @@ function diagnoseUnprojectedIdentityKeys(
     ...RAW_NEVER_MODEL_AUTHORED_FIELDS,
     ...((HOST_OWNED_FIELDS as Record<string, readonly string[] | undefined>)[operation] ?? []),
     ...DENIED_IDENTITY_FIELDS,
+    ...TRANSPORT_COLLAPSE_INTEGRITY_FIELDS,
     ...(declarations?.semantic ?? []),
     ...(declarations?.integrity ?? []),
     ...(declarations?.hostOnly ?? []),
