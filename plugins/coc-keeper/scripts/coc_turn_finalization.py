@@ -3780,7 +3780,10 @@ def collect_finalize_violations(
             "code": "substantive_exceptional_effect_required",
             "message": (
                 "critical/fumble/pushed-failure outcome lacks a source-bound "
-                f"applied effect: {missing}"
+                f"applied effect: {missing}. Apply one with "
+                "state.exceptional_effect (action \"apply\", source_roll_id "
+                "set to that exact roll handle, plus decision_id and "
+                "effect_kind), then finalize again."
             ),
         })
     if context["pending_modifier_consumptions"]:

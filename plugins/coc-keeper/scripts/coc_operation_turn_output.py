@@ -2073,11 +2073,27 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
             missing = ", ".join(
                 row["obligation_id"] for row in missing_effects
             )
+            # Name the remedy. This gate fires on every critical, fumble and
+            # pushed failure, and the obligation id alone does not tell the
+            # Keeper which operation clears it — a real chase run died here,
+            # retrying state.journal twice against a 180-second turn budget
+            # and never reaching turn 5. Say the operation and its binding.
+            details["remedy"] = {
+                "operation": "state.exceptional_effect",
+                "action": "apply",
+                "source_roll_id": [
+                    row["obligation_id"] for row in missing_effects
+                ],
+                "also_required": ["decision_id", "effect_kind"],
+            }
             raise ToolError(
                 "substantive_exceptional_effect_required",
                 "state.journal refused before writing because a critical, "
                 "fumble, or pushed-failure outcome lacks a source-bound "
-                f"applied effect: {missing}",
+                f"applied effect: {missing}. Apply one with "
+                "state.exceptional_effect (action \"apply\", source_roll_id "
+                "set to that exact roll handle, plus decision_id and "
+                "effect_kind), then journal again.",
                 details=details,
             )
         pending = ", ".join(
