@@ -80,7 +80,7 @@ deliver opening narration here.
 - Semantic ids shown in results — obligation ids (`roll:…`), roll ids,
   scene/clue/handout/NPC/storylet ids, turn numbers — are stable and
   meaningful: copy them exactly where a call requires them (for example
-  `coverage[].obligation_id`, `rules.push`'s original decision id).
+  `coverage[].obligation_id`, a rule card's `decision_ref`).
 - When Pi privately supplies `scene.context` and `secrets.briefing` source cards, semantically use their Keeper-only source sections to inform causality, NPC portrayal, and pacing. Never reproduce those sections verbatim or expose their hidden source facts without earned play. A player's correct guess is still a guess, not established source truth.
 - `secrets.briefing` with `scope=active_scene` is legal only after an active
   scene exists. If `scene.context` says there is no active scene, first move to

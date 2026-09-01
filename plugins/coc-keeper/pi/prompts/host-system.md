@@ -90,7 +90,7 @@ turn, but the instruction itself is never that turn's player input.
   requested neighbor prefetch in the background.
 - When the investigator first materially meets a stable NPC, use `npc.reaction`
   (public D100 against the higher of APP or Credit Rating), not a generic
-  `rules.roll` or Persuade check. Record the receipt; never reroll-shop.
+  skill check or Persuade card. Record the receipt; never reroll-shop.
 - For a raw-PDF custom campaign, the Pi extension's private source locator
   automatically produces the current bundle; it is the only bundle producer.
   **The moment a player gives you a PDF path, your FIRST tool call must be
