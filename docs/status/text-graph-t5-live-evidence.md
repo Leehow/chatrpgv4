@@ -133,11 +133,33 @@ The failures were repeats of the same error class:
 
 The shape worth recording is the retry pattern: three identical `missing_param`
 failures on `state.move_scene` and three identical `unknown_semantic_input`
-failures on `rules.settle`. The error told the KP that something was wrong but
-evidently not enough to change what it sent, and the turn ended with the player
-receiving silence.
+failures on `rules.settle`, and the turn ended with the player receiving
+silence.
 
-This is a product observation about error actionability, not a TextGraph
-finding — none of these operations is in the text layer, and the text layer's
-own calls in the same turn (`turn.output_context`, `turn.finalize`) were the
-ones that succeeded. Recorded, not repaired.
+**Correction to a first reading of this.** It was tempting to file this as an
+error-actionability defect — the error not telling the KP enough to fix its
+call. The receipt says otherwise:
+
+```json
+"error": "missing_param",
+"error_message": "required parameter: decision_id",
+"hints": ["the keeper may continue with a different in-fiction approach or corrected tool arguments"]
+```
+
+The error names the exact missing parameter. It is fully actionable, and the
+KP omitted `decision_id` six times across two turns without ever adding it.
+So this is a **KP behaviour** observation about grok-4.5, not a contract or
+error-projection defect, and the earlier framing was wrong.
+
+Either way it is not a TextGraph finding — none of these operations is in the
+text layer, and the text layer's own calls in the same turn
+(`turn.output_context`, `turn.finalize`) were among the ones that succeeded.
+Recorded, not repaired.
+
+### 6. Two consecutive undelivered turns, same root cause
+
+Turn 5 (`turn-p-404f16a668d9`) classified `undelivered_settle_with_tools` as
+well, with the identical `state.move_scene` / `missing_param: decision_id`
+loop. Six failures of the same call shape across two turns, no delivery to the
+player either time, and no new finalization: the run holds exactly one
+finalized turn.
