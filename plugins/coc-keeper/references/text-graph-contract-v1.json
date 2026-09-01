@@ -28,7 +28,8 @@
     "render-prohibition",
     "style-axis",
     "narration-budget-mode",
-    "text-threshold"
+    "text-threshold",
+    "narration-budget-trigger"
   ],
   "obligation_node_kinds": [
     "obligation-kind",
@@ -48,7 +49,8 @@
     "render-prohibition",
     "style-axis",
     "narration-budget-mode",
-    "text-threshold"
+    "text-threshold",
+    "narration-budget-trigger"
   ],
   "relation_kinds": [
     "part-of",
@@ -67,10 +69,12 @@
         "coverage-field",
         "realization-mode",
         "player-input-handling",
-        "substantive-effect-status"
+        "substantive-effect-status",
+        "narration-budget-trigger"
       ],
       "to": [
-        "obligation-kind"
+        "obligation-kind",
+        "narration-budget-mode"
       ]
     },
     "orders": {
@@ -294,7 +298,8 @@
     "review-rule": [
       "legacy_key",
       "ordinal",
-      "hard_gate"
+      "hard_gate",
+      "citable"
     ],
     "craft-directive": [
       "directive_id",
@@ -319,8 +324,7 @@
       "legacy_key",
       "ordinal",
       "max_chars",
-      "max_paragraphs",
-      "trigger_event_types"
+      "max_paragraphs"
     ],
     "text-threshold": [
       "threshold_id",
@@ -328,6 +332,11 @@
       "value",
       "comparison",
       "subject"
+    ],
+    "narration-budget-trigger": [
+      "legacy_key",
+      "ordinal",
+      "budget_mode"
     ]
   },
   "comparisons": [
@@ -353,11 +362,22 @@
     "segment-type": 5,
     "agency-claim-type": 8,
     "roll-visibility-class": 6,
-    "substantive-effect-status": 3
+    "substantive-effect-status": 3,
+    "review-rule": 9,
+    "craft-directive": 14,
+    "render-slot": 7,
+    "render-prohibition": 3,
+    "style-axis": 9,
+    "narration-budget-mode": 4,
+    "narration-budget-trigger": 10,
+    "text-threshold": 5
   },
   "expected_node_counts_law": "expected_node_counts pins the T1 obligation-plane migration against the measured inventory. A build whose counts differ from this table is rejected: either the source declaration changed and the table must be updated in the same reviewed change, or the migration lost something. The census that motivated this law is real — the commissioning brief for this work listed eight tables in coc_narration_style.py and the file has twelve.",
   "empty_relations_law": "The T1 obligation plane shipped zero relations deliberately: its vocabularies were flat, and the two structural facts that could have been edges — the voluntary subset of agency claim types and the player-facing versus superseded split of roll visibility classes — are node properties because that is exactly how the source reconstructs both frozensets. T2 adds the first five real relations, obligation-source-kind part-of obligation-kind, because that edge is load-bearing: the derivation reads it to decide which source_kind an obligation may carry. Relations are added when a consumer reads them and never to make the artifact look more graph-shaped.",
   "derivation_law": "Slice T2 moves the obligation derivation's id grammars, closed vocabularies and ordering laws into this graph. The derivation keeps its control flow: _build_obligations, _build_sanity_bout_obligations and validate_coverage still decide what to emit; they read the id_prefix, the permitted source kinds, the leading segment type and the substantive effect statuses from here instead of spelling them as literals. An obligation id is composed as id_prefix + source id and never parsed by splitting on a colon, because source ids contain colons.",
   "renders_settled_output_law": "A renders-settled-output edge may target only a RuleGraph node whose node_kind is effect and whose visibility is public, or a registered live-state fact. Targeting a keeper-only effect is rejected: this graph's authority plane is presentation, so an edge here is a declaration that the effect reaches the player, and declaring that for keeper-only material is a secrecy defect that reaches the table rather than a validator warning. The compiler resolves every target against the production RuleGraph, so a dangling id, a non-effect node kind, or a keeper-only target fails the build.",
-  "grounding_gap_law": "An edge is drawn when a rendering path exists, never to reach a target count. Slice T3 measured the production RuleGraph's twenty-three effect nodes against the text layer and found no rendering path for any of them: the text layer renders turn-effect-v1 and exceptional-effect-v1 state effects, a disjoint namespace, and no code in the tree reads an effect:coc7 id. T3 therefore ships zero renders-settled-output edges and records the gap, rather than fabricating twenty-two declarations that no consumer could honour. The validator above is live, so the first real bridge is checkable the day it is built."
+  "grounding_gap_law": "An edge is drawn when a rendering path exists, never to reach a target count. Slice T3 measured the production RuleGraph's twenty-three effect nodes against the text layer and found no rendering path for any of them: the text layer renders turn-effect-v1 and exceptional-effect-v1 state effects, a disjoint namespace, and no code in the tree reads an effect:coc7 id. T3 therefore ships zero renders-settled-output edges and records the gap, rather than fabricating twenty-two declarations that no consumer could honour. The validator above is live, so the first real bridge is checkable the day it is built.",
+  "review_rule_law": "A review-rule node exists only if narration.review can actually raise it: every citable review-rule MUST appear in the operation's accepted rule-id set, and that set is built from this graph. The check runs in both directions. None lost: the five semantic rule ids the deleted matchers emitted survive as nodes. None invented: unnatural_spatial_phrase does NOT get a node, because both entries of the table that raised it were fragments of one sentence from one playtest, and a rule that exists only because of one sentence is an instance patch rather than a craft rule.",
+  "no_matcher_law": "Slice T4 deletes the prose matchers outright. No regular expression, phrase list, substitution table, or style score may exist in the text layer or in this artifact afterwards, and none may be reintroduced behind a flag, a shim, or a commented-out block. A craft directive carries the rewrite guidance as prose for the Keeper to reason about; it never matches text itself.",
+  "language_law": "A review-rule and an obligation are language-independent: the vocabulary is a set of semantic ids, and the Keeper reasons in whatever language the table uses. Only a style-axis may declare language_applicability, and exactly one does: translationese, which the zh-Hans register names and the generic register does not. Before T4 the whole layer was zh-only, because the matchers returned nothing for any other language."
 }
