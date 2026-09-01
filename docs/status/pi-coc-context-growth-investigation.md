@@ -784,3 +784,240 @@ node /tmp/pi-sysprompt.mjs
 Note the launcher passes `--no-context-files`
 (`plugins/coc-keeper/pi/bin/pi-coc:483-492`), which is why `contextFiles: []`
 above is the faithful reconstruction and `AGENTS.md` is **not** in the prefix.
+
+---
+
+## 10. Implementation status — Class A, 2026-09-01
+
+- `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`. Codex-host implementation, adapters,
+  prompts, launchers, tests, and documentation stayed off-limits.
+- Scope: **A1 and A2 only.** B1–B6 are not implemented and nothing
+  model-facing changed. No file under `.coc/` was written or deleted; the
+  session evidence was read only.
+- No `pi-coc` session was launched. Everything below is either offline
+  measurement over the preserved `dirgraph-smoke-20260901` evidence or a unit
+  test.
+
+### 10a. A1 does not exist. The flickers were an artifact of §3d's own script.
+
+**A1 was written on a phantom and cannot be implemented, because the
+phenomenon it targets never happened.** This is the same failure shape as the
+B1 correction, from the same cause: a derived number was trusted without
+checking the raw record it came from.
+
+The §3d churn script feeds two different entry types into one timeline:
+
+```python
+if e.get('customType') in ('coc-tool-working-set','coc-tool-working-set-replan'):
+    rev=(e.get('data') or {}).get('revision','')
+    ev.append(('ws', rev.split(':tools-')[-1]))
+```
+
+`coc-tool-working-set-replan` entries **have no `revision` field**. Their
+payload is `{status, reason, tool_name, stage, player_turn_epoch,
+canonical_progress_revision, before, after}` — the working-set revision they
+carry lives at `data.after.working_set_revision`, not `data.revision`. So
+`rev` is `""`, `"".split(':tools-')[-1]` is `""`, and every one of the 26
+replan entries enters the timeline as a **phantom empty tool list**, then
+"restores" on the next real audit entry. Each one costs two spurious
+transitions.
+
+That single mismatch produces every A1 number:
+
+| §3d / A1 claim | what the evidence says |
+| --- | --- |
+| "the advertised tool list changed **78** times" | 78 reproduces exactly with the buggy script. Excluding replan entries: **31** publication-level transitions |
+| "**27** transient working sets of exactly **1 tool / 0 schema bytes**" | 26 replan entries (each carries exactly one `tool_name` and no `schema_bytes` field) + 1 genuine empty set = 27. **Audited publications with exactly 1 tool: 0** |
+| "`WS#1` 13 tools → `WS#2` 1 tool → `WS#3` the same 13 tools, within 3 event lines" | event lines 98 (13 tools), **99 = a replan entry**, 101 (13 tools). The "3 event lines" is the replan entry sitting between two audits |
+
+Checked directly, and all three came back negative:
+
+- publications whose tool list is **empty**: **1** in the whole session;
+- publications with **exactly one** tool: **0**;
+- changes that are the **same set in a different order**: **0**;
+- changes where the names held still and only a **schema** moved: **0**.
+
+The one genuine empty publication is not a flicker either. It is line 4745,
+stage `delivered`, `tools-none` — published *after* `message_start` (4559) and
+*before* `message_end` (4746) of the final delivery call, i.e. inside a
+streaming window, then replaced by the next turn's 8-tool set at line 4761
+before any further request. It never reached a provider request. It is worth
+recording as a **latent** hazard — had a call started while it was in force,
+the provider would have seen a zero-tool list and a total prefix wipe — but
+suppressing it would change what the KP is advertised, so it is not Class A
+and it cost nothing here.
+
+**There was also never anything to save by de-duplicating publications.** 120
+of the 151 audited publications re-publish the set already in force, but a
+publication only reaches the provider if a model call is built after it. Of
+the 31 publication-level transitions, **22** fell between two consecutive
+model calls; the rest were absorbed. The redundant publications were already
+free.
+
+So `applyKpActiveTools` was **not** changed, and no publication guard was
+added. A guard would have been a placebo: measurable in the audit-log line
+count and worth exactly zero tokens.
+
+**What survives, and is stronger than the report claimed.** Recomputed with
+replan entries removed and each call attributed to the tool list in force when
+its request was built:
+
+| cache outcome | calls | calls with **zero** tool-list change before them | mean changes |
+| --- | ---: | ---: | ---: |
+| HIT (`cacheRead ≥ 60%` of ctx) | 28 | **25** | 0.18 |
+| partial | 13 | **1** | 1.23 |
+| full miss | 11 | 4 (3 are process starts) | 0.73 |
+
+The diagnosis in §0 and §6 — prefix churn from a mutating `tools` field is the
+biggest line item — is unaffected. What is refuted is that any of that churn
+was free to remove. All 22 provider-visible changes are genuine membership
+changes tracking the stage machine (`acting` → `journaled` →
+`output_context_ready` → `review_ready`), plus two real within-turn
+oscillations worth naming because they are the strongest remaining lever:
+
+- `coc_rules_settle` added at line 21247, removed at 21338, re-added at 21408,
+  removed at 21513 — four prefix rewrites inside one player turn;
+- `coc_narration_review` removed at 21695, re-added at 21703, removed at
+  21806, re-added at 21969 — four more.
+
+Both are **B2**, not A1: eliminating either means advertising a tool the
+current stage would reject, which changes what the KP sees.
+
+### 10b. A2 implemented — the request body is now measured.
+
+New: `plugins/coc-keeper/pi/lib/request-prefix-probe.ts`, wired into
+`lib/turn-telemetry.ts` on pi's `before_provider_request` event.
+
+The report's A2 asked for `tools_revision` / `tools_bytes` /
+`tools_names_hash` / message count on the telemetry step, and for the
+`coc-tool-working-set` entry to be emitted before the first model call. The
+first half is implemented and then some. **The second half was deliberately
+not done**, and the reason matters: moving when `applyKpActiveTools` publishes
+is not observation — it changes when the KP's tool list is set — so it would
+not have been Class A. The request probe gets the same fact more directly and
+more truthfully: it records the tool list **the provider actually received**
+on every call including the first, rather than the list the extension intended
+to publish.
+
+`before_provider_request` carries the fully assembled provider params — pi-ai
+calls `onPayload(params, model)` in `api/openai-responses.js:100` immediately
+before `client.responses.create(params)`. That object is the only place the
+whole prefix exists at once. Recorded per model call, onto the existing
+`ModelCallStep` as `request_prefix` (telemetry schema **v5 → v6**):
+
+| field | closes |
+| --- | --- |
+| `instructions_bytes` / `instructions_digest` / `instructions_status` | §7.1 — the system prompt as received, not reconstructed from `session-roles.json` |
+| `tools_count` / `tools_bytes` / `tools[]` (per-tool bytes) / `tool_names` | §7.1 — including the first call of a session, which the audit entry structurally cannot cover |
+| `tools_status` (`first`/`stable`/`changed`) | §7.2 — sits on the same step as that call's `usage`, so "tools moved ⇒ cache missed" stops being a correlation across two files |
+| `tool_names_digest` vs `tools_digest` | separates a membership change from a reschema of the same names |
+| `input_messages` / `input_bytes` | the transcript actually sent, post-fold |
+| `other_bytes` | §7.1 — the residual (model id, sampling, reasoning config, `tool_choice`, cache directives). This is the bucket the ~18k unattributed prefix tokens have to come out of |
+
+Per-turn roll-up `request_prefix` on the turn record carries
+`tools_changed_calls` next to the existing `tokens.input` / `tokens.cache_read`.
+
+Three properties keep it an observation, and all three are asserted by tests:
+
+1. **It returns nothing.** A `before_provider_request` handler that returns a
+   value *replaces* the provider payload
+   (`extensions/runner.js:790` — `if (handlerResult !== undefined)
+   currentPayload = handlerResult`). The handler is a block body with no
+   return, and the smoke asserts both that the returned value is `undefined`
+   and that the payload serializes byte-identically after the call.
+2. **It copies nothing.** Byte counts, tool names, and digests only. The tests
+   assert no prompt text, message content, or schema body appears anywhere in
+   the recorded step.
+3. **It cannot throw.** Unserializable, circular, `null`, and unrecognised
+   bodies all yield `null`.
+
+Kill switch `PI_COC_REQUEST_PREFIX_PROBE=off|0|false`, default on, mirroring
+`PI_COC_CONTEXT_FOLD`. Output goes to `<agentDir>/telemetry/turns.jsonl` and
+to the operator-only `/timing` panel. **Nothing reaches the model.**
+
+Also corrected, as A2 asked: the `lib/context-probe.ts` docstring that claimed
+its sizes "track what the provider is actually billed for". They track the
+message array, which is one of four sections of a request; the corrected text
+carries the two measurements that show the gap (180 `est_tokens` vs 33,000
+billed on the first play call; 39,967 vs 58,191 mid-turn) and points at the
+new module.
+
+### 10c. What is proved offline, and what is not
+
+**Proved by test** (`tests/pi/request-prefix-probe.mjs`,
+`tests/pi/turn-telemetry-smoke.mjs`, both wired into
+`tests/test_pi_package.py`): the probe measures all four sections and they
+reconcile with the serialized body; an append-only transcript reads `stable`
+while a moved `tools` field reads `changed` on the same pair of calls; a
+reschema is separable from a rename; `openai-responses`, `anthropic-messages`,
+legacy `function` nesting, and an unrecognised shape all behave; the payload is
+not mutated; no content is copied; the kill switch works.
+
+**Proved by measurement over preserved evidence** (§10a): every A1 number, and
+the corrected churn/cache table.
+
+**Not proved, and not provable offline:**
+
+- **That A2's numbers will close §7.1.** The probe records what it is given;
+  whether `instructions + tools + input + other` accounts for all 33,000
+  tokens of the play prefix is only answerable from a run. It could still come
+  up short — if it does, the residual is in the provider's own rendering, and
+  `other_bytes` is where that will show.
+- **Any cache saving.** A1 saved nothing because there was nothing to save;
+  A2 saves nothing by design. This branch does not reduce token cost, and no
+  claim that it does should be read into it.
+- **§7.2's causal question.** The probe makes it answerable in one run; it
+  does not answer it now.
+
+**A live run would settle both, and it is not started here.** It needs the
+user's go-ahead, it is a real `pi-coc --mode rpc` session with a live model one
+player line at a time (never a scripted KP), and the xAI OAuth token expires
+roughly every 6 hours. Ten player turns is enough; the probe is on by default,
+so nothing beyond launching it is required.
+
+### 10d. Verification
+
+`scripts/verify_against_baseline.py` against this branch's pre-change `HEAD`
+(both prior commits are documentation only, so `HEAD` is the true pre-change
+code baseline), targeting `tests/test_pi_package.py`,
+`tests/test_python_contract.py`, `tests/test_inventory.py`,
+`tests/test_operation_module_architecture.py`,
+`tests/test_runtime_pi_adapter_contract.py`.
+
+```json
+{"verdict": "clean",
+ "counts": {"failing_here": 71, "failing_on_baseline": 71, "regressions": 0,
+            "baseline_only": 0, "failures_in_new_tests": 0}}
+```
+
+71 failures on both sides, identical sets, and both new pytest functions are
+outside them.
+
+**The content diff needed a correction to be readable.** Run with the content
+pass on, the tool reported ~50 `masked_new_violations`. Every one of them is a
+tree-root artifact, not a violation: `_named_paths` compares path *strings*,
+and this tree's absolute paths (`/Users/haoli/leehow/code/chatrpgv4-wt-context-growth-20260901/...`)
+can never equal the baseline worktree's (`/private/var/folders/.../baseline/...`),
+so every absolute path in a traceback reads as new. Re-run with both trees'
+roots stripped and pytest tmpdirs normalized, the masked set is **empty**:
+
+```
+normalized_masked_new_paths: []   # 0
+```
+
+None of the seven files this branch touches appeared in the raw list either.
+The tool itself is not modified here — it lives on another branch — but the
+absolute-path false positive is worth knowing before the next reader trusts
+that field.
+
+Pre-existing failure worth flagging, **not caused by this work and not
+fixed here**: `test_pi_turn_telemetry_logs_fine_grained_step_timing_for_offline_analysis`
+is red on `toolStepDetail` — the smoke expects `wrapper_tool == "coc_rules"`
+for a `coc_invoke` / `rules.roll` call and `classifyToolCall` returns
+`"coc_invoke"`. It fails identically on the baseline.
+
+That failure is also why the new request-prefix assertions live in their own
+pytest function rather than being appended to that one: assertions after a
+failed assert never execute, so appending them there would have produced
+coverage that looks real and runs never — the same class of blind spot
+`docs/repository-health/verifying-against-a-baseline.md` was written about.
