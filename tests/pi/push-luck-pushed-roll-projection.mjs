@@ -118,11 +118,31 @@ const canonical = {
   hints: [],
 };
 
+const { createSemanticIdentityRegistry } = await import(path.join(
+  root,
+  "plugins/coc-keeper/pi/lib/semantic-identity-registry.ts",
+));
+// Mirror what the host does before projecting: register the settlement's own
+// rolls, so this test exercises the real path rather than an empty registry.
+const registry = createSemanticIdentityRegistry();
+const registryScope = { sessionEpoch: 1, campaign: "recorded", playerTurnEpoch: 1 };
+registry.register({
+  domain: "roll",
+  canonicalId: settleData.settlement.result.bound_check.roll_id,
+  facts: [
+    settleData.settlement.result.bound_check.skill,
+    settleData.settlement.result.bound_check.goal,
+    settleData.family,
+  ],
+  scope: registryScope,
+  lifetime: "player_turn",
+});
+
 const diagnostics = { unmapped: [] };
 const visible = projectModelVisibleCanonicalResult(
   "rules.settle",
   canonical,
-  null,
+  registry.projectAll(registryScope),
   diagnostics,
 );
 
@@ -183,10 +203,17 @@ assert.equal(
   false,
   "the host-internal social-target id stays host-side",
 );
+// The `rules.settle` identity table declares `roll_id` host-only, so a
+// settled roll's id never reaches the model — the Keeper's referenceable
+// handle comes from `turn.output_context.required_obligation_ids` instead.
+// This assertion is made against a POPULATED registry on purpose: against an
+// empty one it would pass for the wrong reason, since an unregistered roll
+// drops regardless. That distinction is not academic — an unregistered roll
+// is what left a fumbled turn unjournalable at a live table.
 assert.equal(
   Object.hasOwn(boundCheck, "roll_id"),
   false,
-  "this settlement's own toolbox roll identity stays host-side",
+  "a settled roll's canonical id stays host-side even once registered",
 );
 // Nothing anywhere in the model view may carry the receipt integrity digest.
 const rendered = JSON.stringify(visible);

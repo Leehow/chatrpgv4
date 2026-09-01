@@ -5149,9 +5149,8 @@ function projectDevelopmentEndSessionRulesSettleData(
  *   would reopen that correlation through the Push lane.
  * - `npc_id` — the host-internal social-target id carried along with that
  *   correlation. [the scene's own npc roster is the model-facing source]
- * - `roll_id` — this settlement's own `toolbox-` roll identity, hidden on the
- *   Social bound check for the same reason.
  *
+
  * Mechanics are never rerun: every retained field is copied from the
  * already-settled canonical result.
  */
@@ -5162,7 +5161,12 @@ function projectPushedRollBoundCheckData(
   fieldPath = "",
 ): Record<string, unknown> {
   const view = { ...value };
-  delete view.roll_id;
+  // `roll_id` is not deleted here: the `rules.settle` identity table already
+  // declares it host-only, so it never reaches the model whatever this
+  // function does. The Keeper's referenceable handle for a settled roll comes
+  // from `turn.output_context.required_obligation_ids`, which maps through the
+  // registry. The fields below are different — they have no model consumer at
+  // all and would otherwise fail the whole result closed.
   delete view.original_check;
   delete view.social_adjudication_ref;
   delete view.social_goal_key;
@@ -5356,9 +5360,14 @@ function projectSanityCheckData(
   fieldPath = "",
 ): Record<string, unknown> {
   const view = { ...value };
-  delete view.check_roll_id;
-  delete view.loss_roll_id;
-  delete view.session_roll_ids;
+  // The SAN roll and its loss roll stay VISIBLE and map to `roll:` handles.
+  // They were hidden here at first, which passed a test built on an empty
+  // registry and was wrong on the real path: an unregistered roll has no
+  // handle, and hiding it means the Keeper cannot reference the roll it just
+  // caused — which is precisely how a fumble becomes an unjournalable turn.
+  // Registration for graph settlements is the actual fix (see the
+  // `rules.settle` branch in the extension's roll registry); these fields
+  // belong to the Keeper.
   delete view.trigger_id;
   if (isPlainObject(view.check)) {
     const check = { ...view.check };

@@ -5188,6 +5188,57 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           rollArguments?.decision_id,
         ]);
       }
+      // The ten-family cutover moved execution to `rules.settle` and left
+      // this registration behind. Seven of the operations named in this block
+      // (`rules.roll`, `rules.push`, `rules.opposed`, `rules.sanity_check`,
+      // `sanity.execute`, `combat.resolve`, `rules.psychology_observe`) are
+      // `kp_surface: "none"` now, so in normal play they never fire — and
+      // every roll a graph settlement produces went unregistered.
+      //
+      // The damage is not cosmetic. An unregistered roll has no semantic
+      // handle, so its `roll:<canonical>` obligation cannot map; the
+      // `state.journal` refusal that names the remedy for a fumble is then
+      // collapsed into `semantic_identity_unavailable`, and the Keeper is
+      // left with a turn it cannot journal and no route out. That deadlock
+      // was observed at a live table.
+      if (operation === "rules.settle") {
+        const settlement = objectOrNull(data.settlement);
+        const settled = objectOrNull(settlement?.result);
+        const family = data.family;
+        const decisionRef = data.decision_ref;
+        walkCanonicalRows(settled ?? {}, (row) => {
+          // Every canonical roll a settlement carries, wherever it sits:
+          // the bound check, a sanity check and its loss roll, and any
+          // session roll the subsystem recorded.
+          // Facts are ordered most-distinctive first, matching the sibling
+          // branches: a handle built from the family alone collides the
+          // moment one settlement rolls twice.
+          const check = objectOrNull(row.check);
+          registerRoll(row.roll_id, [
+            row.skill ?? row.characteristic,
+            row.goal ?? row.source,
+            family,
+          ]);
+          for (const [field, role] of [
+            ["check_roll_id", "check"],
+            ["loss_roll_id", "loss"],
+            ["phobia_roll_id", "phobia"],
+            ["mania_roll_id", "mania"],
+          ] as const) {
+            registerRoll(row[field], [
+              row.source ?? row.goal,
+              check?.skill ?? row.skill,
+              role,
+            ]);
+          }
+          const sessionRollIds = Array.isArray(row.session_roll_ids)
+            ? row.session_roll_ids
+            : [];
+          sessionRollIds.forEach((rollId, index) => {
+            registerRoll(rollId, [row.source, family, "session-roll", index + 1]);
+          });
+        });
+      }
       if (operation === "rules.roll_dice") {
         registerRoll(data.roll_id, [
           data.reason,

@@ -25,6 +25,48 @@ const { projectModelVisibleCanonicalResult } = await import(path.join(
   root,
   "plugins/coc-keeper/pi/lib/tool-contract-projection.ts",
 ));
+const { createSemanticIdentityRegistry } = await import(path.join(
+  root,
+  "plugins/coc-keeper/pi/lib/semantic-identity-registry.ts",
+));
+
+/**
+ * Production never projects a settlement against an empty registry: the
+ * extension registers every roll the settlement carries before projecting it.
+ * Passing `null` here asserted something weaker than the real path and hid a
+ * live deadlock — an unregistered roll has no handle, so the `state.journal`
+ * refusal that names the remedy for a fumble collapsed into
+ * `semantic_identity_unavailable` and the turn could not be journaled at all.
+ * Build the same view the host builds.
+ */
+function semanticViewFor(data) {
+  const registry = createSemanticIdentityRegistry();
+  const scope = { sessionEpoch: 1, campaign: "recorded", playerTurnEpoch: 1 };
+  const result = data?.settlement?.result ?? {};
+  const rows = [result, result.bound_check, result.check].filter(
+    (row) => row && typeof row === "object",
+  );
+  for (const row of rows) {
+    const register = (canonicalId, facts) => {
+      if (typeof canonicalId !== "string" || !canonicalId.trim()) return;
+      registry.register({
+        domain: "roll",
+        canonicalId,
+        facts,
+        scope,
+        lifetime: "player_turn",
+      });
+    };
+    register(row.roll_id, [row.skill ?? row.characteristic, row.goal ?? result.source, data.family]);
+    for (const [field, role] of [["check_roll_id", "check"], ["loss_roll_id", "loss"]]) {
+      register(row[field], [result.source ?? row.goal, result.check?.skill ?? row.skill, role]);
+    }
+    for (const [index, rollId] of (row.session_roll_ids ?? []).entries()) {
+      register(rollId, [result.source, data.family, "session-roll", index + 1]);
+    }
+  }
+  return registry.projectAll(scope);
+}
 
 const dir = path.join(root, "tests/fixtures/rules-settle-recorded");
 const index = JSON.parse(fs.readFileSync(path.join(dir, "index.json"), "utf8"));
@@ -38,7 +80,7 @@ for (const row of index.payloads) {
   const visible = projectModelVisibleCanonicalResult(
     "rules.settle",
     { ok: true, tool: "rules.settle", data, warnings: [], hints: [] },
-    null,
+    semanticViewFor(data),
     diagnostics,
   );
   assert.equal(visible.ok, true, `${row.file}: envelope must stay ok`);
@@ -64,7 +106,7 @@ for (const row of index.payloads) {
   const visible = projectModelVisibleCanonicalResult(
     "rules.settle",
     { ok: true, tool: "rules.settle", data, warnings: [], hints: [] },
-    null,
+    semanticViewFor(data),
     { unmapped: [] },
   );
   const rendered = JSON.stringify(visible);
