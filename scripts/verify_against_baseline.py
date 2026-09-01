@@ -87,8 +87,39 @@ def _failures(output: str) -> set[str]:
     return found
 
 
-def _named_paths(output: str) -> set[str]:
-    return {p for p in _PATH_IN_OUTPUT.findall(output) if not _is_foreign(p)}
+def _named_paths(output: str, *, root: Path | None = None) -> set[str]:
+    """Repo files named inside failure output, as paths relative to the tree.
+
+    Two independent ways the raw strings lie, both found by workers using this
+    tool rather than by its own tests:
+
+    1. The two trees sit at different absolute roots — this one, and a
+       temporary baseline worktree — so an absolute path in one side's output
+       can never equal the other's. A run from a worktree reported ~50 spurious
+       masked violations that way.
+    2. pytest renders a frame relative when it is shallow enough to reach by
+       ``..`` and absolute otherwise, so the *same* file outside the tree gets
+       two spellings depending only on how deep each tree happens to sit. That
+       produced a `regressions` verdict over one CPython stdlib file.
+
+    Resolving against the owning tree fixes both, and anything that resolves
+    outside the tree is dropped: a stdlib or site-packages frame is not a file
+    this change could have introduced a violation into.
+    """
+    if root is None:
+        root = ROOT
+    base = root.resolve()
+    found = set()
+    for raw in _PATH_IN_OUTPUT.findall(output):
+        try:
+            resolved = (base / raw).resolve() if not raw.startswith("/") else Path(raw).resolve()
+            relative = resolved.relative_to(base)
+        except (ValueError, OSError):
+            continue  # outside the tree: not ours to blame
+        path = str(relative)
+        if not _is_foreign(path):
+            found.add(path)
+    return found
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -148,7 +179,10 @@ def main(argv: list[str] | None = None) -> int:
                 files = sorted({name.split("::")[0] for name in shared})
                 mine_v = _run_pytest(ROOT, files, verbose=True)
                 base_v = _run_pytest(worktree, files, verbose=True)
-                masked = sorted(_named_paths(mine_v) - _named_paths(base_v))
+                masked = sorted(
+                    _named_paths(mine_v, root=ROOT)
+                    - _named_paths(base_v, root=worktree)
+                )
         finally:
             subprocess.run(
                 ["git", "worktree", "remove", str(worktree), "--force"],

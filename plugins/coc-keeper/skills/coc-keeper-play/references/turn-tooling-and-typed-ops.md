@@ -179,7 +179,11 @@ contract above still applies. This is the natural rhythm:
    percentile fumble has a foreseeable complication, pass it as
    `fumble_consequence` so public roll evidence is complete.
    When the result is critical/fumble, or a pushed roll fails, settle its
-   source-bound `state.exceptional_effect` before journaling. Link
+   source-bound `state.exceptional_effect` before journaling. Its
+   `source_roll_id` is the exact `roll_id` handle presented on that settled
+   check's own result (`rules.settle` returns it inside
+   `settlement.result.bound_check`); copy it verbatim — never compose, guess,
+   or abbreviate a roll handle. Link
    `resource_delta` to the actual HP/SAN/MP/Luck/ammunition/item/condition
    write; link `relationship_or_clock` to a real NPC/threat/time-marker change
    (plain elapsed time or `set_flag` is not enough). A bounded
