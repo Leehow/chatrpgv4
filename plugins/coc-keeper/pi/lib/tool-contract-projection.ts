@@ -4076,6 +4076,51 @@ const TRANSPORT_COLLAPSE_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
   "projection_sha256",
 ]);
 
+/**
+ * Transport-authored markers that declare "this `data` is NO LONGER the
+ * canonical operation's payload; it is the wire's collapse stub."
+ *
+ * Two branches in `coc_mcp_wire.py` replace `data` with
+ * `_minimal_identity(operation, data)` when the canonical result cannot fit
+ * `MAX_INLINE_BYTES`, and each stamps its own marker: `identity_only` on the
+ * `ok: true` collapse, `projection_failed` on the `mcp_wire_budget_exceeded`
+ * fallback. Both are written ONLY at those two sites, so a marker is an exact
+ * machine declaration, never a heuristic about payload shape.
+ *
+ * The stub's whole point is `replay_operation` — the card telling the Keeper
+ * to re-run the typed operation instead of reading campaign files. A bespoke
+ * per-operation projector is written against the CANONICAL shape and copies a
+ * fixed KEPT_FIELDS whitelist out of it; handed a stub instead, it copies the
+ * one or two identity names that happen to overlap and drops the card. That
+ * is not a fail-closed error the Keeper can act on — it is `ok: true` with
+ * nothing actionable inside (`state.deliver_handout` collapsed to `{}`).
+ *
+ * So the stub is projected by operation, but never by the operation's
+ * canonical projector: `stripOpaqueModelIdentity` classifies exactly the
+ * closed set of names the wire authors, under the same operation-local
+ * identity declarations, and fails closed on anything it does not recognize.
+ * That is already how the ~139 operations WITHOUT a bespoke projector survive
+ * a collapse; this makes the remaining ones behave identically instead of
+ * each having to earn its own whitelist line the first time it overflows.
+ */
+const TRANSPORT_COLLAPSE_WIRE_MARKERS: readonly string[] = [
+  "identity_only",
+  "projection_failed",
+];
+
+/**
+ * True when the wire declared this envelope's `data` to be a collapse stub.
+ */
+function isTransportCollapsedEnvelope(
+  envelope: Record<string, unknown>,
+): boolean {
+  const wire = isPlainObject(envelope.wire) ? envelope.wire : null;
+  if (wire === null) return false;
+  return TRANSPORT_COLLAPSE_WIRE_MARKERS.some(
+    (marker) => wire[marker] === true,
+  );
+}
+
 // Closed-universe check: every declared integrity field — operation-local or
 // transport-authored — must be a member of the classified integrity-name
 // universe. Declarations narrow the boundary; they never extend the name
@@ -6882,6 +6927,9 @@ export function projectModelVisibleCanonicalResult(
   semanticIds: SemanticIdMap | null = null,
   diagnostics: ProjectionIdentityDiagnostics | null = null,
 ): Record<string, unknown> {
+  // module.context reads the whole envelope and carries the wire's collapse
+  // stub through with its identity intact, so it keeps its own path. The
+  // KEPT_FIELDS projectors below must not see a stub at all.
   if (operation === "module.context") {
     const moduleProjection = projectModuleContextResultForModel(envelope);
     return {
@@ -6897,8 +6945,23 @@ export function projectModelVisibleCanonicalResult(
   }
   const data = isPlainObject(projected.data) ? projected.data : null;
   const operationName = typeof operation === "string" ? operation : null;
+  // The wire may have replaced `data` with its collapse stub rather than this
+  // operation's canonical payload.
+  const transportCollapsed = isTransportCollapsedEnvelope(envelope);
   if (data !== null) {
-    if (operation === "scene.context") {
+    if (transportCollapsed) {
+      // A collapse stub is not this operation's canonical payload, so it does
+      // not go to the operation's canonical projector: each of those copies a
+      // fixed KEPT_FIELDS whitelist of canonical names and would drop the
+      // stub's replay_operation card, handing the Keeper an `ok: true`
+      // envelope with nothing actionable in it. This is the same path the
+      // operations without a bespoke projector already take — operation-local
+      // identity declarations still apply, and an unknown name still fails
+      // closed.
+      projected.data = sanitizeEnvelopeBranch(
+        data, semanticIds, diagnostics, operationName,
+      );
+    } else if (operation === "scene.context") {
       projected.data = projectSceneContextData(data, semanticIds, diagnostics);
     } else if (operation === "chase.context") {
       projected.data = projectChaseContextData(data, diagnostics);
