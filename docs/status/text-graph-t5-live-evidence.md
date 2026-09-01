@@ -73,3 +73,22 @@ out its full timeout, while the play session sat idle with zero events.
 
 Recorded as a product observation about the handoff window, not repaired here.
 The player reply was re-sent to the play session and proceeded normally.
+
+### 3. The table-opening turn does not exercise the text layer, and that is correct
+
+The first settled play turn (`turn-p-3832dc09483d`) closed with
+`settle_class=settled` and **zero** `turn.finalize`, `narration.review` or
+`turn.output_context` calls. That is not a rule-4 violation and not a gate-4
+measurement.
+
+Its call sequence was `session.resume`, `memory.extraction_status`,
+`npc.reaction`, `secrets.briefing`, `state.record_npc_engagement`,
+`evidence.table_opening`, `progressive.status` — with **no `state.journal`**.
+The opening is delivered through `evidence.table_opening`, not through the
+settled-turn finalization path, so the obligation plane has nothing to close.
+`turn-finalizations.jsonl` does not exist yet for this campaign.
+
+Gate 4 needs a *played* turn — a player action that settles checks and
+journals — before `findings` can be measured at all. Counting the opening as a
+zero would have been a false measurement in the direction that flatters T4's
+alternative, so it is recorded as not-yet-measured instead.
