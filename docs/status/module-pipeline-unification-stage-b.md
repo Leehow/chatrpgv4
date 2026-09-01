@@ -332,6 +332,50 @@ one player (this session), one turn at a time through the repo's own
     Verified live: both the clock block and the beat now reach the table with
     full content.
 
+19. **A module asset root named with a digest.** Found by taking a second
+    module through the real path rather than by another turn of play.
+    Registering the prepared Cold Harvest bundle minted
+    `asset_root_id: pdf-e4832eec4aa06a2a` — a 16-character hex token, which is
+    exactly what the Keeper's closed grammar refuses. `asset_root_id` is
+    declared semantic on `setup.phase`, `progressive.status` and
+    `session.resume`, so a campaign rooted that way would have failed all three
+    closed, `session.resume` being the one a host restart depends on. The root
+    now derives from the bundle's semantic `source_id`
+    ("pdf:cold-harvest" → "cold-harvest"), and a caller with neither a
+    canonical module id nor a semantic source id is refused rather than handed
+    an unreadable name. Roots already on disk resolve by file digest first and
+    keep their names.
+
+    That same module re-proved finding 0's bind gate against a different
+    producer: `codex-pdf-skill` had minted `pdf:e4832eec4aa06a2a4946ac91`, and
+    the gate refused it with the actionable message before any table time was
+    spent.
+
+20. **No characteristic check could be settled, ever.** `actor_check_ref` and
+    `combined_target_refs` declare `characteristic:` an allowed namespace — the
+    core-check adapter partitions on exactly `skill:` / `characteristic:` — but
+    the closed grammar required four characters after the namespace and granted
+    a three-character floor only to `roll:`, whose own comment already names
+    the reason ("three-letter CoC characteristics"). Every CoC7 characteristic
+    abbreviation is exactly three letters, so the allowance contradicted itself.
+
+    At the table the Keeper rolled POW against the ghost, sent
+    `characteristic:POW`, was told the value "must use its closed semantic
+    form: namespace `skill:`, `characteristic:` only", retried with exactly
+    that form as `characteristic:pow`, and was refused again — an error
+    instructing it to do what it had just done. It abandoned the opposed check
+    and improvised, which is how §5.1 was reached. `characteristic:` now
+    carries the same floor, verified live: the same ref passed the grammar on
+    the next attempt. The floor is three, not zero — `characteristic:x` and
+    entropy stay refused.
+
+21. **A field that was never an input.** `mechanics.ensure` echoes its resolved
+    archetype back as `profile.archetype_id`, and ensuring the ghost's combat
+    profile mid-fight failed the whole result closed on it. The input is named
+    `fallback_archetype_id`, so the input-echo sweep from finding 15 could not
+    have found this one — exactly the limit that check's own documentation
+    states. Both sweeps are needed, and neither subsumes the other.
+
 ## 5. Open defect that stopped deeper play (not owned by this work)
 
 On a fumbled STR roll the turn could not settle:
