@@ -874,6 +874,17 @@ def _turn_timeout_diagnosis(rows: list[dict]) -> dict:
     }
 
 
+def _report_ack_failure(message: str) -> None:
+    """Surface an acknowledgement failure on the channel the caller can see.
+
+    `log()` writes to the detached serve process's handle, which a `turn`
+    invocation does not hold; routing failures only there is how a rejected
+    acknowledgement stayed invisible while the receipt silently never appeared.
+    """
+    log(message)
+    print(message, file=sys.stderr)
+
+
 def _delivered_finalization(rows: list[dict]) -> dict | None:
     """Campaign + finalization identity of the turn this submit just delivered.
 
@@ -959,6 +970,10 @@ def _acknowledge_delivery(payload: dict, rows: list[dict]) -> None:
         "rendered_sha256": delivered["rendered_sha256"],
         "ack_kind": "displayed",
         "source_id": f"rpc-driver:{payload.get('id') or 'turn'}",
+        # Required, and idempotent by construction: one acknowledgement per
+        # finalization, so a replayed turn reuses the same decision and the
+        # broker returns the existing receipt instead of writing a second one.
+        "decision_id": f"rpc-driver:{delivered['finalization_id']}",
     }
     try:
         completed = subprocess.run(
@@ -972,10 +987,17 @@ def _acknowledge_delivery(payload: dict, rows: list[dict]) -> None:
             cwd=ROOT, capture_output=True, text=True, timeout=120,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        log(f"delivery ack failed to run: {exc}")
+        _report_ack_failure(f"delivery ack failed to run: {exc}")
         return
     if completed.returncode != 0:
-        log("delivery ack rejected: " + completed.stderr.strip()[-400:])
+        _report_ack_failure(
+            "delivery ack rejected: " + completed.stderr.strip()[-400:]
+        )
+        return
+    if '"ok": false' in completed.stdout or '"ok":false' in completed.stdout:
+        # The canonical gateway reports refusals in its stdout envelope with a
+        # zero exit code, so returncode alone would hide a rejected ack.
+        _report_ack_failure("delivery ack refused: " + completed.stdout.strip()[-400:])
         return
     print(f"delivery acknowledged: {delivered['finalization_id']}")
 
