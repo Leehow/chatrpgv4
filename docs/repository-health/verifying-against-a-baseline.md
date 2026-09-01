@@ -50,6 +50,15 @@ Two asymmetries to keep straight, because both look like good news and are not:
   scan that walks them reports their files as newly introduced. The tool filters
   those paths out of the content diff; without the filter it flagged two files
   from an unrelated agent's branch as masked violations.
+- **Absolute paths are not comparable across the two trees.** Failure output
+  mixes absolute and relative paths, and the baseline lives in a temporary
+  worktree at a different root, so comparing raw strings makes every absolute
+  path a difference. A run launched from a worktree reported ~50 spurious
+  masked violations this way; all of them vanished once both roots were
+  stripped. The tool now normalises to repo-relative before diffing. This was
+  found by a worker using the tool, not by the tool's own tests — running it
+  only from the main checkout hid it, because there the two roots coincide
+  often enough to look fine.
 - **A target the baseline does not have collapses the comparison.** Naming a
   test file the change adds makes the baseline run collect nothing, so every
   failure here reads as a regression. The tool splits those out as

@@ -87,8 +87,27 @@ def _failures(output: str) -> set[str]:
     return found
 
 
-def _named_paths(output: str) -> set[str]:
-    return {p for p in _PATH_IN_OUTPUT.findall(output) if not _is_foreign(p)}
+def _named_paths(output: str, *, roots: tuple[Path, ...] = ()) -> set[str]:
+    """File paths named inside failure output, normalised to repo-relative.
+
+    Failure output mixes absolute and relative paths, and the two trees live
+    at different absolute roots — this one, and a temporary baseline worktree.
+    Comparing the raw strings makes every absolute path a false difference: a
+    run from a worktree reported ~50 spurious masked violations that way, all
+    of which disappear once both roots are stripped. Strip the roots first, so
+    the diff compares files rather than checkouts.
+    """
+    found = set()
+    prefixes = tuple(f"{str(root).rstrip('/')}/" for root in roots)
+    for raw in _PATH_IN_OUTPUT.findall(output):
+        path = raw
+        for prefix in prefixes:
+            if path.startswith(prefix):
+                path = path[len(prefix):]
+                break
+        if not _is_foreign(path):
+            found.add(path)
+    return found
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -148,7 +167,11 @@ def main(argv: list[str] | None = None) -> int:
                 files = sorted({name.split("::")[0] for name in shared})
                 mine_v = _run_pytest(ROOT, files, verbose=True)
                 base_v = _run_pytest(worktree, files, verbose=True)
-                masked = sorted(_named_paths(mine_v) - _named_paths(base_v))
+                roots = (ROOT, worktree)
+                masked = sorted(
+                    _named_paths(mine_v, roots=roots)
+                    - _named_paths(base_v, roots=roots)
+                )
         finally:
             subprocess.run(
                 ["git", "worktree", "remove", str(worktree), "--force"],
