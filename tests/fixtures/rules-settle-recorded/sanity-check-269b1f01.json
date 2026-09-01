@@ -1,0 +1,137 @@
+{
+  "decision_ref": "decision:coc7:sanity:check",
+  "family": "sanity",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:sanity:failed-roll-involuntary-action",
+    "rule:coc7:sanity:fumble-maximum-loss",
+    "rule:coc7:sanity:getting-used-to-awfulness",
+    "rule:coc7:sanity:indefinite-daily-fraction",
+    "rule:coc7:sanity:max-san",
+    "rule:coc7:sanity:mythos-insanity-gain",
+    "rule:coc7:sanity:optional-multiple-san-rolls",
+    "rule:coc7:sanity:optional-mythos-hardened",
+    "rule:coc7:sanity:permanent-at-zero",
+    "rule:coc7:sanity:san-roll",
+    "rule:coc7:sanity:temporary-threshold-and-int"
+  ],
+  "investigator_id": "thomas-hayes",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "investigator_id": "thomas-hayes",
+      "source": "unnatural blood pool forming on spare bedroom floor with horrible reek",
+      "check": {
+        "skill": "SAN",
+        "target": 54,
+        "roll": 44,
+        "outcome": "regular",
+        "source": "unnatural blood pool forming on spare bedroom floor with horrible reek",
+        "trigger_id": null,
+        "san_loss": 0,
+        "san_before": 54,
+        "san_after": 54
+      },
+      "success": true,
+      "san_loss": 0,
+      "loss_detail": {
+        "rolls": [],
+        "resolution": "constant",
+        "raw_total": 0,
+        "expression": "0"
+      },
+      "san_before": 54,
+      "san_after": 54,
+      "trigger_id": null,
+      "sanity_check_skipped": false,
+      "bout_triggered": false,
+      "bout_active": false,
+      "active_bout_id": null,
+      "bout_rounds_remaining": 0,
+      "temporary_insane": false,
+      "indefinite_insane": false,
+      "permanently_insane": false,
+      "daily_san_lost": 1,
+      "day_start_san": 55,
+      "session_roll_ids": [
+        "toolbox-gate9-depth-08-000006"
+      ],
+      "session_events": [
+        {
+          "event_id": "se2",
+          "event_type": "sanity",
+          "source": "unnatural blood pool forming on spare bedroom floor with horrible reek",
+          "san_before": 54,
+          "san_loss": 0,
+          "san_after": 54,
+          "roll_outcome": "regular",
+          "mythos_hardened": false,
+          "creature_type": null,
+          "summary": "thomas-hayes unnatural blood pool forming on spare bedroom floor with horrible reek: SAN 54->54 (lost 0)."
+        }
+      ],
+      "check_roll_id": "toolbox-gate9-depth-08-000006"
+    }
+  },
+  "next_decisions": [
+    {
+      "schema_version": 1,
+      "decision_ref": "decision:coc7:sanity:bout-tick",
+      "family": "sanity",
+      "label": "Sanity bout-tick through an existing resolver/subsystem phase",
+      "applicability": "not_applicable",
+      "required_inputs": [],
+      "locked_inputs": [
+        "bout_revision",
+        "investigator_id",
+        "origin_command_id",
+        "pending_choice_ref"
+      ],
+      "rule_refs": [
+        "rule:coc7:sanity:bout-real-time",
+        "rule:coc7:sanity:bout-summary",
+        "rule:coc7:sanity:phobia-and-mania",
+        "rule:coc7:sanity:underlying-repeat-bout"
+      ],
+      "source_refs": [
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120",
+        "span-sanity-complete-source-page-175-block-139"
+      ],
+      "capability_ref": "capability:coc7:sanity-execute",
+      "effect_refs": [],
+      "possible_continuations": [
+        "decision:coc7:sanity:bout-end",
+        "decision:coc7:sanity:bout-tick"
+      ],
+      "authority": {
+        "selection": "keeper-semantic",
+        "execution": "current-ruleset-adapter",
+        "hard_gate": false
+      }
+    }
+  ],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:6ddb5d75ebc810935f8cd659bc9d569309fd535efb7776f51253c4d89172879a"
+}

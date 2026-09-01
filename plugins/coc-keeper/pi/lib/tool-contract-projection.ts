@@ -3907,6 +3907,8 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [
       "actor_id", "capability_ref", "caregiver_id", "day_id", "decision_ref",
       "rescuer_id", "rule_ref", "rule_refs", "wound_id",
+      // Who a combat exchange targeted — the Keeper narrates with it.
+      "target_actor_id",
     ],
     ["request_digest"],
     ["command_id", "roll_id", "source_command_id", "state_refs"],
@@ -5489,6 +5491,65 @@ function projectSanityRulesSettleData(
   return projected;
 }
 
+/**
+ * Machine identity the combat subsystem stamps on every row of a settled
+ * exchange. None of it has a model consumer: the Keeper narrates from actor
+ * ids, rolls, outcomes and hp movement, and later turns re-enter combat
+ * through the current pending state, never by echoing a command id.
+ */
+const COMBAT_SUBSYSTEM_IDENTITY_FIELDS: readonly string[] = [
+  "combat_id", "command_id", "source_command_id", "attack_command_id",
+  "resolution_command_id", "opposed_roll_id", "scene_ref", "state_refs",
+  // Host roll receipts and catalog weapon ids inside the exchange record.
+  // The visible dice lines and weapon names carry what the Keeper narrates;
+  // the receipt internals have no model consumer.
+  "roll_evidence", "weapon_id",
+  // Per-event roll bookkeeping: who executed/owned the roll is already
+  // visible as the event's actor; these are receipt internals.
+  "subject", "executor_id", "skill_owner_id", "weapon",
+  // The provenance pin (stable_id + content_sha256) that binds a participant
+  // to its authored mechanics revision — host-verified, never model-echoed.
+  "mechanics_revision_ref",
+];
+
+function scrubCombatSubsystemIdentity(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(scrubCombatSubsystemIdentity);
+  if (!isPlainObject(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (COMBAT_SUBSYSTEM_IDENTITY_FIELDS.includes(key)) continue;
+    out[key] = scrubCombatSubsystemIdentity(child);
+  }
+  return out;
+}
+
+/**
+ * RuleGraph settles `decision:coc7:combat:attack` / `defend` / `end` with the
+ * combat subsystem's full receipt embedded under `settlement.result`. The
+ * first two live combat settlements in the project's history failed exactly
+ * here: `combat_id`, `attack_command_id`, `target_actor_id`,
+ * `opposed_roll_id`, per-event `weapon_id` and the rest of the subsystem's
+ * bookkeeping are undeclared identity, so the whole result collapsed while
+ * Walter Corbitt stood up. Scrub the bookkeeping, keep the fight.
+ *
+ * `target_actor_id` and event-level `weapon_id` are NOT scrubbed: actor ids
+ * are declared semantic identity and weapon ids map through the registry —
+ * they are what the Keeper narrates with.
+ */
+function projectCombatRulesSettleData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  // The subsystem stamps its bookkeeping on the outer receipt too
+  // (player_state_receipt.loaded_ammunition carries catalog weapon ids), so
+  // the scrub covers the whole envelope, not just the embedded result.
+  const scrubbed = scrubCombatSubsystemIdentity(data) as Record<string, unknown>;
+  return sanitizeEnvelopeBranch(
+    scrubbed, semanticIds, diagnostics, "rules.settle",
+  ) as Record<string, unknown>;
+}
+
 /** Closed family-aware compositor for embedded rules.settle products. */
 function projectRulesSettleData(
   data: Record<string, unknown>,
@@ -5497,6 +5558,9 @@ function projectRulesSettleData(
 ): Record<string, unknown> {
   if (data.family === "social") {
     return projectSocialRulesSettleData(data, semanticIds, diagnostics);
+  }
+  if (data.family === "combat") {
+    return projectCombatRulesSettleData(data, semanticIds, diagnostics);
   }
   if (
     data.family === "sanity"
@@ -7503,6 +7567,7 @@ const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["weapon_effect_refs", stringSet(["effect:"])],
   ["target_id", stringSet([])],
   ["target_npc_id", stringSet(["npc:"])],
+  ["target_actor_id", stringSet(["npc:", "actor:"])],
   ["affordance_id", stringSet(["affordance:"])],
   ["matched_affordance_ids", stringSet(["affordance:"])],
   ["selected_affordance_ids", stringSet(["affordance:"])],

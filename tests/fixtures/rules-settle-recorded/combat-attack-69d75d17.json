@@ -1,0 +1,3366 @@
+{
+  "decision_ref": "decision:coc7:combat:attack",
+  "family": "combat",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:combat:armor-reduction",
+    "rule:coc7:combat:automatic-fire",
+    "rule:coc7:combat:combat-rolls-not-pushable",
+    "rule:coc7:combat:dex-order",
+    "rule:coc7:combat:dodge-opposition",
+    "rule:coc7:combat:escape-close-combat",
+    "rule:coc7:combat:extreme-and-impale",
+    "rule:coc7:combat:fight-back-opposition",
+    "rule:coc7:combat:firearm-modifiers",
+    "rule:coc7:combat:firearm-range",
+    "rule:coc7:combat:firearms-unopposed",
+    "rule:coc7:combat:malfunction",
+    "rule:coc7:combat:maneuver-build",
+    "rule:coc7:combat:maneuver-goal",
+    "rule:coc7:combat:outnumbered",
+    "rule:coc7:combat:ranged-and-thrown",
+    "rule:coc7:combat:ready-firearm-initiative",
+    "rule:coc7:combat:round-and-action-economy",
+    "rule:coc7:combat:stun-and-burn",
+    "rule:coc7:combat:surprise",
+    "rule:coc7:combat:weapon-damage",
+    "rule:coc7:combat:weapon-profile-columns"
+  ],
+  "investigator_id": "thomas-hayes",
+  "event": null,
+  "player_state_receipt": {
+    "schema_version": 1,
+    "investigator_id": "thomas-hayes",
+    "hp": {
+      "before": 12,
+      "after": 12
+    },
+    "san": {
+      "before": 54,
+      "after": 54
+    },
+    "mp": {
+      "before": 11,
+      "after": 11
+    },
+    "luck": {
+      "before": 50,
+      "after": 50
+    },
+    "conditions_before": [],
+    "conditions_after": [],
+    "loaded_ammunition": [
+      {
+        "weapon_id": "revolver_38_or_9mm",
+        "weapon_label": ".38 Revolver",
+        "before": 6,
+        "change": 0,
+        "after": 6,
+        "scope": "current_loaded_magazine_only"
+      }
+    ]
+  },
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "results": [
+        {
+          "command_id": "combat-corbitt-house-ground-start",
+          "kind": "combat_start",
+          "status": "completed",
+          "events": [
+            {
+              "event_type": "combat_started",
+              "combat_id": "combat-corbitt-house-ground",
+              "revision": 1,
+              "initiative_order": [
+                {
+                  "actor_id": "thomas-hayes",
+                  "dex": 60,
+                  "dex_reason": null
+                },
+                {
+                  "actor_id": "npc-walter-corbitt",
+                  "dex": 35,
+                  "dex_reason": null
+                }
+              ],
+              "source_command_id": "combat-corbitt-house-ground-start"
+            }
+          ],
+          "pending_choice": null,
+          "state_refs": [
+            "save/combat.json",
+            "save/investigator-state/thomas-hayes.json#current_hp",
+            "save/investigator-state/thomas-hayes.json#current_mp"
+          ]
+        },
+        {
+          "command_id": "combat-corbitt-house-ground-campaign-combat:npc-walter-corbitt-attack-1",
+          "kind": "combat_attack",
+          "status": "completed",
+          "events": [
+            {
+              "event_type": "combat_defense_required",
+              "attack_command_id": "combat-corbitt-house-ground-campaign-combat:npc-walter-corbitt-attack-1",
+              "actor_id": "thomas-hayes",
+              "target_actor_id": "npc-walter-corbitt",
+              "declared_intent": "structured investigator attack",
+              "resolution_hint": "opposed_melee",
+              "weapon_id": "unarmed",
+              "rulebook_exception": null,
+              "on_success": null,
+              "victory_outcome": null,
+              "defeat_outcome": null,
+              "allowed_defenses": [
+                "dodge",
+                "fight_back"
+              ],
+              "revision": 2,
+              "source_command_id": "combat-corbitt-house-ground-campaign-combat:npc-walter-corbitt-attack-1"
+            }
+          ],
+          "pending_choice": null,
+          "state_refs": [
+            "save/combat.json",
+            "save/investigator-state/thomas-hayes.json#current_hp",
+            "save/investigator-state/thomas-hayes.json#current_mp"
+          ]
+        },
+        {
+          "command_id": "combat-corbitt-house-ground-campaign-combat:npc-walter-corbitt-attack-1-defense",
+          "kind": "combat_defend",
+          "status": "completed",
+          "events": [
+            {
+              "event_type": "combat_turn_resolved",
+              "combat_id": "combat-corbitt-house-ground",
+              "revision": 3,
+              "turn": {
+                "turn_id": "t1-1",
+                "actor_id": "thomas-hayes",
+                "dex": 60,
+                "dex_reason": null,
+                "declared_intent": "structured investigator attack",
+                "action": "opposed_melee",
+                "target_actor_id": "npc-walter-corbitt",
+                "roll_id": "combat-corbitt-house-ground:cr1",
+                "opposed_roll_id": "combat-corbitt-house-ground:cr2",
+                "opposed_outcome": "both_fail",
+                "defense_kind": "dodge",
+                "outcome": "no_damage",
+                "effect_applied": null,
+                "damage_roll_id": null,
+                "resolution_hint": "opposed_melee",
+                "resolution_command_id": "combat-corbitt-house-ground-campaign-combat:npc-walter-corbitt-attack-1-defense",
+                "attack_modifiers": {
+                  "range_band": null,
+                  "point_blank": false,
+                  "cover": false,
+                  "outnumbered_penalty": false,
+                  "bonus": 0,
+                  "penalty": 0
+                }
+              },
+              "roll_evidence": [
+                {
+                  "roll_id": "combat-corbitt-house-ground:cr1",
+                  "roll_role": "percentile_check",
+                  "actor_id": "thomas-hayes",
+                  "skill": "Fighting (Brawl)",
+                  "goal": "attack npc-walter-corbitt",
+                  "base_target": 50,
+                  "target": 50,
+                  "required_level": "regular",
+                  "difficulty": "regular",
+                  "required_target": 50,
+                  "effective_target": 50,
+                  "achieved_level": "failure",
+                  "passed": false,
+                  "success": false,
+                  "surplus_levels": 0,
+                  "outcome": "failure",
+                  "roll": 94,
+                  "bonus": 0,
+                  "penalty": 0,
+                  "effective_modifier": {
+                    "bonus": 0,
+                    "penalty": 0,
+                    "net": 0
+                  },
+                  "tens_values": [],
+                  "units": null,
+                  "unmodified_roll": null,
+                  "bonus_die_only_success": false,
+                  "excluded_outcome": null,
+                  "ranged": false,
+                  "marker": "[roll]thomas-hayes Fighting (Brawl)50:(d100->94)->failure[/roll]",
+                  "subject": {
+                    "kind": "investigator",
+                    "id": "thomas-hayes"
+                  },
+                  "executor_id": "thomas-hayes",
+                  "skill_owner_id": "thomas-hayes",
+                  "player_projection": {
+                    "visibility": "public",
+                    "roll": 94,
+                    "achieved_level": "failure",
+                    "outcome": "failure",
+                    "passed": false,
+                    "required_level": "regular",
+                    "surplus_levels": 0,
+                    "skill": "Fighting (Brawl)",
+                    "bonus": 0,
+                    "penalty": 0,
+                    "base_target": 50,
+                    "required_target": 50,
+                    "effective_target": 50,
+                    "target": 50
+                  }
+                },
+                {
+                  "roll_id": "combat-corbitt-house-ground:cr2",
+                  "roll_role": "percentile_check",
+                  "actor_id": "npc-walter-corbitt",
+                  "skill": "Dodge",
+                  "goal": "dodge vs thomas-hayes",
+                  "base_target": 17,
+                  "target": 17,
+                  "required_level": "regular",
+                  "difficulty": "regular",
+                  "required_target": 17,
+                  "effective_target": 17,
+                  "achieved_level": "failure",
+                  "passed": false,
+                  "success": false,
+                  "surplus_levels": 0,
+                  "outcome": "failure",
+                  "roll": 63,
+                  "bonus": 0,
+                  "penalty": 0,
+                  "effective_modifier": {
+                    "bonus": 0,
+                    "penalty": 0,
+                    "net": 0
+                  },
+                  "tens_values": [],
+                  "units": null,
+                  "unmodified_roll": null,
+                  "bonus_die_only_success": false,
+                  "excluded_outcome": null,
+                  "ranged": false,
+                  "marker": "[roll]npc-walter-corbitt Dodge17:(d100->63)->failure[/roll]",
+                  "subject": {
+                    "kind": "npc",
+                    "id": "npc-walter-corbitt"
+                  },
+                  "executor_id": "npc-walter-corbitt",
+                  "skill_owner_id": "npc-walter-corbitt",
+                  "player_projection": {
+                    "visibility": "public",
+                    "roll": 63,
+                    "achieved_level": "failure",
+                    "outcome": "failure",
+                    "passed": false,
+                    "required_level": "regular",
+                    "surplus_levels": 0,
+                    "skill": "Dodge",
+                    "bonus": 0,
+                    "penalty": 0
+                  }
+                }
+              ],
+              "engine_events": [],
+              "source_command_id": "combat-corbitt-house-ground-campaign-combat:npc-walter-corbitt-attack-1-defense"
+            },
+            {
+              "event_type": "combat_roll",
+              "roll_id": "combat-corbitt-house-ground:cr1",
+              "roll_role": "percentile_check",
+              "actor_id": "thomas-hayes",
+              "skill": "Fighting (Brawl)",
+              "goal": "attack npc-walter-corbitt",
+              "base_target": 50,
+              "target": 50,
+              "required_level": "regular",
+              "difficulty": "regular",
+              "required_target": 50,
+              "effective_target": 50,
+              "achieved_level": "failure",
+              "passed": false,
+              "success": false,
+              "surplus_levels": 0,
+              "outcome": "failure",
+              "roll": 94,
+              "bonus": 0,
+              "penalty": 0,
+              "effective_modifier": {
+                "bonus": 0,
+                "penalty": 0,
+                "net": 0
+              },
+              "tens_values": [],
+              "units": null,
+              "unmodified_roll": null,
+              "bonus_die_only_success": false,
+              "excluded_outcome": null,
+              "ranged": false,
+              "marker": "[roll]thomas-hayes Fighting (Brawl)50:(d100->94)->failure[/roll]",
+              "subject": {
+                "kind": "investigator",
+                "id": "thomas-hayes"
+              },
+              "executor_id": "thomas-hayes",
+              "skill_owner_id": "thomas-hayes",
+              "player_projection": {
+                "visibility": "public",
+                "roll": 94,
+                "achieved_level": "failure",
+                "outcome": "failure",
+                "passed": false,
+                "required_level": "regular",
+                "surplus_levels": 0,
+                "skill": "Fighting (Brawl)",
+                "bonus": 0,
+                "penalty": 0,
+                "base_target": 50,
+                "required_target": 50,
+                "effective_target": 50,
+                "target": 50
+              },
+              "source_command_id": "combat-corbitt-house-ground-campaign-combat:npc-walter-corbitt-attack-1-defense",
+              "raw_roll": 94,
+              "dice": {
+                "expression": "1D100",
+                "raw": [
+                  94
+                ],
+                "total": 94
+              }
+            },
+            {
+              "event_type": "combat_roll",
+              "roll_id": "combat-corbitt-house-ground:cr2",
+              "roll_role": "percentile_check",
+              "actor_id": "npc-walter-corbitt",
+              "skill": "Dodge",
+              "goal": "dodge vs thomas-hayes",
+              "base_target": 17,
+              "target": 17,
+              "required_level": "regular",
+              "difficulty": "regular",
+              "required_target": 17,
+              "effective_target": 17,
+              "achieved_level": "failure",
+              "passed": false,
+              "success": false,
+              "surplus_levels": 0,
+              "outcome": "failure",
+              "roll": 63,
+              "bonus": 0,
+              "penalty": 0,
+              "effective_modifier": {
+                "bonus": 0,
+                "penalty": 0,
+                "net": 0
+              },
+              "tens_values": [],
+              "units": null,
+              "unmodified_roll": null,
+              "bonus_die_only_success": false,
+              "excluded_outcome": null,
+              "ranged": false,
+              "marker": "[roll]npc-walter-corbitt Dodge17:(d100->63)->failure[/roll]",
+              "subject": {
+                "kind": "npc",
+                "id": "npc-walter-corbitt"
+              },
+              "executor_id": "npc-walter-corbitt",
+              "skill_owner_id": "npc-walter-corbitt",
+              "player_projection": {
+                "visibility": "public",
+                "roll": 63,
+                "achieved_level": "failure",
+                "outcome": "failure",
+                "passed": false,
+                "required_level": "regular",
+                "surplus_levels": 0,
+                "skill": "Dodge",
+                "bonus": 0,
+                "penalty": 0
+              },
+              "source_command_id": "combat-corbitt-house-ground-campaign-combat:npc-walter-corbitt-attack-1-defense",
+              "raw_roll": 63,
+              "dice": {
+                "expression": "1D100",
+                "raw": [
+                  63
+                ],
+                "total": 63
+              }
+            }
+          ],
+          "pending_choice": null,
+          "state_refs": [
+            "save/combat.json",
+            "save/investigator-state/thomas-hayes.json#current_hp",
+            "save/investigator-state/thomas-hayes.json#current_mp",
+            "logs/rolls.jsonl#combat-corbitt-house-ground-campaign-combat:npc-walter-corbitt-attack-1-defense"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "event_type": "combat_started",
+          "combat_id": "combat-corbitt-house-ground",
+          "revision": 1,
+          "initiative_order": [
+            {
+              "actor_id": "thomas-hayes",
+              "dex": 60,
+              "dex_reason": null
+            },
+            {
+              "actor_id": "npc-walter-corbitt",
+              "dex": 35,
+              "dex_reason": null
+            }
+          ],
+          "source_command_id": "combat-corbitt-house-ground-start"
+        },
+        {
+          "event_type": "combat_defense_required",
+          "attack_command_id": "combat-corbitt-house-ground-campaign-combat:npc-walter-corbitt-attack-1",
+          "actor_id": "thomas-hayes",
+          "target_actor_id": "npc-walter-corbitt",
+          "declared_intent": "structured investigator attack",
+          "resolution_hint": "opposed_melee",
+          "weapon_id": "unarmed",
+          "rulebook_exception": null,
+          "on_success": null,
+          "victory_outcome": null,
+          "defeat_outcome": null,
+          "allowed_defenses": [
+            "dodge",
+            "fight_back"
+          ],
+          "revision": 2,
+          "source_command_id": "combat-corbitt-house-ground-campaign-combat:npc-walter-corbitt-attack-1"
+        },
+        {
+          "event_type": "combat_turn_resolved",
+          "combat_id": "combat-corbitt-house-ground",
+          "revision": 3,
+          "turn": {
+            "turn_id": "t1-1",
+            "actor_id": "thomas-hayes",
+            "dex": 60,
+            "dex_reason": null,
+            "declared_intent": "structured investigator attack",
+            "action": "opposed_melee",
+            "target_actor_id": "npc-walter-corbitt",
+            "roll_id": "combat-corbitt-house-ground:cr1",
+            "opposed_roll_id": "combat-corbitt-house-ground:cr2",
+            "opposed_outcome": "both_fail",
+            "defense_kind": "dodge",
+            "outcome": "no_damage",
+            "effect_applied": null,
+            "damage_roll_id": null,
+            "resolution_hint": "opposed_melee",
+            "resolution_command_id": "combat-corbitt-house-ground-campaign-combat:npc-walter-corbitt-attack-1-defense",
+            "attack_modifiers": {
+              "range_band": null,
+              "point_blank": false,
+              "cover": false,
+              "outnumbered_penalty": false,
+              "bonus": 0,
+              "penalty": 0
+            }
+          },
+          "roll_evidence": [
+            {
+              "roll_id": "combat-corbitt-house-ground:cr1",
+              "roll_role": "percentile_check",
+              "actor_id": "thomas-hayes",
+              "skill": "Fighting (Brawl)",
+              "goal": "attack npc-walter-corbitt",
+              "base_target": 50,
+              "target": 50,
+              "required_level": "regular",
+              "difficulty": "regular",
+              "required_target": 50,
+              "effective_target": 50,
+              "achieved_level": "failure",
+              "passed": false,
+              "success": false,
+              "surplus_levels": 0,
+              "outcome": "failure",
+              "roll": 94,
+              "bonus": 0,
+              "penalty": 0,
+              "effective_modifier": {
+                "bonus": 0,
+                "penalty": 0,
+                "net": 0
+              },
+              "tens_values": [],
+              "units": null,
+              "unmodified_roll": null,
+              "bonus_die_only_success": false,
+              "excluded_outcome": null,
+              "ranged": false,
+              "marker": "[roll]thomas-hayes Fighting (Brawl)50:(d100->94)->failure[/roll]",
+              "subject": {
+                "kind": "investigator",
+                "id": "thomas-hayes"
+              },
+              "executor_id": "thomas-hayes",
+              "skill_owner_id": "thomas-hayes",
+              "player_projection": {
+                "visibility": "public",
+                "roll": 94,
+                "achieved_level": "failure",
+                "outcome": "failure",
+                "passed": false,
+                "required_level": "regular",
+                "surplus_levels": 0,
+                "skill": "Fighting (Brawl)",
+                "bonus": 0,
+                "penalty": 0,
+                "base_target": 50,
+                "required_target": 50,
+                "effective_target": 50,
+                "target": 50
+              }
+            },
+            {
+              "roll_id": "combat-corbitt-house-ground:cr2",
+              "roll_role": "percentile_check",
+              "actor_id": "npc-walter-corbitt",
+              "skill": "Dodge",
+              "goal": "dodge vs thomas-hayes",
+              "base_target": 17,
+              "target": 17,
+              "required_level": "regular",
+              "difficulty": "regular",
+              "required_target": 17,
+              "effective_target": 17,
+              "achieved_level": "failure",
+              "passed": false,
+              "success": false,
+              "surplus_levels": 0,
+              "outcome": "failure",
+              "roll": 63,
+              "bonus": 0,
+              "penalty": 0,
+              "effective_modifier": {
+                "bonus": 0,
+                "penalty": 0,
+                "net": 0
+              },
+              "tens_values": [],
+              "units": null,
+              "unmodified_roll": null,
+              "bonus_die_only_success": false,
+              "excluded_outcome": null,
+              "ranged": false,
+              "marker": "[roll]npc-walter-corbitt Dodge17:(d100->63)->failure[/roll]",
+              "subject": {
+                "kind": "npc",
+                "id": "npc-walter-corbitt"
+              },
+              "executor_id": "npc-walter-corbitt",
+              "skill_owner_id": "npc-walter-corbitt",
+              "player_projection": {
+                "visibility": "public",
+                "roll": 63,
+                "achieved_level": "failure",
+                "outcome": "failure",
+                "passed": false,
+                "required_level": "regular",
+                "surplus_levels": 0,
+                "skill": "Dodge",
+                "bonus": 0,
+                "penalty": 0
+              }
+            }
+          ],
+          "engine_events": [],
+          "source_command_id": "combat-corbitt-house-ground-campaign-combat:npc-walter-corbitt-attack-1-defense"
+        },
+        {
+          "event_type": "combat_roll",
+          "roll_id": "combat-corbitt-house-ground:cr1",
+          "roll_role": "percentile_check",
+          "actor_id": "thomas-hayes",
+          "skill": "Fighting (Brawl)",
+          "goal": "attack npc-walter-corbitt",
+          "base_target": 50,
+          "target": 50,
+          "required_level": "regular",
+          "difficulty": "regular",
+          "required_target": 50,
+          "effective_target": 50,
+          "achieved_level": "failure",
+          "passed": false,
+          "success": false,
+          "surplus_levels": 0,
+          "outcome": "failure",
+          "roll": 94,
+          "bonus": 0,
+          "penalty": 0,
+          "effective_modifier": {
+            "bonus": 0,
+            "penalty": 0,
+            "net": 0
+          },
+          "tens_values": [],
+          "units": null,
+          "unmodified_roll": null,
+          "bonus_die_only_success": false,
+          "excluded_outcome": null,
+          "ranged": false,
+          "marker": "[roll]thomas-hayes Fighting (Brawl)50:(d100->94)->failure[/roll]",
+          "subject": {
+            "kind": "investigator",
+            "id": "thomas-hayes"
+          },
+          "executor_id": "thomas-hayes",
+          "skill_owner_id": "thomas-hayes",
+          "player_projection": {
+            "visibility": "public",
+            "roll": 94,
+            "achieved_level": "failure",
+            "outcome": "failure",
+            "passed": false,
+            "required_level": "regular",
+            "surplus_levels": 0,
+            "skill": "Fighting (Brawl)",
+            "bonus": 0,
+            "penalty": 0,
+            "base_target": 50,
+            "required_target": 50,
+            "effective_target": 50,
+            "target": 50
+          },
+          "source_command_id": "combat-corbitt-house-ground-campaign-combat:npc-walter-corbitt-attack-1-defense",
+          "raw_roll": 94,
+          "dice": {
+            "expression": "1D100",
+            "raw": [
+              94
+            ],
+            "total": 94
+          }
+        },
+        {
+          "event_type": "combat_roll",
+          "roll_id": "combat-corbitt-house-ground:cr2",
+          "roll_role": "percentile_check",
+          "actor_id": "npc-walter-corbitt",
+          "skill": "Dodge",
+          "goal": "dodge vs thomas-hayes",
+          "base_target": 17,
+          "target": 17,
+          "required_level": "regular",
+          "difficulty": "regular",
+          "required_target": 17,
+          "effective_target": 17,
+          "achieved_level": "failure",
+          "passed": false,
+          "success": false,
+          "surplus_levels": 0,
+          "outcome": "failure",
+          "roll": 63,
+          "bonus": 0,
+          "penalty": 0,
+          "effective_modifier": {
+            "bonus": 0,
+            "penalty": 0,
+            "net": 0
+          },
+          "tens_values": [],
+          "units": null,
+          "unmodified_roll": null,
+          "bonus_die_only_success": false,
+          "excluded_outcome": null,
+          "ranged": false,
+          "marker": "[roll]npc-walter-corbitt Dodge17:(d100->63)->failure[/roll]",
+          "subject": {
+            "kind": "npc",
+            "id": "npc-walter-corbitt"
+          },
+          "executor_id": "npc-walter-corbitt",
+          "skill_owner_id": "npc-walter-corbitt",
+          "player_projection": {
+            "visibility": "public",
+            "roll": 63,
+            "achieved_level": "failure",
+            "outcome": "failure",
+            "passed": false,
+            "required_level": "regular",
+            "surplus_levels": 0,
+            "skill": "Dodge",
+            "bonus": 0,
+            "penalty": 0
+          },
+          "source_command_id": "combat-corbitt-house-ground-campaign-combat:npc-walter-corbitt-attack-1-defense",
+          "raw_roll": 63,
+          "dice": {
+            "expression": "1D100",
+            "raw": [
+              63
+            ],
+            "total": 63
+          }
+        }
+      ],
+      "combat": {
+        "schema_version": 2,
+        "combat_id": "combat-corbitt-house-ground",
+        "scene_ref": "scene/corbitt-house-ground",
+        "started_at_turn": 18,
+        "ended_at_turn": null,
+        "status": "active",
+        "outcome": null,
+        "participants": [
+          {
+            "actor_id": "thomas-hayes",
+            "side": "investigator",
+            "dex": 60,
+            "combat_skill": 50,
+            "dodge_skill": 30,
+            "firearms_skill": 50,
+            "has_ready_firearm": false,
+            "build": 1,
+            "damage_bonus": "+1D4",
+            "con": 55,
+            "hp_max": 12,
+            "hp_current": 12,
+            "magic_points": 11,
+            "armor": 0,
+            "armor_rule": null,
+            "weapons": [
+              {
+                "weapon_id": "unarmed",
+                "display_name": "Unarmed (fist/kick)",
+                "skill": "Fighting (Brawl)",
+                "damage_die": "1D3",
+                "base_range_yards": null,
+                "uses_per_round": "1",
+                "magazine": null,
+                "malfunction": null,
+                "impales": false,
+                "adds_damage_bonus": true,
+                "special": null,
+                "eras": [
+                  "1920s",
+                  "modern"
+                ],
+                "damage_type": "normal",
+                "damage": "1D3",
+                "reload_rounds": null,
+                "reload_kind": null,
+                "ammo_per_reload_round": null
+              }
+            ],
+            "conditions": [],
+            "active_effects": [],
+            "_defended_this_round": false,
+            "_dived_for_cover": false,
+            "_forfeit_next_attack": false,
+            "_aiming": false,
+            "_ammo": {},
+            "_reload_remaining": {}
+          },
+          {
+            "actor_id": "npc-walter-corbitt",
+            "side": "npc",
+            "dex": 35,
+            "combat_skill": 50,
+            "dodge_skill": 17,
+            "firearms_skill": 0,
+            "has_ready_firearm": false,
+            "build": 1,
+            "damage_bonus": "+1D4",
+            "con": 115,
+            "hp_max": 16,
+            "hp_current": 16,
+            "magic_points": 18,
+            "armor": 0,
+            "armor_rule": "degrades_1_per_damage",
+            "weapons": [
+              {
+                "weapon_id": "claws",
+                "display_name": "Claws/Bite (natural weapon)",
+                "skill": "Fighting",
+                "damage_die": "1D3",
+                "base_range_yards": null,
+                "uses_per_round": "1",
+                "magazine": null,
+                "malfunction": null,
+                "impales": false,
+                "adds_damage_bonus": true,
+                "special": "monster natural weapon; DB from monster's STR+SIZ",
+                "eras": [
+                  "1920s",
+                  "modern"
+                ],
+                "damage_type": "normal",
+                "damage": "1D3",
+                "reload_rounds": null,
+                "reload_kind": null,
+                "ammo_per_reload_round": null,
+                "name": "Clawed fingernails (kick, punch, claw)",
+                "note": "Page 459: Fighting 50% (Hard 25%/Extreme 10%), damage 1D3 + damage bonus (1D4) + possible infection."
+              },
+              {
+                "weapon_id": "floating-dagger",
+                "display_name": "Knife, medium (carving knife, ritual dagger)",
+                "skill": "Fighting (Brawl)",
+                "damage_die": "1D4+2",
+                "base_range_yards": null,
+                "uses_per_round": "1",
+                "magazine": null,
+                "malfunction": null,
+                "impales": true,
+                "adds_damage_bonus": true,
+                "special": null,
+                "eras": [
+                  "1920s",
+                  "modern"
+                ],
+                "damage_type": "impale",
+                "damage": "1D4+2",
+                "reload_rounds": null,
+                "reload_kind": null,
+                "ammo_per_reload_round": null,
+                "name": "Floating magical dagger",
+                "note": "Page 456: resolved as 1D100 against Corbitt's POW opposed by the investigator's Dodge; 1D4+2 damage, 6+1D4+2 on an Extreme success (impale). Costs 1 Magic point per round and counts as Corbitt's action for that round."
+              }
+            ],
+            "conditions": [],
+            "active_effects": [],
+            "_defended_this_round": true,
+            "_dived_for_cover": false,
+            "_forfeit_next_attack": false,
+            "_aiming": false,
+            "_ammo": {},
+            "_reload_remaining": {},
+            "mechanics_revision_ref": {
+              "stable_id": "npc:npc-walter-corbitt:mechanics",
+              "revision": 1,
+              "content_sha256": "a961229c21b39dfbdebb94dde0f014fe0f00996b4ac00120ef4469dd34929173",
+              "authority": "source_authored"
+            }
+          }
+        ],
+        "rounds": [
+          {
+            "round": 1,
+            "initiative_order": [
+              {
+                "actor_id": "thomas-hayes",
+                "dex": 60,
+                "dex_reason": null
+              },
+              {
+                "actor_id": "npc-walter-corbitt",
+                "dex": 35,
+                "dex_reason": null
+              }
+            ],
+            "initiative_progress": [
+              {
+                "actor_id": "npc-walter-corbitt",
+                "round_start_eligibility": {
+                  "hp_current": 16,
+                  "conditions": [],
+                  "dex": 35,
+                  "combat_skill": 50,
+                  "firearms_skill": 0,
+                  "has_ready_firearm": false
+                },
+                "initiative": {
+                  "actor_id": "npc-walter-corbitt",
+                  "dex": 35,
+                  "dex_reason": null
+                },
+                "status": "pending",
+                "skip_evidence": null
+              },
+              {
+                "actor_id": "thomas-hayes",
+                "round_start_eligibility": {
+                  "hp_current": 12,
+                  "conditions": [],
+                  "dex": 60,
+                  "combat_skill": 50,
+                  "firearms_skill": 50,
+                  "has_ready_firearm": false
+                },
+                "initiative": {
+                  "actor_id": "thomas-hayes",
+                  "dex": 60,
+                  "dex_reason": null
+                },
+                "status": "acted",
+                "skip_evidence": null
+              }
+            ],
+            "turns": [
+              {
+                "turn_id": "t1-1",
+                "actor_id": "thomas-hayes",
+                "dex": 60,
+                "dex_reason": null,
+                "declared_intent": "structured investigator attack",
+                "action": "opposed_melee",
+                "target_actor_id": "npc-walter-corbitt",
+                "roll_id": "combat-corbitt-house-ground:cr1",
+                "opposed_roll_id": "combat-corbitt-house-ground:cr2",
+                "opposed_outcome": "both_fail",
+                "defense_kind": "dodge",
+                "outcome": "no_damage",
+                "effect_applied": null,
+                "damage_roll_id": null,
+                "resolution_hint": "opposed_melee",
+                "resolution_command_id": "combat-corbitt-house-ground-campaign-combat:npc-walter-corbitt-attack-1-defense",
+                "attack_modifiers": {
+                  "range_band": null,
+                  "point_blank": false,
+                  "cover": false,
+                  "outnumbered_penalty": false,
+                  "bonus": 0,
+                  "penalty": 0
+                }
+              }
+            ]
+          }
+        ],
+        "damage_chain": [],
+        "revision": 3,
+        "current_round": 1,
+        "current_initiative": [
+          {
+            "actor_id": "thomas-hayes",
+            "dex": 60,
+            "dex_reason": null
+          },
+          {
+            "actor_id": "npc-walter-corbitt",
+            "dex": 35,
+            "dex_reason": null
+          }
+        ],
+        "initiative_cursor": 1,
+        "initiative_progress": [
+          {
+            "actor_id": "npc-walter-corbitt",
+            "round_start_eligibility": {
+              "hp_current": 16,
+              "conditions": [],
+              "dex": 35,
+              "combat_skill": 50,
+              "firearms_skill": 0,
+              "has_ready_firearm": false
+            },
+            "initiative": {
+              "actor_id": "npc-walter-corbitt",
+              "dex": 35,
+              "dex_reason": null
+            },
+            "status": "pending",
+            "skip_evidence": null
+          },
+          {
+            "actor_id": "thomas-hayes",
+            "round_start_eligibility": {
+              "hp_current": 12,
+              "conditions": [],
+              "dex": 60,
+              "combat_skill": 50,
+              "firearms_skill": 50,
+              "has_ready_firearm": false
+            },
+            "initiative": {
+              "actor_id": "thomas-hayes",
+              "dex": 60,
+              "dex_reason": null
+            },
+            "status": "acted",
+            "skip_evidence": null
+          }
+        ],
+        "jammed_weapons": [],
+        "weapon_catalog": {
+          "unarmed": {
+            "display_name": "Unarmed (fist/kick)",
+            "skill": "Fighting (Brawl)",
+            "damage_die": "1D3",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": false,
+            "adds_damage_bonus": true,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "1D3",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "brass_knuckles": {
+            "display_name": "Brass Knuckles",
+            "skill": "Fighting (Brawl)",
+            "damage_die": "1D3+1",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": false,
+            "adds_damage_bonus": true,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "1D3+1",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "bullwhip": {
+            "display_name": "Bullwhip",
+            "skill": "Fighting (Whip)",
+            "damage_die": "1D3",
+            "base_range_yards": 3,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": false,
+            "adds_damage_bonus": true,
+            "special": "uses half DB; reach 10 feet",
+            "eras": [
+              "1920s"
+            ],
+            "damage_type": "normal",
+            "damage": "1D3",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "chainsaw": {
+            "display_name": "Chainsaw",
+            "skill": "Fighting (Chainsaw)",
+            "damage_die": "2D8",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": 95,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": "awkward: double fumble chance; fumble causes 2D8 to user",
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D8",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "club_small": {
+            "display_name": "Club, small (nightstick)",
+            "skill": "Fighting (Brawl)",
+            "damage_die": "1D6",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": false,
+            "adds_damage_bonus": true,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "1D6",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "club_large": {
+            "display_name": "Club, large (baseball/cricket bat, poker)",
+            "skill": "Fighting (Brawl)",
+            "damage_die": "1D8",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": false,
+            "adds_damage_bonus": true,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "1D8",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "garrote": {
+            "display_name": "Garrote",
+            "skill": "Fighting (Garrote)",
+            "damage_die": "1D6",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": true,
+            "adds_damage_bonus": true,
+            "special": "victim must maneuver to escape or take 1D6/round; humanoids only",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D6",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "hatchet": {
+            "display_name": "Hatchet/Sickle",
+            "skill": "Fighting (Axe)",
+            "damage_die": "1D6+1",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": true,
+            "adds_damage_bonus": true,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D6+1",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "knife_small": {
+            "display_name": "Knife, small (switchblade)",
+            "skill": "Fighting (Brawl)",
+            "damage_die": "1D4",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": true,
+            "adds_damage_bonus": true,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D4",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "knife_medium": {
+            "display_name": "Knife, medium (carving knife, ritual dagger)",
+            "skill": "Fighting (Brawl)",
+            "damage_die": "1D4+2",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": true,
+            "adds_damage_bonus": true,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D4+2",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "knife_large": {
+            "display_name": "Knife, large (machete)",
+            "skill": "Fighting (Brawl)",
+            "damage_die": "1D8",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": true,
+            "adds_damage_bonus": true,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D8",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "sword_light": {
+            "display_name": "Sword, light (fencing foil, sword cane)",
+            "skill": "Fighting (Sword)",
+            "damage_die": "1D6",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": true,
+            "adds_damage_bonus": true,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D6",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "sword_medium": {
+            "display_name": "Sword, medium (rapier, heavy epee)",
+            "skill": "Fighting (Sword)",
+            "damage_die": "1D6+1",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": true,
+            "adds_damage_bonus": true,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D6+1",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "sword_heavy": {
+            "display_name": "Sword, heavy (cavalry saber)",
+            "skill": "Fighting (Sword)",
+            "damage_die": "1D8+1",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": false,
+            "adds_damage_bonus": true,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "1D8+1",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "spear": {
+            "display_name": "Spear (cavalry lance)",
+            "skill": "Fighting (Spear)",
+            "damage_die": "1D8+1",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D8+1",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "bow": {
+            "display_name": "Bow and Arrows",
+            "skill": "Firearms (Bow)",
+            "damage_die": "1D6",
+            "base_range_yards": 30,
+            "uses_per_round": "1",
+            "magazine": 1,
+            "malfunction": 97,
+            "impales": false,
+            "adds_damage_bonus": true,
+            "special": "uses half DB (not full)",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "1D6",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "crossbow": {
+            "display_name": "Crossbow",
+            "skill": "Firearms (Bow)",
+            "damage_die": "1D8+2",
+            "base_range_yards": 50,
+            "uses_per_round": "1/2",
+            "magazine": 1,
+            "malfunction": 96,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D8+2",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "revolver_38": {
+            "display_name": ".38 Automatic",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D10",
+            "base_range_yards": 15,
+            "uses_per_round": "1 (3)",
+            "magazine": 8,
+            "malfunction": 99,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D10",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 8
+          },
+          "revolver_45": {
+            "display_name": ".45 Revolver",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D10+2",
+            "base_range_yards": 15,
+            "uses_per_round": "1 (3)",
+            "magazine": 6,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D10+2",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 6
+          },
+          "automatic_45": {
+            "display_name": ".45 Automatic",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D10+2",
+            "base_range_yards": 15,
+            "uses_per_round": "1 (3)",
+            "magazine": 7,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D10+2",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 7
+          },
+          "rifle_22": {
+            "display_name": ".22 Bolt-Action Rifle",
+            "skill": "Firearms (Rifle/shotgun)",
+            "damage_die": "1D6+1",
+            "base_range_yards": 30,
+            "uses_per_round": "1",
+            "magazine": 6,
+            "malfunction": 99,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D6+1",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 6
+          },
+          "rifle_303_enfield": {
+            "display_name": ".303 Lee-Enfield Rifle",
+            "skill": "Firearms (Rifle/shotgun)",
+            "damage_die": "2D6+4",
+            "base_range_yards": 110,
+            "uses_per_round": "1",
+            "magazine": 10,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6+4",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 10
+          },
+          "shotgun_12g": {
+            "display_name": "12-gauge Shotgun (2B)",
+            "skill": "Firearms (Rifle/shotgun)",
+            "damage_die": "4D6",
+            "base_range_yards": 10,
+            "uses_per_round": "1 or 2",
+            "magazine": 2,
+            "malfunction": 100,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "damage bands by range; slugs (1D10+6) may impale",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "range_banded_damage": {
+              "point_blank": "4D6",
+              "half": "2D6",
+              "max": "1D6"
+            },
+            "damage_type": "normal",
+            "damage": "4D6",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "shotgun_10g": {
+            "display_name": "10-gauge Shotgun",
+            "skill": "Firearms (Rifle/shotgun)",
+            "damage_die": "4D6+2",
+            "base_range_yards": 10,
+            "uses_per_round": "1 or 2",
+            "magazine": 2,
+            "malfunction": 100,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "double-barrel; damage bands by range",
+            "eras": [
+              "1920s"
+            ],
+            "range_banded_damage": {
+              "point_blank": "4D6+2",
+              "half": "2D6+1",
+              "max": "1D4"
+            },
+            "damage_type": "normal",
+            "damage": "4D6+2",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "claws": {
+            "display_name": "Claws/Bite (natural weapon)",
+            "skill": "Fighting",
+            "damage_die": "1D3",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": false,
+            "adds_damage_bonus": true,
+            "special": "monster natural weapon; DB from monster's STR+SIZ",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "1D3",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "burning_torch": {
+            "display_name": "Burning Torch",
+            "skill": "Fighting (Brawl)",
+            "damage_die": "1D6",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "burn",
+            "status_effect": "burn",
+            "damage": "1D6",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "blackjack": {
+            "display_name": "Blackjack (Cosh, life-preserver)",
+            "skill": "Fighting (Brawl)",
+            "damage_die": "1D8",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": false,
+            "adds_damage_bonus": true,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "1D8",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "live_wire_220_volt_charge": {
+            "display_name": "Live Wire, 220-volt charge",
+            "skill": "Fighting (Brawl)",
+            "damage_die": "2D8",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": 95,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "stun",
+            "status_effect": "stun",
+            "damage": "2D8",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "mace_spray": {
+            "display_name": "Mace Spray*",
+            "skill": "Fighting (Brawl)",
+            "damage_die": "",
+            "base_range_yards": 2,
+            "uses_per_round": "1",
+            "magazine": 25,
+            "malfunction": null,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "Stun only; reach 6 feet (stored as 2 yards)",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "stun",
+            "status_effect": "stun",
+            "damage": "",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 25
+          },
+          "nunchaku": {
+            "display_name": "Nunchaku",
+            "skill": "Fighting (Flail)",
+            "damage_die": "1D8",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": false,
+            "adds_damage_bonus": true,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "1D8",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "rock_thrown": {
+            "display_name": "Rock, Thrown",
+            "skill": "Throw",
+            "damage_die": "1D4",
+            "base_range_yards": 5,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": false,
+            "adds_damage_bonus": true,
+            "special": "+half DB",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "1D4",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "shuriken": {
+            "display_name": "Shuriken (i)",
+            "skill": "Throw",
+            "damage_die": "1D3",
+            "base_range_yards": 5,
+            "uses_per_round": "2",
+            "magazine": 1,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": true,
+            "special": "+half DB",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D3",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "spear_thrown": {
+            "display_name": "Spear, Thrown (i)",
+            "skill": "Throw",
+            "damage_die": "1D8",
+            "base_range_yards": 5,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": true,
+            "adds_damage_bonus": true,
+            "special": "+half DB",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D8",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "taser": {
+            "display_name": "Taser (dart)",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D3",
+            "base_range_yards": 5,
+            "uses_per_round": "1",
+            "magazine": 3,
+            "malfunction": 95,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "dart stun gun; range 15 feet (stored as 5 yards)",
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "stun",
+            "status_effect": "stun",
+            "damage": "1D3",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 3
+          },
+          "war_boomerang": {
+            "display_name": "War Boomerang",
+            "skill": "Throw",
+            "damage_die": "1D8",
+            "base_range_yards": 5,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": false,
+            "adds_damage_bonus": true,
+            "special": "uses half DB (not full); rulebook era 'Rare' (rare in both eras)",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "1D8",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "wood_axe": {
+            "display_name": "Wood Axe (i)",
+            "skill": "Fighting (Axe)",
+            "damage_die": "1D8+2",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": null,
+            "impales": true,
+            "adds_damage_bonus": true,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D8+2",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "flintlock_22_short": {
+            "display_name": "Flintlock",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D6+1",
+            "base_range_yards": 10,
+            "uses_per_round": "1/4",
+            "magazine": 1,
+            "malfunction": 95,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": "rulebook era 'Rare' (rare in both eras)",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D6+1",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "automatic_25_derringer": {
+            "display_name": ".25 Derringer (1B)",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D6",
+            "base_range_yards": 3,
+            "uses_per_round": "1",
+            "magazine": 1,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s"
+            ],
+            "damage_type": "impale",
+            "damage": "1D6",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "revolver_32_or_7_65mm": {
+            "display_name": ".32 or 7.65mm Revolver",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D8",
+            "base_range_yards": 15,
+            "uses_per_round": "1 (3)",
+            "magazine": 6,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D8",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 6
+          },
+          "automatic_357_magnum": {
+            "display_name": ".357 Magnum Revolver",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D8+1D4",
+            "base_range_yards": 15,
+            "uses_per_round": "1 (3)",
+            "magazine": 6,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D8+1D4",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 6
+          },
+          "revolver_38_or_9mm": {
+            "display_name": ".38 or 9mm Revolver",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D10",
+            "base_range_yards": 15,
+            "uses_per_round": "1 (3)",
+            "magazine": 6,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D10",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 6
+          },
+          "beretta_m9": {
+            "display_name": "Beretta M9",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D10",
+            "base_range_yards": 15,
+            "uses_per_round": "1 (3)",
+            "magazine": 15,
+            "malfunction": 98,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D10",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 15
+          },
+          "glock_17": {
+            "display_name": "Glock 17",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D10",
+            "base_range_yards": 15,
+            "uses_per_round": "1 (3)",
+            "magazine": 17,
+            "malfunction": 98,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D10",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 17
+          },
+          "9mm_auto_model_p08": {
+            "display_name": "Model P08 Luger",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D10",
+            "base_range_yards": 15,
+            "uses_per_round": "1 (3)",
+            "magazine": 8,
+            "malfunction": 99,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D10",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 8
+          },
+          "luger_41_revolver": {
+            "display_name": ".41 Revolver",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D10",
+            "base_range_yards": 15,
+            "uses_per_round": "1 (3)",
+            "magazine": 8,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s"
+            ],
+            "damage_type": "impale",
+            "damage": "1D10",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 8
+          },
+          "imi_desert_eagle": {
+            "display_name": "IMI Desert Eagle",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D10+1D6+3",
+            "base_range_yards": 15,
+            "uses_per_round": "1 (3)",
+            "magazine": 7,
+            "malfunction": 94,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D10+1D6+3",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 7
+          },
+          "col_moranx27s_air_rifle": {
+            "display_name": "Col. Moran's Air Rifle",
+            "skill": "Firearms (Rifle)",
+            "damage_die": "2D6+1",
+            "base_range_yards": 20,
+            "uses_per_round": "1/3",
+            "magazine": 1,
+            "malfunction": 88,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6+1",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "garand_m1_m2_rifle": {
+            "display_name": "Garand M1, M2 Rifle",
+            "skill": "Firearms (Rifle)",
+            "damage_die": "2D6+4",
+            "base_range_yards": 110,
+            "uses_per_round": "1",
+            "magazine": 8,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6+4",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 8
+          },
+          "sks_carbine": {
+            "display_name": "SKS Carbine",
+            "skill": "Firearms (Rifle)",
+            "damage_die": "2D6+1",
+            "base_range_yards": 90,
+            "uses_per_round": "1 (2)",
+            "magazine": 10,
+            "malfunction": 97,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6+1",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 10
+          },
+          "elephant_gun": {
+            "display_name": "Elephant Gun (2B)",
+            "skill": "Firearms (Rifle)",
+            "damage_die": "3D6+4",
+            "base_range_yards": 100,
+            "uses_per_round": "1 or 2",
+            "magazine": 2,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "3D6+4",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "20_gauge_shotgun": {
+            "display_name": "20-gauge Shotgun (2B)",
+            "skill": "Firearms (Shotgun)",
+            "damage_die": "2D6",
+            "base_range_yards": 10,
+            "uses_per_round": "1 or 2",
+            "magazine": 2,
+            "malfunction": 100,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 2D6/1D6/1D3",
+            "eras": [
+              "1920s"
+            ],
+            "damage_type": "normal",
+            "damage": "2D6",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "16_gauge_shotgun": {
+            "display_name": "16-gauge Shotgun (2B)",
+            "skill": "Firearms (Shotgun)",
+            "damage_die": "2D6+2",
+            "base_range_yards": 10,
+            "uses_per_round": "1 or 2",
+            "magazine": 2,
+            "malfunction": 100,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 2D6+2/1D6+1/1D4",
+            "eras": [
+              "1920s"
+            ],
+            "damage_type": "normal",
+            "damage": "2D6+2",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "12_gauge_benelli_m3": {
+            "display_name": "12-gauge Benelli M3 (folding stock)",
+            "skill": "Firearms (Shotgun)",
+            "damage_die": "4D6",
+            "base_range_yards": 10,
+            "uses_per_round": "1 (2)",
+            "magazine": 7,
+            "malfunction": 100,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 4D6/2D6/1D6",
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "4D6",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 7
+          },
+          "12_gauge_spas": {
+            "display_name": "12-gauge SPAS (folding stock)",
+            "skill": "Firearms (Shotgun)",
+            "damage_die": "4D6",
+            "base_range_yards": 10,
+            "uses_per_round": "1",
+            "magazine": 8,
+            "malfunction": 98,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 4D6/2D6/1D6",
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "4D6",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 8
+          },
+          "ak_47_or_akm": {
+            "display_name": "AK-47 or AKM",
+            "skill": "Firearms (Rifle)",
+            "damage_die": "2D6+1",
+            "base_range_yards": 100,
+            "uses_per_round": "1 (2) or full auto",
+            "magazine": 30,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6+1",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 30
+          },
+          "ak_74": {
+            "display_name": "AK-74",
+            "skill": "Firearms (Rifle)",
+            "damage_die": "2D6",
+            "base_range_yards": 110,
+            "uses_per_round": "1 (2) or full auto",
+            "magazine": 30,
+            "malfunction": 97,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 30
+          },
+          "barrett_model_82": {
+            "display_name": "Barrett Model 82",
+            "skill": "Firearms (Rifle)",
+            "damage_die": "2D10+1D8+6",
+            "base_range_yards": 250,
+            "uses_per_round": "1",
+            "magazine": 11,
+            "malfunction": 96,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D10+1D8+6",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 11
+          },
+          "fn_fal_light_automatic": {
+            "display_name": "FN FAL Light Automatic",
+            "skill": "Firearms (Rifle)",
+            "damage_die": "2D6+4",
+            "base_range_yards": 110,
+            "uses_per_round": "1 (2) or burst 3",
+            "magazine": 20,
+            "malfunction": 97,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6+4",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 20
+          },
+          "galil_assault_rifle": {
+            "display_name": "Galil Assault Rifle",
+            "skill": "Firearms (Rifle)",
+            "damage_die": "2D6",
+            "base_range_yards": 110,
+            "uses_per_round": "1 or full auto",
+            "magazine": 20,
+            "malfunction": 98,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 20
+          },
+          "m16a2": {
+            "display_name": "M16A2",
+            "skill": "Firearms (Rifle)",
+            "damage_die": "2D6",
+            "base_range_yards": 110,
+            "uses_per_round": "1 (2) or burst 3",
+            "magazine": 30,
+            "malfunction": 97,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 30
+          },
+          "m4": {
+            "display_name": "M4",
+            "skill": "Firearms (Rifle)",
+            "damage_die": "2D6",
+            "base_range_yards": 90,
+            "uses_per_round": "1 or burst 3",
+            "magazine": 30,
+            "malfunction": 97,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 30
+          },
+          "steyr_aug": {
+            "display_name": "Steyr AUG",
+            "skill": "Firearms (Rifle)",
+            "damage_die": "2D6",
+            "base_range_yards": 110,
+            "uses_per_round": "1 (2) or full auto",
+            "magazine": 30,
+            "malfunction": 99,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 30
+          },
+          "beretta_m7090": {
+            "display_name": "Beretta M70/90",
+            "skill": "Firearms (Rifle)",
+            "damage_die": "2D6",
+            "base_range_yards": 110,
+            "uses_per_round": "1 or full auto",
+            "magazine": 30,
+            "malfunction": 99,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 30
+          },
+          "bergmann_mp181_mp2811": {
+            "display_name": "Bergmann MP181/ MP2811",
+            "skill": "Firearms (Submachine Gun)",
+            "damage_die": "1D10",
+            "base_range_yards": 20,
+            "uses_per_round": "1 (2) or full auto",
+            "magazine": 20,
+            "malfunction": 96,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s"
+            ],
+            "damage_type": "impale",
+            "damage": "1D10",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 20
+          },
+          "heckleramp_koch_mp5": {
+            "display_name": "Heckler & Koch MP5",
+            "skill": "Firearms (Submachine Gun)",
+            "damage_die": "1D10",
+            "base_range_yards": 20,
+            "uses_per_round": "1 (2) or full auto",
+            "magazine": 15,
+            "malfunction": 97,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D10",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 15
+          },
+          "ingram_mac_11": {
+            "display_name": "Ingram MAC-11",
+            "skill": "Firearms (Submachine Gun)",
+            "damage_die": "1D10",
+            "base_range_yards": 15,
+            "uses_per_round": "1 (3) or full auto",
+            "magazine": 32,
+            "malfunction": 96,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D10",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 32
+          },
+          "skorpion_smg": {
+            "display_name": "Skorpion SMG",
+            "skill": "Firearms (Submachine Gun)",
+            "damage_die": "1D8",
+            "base_range_yards": 15,
+            "uses_per_round": "1 (3) or full auto",
+            "magazine": 20,
+            "malfunction": 96,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D8",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 20
+          },
+          "thompson": {
+            "display_name": "Thompson",
+            "skill": "Firearms (Submachine Gun)",
+            "damage_die": "1D10+2",
+            "base_range_yards": 20,
+            "uses_per_round": "1 or full auto",
+            "magazine": 20,
+            "malfunction": 96,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s"
+            ],
+            "damage_type": "impale",
+            "damage": "1D10+2",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 20
+          },
+          "uzi_smg": {
+            "display_name": "Uzi SMG",
+            "skill": "Firearms (Submachine Gun)",
+            "damage_die": "1D10",
+            "base_range_yards": 20,
+            "uses_per_round": "1 (2) or full auto",
+            "magazine": 32,
+            "malfunction": 98,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D10",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 32
+          },
+          "model_1882_gatling_gun": {
+            "display_name": "Model 1882 Gatling Gun",
+            "skill": "Firearms (Machine Gun)",
+            "damage_die": "2D6+4",
+            "base_range_yards": 100,
+            "uses_per_round": "Full auto",
+            "magazine": 200,
+            "malfunction": 96,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6+4",
+            "reload_rounds": 2,
+            "reload_kind": "belt",
+            "ammo_per_reload_round": 200
+          },
+          "browning_auto_rifle_m1918": {
+            "display_name": "Browning Auto Rifle M1918",
+            "skill": "Firearms (Machine Gun)",
+            "damage_die": "2D6+4",
+            "base_range_yards": 90,
+            "uses_per_round": "1 (2) or full auto",
+            "magazine": 20,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6+4",
+            "reload_rounds": 2,
+            "reload_kind": "belt",
+            "ammo_per_reload_round": 20
+          },
+          "bren_gun": {
+            "display_name": "Bren Gun",
+            "skill": "Firearms (Machine Gun)",
+            "damage_die": "2D6+4",
+            "base_range_yards": 110,
+            "uses_per_round": "1 or full auto",
+            "magazine": 30,
+            "malfunction": 96,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6+4",
+            "reload_rounds": 2,
+            "reload_kind": "belt",
+            "ammo_per_reload_round": 30
+          },
+          "mark_i_lewis_gun": {
+            "display_name": "Mark I Lewis Gun",
+            "skill": "Firearms (Machine Gun)",
+            "damage_die": "2D6+4",
+            "base_range_yards": 110,
+            "uses_per_round": "Full auto",
+            "magazine": 47,
+            "malfunction": 96,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6+4",
+            "reload_rounds": 2,
+            "reload_kind": "belt",
+            "ammo_per_reload_round": 47
+          },
+          "minigun": {
+            "display_name": "Minigun*",
+            "skill": "Firearms (Machine Gun)",
+            "damage_die": "2D6+4",
+            "base_range_yards": 200,
+            "uses_per_round": "Full auto",
+            "magazine": 4000,
+            "malfunction": 98,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6+4",
+            "reload_rounds": 2,
+            "reload_kind": "belt",
+            "ammo_per_reload_round": 4000
+          },
+          "fn_minimi_5_56mm": {
+            "display_name": "FN Minimi, 5.56mm",
+            "skill": "Firearms (Machine Gun)",
+            "damage_die": "2D6",
+            "base_range_yards": 110,
+            "uses_per_round": "Full auto",
+            "magazine": 30,
+            "malfunction": 99,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6",
+            "reload_rounds": 2,
+            "reload_kind": "belt",
+            "ammo_per_reload_round": 30
+          },
+          "vickers_303_machine_gun": {
+            "display_name": "Vickers .303 Machine Gun",
+            "skill": "Firearms (Machine Gun)",
+            "damage_die": "2D6+4",
+            "base_range_yards": 110,
+            "uses_per_round": "Full auto",
+            "magazine": 250,
+            "malfunction": 99,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6+4",
+            "reload_rounds": 2,
+            "reload_kind": "belt",
+            "ammo_per_reload_round": 250
+          },
+          "molotov_cocktail": {
+            "display_name": "Molotov Cocktail",
+            "skill": "Throw",
+            "damage_die": "2D6",
+            "base_range_yards": 5,
+            "uses_per_round": "1/2",
+            "magazine": 1,
+            "malfunction": 95,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "burn",
+            "status_effect": "burn",
+            "damage": "2D6",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "signal_handgun": {
+            "display_name": "Signal Handgun (Flare gun)",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D10+1D3",
+            "base_range_yards": 10,
+            "uses_per_round": "1/2",
+            "magazine": 1,
+            "malfunction": 100,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "burn",
+            "status_effect": "burn",
+            "damage": "1D10+1D3",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "m79_grenade_launcher": {
+            "display_name": "M79 Grenade Launcher",
+            "skill": "Firearms (Heavy Weapons)",
+            "damage_die": "3D10",
+            "base_range_yards": 20,
+            "uses_per_round": "1/3",
+            "magazine": 1,
+            "malfunction": 99,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 3D10/2 yards",
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "3D10",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "dynamite_stick": {
+            "display_name": "Dynamite Stick*",
+            "skill": "Throw",
+            "damage_die": "4D10",
+            "base_range_yards": 5,
+            "uses_per_round": "1/2",
+            "magazine": 1,
+            "malfunction": 99,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 4D10/3 yards",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "4D10",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "blasting_cap": {
+            "display_name": "Blasting Cap",
+            "skill": "Electrical Repair",
+            "damage_die": "2D10",
+            "base_range_yards": null,
+            "uses_per_round": "N/A",
+            "magazine": 1,
+            "malfunction": 100,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 2D10/1 yard",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "2D10",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "pipe_bomb": {
+            "display_name": "Pipe Bomb",
+            "skill": "Demolitions",
+            "damage_die": "1D10",
+            "base_range_yards": null,
+            "uses_per_round": "One use",
+            "magazine": 1,
+            "malfunction": 95,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 1D10/3 yards",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "1D10",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "plastique_4_oz": {
+            "display_name": "Plastique (C-4), 4 oz.",
+            "skill": "Demolitions",
+            "damage_die": "6D10",
+            "base_range_yards": null,
+            "uses_per_round": "One use",
+            "magazine": 1,
+            "malfunction": 99,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 6D10/3 yards",
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "6D10",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "hand_grenade": {
+            "display_name": "Hand Grenade*",
+            "skill": "Throw",
+            "damage_die": "4D10",
+            "base_range_yards": 5,
+            "uses_per_round": "1/2",
+            "magazine": 1,
+            "malfunction": 99,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 4D10/3 yards",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "4D10",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "81mm_mortar": {
+            "display_name": "81mm Mortar",
+            "skill": "Artillery",
+            "damage_die": "6D10",
+            "base_range_yards": 500,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": 100,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 6D10/6 yards",
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "6D10",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "75mm_field_gun": {
+            "display_name": "75mm Field Gun",
+            "skill": "Artillery",
+            "damage_die": "10D10",
+            "base_range_yards": 500,
+            "uses_per_round": "1/4",
+            "magazine": null,
+            "malfunction": 99,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 10D10/2 yards",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "10D10",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "120mm_tank_gun": {
+            "display_name": "120mm Tank Gun (stabilized)",
+            "skill": "Artillery",
+            "damage_die": "15D10",
+            "base_range_yards": 2000,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": 100,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 15D10/4 yards",
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "15D10",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "ship_mounted_5_inch_rifle_stabilized": {
+            "display_name": "Ship-mounted 5-inch rifle, stabilized",
+            "skill": "Artillery",
+            "damage_die": "12D10",
+            "base_range_yards": 3000,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": 98,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 12D10/4 yards",
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "12D10",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          },
+          "anti_personnel_mine": {
+            "display_name": "Anti-Personnel Mine",
+            "skill": "Demolitions",
+            "damage_die": "4D10",
+            "base_range_yards": null,
+            "uses_per_round": "In place",
+            "magazine": 1,
+            "malfunction": 99,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 4D10/5 yards",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "4D10",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "claymore_mine": {
+            "display_name": "Claymore Mine*",
+            "skill": "Demolitions",
+            "damage_die": "6D6",
+            "base_range_yards": null,
+            "uses_per_round": "In place",
+            "magazine": 1,
+            "malfunction": 99,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 6D6/20 yards",
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "6D6",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "flamethrower": {
+            "display_name": "Flamethrower",
+            "skill": "Firearms (Flamethrower)",
+            "damage_die": "2D6",
+            "base_range_yards": 25,
+            "uses_per_round": "1",
+            "magazine": 10,
+            "malfunction": 93,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "burn",
+            "status_effect": "burn",
+            "damage": "2D6",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 10
+          },
+          "law": {
+            "display_name": "LAW*",
+            "skill": "Firearms (Heavy Weapons)",
+            "damage_die": "8D10",
+            "base_range_yards": 150,
+            "uses_per_round": "1",
+            "magazine": 1,
+            "malfunction": 98,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "range-banded: 8D10/1 yard",
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "normal",
+            "damage": "8D10",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "44_magnum_revolver": {
+            "display_name": ".44 Magnum Revolver",
+            "skill": "Firearms (handgun)",
+            "damage_die": "1D10+1D4+2",
+            "base_range_yards": 15,
+            "uses_per_round": "1 (3)",
+            "magazine": 6,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D10+1D4+2",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 6
+          },
+          "58_springfield_rifle_musket": {
+            "display_name": ".58 Springfield Rifle Musket",
+            "skill": "Firearms (rifle)",
+            "damage_die": "1D10+4",
+            "base_range_yards": 60,
+            "uses_per_round": "1/4",
+            "magazine": 1,
+            "malfunction": 95,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": "rulebook era 'Rare' (rare in both eras)",
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D10+4",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "30_lever_action_carbine": {
+            "display_name": ".30 Lever-Action Carbine",
+            "skill": "Firearms (rifle)",
+            "damage_die": "2D6",
+            "base_range_yards": 50,
+            "uses_per_round": "1",
+            "magazine": 6,
+            "malfunction": 98,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 6
+          },
+          "45_martini_henry_rifle": {
+            "display_name": ".45 Martini-Henry Rifle",
+            "skill": "Firearms (rifle)",
+            "damage_die": "1D8+1D6+3",
+            "base_range_yards": 80,
+            "uses_per_round": "1/3",
+            "magazine": 1,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s"
+            ],
+            "damage_type": "impale",
+            "damage": "1D8+1D6+3",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "30_06_bolt_action_rifle": {
+            "display_name": ".30-06 Bolt-Action Rifle",
+            "skill": "Firearms (rifle)",
+            "damage_die": "2D6+4",
+            "base_range_yards": 110,
+            "uses_per_round": "1",
+            "magazine": 5,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6+4",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 5
+          },
+          "30_06_semi_automatic_rifle": {
+            "display_name": ".30-06 Semi-Automatic Rifle",
+            "skill": "Firearms (rifle)",
+            "damage_die": "2D6+4",
+            "base_range_yards": 110,
+            "uses_per_round": "1",
+            "magazine": 5,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6+4",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 5
+          },
+          "444_marlin_rifle": {
+            "display_name": ".444 Marlin Rifle",
+            "skill": "Firearms (rifle)",
+            "damage_die": "2D8+4",
+            "base_range_yards": 110,
+            "uses_per_round": "1",
+            "magazine": 5,
+            "malfunction": 98,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "2D8+4",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 5
+          },
+          "30_browning_m1917a1": {
+            "display_name": ".30 Browning M1917A1",
+            "skill": "Firearms (MG)",
+            "damage_die": "2D6+4",
+            "base_range_yards": 150,
+            "uses_per_round": "Full auto",
+            "magazine": 250,
+            "malfunction": 96,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s"
+            ],
+            "damage_type": "impale",
+            "damage": "2D6+4",
+            "reload_rounds": 2,
+            "reload_kind": "belt",
+            "ammo_per_reload_round": 250
+          },
+          "22_short_automatic": {
+            "display_name": ".22 Short Automatic",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D6",
+            "base_range_yards": 10,
+            "uses_per_round": "1 (3)",
+            "magazine": 6,
+            "malfunction": 100,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D6",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 6
+          },
+          "automatic_32_or_7_65mm": {
+            "display_name": ".32 or 7.65mm Automatic",
+            "skill": "Firearms (Handgun)",
+            "damage_die": "1D8",
+            "base_range_yards": 15,
+            "uses_per_round": "1 (3)",
+            "magazine": 8,
+            "malfunction": 99,
+            "impales": true,
+            "adds_damage_bonus": false,
+            "special": null,
+            "eras": [
+              "1920s",
+              "modern"
+            ],
+            "damage_type": "impale",
+            "damage": "1D8",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 8
+          },
+          "shotgun_12g_pump": {
+            "display_name": "12-gauge Shotgun (Pump)",
+            "skill": "Firearms (Rifle/shotgun)",
+            "damage_die": "4D6",
+            "base_range_yards": 10,
+            "uses_per_round": "1",
+            "magazine": 5,
+            "malfunction": 100,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "damage bands by range; slugs (1D10+6) may impale",
+            "eras": [
+              "modern"
+            ],
+            "range_banded_damage": {
+              "point_blank": "4D6",
+              "half": "2D6",
+              "max": "1D6"
+            },
+            "damage_type": "normal",
+            "damage": "4D6",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 5
+          },
+          "shotgun_12g_semi_auto": {
+            "display_name": "12-gauge Shotgun (semi-auto)",
+            "skill": "Firearms (Rifle/shotgun)",
+            "damage_die": "4D6",
+            "base_range_yards": 10,
+            "uses_per_round": "1 (2)",
+            "magazine": 5,
+            "malfunction": 100,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "damage bands by range; slugs (1D10+6) may impale",
+            "eras": [
+              "modern"
+            ],
+            "range_banded_damage": {
+              "point_blank": "4D6",
+              "half": "2D6",
+              "max": "1D6"
+            },
+            "damage_type": "normal",
+            "damage": "4D6",
+            "reload_rounds": 1,
+            "reload_kind": "clip",
+            "ammo_per_reload_round": 5
+          },
+          "shotgun_12g_sawed_off": {
+            "display_name": "12-gauge Shotgun (2B, sawed-off)",
+            "skill": "Firearms (Rifle/shotgun)",
+            "damage_die": "4D6",
+            "base_range_yards": 5,
+            "uses_per_round": "1 or 2",
+            "magazine": 2,
+            "malfunction": 100,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "sawed-off double-barrel; damage bands 4D6/1D6 at 5/10 yards",
+            "eras": [
+              "1920s"
+            ],
+            "range_banded_damage": {
+              "point_blank": "4D6",
+              "half": "1D6",
+              "max": "1D6"
+            },
+            "damage_type": "normal",
+            "damage": "4D6",
+            "reload_rounds": 1,
+            "reload_kind": "shells",
+            "ammo_per_reload_round": 2
+          },
+          "taser_contact": {
+            "display_name": "Taser (contact)",
+            "skill": "Fighting (Brawl)",
+            "damage_die": "1D3",
+            "base_range_yards": null,
+            "uses_per_round": "1",
+            "magazine": null,
+            "malfunction": 97,
+            "impales": false,
+            "adds_damage_bonus": false,
+            "special": "contact stun gun; damage 1D3+stun; magazine 'Varies' per rulebook",
+            "eras": [
+              "modern"
+            ],
+            "status_effect": "stun",
+            "damage_type": "stun",
+            "damage": "1D3",
+            "reload_rounds": null,
+            "reload_kind": null,
+            "ammo_per_reload_round": null
+          }
+        },
+        "turn_counter": 1,
+        "roll_counter": 2,
+        "pending_attack": null
+      },
+      "pending_defense": null,
+      "improvement_ticks_recorded": [],
+      "player_state_receipt": {
+        "schema_version": 1,
+        "investigator_id": "thomas-hayes",
+        "hp": {
+          "before": 12,
+          "after": 12
+        },
+        "san": {
+          "before": 54,
+          "after": 54
+        },
+        "mp": {
+          "before": 11,
+          "after": 11
+        },
+        "luck": {
+          "before": 50,
+          "after": 50
+        },
+        "conditions_before": [],
+        "conditions_after": [],
+        "loaded_ammunition": [
+          {
+            "weapon_id": "revolver_38_or_9mm",
+            "weapon_label": ".38 Revolver",
+            "before": 6,
+            "change": 0,
+            "after": 6,
+            "scope": "current_loaded_magazine_only"
+          }
+        ]
+      }
+    }
+  },
+  "next_decisions": [
+    {
+      "schema_version": 1,
+      "decision_ref": "decision:coc7:combat:defend",
+      "family": "combat",
+      "label": "Combat defend through the existing typed subsystem operation",
+      "applicability": "applicable",
+      "required_inputs": [
+        {
+          "name": "defense_kind",
+          "owner": "player-source",
+          "type": "string"
+        },
+        {
+          "name": "luck_spend_max",
+          "owner": "optional-semantic",
+          "type": "int"
+        }
+      ],
+      "locked_inputs": [
+        "attack_command_id",
+        "combat_revision",
+        "investigator_id",
+        "pending_attack_ref",
+        "target_actor_id"
+      ],
+      "rule_refs": [
+        "rule:coc7:combat:armor-reduction",
+        "rule:coc7:combat:automatic-fire",
+        "rule:coc7:combat:combat-rolls-not-pushable",
+        "rule:coc7:combat:dex-order",
+        "rule:coc7:combat:dodge-opposition",
+        "rule:coc7:combat:escape-close-combat",
+        "rule:coc7:combat:extreme-and-impale",
+        "rule:coc7:combat:fight-back-opposition",
+        "rule:coc7:combat:firearm-modifiers",
+        "rule:coc7:combat:firearm-range",
+        "rule:coc7:combat:firearms-unopposed",
+        "rule:coc7:combat:malfunction",
+        "rule:coc7:combat:maneuver-build",
+        "rule:coc7:combat:maneuver-goal",
+        "rule:coc7:combat:outnumbered",
+        "rule:coc7:combat:ranged-and-thrown",
+        "rule:coc7:combat:ready-firearm-initiative",
+        "rule:coc7:combat:round-and-action-economy",
+        "rule:coc7:combat:stun-and-burn",
+        "rule:coc7:combat:surprise",
+        "rule:coc7:combat:weapon-damage",
+        "rule:coc7:combat:weapon-profile-columns"
+      ],
+      "source_refs": [
+        "span-combat-complete-source-page-113-block-17",
+        "span-combat-complete-source-page-113-block-20",
+        "span-combat-complete-source-page-113-block-22",
+        "span-combat-complete-source-page-114-block-31",
+        "span-combat-complete-source-page-114-block-40",
+        "span-combat-complete-source-page-114-block-41",
+        "span-combat-complete-source-page-114-block-47",
+        "span-combat-complete-source-page-114-block-48",
+        "span-combat-complete-source-page-114-block-53",
+        "span-combat-complete-source-page-114-block-55",
+        "span-combat-complete-source-page-115-block-61",
+        "span-combat-complete-source-page-116-block-68",
+        "span-combat-complete-source-page-117-block-74",
+        "span-combat-complete-source-page-117-block-78",
+        "span-combat-complete-source-page-118-block-81",
+        "span-combat-complete-source-page-119-block-87",
+        "span-combat-complete-source-page-119-block-89",
+        "span-combat-complete-source-page-119-block-90",
+        "span-combat-complete-source-page-119-block-91",
+        "span-combat-complete-source-page-119-block-92",
+        "span-combat-complete-source-page-121-block-98",
+        "span-combat-complete-source-page-121-block-99",
+        "span-combat-complete-source-page-122-block-102",
+        "span-combat-complete-source-page-122-block-103",
+        "span-combat-complete-source-page-122-block-104",
+        "span-combat-complete-source-page-123-block-107",
+        "span-combat-complete-source-page-123-block-108",
+        "span-combat-complete-source-page-123-block-109",
+        "span-combat-complete-source-page-123-block-110",
+        "span-combat-complete-source-page-124-block-113",
+        "span-combat-complete-source-page-124-block-114",
+        "span-combat-complete-source-page-125-block-121",
+        "span-combat-complete-source-page-125-block-122",
+        "span-combat-complete-source-page-126-block-125",
+        "span-combat-complete-source-page-126-block-126",
+        "span-combat-complete-source-page-127-block-130",
+        "span-combat-complete-source-page-127-block-131",
+        "span-combat-complete-source-page-127-block-133",
+        "span-combat-complete-source-page-129-block-140",
+        "span-combat-complete-source-page-129-block-141",
+        "span-combat-complete-source-page-129-block-143",
+        "span-combat-complete-source-page-130-block-151",
+        "span-combat-complete-source-page-412-block-154",
+        "span-combat-complete-source-page-414-block-165",
+        "span-combat-complete-source-page-414-block-167",
+        "span-combat-complete-source-page-415-block-170",
+        "span-combat-complete-source-page-415-block-173",
+        "span-combat-complete-source-page-415-block-175",
+        "span-combat-complete-source-page-416-block-177",
+        "span-combat-complete-source-page-416-block-186",
+        "span-combat-complete-source-page-416-block-189",
+        "span-combat-complete-source-page-417-block-193",
+        "span-combat-complete-source-page-417-block-196",
+        "span-combat-complete-source-page-417-block-197",
+        "span-combat-complete-source-page-417-block-214",
+        "span-combat-complete-source-page-417-block-215"
+      ],
+      "capability_ref": "capability:coc7:combat-resolve",
+      "effect_refs": [],
+      "possible_continuations": [
+        "decision:coc7:combat:attack",
+        "decision:coc7:combat:end"
+      ],
+      "authority": {
+        "selection": "keeper-semantic",
+        "execution": "current-ruleset-adapter",
+        "hard_gate": false
+      }
+    }
+  ],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:a5800c7b96ff490d55efd876015e25a6b216baf1ec3a0e24689ddf44b42dce14"
+}

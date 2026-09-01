@@ -3,6 +3,30 @@
   "description": "Canonical rules.settle payloads copied verbatim from real Gate 9 RPC runs. Each one is a settlement the host actually committed; the model view must project every one of them with no unmapped identity. Families absent from this corpus have never produced a recorded settlement.",
   "payloads": [
     {
+      "file": "combat-attack-69d75d17.json",
+      "decision_ref": "decision:coc7:combat:attack",
+      "family": "combat",
+      "recorded_in": "pi-coc-gate9-depth-20260901-08/.coc/campaigns/gate9-depth-08/logs/toolbox-calls.jsonl"
+    },
+    {
+      "file": "combat-end-bd1fcaba.json",
+      "decision_ref": "decision:coc7:combat:end",
+      "family": "combat",
+      "recorded_in": "pi-coc-gate9-depth-20260901-08/.coc/campaigns/gate9-depth-08/logs/toolbox-calls.jsonl"
+    },
+    {
+      "file": "core-check-ordinary-check-04306d41.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901-08/.coc/campaigns/gate9-depth-08/logs/toolbox-calls.jsonl"
+    },
+    {
+      "file": "core-check-ordinary-check-06775ffa.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901-08/.coc/campaigns/gate9-depth-08/logs/toolbox-calls.jsonl"
+    },
+    {
       "file": "core-check-ordinary-check-1b8ba8a5.json",
       "decision_ref": "decision:coc7:core-check:ordinary-check",
       "family": "core-check",
@@ -25,6 +49,18 @@
       "decision_ref": "decision:coc7:core-check:ordinary-check",
       "family": "core-check",
       "recorded_in": "pi-coc-gate9-depth-20260901-05/evidence/turn-p-2217182041c9.json"
+    },
+    {
+      "file": "core-check-ordinary-check-85b870d3.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901-08/.coc/campaigns/gate9-depth-08/logs/toolbox-calls.jsonl"
+    },
+    {
+      "file": "core-check-ordinary-check-9313c210.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901-08/.coc/campaigns/gate9-depth-08/logs/toolbox-calls.jsonl"
     },
     {
       "file": "core-check-ordinary-check-9b9e3bf8.json",
@@ -99,10 +135,28 @@
       "recorded_in": "pi-coc-gate9-ten-family-8d454eb8/a6-investigation-social/evidence/turn-p-ccf739145800.json"
     },
     {
+      "file": "push-luck-pushed-roll-4a7f93f6.json",
+      "decision_ref": "decision:coc7:push-luck:pushed-roll",
+      "family": "push-luck",
+      "recorded_in": "pi-coc-gate9-depth-20260901-08/.coc/campaigns/gate9-depth-08/logs/toolbox-calls.jsonl"
+    },
+    {
       "file": "push-luck-pushed-roll-d13fe32e.json",
       "decision_ref": "decision:coc7:push-luck:pushed-roll",
       "family": "push-luck",
       "recorded_in": "pi-coc-gate9-ten-family-06f5baaa/a10-social-push/evidence/turn-p-1d0e467bcdb6.json"
+    },
+    {
+      "file": "sanity-check-1cab0929.json",
+      "decision_ref": "decision:coc7:sanity:check",
+      "family": "sanity",
+      "recorded_in": "pi-coc-gate9-depth-20260901-08/.coc/campaigns/gate9-depth-08/logs/toolbox-calls.jsonl"
+    },
+    {
+      "file": "sanity-check-269b1f01.json",
+      "decision_ref": "decision:coc7:sanity:check",
+      "family": "sanity",
+      "recorded_in": "pi-coc-gate9-depth-20260901-08/.coc/campaigns/gate9-depth-08/logs/toolbox-calls.jsonl"
     },
     {
       "file": "sanity-check-5d064528.json",

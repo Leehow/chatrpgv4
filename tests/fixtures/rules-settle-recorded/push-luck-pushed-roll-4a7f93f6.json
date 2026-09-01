@@ -1,0 +1,75 @@
+{
+  "decision_ref": "decision:coc7:push-luck:pushed-roll",
+  "family": "push-luck",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:push-luck:canonical-continuation-hydration"
+  ],
+  "investigator_id": "thomas-hayes",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "bound_check": {
+        "base_target": 30,
+        "target": 30,
+        "required_level": "regular",
+        "difficulty": "regular",
+        "required_target": 30,
+        "effective_target": 30,
+        "achieved_level": "regular",
+        "passed": true,
+        "success": true,
+        "surplus_levels": 0,
+        "outcome": "regular",
+        "bonus": 0,
+        "penalty": 0,
+        "roll": 28,
+        "unmodified_roll": 28,
+        "tens_values": [],
+        "units": null,
+        "investigator_id": "thomas-hayes",
+        "skill": "Climb",
+        "target_source": "explicit",
+        "pushed": true,
+        "goal": "safely descend the neglected basement stairs to the cellar floor",
+        "stakes": {
+          "on_success": "reach basement floor intact",
+          "on_failure": "slip or mishap on the stairs without controlled access"
+        },
+        "difficulty_basis": "environment",
+        "method_changed": "plant each tread carefully with flashlight braced, testing weight before shifting mass",
+        "failure_consequence": {
+          "summary": "slip fully, tumble down the stairs with a loud crash, take damage, and alert anything listening in the house"
+        },
+        "announced_consequence": {
+          "summary": "slip fully, tumble down the stairs with a loud crash, take damage, and alert anything listening in the house"
+        },
+        "pushed_roll_protocol": {
+          "failure_consequence_source": "keeper",
+          "keeper_foreshadowed_failure": true,
+          "player_confirmation_recorded": true
+        },
+        "original_check": {
+          "tool": "rules.roll",
+          "decision_id": "roll-descend-basement-stairs-v1",
+          "roll_id": "toolbox-gate9-depth-08-000002",
+          "integrity_digest": "sha256:6674250af7bc207ff2ea26d5d9db863f51d247d50ad7991618d4fc9babd9f6f7"
+        },
+        "roll_id": "toolbox-gate9-depth-08-000003"
+      },
+      "outcome": "regular",
+      "pushed": true,
+      "original_check_decision_id": "roll-descend-basement-stairs-v1",
+      "failure_consequence": "slip fully, tumble down the stairs with a loud crash, take damage, and alert anything listening in the house",
+      "method_changed": "plant each tread carefully with flashlight braced, testing weight before shifting mass",
+      "player_confirmed_risk": true
+    }
+  },
+  "next_decisions": [],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:87859c814f43d6d89453bf5858110b63f775de07f7e3eae48d6a325c2c5ae68d"
+}
