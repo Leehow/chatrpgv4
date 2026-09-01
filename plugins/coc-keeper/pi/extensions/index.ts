@@ -1844,9 +1844,22 @@ export function registerPlayerTranscriptGate(
     details: { deltaCount: number; charCount: number },
     ctx: ExtensionContext,
   ) => void,
+  onLeadingWhitespaceObserved?: (
+    details: { deltaCount: number; charCount: number },
+  ) => void,
 ): void {
-  const LEADING_WHITESPACE_DELTA_LIMIT = 32;
-  const LEADING_WHITESPACE_CHAR_LIMIT = 128;
+  // Bound a stream that emits leading whitespace forever, and nothing else.
+  //
+  // Only the character count is a trigger. A counted delta always carries at
+  // least one character, so `charCount >= deltaCount` always holds and a delta
+  // bound can only ever fire FIRST — four times sooner when a provider streams
+  // one character at a time, which is exactly what happened: every abort in
+  // the 2026-09-01 run3 table was 32 deltas of 32 characters, and the Keeper
+  // re-prompted by the empty-terminal recovery then produced its narration
+  // immediately. The stream was padding, not runaway, and the host's own abort
+  // was what emptied the turn: eight of 28 turns paid an extra model round
+  // trip for it. The character bound alone says what the guard means.
+  const LEADING_WHITESPACE_CHAR_LIMIT = 512;
   let whitespaceDeltaCount = 0;
   let whitespaceCharCount = 0;
   let streamHasSemanticOutput = false;
@@ -1875,10 +1888,7 @@ export function registerPlayerTranscriptGate(
         whitespaceCharCount += update.delta.length;
         if (
           !whitespaceLimitDelivered
-          && (
-            whitespaceDeltaCount >= LEADING_WHITESPACE_DELTA_LIMIT
-            || whitespaceCharCount >= LEADING_WHITESPACE_CHAR_LIMIT
-          )
+          && whitespaceCharCount >= LEADING_WHITESPACE_CHAR_LIMIT
         ) {
           whitespaceLimitDelivered = true;
           onLeadingWhitespaceStreamLimit?.({
@@ -1898,6 +1908,12 @@ export function registerPlayerTranscriptGate(
   pi.on("message_end", (event) => {
     const assistant = assistantContentMessage(event.message);
     if (!assistant) return;
+    if (whitespaceCharCount > 0) {
+      onLeadingWhitespaceObserved?.({
+        deltaCount: whitespaceDeltaCount,
+        charCount: whitespaceCharCount,
+      });
+    }
     const stopReason = (assistant as { stopReason?: unknown }).stopReason;
     if (stopReason === "error" || stopReason === "aborted") {
       // A terminal provider failure is not a player-visible assistant final.
@@ -14103,6 +14119,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       } catch { /* watchdog audit is best effort */ }
       ctx.abort();
       recoverEmptyAssistantOutput();
+    },
+    (details) => {
+      try {
+        pi.appendEntry("coc-leading-whitespace-observed", {
+          schema_version: 1,
+          player_turn_epoch: canonicalProgress.playerTurnEpoch,
+          whitespace_delta_count: details.deltaCount,
+          whitespace_char_count: details.charCount,
+        });
+      } catch { /* watchdog evidence is best effort */ }
     },
   );
   // Forced raw-PDF bind injection: the KP must not need to read coc-module-init
