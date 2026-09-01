@@ -1,0 +1,111 @@
+{
+  "decision_ref": "decision:coc7:core-check:ordinary-check",
+  "family": "core-check",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:core-check:canonical-target-binding",
+    "rule:coc7:core-check:combined",
+    "rule:coc7:push-luck:luck-roll"
+  ],
+  "investigator_id": "inv-x694a9fdd-016fe1df",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "bound_check": {
+        "base_target": 25,
+        "target": 25,
+        "required_level": "hard",
+        "difficulty": "hard",
+        "required_target": 12,
+        "effective_target": 12,
+        "achieved_level": "regular",
+        "passed": false,
+        "success": false,
+        "surplus_levels": 0,
+        "outcome": "failure",
+        "bonus": 0,
+        "penalty": 0,
+        "roll": 22,
+        "unmodified_roll": 22,
+        "tens_values": [],
+        "units": null,
+        "investigator_id": "inv-x694a9fdd-016fe1df",
+        "skill": "Fighting (Brawl)",
+        "target_source": "explicit",
+        "pushed": false,
+        "goal": "strike the violently moving bed frame to stop or smash the poltergeist disturbance",
+        "stakes": {
+          "on_success": "blow lands on wood; bed bucks hard but does not throw investigator through window this beat",
+          "on_failure": "miss or glancing contact; bed surges and knocks investigator toward wall or window"
+        },
+        "difficulty_basis": "environment",
+        "operation_opportunities": [
+          {
+            "schema_version": 1,
+            "kind": "open_push_or_context_change",
+            "authority": "advisory",
+            "hard_gate": false,
+            "reason_code": "ordinary_failure_has_unresolved_attempt",
+            "source": {
+              "decision_id": "roll-strike-moving-bed-brawl-v2",
+              "roll_id": "toolbox-gate9-depth-01-000006",
+              "attempt_id": null,
+              "scene_id": null,
+              "route_id": null,
+              "roll_density_group": null
+            },
+            "suggested_operation": {
+              "operation": "rules.push",
+              "invoke_via": "coc_invoke",
+              "prefilled_arguments": {
+                "original_check_decision_id": "roll-strike-moving-bed-brawl-v2"
+              },
+              "missing_arguments": [
+                "method_changed",
+                "failure_consequence",
+                "decision_id"
+              ],
+              "contract_ref": "rules.push@3917db63e82accdf",
+              "discovery_required": false
+            },
+            "attempt_pressure": {
+              "schema_version": 1,
+              "same_goal_no_progress_count": 1,
+              "level": "first_ordinary_failure",
+              "authority": "advisory",
+              "hard_gate": false
+            },
+            "retry_status": {
+              "schema_version": 1,
+              "authority": "advisory",
+              "hard_gate": false,
+              "eligible": false,
+              "policy": null,
+              "status": "no_authored_reset_policy",
+              "reason": "Use the open Push, change method or goal, or let the failed consequence stand."
+            },
+            "alternatives": [
+              "accept the failed result and let its consequence change play",
+              "change the fictional method or goal",
+              "record structured reset_evidence after time, access, position, or circumstances materially change"
+            ]
+          }
+        ],
+        "roll_id": "toolbox-gate9-depth-01-000006"
+      },
+      "outcome": "failure",
+      "pushed": false,
+      "next_continuations": [
+        "decision:coc7:push-luck:pushed-roll",
+        "decision:coc7:push-luck:luck-spend"
+      ]
+    }
+  },
+  "next_decisions": [],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:1e170ef90c2ddc8e485cd5204f9eaaf8b98b694937b82b65f74260a936cdebd1"
+}

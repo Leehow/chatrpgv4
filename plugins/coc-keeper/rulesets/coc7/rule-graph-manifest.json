@@ -30,7 +30,7 @@
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "85bbb17b07ac399d35164386744290acfb8f0900305505e7ea67dd39c026d2a2",
+  "graph_content_digest": "f64acd653cb28c65e5125f7602531df0cf19e21a95155b4a76c7e6f7d45aed0d",
   "shards": [
     {
       "shard_id": "shard:coc7:chase:section-chase-complete-source",
@@ -38,7 +38,7 @@
     },
     {
       "shard_id": "shard:coc7:combat:section-combat-complete-source",
-      "shard_digest": "8f7541c32d46d259bee72eb520e9d1b0d9800585da5ffe5045e1efd611a5d348"
+      "shard_digest": "2c93d8cdfaf6f398f567b96d4f0a81a98ddb71659d5cae7f039f0a5e737f6f32"
     },
     {
       "shard_id": "shard:coc7:core-check:section-core-check-source-accepted",
@@ -70,7 +70,7 @@
     },
     {
       "shard_id": "shard:coc7:social:section-social-source-accepted",
-      "shard_digest": "f8d10e1e2427284e9bafbcd97bf90302b32d5ef2529417832071969b71844a18"
+      "shard_digest": "538f05d20a22d95c2b7325124f41e97bb50986410989565dfcad48010b65092f"
     }
   ],
   "family_coverage": {

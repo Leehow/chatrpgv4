@@ -1,0 +1,97 @@
+{
+  "decision_ref": "decision:coc7:psychology:observe-concealed",
+  "family": "psychology",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:psychology:base-chance-ten",
+    "rule:coc7:psychology:concealed-keeper-roll",
+    "rule:coc7:psychology:disguise-opposition",
+    "rule:coc7:psychology:social-difficulty-bands",
+    "rule:coc7:psychology:social-opposition",
+    "rule:coc7:psychology:study-motives-character"
+  ],
+  "investigator_id": "thomas-hayes",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "resolution": "settled",
+      "insight_id": "psych-insight-56f70e80826a",
+      "window_key": "team:party:275313a07b2c4918\u0000npc-steven-knott\u0000conversation:commission-briefing:thomas-hayes:npc-steven-knott\u00000",
+      "question": "Is Knott deliberately concealing risk when he speaks of the Corbitt House and the former Macario tenants?",
+      "conversation_window_id": "conversation:commission-briefing:thomas-hayes:npc-steven-knott",
+      "observation_revision": 0,
+      "inference_depth": "uncertain",
+      "misread_policy": "any_unreliable_including_opposite",
+      "outcome": "failure",
+      "roll_id": "toolbox-gate9-a6-investigation-social-8d454eb8-000002",
+      "observable_fact_refs": [
+        {
+          "source_ref": "npc_fact:npc-steven-knott/fact-knott-commission",
+          "kind": "npc_fact",
+          "identifier": "npc-steven-knott/fact-knott-commission",
+          "player_known": false,
+          "record_digest": "sha256:908f90953efcd39daaadfd9a33bb44983c17500eabf7daa4c6f3af6c1423ebcb",
+          "grounding_scope": "keeper_target_truth"
+        },
+        {
+          "source_ref": "npc_fact:npc-steven-knott/fact-knott-research-leads",
+          "kind": "npc_fact",
+          "identifier": "npc-steven-knott/fact-knott-research-leads",
+          "player_known": false,
+          "record_digest": "sha256:f43de8597dcc81fc8ee70a84dce25af3a8da3f28fae65fb222a4d16fe4a3f9b7",
+          "grounding_scope": "keeper_target_truth"
+        },
+        {
+          "source_ref": "npc_fact:npc-steven-knott/fact-knott-macario-tragedy",
+          "kind": "npc_fact",
+          "identifier": "npc-steven-knott/fact-knott-macario-tragedy",
+          "player_known": false,
+          "record_digest": "sha256:978f6ccaacbab2ad4d9706d469999cc9683af4e88c581475a02d014c2f0bb9a3",
+          "grounding_scope": "keeper_target_truth"
+        }
+      ],
+      "request_digest": "sha256:3186715447eb200e8447d135321b6f42cbde9dc16ee141e81aa5f7853f78756d"
+    }
+  },
+  "next_decisions": [
+    {
+      "schema_version": 1,
+      "decision_ref": "decision:coc7:psychology:realize-player-safe",
+      "family": "psychology",
+      "label": "Realize one frozen Psychology observation as player-safe behavior",
+      "applicability": "applicable",
+      "required_inputs": [
+        {
+          "name": "external_behavior",
+          "owner": "keeper-semantic",
+          "type": "string"
+        }
+      ],
+      "locked_inputs": [
+        "inference_ceiling",
+        "observation_receipt_ref"
+      ],
+      "rule_refs": [
+        "rule:coc7:psychology:failure-reliability-unknown",
+        "rule:coc7:psychology:success-reveals-truth"
+      ],
+      "source_refs": [
+        "span-psychology-complete-source-page-215-block-56"
+      ],
+      "capability_ref": "capability:coc7:psychology-policy",
+      "effect_refs": [],
+      "possible_continuations": [],
+      "authority": {
+        "selection": "keeper-semantic",
+        "execution": "current-ruleset-adapter",
+        "hard_gate": false
+      }
+    }
+  ],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:54cd1fe48af3dd210b9887f4acf29d1e64695db7be8db87fcaff5bbf3e841ee5"
+}

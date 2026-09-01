@@ -57,6 +57,96 @@ def test_production_graph_contains_ten_source_accepted_families():
     assert graph["legacy_surface_lifecycle"] == expected_surfaces
 
 
+def test_social_failure_continues_as_push_is_evidence_bound():
+    """A failed social check continues as a pushed roll, stated in the source.
+
+    Runtime already reaches the pushed roll through the canonical failed-check
+    grant, so this edge changes no behavior; it closes an Ontology gap where
+    the source graph described thirteen continuations and omitted this one.
+
+    The edge is only worth having because it is evidence-bound. The rulebook
+    states the continuation once per interpersonal skill this family models --
+    Charm (p70), Fast Talk (p75), Intimidate (p77), Persuade (p82) -- rather
+    than leaving it to the general "any failed skill roll may be pushed" rule,
+    so the relation cites those per-skill spans and nothing else.
+    """
+    graph = _load(PACKAGE / "rule-graph.json")
+    relations = {row["relation_id"]: row for row in graph["relations"]}
+    edge = relations["relation:coc7:social:failure-continues-as-push"]
+    assert edge["relation_kind"] == "continues-as"
+    assert edge["from_node_id"] == "decision:coc7:social:adjudicate-difficulty"
+    assert edge["to_node_id"] == "continuation:coc7:push-luck:after-fail-push"
+
+    # Both endpoints must be real nodes; a continuation edge that dangles
+    # would be worse than the gap it closes.
+    node_ids = {row["node_id"] for row in graph["nodes"]}
+    assert edge["from_node_id"] in node_ids
+    assert edge["to_node_id"] in node_ids
+
+    # Every cited span must come from the accepted social shard's own evidence
+    # binding, so the edge can never be justified by an invented span id.
+    shard = _load(
+        PACKAGE / "rule-graph-candidates/source-stage1/accepted/social/accepted-shard.json"
+    )
+    bound = {row["span_id"] for row in shard["evidence_binding"]["spans"]}
+    assert edge["evidence_span_ids"]
+    assert set(edge["evidence_span_ids"]) <= bound
+    # All four modeled interpersonal skills carry their own push guidance.
+    pages = {int(span.rsplit("-page-", 1)[1].split("-block-")[0])
+             for span in edge["evidence_span_ids"]}
+    assert {70, 75, 77, 82} <= pages
+
+
+def test_combat_rolls_are_guarded_out_of_the_push_decision():
+    """A combat roll must not be an applicable push, and the graph must say so.
+
+    ``rule:coc7:combat:combat-rolls-not-pushable`` already stated the sidebar,
+    but it only pointed at the combat decisions, so the push decision's own
+    applicability never learned the restriction and the runtime projected a
+    Push card after a failed Fighting/Firearms/Dodge/Artillery check. The
+    guard is a hard-gate condition on the push decision, cited to the same
+    sidebar span the rule already cites.
+    """
+    graph = _load(PACKAGE / "rule-graph.json")
+    nodes = {row["node_id"]: row for row in graph["nodes"]}
+    relations = {row["relation_id"]: row for row in graph["relations"]}
+
+    condition = nodes["condition:coc7:combat:source-check-not-combat-roll"]
+    assert condition["node_kind"] == "condition"
+    assert condition["hard_gate"] is True
+    assert condition["properties"]["expression"] == {
+        "op": "neq", "path": "receipt.push_eligible", "value": False,
+    }
+    # An expression over an unregistered path is silently unresolvable, which
+    # would make the gate fail closed on every push instead of only on combat.
+    contract = _load(
+        ROOT / "plugins/coc-keeper/references/rule-graph-contract-v1.json"
+    )
+    assert "receipt.push_eligible" in contract["registered_condition_paths"]
+
+    guard = relations["relation:coc7:combat:no-push-guards-pushed-roll"]
+    assert guard["relation_kind"] == "available-when"
+    assert guard["from_node_id"] == "decision:coc7:push-luck:pushed-roll"
+    assert guard["to_node_id"] == condition["node_id"]
+    forbids = relations["relation:coc7:combat:combat-rolls-not-pushable-forbids-push"]
+    assert forbids["relation_kind"] == "forbids"
+    assert forbids["from_node_id"] == "rule:coc7:combat:combat-rolls-not-pushable"
+    assert forbids["to_node_id"] == "decision:coc7:push-luck:pushed-roll"
+
+    # Every cited span must be bound by the accepted combat shard, and must be
+    # the sidebar the owning rule already cites -- not a new claim.
+    shard = _load(
+        PACKAGE
+        / "rule-graph-candidates/source-stage1/families/combat/accepted-shard.json"
+    )["accepted_shard"]
+    bound = {row["span_id"] for row in shard["evidence_binding"]["spans"]}
+    owner = nodes["rule:coc7:combat:combat-rolls-not-pushable"]
+    for row in (condition, guard, forbids):
+        assert row["evidence_span_ids"]
+        assert set(row["evidence_span_ids"]) <= bound
+        assert set(row["evidence_span_ids"]) <= set(owner["evidence_span_ids"])
+
+
 def test_manifest_source_identities_are_bundle_level_and_source_bound():
     manifest = _load(PACKAGE / "rule-graph-manifest.json")
     assert len(manifest["source_bundles"]) == 5

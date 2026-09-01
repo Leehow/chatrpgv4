@@ -587,6 +587,17 @@ const DYNAMIC_CANDIDATE_ACTIONS: Record<string, readonly PiAllowedNextAction[]> 
     reason: "refresh the current source-authored scene routes before choosing again",
     host_bound: true,
   }],
+  // A superseded card grant is a stale-candidate failure, not an invariant:
+  // the host recomputes the current applicable cards on the same call and
+  // returns them in details.refreshed_cards. Without this entry it fell
+  // through to invariant_terminal / recoverable_by "none" / no next action,
+  // so the Keeper was told the turn was over while the way out was in hand.
+  rule_decision_stale: [{
+    operation: "rules.context",
+    action: "refresh_semantic_candidates",
+    reason: "read the current applicable decision cards for this family before settling again",
+    host_bound: true,
+  }],
   scene_not_adjacent: [{
     operation: "scene.context",
     action: "refresh_semantic_candidates",
@@ -3784,9 +3795,11 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [],
   )],
   ["steward.scene_supply", declaredIdentityTable(["scene_id"], [])],
+  // `projection_sha256` is NOT declared here: it is transport-authored and
+  // covered once by TRANSPORT_COLLAPSE_INTEGRITY_FIELDS for every operation.
   ["setup.inspect", declaredIdentityTable(
     ["active_scenario_id", "campaign_id", "pregen_id", "scenario_id"],
-    ["projection_sha256"],
+    [],
   )],
   ["setup.phase", declaredIdentityTable(["asset_root_id", "campaign_id"], [])],
   ["setup.adopt_source_facts", declaredIdentityTable(["campaign_id"], [])],
@@ -3959,10 +3972,9 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       "source_command_id", "source_turn_id", "state_refs", "turn_id",
     ],
   )],
-  ["combat.end", declaredIdentityTable(
-    [],
-    ["projection_sha256"],
-  )],
+  // `combat.end` had no operation-local disposition beyond the
+  // transport-authored `projection_sha256`, which is now declared once for
+  // every operation; the entry itself is the instance patch and is retired.
   ["combat.context", declaredIdentityTable(
     ["actor_id", "combat_id", "scene_ref", "target_actor_id"],
     [],
@@ -4029,9 +4041,99 @@ const GLOBAL_SEMANTIC_IDENTITY_FIELDS: ReadonlySet<string> = new Set([
   "civil_segment_id",
 ]);
 
-// Closed-universe check: every operation-declared integrity field must be a
-// member of the classified integrity-name universe — per-operation
-// declarations narrow the boundary; they never extend the name universe.
+/**
+ * Transport-authored integrity fields: machine integrity the BOUNDED WIRE
+ * writes onto a result, not evidence any canonical operation emitted.
+ *
+ * `_minimal_identity` in `plugins/coc-keeper/scripts/coc_mcp_wire.py` is the
+ * last-resort projection for a result that exceeds `MAX_INLINE_BYTES`. It
+ * collapses the payload to identity fields picked out of the canonical data
+ * and then unconditionally stamps `projection_sha256: canonical_digest(data)`
+ * — for EVERY operation, since every operation can overflow. That digest is
+ * therefore operation-neutral by construction: the wire is its sole producer
+ * repository-wide, and the exact canonical envelope always remains in
+ * host-only `details.canonical`, so declaring it costs no evidence.
+ *
+ * Declaring it per operation instead was the bug. `setup.inspect` and
+ * `combat.end` each earned a private `["projection_sha256"]` line the first
+ * time production overflowed them; every other operation kept failing closed
+ * with `semantic_identity_unavailable` the first time IT overflowed. That is
+ * what silenced `rules.context` for the four rule families whose decision
+ * cards exceed the cap (sanity 30,199 B; combat 27,797 B; magic 26,046 B;
+ * chase 19,331 B): the Keeper called for combat rules, the canonical result
+ * was fine, and the host handed back an error. An operation-neutral field
+ * gets an operation-neutral declaration, so the next family to overflow
+ * cannot re-open the same hole.
+ *
+ * Scope is deliberately narrow: ONLY the names the collapse itself authors.
+ * The integrity names it merely `_pick`s out of the canonical data
+ * (`source_digest`, `rendered_text_sha256`, `contract_projection_sha256`,
+ * `rendered_sha256`) stay per-operation — they are the emitting operation's
+ * own evidence, they are already present on the un-collapsed result, and the
+ * operation that emits them is the one that must account for them.
+ */
+const TRANSPORT_COLLAPSE_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
+  "projection_sha256",
+]);
+
+/**
+ * Transport-authored markers that declare "this `data` is NO LONGER the
+ * canonical operation's payload; it is the wire's collapse stub."
+ *
+ * Two branches in `coc_mcp_wire.py` replace `data` with
+ * `_minimal_identity(operation, data)` when the canonical result cannot fit
+ * `MAX_INLINE_BYTES`, and each stamps its own marker: `identity_only` on the
+ * `ok: true` collapse, `projection_failed` on the `mcp_wire_budget_exceeded`
+ * fallback. Both are written ONLY at those two sites, so a marker is an exact
+ * machine declaration, never a heuristic about payload shape.
+ *
+ * The stub's whole point is `replay_operation` — the card telling the Keeper
+ * to re-run the typed operation instead of reading campaign files. A bespoke
+ * per-operation projector is written against the CANONICAL shape and copies a
+ * fixed KEPT_FIELDS whitelist out of it; handed a stub instead, it copies the
+ * one or two identity names that happen to overlap and drops the card. That
+ * is not a fail-closed error the Keeper can act on — it is `ok: true` with
+ * nothing actionable inside (`state.deliver_handout` collapsed to `{}`).
+ *
+ * So the stub is projected by operation, but never by the operation's
+ * canonical projector: `stripOpaqueModelIdentity` classifies exactly the
+ * closed set of names the wire authors, under the same operation-local
+ * identity declarations, and fails closed on anything it does not recognize.
+ * That is already how the ~139 operations WITHOUT a bespoke projector survive
+ * a collapse; this makes the remaining ones behave identically instead of
+ * each having to earn its own whitelist line the first time it overflows.
+ */
+const TRANSPORT_COLLAPSE_WIRE_MARKERS: readonly string[] = [
+  "identity_only",
+  "projection_failed",
+];
+
+/**
+ * True when the wire declared this envelope's `data` to be a collapse stub.
+ */
+function isTransportCollapsedEnvelope(
+  envelope: Record<string, unknown>,
+): boolean {
+  const wire = isPlainObject(envelope.wire) ? envelope.wire : null;
+  if (wire === null) return false;
+  return TRANSPORT_COLLAPSE_WIRE_MARKERS.some(
+    (marker) => wire[marker] === true,
+  );
+}
+
+// Closed-universe check: every declared integrity field — operation-local or
+// transport-authored — must be a member of the classified integrity-name
+// universe. Declarations narrow the boundary; they never extend the name
+// universe.
+for (const field of TRANSPORT_COLLAPSE_INTEGRITY_FIELDS) {
+  if (!CLASSIFIED_INTEGRITY_FIELDS.has(field)) {
+    throw new ToolContractProjectionError(
+      "integrity_declaration_outside_universe",
+      `integrity field ${field} is transport-declared but outside the ` +
+        "classified integrity universe",
+    );
+  }
+}
 for (const declarations of OPERATION_IDENTITY_DECLARATIONS.values()) {
   for (const field of declarations.integrity) {
     if (!CLASSIFIED_INTEGRITY_FIELDS.has(field)) {
@@ -4057,6 +4159,10 @@ function declaredIdentityDisposition(
     if (declarations?.integrity.has(field)) return "integrity";
     if (declarations?.semantic.has(field)) return "semantic";
   }
+  // The bounded wire stamps these onto ANY over-cap result, so they are
+  // declared once for every operation rather than re-declared per operation
+  // the first time each one happens to overflow.
+  if (TRANSPORT_COLLAPSE_INTEGRITY_FIELDS.has(field)) return "integrity";
   if (GLOBAL_SEMANTIC_IDENTITY_FIELDS.has(field)) return "semantic";
   // One classifier already inventories identities authored by the model.
   // Composed ids, decisions, and exact semantic handles remain the same
@@ -4875,9 +4981,19 @@ export function stripOpaqueModelIdentity(
  * opaque transport tokens, and fixed-text parsing could not survive template
  * drift. Operations without a structured derivation receive no hints.
  */
+/**
+ * The push follow-up. Names the graph decision, not the legacy `rules.push`
+ * operation: the ten-family cutover moved push-luck to
+ * `family_runtime_ownership=graph` and hid the legacy surface, so a Keeper
+ * that took the old hint literally would call a `kp_surface: "none"`
+ * operation and be refused — one wasted model round trip against the
+ * 180-second turn budget, on the exact failure path where the Keeper is
+ * already looking for what to do next.
+ */
 const RULES_PUSH_HINT =
   "failed: the player may push this roll with a changed method and an "
-  + "announced consequence (rules.push)";
+  + "announced consequence (rules.settle with decision_ref "
+  + "decision:coc7:push-luck:pushed-roll)";
 const OPENING_DELIVERY_HINT =
   "deliver data.text exactly; its authoritative opening-time anchor and "
   + "deterministic public first-impression block are canonical and must not "
@@ -5136,6 +5252,302 @@ function projectDevelopmentEndSessionRulesSettleData(
   return projected;
 }
 
+/**
+ * Closed model view of the completed pushed check embedded under
+ * `rules.settle`. The pushed D100 and its announced consequence are the
+ * Keeper's product; the host-owned join back into the original receipt and
+ * into a Social adjudication is not.
+ *
+ * Hidden here, with the model-facing substitute in brackets:
+ * - `original_check` — the raw `rules.roll` receipt (`roll_id` under the
+ *   machine `toolbox-` namespace plus its `integrity_digest`). The push
+ *   already consumed it; the model's join is the sibling
+ *   `original_check_decision_id`, which is a model-facing decision id.
+ * - `social_adjudication_ref` / `social_goal_key` — the digest-backed
+ *   correlation into the one canonical social roll. The Social projector
+ *   hides the same value as `goal_key`; relaying it here
+ *   would reopen that correlation through the Push lane.
+ * - `npc_id` — the host-internal social-target id carried along with that
+ *   correlation. [the scene's own npc roster is the model-facing source]
+ *
+
+ * Mechanics are never rerun: every retained field is copied from the
+ * already-settled canonical result.
+ */
+function projectPushedRollBoundCheckData(
+  value: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  fieldPath = "",
+): Record<string, unknown> {
+  const view = { ...value };
+  // `roll_id` is not deleted here: the `rules.settle` identity table already
+  // declares it host-only, so it never reaches the model whatever this
+  // function does. The Keeper's referenceable handle for a settled roll comes
+  // from `turn.output_context.required_obligation_ids`, which maps through the
+  // registry. The fields below are different — they have no model consumer at
+  // all and would otherwise fail the whole result closed.
+  delete view.original_check;
+  delete view.social_adjudication_ref;
+  delete view.social_goal_key;
+  delete view.npc_id;
+  return stripOpaqueModelIdentity(
+    view,
+    null,
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+    fieldPath,
+  ) as Record<string, unknown>;
+}
+
+/**
+ * RuleGraph settles `decision:coc7:push-luck:pushed-roll` by embedding the
+ * already-executed pushed check under `settlement.result.bound_check`. Project
+ * that branch through its own closed contract instead of judging the whole
+ * composite as flat rules.settle output — the generic sanitizer fails closed
+ * on the host correlation fields the canonical push legitimately carries, and
+ * a failed projection is what sends the Keeper back around the tool loop.
+ */
+function projectPushLuckRulesSettleData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const settlement = isPlainObject(data.settlement) ? data.settlement : null;
+  const result = settlement !== null && isPlainObject(settlement.result)
+    ? settlement.result
+    : null;
+  const boundCheck = result !== null && isPlainObject(result.bound_check)
+    ? result.bound_check
+    : null;
+  if (settlement === null || result === null || boundCheck === null) {
+    return sanitizeEnvelopeBranch(
+      data,
+      semanticIds,
+      diagnostics,
+      "rules.settle",
+    ) as Record<string, unknown>;
+  }
+
+  const genericResult: Record<string, unknown> = { ...result };
+  delete genericResult.bound_check;
+  const projected = sanitizeEnvelopeBranch(
+    {
+      ...data,
+      settlement: { ...settlement, result: genericResult },
+    },
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+  ) as Record<string, unknown>;
+  const projectedSettlement = isPlainObject(projected.settlement)
+    ? projected.settlement
+    : null;
+  const projectedResult = projectedSettlement !== null
+    && isPlainObject(projectedSettlement.result)
+    ? projectedSettlement.result
+    : null;
+  if (projectedSettlement === null || projectedResult === null) return projected;
+  projectedResult.bound_check = projectPushedRollBoundCheckData(
+    boundCheck,
+    semanticIds,
+    diagnostics,
+    "settlement.result.bound_check",
+  );
+  return projected;
+}
+
+/**
+ * Closed model view of a settled Psychology `observe-concealed` result.
+ *
+ * The Keeper's product is what the observation concluded: the resolution, the
+ * question asked, how reliable the read is, and which target facts were in
+ * scope. The host correlation that produced it is not:
+ * - `insight_id` / `window_key` / `conversation_window_id` — the host-minted
+ *   observation-window identity (`window_key` additionally embeds a team
+ *   digest and NUL separators). `conversation_window_id` is already
+ *   never-model-authored on the way in; it is host-only on the way out too.
+ * - `roll_id` / `request_digest` — this settlement's machine identity.
+ * - each observable fact's `source_ref` (the host record locator) and
+ *   `record_digest` (integrity). `kind` + `identifier` carry the same meaning
+ *   to the Keeper without relaying either.
+ */
+function projectPsychologyObserveConcealedData(
+  value: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  fieldPath = "",
+): Record<string, unknown> {
+  const view = { ...value };
+  delete view.insight_id;
+  delete view.window_key;
+  delete view.conversation_window_id;
+  delete view.roll_id;
+  delete view.request_digest;
+  if (Array.isArray(view.observable_fact_refs)) {
+    view.observable_fact_refs = view.observable_fact_refs
+      .filter(isPlainObject)
+      .map((row) => selectedFields(row, [
+        "kind",
+        "identifier",
+        "player_known",
+        "grounding_scope",
+      ]));
+  }
+  return stripOpaqueModelIdentity(
+    view,
+    null,
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+    fieldPath,
+  ) as Record<string, unknown>;
+}
+
+/**
+ * RuleGraph settles `decision:coc7:psychology:observe-concealed` with an
+ * observation receipt whose window identity and per-fact record digests have
+ * no model consumer. Without this closed branch the generic sanitizer fails
+ * the whole result closed (`semantic_identity_unavailable`), which is what
+ * the a6 Gate 9 turn hit after the settlement had already committed.
+ */
+function projectPsychologyRulesSettleData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const settlement = isPlainObject(data.settlement) ? data.settlement : null;
+  const result = settlement !== null && isPlainObject(settlement.result)
+    ? settlement.result
+    : null;
+  if (settlement === null || result === null) {
+    return sanitizeEnvelopeBranch(
+      data,
+      semanticIds,
+      diagnostics,
+      "rules.settle",
+    ) as Record<string, unknown>;
+  }
+  const genericSettlement: Record<string, unknown> = { ...settlement };
+  delete genericSettlement.result;
+  const projected = sanitizeEnvelopeBranch(
+    { ...data, settlement: genericSettlement },
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+  ) as Record<string, unknown>;
+  const projectedSettlement = isPlainObject(projected.settlement)
+    ? projected.settlement
+    : null;
+  if (projectedSettlement === null) return projected;
+  projectedSettlement.result = projectPsychologyObserveConcealedData(
+    result,
+    semanticIds,
+    diagnostics,
+    "settlement.result",
+  );
+  projected.settlement = projectedSettlement;
+  return projected;
+}
+
+/**
+ * Closed model view of a settled Sanity check.
+ *
+ * The Keeper's product is the SAN movement and what it did to the
+ * investigator: the roll against its target, the loss and how it was derived,
+ * the before/after, the involuntary action, and whether a bout opened. The
+ * subsystem bookkeeping that produced it is not:
+ * - `check_roll_id` / `loss_roll_id` / `session_roll_ids` — `toolbox-` roll
+ *   identity for the SAN roll and its loss roll, host-side like every other
+ *   canonical roll id in a settled family result.
+ * - `trigger_id`, at both the result and `check` level — the stripped form of
+ *   the Keeper's own `trigger_ref` input. `source` already carries the
+ *   human-meaningful cause ("witnessing the bed move of its own accord").
+ * - each `session_events[].event_id` — internal event identity with no model
+ *   consumer; the event's `summary`, `san_before/loss/after` and
+ *   `involuntary_action` are what the Keeper narrates from.
+ *
+ * Without this the whole result fails closed, which is what happened in four
+ * separate live SAN settlements: the canonical loss committed (SAN 80→77,
+ * 55→51, 51→47) and the Keeper was handed `semantic_identity_unavailable`
+ * instead of the roll it had just caused.
+ */
+function projectSanityCheckData(
+  value: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  fieldPath = "",
+): Record<string, unknown> {
+  const view = { ...value };
+  // The SAN roll and its loss roll stay VISIBLE and map to `roll:` handles.
+  // They were hidden here at first, which passed a test built on an empty
+  // registry and was wrong on the real path: an unregistered roll has no
+  // handle, and hiding it means the Keeper cannot reference the roll it just
+  // caused — which is precisely how a fumble becomes an unjournalable turn.
+  // Registration for graph settlements is the actual fix (see the
+  // `rules.settle` branch in the extension's roll registry); these fields
+  // belong to the Keeper.
+  delete view.trigger_id;
+  if (isPlainObject(view.check)) {
+    const check = { ...view.check };
+    delete check.trigger_id;
+    view.check = check;
+  }
+  if (Array.isArray(view.session_events)) {
+    view.session_events = view.session_events
+      .filter(isPlainObject)
+      .map((row) => {
+        const event = { ...row };
+        delete event.event_id;
+        return event;
+      });
+  }
+  return stripOpaqueModelIdentity(
+    view,
+    null,
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+    fieldPath,
+  ) as Record<string, unknown>;
+}
+
+/**
+ * RuleGraph settles `decision:coc7:sanity:check` with the subsystem's own
+ * session receipt embedded under `settlement.result`.
+ */
+function projectSanityRulesSettleData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const settlement = isPlainObject(data.settlement) ? data.settlement : null;
+  const result = settlement !== null && isPlainObject(settlement.result)
+    ? settlement.result
+    : null;
+  if (settlement === null || result === null) {
+    return sanitizeEnvelopeBranch(
+      data, semanticIds, diagnostics, "rules.settle",
+    ) as Record<string, unknown>;
+  }
+  const genericSettlement: Record<string, unknown> = { ...settlement };
+  delete genericSettlement.result;
+  const projected = sanitizeEnvelopeBranch(
+    { ...data, settlement: genericSettlement },
+    semanticIds, diagnostics, "rules.settle",
+  ) as Record<string, unknown>;
+  const projectedSettlement = isPlainObject(projected.settlement)
+    ? projected.settlement
+    : null;
+  if (projectedSettlement === null) return projected;
+  projectedSettlement.result = projectSanityCheckData(
+    result, semanticIds, diagnostics, "settlement.result",
+  );
+  projected.settlement = projectedSettlement;
+  return projected;
+}
+
 /** Closed family-aware compositor for embedded rules.settle products. */
 function projectRulesSettleData(
   data: Record<string, unknown>,
@@ -5144,6 +5556,24 @@ function projectRulesSettleData(
 ): Record<string, unknown> {
   if (data.family === "social") {
     return projectSocialRulesSettleData(data, semanticIds, diagnostics);
+  }
+  if (
+    data.family === "sanity"
+    && data.decision_ref === "decision:coc7:sanity:check"
+  ) {
+    return projectSanityRulesSettleData(data, semanticIds, diagnostics);
+  }
+  if (
+    data.family === "psychology"
+    && data.decision_ref === "decision:coc7:psychology:observe-concealed"
+  ) {
+    return projectPsychologyRulesSettleData(data, semanticIds, diagnostics);
+  }
+  if (
+    data.family === "push-luck"
+    && data.decision_ref === "decision:coc7:push-luck:pushed-roll"
+  ) {
+    return projectPushLuckRulesSettleData(data, semanticIds, diagnostics);
   }
   if (
     data.family === "development"
@@ -5693,6 +6123,7 @@ function diagnoseUnprojectedIdentityKeys(
     ...RAW_NEVER_MODEL_AUTHORED_FIELDS,
     ...((HOST_OWNED_FIELDS as Record<string, readonly string[] | undefined>)[operation] ?? []),
     ...DENIED_IDENTITY_FIELDS,
+    ...TRANSPORT_COLLAPSE_INTEGRITY_FIELDS,
     ...(declarations?.semantic ?? []),
     ...(declarations?.integrity ?? []),
     ...(declarations?.hostOnly ?? []),
@@ -6496,6 +6927,9 @@ export function projectModelVisibleCanonicalResult(
   semanticIds: SemanticIdMap | null = null,
   diagnostics: ProjectionIdentityDiagnostics | null = null,
 ): Record<string, unknown> {
+  // module.context reads the whole envelope and carries the wire's collapse
+  // stub through with its identity intact, so it keeps its own path. The
+  // KEPT_FIELDS projectors below must not see a stub at all.
   if (operation === "module.context") {
     const moduleProjection = projectModuleContextResultForModel(envelope);
     return {
@@ -6511,8 +6945,23 @@ export function projectModelVisibleCanonicalResult(
   }
   const data = isPlainObject(projected.data) ? projected.data : null;
   const operationName = typeof operation === "string" ? operation : null;
+  // The wire may have replaced `data` with its collapse stub rather than this
+  // operation's canonical payload.
+  const transportCollapsed = isTransportCollapsedEnvelope(envelope);
   if (data !== null) {
-    if (operation === "scene.context") {
+    if (transportCollapsed) {
+      // A collapse stub is not this operation's canonical payload, so it does
+      // not go to the operation's canonical projector: each of those copies a
+      // fixed KEPT_FIELDS whitelist of canonical names and would drop the
+      // stub's replay_operation card, handing the Keeper an `ok: true`
+      // envelope with nothing actionable in it. This is the same path the
+      // operations without a bespoke projector already take — operation-local
+      // identity declarations still apply, and an unknown name still fails
+      // closed.
+      projected.data = sanitizeEnvelopeBranch(
+        data, semanticIds, diagnostics, operationName,
+      );
+    } else if (operation === "scene.context") {
       projected.data = projectSceneContextData(data, semanticIds, diagnostics);
     } else if (operation === "chase.context") {
       projected.data = projectChaseContextData(data, diagnostics);
@@ -7135,6 +7584,37 @@ const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["rescuer_ref", stringSet(["npc:", "person:", "actor:"])],
   ["assistant_rescuer_ref", stringSet(["npc:", "person:", "actor:"])],
   ["base_weapon_id", stringSet(["weapon:", "item:"])],
+  // ── RuleGraph `rules.settle` semantic_inputs refs (ten-family cutover) ──
+  // Every domain below is copied from the canonical validator that already
+  // resolves the field; none is a new or broadened allowance. A bare
+  // multi-token slug is NOT accepted for the eight strict fields — see
+  // RAW_NAMESPACE_ONLY_ECHOED_FIELDS — because their validators partition on
+  // the namespace and reject a namespace-free value.
+  //
+  // core-check `opposed-check` / `combined-check`: rule_graph_adapter
+  // `_sheet_check` partitions on `skill:` / `characteristic:`.
+  ["actor_check_ref", stringSet(["skill:", "characteristic:"])],
+  ["combined_target_refs", stringSet(["skill:", "characteristic:"])],
+  // core-check `opposed-check` opponent: rule_graph_adapter `_npc_check`
+  // requires exactly `npc:<npc_id>:skill:<slug>` (four segments).
+  ["opponent_check_ref", stringSet(["npc:"])],
+  // social `adjudicate-difficulty`: coc_operation_kernel requires
+  // `commitment:<semantic-slug>`.
+  ["commitment_ref", stringSet(["commitment:"])],
+  // social and psychology each bind their own target namespace in
+  // coc_operation_kernel (`social-target:<npc_id>` / `psychology-target:<npc_id>`).
+  ["target_ref", stringSet(["social-target:", "psychology-target:"])],
+  // chase `start`: refs must be keys of the canonical candidate maps —
+  // actors are `investigator:<id>` / `npc:<id>`, locations are `scene:<id>`.
+  ["pursuer_refs", stringSet(["investigator:", "npc:"])],
+  ["quarry_refs", stringSet(["investigator:", "npc:"])],
+  ["location_refs", stringSet(["scene:"])],
+  // sanity `check` and combat `attack`/`aim` accept the namespaced form or
+  // the bare canonical id (their kernel bindings strip the prefix when
+  // present), so these three keep the ordinary echoed grammar.
+  ["trigger_ref", stringSet(["san-trigger:"])],
+  ["weapon_ref", stringSet(["weapon:", "item:"])],
+  ["weapon_effect_refs", stringSet(["effect:"])],
   ["target_id", stringSet([])],
   ["target_npc_id", stringSet(["npc:"])],
   ["affordance_id", stringSet(["affordance:"])],
@@ -7177,6 +7657,29 @@ const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["route_refs", stringSet(["route:"])],
   ["source_roll_ids", stringSet(["roll:"])],
   ["substantive_effect_ids", stringSet(["effect:"])],
+]);
+
+/**
+ * Echoed fields whose validator partitions on the namespace and therefore
+ * rejects a namespace-free value. For these the bare multi-token-slug half
+ * of the echoed grammar is closed: `isNamespacedSemantic` is the whole rule.
+ *
+ * The affordance binding pair is the original member (campaigns 04/05/10
+ * failed by guessing `route:` → `affordance:` → bare slug); the RuleGraph
+ * `rules.settle` refs joined it because a bare slug reaches their canonical
+ * binding as an unresolvable candidate key.
+ */
+const RAW_NAMESPACE_ONLY_ECHOED_FIELDS: ReadonlySet<string> = new Set([
+  "matched_affordance_ids",
+  "selected_affordance_ids",
+  "actor_check_ref",
+  "combined_target_refs",
+  "opponent_check_ref",
+  "commitment_ref",
+  "target_ref",
+  "pursuer_refs",
+  "quarry_refs",
+  "location_refs",
 ]);
 
 /**
@@ -7313,9 +7816,7 @@ function rawIdentityFieldRule(
     // Affordance binding fields are closed to the `affordance:` namespace:
     // the exact copy-verbatim handle is the only accepted form (campaign
     // 04/05/10 namespace-guessing ladder fails closed here).
-    if (
-      field === "matched_affordance_ids" || field === "selected_affordance_ids"
-    ) {
+    if (RAW_NAMESPACE_ONLY_ECHOED_FIELDS.has(field)) {
       return (value) => isNamespacedSemantic(value, echoed);
     }
     if (field === "weapon_id") {
@@ -7477,6 +7978,10 @@ export function closedIdentityGrammarSpec(
     const namespaces = [...echoed];
     const nsText = field === "weapon_id"
       ? "literal `unarmed`, a multi-token semantic slug, or namespace `weapon:`, `item:`"
+      // Namespace-only fields reject the bare-slug half of the grammar: their
+      // canonical binding partitions on the namespace to resolve the value.
+      : RAW_NAMESPACE_ONLY_ECHOED_FIELDS.has(field)
+      ? `namespace ${namespaces.map((n) => `\`${n}\``).join(", ")} only`
       : namespaces.length > 0
       ? `multi-token semantic slug or namespace ${namespaces.map((n) => `\`${n}\``).join(", ")}`
       : "multi-token semantic slug (no colon namespace)";
@@ -7515,7 +8020,9 @@ export function closedIdentityGrammarSpec(
       : GRAMMAR_EXAMPLE_SLUG;
     const wrong = echoedWrongExample(namespaces);
     const marker = `Closed ${field} grammar`;
-    const extra = namespaces.length > 0
+    const extra = RAW_NAMESPACE_ONLY_ECHOED_FIELDS.has(field)
+      ? "No other namespaces, and no bare slug. "
+      : namespaces.length > 0
       ? "No other namespaces. "
       : "No colon namespace. ";
     return {
@@ -7824,6 +8331,17 @@ export type SemanticIdentityHandleResolver = {
   resolveWeapon: (handle: string) => string | null;
   resolveRoute: (handle: string) => string | null;
   resolveAffordance: (handle: string) => string | null;
+  /**
+   * Why a resolve failed, when the host can say. The registry distinguishes
+   * seven causes; a resolver that collapses them to `null` leaves the Keeper
+   * told to "refresh the turn context" when the truth may be that another
+   * owner holds the handle, or that it was consumed — neither of which a
+   * refresh fixes. Optional so existing resolvers keep working unchanged.
+   */
+  describeFailure?: (
+    domain: "roll" | "effect" | "item" | "weapon" | "route" | "affordance",
+    handle: string,
+  ) => string | null;
 };
 
 /** Scalar fields whose entire value is a registry roll handle. */
@@ -8065,10 +8583,12 @@ export function restoreSemanticEntityHandles(
         : resolver.resolveAffordance;
       const canonical = resolve(value);
       if (canonical === null) {
+        const specific = resolver.describeFailure?.(domain, value) ?? null;
         return {
           ok: false,
-          reason: `unknown or no-longer-authoritative semantic ${domain} `
-            + "handle; refresh the current turn context before referencing it.",
+          reason: specific
+            ?? `unknown or no-longer-authoritative semantic ${domain} `
+              + "handle; refresh the current turn context before referencing it.",
         };
       }
       return { ok: true, value: canonical };

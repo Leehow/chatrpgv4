@@ -93,6 +93,31 @@
       ]
     },
     {
+      "node_id": "continuation:coc7:push-luck:after-fail-push",
+      "node_kind": "continuation",
+      "name": "After an ordinary failure the player may push with a changed method",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-70-block-22",
+        "span-social-source-accepted-page-70-block-23",
+        "span-social-source-accepted-page-70-block-24",
+        "span-social-source-accepted-page-75-block-62",
+        "span-social-source-accepted-page-75-block-63",
+        "span-social-source-accepted-page-77-block-92",
+        "span-social-source-accepted-page-77-block-96",
+        "span-social-source-accepted-page-77-block-98",
+        "span-social-source-accepted-page-82-block-127",
+        "span-social-source-accepted-page-82-block-128",
+        "span-social-source-accepted-page-82-block-129"
+      ]
+    },
+    {
       "node_id": "data-table:coc7:skill-descriptions",
       "node_kind": "data-table",
       "name": "skill-descriptions.json",
@@ -1068,6 +1093,25 @@
         "span-social-source-accepted-page-82-block-121",
         "span-social-source-accepted-page-82-block-126",
         "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:failure-continues-as-push",
+      "relation_kind": "continues-as",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "continuation:coc7:push-luck:after-fail-push",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-70-block-22",
+        "span-social-source-accepted-page-70-block-23",
+        "span-social-source-accepted-page-70-block-24",
+        "span-social-source-accepted-page-75-block-62",
+        "span-social-source-accepted-page-75-block-63",
+        "span-social-source-accepted-page-77-block-92",
+        "span-social-source-accepted-page-77-block-96",
+        "span-social-source-accepted-page-77-block-98",
+        "span-social-source-accepted-page-82-block-127",
+        "span-social-source-accepted-page-82-block-128",
+        "span-social-source-accepted-page-82-block-129"
       ]
     },
     {

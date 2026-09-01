@@ -57,6 +57,17 @@ This driver keeps the same CLI (``start``/``serve``/``set-model``/``turn``/
    lookalike events, malformed handoff rows, and any later signal,
    non-42 exit, reader/EPIPE/non-JSON evidence fail closed.
 
+6. **Environment-driven launch** (``_launch_plan``): with no
+   ``PI_COC_LAUNCHER`` the driver starts a bare ``pi`` for the unit tests;
+   with one set it starts that launcher bound to ``PI_COC_CAMPAIGN_ID``
+   (``PI_COC_MODEL`` / ``PI_COC_THINKING`` select the provider and effort)
+   for live acceptance.  These were previously two divergent copies of this
+   file -- the tracked one here and untracked ones inside playtest
+   workspaces -- so every fix had to be hand-copied, and the one that was not
+   copied (the delivery acknowledgement) stayed broken unnoticed.  One
+   tracked file now serves both, and the copy under version control is the
+   copy that runs.
+
 The upstream pi gap (EPIPE on RPC stdout kills the whole agent) is reported
 separately; this driver makes the peer death survivable and diagnosable on the
 repo side.
@@ -98,8 +109,21 @@ TURN_BUDGET_ABORT_DRAIN_SECONDS = 2.0
 # After envelope+exit 42, keep collecting so late reader/EPIPE/non-JSON
 # or a non-42 exit cannot arrive after the window was frozen.
 HANDOFF_DRAIN_SECONDS = 1.5
+# Launch configuration. Setting LAUNCHER_ENV switches this driver from the bare
+# `pi` it starts by default to the repo's `pi-coc` bound to a campaign, so one
+# version-controlled driver serves both the unit tests and live acceptance.
+LAUNCHER_ENV = "PI_COC_LAUNCHER"
+CAMPAIGN_ID_ENV = "PI_COC_CAMPAIGN_ID"
+MODEL_ENV = "PI_COC_MODEL"
+THINKING_ENV = "PI_COC_THINKING"
+DEFAULT_CAMPAIGN_MODEL = "xai/grok-4.5"
+DEFAULT_CAMPAIGN_THINKING = "high"
 
 _driver_log_handle = None
+
+
+class LaunchConfigError(RuntimeError):
+    """The environment asked for a campaign launch it did not fully describe."""
 
 
 def log(message: str) -> None:
@@ -144,6 +168,9 @@ SETTLED_OUTPUT_RECOVERY_EXHAUSTED = "settled_output_recovery_exhausted"
 SETUP_HANDOFF_CUSTOM_TYPE = "coc_setup_handoff"
 COC_SETUP_HANDOFF_EXIT_CODE = 42
 SESSION_ROLE_ENV = "COC_PI_SESSION_ROLE"
+# Distinct from a real timeout: the turn cannot settle, and the remedy is a
+# declaration the operator omitted, not a longer wait.
+UNCLAIMED_HANDOFF_EXIT_CODE = 6
 _SESSION_ROLE_UNSET = object()
 SETUP_HANDOFF_RECEIPT_KEYS = {
     "schema_version",
@@ -561,6 +588,30 @@ def _setup_handoff_proven(
     )
 
 
+def _setup_handoff_unclaimed(
+    rows: list[dict],
+    *,
+    session_role: object = _SESSION_ROLE_UNSET,
+) -> bool:
+    """A real handoff envelope that this session's role refuses to claim.
+
+    `_setup_handoff_proven` requires the session to have declared
+    ``COC_PI_SESSION_ROLE=setup``; that strictness is deliberate, so a play
+    turn can never be misread as a handoff. But a fresh campaign whose first
+    session declares no role at all produces the envelope anyway, and then
+    waits for a settle that the re-executed launcher will never send.
+    """
+    # Only when NO role was declared. A daemon that established itself as
+    # `play` must keep ignoring a handoff envelope — refusing promotion by
+    # turn-process env is a deliberate boundary, and waiting is its fail-closed
+    # behavior. The gap is the session that declared nothing at all.
+    if _canonical_session_role(session_role) is not None:
+        return False
+    if _handoff_stream_unreliable(rows):
+        return False
+    return bool(_setup_handoff_payloads(rows))
+
+
 def _setup_handoff_ready(
     rows: list[dict],
     *,
@@ -874,6 +925,134 @@ def _turn_timeout_diagnosis(rows: list[dict]) -> dict:
     }
 
 
+def _report_ack_failure(message: str) -> None:
+    """Surface an acknowledgement failure on the channel the caller can see.
+
+    `log()` writes to the detached serve process's handle, which a `turn`
+    invocation does not hold; routing failures only there is how a rejected
+    acknowledgement stayed invisible while the receipt silently never appeared.
+    """
+    log(message)
+    print(message, file=sys.stderr)
+
+
+def _delivered_finalization(rows: list[dict]) -> dict | None:
+    """Campaign + finalization identity of the turn this submit just delivered.
+
+    Everything here is read back out of the observed event stream, never
+    invented: the campaign id from canonical tool arguments, and the
+    finalization identity from the ``turn.finalize`` result the KP actually
+    produced. If any part is missing the caller acknowledges nothing.
+    """
+    campaign_id: str | None = None
+    finalization_id: str | None = None
+    rendered_sha256: str | None = None
+
+    def scan(value: object) -> None:
+        nonlocal finalization_id, rendered_sha256
+        if isinstance(value, dict):
+            fid = value.get("finalization_id")
+            sha = value.get("rendered_text_sha256")
+            if isinstance(fid, str) and fid and isinstance(sha, str) and sha:
+                finalization_id, rendered_sha256 = fid, sha
+            for nested in value.values():
+                scan(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                scan(nested)
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        arguments = row.get("args")
+        if isinstance(arguments, dict):
+            candidate = arguments.get("campaign")
+            if isinstance(candidate, str) and candidate:
+                campaign_id = candidate
+        if row.get("type") == "tool_execution_end":
+            scan(row.get("result"))
+    if not (campaign_id and finalization_id and rendered_sha256):
+        return None
+    return {
+        "campaign_id": campaign_id,
+        "finalization_id": finalization_id,
+        "rendered_sha256": rendered_sha256,
+    }
+
+
+def _acknowledge_delivery(payload: dict, rows: list[dict]) -> None:
+    """Close the transport loop for a turn whose text reached the player.
+
+    The RPC playtest lane never did this, so no campaign played through this
+    driver has ever carried a confirmed delivery receipt (the last one anywhere
+    is dated 2026-08-21). That leaves `save/continuation/delivery-receipts.jsonl`
+    absent, which in turn makes every such campaign permanently unsealable for
+    `/system debug` — it refuses a checkpoint whose finalized tip has no
+    confirmed delivery.
+
+    This is only called after the settle classification proved the turn
+    delivered visible assistant text, and that text has just been printed above
+    as ``KP: ...``. The acknowledgement is therefore a statement about what
+    actually happened at the table, not a formality: a turn that did not reach
+    the player never gets here. A failure is reported and never fails the turn,
+    which already succeeded.
+    """
+    delivered = _delivered_finalization(rows)
+    if delivered is None:
+        return
+    # The gate probe launches the repo's `pi-coc` from a workspace that is not
+    # itself a checkout, so the canonical toolbox lives next to that launcher
+    # rather than under ROOT.
+    launcher = os.environ.get(LAUNCHER_ENV)
+    roots = []
+    if launcher:
+        roots.append(Path(launcher).resolve().parents[4])
+    roots.append(ROOT)
+    for candidate in roots:
+        script = candidate / "plugins" / "coc-keeper" / "scripts" / "coc_toolbox.py"
+        if script.is_file():
+            break
+    else:
+        log("delivery ack skipped: canonical toolbox not found")
+        return
+    campaign_id = os.environ.get(CAMPAIGN_ID_ENV) or delivered["campaign_id"]
+    arguments = {
+        "finalization_id": delivered["finalization_id"],
+        "rendered_sha256": delivered["rendered_sha256"],
+        "ack_kind": "displayed",
+        "source_id": f"rpc-driver:{payload.get('id') or 'turn'}",
+        # Required, and idempotent by construction: one acknowledgement per
+        # finalization, so a replayed turn reuses the same decision and the
+        # broker returns the existing receipt instead of writing a second one.
+        "decision_id": f"rpc-driver:{delivered['finalization_id']}",
+    }
+    try:
+        completed = subprocess.run(
+            [
+                "uv", "run", "--frozen", "python", str(script),
+                "session.delivery_ack",
+                    "--root", str(ROOT),
+                "--campaign", campaign_id,
+                "--json", json.dumps(arguments, ensure_ascii=False),
+            ],
+            cwd=ROOT, capture_output=True, text=True, timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        _report_ack_failure(f"delivery ack failed to run: {exc}")
+        return
+    if completed.returncode != 0:
+        _report_ack_failure(
+            "delivery ack rejected: " + completed.stderr.strip()[-400:]
+        )
+        return
+    if '"ok": false' in completed.stdout or '"ok":false' in completed.stdout:
+        # The canonical gateway reports refusals in its stdout envelope with a
+        # zero exit code, so returncode alone would hide a rejected ack.
+        _report_ack_failure("delivery ack refused: " + completed.stdout.strip()[-400:])
+        return
+    print(f"delivery acknowledged: {delivered['finalization_id']}")
+
+
 def _finish_prompt_submit(
     payload: dict,
     timeout: int,
@@ -958,6 +1137,8 @@ def _finish_prompt_submit(
             file=sys.stderr,
         )
         return 5
+    if payload["type"] != "set_model":
+        _acknowledge_delivery(payload, rows)
     return 0
 
 
@@ -984,6 +1165,7 @@ def submit(payload: dict, timeout: int, *, profile: str | None = None) -> int:
     deadline = time.monotonic() + timeout
     rows: list[dict] = []
     completed = False
+    unclaimed_handoff = False
     last_diagnostic = time.monotonic()
     handoff_drain_deadline: float | None = None
     while time.monotonic() < deadline:
@@ -1008,6 +1190,15 @@ def submit(payload: dict, timeout: int, *, profile: str | None = None) -> int:
                 )
                 if not completed:
                     handoff_drain_deadline = None
+        elif _setup_handoff_unclaimed(rows, session_role=session_role):
+            # A valid setup-handoff envelope arrived, but this session never
+            # declared the setup role, so the strict `proven` gate refuses it.
+            # The launcher has re-executed; `agent_settled` for this prompt can
+            # never arrive, and waiting it out costs the whole timeout in
+            # silence — six fresh campaigns burned 900s each before this said
+            # anything. Fail fast and name the declaration that is missing.
+            unclaimed_handoff = True
+            break
         else:
             handoff_drain_deadline = None
             # Dead outer pid without an exit row is not launcher re-exec;
@@ -1073,6 +1264,23 @@ def submit(payload: dict, timeout: int, *, profile: str | None = None) -> int:
                     profile=profile,
                 )
     rows = collect_after(before) if not completed else rows
+    if unclaimed_handoff:
+        return _finish_prompt_submit(
+            payload,
+            timeout,
+            rows,
+            completed=False,
+            session_role=session_role,
+            exit_code=UNCLAIMED_HANDOFF_EXIT_CODE,
+            death_message=(
+                "setup handoff observed but this session never declared the "
+                f"setup role: set {SESSION_ROLE_ENV}=setup on the daemon that "
+                "creates a campaign. The launcher has re-executed, so this "
+                "prompt can never settle; the campaign itself is durable — "
+                "send the next turn to continue in the play role."
+            ),
+            profile=profile,
+        )
     absolute_budget_timeout = None
     if (
         not completed
@@ -1137,25 +1345,81 @@ def submit(payload: dict, timeout: int, *, profile: str | None = None) -> int:
     )
 
 
-def serve() -> int:
-    env = os.environ.copy()
-    env.update({
+def _launch_plan(environ: dict) -> tuple[list[str], dict[str, str]]:
+    """Resolve the pi process this driver owns from the environment alone.
+
+    Two launch shapes existed as two divergent copies of this file: the
+    version-controlled one launched a bare ``pi`` with no campaign, while the
+    variant that actually ran Gate 9 acceptance lived only as untracked copies
+    inside playtest workspaces and launched the repo's ``pi-coc`` with
+    ``--campaign``. Every driver fix therefore had to be hand-copied into each
+    workspace, and one that was not copied -- the delivery acknowledgement --
+    stayed broken without anyone noticing.
+
+    Making the launch configuration environment-driven collapses both shapes
+    into this one file, so the copy under version control is the copy that
+    runs. ``PI_COC_LAUNCHER`` selects campaign mode; its absence keeps the
+    original bare-``pi`` behavior byte for byte.
+    """
+    home_bin = str(Path.home() / ".local/bin")
+    overrides = {
         "PI_CODING_AGENT_DIR": str(ROOT / "agent-home"),
         "COC_HOST": "pi",
-        "COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND": str(ROOT / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter"),
-        "PATH": str(Path.home() / ".local/bin") + os.pathsep + env.get("PATH", ""),
-        "COC_PROGRESSIVE_OCR_COMMAND": str(ROOT / "plugins/coc-keeper/pi/bin/coc-ocr-adapter.py"),
-        "COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND": str(ROOT / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter"),
+        "PATH": home_bin + os.pathsep + environ.get("PATH", ""),
         "COC_KEEPER_ENV_FILE": str(Path.home() / ".config/coc-keeper/secrets.env"),
-    })
+    }
+    launcher = environ.get(LAUNCHER_ENV)
+    if not launcher:
+        # Bare mode: ROOT is a repository checkout, so the host adapters
+        # resolve against it.
+        overrides["COC_PI_SOURCE_SCOPE_LOCATOR_COMMAND"] = str(
+            ROOT / "plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter"
+        )
+        overrides["COC_PROGRESSIVE_OCR_COMMAND"] = str(
+            ROOT / "plugins/coc-keeper/pi/bin/coc-ocr-adapter.py"
+        )
+        cmd = [
+            "pi", "--no-builtin-tools", "--approve", "--no-context-files",
+            "--append-system-prompt", "plugins/coc-keeper/pi/prompts/host-system.md",
+            "--mode", "rpc", "--no-session",
+        ]
+        return cmd, overrides
+    campaign_id = environ.get(CAMPAIGN_ID_ENV)
+    if not campaign_id:
+        # Fail closed and name the missing variable: a campaign launch with no
+        # campaign would otherwise start a host that silently plays nothing.
+        raise LaunchConfigError(
+            f"{LAUNCHER_ENV} is set but {CAMPAIGN_ID_ENV} is missing; "
+            "a campaign launch needs both."
+        )
+    # Campaign mode: ROOT is the playtest workspace, not a checkout, so the
+    # adapter paths under it do not exist. The launcher carries its own repo,
+    # and the workspace is named explicitly instead.
+    overrides["COC_WORKSPACE"] = str(ROOT)
     cmd = [
-        "pi", "--no-builtin-tools", "--approve", "--no-context-files",
-        "--append-system-prompt", "plugins/coc-keeper/pi/prompts/host-system.md",
-        "--mode", "rpc", "--no-session",
+        launcher,
+        "--mode", "rpc",
+        "--campaign", campaign_id,
+        "--model", environ.get(MODEL_ENV) or DEFAULT_CAMPAIGN_MODEL,
+        "--thinking", environ.get(THINKING_ENV) or DEFAULT_CAMPAIGN_THINKING,
+        "--no-session",
     ]
+    return cmd, overrides
+
+
+def serve() -> int:
+    env = os.environ.copy()
     global _driver_log_handle
     DRIVER_LOG.parent.mkdir(exist_ok=True)
     _driver_log_handle = DRIVER_LOG.open("a", encoding="utf-8")
+    try:
+        cmd, overrides = _launch_plan(env)
+    except LaunchConfigError as exc:
+        # `start` detaches this process, so an uncaught error here would vanish.
+        # The driver log is the one place the operator is told to look.
+        log(f"serve refused to start: {exc}")
+        return 2
+    env.update(overrides)
     log("serve starting: " + " ".join(cmd))
     proc = subprocess.Popen(cmd, cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=STDERR.open("a", encoding="utf-8"), text=True, bufsize=1, env=env)

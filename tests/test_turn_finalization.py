@@ -120,7 +120,16 @@ def test_first_aid_pushed_failure_can_finalize_after_authoritative_effect(
             "required_direction": "cost",
         }],
         "pending_modifier_consumptions": [],
+        # The gate names the operation that clears it. Without this the
+        # Keeper only learns which obligation is unmet, not what to call.
+        "remedy": {
+            "operation": "state.exceptional_effect",
+            "action": "apply",
+            "source_roll_id": [f"roll:{roll_id}"],
+            "also_required": ["decision_id", "effect_kind"],
+        },
     }
+    assert "state.exceptional_effect" in blocked["error"]["message"]
     assert durable_state() == before
     assert not (
         campaign_ws["campaign_dir"] / "save" / "pending-turn.json"

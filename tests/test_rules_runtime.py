@@ -2203,6 +2203,100 @@ def test_packaged_push_settle_accepts_universal_investigator_routing_field(
     assert result["original_check_decision_id"] == original_id
 
 
+@pytest.mark.parametrize("skill", [
+    "Dodge", "Fighting (Brawl)", "Firearms (Handgun)", "Artillery",
+])
+def test_packaged_failed_combat_skill_check_is_never_offered_a_push(
+    tmp_path: Path,
+    skill: str,
+):
+    """A failed combat-skill check must not reach the pushed roll at all.
+
+    The rulebook states this once per combat skill -- Artillery (p.71), Dodge
+    (p.75), Fighting and Firearms (p.76) each close with "Note: as a combat
+    skill, this cannot be pushed." -- and once categorically in the Chapter 6
+    "No Pushing Combat Rolls" sidebar (p.116). Three surfaces used to ignore
+    it: the ordinary check projected a Push continuation, ``rules.context``
+    listed the Push card as applicable, and ``rules.push`` settled the roll.
+
+    All three are asserted here because closing only the last one would still
+    leave the engine advertising a move the rulebook forbids.
+    """
+    ws = _fresh_workspace(tmp_path, f"push-{skill[:8].strip().lower()}")
+    _set_sheet_skill(ws, skill, 40)
+    ordinary_ref = "decision:coc7:core-check:ordinary-check"
+    assert _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "core-check",
+        "selected_affordance_ids": [ordinary_ref],
+    })["ok"] is True
+
+    original_id = "roll-combat-skill-original-v1"
+    failed = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": ordinary_ref,
+        "semantic_inputs": {
+            "skill": skill,
+            "difficulty": "regular",
+            "goal": "act under pressure",
+            "stakes": {"on_success": "it lands", "on_failure": "it does not"},
+            "difficulty_basis": "environment",
+        },
+        "decision_id": original_id,
+        "seed": 88,
+    })
+    assert failed["ok"] is True, failed
+    result = failed["data"]["settlement"]["result"]
+    assert result["outcome"] == "failure"
+    # Luck spend is a separate rule and stays available; only Push is gone.
+    assert result["next_continuations"] == ["decision:coc7:push-luck:luck-spend"]
+    assert result["bound_check"]["push_eligible"] is False
+
+    context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "push-luck",
+    })
+    assert context["ok"] is True, context
+    assert "decision:coc7:push-luck:pushed-roll" not in {
+        card["decision_ref"] for card in context["data"]["cards"]
+    }
+
+    pushed = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": "decision:coc7:push-luck:pushed-roll",
+        "semantic_inputs": {
+            "method_changed": "throw everything into the next attempt",
+            "failure_consequence": "the opening closes for good",
+            "player_confirmed_risk": True,
+        },
+        "decision_id": "push-combat-skill-v1",
+        "seed": 2,
+    })
+    assert pushed["ok"] is False, pushed
+
+
+def test_packaged_failed_non_combat_check_still_reaches_the_push(
+    tmp_path: Path,
+):
+    """The combat-skill guard must not cost an ordinary skill its push."""
+    ws = _fresh_workspace(tmp_path, "push-non-combat-unaffected")
+    original_id = "roll-library-index-still-pushable-v1"
+    _settle_failed_packaged_core_check(ws, original_id)
+    pushed = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": "decision:coc7:push-luck:pushed-roll",
+        "semantic_inputs": {
+            "method_changed": "cross-check the index against the court docket",
+            "failure_consequence": "the clerk bars further access tonight",
+            "player_confirmed_risk": True,
+        },
+        "decision_id": "push-library-index-still-pushable-v1",
+        "seed": 2,
+    })
+    assert pushed["ok"] is True, pushed
+    assert pushed["data"]["settlement"]["result"]["pushed"] is True
+
+
 def test_packaged_push_context_accepts_actor_bound_social_failure(
     tmp_path: Path,
 ):
@@ -3841,8 +3935,15 @@ def test_rules_damage_establishes_one_active_wound_and_projects_healing_cards(
         for row in context["data"]["rule_decision_cards"]["cards"]
     }
     ordinary = by_ref["decision:coc7:healing:first-aid-ordinary"]
-    assert ordinary["rule_refs"] == ["rule:coc7:healing:first-aid"]
-    assert ordinary["source_refs"] == [
+    # Sibling cards in a family repeat nearly the same rule/source refs, so the
+    # block hoists the distinct refs into one ``ref_table`` and leaves indexes
+    # on each card.  The Keeper must still reach every ref from this exact
+    # payload, so resolve the card's indexes through the table it shipped with.
+    resolved = coc_rules_runtime.resolve_card_refs(
+        ordinary, context["data"]["rule_decision_cards"]["ref_table"],
+    )
+    assert resolved["rule_refs"] == ["rule:coc7:healing:first-aid"]
+    assert resolved["source_refs"] == [
         "span-wounds-and-healing-page-131-block-18",
         "span-wounds-and-healing-page-131-block-24",
     ]
@@ -4150,3 +4251,103 @@ def test_finalize_projector_proves_graph_dying_hour_hp_and_condition(
     assert coc_turn_finalization._state_delta_proof_violations(
         window, rows,
     ) == []
+
+
+# --- rules.context transport budget (block ref table, spec §8.4.1) --------- #
+
+_ALL_RULE_FAMILIES = (
+    "sanity", "combat", "magic", "chase", "healing",
+    "core-check", "push-luck", "development", "psychology", "social",
+)
+
+
+def test_every_family_card_set_fits_the_wire_inline_cap(tmp_path: Path):
+    """No family may collapse to an identity-only envelope on the MCP wire.
+
+    Live evidence (pi-coc-gate9-depth-20260901, turn-p-e4f26b8a71f2) recorded
+    ``rules.context{family:"combat"}`` at ``full_result_bytes`` 27131 against
+    ``max_inline_bytes`` 16384.  It collapsed, and the Keeper -- who had
+    correctly reached for combat while the player raised a cane at a moving
+    thing -- got ``semantic_identity_unavailable`` instead of cards.  The cause
+    was duplication: combat's 8 cards repeated 22 distinct rule refs and 56
+    distinct source refs between them, 21,346 of 26,003 card bytes.  Those refs
+    now live in one block ``ref_table``.
+    """
+    import coc_mcp_wire
+
+    ws = _fresh_workspace(tmp_path, "family-card-budget")
+    for family in _ALL_RULE_FAMILIES:
+        envelope = _run(ws, "rules.context", {
+            "investigator": ws["investigator_id"],
+            "family": family,
+        })
+        assert envelope["ok"] is True, (family, envelope)
+        wired = coc_mcp_wire.project_envelope(
+            "rules.context", envelope, contract_digest="sha256:" + "0" * 64,
+        )
+        assert wired["wire"]["full_result_bytes"] <= coc_mcp_wire.MAX_INLINE_BYTES, (
+            f"{family} exceeds the inline cap and will reach the Keeper as an "
+            f"error: {wired['wire']['full_result_bytes']} bytes"
+        )
+        assert not wired["wire"].get("identity_only"), family
+
+
+def test_combat_context_returns_cards_whose_every_ref_still_resolves(
+    tmp_path: Path,
+):
+    """Hoisting refs is a transport shape, never a content cut.
+
+    Each card must resolve to exactly the refs it would have carried inline,
+    and the table it resolves against must ship in the same payload -- no
+    second call, no host-side lookup.
+    """
+    ws = _fresh_workspace(tmp_path, "combat-card-refs")
+    envelope = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "combat",
+    })
+    assert envelope["ok"] is True, envelope
+    data = envelope["data"]
+    assert data["status"] == "ok"
+    assert data["cards"], "combat must return cards, not an identity-only stub"
+    ref_table = data["ref_table"]
+    assert ref_table["resolution"].strip(), "the table must say how to resolve it"
+
+    graph = json.loads(
+        (
+            Path(coc_rules_runtime.__file__).resolve().parents[1]
+            / "rulesets/coc7/rule-graph.json"
+        ).read_text(encoding="utf-8")
+    )
+    bare = coc_rules_runtime.RulesRuntime(
+        graph, campaign_id="compare", facts_provider=lambda: {},
+    )
+    inline = {
+        str(node["node_id"]): coc_rules_runtime.public_card_projection(
+            bare._card(str(node["node_id"]), {}),
+        )
+        for node in bare.decision_nodes("combat")
+    }
+    for card in data["cards"]:
+        resolved = coc_rules_runtime.resolve_card_refs(card, ref_table)
+        expected = inline[card["decision_ref"]]
+        assert resolved["rule_refs"] == (expected.get("rule_refs") or []), (
+            card["decision_ref"], "rule refs must survive hoisting exactly",
+        )
+        assert resolved["source_refs"] == (expected.get("source_refs") or []), (
+            card["decision_ref"], "source refs must survive hoisting exactly",
+        )
+        # The indirection must resolve inside this payload, never dangle.
+        for index in card["rule_ref_ids"]:
+            assert 0 <= index < len(ref_table["rule_refs"]), card["decision_ref"]
+        for index in card["source_ref_ids"]:
+            assert 0 <= index < len(ref_table["source_refs"]), card["decision_ref"]
+
+    # The duplication the hoist removes is real, not incidental.
+    occurrences = sum(
+        len(inline[card["decision_ref"]].get("source_refs") or [])
+        for card in data["cards"]
+    )
+    assert occurrences > 4 * len(ref_table["source_refs"]), (
+        "combat source refs should be heavily repeated across sibling cards"
+    )

@@ -12,8 +12,9 @@ rather than rewriting them"). No arithmetic is reimplemented here:
   non-combat winner rule the toolbox ``rules.opposed`` handler applied
   inline (higher success level wins; ties favor the higher value).
 - ``push_policy`` is the pushed-roll eligibility rule (only an ordinary
-  failure, once) the toolbox enforced inline; it returns a verdict string
-  and the handler keeps owning the error envelope.
+  failure, once, and never a skill ``skill_pushable`` excludes) the toolbox
+  enforced inline; it returns a verdict string and the handler keeps owning
+  the error envelope.
 - ``sanity_check`` composes ``check`` with SAN loss-expression settlement
   (``coc_sanity.validate_san_loss_expression`` + ``coc_roll.roll_expression``)
   exactly as the toolbox ``rules.sanity_check`` handler did inline.
@@ -528,13 +529,66 @@ def opposed(
     }
 
 
-def push_policy(original_outcome: Any, already_pushed: bool) -> str | None:
+def skill_pushable(skill: Any) -> bool:
+    """Whether a failed check on ``skill`` may be pushed at all (p.71/75/76/116).
+
+    The rulebook takes the push option away from combat rolls. It says so once
+    per combat skill in the skill descriptions -- Artillery, Dodge, Fighting
+    and Firearms each close with "Note: as a combat skill, this cannot be
+    pushed." -- and once categorically in the Chapter 6 "No Pushing Combat
+    Rolls" sidebar. That scope is rule data in ``rules-json/pushed-roll.json``
+    (``non_pushable_skill_names`` / ``non_pushable_specialization_groups``),
+    keyed by canonical skill name and by the ``skills.json`` specialization
+    group, so a Fighting or Firearms specialization is covered without
+    enumerating all fifteen of them.
+
+    An empty selector, a characteristic name, or a skill this package does not
+    catalog is pushable: the restriction is the rulebook's closed list, not an
+    inference about what a skill sounds like.
+    """
+    name = str(skill or "").strip()
+    if not name:
+        return True
+    table = json.loads(
+        (RULES_DIR / "pushed-roll.json").read_text(encoding="utf-8")
+    )
+    if name in {
+        str(value) for value in table.get("non_pushable_skill_names") or []
+    }:
+        return False
+    groups = {
+        str(value)
+        for value in table.get("non_pushable_specialization_groups") or []
+    }
+    if name in groups:
+        # The bare group selector ("Fighting", "Firearms") names the whole
+        # combat skill the sidebar excludes, not a rollable specialization.
+        return False
+    try:
+        spec = coc_rules.skill_by_name(name)
+    except (KeyError, OSError, json.JSONDecodeError):
+        return True
+    group = spec.get("group")
+    return not (isinstance(group, str) and group in groups)
+
+
+def push_policy(
+    original_outcome: Any,
+    already_pushed: bool,
+    skill: Any = None,
+) -> str | None:
     """Pushed-roll eligibility verdict (toolbox ``rules.push``).
 
     Returns ``None`` when the original check may be pushed, otherwise the
     violation message. The handler owns the error envelope; the ruleset owns
-    the rule: only an ordinary failure may be pushed, and only once.
+    the rule: only an ordinary failure may be pushed, only once, and never on
+    a skill the rulebook excludes from pushing (see ``skill_pushable``).
     """
+    if not skill_pushable(skill):
+        return (
+            f"{str(skill).strip()} is a combat skill and cannot be pushed; "
+            "the next attempt is the next attack, not a pushed roll"
+        )
     if original_outcome != "failure":
         return (
             "only an ordinary failed original check may be pushed; "
@@ -943,8 +997,17 @@ def public_api_index() -> dict[str, dict[str, Any]]:
         },
         "push_policy": {
             "aliases": [],
-            "signature": "push_policy(original_outcome, already_pushed)",
+            "signature": "push_policy(original_outcome, already_pushed, skill=None)",
             "returns": "None when the check may be pushed, else the violation message",
+        },
+        "skill_pushable": {
+            "aliases": [],
+            "signature": "skill_pushable(skill)",
+            "returns": (
+                "False only for the skills the rulebook excludes from pushing "
+                "(pushed-roll.json non_pushable: Artillery, Dodge, and every "
+                "Fighting/Firearms specialization)"
+            ),
         },
         "sanity_check": {
             "aliases": ["san_check"],

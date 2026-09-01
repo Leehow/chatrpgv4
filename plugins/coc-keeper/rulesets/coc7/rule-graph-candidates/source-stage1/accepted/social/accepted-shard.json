@@ -99,6 +99,31 @@
       ]
     },
     {
+      "node_id": "continuation:coc7:push-luck:after-fail-push",
+      "node_kind": "continuation",
+      "name": "After an ordinary failure the player may push with a changed method",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "push-luck"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-70-block-22",
+        "span-social-source-accepted-page-70-block-23",
+        "span-social-source-accepted-page-70-block-24",
+        "span-social-source-accepted-page-75-block-62",
+        "span-social-source-accepted-page-75-block-63",
+        "span-social-source-accepted-page-77-block-92",
+        "span-social-source-accepted-page-77-block-96",
+        "span-social-source-accepted-page-77-block-98",
+        "span-social-source-accepted-page-82-block-127",
+        "span-social-source-accepted-page-82-block-128",
+        "span-social-source-accepted-page-82-block-129"
+      ]
+    },
+    {
       "node_id": "data-table:coc7:skill-descriptions",
       "node_kind": "data-table",
       "name": "skill-descriptions.json",
@@ -1079,6 +1104,25 @@
       ]
     },
     {
+      "relation_id": "relation:coc7:social:failure-continues-as-push",
+      "relation_kind": "continues-as",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "continuation:coc7:push-luck:after-fail-push",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-70-block-22",
+        "span-social-source-accepted-page-70-block-23",
+        "span-social-source-accepted-page-70-block-24",
+        "span-social-source-accepted-page-75-block-62",
+        "span-social-source-accepted-page-75-block-63",
+        "span-social-source-accepted-page-77-block-92",
+        "span-social-source-accepted-page-77-block-96",
+        "span-social-source-accepted-page-77-block-98",
+        "span-social-source-accepted-page-82-block-127",
+        "span-social-source-accepted-page-82-block-128",
+        "span-social-source-accepted-page-82-block-129"
+      ]
+    },
+    {
       "relation_id": "relation:coc7:social:fast-talk-part-of",
       "relation_kind": "part-of",
       "from_node_id": "rule:coc7:social:fast-talk-temporary",
@@ -1629,13 +1673,24 @@
     "span-social-source-accepted-page-208-block-182",
     "span-social-source-accepted-page-208-block-183",
     "span-social-source-accepted-page-70-block-17",
+    "span-social-source-accepted-page-70-block-22",
+    "span-social-source-accepted-page-70-block-23",
+    "span-social-source-accepted-page-70-block-24",
     "span-social-source-accepted-page-71-block-30",
     "span-social-source-accepted-page-71-block-37",
     "span-social-source-accepted-page-75-block-57",
     "span-social-source-accepted-page-75-block-61",
+    "span-social-source-accepted-page-75-block-62",
+    "span-social-source-accepted-page-75-block-63",
     "span-social-source-accepted-page-77-block-90",
+    "span-social-source-accepted-page-77-block-92",
+    "span-social-source-accepted-page-77-block-96",
+    "span-social-source-accepted-page-77-block-98",
     "span-social-source-accepted-page-82-block-121",
     "span-social-source-accepted-page-82-block-126",
+    "span-social-source-accepted-page-82-block-127",
+    "span-social-source-accepted-page-82-block-128",
+    "span-social-source-accepted-page-82-block-129",
     "span-social-source-accepted-page-84-block-138"
   ],
   "evidence_binding": {
@@ -3362,8 +3417,8 @@
     "family_id": "social",
     "section_id": "section-social-source-accepted",
     "shard_id": "shard:coc7:social:section-social-source-accepted",
-    "candidate_sha256": "0d7cb9ace10fddf6d71ef7d3de0b493b40642401ae4e353cddda7836b9e828bb",
+    "candidate_sha256": "af9d4a7fdc62936a900cf90b9c792666ed0267f80fd86acdcb0ff18941940840",
     "packet_sha256": "269b673fd3d6b716d1f0268449e0e25a51bb4fd84f6bb85e28e846d3cd650a4b",
-    "shard_sha256": "3a6dc74b7c29c6bc8974b55528e3edb6b60e87cb936a79b0227fe1b0c8fc03d6"
+    "shard_sha256": "9ad3678e2dbd9d468c25e3152c0fb73f9db1ca9a1f40370018df0b75ac4ee7d9"
   }
 }
