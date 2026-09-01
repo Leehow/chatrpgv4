@@ -267,3 +267,87 @@ def test_the_four_mechanic_segment_types_and_fiction_reproduce(replay):
         count for kind, count in replay["segment_types"].items()
         if kind != "fiction"
     )
+
+
+# ===========================================================================
+# T5 gate 1 — the structural half is language-blind
+# ===========================================================================
+
+def test_the_obligation_derivation_takes_no_language_argument():
+    """Structural, not incidental: language cannot reach the derivation."""
+    import inspect
+
+    finalizer = _load(
+        "coc_turn_finalization_language",
+        "plugins/coc-keeper/scripts/coc_turn_finalization.py",
+    )
+    runtime = _load(
+        "coc_text_runtime_language",
+        "plugins/coc-keeper/scripts/coc_text_runtime.py",
+    )
+    for name in (
+        "_build_obligations", "_build_sanity_bout_obligations",
+        "validate_coverage", "_resolve_coverage_obligation_id",
+    ):
+        params = inspect.signature(getattr(finalizer, name)).parameters
+        assert not any("lang" in p for p in params), f"{name} takes a language"
+    # The obligation vocabulary is language-free; only craft() is scoped.
+    assert not inspect.signature(runtime.vocabulary).parameters
+    assert "language" in inspect.signature(runtime.craft).parameters
+
+
+def test_no_language_helper_is_reachable_from_the_derivation():
+    """An AST check, because a signature can stay clean while a body cheats."""
+    import ast
+
+    source = (
+        REPO / "plugins/coc-keeper/scripts/coc_turn_finalization.py"
+    ).read_text("utf-8")
+    tree = ast.parse(source)
+    banned = {"_campaign_play_language", "_campaign_player_terms",
+              "_infer_play_language_from_rendered"}
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if node.name not in (
+            "_build_obligations", "_build_sanity_bout_obligations",
+            "validate_coverage", "_resolve_coverage_obligation_id",
+        ):
+            continue
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                name = getattr(sub.func, "id", None) or getattr(sub.func, "attr", None)
+                if name in banned:
+                    offenders.append(f"{node.name} calls {name}")
+    assert not offenders, offenders
+
+
+def test_the_preserved_corpus_gives_no_cross_language_evidence(replay):
+    """Stated so the replay is not mistaken for a language proof.
+
+    Every one of the 248 preserved campaigns is zh-Hans. The replay therefore
+    shows the derivation is stable, not that it is language-blind: the two
+    tests above carry that claim structurally (no language parameter, no
+    language helper reachable), and only a live non-zh session can show it
+    end to end. That session is T5 gate 1, and its absence is a real gap
+    rather than something the corpus already covers.
+    """
+    assert replay["records"] == EXPECTED_RECORDS
+    assert replay["coverage_revalidated"] == EXPECTED_COVERAGE_ROWS
+    languages = set()
+    root = _evidence_root()
+    for dirpath, _dirnames, filenames in os.walk(root):
+        if "campaign.json" not in filenames:
+            continue
+        try:
+            document = json.loads(
+                (Path(dirpath) / "campaign.json").read_text("utf-8", errors="ignore")
+            )
+        except (json.JSONDecodeError, OSError):
+            continue
+        languages.add(document.get("play_language") or "unset")
+    assert languages == {"zh-Hans"}, (
+        f"the corpus is no longer zh-Hans only ({sorted(languages)}); the "
+        "replay may now carry cross-language evidence it did not before"
+    )
