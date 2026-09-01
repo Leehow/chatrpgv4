@@ -95,8 +95,8 @@ missing family Gate 9 rows above.
 1. Implement a closed Push/Luck `pushed-roll` `rules.settle` projector. Reuse
    the family-aware embedded-result dispatcher; preserve the pushed D100 and
    visible consequence, hide Social correlation/original receipt integrity,
-   and never rerun mechanics. Diagnosis handoff:
-   `/Users/haoli/leehow/code/chatrpgv4-wt-push-rules-settle-projection-20260831/.tmp/team-lead/worker-push-rules-settle-projection-20260831.md`.
+   and never rerun mechanics. The exact three failing paths are recorded in
+   the Gate 9 table above; the temporary worker worktree was safely closed.
 2. Fix `tests/pi/normal-model-id-boundary.mjs`: 22 current failures are the
    typed and generic copies of eleven unclassified
    `rules.settle.semantic_inputs.*_ref(s)` fields: actor/opponent checks,
@@ -132,9 +132,10 @@ missing family Gate 9 rows above.
   token fields before redaction. No credential was committed, but rotating the
   xAI OAuth credential is recommended.
 
-## Worker handoffs
+## Closeout
 
-- HCS R2: `/Users/haoli/leehow/code/chatrpgv4-wt-gate9-hcs-r2-20260831/.tmp/team-lead/worker-gate9-hcs-r2-20260831.md`
-- Chase/Magic R2: `/Users/haoli/leehow/code/chatrpgv4-wt-gate9-chase-magic-r2-20260831/.tmp/team-lead/worker-gate9-chase-magic-r2-20260831.md`
-- Production turn churn: `.tmp/team-lead/worker-production-turn-churn-recon-20260831.md`
-- Development projection recon: `.tmp/team-lead/worker-development-projection-recon-20260831.md`
+The quota-closeout verifier and partial-fix worktrees were safely closed after
+their evidence was summarized above. Implementation branches whose commits
+were cherry-picked remain retained because their original commits are not
+ancestors of `0.8.1a`; lifecycle closeout correctly refused to delete them as
+unique history. Do not force-delete those retained branches.
