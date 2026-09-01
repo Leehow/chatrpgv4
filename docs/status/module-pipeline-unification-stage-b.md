@@ -100,6 +100,38 @@ one player (this session), one turn at a time through the repo's own
    the real campaign: Keeper search for 莎拉 returns her neighbourhood and a
    `concept-time-loop` expansion returns the loop's rules and reset event.
 
+6. **Extracted stat blocks reached no consumer.** The projection carried the
+   numbers in `npcs[].stats` — the extraction pipeline's own shape, which
+   nothing in the repository reads. Combat resolves an NPC through
+   `agenda["mechanics"]["profile"]` (`coc_operation_combat`, validated by
+   `coc_mechanics`), so a module with a fully extracted appendix still had zero
+   combat-ready NPCs. `mechanics` is now registered in the projection field
+   registry, and the module's own appendix values were authored into it:
+
+   | NPC | page | combat participant built from source |
+   | --- | --- | --- |
+   | 莎拉·布劳恩 | 32 | Brawl 30 / Dodge 45 / HP 11 / DEX 70 / MP 16 |
+   | 凯瑟琳·唐宁 | 32 | Brawl 30 / Dodge 40 / HP 11 |
+   | 克莱尔·布恩 | 32 | Brawl 35 / Dodge 50 / HP 10 |
+   | 纳撒尼尔·哈尔 | 32 | Brawl 40 / Dodge 45 / HP 10 |
+   | 塔昆 | 32 | Fighting 50 / Dodge 70 / armour 2 / SAN 0-1D3 |
+   | 威廉姆·莱维特 | 33 | Brawl 25 / Dodge 30 / HP 13 |
+   | 拉尔夫·霍金斯 | 33 | characteristics + skills only (see gap below) |
+   | 约瑟夫·芬彻 | 33 | Brawl 25 / Dodge 25 |
+
+   Every value is copied from the printed appendix; what the source does not
+   print stays in `fields_not_authored`, which the contract requires to close
+   over the full actor schema. Two honest gaps remain and were not filled:
+
+   - **拉尔夫·霍金斯** — the appendix prints his characteristics and
+     `Skills: Intimidate 40%, Listen 45%, Spot Hidden 45%` but no Brawl or
+     Dodge line, so the runtime falls back to Brawl 25 / DEX-half Dodge. The
+     fallback is silent; the missing lines are a source fact, not an oversight.
+   - **芬彻的鬼魂** — printed as `STR — CON — SIZ —` (no body) and fights by
+     opposed POW, so it cannot satisfy the actor profile's required
+     STR/CON/SIZ/DEX/POW. No numbers were invented for it; a ghost-shaped
+     mechanics path is a separate question.
+
 ## 5. Open defect that stopped deeper play (not owned by this work)
 
 On a fumbled STR roll the turn could not settle:
