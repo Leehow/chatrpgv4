@@ -4861,9 +4861,19 @@ export function stripOpaqueModelIdentity(
  * opaque transport tokens, and fixed-text parsing could not survive template
  * drift. Operations without a structured derivation receive no hints.
  */
+/**
+ * The push follow-up. Names the graph decision, not the legacy `rules.push`
+ * operation: the ten-family cutover moved push-luck to
+ * `family_runtime_ownership=graph` and hid the legacy surface, so a Keeper
+ * that took the old hint literally would call a `kp_surface: "none"`
+ * operation and be refused — one wasted model round trip against the
+ * 180-second turn budget, on the exact failure path where the Keeper is
+ * already looking for what to do next.
+ */
 const RULES_PUSH_HINT =
   "failed: the player may push this roll with a changed method and an "
-  + "announced consequence (rules.push)";
+  + "announced consequence (rules.settle with decision_ref "
+  + "decision:coc7:push-luck:pushed-roll)";
 const OPENING_DELIVERY_HINT =
   "deliver data.text exactly; its authoritative opening-time anchor and "
   + "deterministic public first-impression block are canonical and must not "

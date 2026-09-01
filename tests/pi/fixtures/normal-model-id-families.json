@@ -4069,5 +4069,42 @@
    "key": "04ee8cde8dda4cab55eddce4e7a88531b3099db397301e84b0596d1fc03c1fa5",
    "ref": "save/working-set-cache/scene.context/04ee8cde8dda4cab55eddce4e7a88531b3099db397301e84b0596d1fc03c1fa5.json"
   }
+ },
+ "rules_damage": {
+  "ok": true,
+  "tool": "rules.damage",
+  "wire": {
+   "schema_version": 1,
+   "profile": "keeper_hot_v1",
+   "canonical_operation": "rules.damage",
+   "full_result_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "contract_archive_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "payload_projected": false
+  },
+  "data": {
+   "investigator_id": "inv-x6a217e22-e0532209",
+   "kind": "damage",
+   "amount": 2,
+   "roll_detail": {
+    "expression": "1D3",
+    "count": 1,
+    "sides": 3,
+    "modifier": 0,
+    "rolls": [
+     2
+    ],
+    "total": 2
+   },
+   "hp_before": 12,
+   "hp_after": 10,
+   "max_hp": 12,
+   "conditions_before": [],
+   "conditions_after": [],
+   "conditions": [],
+   "source": "strike the desk corner until the knuckles bleed",
+   "roll_id": "toolbox-king-shreds-recovery-live-01-000003"
+  },
+  "warnings": [],
+  "hints": []
  }
 }
