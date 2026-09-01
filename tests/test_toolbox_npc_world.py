@@ -116,16 +116,117 @@ def test_npc_query_preserves_authored_identity_contract(campaign_ws):
     assert kim["profile_revision_ref"].startswith("npc-profile-v2:")
     contract = kim["identity_contract"]
     assert contract["keeper_only"] is True
-    assert contract["npc_id"] == "npc-kim-debrun"
-    assert contract["role"]["relationship_to_investigators"] == "court_contact"
-    assert contract["agenda"] == kim["agenda"]
-    assert contract["voice"] == kim["voice"]
-    assert contract["schedule"] == kim["schedule"]
     assert contract["location_provenance"]["authored_scene_ids"] == [
         "higher-courts-central-police"
     ]
+    # The contract no longer restates what the record already carries: those
+    # fields are named once per result and read off the record itself.
+    projection = envelope["data"]["identity_contract_projection"]
+    assert projection["carried_by_record"] == [
+        "npc_id", "name", "origin", "identity_ref", "profile_revision_ref",
+        "agenda", "voice", "schedule",
+    ]
+    assert projection["role_carried_by_record"] == [
+        "relationship_to_investigators", "social_role", "role_label",
+    ]
+    for field in projection["carried_by_record"]:
+        assert field not in contract, field
+        assert field in kim, field
+    assert "role" not in contract
+    assert kim["npc_id"] == "npc-kim-debrun"
+    assert kim["agenda"]
+    assert kim["voice"]
     assert any("identity contract" in hint for hint in envelope["hints"])
     assert any("never invent a gendered pronoun" in hint for hint in envelope["hints"])
+
+def test_npc_query_contract_elision_is_recoverable_from_its_own_record(campaign_ws):
+    """Every elided contract field must still be readable in the same result.
+
+    This is the whole safety argument for shipping the authored identity once:
+    the contract is not reduced, it is resolved against the record beside it.
+    """
+    envelope = _run(campaign_ws, "npc.query", {})
+    assert envelope["ok"] is True
+    rows = envelope["data"]["npcs"]
+    contracts = [row for row in rows if isinstance(row["identity_contract"], dict)]
+    assert contracts, "fixture must author at least one identity contract"
+
+    projection = envelope["data"]["identity_contract_projection"]
+    paths = [
+        *projection["carried_by_record"],
+        *(f"role.{name}" for name in projection["role_carried_by_record"]),
+    ]
+    assert set(paths) == set(
+        coc_toolbox.coc_npc_identity.RECORD_CARRIED_CONTRACT_FIELDS
+    )
+
+    for row in contracts:
+        rebuilt = dict(row["identity_contract"])
+        for path in paths:
+            field = coc_toolbox.coc_npc_identity.RECORD_CARRIED_CONTRACT_FIELDS[path]
+            head, _, leaf = path.partition(".")
+            if leaf:
+                inline = rebuilt.get(head, {})
+                value = inline[leaf] if leaf in inline else row[field]
+                rebuilt.setdefault(head, {})[leaf] = value
+            elif path not in rebuilt:
+                rebuilt[path] = row[field]
+        agendas = json.loads(
+            (
+                campaign_ws["campaign_dir"] / "scenario" / "npc-agendas.json"
+            ).read_text(encoding="utf-8")
+        )
+        expected = coc_toolbox.coc_npc_identity.identity_contract(
+            coc_toolbox.coc_npc_identity.resolve_authored_npc(
+                agendas, row["npc_id"]
+            ),
+            rebuilt["location_provenance"]["active_scene_id"],
+        )
+        assert rebuilt == expected, row["npc_id"]
+
+def test_npc_query_keeps_a_contract_field_the_record_does_not_reproduce():
+    """Elision is equality-guarded, so a divergent field must stay inline.
+
+    An authored NPC with no schedule is the live case: the contract normalizes
+    it to ``[]`` while the record leaves it ``None``. Dropping it on the name
+    alone would quietly rewrite one into the other.
+    """
+    identity = coc_toolbox.coc_npc_identity
+    contract = identity.identity_contract(
+        {
+            "npc_id": "npc-no-schedule",
+            "name": "Unscheduled",
+            "origin": "source",
+            "agenda": "watch",
+            "voice": "flat",
+        },
+        "some-scene",
+    )
+    record = {
+        "npc_id": "npc-no-schedule",
+        "name": "Unscheduled",
+        "origin": "source",
+        "agenda": "watch",
+        "voice": "flat",
+        "schedule": None,
+        "identity_ref": contract["identity_ref"],
+        "profile_revision_ref": contract["profile_revision_ref"],
+        "relationship_to_investigators": None,
+        "social_role": None,
+        "role_label": None,
+    }
+    reduced = identity.record_scoped_contract(contract, record)
+
+    assert contract["schedule"] == []
+    assert reduced["schedule"] == [], "a divergent field must survive elision"
+    assert "npc_id" not in reduced
+    assert "role" not in reduced
+    assert reduced["location_provenance"] == contract["location_provenance"]
+
+def test_npc_query_omits_the_contract_projection_when_nothing_is_authored():
+    """An improvised-only cast has no contract, so it must not pay for the table."""
+    identity = coc_toolbox.coc_npc_identity
+    assert identity.record_scoped_contract(None, {"npc_id": "npc-x"}) is None
 
 def test_npc_query_projects_campaign_local_npc_and_invalidates_on_first_impression(
     campaign_ws,
