@@ -20,7 +20,7 @@ turns, no scripted player.
 
 | run | path | language | purpose | outcome |
 | --- | --- | --- | --- | --- |
-| `textgraph-t5-en-20260901` | `.coc/playtests/textgraph-t5-en-20260901/` | `en` | T5 gate 1 (live non-zh session), gate 2 (real play), gate 4 (`findings` measurement) | in progress |
+| `textgraph-t5-en-20260901` | `.coc/playtests/textgraph-t5-en-20260901/` | requested `en`, campaign is `zh-Hans` | T5 gate 1 (live non-zh session), gate 2 (real play), gate 4 (`findings` measurement) | in progress |
 
 ### Setup notes for `textgraph-t5-en-20260901`
 
@@ -36,3 +36,40 @@ an earlier attempt, and the session that appeared to fail had in fact come up
 ("COC 已激活 · MCP 已预热"). A subsequent `stop` then killed the working
 session. Read `rpc-driver.log` timestamps, not the tail of an append-only
 stderr file.
+
+
+## Findings from this run, recorded as they happened
+
+### 1. There is no supported way to create a non-`zh-Hans` table
+
+Asked, as a player, for an English table in the first message. The KP wrote its
+free prose in English but the campaign was still created with
+`play_language: zh-Hans`, and the sheet it returned carried Chinese labels
+around English content.
+
+That is not the KP ignoring the request. **No operation in the 147-op surface
+accepts a `play_language` input.** `setup.quick_start` has no language
+parameter; the only operations whose schemas mention `play_language` read it
+(`narration.brief`) or read a related field (`setup.chargen_run.own_language`,
+which is the investigator's language skill, not the table's).
+`coc_language.DEFAULT_PLAY_LANGUAGE` is `zh-Hans` and the only writes in the
+tree are read-side projections.
+
+**Consequence for T5 gate 1:** its live half cannot be run as specified. The
+only way to obtain an English campaign would be to hand-edit `campaign.json`,
+which AGENTS.md forbids. The structural half of gate 1 stands on its own
+evidence (no language parameter reaches the obligation derivation, no language
+helper is reachable from it, and the craft contract differs by exactly one
+register axis); the end-to-end half is blocked on a product gap that is not
+TextGraph's to fix in this slice.
+
+### 2. A player reply sent during the setup-to-play handoff is silently dropped
+
+The second player message was forwarded at 11:22:04. Five seconds later the
+setup session exited 42 — the documented setup-to-play handoff — and the
+driver relaunched as the play role. The prompt had gone to the dying session
+and was lost. Nothing errored: the submit simply waited, and would have waited
+out its full timeout, while the play session sat idle with zero events.
+
+Recorded as a product observation about the handoff window, not repaired here.
+The player reply was re-sent to the play session and proceeded normally.
