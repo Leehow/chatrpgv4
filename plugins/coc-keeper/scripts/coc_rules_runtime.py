@@ -1289,6 +1289,24 @@ class RulesRuntime:
             envelope["refreshed_card_grant"] = refreshed_grant
         return envelope
 
+    def stale_decision_envelope(
+        self,
+        decision_ref: str,
+        reason: str,
+        message: str,
+        **extra: Any,
+    ) -> dict[str, Any]:
+        """Public route to the same fail-closed refresh envelope settle() builds.
+
+        Consumer: the toolbox ``rules.settle`` dispatcher, which pre-checks
+        ``latest_grant_covering()`` and therefore short-circuits *before*
+        ``settle()`` can reach ``_check_card_grant`` -> ``_stale_envelope``.
+        Without this the host raised a terminal ``rule_decision_stale`` while
+        the runtime was one call away from the refreshed cards that name the
+        way out.
+        """
+        return self._stale_envelope(decision_ref, reason, message, **extra)
+
     def family_ownership(self, family: str) -> tuple[str, str]:
         return resolve_family_ownership(
             self._ruleset_id,

@@ -7875,10 +7875,34 @@ def dispatch_rules_settle(
         )
     grant = runtime.latest_grant_covering(decision_ref)
     if grant is None:
+        # This pre-check short-circuits before settle() can reach
+        # _check_card_grant/_stale_envelope, so the refresh route the runtime
+        # already knows how to compute never reached the Keeper: the model saw
+        # a terminal error while the host was holding the current cards. Build
+        # the same envelope here and carry the cards through.
+        stale = runtime.stale_decision_envelope(
+            decision_ref,
+            "no_live_card_grant",
+            "no live machine-issued card grant covers this decision",
+        )
+        # Grants stay host-internal (see dispatch_rules_context); only the
+        # public card projection crosses the boundary. The refreshed grant is
+        # re-registered on this runtime, so the named rules.context call
+        # returns the same live card set.
         raise ToolError(
             "rule_decision_stale",
-            "no live machine-issued card grant covers this decision; refresh context",
-            details={"family": family, "decision_ref": decision_ref},
+            "no live machine-issued card grant covers this decision; call "
+            "rules.context for this family, then settle a decision_ref it returns",
+            details={
+                "family": family or stale.get("family") or "",
+                "decision_ref": decision_ref,
+                "refresh_operation": "rules.context",
+                "refreshed_cards": [
+                    coc_rules_runtime.public_card_projection(card)
+                    for card in (stale.get("refreshed_cards") or [])
+                    if isinstance(card, Mapping)
+                ],
+            },
         )
     source_decision_id = str(grant.get("source_decision_id") or "")
     if source_decision_id:

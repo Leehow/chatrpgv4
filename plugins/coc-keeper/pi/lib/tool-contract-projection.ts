@@ -587,6 +587,17 @@ const DYNAMIC_CANDIDATE_ACTIONS: Record<string, readonly PiAllowedNextAction[]> 
     reason: "refresh the current source-authored scene routes before choosing again",
     host_bound: true,
   }],
+  // A superseded card grant is a stale-candidate failure, not an invariant:
+  // the host recomputes the current applicable cards on the same call and
+  // returns them in details.refreshed_cards. Without this entry it fell
+  // through to invariant_terminal / recoverable_by "none" / no next action,
+  // so the Keeper was told the turn was over while the way out was in hand.
+  rule_decision_stale: [{
+    operation: "rules.context",
+    action: "refresh_semantic_candidates",
+    reason: "read the current applicable decision cards for this family before settling again",
+    host_bound: true,
+  }],
   scene_not_adjacent: [{
     operation: "scene.context",
     action: "refresh_semantic_candidates",
