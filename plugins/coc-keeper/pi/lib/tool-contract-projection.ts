@@ -5327,6 +5327,98 @@ function projectPsychologyRulesSettleData(
   return projected;
 }
 
+/**
+ * Closed model view of a settled Sanity check.
+ *
+ * The Keeper's product is the SAN movement and what it did to the
+ * investigator: the roll against its target, the loss and how it was derived,
+ * the before/after, the involuntary action, and whether a bout opened. The
+ * subsystem bookkeeping that produced it is not:
+ * - `check_roll_id` / `loss_roll_id` / `session_roll_ids` — `toolbox-` roll
+ *   identity for the SAN roll and its loss roll, host-side like every other
+ *   canonical roll id in a settled family result.
+ * - `trigger_id`, at both the result and `check` level — the stripped form of
+ *   the Keeper's own `trigger_ref` input. `source` already carries the
+ *   human-meaningful cause ("witnessing the bed move of its own accord").
+ * - each `session_events[].event_id` — internal event identity with no model
+ *   consumer; the event's `summary`, `san_before/loss/after` and
+ *   `involuntary_action` are what the Keeper narrates from.
+ *
+ * Without this the whole result fails closed, which is what happened in four
+ * separate live SAN settlements: the canonical loss committed (SAN 80→77,
+ * 55→51, 51→47) and the Keeper was handed `semantic_identity_unavailable`
+ * instead of the roll it had just caused.
+ */
+function projectSanityCheckData(
+  value: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  fieldPath = "",
+): Record<string, unknown> {
+  const view = { ...value };
+  delete view.check_roll_id;
+  delete view.loss_roll_id;
+  delete view.session_roll_ids;
+  delete view.trigger_id;
+  if (isPlainObject(view.check)) {
+    const check = { ...view.check };
+    delete check.trigger_id;
+    view.check = check;
+  }
+  if (Array.isArray(view.session_events)) {
+    view.session_events = view.session_events
+      .filter(isPlainObject)
+      .map((row) => {
+        const event = { ...row };
+        delete event.event_id;
+        return event;
+      });
+  }
+  return stripOpaqueModelIdentity(
+    view,
+    null,
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+    fieldPath,
+  ) as Record<string, unknown>;
+}
+
+/**
+ * RuleGraph settles `decision:coc7:sanity:check` with the subsystem's own
+ * session receipt embedded under `settlement.result`.
+ */
+function projectSanityRulesSettleData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const settlement = isPlainObject(data.settlement) ? data.settlement : null;
+  const result = settlement !== null && isPlainObject(settlement.result)
+    ? settlement.result
+    : null;
+  if (settlement === null || result === null) {
+    return sanitizeEnvelopeBranch(
+      data, semanticIds, diagnostics, "rules.settle",
+    ) as Record<string, unknown>;
+  }
+  const genericSettlement: Record<string, unknown> = { ...settlement };
+  delete genericSettlement.result;
+  const projected = sanitizeEnvelopeBranch(
+    { ...data, settlement: genericSettlement },
+    semanticIds, diagnostics, "rules.settle",
+  ) as Record<string, unknown>;
+  const projectedSettlement = isPlainObject(projected.settlement)
+    ? projected.settlement
+    : null;
+  if (projectedSettlement === null) return projected;
+  projectedSettlement.result = projectSanityCheckData(
+    result, semanticIds, diagnostics, "settlement.result",
+  );
+  projected.settlement = projectedSettlement;
+  return projected;
+}
+
 /** Closed family-aware compositor for embedded rules.settle products. */
 function projectRulesSettleData(
   data: Record<string, unknown>,
@@ -5335,6 +5427,12 @@ function projectRulesSettleData(
 ): Record<string, unknown> {
   if (data.family === "social") {
     return projectSocialRulesSettleData(data, semanticIds, diagnostics);
+  }
+  if (
+    data.family === "sanity"
+    && data.decision_ref === "decision:coc7:sanity:check"
+  ) {
+    return projectSanityRulesSettleData(data, semanticIds, diagnostics);
   }
   if (
     data.family === "psychology"

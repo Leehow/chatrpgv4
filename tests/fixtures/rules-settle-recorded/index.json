@@ -9,10 +9,22 @@
       "recorded_in": "pi-coc-gate9-chase-magic-development-8d454eb8/chase/evidence/turn-p-c4161b5a2433.json"
     },
     {
+      "file": "core-check-ordinary-check-48f854f1.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901-03/evidence/turn-p-5fbc883d6aff.json"
+    },
+    {
       "file": "core-check-ordinary-check-54624108.json",
       "decision_ref": "decision:coc7:core-check:ordinary-check",
       "family": "core-check",
       "recorded_in": "pi-coc-gate9-ten-family-8d454eb8/a6-investigation-social/evidence/turn-p-657f85817ec0.json"
+    },
+    {
+      "file": "core-check-ordinary-check-5ba37300.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901-05/evidence/turn-p-2217182041c9.json"
     },
     {
       "file": "core-check-ordinary-check-9b9e3bf8.json",
@@ -73,6 +85,30 @@
       "decision_ref": "decision:coc7:push-luck:pushed-roll",
       "family": "push-luck",
       "recorded_in": "pi-coc-gate9-ten-family-06f5baaa/a10-social-push/evidence/turn-p-1d0e467bcdb6.json"
+    },
+    {
+      "file": "sanity-check-5d064528.json",
+      "decision_ref": "decision:coc7:sanity:check",
+      "family": "sanity",
+      "recorded_in": "pi-coc-gate9-depth-20260901-03/evidence/turn-p-5fbc883d6aff.json"
+    },
+    {
+      "file": "sanity-check-94961aa2.json",
+      "decision_ref": "decision:coc7:sanity:check",
+      "family": "sanity",
+      "recorded_in": "pi-coc-gate9-depth-20260901-03/evidence/turn-p-5fbc883d6aff.json"
+    },
+    {
+      "file": "sanity-check-b6080a38.json",
+      "decision_ref": "decision:coc7:sanity:check",
+      "family": "sanity",
+      "recorded_in": "pi-coc-gate9-depth-20260901/evidence/turn-p-d0a7c7895d70.json"
+    },
+    {
+      "file": "sanity-check-da76d64d.json",
+      "decision_ref": "decision:coc7:sanity:check",
+      "family": "sanity",
+      "recorded_in": "pi-coc-gate9-depth-20260901-03/evidence/turn-p-5fbc883d6aff.json"
     },
     {
       "file": "social-adjudicate-difficulty-105f8dfa.json",
