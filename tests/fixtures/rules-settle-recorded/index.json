@@ -33,6 +33,12 @@
       "recorded_in": "pi-coc-gate9-ten-family-cf77062e/a7-social/evidence/turn-p-9eb3799d639f.json"
     },
     {
+      "file": "core-check-ordinary-check-a70444c3.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901/evidence/turn-p-78f56ece99ee.json"
+    },
+    {
       "file": "core-check-ordinary-check-bcd9accb.json",
       "decision_ref": "decision:coc7:core-check:ordinary-check",
       "family": "core-check",
@@ -55,6 +61,12 @@
       "decision_ref": "decision:coc7:core-check:ordinary-check",
       "family": "core-check",
       "recorded_in": "pi-coc-gate9-chase-magic-development-8d454eb8/chase/evidence/turn-p-402798bc4e5a.json"
+    },
+    {
+      "file": "core-check-ordinary-check-dbc189cc.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901/evidence/turn-p-e4f26b8a71f2.json"
     },
     {
       "file": "development-end-session-669615aa.json",
