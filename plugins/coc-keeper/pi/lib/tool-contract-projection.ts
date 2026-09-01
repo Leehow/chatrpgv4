@@ -3778,7 +3778,9 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     // on the one operation a host restart depends on. Host-only stops that;
     // renaming the producer field in `pi/lib/opening-setup-machine.ts` to say
     // "route" is the real fix.
-    ["requires_current_opening_receipt"],
+    // The host session identity is a machine handle the host issues; the
+    // Keeper never names a session.
+    ["host_session_id", "requires_current_opening_receipt"],
   )],
   ["scene.map", declaredIdentityTable(
     ["active_scene_id", "progressive_asset_root_id", "scene_id"],
@@ -3797,6 +3799,8 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       "asset_id", "clue_id", "clue_refs", "conclusion_id",
       "delivered_handout_ids", "discovered_clue_ids", "discovered_route_ids",
       "image_ref", "scene_refs",
+      // The scene the query was narrowed to; the result echoes it.
+      "scene_id",
     ],
     [],
   )],
@@ -4007,7 +4011,10 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["event_id"],
   )],
   ["mechanics.ensure", declaredIdentityTable(
-    ["actor_id", "affordance_id", "stable_id", "subject_id"],
+    // The fallback archetype is a Keeper-chosen word ("capable_adult"), not
+    // a handle.
+    ["actor_id", "affordance_id", "fallback_archetype_id", "stable_id",
+      "subject_id"],
     ["content_sha256"],
     ["monster_ref"],
   )],
@@ -4052,7 +4059,10 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [],
   )],
   ["state.inventory_list", declaredIdentityTable(["npc_id"], [])],
-  ["state.item_grant", declaredIdentityTable(["npc_id"], [])],
+  // `mechanics_ref` is a namespaced authored handle ("campaign-item:<id>" /
+  // "module-item:<id>") the Keeper passes straight back to a later purchase
+  // or use, so it must stay model-visible.
+  ["state.item_grant", declaredIdentityTable(["mechanics_ref", "npc_id"], [])],
   ["state.item_remove", declaredIdentityTable(["npc_id"], [])],
   ["state.item_use", declaredIdentityTable(["npc_id"], [])],
   ["state.record_clue", declaredIdentityTable(
@@ -4116,6 +4126,51 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
    * `campaign_id` — the other shared coordinate — is deliberately host-only
    * in two operations, which proves this family is not operation-neutral.
    */
+  /*
+   * Live scene, quest, threat and finance writes.
+   *
+   * These were found by projecting each keeper-facing operation contract's
+   * own identity-shaped INPUT fields, which a result echoes: 19 operations
+   * would have failed their whole result closed the first time a Keeper
+   * reached them. state.npc_presence did exactly that on 2026-09-01 — the
+   * Keeper tried to place Henry Scott in the scene, was told the tool had
+   * failed, and the social roll that followed was then refused as
+   * `social_candidate_stale` because the scene had no one to talk to.
+   */
+  ["state.npc_presence", declaredIdentityTable(
+    ["decision_id", "npc_id", "scene_id"],
+    [],
+  )],
+  ["state.promote_scene", declaredIdentityTable(["scene_id"], [])],
+  ["state.record_route_completion", declaredIdentityTable(
+    ["route_id", "scene_id"],
+    [],
+    // The grounding receipt/event reference is a canonical machine handle.
+    ["evidence_ref"],
+  )],
+  ["state.threat_tick", declaredIdentityTable(["clock_id"], [])],
+  ["state.replay_handout", declaredIdentityTable(["handout_id"], [])],
+  ["state.personal_horror_add", declaredIdentityTable(["hook_id"], [])],
+  ["state.personal_horror_mark_woven", declaredIdentityTable(["hook_id"], [])],
+  ["state.assets_liquidate", declaredIdentityTable(
+    // The linked settled state.advance_time decision, named the way every
+    // other decision id is.
+    ["linked_time_decision_id"],
+    [],
+  )],
+  ["state.cash_semantic", declaredIdentityTable(["record_id"], [])],
+  ["state.clock_discontinuity", declaredIdentityTable(
+    [],
+    [],
+    // Optional module/campaign provenance, not something the Keeper narrates.
+    ["source_ref"],
+  )],
+  ["state.time_appearance", declaredIdentityTable([], [], ["source_ref"])],
+  ["quest.activate", declaredIdentityTable(["quest_id"], [])],
+  ["progressive.request_mechanics", declaredIdentityTable(
+    ["target_id"],
+    [],
+  )],
   ["history.diff", declaredIdentityTable(["timeline_id"], [])],
   ["history.query", declaredIdentityTable(["campaign_id", "timeline_id"], [])],
   ["memory.recall", declaredIdentityTable(
@@ -4123,7 +4178,7 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [],
   )],
   ["memory.adjudicate", declaredIdentityTable(
-    ["adjudication_id", "candidate_id", "promoted_assertion_id"],
+    ["adjudication_id", "candidate_id", "promoted_assertion_id", "subject_id"],
     [],
   )],
   ["memory.extraction_settle", declaredIdentityTable(
@@ -4245,8 +4300,10 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["projection_input_sha256", "source_evidence_sha256"],
   )],
   ["state.purchase", declaredIdentityTable(
-    ["decision_id"],
+    ["decision_id", "mechanics_ref"],
     [],
+    // The catalog price record is provenance only, by its own contract.
+    ["price_ref"],
   )],
 ]);
 
