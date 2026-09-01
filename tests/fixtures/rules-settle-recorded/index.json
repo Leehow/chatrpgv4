@@ -33,10 +33,28 @@
       "recorded_in": "pi-coc-gate9-chase-magic-development-8d454eb8/chase/evidence/turn-p-c4161b5a2433.json"
     },
     {
+      "file": "core-check-ordinary-check-30340e7a.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901-08/evidence/turn-p-5e46a10142d8.json"
+    },
+    {
+      "file": "core-check-ordinary-check-3944308b.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901-09/evidence/turn-p-1a487ac7690d.json"
+    },
+    {
       "file": "core-check-ordinary-check-48f854f1.json",
       "decision_ref": "decision:coc7:core-check:ordinary-check",
       "family": "core-check",
       "recorded_in": "pi-coc-gate9-depth-20260901-03/evidence/turn-p-5fbc883d6aff.json"
+    },
+    {
+      "file": "core-check-ordinary-check-4dc96452.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901-08/evidence/turn-p-66baadda9fb7.json"
     },
     {
       "file": "core-check-ordinary-check-54624108.json",
@@ -49,6 +67,30 @@
       "decision_ref": "decision:coc7:core-check:ordinary-check",
       "family": "core-check",
       "recorded_in": "pi-coc-gate9-depth-20260901-05/evidence/turn-p-2217182041c9.json"
+    },
+    {
+      "file": "core-check-ordinary-check-5e13c41e.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901-08/evidence/turn-p-fd8f5c2f115a.json"
+    },
+    {
+      "file": "core-check-ordinary-check-6e07268a.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901-09/evidence/turn-p-0a93f365d2a4.json"
+    },
+    {
+      "file": "core-check-ordinary-check-74aa209a.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901-09/evidence/turn-p-620f693e493d.json"
+    },
+    {
+      "file": "core-check-ordinary-check-7d0d801e.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901-07/evidence/turn-p-c515b2e20b96.json"
     },
     {
       "file": "core-check-ordinary-check-85b870d3.json",
@@ -73,6 +115,18 @@
       "decision_ref": "decision:coc7:core-check:ordinary-check",
       "family": "core-check",
       "recorded_in": "pi-coc-gate9-depth-20260901/evidence/turn-p-78f56ece99ee.json"
+    },
+    {
+      "file": "core-check-ordinary-check-aabeebad.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901-09/evidence/turn-p-55495cd223a1.json"
+    },
+    {
+      "file": "core-check-ordinary-check-b8074d83.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901-09/evidence/turn-p-c90ddd54eda8.json"
     },
     {
       "file": "core-check-ordinary-check-bcd9accb.json",
@@ -103,6 +157,12 @@
       "decision_ref": "decision:coc7:core-check:ordinary-check",
       "family": "core-check",
       "recorded_in": "pi-coc-gate9-depth-20260901/evidence/turn-p-e4f26b8a71f2.json"
+    },
+    {
+      "file": "core-check-ordinary-check-e0c2c122.json",
+      "decision_ref": "decision:coc7:core-check:ordinary-check",
+      "family": "core-check",
+      "recorded_in": "pi-coc-gate9-depth-20260901-09/evidence/turn-p-2d47f233c8e0.json"
     },
     {
       "file": "development-end-session-669615aa.json",
@@ -159,16 +219,34 @@
       "recorded_in": "pi-coc-gate9-depth-20260901-08/.coc/campaigns/gate9-depth-08/logs/toolbox-calls.jsonl"
     },
     {
+      "file": "sanity-check-34753d73.json",
+      "decision_ref": "decision:coc7:sanity:check",
+      "family": "sanity",
+      "recorded_in": "pi-coc-gate9-depth-20260901-09/evidence/turn-p-e0d8786ffcb7.json"
+    },
+    {
       "file": "sanity-check-5d064528.json",
       "decision_ref": "decision:coc7:sanity:check",
       "family": "sanity",
       "recorded_in": "pi-coc-gate9-depth-20260901-03/evidence/turn-p-5fbc883d6aff.json"
     },
     {
+      "file": "sanity-check-67a578c9.json",
+      "decision_ref": "decision:coc7:sanity:check",
+      "family": "sanity",
+      "recorded_in": "pi-coc-gate9-depth-20260901-09/evidence/turn-p-25d267d21801.json"
+    },
+    {
       "file": "sanity-check-94961aa2.json",
       "decision_ref": "decision:coc7:sanity:check",
       "family": "sanity",
       "recorded_in": "pi-coc-gate9-depth-20260901-03/evidence/turn-p-5fbc883d6aff.json"
+    },
+    {
+      "file": "sanity-check-a1faf771.json",
+      "decision_ref": "decision:coc7:sanity:check",
+      "family": "sanity",
+      "recorded_in": "pi-coc-gate9-depth-20260901-07/evidence/turn-p-d2787b1c88ca.json"
     },
     {
       "file": "sanity-check-b6080a38.json",
@@ -181,6 +259,12 @@
       "decision_ref": "decision:coc7:sanity:check",
       "family": "sanity",
       "recorded_in": "pi-coc-gate9-depth-20260901-03/evidence/turn-p-5fbc883d6aff.json"
+    },
+    {
+      "file": "sanity-check-f8cc9a42.json",
+      "decision_ref": "decision:coc7:sanity:check",
+      "family": "sanity",
+      "recorded_in": "pi-coc-gate9-depth-20260901-09/evidence/turn-p-4b4392f47c16.json"
     },
     {
       "file": "social-adjudicate-difficulty-105f8dfa.json",
