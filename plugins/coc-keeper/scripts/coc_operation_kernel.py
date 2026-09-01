@@ -7022,8 +7022,10 @@ def _rules_runtime_for_ctx(
 
 def _latest_graph_check_receipt(
     ctx: Ctx,
+    *,
+    investigator_id: str,
 ) -> tuple[str, dict[str, Any]] | None:
-    """Latest durable ordinary graph-check receipt for Push/Luck continuity."""
+    """Latest actor-owned ordinary receipt for Push/Luck continuity."""
     ledger = ctx._load_ledger()
     candidates: list[tuple[str, str, dict[str, Any]]] = []
     for entry in (ledger.get("entries") or {}).values():
@@ -7038,7 +7040,10 @@ def _latest_graph_check_receipt(
         settlement = data.get("settlement") if isinstance(data.get("settlement"), Mapping) else {}
         result = settlement.get("result") if isinstance(settlement.get("result"), Mapping) else {}
         check = result.get("bound_check") if isinstance(result.get("bound_check"), Mapping) else {}
-        if str(check.get("outcome") or "") != "failure":
+        if (
+            str(check.get("outcome") or "") != "failure"
+            or str(check.get("investigator_id") or "") != investigator_id
+        ):
             continue
         candidates.append((
             str(entry.get("ts") or ""),
@@ -7142,7 +7147,9 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
     kind = str(args.get("kind") or "procedure").strip() or "procedure"
     question: dict[str, Any] = {"family": family, "kind": kind}
     if family == "push-luck":
-        source = _latest_graph_check_receipt(ctx)
+        source = _latest_graph_check_receipt(
+            ctx, investigator_id=investigator_id,
+        )
         if source is not None:
             question["_host_source_decision_id"] = source[0]
             question["_host_source_receipt"] = source[1]

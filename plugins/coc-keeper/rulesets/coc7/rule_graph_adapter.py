@@ -929,6 +929,12 @@ class Coc7RuleGraphAdapter:
                 "reason": "RuleGraph opposed check",
             })
         elif capability == "push_policy":
+            # ``investigator`` is the universal rules.settle routing selector,
+            # not a rules.push argument.  The pushed check inherits its actor
+            # from the host-locked original receipt; forwarding the selector
+            # would make the legacy anti-override boundary reject a normal
+            # graph settlement (or, if accepted, create a second actor source).
+            out.pop("investigator", None)
             for key in (
                 "original_check_decision_id", "method_changed",
                 "failure_consequence",

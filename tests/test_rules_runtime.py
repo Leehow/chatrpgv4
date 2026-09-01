@@ -2131,6 +2131,150 @@ def test_push_restart_hydrates_canonical_receipt_and_continuation_grant():
     assert len(calls) == 1
 
 
+def _settle_failed_packaged_core_check(ws: dict, decision_id: str) -> None:
+    ordinary_ref = "decision:coc7:core-check:ordinary-check"
+    ordinary_context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "core-check",
+        "selected_affordance_ids": [ordinary_ref],
+    })
+    assert ordinary_context["ok"] is True, ordinary_context
+
+    failed = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": ordinary_ref,
+        "semantic_inputs": {
+            "skill": "Library Use",
+            "difficulty": "regular",
+            "goal": "locate the sealed municipal index",
+            "stakes": {
+                "on_success": "the index is found",
+                "on_failure": "the archive begins to close",
+            },
+            "difficulty_basis": "environment",
+        },
+        "decision_id": decision_id,
+        "seed": 88,
+    })
+    assert failed["ok"] is True, failed
+    assert failed["data"]["settlement"]["result"]["outcome"] == "failure"
+
+
+def test_packaged_push_settle_accepts_universal_investigator_routing_field(
+    tmp_path: Path,
+):
+    """The universal settle actor selector must not override push identity.
+
+    This is the normal production seam: a packaged ordinary check fails,
+    projects its Push continuation, then the Keeper settles that card through
+    ``rules.settle`` with the model-visible top-level ``investigator`` field.
+    The host must use that field only to bind the current actor; ``rules.push``
+    still inherits its immutable actor/check contract from the source receipt.
+    """
+    ws = _fresh_workspace(tmp_path, "packaged-push-universal-investigator")
+    original_id = "roll-library-index-initial-v1"
+    _settle_failed_packaged_core_check(ws, original_id)
+    push_ref = "decision:coc7:push-luck:pushed-roll"
+    push_context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "push-luck",
+        "selected_affordance_ids": [push_ref],
+    })
+    assert push_context["ok"] is True, push_context
+    assert [
+        card["decision_ref"] for card in push_context["data"]["cards"]
+    ] == [push_ref]
+
+    pushed = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": push_ref,
+        "semantic_inputs": {
+            "method_changed": "cross-check the index against the court docket",
+            "failure_consequence": "the clerk bars further access tonight",
+            "player_confirmed_risk": True,
+        },
+        "decision_id": "push-library-index-cross-check-v1",
+        "seed": 2,
+    })
+
+    assert pushed["ok"] is True, pushed
+    result = pushed["data"]["settlement"]["result"]
+    assert result["pushed"] is True
+    assert result["original_check_decision_id"] == original_id
+
+
+def test_packaged_push_context_does_not_offer_another_investigators_failure(
+    tmp_path: Path,
+):
+    ws = _fresh_workspace(tmp_path, "packaged-push-actor-isolation")
+    other_investigator = _add_eleanor_to_party(ws)
+    _settle_failed_packaged_core_check(ws, "roll-actor-isolation-source-v1")
+
+    push_ref = "decision:coc7:push-luck:pushed-roll"
+    foreign_context = _run(ws, "rules.context", {
+        "investigator": other_investigator,
+        "family": "push-luck",
+        "selected_affordance_ids": [push_ref],
+    })
+
+    assert foreign_context["ok"] is True, foreign_context
+    assert foreign_context["data"]["cards"] == []
+    rejected = _run(ws, "rules.settle", {
+        "investigator": other_investigator,
+        "decision_ref": push_ref,
+        "semantic_inputs": {
+            "method_changed": "search the docket by a different surname",
+            "failure_consequence": "the clerk bars further access tonight",
+            "player_confirmed_risk": True,
+        },
+        "decision_id": "push-foreign-actor-rejected-v1",
+        "seed": 2,
+    })
+    assert rejected["ok"] is False, rejected
+    assert rejected["error"]["code"] == "rule_decision_stale"
+    assert len(_rolls(ws)) == 1
+
+
+@pytest.mark.parametrize(("locked_field", "attempted_value"), [
+    ("original_check_decision_id", "roll-model-selected-source-v1"),
+    ("investigator_id", "model-selected-investigator"),
+    ("canonical_roll_receipt", {"roll_id": "model-selected-roll"}),
+])
+def test_packaged_push_rejects_model_authored_locked_source_identity(
+    tmp_path: Path,
+    locked_field: str,
+    attempted_value,
+):
+    ws = _fresh_workspace(tmp_path, f"packaged-push-locked-{locked_field}")
+    _settle_failed_packaged_core_check(
+        ws, f"roll-locked-{locked_field}-source-v1",
+    )
+
+    push_ref = "decision:coc7:push-luck:pushed-roll"
+    push_context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "push-luck",
+        "selected_affordance_ids": [push_ref],
+    })
+    assert push_context["ok"] is True, push_context
+    rejected = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": push_ref,
+        "semantic_inputs": {
+            "method_changed": "cross-check the index against the court docket",
+            "failure_consequence": "the clerk bars further access tonight",
+            "player_confirmed_risk": True,
+            locked_field: attempted_value,
+        },
+        "decision_id": f"push-locked-{locked_field}-rejected-v1",
+        "seed": 2,
+    })
+
+    assert rejected["ok"] is False, rejected
+    assert rejected["error"]["code"] == "locked_input_override"
+    assert len(_rolls(ws)) == 1
+
+
 def _social_binding_ctx(active_npc_ids=("npc-knott",)):
     return SimpleNamespace(
         world=lambda: {"active_scene_id": "commission-briefing"},
