@@ -668,6 +668,65 @@ def test_pi_turn_telemetry_logs_fine_grained_step_timing_for_offline_analysis():
     assert result["leanTurnHasNoProbe"] is True
 
 
+def test_pi_turn_telemetry_records_the_request_prefix_on_every_model_call():
+    """Deliberately its own test rather than more assertions on the one above.
+
+    `test_pi_turn_telemetry_logs_fine_grained_step_timing_for_offline_analysis`
+    is currently red on `toolStepDetail` (it expects `wrapper_tool ==
+    "coc_rules"` and `classifyToolCall` returns `"coc_invoke"`), which is
+    unrelated to this work. Assertions appended after that one never execute,
+    so they would look like coverage and be dead. These run.
+    """
+    result = _node(ROOT / "tests/pi/turn-telemetry-smoke.mjs", str(ROOT))
+    assert result["ok"] is True
+    # Per-call composition of the real provider body, on the model step.
+    assert result["requestPrefixOnSteps"] is True
+    assert result["requestPrefixPerToolCost"] is True
+    assert result["requestPrefixSectionsSumToPayload"] is True
+    assert result["requestPrefixRollup"] is True
+    # Observation only: payload untouched, handler returns nothing, no content
+    # copied into the log.
+    assert result["requestPayloadUntouched"] is True
+    assert result["requestPrefixCopiesNoContent"] is True
+    # Operator surface, so the fixed prefix is visible before it costs a run.
+    assert result["panelShowsRequestPrefix"] is True
+    # A host that emits no provider request leaves the field null.
+    assert result["leanTurnHasNoRequestPrefix"] is True
+
+
+def test_pi_request_prefix_probe_measures_the_body_the_provider_bills_for():
+    """The message array is one of four sections of a provider request.
+
+    `lib/context-probe.ts` measures only that array, and on the recorded
+    `dirgraph-smoke-20260901` session it reported 180 est_tokens for a call the
+    provider billed 33,000 tokens for. This probe reads the assembled request
+    body instead, so the system prompt, the advertised tools and the residual
+    are attributable per call.
+    """
+    result = _node(ROOT / "tests/pi/request-prefix-probe.mjs", str(ROOT))
+    assert result["ok"] is True
+    # All four sections measured, and they reconcile with the serialized body.
+    assert result["sections"] is True
+    assert result["perToolCostLargestFirst"] is True
+    assert result["firstCallHasNoPrior"] is True
+    # The distinction the investigation turned on: a growing transcript is free,
+    # a moving `tools` field re-bills the whole prefix.
+    assert result["appendOnlyTranscriptKeepsPrefixStable"] is True
+    assert result["movedToolSetIsFlagged"] is True
+    assert result["reschemaSeparableFromRename"] is True
+    # Provider-shape coverage, including a body this module has not learned.
+    assert result["anthropicShape"] is True
+    assert result["legacyFunctionNesting"] is True
+    assert result["unknownShapeStillMeasured"] is True
+    # A `before_provider_request` handler that returns a value REPLACES the
+    # provider payload, so this one must stay an observation end to end.
+    assert result["hostileInputIsNull"] is True
+    assert result["killSwitch"] is True
+    assert result["payloadUntouched"] is True
+    assert result["copiesNoContent"] is True
+    assert result["observeMsCounted"] is True
+
+
 def test_pi_scene_supply_gate_always_has_an_exit_and_names_its_callable():
     result = _node(ROOT / "tests/pi/scene-supply-gate.mjs", str(ROOT))
     assert result["ok"] is True
