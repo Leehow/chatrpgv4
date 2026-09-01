@@ -1,0 +1,24 @@
+{
+  "contract_id": "coc.text-graph-build-manifest.v1",
+  "schema_version": 1,
+  "graph_id": "graph:text:production",
+  "graph_content_digest": "bb2fa760ea3220522b674d54e660c3af23364a14c3625f3e315b7d43c36c626a",
+  "shards": [
+    "shard:text:obligation-vocabulary"
+  ],
+  "plane_coverage": {
+    "obligation": "accepted",
+    "craft": "unresolved"
+  },
+  "compiler_identity": "coc.text-graph-compiler.v1",
+  "node_counts": {
+    "agency-claim-type": 8,
+    "coverage-field": 9,
+    "obligation-kind": 3,
+    "player-input-handling": 3,
+    "realization-mode": 2,
+    "roll-visibility-class": 6,
+    "segment-type": 5,
+    "substantive-effect-status": 3
+  }
+}

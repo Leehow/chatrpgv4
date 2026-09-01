@@ -45,8 +45,9 @@
       "graph_id": "graph:text:production",
       "graph_kind": "text",
       "authority_plane": "presentation",
-      "availability": "absent-production-artifact",
-      "reason": "Finalization and output-context machinery exist, but there is no source-controlled TextGraph machine artifact to reference."
+      "availability": "production-artifact",
+      "ontology_contract": "coc.text-graph.v1",
+      "artifact_path": "plugins/coc-keeper/references/text-graph.json"
     }
   ],
   "references": [
@@ -1650,12 +1651,12 @@
     },
     {
       "graph_kind": "text",
-      "status": "absent-production-artifact",
-      "composition_status": "not-applicable",
+      "status": "production-linked",
+      "composition_status": "no-proven-instance",
       "graph_ids": [
         "graph:text:production"
       ],
-      "reason": "No production TextGraph artifact exists, so finalization remains an existing presentation runtime rather than a fabricated graph."
+      "reason": "The production TextGraph carries the obligation plane: the closed vocabularies that decide what a coverage row may say, which settled rolls face the player, and how mechanics segments are ordered. It declares no renders-settled-output relation yet, so no text-to-effect instance is claimed; binding the obligation kinds to the twenty-three coc7 RuleGraph effect nodes is slice T3. The craft plane is unresolved until slice T4."
     }
   ]
 }

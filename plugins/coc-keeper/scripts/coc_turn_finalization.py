@@ -26,8 +26,15 @@ import coc_roll
 import coc_exceptional_effects
 import coc_rulesets
 import coc_state_effect_authority
+import coc_text_runtime
 import coc_turn_manifest
 
+# TextGraph obligation plane (spec docs/specs/pi-coc-text-graph-runtime.md §7).
+# These closed vocabularies cross the model-visible surface — turn.output_context
+# publishes several of them as JSON Schema enums and turn.finalize rejects an
+# unknown token — so the graph is their single source and a rename is a protocol
+# break, not a refactor. Fails closed: there is no fallback to embedded literals.
+_TEXT = coc_text_runtime.vocabulary()
 
 FINALIZATION_SCHEMA_VERSION = 2
 MAX_ACCEPTED_REVISION = 2
@@ -50,29 +57,17 @@ LEGACY_FINALIZATION_FIELDS = frozenset({
     "draft_sha256", "coverage_sha256", "bundle_sha256", "rendered_sha256",
     "bundle", "coverage", "segments", "rendered_text", "integrity_digest",
 })
-COVERAGE_FIELDS = frozenset({
-    "obligation_id", "realization", "action_realization", "response",
-    "causal_explanation", "persona_fit", "player_input_handling",
-    "exact_excerpt", "exceptional_beat",
-})
-REALIZATION_VALUES = frozenset({
-    "fictional_beat", "concealed_no_player_visible_beat",
-})
-PLAYER_INPUT_HANDLING_VALUES = frozenset({
-    "abstract_completed", "specific_preserved", "not_applicable",
-})
-MECHANIC_SEGMENT_TYPES = frozenset({
-    "public_check", "state_delta", "asset_delta", "exceptional_effect",
-})
-ASSET_EFFECT_KINDS = frozenset({"cash", "item", "purchase", "assets_liquidate"})
+COVERAGE_FIELDS = _TEXT["coverage_fields"]
+REALIZATION_VALUES = _TEXT["realization_values"]
+PLAYER_INPUT_HANDLING_VALUES = _TEXT["player_input_handling_values"]
+MECHANIC_SEGMENT_TYPES = _TEXT["mechanic_segment_types"]
 # Structured registry identities that may prove a projected effect_kind.
 # Unknown kinds fail closed unless a registered state.* mutation matches.
-SEGMENT_TYPE_ORDER = {
-    "public_check": 0,
-    "state_delta": 1,
-    "asset_delta": 2,
-    "exceptional_effect": 3,
-}
+# Deliberately NOT a TextGraph vocabulary: these name state mutation kinds owned
+# by the rules and state layers, not presentation tokens. Recorded as an
+# explicit exclusion in the residue gate rather than left unexamined.
+ASSET_EFFECT_KINDS = frozenset({"cash", "item", "purchase", "assets_liquidate"})
+SEGMENT_TYPE_ORDER = _TEXT["segment_type_order"]
 _CASH_GAME_TIME_PUBLIC = (
     "elapsed_minutes", "display", "display_sub", "local_datetime", "day_phase",
 )
@@ -86,13 +81,8 @@ AGENCY_CLAIM_FIELDS = frozenset({
     "claim_id", "subject_ref", "claim_type", "exact_excerpt", "source_ref",
     "override_id",
 })
-VOLUNTARY_CLAIM_TYPES = frozenset({
-    "voluntary_action", "voluntary_speech", "voluntary_plan",
-    "voluntary_belief", "voluntary_trust", "voluntary_active_emotion",
-})
-AGENCY_CLAIM_TYPES = frozenset({
-    *VOLUNTARY_CLAIM_TYPES, "forced_behavior", "involuntary_physiology",
-})
+VOLUNTARY_CLAIM_TYPES = _TEXT["voluntary_claim_types"]
+AGENCY_CLAIM_TYPES = _TEXT["agency_claim_types"]
 NARRATION_REVIEW_REF_FIELDS = frozenset({
     "review_id", "review_digest", "draft_sha256",
 })
@@ -1693,13 +1683,11 @@ def _build_sanity_bout_obligations(
     return obligations
 
 
-PLAYER_FACING_ROLL_VISIBILITIES = frozenset({"public", "consequence_public"})
+PLAYER_FACING_ROLL_VISIBILITIES = _TEXT["player_facing_roll_visibilities"]
 # Settlements corrected after the fact stay in the audit log but must not face
 # the player again (battle report, turn.finalize public block, development
 # hard output).
-SUPERSEDED_ROLL_VISIBILITIES = frozenset({
-    "superseded", "voided", "corrected_hidden", "keeper_only",
-})
+SUPERSEDED_ROLL_VISIBILITIES = _TEXT["superseded_roll_visibilities"]
 
 
 def is_player_facing_roll(raw: dict[str, Any]) -> bool:

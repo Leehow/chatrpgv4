@@ -1,18 +1,20 @@
 # Pi-Coc TextGraph specification
 
-> **Status:** T0 only. T1–T5 are specified and **not** authorized.
-> No runtime code, data, or behavior was changed by this slice.
+> **Status:** T0 and T1 implemented on `claude/pi-coc-text-graph-20260901`.
+> T2–T5 are specified and **not** authorized. T1 is behaviour-preserving:
+> every migrated vocabulary is bit-identical and the model-visible contract
+> archive rebuilds byte-identical. See the Implementation log.
 > **ID:** `pi-coc-text-graph-runtime`
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`; Codex-host implementation,
 > adapters, prompts, launchers, tests, and documentation remain off-limits.
 > **Scope owner:** the settled-output presentation surface inside
 > `plugins/coc-keeper/`.
-> **Last updated:** 2026-09-01 (T0)
+> **Last updated:** 2026-09-01 (T1 implementation pass; see the Implementation log)
 > **Depends on:** [ADR 0003 system ontology composition registry](../adr/0003-system-ontology-composition-registry.md),
 > [DirectorGraph](pi-coc-director-graph-runtime.md) (structural template and
 > implementation log), [`docs/ruleset-contract.md`](../ruleset-contract.md).
 > **Evidence base:** [Text-layer obligation inventory](../status/text-layer-obligation-inventory.md)
-> — measured on `0.8.1a@65ca572b`, read-only.
+> — measured on `0.8.1a@65ca572b`, re-verified unchanged on `0.8.1a@3fff1f8a`.
 
 The words MUST, MUST NOT, SHOULD, and MAY below are acceptance requirements.
 
@@ -408,11 +410,9 @@ Gates:
    `scripts/verify_against_baseline.py 0.8.1a@65ca572b <targets>`, never bare
    pytest, because the suite carries ~140 pre-existing failures and an
    already-red contract test absorbs new violations silently.
-   **Prerequisite:** that tool does not exist on `0.8.1a@65ca572b`. It lives on
-   `claude/pi-coc-director-graph-20260831-docs` alongside
-   `docs/repository-health/verifying-against-a-baseline.md`. T1 cannot start
-   until that branch is merged into `0.8.1a` or the tool is cherry-picked;
-   substituting bare pytest is a gate failure, not a workaround;
+   Substituting bare pytest is a gate failure, not a workaround. (The tool
+   was missing from `0.8.1a@65ca572b`; it landed in `3fff1f8a`, which this
+   branch merged before starting T1.);
 3. `coc_system_ontology.py` validates clean with `text` promoted;
 4. `no_body_copy_law` — no TextGraph node contains the body of a RuleGraph
    effect, a receipt, or a coverage row it merely names; artifact size is
@@ -616,9 +616,136 @@ Recorded, not repaired by this specification.
 11. **The system ontology registry's `module` coverage row is stale**, still
     describing "the current production healing-only RuleGraph" beside a `rule`
     row that correctly reports ten families. A shared file, outside this slice.
-12. **The baseline verification tool is not on this branch's base.** Both
-    `scripts/verify_against_baseline.py` and
+12. **The baseline verification tool was not on this branch's base.**
+    ~~`scripts/verify_against_baseline.py` and
     `docs/repository-health/verifying-against-a-baseline.md` exist only on
-    `claude/pi-coc-director-graph-20260831-docs`, not on `0.8.1a@65ca572b`.
-    Every identity gate in §8 and §9 depends on it, so T1 is blocked on that
-    branch landing. Recorded as a dependency, not repaired here.
+    `claude/pi-coc-director-graph-20260831-docs`.~~ **Resolved.** That branch
+    landed; `0.8.1a@3fff1f8a` carries both, and this branch merged it before
+    T1. Re-measurement after the merge confirmed every inventory figure
+    unchanged, including the 23 RuleGraph effect nodes and the 147 operations.
+
+---
+
+## Implementation log
+
+What the slices actually produced, including where this specification was wrong.
+
+| Slice | Outcome |
+| --- | --- |
+| T0 | This document plus the inventory. Four brief figures corrected. |
+| T1 | Contract, compiler, 39 obligation-plane nodes, registry promotion, and the cross-language residue gate. Behaviour unchanged; the model-visible contract archive rebuilds byte-identical. |
+| T2–T5 | Not started. |
+
+### T1, as built
+
+- `plugins/coc-keeper/references/text-graph-contract-v1.json` — closed contract,
+  eight authority laws verbatim from §6, plus `ordinal_law`, `no_body_copy_law`,
+  `residue_law`, `surface_law`, `empty_relations_law` and
+  `expected_node_counts_law`.
+- `plugins/coc-keeper/scripts/coc_text_graph.py` — `prepare` / `accept` /
+  `build` mirroring `coc_rule_graph.py` and `coc_director_graph.py`.
+- `plugins/coc-keeper/references/text-graph.json` — 39 nodes, 19KB.
+- `plugins/coc-keeper/scripts/coc_text_runtime.py` — the §7 seam, fail-closed.
+- `coc_turn_finalization.py` — nine module-level frozensets now read from the
+  graph; every one verified bit-identical and same-typed.
+- The registry flips `graph:text:production` to `production-artifact`, coverage
+  `production-linked` / `no-proven-instance`, and
+  `system-ontology-contract-v1.json` gains `node_ontology_contract:
+  "coc.text-graph.v1"` for the `text` kind. The ontology validator is clean.
+- `tests/test_text_graph.py` — 29 tests including the gate.
+
+### Corrections this specification needed
+
+1. **The residue gate had to be a token census, not an AST walk.** §8 T1 was
+   written by analogy with DirectorGraph, whose residue is numeric. TextGraph's
+   residue is *string vocabulary*, and its worst copies are in TypeScript. A
+   numeric AST gate here would have asserted nothing at all. The gate is a
+   cross-language census: 563 quoted occurrences of 42 owned tokens across 19
+   files, each classified `declaration-migrated`, `reads-from-graph`,
+   `usage-only`, `second-declaration` or `model-facing-copy`. The numeric gate
+   is explicitly deferred to T4, where `text-threshold` nodes exist.
+
+2. **The gate found five second-declarations the inventory missed**, three of
+   them outside the file the inventory had flagged:
+
+   | Site | What it duplicates |
+   | --- | --- |
+   | `tool-contract-projection.ts:36` `REVIEWED_AGENCY_CLAIM_TYPES` | `VOLUNTARY_CLAIM_TYPES`, as an exported const |
+   | `tool-contract-projection.ts:1290, 1673` | `VOLUNTARY_CLAIM_TYPES` again, twice inline |
+   | `tool-contract-projection.ts:99` | `REALIZATION_VALUES`, as a TypeScript union type |
+   | `coc_narration_contract.py:826` | `PLAYER_FACING_ROLL_VISIBILITIES`, inlined as `{"public", "consequence_public"}` |
+   | `coc_state_authority.py:357` | the mechanics segment vocabulary, as `("state_delta", "asset_delta")` |
+   | `export_battle_report.py:684-689` | the roll visibility classification, reimplemented beside a documented import of the real one |
+
+   The inventory recorded the obligation namespace as having copies in seven
+   files. It is worse than that: `tool-contract-projection.ts` holds independent
+   copies of **five** owned vocabularies, not one. Recorded, not repaired — T1
+   is contract, compiler, vocabulary and the gate.
+
+3. **`substantive-effect-status` had no declaration to migrate.** The
+   `applied` / `missing` / `not_required` vocabulary exists only as one inline
+   conditional expression in `_build_obligations`. It is an undeclared closed
+   set — exactly what the graph exists to surface — and is represented as three
+   nodes whose consumption is T2's job.
+
+4. **The census must over-report rather than filter.** `coc_live_turn_runner.py`
+   contains five `{"applied": ...}` dict keys that collide with a status token.
+   A heuristic that filtered them would also filter a real copy, so they stay in
+   the census, labelled as the false positive they are. A gate that asks a
+   question is better than one that quietly answers it.
+
+5. **The strongest identity proof was not in the gate list.**
+   `mcp-operation-contracts.json` is a generated archive whose schemas are built
+   from these very frozensets. Rebuilding it byte-identically proves the graph
+   became the source *and* that the model-visible surface did not move — better
+   evidence than any assertion about the Python constants alone. It is now a
+   test.
+
+6. **Zero relations is the correct T1 shape.** §4.3 lists seven internal
+   relation kinds; the obligation plane needs none of them. The two structural
+   facts that could have been edges — the voluntary subset of agency claim types
+   and the player-facing/superseded split of roll visibility classes — are node
+   properties, because that is exactly how the source reconstructs both
+   frozensets. The contract records this as `empty_relations_law` so a later
+   slice cannot mistake the absence for an oversight.
+
+7. **The gate proved itself during the slice.** Its first run rejected the
+   census for omitting two `coc-keeper-play` reference files that contain no
+   owned token at all. A gate that only listed files with hits would have
+   allowed a new copy to appear in an unlisted file; globbing the directory and
+   requiring an explicit empty entry is what closes that.
+
+8. **The baseline tool reports one false `masked_new_violation` when run from a
+   worktree, and it is not the defect that `3fff1f8a` fixed.** T1's verification
+   returned `verdict: "regressions"` on counts that say the opposite:
+
+   ```
+   failing_here 20   failing_on_baseline 20   regressions 0
+   baseline_only 0   failures_in_new_tests 0  masked_new_violations 1
+   masked_new_violations: ["../../../Library/Frameworks/.../python3.14/subprocess.py"]
+   ```
+
+   The single entry is a Python **stdlib** file, reached through
+   `test_finalize_obligation_binding.py`, which shells out to `node`. That test
+   fails identically on both trees. What differs is only how pytest *renders*
+   the stdlib frame: this worktree sits three levels under `/Users/haoli`, so
+   pytest prints the frame relative (`../../../Library/...`), while the baseline
+   worktree sits deep under `/private/var/folders/...`, so pytest prints the
+   same file absolutely (`/Users/haoli/Library/...`). One file, two spellings,
+   one spurious set difference.
+
+   `3fff1f8a` normalises the two *repo roots*; it does not reconcile a path that
+   escapes above the root via `../`, nor a relative-versus-absolute rendering of
+   the same file. Resolving each extracted path to an absolute path before the
+   set diff would close it. Not repaired here: `scripts/verify_against_baseline.py`
+   is repo-health infrastructure owned by the DirectorGraph work, and silently
+   patching another slice's shared tool is the boundary AGENTS.md says to report
+   rather than cross.
+
+   The verification question was still answered, directly rather than through
+   the tool's verdict string: the same 20 tests fail on both trees, zero
+   regressions, zero baseline-only, and two of the failures were reproduced
+   by hand on a baseline worktree at the same file and line
+   (`test_narration_budget.py:2568`, `assert True is False`;
+   `test_settled_output_recovery_reaches_finalization_receipt`, node exit 1).
+   All 20 are pre-existing and unrelated to the text layer.

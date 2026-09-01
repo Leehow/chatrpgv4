@@ -1,0 +1,524 @@
+{
+  "contract_id": "coc.text-graph.v1",
+  "schema_version": 1,
+  "graph_id": "graph:text:production",
+  "nodes": [
+    {
+      "node_id": "agency-claim-type:forced-behavior",
+      "node_kind": "agency-claim-type",
+      "plane": "obligation",
+      "name": "agency claim forced_behavior",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled control-override receipts and the player-authored input that authorize a proposition about the investigator",
+      "properties": {
+        "legacy_key": "forced_behavior",
+        "ordinal": 6,
+        "voluntary": false
+      }
+    },
+    {
+      "node_id": "agency-claim-type:involuntary-physiology",
+      "node_kind": "agency-claim-type",
+      "plane": "obligation",
+      "name": "agency claim involuntary_physiology",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled control-override receipts and the player-authored input that authorize a proposition about the investigator",
+      "properties": {
+        "legacy_key": "involuntary_physiology",
+        "ordinal": 7,
+        "voluntary": false
+      }
+    },
+    {
+      "node_id": "agency-claim-type:voluntary-action",
+      "node_kind": "agency-claim-type",
+      "plane": "obligation",
+      "name": "agency claim voluntary_action",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled control-override receipts and the player-authored input that authorize a proposition about the investigator",
+      "properties": {
+        "legacy_key": "voluntary_action",
+        "ordinal": 0,
+        "voluntary": true
+      }
+    },
+    {
+      "node_id": "agency-claim-type:voluntary-active-emotion",
+      "node_kind": "agency-claim-type",
+      "plane": "obligation",
+      "name": "agency claim voluntary_active_emotion",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled control-override receipts and the player-authored input that authorize a proposition about the investigator",
+      "properties": {
+        "legacy_key": "voluntary_active_emotion",
+        "ordinal": 5,
+        "voluntary": true
+      }
+    },
+    {
+      "node_id": "agency-claim-type:voluntary-belief",
+      "node_kind": "agency-claim-type",
+      "plane": "obligation",
+      "name": "agency claim voluntary_belief",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled control-override receipts and the player-authored input that authorize a proposition about the investigator",
+      "properties": {
+        "legacy_key": "voluntary_belief",
+        "ordinal": 3,
+        "voluntary": true
+      }
+    },
+    {
+      "node_id": "agency-claim-type:voluntary-plan",
+      "node_kind": "agency-claim-type",
+      "plane": "obligation",
+      "name": "agency claim voluntary_plan",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled control-override receipts and the player-authored input that authorize a proposition about the investigator",
+      "properties": {
+        "legacy_key": "voluntary_plan",
+        "ordinal": 2,
+        "voluntary": true
+      }
+    },
+    {
+      "node_id": "agency-claim-type:voluntary-speech",
+      "node_kind": "agency-claim-type",
+      "plane": "obligation",
+      "name": "agency claim voluntary_speech",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled control-override receipts and the player-authored input that authorize a proposition about the investigator",
+      "properties": {
+        "legacy_key": "voluntary_speech",
+        "ordinal": 1,
+        "voluntary": true
+      }
+    },
+    {
+      "node_id": "agency-claim-type:voluntary-trust",
+      "node_kind": "agency-claim-type",
+      "plane": "obligation",
+      "name": "agency claim voluntary_trust",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled control-override receipts and the player-authored input that authorize a proposition about the investigator",
+      "properties": {
+        "legacy_key": "voluntary_trust",
+        "ordinal": 4,
+        "voluntary": true
+      }
+    },
+    {
+      "node_id": "coverage-field:action-realization",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field action_realization",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "action_realization",
+        "ordinal": 2
+      }
+    },
+    {
+      "node_id": "coverage-field:causal-explanation",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field causal_explanation",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "causal_explanation",
+        "ordinal": 4
+      }
+    },
+    {
+      "node_id": "coverage-field:exact-excerpt",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field exact_excerpt",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "exact_excerpt",
+        "ordinal": 7
+      }
+    },
+    {
+      "node_id": "coverage-field:exceptional-beat",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field exceptional_beat",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "exceptional_beat",
+        "ordinal": 8
+      }
+    },
+    {
+      "node_id": "coverage-field:obligation-id",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field obligation_id",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "obligation_id",
+        "ordinal": 0
+      }
+    },
+    {
+      "node_id": "coverage-field:persona-fit",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field persona_fit",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "persona_fit",
+        "ordinal": 5
+      }
+    },
+    {
+      "node_id": "coverage-field:player-input-handling",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field player_input_handling",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "player_input_handling",
+        "ordinal": 6
+      }
+    },
+    {
+      "node_id": "coverage-field:realization",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field realization",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "realization",
+        "ordinal": 1
+      }
+    },
+    {
+      "node_id": "coverage-field:response",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field response",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "response",
+        "ordinal": 3
+      }
+    },
+    {
+      "node_id": "obligation-kind:first-impression",
+      "node_kind": "obligation-kind",
+      "plane": "obligation",
+      "name": "obligations in the first-impression: namespace",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "settled receipts in the pending turn window: rules.roll/rules.push roll receipts, first-impression context effects, and sanity bout events",
+      "properties": {
+        "legacy_key": "first-impression",
+        "ordinal": 1,
+        "id_prefix": "first-impression:",
+        "source_kind": "first_impression",
+        "builder": "_build_obligations"
+      }
+    },
+    {
+      "node_id": "obligation-kind:roll",
+      "node_kind": "obligation-kind",
+      "plane": "obligation",
+      "name": "obligations in the roll: namespace",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "settled receipts in the pending turn window: rules.roll/rules.push roll receipts, first-impression context effects, and sanity bout events",
+      "properties": {
+        "legacy_key": "roll",
+        "ordinal": 0,
+        "id_prefix": "roll:",
+        "source_kind": "roll",
+        "builder": "_build_obligations"
+      }
+    },
+    {
+      "node_id": "obligation-kind:sanity-bout",
+      "node_kind": "obligation-kind",
+      "plane": "obligation",
+      "name": "obligations in the sanity_bout: namespace",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "settled receipts in the pending turn window: rules.roll/rules.push roll receipts, first-impression context effects, and sanity bout events",
+      "properties": {
+        "legacy_key": "sanity_bout",
+        "ordinal": 2,
+        "id_prefix": "sanity_bout:",
+        "source_kind": "sanity_bout",
+        "builder": "_build_sanity_bout_obligations"
+      }
+    },
+    {
+      "node_id": "player-input-handling:abstract-completed",
+      "node_kind": "player-input-handling",
+      "plane": "obligation",
+      "name": "player input handling abstract_completed",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "how the settled turn's player_action was carried into the rendered beat",
+      "properties": {
+        "legacy_key": "abstract_completed",
+        "ordinal": 0
+      }
+    },
+    {
+      "node_id": "player-input-handling:not-applicable",
+      "node_kind": "player-input-handling",
+      "plane": "obligation",
+      "name": "player input handling not_applicable",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "how the settled turn's player_action was carried into the rendered beat",
+      "properties": {
+        "legacy_key": "not_applicable",
+        "ordinal": 2
+      }
+    },
+    {
+      "node_id": "player-input-handling:specific-preserved",
+      "node_kind": "player-input-handling",
+      "plane": "obligation",
+      "name": "player input handling specific_preserved",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "how the settled turn's player_action was carried into the rendered beat",
+      "properties": {
+        "legacy_key": "specific_preserved",
+        "ordinal": 1
+      }
+    },
+    {
+      "node_id": "realization-mode:concealed-no-player-visible-beat",
+      "node_kind": "realization-mode",
+      "plane": "obligation",
+      "name": "realization concealed_no_player_visible_beat",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "whether the settled roll was player-facing; a concealed roll may close without a visible beat, every other obligation may not",
+      "properties": {
+        "legacy_key": "concealed_no_player_visible_beat",
+        "ordinal": 1
+      }
+    },
+    {
+      "node_id": "realization-mode:fictional-beat",
+      "node_kind": "realization-mode",
+      "plane": "obligation",
+      "name": "realization fictional_beat",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "whether the settled roll was player-facing; a concealed roll may close without a visible beat, every other obligation may not",
+      "properties": {
+        "legacy_key": "fictional_beat",
+        "ordinal": 0
+      }
+    },
+    {
+      "node_id": "roll-visibility-class:consequence-public",
+      "node_kind": "roll-visibility-class",
+      "plane": "obligation",
+      "name": "roll visibility consequence_public",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the visibility field written on each settled roll receipt",
+      "properties": {
+        "legacy_key": "consequence_public",
+        "ordinal": 1,
+        "player_facing": true,
+        "superseded": false
+      }
+    },
+    {
+      "node_id": "roll-visibility-class:corrected-hidden",
+      "node_kind": "roll-visibility-class",
+      "plane": "obligation",
+      "name": "roll visibility corrected_hidden",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the visibility field written on each settled roll receipt",
+      "properties": {
+        "legacy_key": "corrected_hidden",
+        "ordinal": 4,
+        "player_facing": false,
+        "superseded": true
+      }
+    },
+    {
+      "node_id": "roll-visibility-class:keeper-only",
+      "node_kind": "roll-visibility-class",
+      "plane": "obligation",
+      "name": "roll visibility keeper_only",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the visibility field written on each settled roll receipt",
+      "properties": {
+        "legacy_key": "keeper_only",
+        "ordinal": 5,
+        "player_facing": false,
+        "superseded": true
+      }
+    },
+    {
+      "node_id": "roll-visibility-class:public",
+      "node_kind": "roll-visibility-class",
+      "plane": "obligation",
+      "name": "roll visibility public",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the visibility field written on each settled roll receipt",
+      "properties": {
+        "legacy_key": "public",
+        "ordinal": 0,
+        "player_facing": true,
+        "superseded": false
+      }
+    },
+    {
+      "node_id": "roll-visibility-class:superseded",
+      "node_kind": "roll-visibility-class",
+      "plane": "obligation",
+      "name": "roll visibility superseded",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the visibility field written on each settled roll receipt",
+      "properties": {
+        "legacy_key": "superseded",
+        "ordinal": 2,
+        "player_facing": false,
+        "superseded": true
+      }
+    },
+    {
+      "node_id": "roll-visibility-class:voided",
+      "node_kind": "roll-visibility-class",
+      "plane": "obligation",
+      "name": "roll visibility voided",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the visibility field written on each settled roll receipt",
+      "properties": {
+        "legacy_key": "voided",
+        "ordinal": 3,
+        "player_facing": false,
+        "superseded": true
+      }
+    },
+    {
+      "node_id": "segment-type:asset-delta",
+      "node_kind": "segment-type",
+      "plane": "obligation",
+      "name": "output segment asset_delta",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled mechanics projection: public rolls, state deltas, asset deltas and exceptional effect applications, plus the fiction body",
+      "properties": {
+        "legacy_key": "asset_delta",
+        "ordinal": 3,
+        "mechanic": true,
+        "mechanic_placement_order": 2,
+        "must_lead": false
+      }
+    },
+    {
+      "node_id": "segment-type:exceptional-effect",
+      "node_kind": "segment-type",
+      "plane": "obligation",
+      "name": "output segment exceptional_effect",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled mechanics projection: public rolls, state deltas, asset deltas and exceptional effect applications, plus the fiction body",
+      "properties": {
+        "legacy_key": "exceptional_effect",
+        "ordinal": 4,
+        "mechanic": true,
+        "mechanic_placement_order": 3,
+        "must_lead": false
+      }
+    },
+    {
+      "node_id": "segment-type:fiction",
+      "node_kind": "segment-type",
+      "plane": "obligation",
+      "name": "output segment fiction",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled mechanics projection: public rolls, state deltas, asset deltas and exceptional effect applications, plus the fiction body",
+      "properties": {
+        "legacy_key": "fiction",
+        "ordinal": 0,
+        "mechanic": false,
+        "mechanic_placement_order": null,
+        "must_lead": true
+      }
+    },
+    {
+      "node_id": "segment-type:public-check",
+      "node_kind": "segment-type",
+      "plane": "obligation",
+      "name": "output segment public_check",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled mechanics projection: public rolls, state deltas, asset deltas and exceptional effect applications, plus the fiction body",
+      "properties": {
+        "legacy_key": "public_check",
+        "ordinal": 1,
+        "mechanic": true,
+        "mechanic_placement_order": 0,
+        "must_lead": false
+      }
+    },
+    {
+      "node_id": "segment-type:state-delta",
+      "node_kind": "segment-type",
+      "plane": "obligation",
+      "name": "output segment state_delta",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled mechanics projection: public rolls, state deltas, asset deltas and exceptional effect applications, plus the fiction body",
+      "properties": {
+        "legacy_key": "state_delta",
+        "ordinal": 2,
+        "mechanic": true,
+        "mechanic_placement_order": 1,
+        "must_lead": false
+      }
+    },
+    {
+      "node_id": "substantive-effect-status:applied",
+      "node_kind": "substantive-effect-status",
+      "plane": "obligation",
+      "name": "substantive effect status applied",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "whether an exceptional_effect apply receipt exists for the settled critical/fumble/pushed-failure roll it must be bound to",
+      "properties": {
+        "legacy_key": "applied",
+        "ordinal": 0
+      }
+    },
+    {
+      "node_id": "substantive-effect-status:missing",
+      "node_kind": "substantive-effect-status",
+      "plane": "obligation",
+      "name": "substantive effect status missing",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "whether an exceptional_effect apply receipt exists for the settled critical/fumble/pushed-failure roll it must be bound to",
+      "properties": {
+        "legacy_key": "missing",
+        "ordinal": 1
+      }
+    },
+    {
+      "node_id": "substantive-effect-status:not-required",
+      "node_kind": "substantive-effect-status",
+      "plane": "obligation",
+      "name": "substantive effect status not_required",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "whether an exceptional_effect apply receipt exists for the settled critical/fumble/pushed-failure roll it must be bound to",
+      "properties": {
+        "legacy_key": "not_required",
+        "ordinal": 2
+      }
+    }
+  ],
+  "relations": [],
+  "coverage": {
+    "obligation": "accepted",
+    "craft": "unresolved"
+  }
+}

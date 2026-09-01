@@ -4,7 +4,9 @@
 > **Date:** 2026-09-01
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`; Codex-host implementation,
 > adapters, prompts, launchers, tests, and documentation remain off-limits.
-> **Basis:** `claude/pi-coc-text-graph-20260901` off `0.8.1a@65ca572b`.
+> **Basis:** `claude/pi-coc-text-graph-20260901` off `0.8.1a@65ca572b`;
+> every figure re-verified unchanged after merging `0.8.1a@3fff1f8a` for T1,
+> except §6, which the T1 gate showed to be an understatement (see §6.1).
 > **Play evidence:** `.coc/playtests/dirgraph-smoke-20260901/` (grok-4.5 as live
 > KP, The Haunting, zh-Hans, `pi-coc --mode rpc`, 2026-09-01 05:14–05:38 EDT)
 > plus the 67-run preserved corpus under `.coc/`.
@@ -543,6 +545,34 @@ must cover `pi/lib/*.ts`, `pi/prompts/*.md` and `skills/**/references/*.md`, not
 only `plugins/coc-keeper/scripts/*.py`. A gate that scanned only Python would
 have declared the migration complete with four live copies remaining in the
 model-facing projection layer.
+
+### 6.1 Update after the T1 gate ran — this section understated the problem
+
+The grep above searched for the obligation **namespace**. The T1 residue gate
+searches for every token the graph owns, and it found that
+`tool-contract-projection.ts` holds independent copies of **five** owned
+vocabularies, not one:
+
+| Site | Duplicates |
+| --- | --- |
+| `tool-contract-projection.ts:36` — exported `REVIEWED_AGENCY_CLAIM_TYPES` | `VOLUNTARY_CLAIM_TYPES` |
+| `tool-contract-projection.ts:1290`, `:1673` — inline `claim_types` arrays | `VOLUNTARY_CLAIM_TYPES`, twice more |
+| `tool-contract-projection.ts:99` — a TypeScript union type | `REALIZATION_VALUES` |
+| `tool-contract-projection.ts:2435`, `:2797` | `PLAYER_INPUT_HANDLING_VALUES` |
+| `tool-contract-projection.ts:1717`, `:2445`, `:2704` | `COVERAGE_FIELDS` |
+
+Three further second-declarations were found in Python files this inventory had
+not flagged at all:
+
+| Site | Duplicates |
+| --- | --- |
+| `coc_narration_contract.py:826` | `PLAYER_FACING_ROLL_VISIBILITIES`, inlined as `{"public", "consequence_public"}` |
+| `coc_state_authority.py:357` | the mechanics segment vocabulary, as `("state_delta", "asset_delta")` |
+| `export_battle_report.py:684-689` | the roll visibility classification, reimplemented beside a documented import of the real one |
+
+All are recorded and none is repaired: T1 is contract, compiler, vocabulary and
+the gate. The point of running the gate in the first slice rather than the last
+is that these are now pinned by count and cannot grow quietly.
 
 ---
 
