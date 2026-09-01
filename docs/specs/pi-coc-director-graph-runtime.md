@@ -432,3 +432,74 @@ Cross-graph finding, recorded and not repaired: the Director selects the dying
 clock on a `"stabilized"` condition tag while the RuleGraph conditions key on
 `hp > 0`. `coc_healing` writes both atomically, so they agree today; they
 remain two independent encodings of one state in different modules.
+
+
+---
+
+## Open product question: is this layer reached in play?
+
+Recorded 2026-09-01 from a real `pi-coc --mode rpc` session (grok-4.5 as live
+KP, The Haunting, zh-Hans, 5 player turns). It is not an acceptance failure of
+any slice above — every gate those slices declare still passes — but it is the
+question that decides whether more should be invested here.
+
+**The Director was never invoked.** Across 44 canonical tool calls and 65
+`coc_discover` calls: `director.advise` 0, `storylets.suggest` 0,
+`actions.advise` 0, `npc.advise` 0, `threat.query` 0.
+
+Nothing is broken. `director.advise` is `kp_surface: advice`, `audience:
+keeper`, `discovery: surface`, and `coc-keeper-play/SKILL.md` states **"No
+mandatory Director/Storylet calls"** — optional by design. Its three mentions
+in the Skill all say "optional" or "remains available"; none says *when* to
+reach for it. For a tool the KP must first discover, that is close to absent.
+
+Doctrine values are consumed only by `_build_director_advice_payload`
+(`director.advise`) and `_tool_storylets_suggest` (`storylets.suggest`).
+`scene.context`, `actions.list` and `state.move_scene` load
+`coc_story_director` but read no doctrine. So on the Pi play path, the 158
+values this specification made accountable are not read at all.
+
+### Why the obvious conclusion is not safe
+
+The tempting reading is that the Director is redundant because the module
+already carries per-scene pacing. The Haunting's `scene.context` hands the KP
+`dramatic_question`, `tone`, `pressure_moves` and `exit_conditions` — authored,
+scene-specific, and strictly more concrete than a generic `PRESSURE 0.85`.
+
+That reading does not survive a second measurement:
+
+| source | scenes | with `pressure_moves` |
+| --- | ---: | ---: |
+| the-haunting (hand-authored starter) | 12 | **12** |
+| the-white-war (hand-authored starter) | 11 | **11** |
+| 8 imported PDF campaigns | 1–2 each | **0 in 7 of 8** |
+
+Every live observation above came from The Haunting — the module least likely
+to need a Director, because an author wrote its beats for every scene. The
+sample selected the conclusion.
+
+### Why this cannot be settled yet
+
+The obvious next step — run the same probe against an imported PDF module —
+is not sound today. Those campaigns were imported 2026-08-23…27 through the
+external `coc-pdf-pipeline`, and
+[`pi-coc-module-source-pipeline-unification`](pi-coc-module-source-pipeline-unification.md)
+is mid-flight converting that to a single spine. Its own diagnosis names
+"contract seams where both sides were individually right, the middle was
+broken, and nothing errored" — dead fields and whitelist trimming — as the
+recurring failure of the two-spine era. So a `pressure_moves` count of 0 on an
+old import cannot be distinguished between:
+
+- the module genuinely carries no pacing material — the Director's case; and
+- the old extraction never populated the field — a pipeline seam.
+
+**Settle this after that unification lands**, when the seven Scenario IR
+documents are deterministic projections of the ModuleGraph. Until then a
+measurement here reports the pipeline, not the product.
+
+### What it means for D5b
+
+D5b's tooling is complete and tested, and its value is suspended, not
+delivered. Tuning one of the 17 decision-changing values is only meaningful
+once something reads them in play. Run D5b after this question resolves, and
+run it on a module that actually needs a Director.
