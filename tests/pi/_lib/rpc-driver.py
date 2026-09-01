@@ -168,6 +168,9 @@ SETTLED_OUTPUT_RECOVERY_EXHAUSTED = "settled_output_recovery_exhausted"
 SETUP_HANDOFF_CUSTOM_TYPE = "coc_setup_handoff"
 COC_SETUP_HANDOFF_EXIT_CODE = 42
 SESSION_ROLE_ENV = "COC_PI_SESSION_ROLE"
+# Distinct from a real timeout: the turn cannot settle, and the remedy is a
+# declaration the operator omitted, not a longer wait.
+UNCLAIMED_HANDOFF_EXIT_CODE = 6
 _SESSION_ROLE_UNSET = object()
 SETUP_HANDOFF_RECEIPT_KEYS = {
     "schema_version",
@@ -583,6 +586,30 @@ def _setup_handoff_proven(
         payload.get("consumer") == LAUNCHER_HANDOFF_CONSUMER
         for payload in payloads
     )
+
+
+def _setup_handoff_unclaimed(
+    rows: list[dict],
+    *,
+    session_role: object = _SESSION_ROLE_UNSET,
+) -> bool:
+    """A real handoff envelope that this session's role refuses to claim.
+
+    `_setup_handoff_proven` requires the session to have declared
+    ``COC_PI_SESSION_ROLE=setup``; that strictness is deliberate, so a play
+    turn can never be misread as a handoff. But a fresh campaign whose first
+    session declares no role at all produces the envelope anyway, and then
+    waits for a settle that the re-executed launcher will never send.
+    """
+    # Only when NO role was declared. A daemon that established itself as
+    # `play` must keep ignoring a handoff envelope — refusing promotion by
+    # turn-process env is a deliberate boundary, and waiting is its fail-closed
+    # behavior. The gap is the session that declared nothing at all.
+    if _canonical_session_role(session_role) is not None:
+        return False
+    if _handoff_stream_unreliable(rows):
+        return False
+    return bool(_setup_handoff_payloads(rows))
 
 
 def _setup_handoff_ready(
@@ -1138,6 +1165,7 @@ def submit(payload: dict, timeout: int, *, profile: str | None = None) -> int:
     deadline = time.monotonic() + timeout
     rows: list[dict] = []
     completed = False
+    unclaimed_handoff = False
     last_diagnostic = time.monotonic()
     handoff_drain_deadline: float | None = None
     while time.monotonic() < deadline:
@@ -1162,6 +1190,15 @@ def submit(payload: dict, timeout: int, *, profile: str | None = None) -> int:
                 )
                 if not completed:
                     handoff_drain_deadline = None
+        elif _setup_handoff_unclaimed(rows, session_role=session_role):
+            # A valid setup-handoff envelope arrived, but this session never
+            # declared the setup role, so the strict `proven` gate refuses it.
+            # The launcher has re-executed; `agent_settled` for this prompt can
+            # never arrive, and waiting it out costs the whole timeout in
+            # silence — six fresh campaigns burned 900s each before this said
+            # anything. Fail fast and name the declaration that is missing.
+            unclaimed_handoff = True
+            break
         else:
             handoff_drain_deadline = None
             # Dead outer pid without an exit row is not launcher re-exec;
@@ -1227,6 +1264,23 @@ def submit(payload: dict, timeout: int, *, profile: str | None = None) -> int:
                     profile=profile,
                 )
     rows = collect_after(before) if not completed else rows
+    if unclaimed_handoff:
+        return _finish_prompt_submit(
+            payload,
+            timeout,
+            rows,
+            completed=False,
+            session_role=session_role,
+            exit_code=UNCLAIMED_HANDOFF_EXIT_CODE,
+            death_message=(
+                "setup handoff observed but this session never declared the "
+                f"setup role: set {SESSION_ROLE_ENV}=setup on the daemon that "
+                "creates a campaign. The launcher has re-executed, so this "
+                "prompt can never settle; the campaign itself is durable — "
+                "send the next turn to continue in the play role."
+            ),
+            profile=profile,
+        )
     absolute_budget_timeout = None
     if (
         not completed

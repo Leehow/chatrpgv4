@@ -507,6 +507,60 @@ class ToolError(ValueError):
         self.violations = violations
         self.details = deepcopy(details) if isinstance(details, dict) else None
 
+def _model_invocation_tool(operation: str) -> str | None:
+    """Tool the model may reach ``operation`` through, or None if host-private."""
+    try:
+        import coc_operation_policy
+    except ImportError:
+        return None
+    try:
+        return coc_operation_policy.model_invocation_tool(operation)
+    except (KeyError, ValueError):
+        return None
+
+
+def _suggested_push_operation(
+    prefilled: dict[str, Any], missing: list[str],
+) -> dict[str, Any]:
+    """Advisory follow-up for an ordinary failure with an unresolved attempt.
+
+    This used to name ``rules.push`` through ``coc_invoke`` unconditionally.
+    Once a ruleset promotes push-luck to the graph, that operation becomes
+    ``kp_surface: "none"`` and the execute ACL refuses it — so the advice
+    pointed the Keeper at a call that could only be denied, on the exact path
+    where it is deciding what to do about a failure. A live core-check failure
+    confirmed the suggestion reaching the model view.
+
+    Where the legacy operation is still Keeper-facing it remains the right
+    advice. Where it is not, name the ruleset-agnostic discovery path instead:
+    ``rules.context`` for the push-luck family returns that ruleset's own
+    applicable decision with its real slots. The kernel deliberately does not
+    guess a ruleset-specific ``decision_ref`` — that is the graph's to answer,
+    not the kernel's to hardcode.
+    """
+    push_tool = _model_invocation_tool("rules.push")
+    if push_tool is not None:
+        return {
+            "operation": "rules.push",
+            "invoke_via": push_tool,
+            "prefilled_arguments": deepcopy(prefilled),
+            "missing_arguments": list(missing),
+        }
+    context_tool = _model_invocation_tool("rules.context")
+    return {
+        "operation": "rules.context",
+        "invoke_via": context_tool,
+        "model_invocable": context_tool is not None,
+        "prefilled_arguments": {"family": "push-luck"},
+        "missing_arguments": [],
+        "reason": (
+            "the legacy push operation is host-private for this ruleset; "
+            "discover the applicable push decision and settle it through "
+            "rules.settle"
+        ),
+    }
+
+
 class Ctx:
     """Resolved campaign context shared by tool handlers."""
 
@@ -5914,12 +5968,7 @@ def _push_operation_opportunity(
             "route_id": context.get("route_id"),
             "roll_density_group": context.get("roll_density_group"),
         },
-        "suggested_operation": {
-            "operation": "rules.push",
-            "invoke_via": "coc_invoke",
-            "prefilled_arguments": prefilled,
-            "missing_arguments": missing,
-        },
+        "suggested_operation": _suggested_push_operation(prefilled, missing),
         "attempt_pressure": {
             "schema_version": 1,
             "same_goal_no_progress_count": max(1, int(no_progress_count)),
