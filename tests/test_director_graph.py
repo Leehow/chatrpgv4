@@ -455,6 +455,23 @@ PLUMBING_ALLOWLIST: dict[str, dict[tuple[str, float | int], str]] = {
         ("select_storylet_moves", 5): "debug trace example cap",
     },
     "coc_director_strategies.py": {},
+    # The apply layer's authority is unchanged — receipts, NPC agency,
+    # clue-gate disclosure and state commits all still live here. It is in
+    # this gate because it was found holding its own second copies of four
+    # values the graph already owned, which meant changing the graph did not
+    # change this file.
+    "coc_director_apply.py": {
+        ("_write_json", 2): "json.dumps indent",
+        ("_source_head_is_bound", 3): "receipt schema_version check",
+        ("_reconcile_director_flag_receipts", 3): "receipt schema_version check",
+        ("_next_director_flag_source_sequence", 3): "receipt schema_version check",
+        ("_commit_sealed_push_route_completion", 2): "binding schema_version check",
+        ("_commit_structured_scenario_outcome", 64): "receipt ring-buffer retention",
+        ("_commit_sealed_push_route_completion", 256): "receipt ring-buffer retention",
+        ("_commit_resolved_route_completions", 256): "receipt ring-buffer retention",
+        ("_gate_social_clues_and_persist_disclosure", 2): "tuple index into a key",
+        ("apply_plan", 10.0): "campaign lock wait timeout in seconds",
+    },
 }
 
 
@@ -522,9 +539,35 @@ def test_the_residue_gate_actually_covers_the_whole_surface():
         "coc_story_director.py",
         "coc_storylets.py",
         "coc_director_strategies.py",
+        "coc_director_apply.py",
     }
-    # coc_director_apply.py is out of scope by specification, not by omission.
-    assert "coc_director_apply.py" not in PLUMBING_ALLOWLIST
+
+
+def test_the_apply_layer_holds_no_second_copy_of_a_graph_value():
+    """The duplication that motivated pulling this file into the gate.
+
+    Four values — the default clock size, the stall threshold, the fumble tick
+    bound and the Fair Warning ladder — lived here as independent literals as
+    well as in the graph, so editing the graph did not edit this file. Reading
+    them through the runtime is what makes the graph the single source.
+    """
+    source = (SCRIPTS / "coc_director_apply.py").read_text(encoding="utf-8")
+    doctrine = coc_director_runtime.doctrine()
+    for name, threshold_id in (
+        ("_DEFAULT_CLOCK_SEGMENTS", "default-clock-segments"),
+        ("_STALLED_OVERRIDE_TURNS", "override-stalled-turns"),
+        ("_FUMBLE_TICK_BOUND", "fumble-tick-bound"),
+        ("_FAIR_WARNING_LETHAL_CHANCES", "fair-warning-lethal-chances"),
+        ("_RECENT_INTENT_WINDOW", "recent-intent-window"),
+    ):
+        assert f'{name} = _DOCTRINE.threshold("{threshold_id}")' in source, name
+        # and the node it reads really exists
+        doctrine.threshold(threshold_id)
+
+    # The stall threshold had three independent copies. Every one of them must
+    # now resolve through the graph.
+    assert doctrine.threshold("override-stalled-turns") == 3
+    assert doctrine.threshold("storylet-need-stalled-turns") == 3
 
 
 def test_doctrine_accountability_ledger_is_complete():

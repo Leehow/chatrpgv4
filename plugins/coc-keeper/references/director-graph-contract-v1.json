@@ -165,7 +165,7 @@
     "DirectorGraph never reads module, scene, or player prose. Only structured ids, enums, counters, thresholds and booleans.",
     "DirectorGraph never selects player intent, clue relevance, NPC motive, or narration content. Those remain Keeper or LLM semantic judgments.",
     "Absence is not prohibition. An action, beat, or pacing move not present in the graph is not thereby forbidden to the Keeper.",
-    "DirectorGraph holds no execution or state authority. Receipts, NPC agency persistence, clue-gate disclosure and state commits stay in coc_director_apply.py."
+    "DirectorGraph holds no execution or state authority. Receipts, NPC agency persistence, clue-gate disclosure and state commits stay in coc_director_apply.py. That file reads doctrine values from the runtime like any other consumer; reading a value moves no authority and keeping a private copy of one defeats the single source."
   ],
   "identity_law": "Migration slices D1 through D4 MUST be behaviour-preserving. Every value carried into this graph is bit-identical to the literal it replaces. Retuning requires slice D5 and a recorded DebugExperiment result.",
   "fail_closed_law": "A missing, unparsable, or contract-invalid DirectorGraph fails closed at load. The runtime MUST NOT fall back to embedded literals, because a silent fallback reintroduces the untracked values this contract exists to eliminate.",

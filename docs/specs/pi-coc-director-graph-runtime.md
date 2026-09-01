@@ -119,8 +119,14 @@ Fidelity is replaced by **accountability plus behavioral identity**.
    behavior. Only D5 changes a value, and only with a recorded experiment.
 8. **Storage is ordinary validated JSON.** No graph database, embedding store,
    or scoring DSL.
-9. **`coc_director_apply.py` is out of scope** and MUST NOT be edited by any
-   slice of this specification.
+9. **`coc_director_apply.py` keeps all of its authority and none of its
+   doctrine.** Receipts, NPC agency persistence, clue-gate disclosure and state
+   commits stay there and are never moved into the graph. It may, and must,
+   read doctrine values from the runtime: it was found holding its own second
+   copies of four values the graph already owned — the default clock size, the
+   stall threshold, the fumble tick bound and the Fair Warning ladder — so
+   editing the graph did not edit this file, which defeats the single source
+   the refactor exists to create. Reading a value moves no authority.
 
 ---
 
@@ -385,6 +391,7 @@ What the slices actually produced, including where the specification was wrong.
 | D4 | 150-decision determinism baseline in `checks/`. |
 | D5a | Sensitivity triage: 17 decision-changing, 36 inert, 60 not-exercised. |
 | D5b | **Not delivered** — DebugExperiment cannot vary a doctrine value per lane. |
+| D6 | Apply-layer duplicates removed; residue gate covers all four files. |
 
 Corrections this specification needed:
 
@@ -405,7 +412,13 @@ Corrections this specification needed:
    the first 199 segment counts, a 5-segment clock among them. It is stored as
    `[2, 3]`.
 5. **DebugExperiment is the wrong instrument for D5**, as recorded in §8.
-6. **Vocabulary nodes must not copy the record body they name.** D1 first
+6. **"Out of scope" was hiding duplicate copies.** `coc_director_apply.py`
+   was excluded by §3 decision 9 and never scanned, so it kept its own literals
+   for four values the graph already owned. Excluding a file from migration is
+   not the same as excluding it from the residue gate; the gate now covers it,
+   and §3 decision 9 distinguishes authority (which stays) from doctrine
+   (which does not).
+7. **Vocabulary nodes must not copy the record body they name.** D1 first
    embedded the full storylet and time-cost payloads, which made the artifact
    464KB and created a second copy of two package tables whose real consumers
    (`coc_storylets`, `coc_time`) still read the originals — the very pattern

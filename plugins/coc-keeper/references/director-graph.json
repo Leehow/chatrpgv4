@@ -3492,6 +3492,22 @@
       "falsifiable_by": "Lanes replaying at one and two low-agency continues; compare escalation timing."
     },
     {
+      "node_id": "threshold:recent-intent-window",
+      "node_kind": "threshold",
+      "plane": "doctrine",
+      "name": "recent-intent-window",
+      "properties": {
+        "threshold_id": "recent-intent-window",
+        "value": 5,
+        "comparison": "lte",
+        "subject": "pacing.recent_intent_classes"
+      },
+      "evidence_class": "authored-doctrine",
+      "rationale": "Only the last five turns of intent are kept, which bounds how far back the low-agency continue count can look and therefore how long a yielded scene stays yielded.",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "Lanes with a three and a ten turn window over a low-agency stretch; compare when PRESSURE and the Layer-3 override fire."
+    },
+    {
       "node_id": "threshold:recover-stalled-turns",
       "node_kind": "threshold",
       "plane": "doctrine",

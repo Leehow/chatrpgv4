@@ -6,10 +6,10 @@
   "matrix_rows": 150,
   "scope": "Perturbation sensitivity of Director doctrine values over the D4 decision matrix. 'inert-in-matrix' means inert in THIS matrix on THIS checkpoint, not globally. A decision change is not a quality judgement.",
   "counts": {
-    "tested": 145,
+    "tested": 146,
     "inert_in_matrix": 18,
     "decision_changing": 17,
-    "not_exercised": 110,
+    "not_exercised": 111,
     "not_perturbable": 0
   },
   "results": [
@@ -946,6 +946,13 @@
       "perturbed_to": 3,
       "verdict": "inert-in-matrix",
       "changed_rows": 0
+    },
+    {
+      "node_id": "threshold:recent-intent-window",
+      "value": 5,
+      "verdict": "not-exercised",
+      "changed_rows": null,
+      "reason": "the decision probe never reads this value; it belongs to a layer the matrix does not exercise"
     },
     {
       "node_id": "threshold:recover-stalled-turns",

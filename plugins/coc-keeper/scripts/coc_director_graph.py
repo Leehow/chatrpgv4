@@ -482,6 +482,11 @@ LEGACY_THRESHOLDS = [
      UNKNOWN,
      "Not a pacing choice so much as an accepted bound; vary it and confirm whether any authored effect legitimately exceeds it.",
      None),
+    ("recent-intent-window", "pacing.recent_intent_classes", "lte", 5,
+     "Only the last five turns of intent are kept, which bounds how far back the low-agency continue count can look and therefore how long a yielded scene stays yielded.",
+     UNKNOWN,
+     "Lanes with a three and a ten turn window over a low-agency stretch; compare when PRESSURE and the Layer-3 override fire.",
+     None),
 ]
 
 # (ladder_id, rungs, rationale, origin, falsifiable_by)

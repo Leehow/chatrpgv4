@@ -12,11 +12,11 @@ Director's numbers — it records, per value, whether anyone can.
 
 | | Count |
 | --- | --- |
-| Doctrine nodes | 139 |
-| Individual tunable values | 157 |
-| `authored-doctrine` | 135 |
+| Doctrine nodes | 140 |
+| Individual tunable values | 158 |
+| `authored-doctrine` | 136 |
 | `rule-derived` | 4 |
-| ...of which `origin: unknown-legacy-tuning` | 135 |
+| ...of which `origin: unknown-legacy-tuning` | 136 |
 
 ### Sensitivity triage
 
@@ -26,14 +26,14 @@ Deterministic sweep over the D4 decision matrix (`memory-playtest-20260820`, str
 | --- | --- | --- |
 | `decision-changing` | 17 | perturbing the value moves real decisions; settling it needs a play experiment |
 | `inert-in-matrix` | 18 | exercised by this checkpoint, but perturbing it changed no decision |
-| `not-exercised` | 110 | the probe never reads it — another structure type, or a layer (storylet scheduling, time advance, affordance budget) this matrix does not exercise; the sweep says nothing about it |
+| `not-exercised` | 111 | the probe never reads it — another structure type, or a layer (storylet scheduling, time advance, affordance budget) this matrix does not exercise; the sweep says nothing about it |
 
 `inert-in-matrix` is a statement about this matrix on this
 checkpoint, never a claim that a value is globally irrelevant. A
 decision change is not a quality judgement either — the sweep only
 says which values are worth spending an experiment on.
 
-**135 of 139 doctrine nodes (97%) cannot name their origin.** Each carries a `falsifiable_by` describing the DebugExperiment that could settle it. Retiring them one recorded experiment at a time is slice D5.
+**136 of 140 doctrine nodes (97%) cannot name their origin.** Each carries a `falsifiable_by` describing the DebugExperiment that could settle it. Retiring them one recorded experiment at a time is slice D5.
 
 ## Values that can cite a source
 
@@ -153,7 +153,7 @@ settle the value; it is the entry point for slice D5.
 | --- | --- | --- | --- |
 | `tiebreak-order:default` | `SUBSYSTEM > RECOVER > PRESSURE > REVEAL > CHOICE > CHARACTER > DEEPEN > CUT > PAYOFF > MONTAGE` | - | Lanes on a checkpoint that ties SUBSYSTEM with REVEAL; swap the two leading entries and compare the selected action. |
 
-### `threshold` (45)
+### `threshold` (46)
 
 | Node | Value | Sensitivity | Falsifiable by |
 | --- | --- | --- | --- |
@@ -188,6 +188,7 @@ settle the value; it is the entry point for slice D5.
 | `threshold:pressure-posture-floor` | `gte 0.05` | inert-in-matrix (0) | Lanes on a cautious-posture calm checkpoint under the multi_faction weight; drop the floor to 0.0 and compare whether PRESSURE leaves scoring. |
 | `threshold:pressure-stalled-turns` | `gte 1` | decision-changing (6) | Lanes at zero and one stalled turn; compare whether the Director escalates after one quiet turn. |
 | `threshold:pressure-yielded-low-agency-count` | `gte 2` | inert-in-matrix (0) | Lanes replaying at one and two low-agency continues; compare escalation timing. |
+| `threshold:recent-intent-window` | `lte 5` | not-exercised | Lanes with a three and a ten turn window over a low-agency stretch; compare when PRESSURE and the Layer-3 override fire. |
 | `threshold:recover-stalled-turns` | `gte 2` | decision-changing (24) | Lanes at one and two stalled turns; compare RECOVER availability. |
 | `threshold:scene-exit-pressure-continue-count` | `gte 2` | not-exercised | Lanes at one and two continues; compare whether the exit directive reaches the Keeper. |
 | `threshold:score-precision-digits` | `eq 4` | inert-in-matrix (0) | Lanes with two and six digits of precision on a checkpoint where two actions score within 1e-5; compare tiebreak frequency. |
