@@ -1,9 +1,10 @@
 # 模组来源管线统一：单脊柱与七文件退休
 
-> **Status:** Spec accepted (user-authorized 2026-09-01) — Stage A (generic
-> projection core) implemented with deterministic acceptance; Stages B–E
-> pending. Evidence:
-> [module-pipeline-unification-stage-a.md](../status/module-pipeline-unification-stage-a.md)。
+> **Status:** Spec accepted (user-authorized 2026-09-01) — Stage A implemented;
+> Stage B forward path proven on a real module at a live table, natural play
+> partial; Stages C–E pending. Evidence:
+> [Stage A](../status/module-pipeline-unification-stage-a.md)、
+> [Stage B](../status/module-pipeline-unification-stage-b.md)。
 > **ID:** `pi-coc-module-source-pipeline-unification`
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`; Codex-host 实现 off-limits。
 > **Scope:** 把「PDF 解析 → 模组语义理解 → 运行时消费」收敛为一条单脊柱；定义
@@ -226,7 +227,7 @@ accepted ModuleGraph
 校验/物化/parity；正向 packet 准备器可从 installed graph 产出闭合 packet。
 本 Stage 不宣称任何真实模组已走通正向路径——那是 Stage B。
 
-### Stage B — 一本真实短模组的正向打通（experimental → integrated）
+### Stage B — 一本真实短模组的正向打通（forward path proven 2026-09-01）
 
 1. 选一本已 accepted 图的短模组，真实模型跑投影抽取 pass（story-graph 域
    先行），机器校验 + parity；
@@ -235,6 +236,13 @@ accepted ModuleGraph
 3. 一次 fresh Pi-Coc RPC 真实游玩，KP 从投影出的 IR 正常开局。
 
 **完成合同：** 真实模组、真实模型、真实游玩三者齐备才可标 `integrated`。
+
+**2026-09-01 实测结论**（《不息的渴望》，zh-Hans，41 页）：前两项已满足——9 个
+shard 经真实模型抽取、独立审查、确定性接受，图 86 节点，投影出的七文件 IR 通过
+`validate_compiled_scenario`（0 错 0 警）与 parity；Grok 4.5 在真实 RPC 桌上用
+模组自己的开场与时钟开桌，并以投影出的人物卡跑了一个真骰调查回合。第三项只完成
+到第二回合：一个既有的「大失败 → 特殊影响 → roll handle 失效」引擎缺陷卡住封账，
+与模组投影无关，留给其归属轨。详见 Stage B 状态文档。
 
 ### Stage C — L1 迁入仓库 + 渐进统一
 

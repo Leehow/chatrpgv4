@@ -433,6 +433,19 @@ def install_projected_scenario(
         campaign_path, campaign, indent=2, trailing_newline=True
     )
 
+    start_clock = meta.get("start_clock")
+    if isinstance(start_clock, dict):
+        # A module that authored its opening moment owns the table clock; a
+        # starter takes the same path through reset_campaign_time_state.
+        import coc_state
+
+        coc_state.reset_campaign_time_state(
+            campaign_dir,
+            campaign_id,
+            era=str(campaign.get("era") or "1920s"),
+            start_clock=start_clock,
+        )
+
     world_path = campaign_dir / "save" / "world-state.json"
     world = (
         json.loads(world_path.read_text(encoding="utf-8"))
