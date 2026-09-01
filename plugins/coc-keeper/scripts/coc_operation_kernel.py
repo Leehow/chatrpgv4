@@ -7259,13 +7259,19 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
         question["selected_affordance_ids"] = [
             str(item) for item in selected if isinstance(item, str)
         ]
+    # `semantic_inputs` is a declared `rules.context` input, but `kind` is not:
+    # the inputSchema has no `kind` property and forbids additional ones, so a
+    # Keeper call always lands on the "procedure" default. Gating the forward on
+    # `kind == "lookup"` therefore discarded the caller's semantics on every
+    # real call, and applicability facts derived from them (magic.spell.known,
+    # magic.learn.source-available) could never become true. Forward always.
+    semantic = args.get("semantic_inputs")
+    if isinstance(semantic, Mapping):
+        question["semantic_inputs"] = dict(semantic)
     if kind == "lookup":
         lookup_ref = args.get("lookup_ref") or args.get("decision_ref")
         if isinstance(lookup_ref, str) and lookup_ref.strip():
             question["lookup_ref"] = lookup_ref.strip()
-        semantic = args.get("semantic_inputs")
-        if isinstance(semantic, dict):
-            question["semantic_inputs"] = semantic
     result = runtime.context(question)
     if family == "combat":
         handler = globals().get("_tool_combat_context")
