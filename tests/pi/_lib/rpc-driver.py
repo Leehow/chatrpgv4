@@ -874,6 +874,99 @@ def _turn_timeout_diagnosis(rows: list[dict]) -> dict:
     }
 
 
+def _delivered_finalization(rows: list[dict]) -> dict | None:
+    """Campaign + finalization identity of the turn this submit just delivered.
+
+    Everything here is read back out of the observed event stream, never
+    invented: the campaign id from canonical tool arguments, and the
+    finalization identity from the ``turn.finalize`` result the KP actually
+    produced. If any part is missing the caller acknowledges nothing.
+    """
+    campaign_id: str | None = None
+    finalization_id: str | None = None
+    rendered_sha256: str | None = None
+
+    def scan(value: object) -> None:
+        nonlocal finalization_id, rendered_sha256
+        if isinstance(value, dict):
+            fid = value.get("finalization_id")
+            sha = value.get("rendered_text_sha256")
+            if isinstance(fid, str) and fid and isinstance(sha, str) and sha:
+                finalization_id, rendered_sha256 = fid, sha
+            for nested in value.values():
+                scan(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                scan(nested)
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        arguments = row.get("args")
+        if isinstance(arguments, dict):
+            candidate = arguments.get("campaign")
+            if isinstance(candidate, str) and candidate:
+                campaign_id = candidate
+        if row.get("type") == "tool_execution_end":
+            scan(row.get("result"))
+    if not (campaign_id and finalization_id and rendered_sha256):
+        return None
+    return {
+        "campaign_id": campaign_id,
+        "finalization_id": finalization_id,
+        "rendered_sha256": rendered_sha256,
+    }
+
+
+def _acknowledge_delivery(payload: dict, rows: list[dict]) -> None:
+    """Close the transport loop for a turn whose text reached the player.
+
+    The RPC playtest lane never did this, so no campaign played through this
+    driver has ever carried a confirmed delivery receipt (the last one anywhere
+    is dated 2026-08-21). That leaves `save/continuation/delivery-receipts.jsonl`
+    absent, which in turn makes every such campaign permanently unsealable for
+    `/system debug` — it refuses a checkpoint whose finalized tip has no
+    confirmed delivery.
+
+    This is only called after the settle classification proved the turn
+    delivered visible assistant text, and that text has just been printed above
+    as ``KP: ...``. The acknowledgement is therefore a statement about what
+    actually happened at the table, not a formality: a turn that did not reach
+    the player never gets here. A failure is reported and never fails the turn,
+    which already succeeded.
+    """
+    delivered = _delivered_finalization(rows)
+    if delivered is None:
+        return
+    script = ROOT / "plugins" / "coc-keeper" / "scripts" / "coc_toolbox.py"
+    if not script.is_file():
+        return
+    arguments = {
+        "finalization_id": delivered["finalization_id"],
+        "rendered_sha256": delivered["rendered_sha256"],
+        "ack_kind": "displayed",
+        "source_id": f"rpc-driver:{payload.get('id') or 'turn'}",
+    }
+    try:
+        completed = subprocess.run(
+            [
+                "uv", "run", "--frozen", "python", str(script),
+                "session.delivery_ack",
+                "--root", str(ROOT),
+                "--campaign", delivered["campaign_id"],
+                "--json", json.dumps(arguments, ensure_ascii=False),
+            ],
+            cwd=ROOT, capture_output=True, text=True, timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log(f"delivery ack failed to run: {exc}")
+        return
+    if completed.returncode != 0:
+        log("delivery ack rejected: " + completed.stderr.strip()[-400:])
+        return
+    print(f"delivery acknowledged: {delivered['finalization_id']}")
+
+
 def _finish_prompt_submit(
     payload: dict,
     timeout: int,
@@ -958,6 +1051,8 @@ def _finish_prompt_submit(
             file=sys.stderr,
         )
         return 5
+    if payload["type"] != "set_model":
+        _acknowledge_delivery(payload, rows)
     return 0
 
 

@@ -1091,3 +1091,55 @@ def test_driver_records_pi_exit_and_stops(daemon: DaemonFixture):
     events = (daemon.evidence / "rpc-events.jsonl").read_text(encoding="utf-8")
     assert "driver_pi_exited" in events
     assert _wait_for(lambda: not module.HEARTBEAT.exists())
+
+
+def test_delivered_finalization_reads_identity_out_of_the_event_stream(tmp_path):
+    """The delivery acknowledgement is built from observed events only.
+
+    No RPC-played campaign has ever carried a confirmed delivery receipt (the
+    newest one anywhere is dated 2026-08-21), because this driver never closed
+    the transport loop. `/system debug` refuses any checkpoint whose finalized
+    tip has no confirmed delivery, so every playtest campaign was permanently
+    unsealable. The driver now acknowledges — but only from what it saw.
+    """
+    driver = _install_driver(tmp_path)
+    rows = [
+        {
+            "type": "tool_execution_start",
+            "toolName": "coc_turn_finalize",
+            "args": {"campaign": "the-haunting-probe", "decision_id": "fin-t1"},
+        },
+        {
+            "type": "tool_execution_end",
+            "toolName": "coc_turn_finalize",
+            "result": {
+                "details": {
+                    "data": {
+                        "finalization_id": "turn-effect-v1:abc123",
+                        "rendered_text_sha256": "sha256:" + "d" * 64,
+                    },
+                },
+            },
+        },
+    ]
+    assert driver._delivered_finalization(rows) == {
+        "campaign_id": "the-haunting-probe",
+        "finalization_id": "turn-effect-v1:abc123",
+        "rendered_sha256": "sha256:" + "d" * 64,
+    }
+
+
+def test_delivered_finalization_is_none_without_a_finalization(tmp_path):
+    """A turn that never finalized acknowledges nothing."""
+    driver = _install_driver(tmp_path)
+    rows = [{
+        "type": "tool_execution_start",
+        "toolName": "coc_rules_settle",
+        "args": {"campaign": "the-haunting-probe"},
+    }]
+    assert driver._delivered_finalization(rows) is None
+    # A finalization with no campaign is equally unusable.
+    assert driver._delivered_finalization([{
+        "type": "tool_execution_end",
+        "result": {"finalization_id": "turn-effect-v1:abc", "rendered_text_sha256": "sha256:x"},
+    }]) is None
