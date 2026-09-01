@@ -459,7 +459,7 @@ CENSUS: dict[str, dict[str, tuple[int, str, str]]] = {
         "agency-claim-type": (18, "second-declaration", "THREE independent TypeScript copies: exported const REVIEWED_AGENCY_CLAIM_TYPES (line 36) and inline claim_types arrays (lines 1290, 1673). A Python-only residue gate cannot see any of them. This is DirectorGraph correction 6 in another language"),
         "coverage-field": (27, "second-declaration", "coverage row field names re-declared in TypeScript types and projections (lines 1717, 2445, 2704)"),
         "obligation-kind": (10, "usage-only", "source_kind comparisons"),
-        "obligation-prefix": (59, "second-declaration", "the full roll:/first-impression:/sanity_bout: triple appears at lines 4356, 7054, 7056, 7791 plus prose at 7439, and roll: alone at roughly thirty more sites"),
+        "obligation-prefix": (61, "second-declaration", "the full roll:/first-impression:/sanity_bout: triple appears four times plus prose, and roll: alone at roughly thirty more sites. Count grew 59 -> 61 in the 0.8.1a@bb0575d5 merge, which added a `roll:`/`first-impression:` candidate list from another slice; the gate caught the growth, which is what pinning the count is for"),
         "player-input-handling": (9, "second-declaration", "re-declared as a TypeScript union and projection literals (lines 2435, 2797)"),
         "realization-mode": (9, "second-declaration", "re-declared as a TypeScript union type at line 99 and as literals at lines 1276, 1756"),
         "roll-visibility-class": (2, "usage-only", "two comparisons"),
