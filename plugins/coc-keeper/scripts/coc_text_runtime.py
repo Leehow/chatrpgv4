@@ -87,6 +87,7 @@ def reset_cache() -> None:
     global _GRAPH_CACHE, _VOCABULARY_CACHE
     _GRAPH_CACHE = None
     _VOCABULARY_CACHE = None
+    _CRAFT_CACHE.clear()
 
 
 def _nodes_of_kind(kind: str) -> list[dict[str, Any]]:
@@ -183,3 +184,97 @@ def vocabulary() -> dict[str, Any]:
     }
     _VOCABULARY_CACHE = vocabulary_payload
     return vocabulary_payload
+
+
+_CRAFT_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def craft(language: str = "zh-Hans") -> dict[str, Any]:
+    """Return the craft plane, with only style axes filtered by language.
+
+    ``language_law``: review rules, directives, slots, prohibitions, budgets and
+    thresholds are language-independent — the Keeper reasons in whatever
+    language the table uses. Exactly one style axis is language-scoped.
+    """
+    if language in _CRAFT_CACHE:
+        return _CRAFT_CACHE[language]
+
+    rules = _ordered(_nodes_of_kind("review-rule"))
+    triggers = _nodes_of_kind("narration-budget-trigger")
+    modes = _ordered(_nodes_of_kind("narration-budget-mode"))
+
+    payload = {
+        "review_rules": {
+            row["properties"]["legacy_key"]: {
+                "hard_gate": row["properties"]["hard_gate"],
+                "citable": row["properties"]["citable"],
+                "rationale": row["rationale"],
+            }
+            for row in rules
+        },
+        # Ordered, so the published enum is stable across rebuilds.
+        "citable_review_rule_ids": tuple(
+            row["properties"]["legacy_key"] for row in rules
+            if row["properties"]["citable"] is True
+        ),
+        "hard_gate_review_rule_ids": frozenset(
+            row["properties"]["legacy_key"] for row in rules
+            if row["properties"]["hard_gate"] is True
+        ),
+        "craft_directives": {
+            row["properties"]["directive_id"]: {
+                "declares": row["properties"]["declares"],
+                "rationale": row["rationale"],
+            }
+            for row in _ordered(_nodes_of_kind("craft-directive"))
+        },
+        "render_slots": tuple(
+            row["properties"]["legacy_key"]
+            for row in _ordered(_nodes_of_kind("render-slot"))
+        ),
+        "render_prohibitions": tuple(
+            row["properties"]["legacy_key"]
+            for row in _ordered(_nodes_of_kind("render-prohibition"))
+        ),
+        "avoid": tuple(
+            row["properties"]["legacy_key"]
+            for row in _ordered(_nodes_of_kind("style-axis"))
+            if row["properties"]["axis"] == "avoid"
+            and row["properties"]["language_applicability"] in ("all", language)
+        ),
+        "prefer": tuple(
+            row["properties"]["legacy_key"]
+            for row in _ordered(_nodes_of_kind("style-axis"))
+            if row["properties"]["axis"] == "prefer"
+            and row["properties"]["language_applicability"] in ("all", language)
+        ),
+        "budget_modes": tuple(
+            {
+                "mode": row["properties"]["legacy_key"],
+                "max_chars": row["properties"]["max_chars"],
+                "max_paragraphs": row["properties"]["max_paragraphs"],
+                "triggers": frozenset(
+                    trigger["properties"]["legacy_key"] for trigger in triggers
+                    if trigger["properties"]["budget_mode"]
+                    == row["properties"]["legacy_key"]
+                ),
+            }
+            for row in modes
+        ),
+        "thresholds": {
+            row["properties"]["threshold_id"]: row["properties"]["value"]
+            for row in _ordered(_nodes_of_kind("text-threshold"))
+        },
+    }
+    _CRAFT_CACHE[language] = payload
+    return payload
+
+
+def threshold(threshold_id: str) -> Any:
+    """Return one named text threshold, failing closed when it is absent."""
+    values = craft()["thresholds"]
+    if threshold_id not in values:
+        raise TextGraphUnavailable(
+            f"TextGraph declares no text-threshold {threshold_id!r}"
+        )
+    return values[threshold_id]
