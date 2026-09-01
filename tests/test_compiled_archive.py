@@ -419,7 +419,9 @@ def test_scene_context_consumes_archive_and_exposes_identity(tmp_path: Path):
     queried_npc = queried["data"]["npcs"][0]
     assert queried_npc["role_label"] == "委托人"
     assert queried_npc["social_role"] is None
-    assert queried_npc["identity_contract"]["role"]["role_label"] == "委托人"
+    # role_label reaches the Keeper once, on the record; the contract keeps
+    # only what the record cannot supply.
+    assert "role" not in queried_npc["identity_contract"]
     assert queried_npc["identity_contract"]["source_refs"] == [
         {"source_id": "pdf:ca-demo", "pdf_index": 2}
     ]

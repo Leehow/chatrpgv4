@@ -3774,7 +3774,14 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   )],
   ["npc.query", declaredIdentityTable(
     [
-      "campaign_id", "clue_id", "deflect_id", "fact_id", "known_fact_ids", "npc_id",
+      // `lie_id` is the exact counterpart of the already-declared
+      // `deflect_id`: both name one authored option row the producer emits
+      // beside a fact. Only `deflect_id` was declared, so any NPC authored
+      // with a lie failed the whole result closed with
+      // `semantic_identity_unavailable`. It was invisible while the oversize
+      // roster collapsed before this projection ever saw the options.
+      "campaign_id", "clue_id", "deflect_id", "fact_id", "known_fact_ids",
+      "lie_id", "npc_id",
       "revealable_fact_ids", "schedule_id", "subject_id",
       "valid_optional_evidence_refs",
     ],

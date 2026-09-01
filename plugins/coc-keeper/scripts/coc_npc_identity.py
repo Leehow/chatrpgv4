@@ -168,6 +168,108 @@ def identity_contract(
     }
 
 
+# ``npc.query`` returns the authored identity fields on each npc record AND
+# again inside that record's ``identity_contract``.  Both copies come from the
+# same authored NPC, so the second one is transport duplication: measured on the
+# live 9-NPC roster of `pi-coc-gate9-depth-20260901-03`, it is 7,796 of the
+# result's 27,998 payload bytes.  These are the contract fields the record
+# already carries, keyed by contract path -> npc record field.
+RECORD_CARRIED_CONTRACT_FIELDS: dict[str, str] = {
+    "npc_id": "npc_id",
+    "name": "name",
+    "origin": "origin",
+    "identity_ref": "identity_ref",
+    "profile_revision_ref": "profile_revision_ref",
+    "agenda": "agenda",
+    "voice": "voice",
+    "schedule": "schedule",
+    "role.relationship_to_investigators": "relationship_to_investigators",
+    "role.social_role": "social_role",
+    "role.role_label": "role_label",
+}
+RECORD_CARRIED_CONTRACT_SCHEMA_VERSION = 1
+
+
+def record_carried_contract_projection() -> dict[str, Any]:
+    """One block-level description of the record-carried contract elision.
+
+    The mapping is structural and identical for every record, so it ships once
+    per result rather than once per NPC.  A consumer rebuilds the full contract
+    by reading each named record field; a field kept inline differs from the
+    record and wins over it.
+    """
+    # The mapping ships as string lists, not as an object keyed by the field
+    # names.  `identity_ref` and `profile_revision_ref` are denied identity
+    # field NAMES in the Pi model projection, so an object keyed by them would
+    # reach the Keeper with those entries silently deleted -- a table that
+    # cannot be read is worse than the duplication it replaced.
+    return {
+        "schema_version": RECORD_CARRIED_CONTRACT_SCHEMA_VERSION,
+        "carried_by_record": [
+            path for path in RECORD_CARRIED_CONTRACT_FIELDS if "." not in path
+        ],
+        "role_carried_by_record": [
+            path.split(".", 1)[1]
+            for path in RECORD_CARRIED_CONTRACT_FIELDS
+            if path.startswith("role.")
+        ],
+        "resolution": (
+            "identity_contract omits a listed field when it is exactly the "
+            "same-named field on its own npc record; a field present inline "
+            "differs from the record and is authoritative"
+        ),
+    }
+
+
+def _contract_path_value(contract: dict[str, Any], path: str) -> tuple[bool, Any]:
+    node: Any = contract
+    for part in path.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return False, None
+        node = node[part]
+    return True, node
+
+
+def _drop_contract_path(contract: dict[str, Any], path: str) -> None:
+    parts = path.split(".")
+    node: Any = contract
+    for part in parts[:-1]:
+        if not isinstance(node, dict):
+            return
+        node = node.get(part)
+    if isinstance(node, dict):
+        node.pop(parts[-1], None)
+
+
+def record_scoped_contract(
+    contract: dict[str, Any] | None,
+    record: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Return ``contract`` without the fields ``record`` already carries.
+
+    Elision is guarded by exact equality, so this is lossless by construction:
+    anything the record does not reproduce byte-for-byte stays inline.  The
+    authored ``schedule`` is the live case that keeps a field — the contract
+    normalizes a missing schedule to ``[]`` while the record leaves it ``None``.
+
+    An emptied ``role`` object is removed rather than left as ``{}``: a
+    half-populated ``role`` would read as an authored role that lost its
+    fields.  A contract reduced this way intentionally fails
+    ``validate_authored_attestation`` — receipts must build their own complete
+    contract from the authored NPC, never adopt this transport projection.
+    """
+    if not isinstance(contract, dict):
+        return contract
+    reduced = deepcopy(contract)
+    for path, field in RECORD_CARRIED_CONTRACT_FIELDS.items():
+        present, value = _contract_path_value(reduced, path)
+        if present and field in record and value == record[field]:
+            _drop_contract_path(reduced, path)
+    if isinstance(reduced.get("role"), dict) and not reduced["role"]:
+        reduced.pop("role")
+    return reduced
+
+
 def identity_binding(
     contract: dict[str, Any] | None,
     *,

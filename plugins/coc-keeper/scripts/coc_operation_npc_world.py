@@ -617,6 +617,15 @@ def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
                 else {}
             ),
         })
+    # Each record already carries every authored identity field its
+    # ``identity_contract`` restates, so ship those fields once and describe the
+    # elision once per result instead of once per NPC.  Measured on the live
+    # 9-NPC roster of `pi-coc-gate9-depth-20260901-03`, the second copy was
+    # 7,796 of 27,998 payload bytes and pushed the result past the wire budget.
+    for row in out:
+        row["identity_contract"] = coc_npc_identity.record_scoped_contract(
+            row.get("identity_contract"), row
+        )
     hints = [
         "fields marked secret:true are your reference only — reveal through play, not exposition",
         "origin=source plus relationship_to_investigators/social_role is an authored identity contract: preserve that NPC's institution and role; introduce a new stable NPC id for a different role",
@@ -652,7 +661,12 @@ def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
         )
         if first_impression:
             hints.append(first_impression)
-    return {"npcs": out}, [], hints
+    data: dict[str, Any] = {"npcs": out}
+    if any(isinstance(row.get("identity_contract"), dict) for row in out):
+        data["identity_contract_projection"] = (
+            coc_npc_identity.record_carried_contract_projection()
+        )
+    return data, [], hints
 
 def _first_impression_display_skill(ctx: Ctx) -> str:
     """First-impression public-roll label in the campaign play language."""
