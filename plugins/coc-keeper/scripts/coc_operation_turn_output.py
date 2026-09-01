@@ -176,6 +176,20 @@ coc_narration_style = _load_sibling(
     "coc_narration_style_toolbox", "coc_narration_style.py"
 )
 
+coc_text_runtime = _load_sibling(
+    "coc_text_runtime_toolbox", "coc_text_runtime.py"
+)
+
+# TextGraph craft plane (spec docs/specs/pi-coc-text-graph-runtime.md §8 T4).
+_CRAFT = coc_text_runtime.craft()
+# The review vocabulary narration.review accepts AND publishes. Before T4 these
+# were four ids in a set literal, of which only agency_violation ever reached
+# the model: findings was a bare array with no items schema, so the other three
+# were enforced and unpublishable. 293 recorded reviews produced zero findings.
+CITABLE_REVIEW_RULE_IDS = _CRAFT["citable_review_rule_ids"]
+_OVER_LENGTH_MULTIPLIER = coc_text_runtime.threshold("over-length-multiplier")
+_RECENT_EVENT_WINDOW = coc_text_runtime.threshold("recent-event-window")
+
 coc_narration_contract = _load_sibling(
     "coc_narration_contract_toolbox", "coc_narration_contract.py"
 )
@@ -400,15 +414,23 @@ def _narration_budget(
         ctx.campaign_dir / "save" / "sanity-state" / f"{investigator_id}.json", None
     )
     bout_active = bool(isinstance(snapshot, dict) and snapshot.get("bout_active"))
-    if bout_active or event_types & {
-        "bout_of_madness", "indefinite_insanity", "permanent_insanity", "session_ending",
-    }:
-        return {"mode": "climax_or_madness", "max_chars": 1500, "max_paragraphs": 8}
-    if event_types & {"scene_transition", "major_reveal", "exceptional_effect_apply"}:
-        return {"mode": "reveal_or_transition", "max_chars": 900, "max_paragraphs": 5}
-    if event_types & {"hp_change", "sanity_loss", "luck_spend"}:
-        return {"mode": "costly_result", "max_chars": 550, "max_paragraphs": 3}
-    return {"mode": "routine_resolution", "max_chars": 350, "max_paragraphs": 2}
+    ladder = _CRAFT["budget_modes"]
+    for rung in ladder:
+        triggers = rung["triggers"]
+        if not triggers:
+            continue
+        if event_types & triggers or (bout_active and "bout_of_madness" in triggers):
+            return {
+                "mode": rung["mode"],
+                "max_chars": rung["max_chars"],
+                "max_paragraphs": rung["max_paragraphs"],
+            }
+    fallback = ladder[-1]
+    return {
+        "mode": fallback["mode"],
+        "max_chars": fallback["max_chars"],
+        "max_paragraphs": fallback["max_paragraphs"],
+    }
 
 def _control_overrides(ctx: Ctx, investigator_id: str) -> list[dict[str, Any]]:
     """Active control-override receipts: the only scope in which the KP may
@@ -833,7 +855,7 @@ def _tool_narration_advisory_review(
         recent_events: list[dict[str, Any]] = []
         events_path = ctx.campaign_dir / "logs" / "events.jsonl"
         if events_path.is_file():
-            for raw in events_path.read_text(encoding="utf-8").splitlines()[-12:]:
+            for raw in events_path.read_text(encoding="utf-8").splitlines()[-_RECENT_EVENT_WINDOW:]:
                 try:
                     row = json.loads(raw)
                 except json.JSONDecodeError:
@@ -841,7 +863,7 @@ def _tool_narration_advisory_review(
                 if isinstance(row, dict):
                     recent_events.append(row)
         budget = _narration_budget(ctx, investigator_id, recent_events)
-        if len(draft) > 2 * int(budget["max_chars"]):
+        if len(draft) > _OVER_LENGTH_MULTIPLIER * int(budget["max_chars"]):
             findings.append({
                 "rule_id": "over_length",
                 "reason": (
@@ -1187,9 +1209,7 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
     raw_findings = args.get("findings") or []
     if not isinstance(raw_findings, list):
         raise ToolError("invalid_param", "findings must be an array")
-    allowed_rule_ids = {
-        "agency_violation", "semantic_repetition", "scope_overreach", "over_length",
-    }
+    allowed_rule_ids = set(CITABLE_REVIEW_RULE_IDS)
     findings: list[dict[str, Any]] = []
     for index, finding in enumerate(raw_findings):
         if not isinstance(finding, dict):
@@ -1249,7 +1269,7 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         recent_events: list[dict[str, Any]] = []
         events_path = ctx.campaign_dir / "logs" / "events.jsonl"
         if events_path.is_file():
-            for raw in events_path.read_text(encoding="utf-8").splitlines()[-12:]:
+            for raw in events_path.read_text(encoding="utf-8").splitlines()[-_RECENT_EVENT_WINDOW:]:
                 try:
                     row = json.loads(raw)
                 except json.JSONDecodeError:
@@ -1257,7 +1277,7 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
                 if isinstance(row, dict):
                     recent_events.append(row)
         budget = _narration_budget(ctx, investigator_id, recent_events)
-        if len(draft) > 2 * int(budget["max_chars"]):
+        if len(draft) > _OVER_LENGTH_MULTIPLIER * int(budget["max_chars"]):
             findings.append({
                 "rule_id": "over_length",
                 "subject_ref": None,
@@ -3221,7 +3241,25 @@ def register_operations(registry) -> None:
         "source_digest": {"type": "string", "required": True},
         "revision": {"type": "integer", "minimum": 1, "required": True},
         "draft_text": {"type": "string", "required": True, "desc": "exact draft reviewed by the KP"},
-        "findings": {"type": "array", "desc": "closed semantic findings {rule_id,subject_ref,source_ref,reason}. For agency_violation, subject_ref must be the exact current pc:<id> and source_ref must be null because no player_input/active override authorizes it. Authorized PC propositions are not findings: bind them in turn.finalize.agency_claims. Other findings remain advisory"},
+        "findings": {
+            "type": "array",
+            "desc": "closed semantic findings. rule_id must be one of the published ids. For agency_violation, subject_ref must be the exact current pc:<id> and source_ref must be null because no player_input/active override authorizes it; it is the only hard gate. Authorized PC propositions are not findings: bind them in turn.finalize.agency_claims. Every other rule_id is advisory and never blocks delivery. Judge the draft semantically; there is no keyword matcher behind these ids",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "rule_id": {
+                        "type": "string",
+                        "enum": list(CITABLE_REVIEW_RULE_IDS),
+                        "desc": "the semantic rule this finding cites",
+                    },
+                    "subject_ref": {"type": "string", "desc": "pc:<id> for agency_violation, otherwise null"},
+                    "source_ref": {"type": "string", "desc": "null for agency_violation"},
+                    "reason": {"type": "string", "desc": "concrete semantic reason, never a matched fragment"},
+                },
+                "required_fields": ["rule_id", "subject_ref", "source_ref", "reason"],
+                "additionalProperties": False,
+            },
+        },
         "state_authority_review": {
             "type": "object",
             "required": True,

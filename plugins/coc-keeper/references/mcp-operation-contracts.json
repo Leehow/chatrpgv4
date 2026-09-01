@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:3917db63e82accdfeb257a7541fb42279879d71422188b269ce39a4598b22bc5",
+  "content_sha256": "sha256:2f7a213ca1a31e65369222c59aef1787a02741ce9adde0b2cbddf01eaf0c24c3",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1567,7 +1567,46 @@
             "type": "string"
           },
           "findings": {
-            "description": "closed semantic findings {rule_id,subject_ref,source_ref,reason}. For agency_violation, subject_ref must be the exact current pc:<id> and source_ref must be null because no player_input/active override authorizes it. Authorized PC propositions are not findings: bind them in turn.finalize.agency_claims. Other findings remain advisory",
+            "description": "closed semantic findings. rule_id must be one of the published ids. For agency_violation, subject_ref must be the exact current pc:<id> and source_ref must be null because no player_input/active override authorizes it; it is the only hard gate. Authorized PC propositions are not findings: bind them in turn.finalize.agency_claims. Every other rule_id is advisory and never blocks delivery. Judge the draft semantically; there is no keyword matcher behind these ids",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "reason": {
+                  "description": "concrete semantic reason, never a matched fragment",
+                  "type": "string"
+                },
+                "rule_id": {
+                  "description": "the semantic rule this finding cites",
+                  "enum": [
+                    "agency_violation",
+                    "semantic_repetition",
+                    "scope_overreach",
+                    "over_length",
+                    "ai_summary_voice",
+                    "expository_choice_summary",
+                    "camera_direction_staging",
+                    "passive_translation_ese",
+                    "abstract_psychological_explanation"
+                  ],
+                  "type": "string"
+                },
+                "source_ref": {
+                  "description": "null for agency_violation",
+                  "type": "string"
+                },
+                "subject_ref": {
+                  "description": "pc:<id> for agency_violation, otherwise null",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "rule_id",
+                "subject_ref",
+                "source_ref",
+                "reason"
+              ],
+              "type": "object"
+            },
             "type": "array"
           },
           "investigator": {
