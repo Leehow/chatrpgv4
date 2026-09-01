@@ -1652,11 +1652,16 @@ class RulesRuntime:
         for key in semantic_inputs:
             if key not in slot_names:
                 # No generic arguments bag: an undeclared semantic input is
-                # rejected rather than forwarded into the payload.
+                # rejected rather than forwarded into the payload. The
+                # declared set is already in hand here, so name it — the
+                # sibling missing_semantic_input failure below returns its
+                # list for the same reason, and without it the caller has to
+                # guess the slot name it was never told.
                 return {
                     "failure": {
                         "code": "unknown_semantic_input",
                         "message": f"semantic input {key!r} is not a declared slot",
+                        "declared_slots": sorted(slot_names),
                         "decision_ref": decision_ref,
                         "family": family,
                     }
