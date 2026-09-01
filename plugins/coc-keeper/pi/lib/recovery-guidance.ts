@@ -85,9 +85,9 @@ function isPlainObject(value: unknown): value is JsonObject {
  * the kernel output-context builder (coc_operation_turn_output.py) and the
  * pending projection (coc_mcp_wire.py). The review card is always
  * narration.review via coc_narration_review; the finalize card is
- * turn.finalize via coc_turn_finalize exactly when agency review is
- * required and via coc_invoke exactly when it is not (wire projection
- * sets invoke_via only for the review-required surface). Snapshot slots
+ * turn.finalize via coc_turn_finalize for both the reviewed compatibility
+ * path and normal Pi direct-single-draft play. coc_invoke remains accepted
+ * only as a legacy/non-Pi direct receipt during recovery. Snapshot slots
  * accept either finalize surface because the resume snapshot carries no
  * agency mode; the strict live validator below enforces the mode-specific
  * surface.
@@ -106,7 +106,7 @@ const CANONICAL_REVIEW_REQUIRED_FINALIZE_IDENTITY = {
 } as const;
 const CANONICAL_DIRECT_FINALIZE_IDENTITY = {
   operation: "turn.finalize",
-  invokeVia: ["coc_invoke"],
+  invokeVia: ["coc_turn_finalize", "coc_invoke"],
 } as const;
 
 /**
@@ -631,10 +631,11 @@ function recoveryTypedSchemas(): {
  * Separate model-call projection for the live recovery path, derived from
  * the actual typed tool schemas with the exact card invoke_via surfaces.
  * Review is present only when the review card is; the finalize projection
- * supports both canonical card invoke_via surfaces (coc_turn_finalize when
- * agency review is required, coc_invoke when not). Returns `null` when the
- * typed contracts cannot be loaded — the caller fails closed to pointer
- * guidance rather than projecting a guessed argument list.
+ * supports both canonical card invoke_via surfaces. Pi play uses
+ * coc_turn_finalize for reviewed and direct-single-draft receipts; coc_invoke
+ * remains a legacy/non-Pi direct receipt accepted during recovery. Returns
+ * `null` when the typed contracts cannot be loaded — the caller fails closed
+ * to pointer guidance rather than projecting a guessed argument list.
  */
 function buildRecoveryModelCalls(
   reviewCard: JsonObject | null,

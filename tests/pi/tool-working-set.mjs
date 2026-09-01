@@ -258,6 +258,13 @@ test("live host bindings narrow closure tools without changing the stage table",
   assertPolicyVisible(finalizeProjected, finalizeOnly);
   assert.ok(finalizeProjected.activeOperationNames.includes("turn.finalize"));
   assert.ok(!finalizeProjected.activeOperationNames.includes("narration.review"));
+
+  const staleReviewLoad = workingSet.loadToolNamespace(finalizeOnly, {
+    kind: "exact_operation",
+    operation: "narration.review",
+  });
+  assert.equal(staleReviewLoad.ok, false);
+  assert.equal(staleReviewLoad.code, "stage_forbidden");
 });
 
 test("exact long-tail and bounded namespace loads remain provider-neutral", () => {

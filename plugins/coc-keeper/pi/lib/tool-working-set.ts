@@ -336,6 +336,11 @@ function stageAllows(operation: string, snapshot: ToolWorkingSetSnapshot): boole
     isVerifiedOpenTurnRecovery(snapshot)
     && OPEN_TURN_PRE_JOURNAL_FORBIDDEN.has(operation)
   ) return false;
+  if (
+    snapshot.boundOperations !== undefined
+    && (operation === "narration.review" || operation === "turn.finalize")
+    && !snapshot.boundOperations.includes(operation)
+  ) return false;
   const capability = STAGE_CAPABILITIES[snapshot.stage];
   if (capability.allowedOperations === null) return true;
   if (capability.allowedOperations.has(operation)) return true;

@@ -1732,9 +1732,9 @@ test("RuleGraph Social settlement keeps semantic result and hides host correlati
   ));
 });
 
-test("rules-director profile activates healing card without discovery or broad tools", async () => {
+test("normal production play finalizes one direct draft without narration review", async () => {
   const priorProfile = process.env[PROFILE_ENV];
-  process.env[PROFILE_ENV] = "rules-director-single-draft";
+  delete process.env[PROFILE_ENV];
   try {
     const resumeEnvelope = {
       ok: true,
@@ -1764,12 +1764,10 @@ test("rules-director profile activates healing card without discovery or broad t
         "scene.context",
       );
       assert.equal(JSON.parse(scene.content[0].text).ok, true);
-      assert.deepEqual(h.active.at(-1), [
-        "coc_actions_list",
-        "coc_rules_settle",
-        "coc_scene_context",
-        "coc_state_journal",
-      ]);
+      for (const operation of [
+        "coc_actions_list", "coc_rules_context", "coc_rules_settle",
+        "coc_scene_context", "coc_state_journal",
+      ]) assert.ok(h.active.at(-1).includes(operation), operation);
       const settled = await h.tools.get("coc_rules_settle").execute(
         "ruledecision-profile-settle",
         {
@@ -1806,9 +1804,32 @@ test("rules-director profile activates healing card without discovery or broad t
       assert.ok(h.active.at(-1).includes("coc_turn_finalize"));
       assert.ok(!h.active.at(-1).includes("coc_invoke"));
       assert.ok(!h.active.at(-1).includes("coc_narration_review"));
+      const callsBeforeStaleReview = h.clientCalls.filter((row) => (
+        row.params.operation === "turn.finalize"
+      )).length;
+      const staleReview = await h.tools.get("coc_turn_finalize").execute(
+        "normal-production-stale-review",
+        {
+          draft: "这份旧审查不属于当前的单稿回合。",
+          coverage: [],
+          narration_review_id: "narration-review:stale",
+        },
+        undefined,
+        undefined,
+        h.ctx,
+      );
+      const staleEnvelope = JSON.parse(staleReview.content[0].text);
+      assert.equal(staleEnvelope.ok, false);
+      assert.ok([
+        "opaque_identity_grammar", "unknown_model_argument",
+      ].includes(staleEnvelope.error.code));
+      assert.equal(h.clientCalls.filter((row) => (
+        row.params.operation === "turn.finalize"
+      )).length, callsBeforeStaleReview);
+      const finalDraft = "你按住伤口，布条很快被血浸透。";
       const finalized = await h.tools.get("coc_turn_finalize").execute(
         "rules-director-profile-finalize",
-        { draft: "你按住伤口，布条很快被血浸透。", coverage: [] },
+        { draft: finalDraft, coverage: [] },
         undefined,
         undefined,
         h.ctx,
@@ -1819,6 +1840,22 @@ test("rules-director profile activates healing card without discovery or broad t
       ));
       assert.equal(call.params.arguments.revision, 1);
       assert.equal(call.params.arguments.narration_review_id, undefined);
+      assert.equal(h.clientCalls.some((row) => (
+        row.params.operation === "narration.review"
+      )), false);
+      await h.emit("message_end", {
+        role: "assistant",
+        stopReason: "stop",
+        content: [{ type: "text", text: finalDraft }],
+      });
+      const stages = h.appended
+        .filter((row) => row.type === "coc-canonical-turn-progress")
+        .map((row) => row.value.stage);
+      assert.deepEqual(stages.slice(-2), ["finalized", "delivered"]);
+      assert.equal(h.sent.some((row) => (
+        row.message.customType === main.TURN_PROCESSING_FAULT_CUSTOM_TYPE
+        || row.message.customType === "coc-settled-output-gate"
+      )), false, "the exact final draft is accepted as the delivered player output");
     }, (_name, params) => {
       if (params.operation === "session.resume") return resumeEnvelope;
       if (params.operation === "scene.context") return sceneEnvelope;
@@ -5031,7 +5068,7 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
   }
 });
 
-test("pending-finalization direct finalize executes through the coc_invoke generic envelope projection", async () => {
+test("normal pending-finalization recovery keeps direct single-draft typed finalize", async () => {
   const compiler = new PiStateClaimCompiler(async (input) => ({
     result: {
       schema_version: 1,
@@ -5049,11 +5086,12 @@ test("pending-finalization direct finalize executes through the coc_invoke gener
   }));
   const turnId = "turn-affordance-direct-1";
   const sourceDigest = `sha256:${"d5".repeat(32)}`;
+  const journalDecisionId = "pi-state-journal:direct:player-epoch-7:revision-2";
   const finalizeCard = {
     operation: "turn.finalize",
-    invoke_via: "coc_invoke",
+    invoke_via: "coc_turn_finalize",
     prefilled_arguments: {
-      decision_id: `${turnId}:player-epoch-7:revision-2:finalize`,
+      decision_id: `${journalDecisionId}:finalize`,
       revision: 2,
       coverage: [],
     },
@@ -5092,6 +5130,7 @@ test("pending-finalization direct finalize executes through the coc_invoke gener
           tool: "turn.output_context",
           data: {
             turn_id: turnId,
+            journal_decision_id: journalDecisionId,
             source_digest: sourceDigest,
             settlement_snapshot_id: "turn-settlement-v1:affordance-direct-1",
             mechanics_bundle_sha256: `sha256:${"f1".repeat(32)}`,
@@ -5131,24 +5170,19 @@ test("pending-finalization direct finalize executes through the coc_invoke gener
     assert.equal(resumed.ok, true);
     const guidance = resumed.data.host_recovery_guidance;
     assert.equal(guidance.output_context_status, "host_refreshed_live");
-    assert.equal(guidance.model_calls.finalize.invoke_via, "coc_invoke");
-    // The generic gateway surface must be projected as the real envelope:
-    // {operation, arguments} with the model-owned arguments nested inside.
-    assert.equal(guidance.model_calls.finalize.invocation_shape, "generic_envelope");
-    assert.equal(guidance.model_calls.finalize.envelope_operation, "turn.finalize");
+    assert.equal(guidance.model_calls.finalize.invoke_via, "coc_turn_finalize");
+    assert.equal(guidance.model_calls.finalize.invocation_shape, "typed_flat");
     assert.deepEqual(
       guidance.model_calls.finalize.model_owned_required_arguments,
       ["coverage", "draft"],
     );
     assert.equal(guidance.model_calls.review, undefined);
     assert.equal(guidance.review_recovery.review_input, undefined);
-    const finalize = JSON.parse((await h.tools.get("coc_invoke").execute(
-      "generic-envelope-finalize",
-      {
-        operation: "turn.finalize",
-        campaign: "tool-affordance-campaign",
-        arguments: { draft: "大堂重新安静下来。", coverage: [] },
-      },
+    assert.equal(h.active.at(-1).includes("coc_narration_review"), false);
+    const retainedDraft = "大堂重新安静下来。";
+    const finalize = JSON.parse((await h.tools.get("coc_turn_finalize").execute(
+      "direct-typed-finalize",
+      { draft: retainedDraft, coverage: [] },
       undefined,
       undefined,
       h.ctx,
@@ -5158,7 +5192,8 @@ test("pending-finalization direct finalize executes through the coc_invoke gener
       call.name === "coc_invoke" && call.params?.operation === "turn.finalize"
     ));
     assert.equal(finalizeCalls.length, 1);
-    assert.equal(finalizeCalls[0].params.arguments.draft, "大堂重新安静下来。");
+    assert.equal(finalizeCalls[0].params.arguments.draft, retainedDraft);
+    assert.equal(finalizeCalls[0].params.arguments.narration_review_id, undefined);
     await h.shutdown();
   } finally {
     if (priorRole === undefined) delete process.env[ROLE_ENV];

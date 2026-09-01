@@ -12498,21 +12498,20 @@ def _project_storylet_candidate(move: dict[str, Any]) -> dict[str, Any]:
         field: deepcopy(move[field]) for field in fields if field in move
     }
 
-def _pi_rules_director_single_draft_profile() -> bool:
+def _pi_play_direct_single_draft() -> bool:
     return (
         str(os.environ.get("COC_PI_SESSION_ROLE") or "").strip().casefold()
         == "play"
-        and os.environ.get("COC_PI_ACCEPTANCE_PROFILE")
-        in {"rules-all-single-draft", "rules-director-single-draft"}
     )
 
 
 def _pi_play_agency_review_required() -> bool:
-    return (
-        str(os.environ.get("COC_PI_SESSION_ROLE") or "").strip().casefold()
-        == "play"
-        and not _pi_rules_director_single_draft_profile()
-    )
+    # Pi play now owns one direct Keeper draft followed by the existing
+    # authoritative finalization receipt.  The acceptance-profile names remain
+    # valid launcher aliases, but they no longer opt production into or out of
+    # a second narration/rewrite pass.
+    return False
+
 
 def _tool_evidence_record_adoption(ctx: Ctx, args: dict[str, Any]):
     prior = ctx.ledger_lookup(
@@ -13352,8 +13351,8 @@ OPERATION_RUNTIME_EXPORTS = (
     '_pi_opening_setup_gate',
     '_pi_opening_setup_operation_allowed',
     '_pi_opening_source_contract_error_gate',
+    '_pi_play_direct_single_draft',
     '_pi_play_agency_review_required',
-    '_pi_rules_director_single_draft_profile',
     '_pi_source_coordinator_dispatch',
     '_plan_receipt_owned_tail',
     '_plan_roll_materialization',
