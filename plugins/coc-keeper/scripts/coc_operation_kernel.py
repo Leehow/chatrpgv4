@@ -7305,6 +7305,23 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
             ruleset_id=_active_ruleset_id(ctx),
             tool="rules.context",
         )
+    # The passive scene surface already stamps its healing cards with the
+    # settle route; an explicit family query got cards with no route at all.
+    # Live evidence: the first combat card set ever delivered arrived with 16
+    # cards whose labels name "the existing typed subsystem operation", and
+    # the Keeper's next move was to discover `combat.resolve` — refused,
+    # host-private. Cards without their settle route are a map without roads.
+    if isinstance(result.get("cards"), list) and result["cards"]:
+        settle_tool = _model_invocation_tool("rules.settle")
+        result.setdefault("settle_operation", {
+            "operation": "rules.settle",
+            "invoke_via": settle_tool,
+            "model_invocable": settle_tool is not None,
+            "prefilled_arguments": {},
+            "missing_arguments": ["decision_ref", "semantic_inputs", "decision_id"],
+            "authority": "advisory",
+            "hard_gate": False,
+        })
     public = {
         key: value for key, value in result.items()
         if key not in {"card_grant", "findings"}
