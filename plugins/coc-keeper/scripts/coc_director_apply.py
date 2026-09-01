@@ -56,6 +56,22 @@ coc_flag_state = _load_sibling("coc_flag_state_director", "coc_flag_state.py")
 coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_development = _load_sibling("coc_development", "coc_development.py")
+coc_director_runtime = _load_sibling(
+    "coc_director_runtime", "coc_director_runtime.py"
+)
+
+# The apply layer keeps every authority it had — receipts, NPC agency
+# persistence, clue-gate disclosure and state commits all stay here. What it
+# no longer keeps is its own second copy of doctrine values the DirectorGraph
+# already owns: the default clock size, the stall threshold, the fumble tick
+# bound and the Fair Warning ladder each lived here as an independent literal,
+# so changing the graph did not change this file.
+_DOCTRINE = coc_director_runtime.doctrine()
+_DEFAULT_CLOCK_SEGMENTS = _DOCTRINE.threshold("default-clock-segments")
+_STALLED_OVERRIDE_TURNS = _DOCTRINE.threshold("override-stalled-turns")
+_FUMBLE_TICK_BOUND = _DOCTRINE.threshold("fumble-tick-bound")
+_FAIR_WARNING_LETHAL_CHANCES = _DOCTRINE.threshold("fair-warning-lethal-chances")
+_RECENT_INTENT_WINDOW = _DOCTRINE.threshold("recent-intent-window")
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
 coc_npc_identity = _load_sibling("coc_npc_identity_director", "coc_npc_identity.py")
@@ -983,7 +999,10 @@ def _apply_scene_on_enter(
         if not clock_id:
             continue
         clock_def = _lookup_clock_def(campaign_dir, clock_id)
-        segments = int(clock_def.get("segments", 6)) if clock_def else 6
+        segments = (
+            int(clock_def.get("segments", _DEFAULT_CLOCK_SEGMENTS))
+            if clock_def else _DEFAULT_CLOCK_SEGMENTS
+        )
         symptom = ""
         if clock_def:
             ticks_visible = clock_def.get("on_tick_visible", [])
@@ -2178,7 +2197,7 @@ def _resolve_committed_clues(
 
     # RECOVER is the Idea Roll recovery valve. Play always continues; the roll
     # (when required) decides cost/position, not whether the lead surfaces.
-    if action == "RECOVER" and stalled >= 3 and fallback_ids:
+    if action == "RECOVER" and stalled >= _STALLED_OVERRIDE_TURNS and fallback_ids:
         idea_result = _idea_roll_result(plan, rules_results)
         has_idea_request = any(
             isinstance(req, dict) and req.get("kind") == "idea_roll"
@@ -3339,7 +3358,7 @@ def _process_authored_fumble_consequences(
                 and bool(effect["clock_id"].strip())
                 and isinstance(effect.get("ticks"), int)
                 and not isinstance(effect.get("ticks"), bool)
-                and 1 <= effect["ticks"] <= 4
+                and 1 <= effect["ticks"] <= _FUMBLE_TICK_BOUND
                 or kind == "condition"
                 and set(effect) == {"kind", "condition_id"}
                 and isinstance(effect.get("condition_id"), str)
@@ -4003,9 +4022,9 @@ def _apply_plan_impl(
     if intent_class:
         recent.append(intent_class)
         recent_tags.append([str(t) for t in turn_tags])
-        if len(recent) > 5:
-            recent = recent[-5:]
-            recent_tags = recent_tags[-5:]
+        if len(recent) > _RECENT_INTENT_WINDOW:
+            recent = recent[-_RECENT_INTENT_WINDOW:]
+            recent_tags = recent_tags[-_RECENT_INTENT_WINDOW:]
     pacing["recent_intent_classes"] = recent
     pacing["recent_intent_tags"] = recent_tags
     # carry horror stage from plan into pacing for next-turn director read
@@ -4032,7 +4051,9 @@ def _apply_plan_impl(
             "event_type": "fair_warning",
             "decision_id": decision_id,
             "warning_number": fair_warning.get("warning_number", used + 1),
-            "remaining": fair_warning.get("remaining", max(0, 3 - used - 1)),
+            "remaining": fair_warning.get(
+                "remaining", max(0, _FAIR_WARNING_LETHAL_CHANCES - used - 1)
+            ),
             "lethal_chances_used": pacing["lethal_chances_used"],
             "investigator_id": investigator_id,
             "rule_ref": "core.pacing.fair_warning",
@@ -4055,7 +4076,10 @@ def _apply_plan_impl(
         clock_id = move.get("clock_id")
         if clock_id and int(move.get("tick", 0) or 0) > 0 and coc_threat_state is not None:
             clock_def = _lookup_clock_def(campaign_dir, clock_id)
-            segments = int(clock_def.get("segments", 6)) if clock_def else 6
+            segments = (
+                int(clock_def.get("segments", _DEFAULT_CLOCK_SEGMENTS))
+                if clock_def else _DEFAULT_CLOCK_SEGMENTS
+            )
             became_full = coc_threat_state.tick_clock(
                 save, clock_id, segments,
                 source_id=f"director:{decision_id}:pressure:{pressure_index}:{clock_id}",

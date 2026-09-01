@@ -183,18 +183,42 @@ def test_graph_owned_packaging_rebuilds_effect_projection_without_changing_shard
 
 
 def test_coverage_ledger_states_real_director_and_text_availability_gap():
+    """DirectorGraph landed in slice D1/D2; TextGraph is still absent.
+
+    The ledger's job is to state each gap honestly, so this test tracks the
+    real availability rather than pinning a snapshot: director is now a
+    production artifact grounded in the coc7 RuleGraph, and text remains an
+    admitted absence.
+    """
     rows = {row["graph_kind"]: row for row in REGISTRY["coverage"]}
     assert set(rows) == {"module", "rule", "live-state", "execution", "director", "text"}
-    assert rows["director"]["status"] == "absent-production-artifact"
+    assert rows["director"]["status"] == "production-linked"
+    assert rows["director"]["composition_status"] == "instance-linked"
+    # The reason must keep naming why grounding stops where it does.
+    assert "unresolved" in rows["director"]["reason"].lower()
     assert rows["text"]["status"] == "absent-production-artifact"
-    assert rows["module"]["composition_status"] == "no-proven-instance"
-    assert rows["director"]["composition_status"] == "not-applicable"
     assert rows["text"]["composition_status"] == "not-applicable"
+    assert rows["module"]["composition_status"] == "no-proven-instance"
     assert not any(
         row["relation_kind"] == "uses-rule" for row in REGISTRY["relations"]
     )
-    assert "no production" in rows["director"]["reason"].lower()
     assert "no production" in rows["text"]["reason"].lower()
+
+
+def test_director_graph_is_registered_as_an_advisory_production_artifact():
+    graphs = {row["graph_id"]: row for row in REGISTRY["graphs"]}
+    director = graphs["graph:director:production"]
+    assert director["availability"] == "production-artifact"
+    assert director["authority_plane"] == "advisory"
+    assert director["ontology_contract"] == "coc.director-graph.v1"
+    assert (ROOT / director["artifact_path"]).is_file()
+    # Advisory means read-only downstream: the Director may only be grounded
+    # by other graphs, never grant execution or state authority.
+    assert not any(
+        row["relation_kind"] not in {"grounded-by"}
+        and row["from_ref"].startswith("ref:director:")
+        for row in REGISTRY["relations"]
+    )
 
 
 def test_validator_rejects_closed_schema_extension():
@@ -242,8 +266,15 @@ def test_explicit_module_rule_ref_to_rulegraph_semantic_id_is_valid(tmp_path: Pa
         "plugins/coc-keeper/references/rule-graph-contract-v1.json"
     )
     resolver_relative = Path("plugins/coc-keeper/rulesets/coc7/resolver.py")
-    for relative in (module_relative, rule_relative, contract_relative, resolver_relative):
+    director_relative = Path("plugins/coc-keeper/references/director-graph.json")
+    for relative in (
+        module_relative, rule_relative, contract_relative, resolver_relative,
+        director_relative,
+    ):
         (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
+    # The registry now declares a production DirectorGraph, so the synthetic
+    # repository must carry one for artifact resolution to succeed.
+    shutil.copy2(ROOT / director_relative, tmp_path / director_relative)
     module_graph = {
         "contract_id": "coc.module-graph.v3",
         "schema_version": 3,
