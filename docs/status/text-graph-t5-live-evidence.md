@@ -92,3 +92,29 @@ Gate 4 needs a *played* turn — a player action that settles checks and
 journals — before `findings` can be measured at all. Counting the opening as a
 zero would have been a false measurement in the direction that flatters T4's
 alternative, so it is recorded as not-yet-measured instead.
+
+### 4. The first live finalization on T4 code, and a vocabulary value that had never fired
+
+Turn 3 (`turn-p-25327d22a88a`) was a real played turn: `state.journal`,
+`turn.output_context`, `turn.finalize`, all `ok=true`, one accepted revision.
+It is the first settled turn produced entirely by the T2/T4 graph-driven
+derivation, and it exercised the layer end to end:
+
+| | |
+| --- | --- |
+| obligations | `roll:toolbox-textgraph-t5-en-20260901-000004` |
+| coverage rows | 1, realization **`concealed_no_player_visible_beat`** |
+| segments | `fiction` ×2, `asset_delta` ×1 |
+| `narration_review` | `None` |
+
+**`concealed_no_player_visible_beat` had never occurred before.** The T0
+inventory measured it at zero across all 506 preserved finalization records,
+and §10 finding 10 recorded it as possibly unreachable. It is reachable: a
+concealed roll closed without a player-visible beat, and `validate_coverage`
+accepted the row through the graph-derived vocabulary. The same turn placed a
+`fiction` leading segment and an `asset_delta`, so the leading-segment law and
+the mechanics placement order both ran on live T4 code.
+
+`settle_class=not_settled` in the driver's own classification is a driver
+verdict about its evidence probe, not a finalization failure: `turn.finalize`
+returned `ok=true` and `turn-finalizations.jsonl` holds the accepted record.
