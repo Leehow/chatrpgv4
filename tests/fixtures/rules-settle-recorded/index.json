@@ -87,6 +87,12 @@
       "recorded_in": "pi-coc-gate9-ten-family-38a3a4af/d2-development/evidence/turn-p-23b2d9ba3c6c.json"
     },
     {
+      "file": "healing-first-aid-ordinary-3577ea4e.json",
+      "decision_ref": "decision:coc7:healing:first-aid-ordinary",
+      "family": "healing",
+      "recorded_in": "pi-coc-gate9-depth-20260901/evidence/turn-p-cd4ba468bcaf.json"
+    },
+    {
       "file": "psychology-observe-concealed-62cbcea6.json",
       "decision_ref": "decision:coc7:psychology:observe-concealed",
       "family": "psychology",
