@@ -355,7 +355,11 @@ And the KP's own reasoning block on `A#40` states the contradiction verbatim:
 The KP is caught between the `coc_turn_finalize` schema, which lists
 `decision_id` and `revision` as required parameters, and the host prompt /
 Model-Facing Identifier Law, which tells it the host binds machine identity and
-the model must not relay opaque handles. It obeys the prompt, gets
+the model must not relay opaque handles. **The follow-up pass in B1 shows how
+this resolves: the host does bind both values and delivers them in
+`finalize_operation.prefilled_arguments` — 18 times in this session — and the
+KP's error is discarding the prefill rather than merging it through.** It obeys
+the prompt, gets
 `missing_param`, retries, trips `nonretryable_repeat_blocked`, varies the
 semantic payload, trips `idempotency_conflict`, and never escapes. Each retry
 also appends its own ~5.6 KB error envelope to the permanent transcript, so the
@@ -472,10 +476,14 @@ State honestly rather than estimate:
    request layout makes it the obvious mechanism, but on partial misses the
    surviving cached prefix clusters oddly at 16,768–19,712 tokens, which a pure
    "tools change ⇒ everything after invalidates" story does not by itself explain.
-3. **Whether the `decision_id`/`revision` contradiction is a schema bug, a
-   prompt bug, or a host-binding regression.** The KP's reasoning proves it
-   perceived a contradiction; which side is wrong is a contract question, not a
-   measurement question.
+3. ~~**Whether the `decision_id`/`revision` contradiction is a schema bug, a
+   prompt bug, or a host-binding regression.**~~ **Settled 2026-09-01 — see the
+   revision note in B1.** It is neither a schema bug nor a host-binding
+   regression: `finalize_operation` was delivered 18 times with both values
+   prefilled, `actionable` was never false, and the wire card carries an
+   explicit "merge prefilled_arguments unchanged" instruction. It is a
+   model-facing wording problem — the KP reads `"idempotency key"` on the field
+   and the Skill's correcting sentence sits 200 lines away.
 
 **The run that would settle all three**, and it is a sanctioned method — one
 real `pi-coc --mode rpc` session with a live model, one player line at a time,
@@ -544,19 +552,72 @@ provisional until it does.
 
 Ranked by measured cost of the problem each one addresses.
 
-**B1. Resolve the `decision_id` / `revision` contract contradiction.**
+**B1. Stop the KP discarding the finalize arguments the host already prefills.**
 *(addresses the 23 wasted calls and $1.20 of T5, and the fact that T5 delivered
-nothing; risk: touches the finalization receipt, one of the four hard
-tool-enforced rules)*
-`coc_turn_finalize` lists `decision_id` and `revision` as required parameters.
-The Model-Facing Identifier Law in `AGENTS.md` tells the model a protocol "must
-never require a model to relay a random id between messages: the machine
-re-attaches identity after the model's semantic payload". The KP explicitly
-reasoned about the conflict (`A#40`), obeyed the prompt, and livelocked. Either
-the host binds those two fields after the model's semantic payload — the law's
-prescribed shape — or the schema and the prompt are made to agree. **This is the
-root cause of the worst turn in the run.** It is also a contract change and is
-out of scope for an investigation.
+nothing; risk: changes what the KP is told about identifier ownership)*
+
+> **Revised 2026-09-01 after a follow-up evidence pass.** The original B1 said
+> the host does not bind `decision_id` / `revision` and that the schema and the
+> identifier law contradict each other. **The first half is wrong.** The host
+> *does* bind them, and did so throughout the recorded session. The correction
+> is kept in full below because the wrong version was specific and confident,
+> and a reader who saw it needs to know exactly which part failed.
+
+Measured on the same evidence (`rpc-events.jsonl`, session
+`dirgraph-smoke-20260901`):
+
+| | count |
+| --- | ---: |
+| `finalize_operation` delivered to the KP | **18** |
+| `agency_review_operation` delivered | 18 |
+| `pending_narration_draft_status.actionable` = `false` | **0** |
+| draft status values seen | `not_submitted` 9, `available` 8 |
+| `missing_param` on `coc_turn_finalize` | 20, all `required parameters: decision_id, revision` |
+
+`coc_operation_turn_output.py` builds `finalize_operation.prefilled_arguments`
+with `decision_id = f"{journal_decision_id}:finalize"` and `revision`, and
+`coc_mcp_wire.py` rebuilds the same card on the wire with an
+`argument_contract.instruction` that reads *"Merge prefilled_arguments
+unchanged, add only missing_arguments, and invoke directly without
+coc_discover."* Both fired. `draft_contract_usable` never went false, so the
+gate at `coc_operation_turn_output.py:2582` never dropped the card, and the
+wire's `cards_survive` gate never stripped it.
+
+**The KP received the two values 18 times and did not merge them.** Its own
+reasoning says why — *"the tool schema requires decision_id and revision but
+constitution says host binds those"*, and *"the constitution says never invent
+those — they're host-bound"*. It was right that the host binds them and wrong
+about what to do next: the binding is delivered *to* it, in the card, to be
+copied through.
+
+Where the misreading comes from is unchanged and still worth fixing: the
+`investigator` field description says *"the host binds the exact canonical
+identity"* for a value the KP must nonetheless pass, and the Model-Facing
+Identifier Law says *"the machine re-attaches identity after the model's
+semantic payload"*. Neither statement is about `decision_id`, and the
+`decision_id` description on `turn.finalize` is four words — `"idempotency
+key"` — which settles nothing. The Skill does say the right thing at line 187
+(*"The host does not rewrite KP-authored decision identities"*), 200 lines away
+from the tool signature the KP is reading.
+
+So the fix is not a contract change and not a host change. It is to make the
+card self-explanatory at the point of use — say on `decision_id` and `revision`
+themselves that the host has prefilled them and that they are to be passed
+through unchanged. That is a model-facing text change, which is why it stays in
+Class B.
+
+**What the discarded hypothesis cost, recorded so the shape is recognisable.**
+The wrong version was reached by reading the code path rather than the
+evidence: a grep for prefilled `turn.finalize` cards used a pattern that only
+matched the `next_operation` nesting used by `setup.complete`, returned zero,
+and that zero was taken as proof the host never delivered the card. Three
+layers of causation were then derived from it — `draft_contract_usable` going
+false, the two gates dropping the card, and the recovery operation
+(`state.recover_pending_narration_draft`, `kp_surface: none`) being
+unreachable. Each layer is real code and each inference was locally valid. The
+premise was not. **A confirmed error message beats a plausible code path**: the
+20 `missing_param` bodies were available the whole time and name the two fields
+outright.
 
 **B2. Make the advertised tool list append-only within a player turn.**
 *(saving: most of the remaining prefix churn after A1 — the 13 partial-miss
