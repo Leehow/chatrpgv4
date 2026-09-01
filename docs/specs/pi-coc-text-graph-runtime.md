@@ -1,15 +1,17 @@
 # Pi-Coc TextGraph specification
 
-> **Status:** T0 and T1 implemented on `claude/pi-coc-text-graph-20260901`.
-> T2–T5 are specified and **not** authorized. T1 is behaviour-preserving:
-> every migrated vocabulary is bit-identical and the model-visible contract
-> archive rebuilds byte-identical. See the Implementation log.
+> **Status:** T0, T1 and T2 implemented on `claude/pi-coc-text-graph-20260901`.
+> T3–T5 are specified and **not** authorized. Both slices are
+> behaviour-preserving: every migrated vocabulary is bit-identical, the
+> model-visible contract archive rebuilds byte-identical, and the whole
+> preserved corpus of 418 coverage rows replays byte-for-byte. See the
+> Implementation log.
 > **ID:** `pi-coc-text-graph-runtime`
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`; Codex-host implementation,
 > adapters, prompts, launchers, tests, and documentation remain off-limits.
 > **Scope owner:** the settled-output presentation surface inside
 > `plugins/coc-keeper/`.
-> **Last updated:** 2026-09-01 (T1 implementation pass; see the Implementation log)
+> **Last updated:** 2026-09-01 (T2 implementation pass; see the Implementation log)
 > **Depends on:** [ADR 0003 system ontology composition registry](../adr/0003-system-ontology-composition-registry.md),
 > [DirectorGraph](pi-coc-director-graph-runtime.md) (structural template and
 > implementation log), [`docs/ruleset-contract.md`](../ruleset-contract.md).
@@ -634,7 +636,8 @@ What the slices actually produced, including where this specification was wrong.
 | --- | --- |
 | T0 | This document plus the inventory. Four brief figures corrected. |
 | T1 | Contract, compiler, 39 obligation-plane nodes, registry promotion, and the cross-language residue gate. Behaviour unchanged; the model-visible contract archive rebuilds byte-identical. |
-| T2–T5 | Not started. |
+| T2 | Derivation reads the graph. 44 nodes, first 5 relations. 418/418 coverage rows replay byte-for-byte. Fixed a fabricated value T1 shipped. |
+| T3–T5 | Not started. |
 
 ### T1, as built
 
@@ -749,3 +752,61 @@ What the slices actually produced, including where this specification was wrong.
    (`test_narration_budget.py:2568`, `assert True is False`;
    `test_settled_output_recovery_reaches_finalization_receipt`, node exit 1).
    All 20 are pre-existing and unrelated to the text layer.
+
+### T2, as built
+
+- The replay gate (§8 T2 gate 3) was written **first** and made to pass against
+  the pre-cutover tree, so it gates the work rather than describing it:
+  `tests/test_text_graph_replay.py` feeds 370 real roll receipts from the
+  preserved `rolls.jsonl` logs into the real `_build_obligations` and compares
+  against the `obligation_ids` play recorded, then re-binds all 418 coverage
+  rows through `validate_coverage` against the drafts they were written for.
+  506 records, 370 / 48 namespace split, five segment types — all reproduce.
+- `_build_obligations`, `_build_sanity_bout_obligations`, `validate_coverage`,
+  `_obligation_public_label` and the coverage resolver read `id_prefix`,
+  source kinds, the concealed realization token, the substantive-effect
+  statuses, `SEGMENT_TYPES` and `LEADING_SEGMENT_TYPE` from the graph.
+- 44 nodes; the first five relations.
+
+### Corrections this specification needed (T2)
+
+9. **T1 shipped a fabricated value, and the cutover is what exposed it.**
+   `obligation-kind:roll` carried `source_kind: "roll"`. No obligation has ever
+   had that source kind: `_build_obligations` writes `concealed_roll` for a
+   hidden roll and otherwise `_roll_kind`'s `amount` or `check`. Replaying the
+   preserved corpus produced **check 355, amount 11, concealed_roll 4,
+   first_impression 48 — and no `roll` at all.**
+
+   A node property that names nothing is precisely the unaccountable value this
+   graph exists to remove, and it survived T1 because T1 only ever *published*
+   that property; nothing read it. The lesson generalises: **a vocabulary node
+   is only as trustworthy as its first consumer.** The scalar is gone, replaced
+   by five `obligation-source-kind` nodes carrying the real vocabulary.
+
+10. **The first relations arrived when a consumer needed one, not before.**
+    T1's `empty_relations_law` said edges get added when something reads them.
+    `obligation-source-kind part-of obligation-kind` is that case: the
+    derivation reads it to know which source kinds a namespace may write. Five
+    edges, all load-bearing.
+
+11. **Not every literal should be migrated.** The undelivered-narration repair
+    path writes `source_kind: "repair"`, a sixth value produced by no settled
+    receipt. Migrating it would have made the obligation plane's
+    `settled-effect-derived` evidence class a lie, so it stays a literal and is
+    recorded as an explicit exclusion. "In the same position in the code" is not
+    the same as "in the same vocabulary".
+
+12. **A naive replace would have corrupted player-visible prose.**
+    `coc_turn_finalization.py:2207` contains `f"roll: {luck_source[...]}"` — the
+    Luck-spend mechanics line, with a space after the colon. It looks like the
+    obligation prefix and is not. The cutover was done site by site against a
+    grep of every candidate, and this one was left alone.
+
+13. **The residue gate measured the migration.** Rather than asserting the
+    cutover happened, the census recorded it as counts falling: in
+    `coc_turn_finalization.py` obligation prefixes 13 → 1, realization values
+    5 → 1, segment types 51 → 43, each remaining occurrence being the semantic
+    key that looks the value up. The gate also caught, in the same pass, that
+    the `0.8.1a@bb0575d5` merge had grown another slice's TypeScript copies from
+    59 to 61 — unrelated to this work, and visible only because the count was
+    pinned.

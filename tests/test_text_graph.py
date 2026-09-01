@@ -829,3 +829,38 @@ def test_the_synthetic_repair_source_kind_is_excluded_not_migrated():
         if node["node_kind"] == "obligation-source-kind"
     }
     assert "repair" not in owned
+
+
+def test_the_model_facing_obligation_labels_are_unchanged():
+    """`_obligation_public_label` builds the semantic handles the KP reads.
+
+    It now composes them from the graph's prefixes. These six shapes are every
+    branch of that function, pinned byte-for-byte against the pre-T2 spellings.
+    """
+    finalizer = _load(
+        "coc_turn_finalization_labels",
+        "plugins/coc-keeper/scripts/coc_turn_finalization.py",
+    )
+    cases = [
+        ({"source_kind": "first_impression", "npc_display_name": "Mr Knott"},
+         "first-impression:mr-knott"),
+        ({"source_kind": "first_impression", "npc_display_name": ""},
+         "first-impression"),
+        ({"source_kind": "sanity_bout"}, "sanity_bout"),
+        ({"source_kind": "check", "skill": "Spot Hidden"}, "roll:spot-hidden"),
+        ({"source_kind": "amount"}, "roll:amount"),
+        ({"source_kind": ""}, "roll"),
+    ]
+    for row, expected in cases:
+        assert finalizer._obligation_public_label(row) == expected, row
+
+
+def test_the_segment_vocabulary_still_unions_the_way_the_source_did():
+    finalizer = _load(
+        "coc_turn_finalization_segments",
+        "plugins/coc-keeper/scripts/coc_turn_finalization.py",
+    )
+    assert set(finalizer.SEGMENT_TYPES) == {
+        finalizer.LEADING_SEGMENT_TYPE, *finalizer.MECHANIC_SEGMENT_TYPES
+    }
+    assert finalizer.LEADING_SEGMENT_TYPE not in finalizer.MECHANIC_SEGMENT_TYPES
