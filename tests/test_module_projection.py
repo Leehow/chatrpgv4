@@ -241,3 +241,48 @@ def test_empty_projection_never_passes_vacuously():
 
     with pytest.raises(projection.ModuleProjectionError):
         projection.build_projection_sidecar(graph, [])
+
+
+def test_installed_projection_is_reachable_by_the_keeper(tmp_path):
+    """The Keeper's own resolver must find the graph a projection was installed with.
+
+    Installing the materialized views while the graph stays unreachable is a
+    silent half-install: `module.context` answers `unbound` and the Keeper has
+    no graph at all, which is exactly what shipped until a live table showed it.
+    """
+    starter_graph = _load(
+        "coc_starter_graph_install_reach", SCRIPTS / "coc_starter_graph.py"
+    )
+    module_project = _load(
+        "coc_module_project_install_reach", SCRIPTS / "coc_module_project.py"
+    )
+    coc_state = _load("coc_state_install_reach", SCRIPTS / "coc_state.py")
+
+    coc_root = tmp_path / ".coc"
+    coc_state.ensure_workspace(coc_root)
+    coc_state.create_campaign(coc_root, "graph-backed", "Graph Backed", era="1920s")
+    graph = _starter_graph()
+    starter_graph.install_starter_graph(tmp_path, graph)
+
+    projection.install_projected_scenario(tmp_path, "graph-backed", graph)
+
+    roots = module_project.campaign_handout_asset_root_ids(
+        coc_root / "campaigns" / "graph-backed"
+    )
+    assert starter_graph.ASSET_ROOT_ID in roots
+
+
+def test_install_refuses_a_projection_whose_graph_root_is_unreachable(tmp_path):
+    starter_graph = _load(
+        "coc_starter_graph_install_refuse", SCRIPTS / "coc_starter_graph.py"
+    )
+    coc_state = _load("coc_state_install_refuse", SCRIPTS / "coc_state.py")
+
+    coc_root = tmp_path / ".coc"
+    coc_state.ensure_workspace(coc_root)
+    coc_state.create_campaign(coc_root, "no-graph", "No Graph", era="1920s")
+
+    # Same projection, but nothing installed the graph into the workspace.
+    with pytest.raises(projection.ModuleProjectionError, match="module_graph_asset_root_id"):
+        projection.install_projected_scenario(tmp_path, "no-graph", _starter_graph())
+    del starter_graph
