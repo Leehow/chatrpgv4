@@ -1551,6 +1551,12 @@ def _compact_scene(
             "keeper_mechanics",
             "exit_ready",
             "drilldown_refs",
+            # The live reading of the clocks this scene's own pressure moves
+            # name. Third time this whitelist has been the reason an authored
+            # mechanic never reached a table: the block was correct at the
+            # producer and correct at the Keeper's identity projection, and
+            # arrived as null because the RPC path did not name it.
+            "threat_clocks",
         ),
     )
     # Where the main line stands. This is the second projection between the

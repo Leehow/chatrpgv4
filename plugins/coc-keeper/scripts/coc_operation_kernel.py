@@ -399,6 +399,8 @@ coc_belief_state = _load_sibling("coc_belief_state_toolbox", "coc_belief_state.p
 
 coc_quest_state = _load_sibling("coc_quest_state_toolbox", "coc_quest_state.py")
 
+coc_threat_state = _load_sibling("coc_threat_state_toolbox", "coc_threat_state.py")
+
 coc_exceptional_effects = _load_sibling(
     "coc_exceptional_effects", "coc_exceptional_effects.py"
 )
@@ -7200,6 +7202,79 @@ def _latest_graph_psychology_observation(
     return decision_id, result
 
 
+def _scene_threat_clocks(
+    ctx: Ctx, scene: dict[str, Any] | None, active_id: Any,
+) -> list[dict[str, Any]]:
+    """Live readings for the threat clocks this scene's own moves reference.
+
+    A scene's pressure moves name a ``clock_id`` and the segments they cost,
+    but nothing told the Keeper what that id pointed at: not whether the clock
+    existed, not how full it was, not what happened when it filled. A dangling
+    reference is information the Keeper has to assemble before it can act, so
+    it never acted -- ~30 live turns inside a climax scene whose whole dramatic
+    question is "before the bell rings" passed without `clock-loop-doom`
+    advancing a single segment, and the module's central mechanic (the loop
+    reset) could not fire because its clock never moved.
+
+    This resolves the reference in place: for every clock the scene points at,
+    the authored definition plus the live progress, the cue printed for the
+    segment a tick would fill, and the authored consequence of filling it.
+    Read-only -- `state.threat_tick` remains the only writer.
+    """
+    if ctx.campaign_dir is None:
+        return []
+    referenced: list[str] = []
+    for move in (scene or {}).get("pressure_moves") or []:
+        if not isinstance(move, dict):
+            continue
+        clock_id = move.get("clock_id")
+        if isinstance(clock_id, str) and clock_id and clock_id not in referenced:
+            referenced.append(clock_id)
+    if not referenced:
+        return []
+    try:
+        fronts = ctx.scenario("threat-fronts.json")
+        merged = coc_threat_state.merge_threat_fronts(
+            fronts, coc_threat_state.load_threat_state(ctx.campaign_dir / "save"),
+        )
+    except Exception:
+        # A scene reference the Keeper cannot resolve is exactly the defect
+        # this closes; never turn it into a failed scene read.
+        return []
+    scene_key = str(active_id or "")
+    rows: list[dict[str, Any]] = []
+    for front in merged.get("fronts") or []:
+        if not isinstance(front, dict):
+            continue
+        for clock in front.get("clocks") or []:
+            if not isinstance(clock, dict):
+                continue
+            clock_id = str(clock.get("clock_id") or "")
+            if clock_id not in referenced:
+                continue
+            current = int(clock.get("current_segments") or 0)
+            segments = int(clock.get("segments") or 6)
+            visible = [
+                str(cue) for cue in (clock.get("on_tick_visible") or [])
+                if isinstance(cue, str)
+            ]
+            rows.append({
+                "clock_id": clock_id,
+                "front_id": str(front.get("front_id") or ""),
+                "current_segments": current,
+                "segments": segments,
+                "remaining_segments": max(segments - current, 0),
+                "full": bool(clock.get("full")),
+                "scene_scoped": scene_key in {
+                    str(value) for value in (front.get("scene_ids") or [])
+                },
+                # The cue printed for the segment the next tick would fill.
+                "next_tick_cue": visible[current] if current < len(visible) else None,
+                "on_full": clock.get("on_full"),
+            })
+    return rows
+
+
 def _project_healing_decision_cards(
     ctx: Ctx, investigator_id: str | None,
 ) -> dict[str, Any]:
@@ -9348,6 +9423,7 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
     drilldown_refs: dict[str, Any] = {"npc": [], "clue": [], "secret": []}
     covered_domains = [
         "scene", "npc_presence", "clues", "time", "active_effects", "flags", "party",
+        "threat_clocks",
     ]
 
     # Prefer the compiled archive scene shard for authored static material.
@@ -10031,6 +10107,8 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             list((archive_meta or {}).get("covered_domains") or [])
         ),
         "drilldown_refs": drilldown_refs,
+        # Resolves the `clock_id` this scene's pressure moves already name.
+        "threat_clocks": _scene_threat_clocks(ctx, scene, active_id),
     }
     focused_investigator = impression_investigator or (
         party_ids[0] if party_ids else None

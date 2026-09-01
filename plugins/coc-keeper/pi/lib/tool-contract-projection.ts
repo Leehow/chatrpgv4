@@ -3787,12 +3787,21 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [],
   )],
   ["scene.context", declaredIdentityTable(
-    SCENE_CONTEXT_SEMANTIC_IDENTITY_FIELDS,
+    [
+      ...SCENE_CONTEXT_SEMANTIC_IDENTITY_FIELDS,
+      // The threat front a projected clock belongs to ("front-loop-doom").
+      "front_id",
+    ],
     [],
     // Flag provenance points at the save file and record that set the flag
     // ("save/flags.json#flag_provenance/<flag>"). It is bookkeeping about
     // where a value lives, not something the Keeper narrates from.
-    ["source_ref"],
+    // `memory_id` is host-only for the same reason it is on npc.query, which
+    // reads back the very impressions this context embeds: it is a storage
+    // handle for a memory whose text is already here. It was declared there
+    // and not here, so an NPC that accumulated impression memories would have
+    // failed the whole scene read closed.
+    ["memory_id", "source_ref"],
   )],
   ["clues.query", declaredIdentityTable(
     [
@@ -5331,7 +5340,54 @@ function deriveModelVisibleHints(
   if (operation === "turn.finalize" && envelope.ok === true) {
     return [...FINALIZE_DELIVERY_HINTS];
   }
+  if (operation === "scene.context" && Array.isArray(data?.threat_clocks)) {
+    return threatClockHints(data.threat_clocks);
+  }
   return [];
+}
+
+/**
+ * A scene's pressure moves name a `clock_id` and the segments they cost, and
+ * `scene.context` now resolves that reference to the clock's live reading.
+ * This turns the reading into the sentence the Keeper acts on. Derived from
+ * the structured block, never relayed from canonical prose.
+ *
+ * Without it, the Keeper had the numbers and still did not use them: across
+ * three live sessions of 《不息的渴望》, `state.threat_tick` was called zero
+ * times and `clock-loop-doom` never left 0/6, so the module's loop reset — the
+ * consequence the whole climax scene is about — had no way to fire.
+ */
+function threatClockHints(rows: readonly unknown[]): string[] {
+  const hints: string[] = [];
+  for (const row of rows) {
+    if (!isPlainObject(row)) continue;
+    const clockId = typeof row.clock_id === "string" ? row.clock_id : "";
+    if (!clockId) continue;
+    const onFull = typeof row.on_full === "string" ? row.on_full : "";
+    if (row.full === true) {
+      hints.push(
+        `threat clock ${clockId} is full`
+        + (onFull ? `: ${onFull}` : "")
+        + "; its authored consequence is due now",
+      );
+      continue;
+    }
+    const current = typeof row.current_segments === "number"
+      ? row.current_segments
+      : null;
+    const segments = typeof row.segments === "number" ? row.segments : null;
+    if (current === null || segments === null) continue;
+    const cue = typeof row.next_tick_cue === "string" ? row.next_tick_cue : "";
+    hints.push(
+      `threat clock ${clockId} stands at ${current}/${segments}`
+      + (cue ? `; the next segment reads "${cue}"` : "")
+      + (onFull ? `; filling it means: ${onFull}` : "")
+      + ". A pressure move naming this clock_id advances it by its own tick "
+      + "via state.threat_tick; narrating the pressure without the tick "
+      + "leaves the authored consequence unreachable",
+    );
+  }
+  return hints;
 }
 
 /** Envelope-level host-only fields: transport metadata and host checkpoints. */
