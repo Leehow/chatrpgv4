@@ -20,9 +20,9 @@ def _combined_args(ws, decision_id: str, **overrides):
         "investigator": ws["investigator_id"],
         "combined_targets": [
             {"label": "Mechanical Repair", "value": 20},
-            {"label": "Electrical Repair", "value": 50},
+            {"label": "Electrical Repair", "value": 90},
         ],
-        "helper_count": 7,
+        "combined_mode": "any",
         "difficulty": "regular",
         "goal": "restore the disabled generator with either discipline",
         "stakes": {
@@ -37,7 +37,7 @@ def _combined_args(ws, decision_id: str, **overrides):
     return args
 
 
-def test_combined_roll_uses_one_die_projects_each_target_caps_helpers_and_replays(
+def test_combined_roll_uses_one_die_projects_each_target_and_replays(
     campaign_ws,
 ):
     development_path = (
@@ -56,8 +56,8 @@ def test_combined_roll_uses_one_die_projects_each_target_caps_helpers_and_replay
 
     assert first["ok"] is True, first
     data = first["data"]
-    assert data["roll"] == 49
-    assert data["bonus"] == 2
+    assert data["roll"] == 80
+    assert data["bonus"] == 0
     assert data["penalty"] == 0
     assert data["kind"] == "combined_skill_check"
     assert data["improvement_tick_eligible"] is False
@@ -76,16 +76,13 @@ def test_combined_roll_uses_one_die_projects_each_target_caps_helpers_and_replay
             },
             {
                 "label": "Electrical Repair",
-                "value": 50,
-                "required_target": 50,
+                "value": 90,
+                "required_target": 90,
                 "achieved_level": "regular",
                 "outcome": "regular",
                 "success": True,
             },
         ],
-        "helper_count": 7,
-        "helper_bonus_dice": 2,
-        "helper_bonus_cap": 2,
         "overall_success": True,
         "development_tick_eligible": False,
         "push_eligible": False,
@@ -141,6 +138,26 @@ def test_combined_roll_is_public_finalization_evidence(campaign_ws):
     assert finalized["data"]["rendered_text"]
 
 
+def test_combined_roll_all_mode_requires_every_named_skill(campaign_ws):
+    # Keeper Rulebook PDF index 103-104 / printed p.92: the Keeper declares
+    # whether all named skills or only one named skill must succeed.
+    settled = _run(
+        campaign_ws,
+        "rules.roll",
+        _combined_args(
+            campaign_ws,
+            "combined-all-mode",
+            combined_mode="all",
+        ),
+    )
+    assert settled["ok"] is True, settled
+    combined = settled["data"]["combined_roll"]
+    assert combined["comparison_mode"] == "all"
+    assert [row["success"] for row in combined["targets"]] == [False, True]
+    assert combined["overall_success"] is False
+    assert settled["data"]["success"] is False
+
+
 def test_combined_roll_rejects_push_and_luck_without_new_dice(campaign_ws):
     failed = _run(
         campaign_ws,
@@ -152,7 +169,6 @@ def test_combined_roll_rejects_push_and_luck_without_new_dice(campaign_ws):
                 {"label": "Mechanical Repair", "value": 10},
                 {"label": "Electrical Repair", "value": 20},
             ],
-            helper_count=0,
         ),
     )
     assert failed["ok"] is True, failed
@@ -214,7 +230,9 @@ def test_combined_roll_rejects_push_and_luck_without_new_dice(campaign_ws):
         {"skill": "Listen"},
         {"bonus": 1},
         {"visibility": "keeper_only"},
-        {"helper_count": -1},
+        {"helper_count": 0},
+        {"combined_mode": "neither"},
+        {"combined_mode": None},
     ],
 )
 def test_combined_roll_rejects_invalid_or_misrouted_inputs(campaign_ws, override):
@@ -258,6 +276,7 @@ def test_ordinary_rules_roll_remains_unchanged(campaign_ws):
             "investigator": campaign_ws["investigator_id"],
             "skill": "Library Use",
             "helper_count": 1,
+            "combined_mode": "any",
             "difficulty": "regular",
             "goal": "find another deed",
             "stakes": {

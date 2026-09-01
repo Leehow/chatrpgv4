@@ -30,6 +30,15 @@ directories inside this repo:
 `pi-coc` is [`bin/pi-coc`](bin/pi-coc). It sets `PI_CODING_AGENT_DIR` to the COC
 home, forces cwd to this repository root, and launches with desktop defaults:
 
+The launcher executes the exact patched Pi version pinned by
+`runtime/adapters/keeper/package.json` and `package-lock.json` (currently
+`0.84.2`) from that adapter's `node_modules`; a different `pi` on `PATH` is
+never a fallback. If the bundled install is absent, mismatched, or not
+executable, run `npm ci` in `runtime/adapters/keeper`. `COC_PI_CLI` is the only
+caller override: it must be an absolute executable owned by an
+`@earendil-works/pi-coding-agent` package at the same exact version, otherwise
+the launcher fails closed.
+
 ```bash
 pi --no-builtin-tools --approve --no-context-files \
   --append-system-prompt plugins/coc-keeper/pi/prompts/host-system.md \

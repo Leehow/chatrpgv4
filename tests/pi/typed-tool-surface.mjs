@@ -42,11 +42,32 @@ const SPOTLIGHT = [
 ];
 
 const catalog = typed.defaultTypedToolCatalog();
+const LEGACY_GRAPH_HIDDEN = new Set([
+  "rules.roll", "rules.opposed", "rules.push", "rules.luck_spend",
+  "rules.social_adjudicate", "rules.psychology_observe",
+  "combat.context", "combat.resolve", "combat.end",
+  "chase.context", "chase.execute", "rules.sanity_check", "sanity.context",
+  "sanity.execute", "magic.cast", "magic.learn", "development.settle",
+  "state.end_session",
+]);
+
+function hostProjectedTool(operation) {
+  const contract = catalog.contracts.operations.get(operation);
+  assert.ok(contract, operation);
+  return {
+    description: contract.description,
+    parameters: typed.projectModelOwnedSchema(
+      operation,
+      typed.presentedTypedToolParameters(operation, contract.inputSchema),
+    ),
+  };
+}
 
 test("spotlight tool schemas match the archive except explicit Pi presentation overlays", () => {
   for (const operation of SPOTLIGHT) {
-    const tool = catalog.byOperation.get(operation);
-    assert.ok(tool, operation);
+    const modelTool = catalog.byOperation.get(operation);
+    if (LEGACY_GRAPH_HIDDEN.has(operation)) assert.equal(modelTool, undefined, operation);
+    const tool = modelTool ?? hostProjectedTool(operation);
     if (operation === "rules.social_adjudicate") {
       assert.notDeepEqual(tool.parameters, archive.operations[operation].inputSchema);
       assert.equal(tool.parameters.properties.motive.oneOf.length, 2);
@@ -103,11 +124,12 @@ test("setup.quick_start typed schema makes pregen_id optional", () => {
   assert.ok(!Object.hasOwn(wrapped.arguments, "pregen_id"));
 });
 
-test("live play exposes the concealed Psychology window contract as an exact tool", () => {
+test("live play hides legacy Psychology while preserving its host schema", () => {
   const play = domain.activeToolsForPhase("live_turn", "play");
-  const psychology = catalog.byOperation.get("rules.psychology_observe");
-  assert.ok(psychology);
-  assert.ok(play.includes("coc_rules_psychology_observe"));
+  const psychology = hostProjectedTool("rules.psychology_observe");
+  assert.ok(!play.includes("coc_rules_psychology_observe"));
+  assert.ok(play.includes("coc_rules_context"));
+  assert.ok(play.includes("coc_rules_settle"));
   assert.match(psychology.description, /Keeper-concealed Psychology observation/);
   assert.match(psychology.description, /settle once per explicit observer\/NPC\/conversation\/revision window/i);
   assert.match(psychology.description, /player-safe realization/);
@@ -173,7 +195,7 @@ test("derived names are deterministic and fail closed on collision", () => {
 });
 
 test("missing required / extra field are visible on the model schema", () => {
-  const schema = catalog.byOperation.get("rules.roll").parameters;
+  const schema = hostProjectedTool("rules.roll").parameters;
   assert.ok((schema.required || []).includes("campaign"));
   assert.equal(schema.additionalProperties, false);
   assert.ok(schema.properties.campaign);
@@ -181,7 +203,7 @@ test("missing required / extra field are visible on the model schema", () => {
 });
 
 test("rules.roll exposes one closed semantic combined-target mode", () => {
-  const schema = catalog.byOperation.get("rules.roll").parameters;
+  const schema = hostProjectedTool("rules.roll").parameters;
   const targets = schema.properties.combined_targets;
   assert.equal(targets.type, "array");
   assert.equal(targets.minItems, 2);
@@ -191,7 +213,8 @@ test("rules.roll exposes one closed semantic combined-target mode", () => {
   assert.deepEqual(targets.items.required, ["label", "value"]);
   assert.equal(targets.items.properties.label.type, "string");
   assert.equal(targets.items.properties.value.type, "integer");
-  assert.equal(schema.properties.helper_count.minimum, 0);
+  assert.equal(schema.properties.helper_count, undefined);
+  assert.deepEqual(schema.properties.combined_mode.enum, ["any", "all"]);
   assert.ok(!(schema.required || []).includes("combined_targets"));
 });
 
@@ -206,7 +229,9 @@ test("utility-level explicit null preserves legacy wrappers while typed roles hi
     assert.ok(!play.includes(wrapper), `play must hide ${wrapper}`);
     assert.ok(!setup.includes(wrapper), `setup must hide ${wrapper}`);
   }
-  assert.ok(play.includes("coc_rules_roll"));
+  assert.ok(!play.includes("coc_rules_roll"));
+  assert.ok(play.includes("coc_rules_context"));
+  assert.ok(play.includes("coc_rules_settle"));
   assert.ok(play.includes("coc_npc_reaction"));
   assert.ok(play.includes("coc_turn_finalize"));
   assert.ok(play.includes("coc_state_journal"));
@@ -265,26 +290,17 @@ test("adopt_source_facts presents campaign_id-only and fills retained facts", ()
   assert.deepEqual(already.arguments.facts, { keep: true });
 });
 
-test("exact typed execute wraps the one operation without a second guess", () => {
-  const wrapped = typed.wrapTypedToolInvokeParams("coc_rules_roll", {
-    campaign: "c1",
-    root: "/tmp/ws",
-    skill: "Spot Hidden",
-    difficulty: "regular",
-  });
-  assert.deepEqual(wrapped, {
-    operation: "rules.roll",
-    root: "/tmp/ws",
-    campaign: "c1",
-    arguments: { skill: "Spot Hidden", difficulty: "regular" },
-  });
+test("graph cutover exposes settle and keeps legacy roll host-only", () => {
+  assert.equal(catalog.byOperation.has("rules.roll"), false);
+  assert.ok(hostProjectedTool("rules.roll").parameters.properties.skill);
+  assert.equal(catalog.byOperation.has("rules.settle"), true);
   const allowed = domain.evaluateExecuteAcl({
-    toolName: "coc_rules_roll",
-    operation: "rules.roll",
+    toolName: "coc_rules_settle",
+    operation: "rules.settle",
     phase: "live_turn",
   });
   assert.equal(allowed.ok, true);
-  assert.equal(allowed.canonical_operation, "rules.roll");
+  assert.equal(allowed.canonical_operation, "rules.settle");
   assert.equal(
     domain.evaluateExecuteAcl({
       toolName: "coc_setup_quick_start",
@@ -297,7 +313,7 @@ test("exact typed execute wraps the one operation without a second guess", () =>
   );
   assert.equal(
     domain.evaluateExecuteAcl({
-      toolName: "coc_rules_roll",
+      toolName: "coc_rules_settle",
       operation: "turn.finalize",
       phase: "live_turn",
     }).code,
@@ -329,7 +345,7 @@ test("missing/extra fields fail the model schema before wrap/gateway", () => {
     return typed.wrapTypedToolInvokeParams(name, params);
   };
   for (const operation of SPOTLIGHT) {
-    const tool = catalog.byOperation.get(operation);
+    const tool = catalog.byOperation.get(operation) ?? hostProjectedTool(operation);
     assert.ok(tool, operation);
     const schema = tool.parameters;
     assert.equal(schema.additionalProperties, false, operation);
@@ -360,12 +376,8 @@ test("missing/extra fields fail the model schema before wrap/gateway", () => {
     assert.equal(topLevelSchemaError(schema, extra), "extra:not_a_contract_field", operation);
     assert.equal(wrapCalls, 0, `${operation} must not reach wrap/gateway`);
   }
-  assert.equal(wrap("coc_rules_roll", {
-    campaign: "c1",
-    skill: "Spot Hidden",
-    difficulty: "regular",
-  }).operation, "rules.roll");
-  assert.equal(wrapCalls, 1);
+  assert.equal(catalog.byOperation.has("rules.roll"), false);
+  assert.equal(wrapCalls, 0);
 });
 
 test("structured missing/invalid errors attach expected_schema", () => {
@@ -390,7 +402,7 @@ test("structured missing/invalid errors attach expected_schema", () => {
     assert.deepEqual(attached.error.details.missing_parameters, ["campaign"], operation);
     assert.deepEqual(
       attached.error.expected_schema,
-      catalog.byOperation.get(operation).parameters,
+      (catalog.byOperation.get(operation) ?? hostProjectedTool(operation)).parameters,
       operation,
     );
     const invalid = runtime.modelVisibleCanonicalToolResult(new runtime.CanonicalToolError(
@@ -413,7 +425,7 @@ test("structured missing/invalid errors attach expected_schema", () => {
     assert.equal(invalidAttached.error.details.field, "operation", operation);
     assert.deepEqual(
       invalidAttached.error.expected_schema,
-      catalog.byOperation.get(operation).parameters,
+      (catalog.byOperation.get(operation) ?? hostProjectedTool(operation)).parameters,
       operation,
     );
   }
@@ -438,8 +450,10 @@ test("table_opening and open_turn_recovery keep typed closure, not generic wrapp
     assert.ok(!recovery.includes(wrapper), `recovery play hides ${wrapper}`);
   }
   assert.ok(opening.includes("coc_session_resume"));
-  assert.ok(live.includes("coc_rules_roll"));
-  assert.ok(live.includes("coc_rules_social_adjudicate"));
+  assert.ok(!live.includes("coc_rules_roll"));
+  assert.ok(!live.includes("coc_rules_social_adjudicate"));
+  assert.ok(live.includes("coc_rules_context"));
+  assert.ok(live.includes("coc_rules_settle"));
   assert.ok(recovery.includes("coc_session_resume"));
   assert.ok(recovery.includes("coc_turn_finalize"));
   assert.ok(recovery.includes("coc_state_journal"));

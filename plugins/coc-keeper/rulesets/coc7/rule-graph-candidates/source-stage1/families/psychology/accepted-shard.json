@@ -1,0 +1,1860 @@
+{
+  "accepted_shard": {
+    "contract_id": "coc.rule-graph-shard.v1",
+    "coverage": {
+      "psychology": "accepted"
+    },
+    "evidence_binding": {
+      "contract_id": "coc.rule-graph-evidence.v1",
+      "schema_version": 1,
+      "section_id": "section-psychology-complete-source",
+      "spans": [
+        {
+          "source_ref": {
+            "grep_anchor": "Pushing examples: pulling the aircraft up and making a second and final attempt at landing; pushing the vehicle to its limit; making a risky maneuver to lose a ",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-1"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Sample Consequences of failing a Pushed roll: the results of a failed roll should fit the situation. It may be that the craft is somehow damaged, and repairs wi",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-2"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "If an insane investigator fails a pushed roll, he or she will believe that they are capable of death-defying stunts. They are not.",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-3"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Piloting specializations:",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-4"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Pilot (Aircraft): understands and is increasingly competent with a general class of aircraft named below. Upon any landing, even under the best conditions, a Pi",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-5"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Each class of aircraft counts as a different skill and should be listed independently, or as the Keeper sees fit. 1920s: Pilot Balloon/Dirigible/Civil Prop only",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-6"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Pilot (Boat): understands the behavior of small motor and sailing craft in wind, storms, and tides, and can read wave and wind action to suggest hidden obstacle",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-7"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Psychoanalysis (01%)",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-8"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "The skill refers to the range of emotional therapies, not just to Freudian procedures. Formal psychotherapy was still in its infancy in the 1890s, though some p",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-9"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Intensive psychoanalysis can return Sanity points to an investigator patient. Once per game month, to learn the progress of the therapy, make a 1D100 roll again",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-10"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "In the game, psychoanalysis alone does not speed recovery from indefinite insanity, which requires 1D6 months of institutional (or similar) care, of which psych",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-11"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Successful use of this skill can allow a character to cope with the subject of a phobia for a short time, or to see delusions for what they are. In play this wo",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-12"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Treatment by a psychotherapist can add Sanity points during indefinite insanity (see Chapter 8: Sanity).",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-13"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Psychoanalysis cannot increase a person's Sanity points above 99–Cthulhu Mythos.",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-14"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Opposing skill/Difficulty level:",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-15"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "⑨ Regular difficulty: standard therapy within a hospital setting.",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-16"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Hard difficulty: intermittent therapy over a longer period.",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-17"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Pushing examples: this is a skill which can be attempted month after month without requiring a Pushed skill roll. However, if one failed the skill roll in a giv",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-18"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Sample Consequences of failing a Pushed roll: curing the patient's fear of spiders by locking them in a room full of tarantulas backfires as the patient goes be",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-19"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Much like the blind leading the blind, it is possible for an insane character to practice psychoanalysis. An insane character who fails a pushed roll could seek",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-20"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Psychology (10%)",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-21"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "A perception skill common to all humans, it allows the user to study an individual and form an idea of another person's motives and character. The Keeper may ch",
+            "pdf_index": 83,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "5c3780f979322143950d60b6f9c310b06e4d30aed771f8ab62f4ff4060435f8a"
+          },
+          "span_id": "span-psychology-complete-source-page-83-block-22"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Opposing skill/Difficulty level:",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-23"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Psychology can be used to oppose all forms of social interaction rolls: Intimidate, Fast Talk, Persuade, and Charm. It can also be used to see through someone's",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-24"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "⑨ Regular difficulty: read someone's intent or determine if the person is lying if their relevant skill (Intimidate, Fast Talk, Persuade, and Charm) is below 50",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-25"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Hard difficulty: read someone's intent or determine if the person is lying if their relevant skill (Intimidate, Fast Talk, Persuade, and Charm) is between 50% a",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-26"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Pushing examples: being very unsubtle and asking highly personal, intimate, or downright direct questions of the target; immersing yourself in data regarding a ",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-27"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Sample Consequences of failing a Pushed roll: you somehow reveal your own motivations to the target; the target is offended by your prying questions or curious ",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-28"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "If an insane investigator fails a pushed roll, he or she believes that they hear the target's evil thoughts, and launches a physical attack upon them.",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-29"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Read Lips (01%) [Uncommon]",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-30"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "This skill allows the inquisitive investigator to listen in on a conversation, without requiring them to hear the speakers. Line of sight is necessary, and if o",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-31"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Read Lips may also be used to silently communicate with another person (if both are proficient), allowing for relatively complex phrasing and meaning.",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-32"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Opposing skill/Difficulty level:",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-33"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Depending on the situation, Read Lips is usually unopposed. If attempting to read the lips of a target who wishes to remain hidden or unobserved, the skill may ",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-34"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "⑨ Regular difficulty: understand the spoken communication of a person who is in clear sight and in relatively close proximity.",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-35"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Hard difficulty: determine the spoken communication of a person whose mouth is occasionally obscured and/or is some distance away (e.g. in a large crowd of peop",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-36"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Pushing examples: putting yourself in an obvious position and staring unsubtly at the target(s); filming the target (and thus likely to be observed filming the ",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-37"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Sample Consequences of failing a Pushed roll: the target becomes aware that you are watching them intently, and takes offense and confronts you; the drunken man",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-38"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "If an insane investigator fails a pushed roll, there is plenty of scope for imagining all manner of strange and bizarre things being said.",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-39"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Ride (05%)",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-40"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "This skill is intended to apply to saddle horses, donkeys, or mules, and grants knowledge of basic care of the riding animal, riding gear, and how to handle the",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-41"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "If an investigator falls from a mount, either because the animal has collapsed, fallen or died (or because a pushed Ride roll failed), at least 1D6 hit points a",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-42"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Opposing skill/Difficulty level:",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-43"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Basic animal handling or riding a mount at walking pace does not require a ride roll.",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-44"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "⑤ Regular difficulty: riding at speed; holding onto a scared mount.",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-45"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "⑨ Hard difficulty: riding a mount at speed in rough, unfamiliar terrain where weather conditions are poor (e.g. a heavily wooded forest at night in the pouring ",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-46"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Pushing examples: whipping or pushing the mount aggressively—perhaps forcing a horse to jump a ravine or high ditch; taking the risk of keeping your mount rathe",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-47"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Sample Consequences of failing a Pushed roll: rider is thrown from mount and takes falling damage; mount is injured; rider's foot is entangled in the mount's br",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-48"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "If an insane investigator fails a pushed roll, he or she becomes obsessed with the animal.",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-49"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Science (Specializations) (01%)",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-50"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Practical and theoretical ability with a science specialty would suggest some degree of formalized education and training, although a well-read amateur scientis",
+            "pdf_index": 84,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+          },
+          "span_id": "span-psychology-complete-source-page-84-block-51"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Nothing There?",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-52"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Don't be tempted to call for Perception rolls when there is nothing to find. Remember that the default goal of a Perception roll is always “to find a clue”—if t",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-53"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "If a player requests a Spot Hidden roll, you may allow one even if there is no clue present. The goal should be phrased as “to look for a clue” or if looking fo",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-54"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Psychology",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-55"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "If a player passes a Psychology roll, the truth should be revealed. If the roll is lost, you may be tempted to deceive the player, but if you automatically do t",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-56"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Harvey is showing a photo of his missing friend to the barman, \"Have you seen this guy?\" The Keeper tells how the barman glances at it then goes back to wiping ",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-57"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Harvey's player now feels sure that the barman is lying but she is not certain. Should she press the matter, perhaps offering a bribe or a threat?",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-58"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Handouts",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-59"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Player handouts are a common feature of Call of Cthulhu games. These are usually given to the players when their investigators have found some important informa",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-60"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "For example, a handwritten letter from an anonymous informer, a map showing the location of the tomb of an ancient wizard, or a newspaper article detailing sigh",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-61"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Handouts serve several functions. One is sensory: a lovingly crafted handout helps to boost the sense of immersion in the story. Another is information. A hando",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-62"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Some Keepers prefer to create their handouts from scratch, whether for a published or a home-brew scenario. These can be works of art in themselves. Simple tech",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-63"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Photographs of the period in which the scenario is set can be useful in showing locations and people. Postcards from antique fairs might also be used.",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-64"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "If the setting is more modern, the Keeper might prepare a sound file to be played when a recorded message is discovered, or perhaps a short video appropriate to",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-65"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Whether you have time to create such handouts from scratch, go searching for them or simply use the ones provided in published scenarios, the use of handouts gr",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-66"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Listen to what the players say and how they respond. If they are excited when you bring out a floor plan with counters or miniatures to map the action then do i",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-67"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Using the Rules",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-68"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "The rules in this book are intended to be flexible enough to cope with every eventuality.",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-69"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "The rules, in brief, are:",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-70"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Regardless of the situation, the player's intention defines the goal, and a skill or characteristic is chosen that best suits the situation.",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-71"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "If the situation is reliant upon on external circumstances rather than an investigator's actions then a Luck roll is used.",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-72"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## A Guide to Using the Rules for Specific Situations",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-73"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Here are some examples of goals and how a Keeper might use the rules to resolve them. These are not spot rules and are only provided as suggestions to help Keep",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-74"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "## Winning at a casino:",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-75"
+        },
+        {
+          "source_ref": {
+            "grep_anchor": "Most games at a casino are based on luck; however, the odds are always stacked in favor of the house, so a straight",
+            "pdf_index": 215,
+            "source_id": "pdf:coc7-keeper-rulebook-40th",
+            "text_sha256": "0eadddee596b47709e2eebfccfae6f5248000965cc6496c1e45a621d34167ce7"
+          },
+          "span_id": "span-psychology-complete-source-page-215-block-76"
+        }
+      ]
+    },
+    "evidence_span_ids": [
+      "span-psychology-complete-source-page-215-block-56",
+      "span-psychology-complete-source-page-83-block-21",
+      "span-psychology-complete-source-page-83-block-22",
+      "span-psychology-complete-source-page-84-block-24",
+      "span-psychology-complete-source-page-84-block-25",
+      "span-psychology-complete-source-page-84-block-26"
+    ],
+    "family_id": "psychology",
+    "nodes": [
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "Existing resolver Psychology observation contract",
+        "node_id": "capability:coc7:psychology-check-contract",
+        "node_kind": "capability",
+        "properties": {
+          "adapter": "resolver",
+          "family_id": "psychology",
+          "resolver_capability": "psychology_check_contract"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "Existing resolver Psychology outcome policy",
+        "node_id": "capability:coc7:psychology-policy",
+        "node_kind": "capability",
+        "properties": {
+          "adapter": "resolver",
+          "family_id": "psychology",
+          "resolver_capability": "psychology_policy"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "Existing player-safe Psychology realization projection",
+        "node_id": "capability:coc7:psychology-realization-public-projection",
+        "node_kind": "capability",
+        "properties": {
+          "adapter": "resolver",
+          "family_id": "psychology",
+          "resolver_capability": "psychology_realization_public_projection"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "keeper",
+        "authority": "mixed",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "Settle one Keeper-concealed Psychology observation window",
+        "node_id": "decision:coc7:psychology:observe-concealed",
+        "node_kind": "decision",
+        "properties": {
+          "family_id": "psychology",
+          "implementation": {
+            "adapter": "resolver",
+            "kind": "psychology_check_contract",
+            "payload_constants": {},
+            "payload_slots": [
+              {
+                "name": "question",
+                "ownership": "player-source"
+              },
+              {
+                "name": "target_ref",
+                "ownership": "keeper-semantic"
+              },
+              {
+                "name": "investigator_id",
+                "ownership": "host-locked"
+              },
+              {
+                "name": "npc_id",
+                "ownership": "host-locked"
+              },
+              {
+                "name": "observer_skill",
+                "ownership": "host-locked"
+              },
+              {
+                "name": "target_opposing_social",
+                "ownership": "host-locked"
+              },
+              {
+                "name": "conversation_window_id",
+                "ownership": "host-locked"
+              },
+              {
+                "name": "observation_revision",
+                "ownership": "host-locked"
+              },
+              {
+                "name": "observer_scope",
+                "ownership": "host-locked"
+              },
+              {
+                "name": "observable_fact_refs",
+                "ownership": "host-locked"
+              }
+            ],
+            "phase": "settle"
+          }
+        },
+        "visibility": "concealed-result"
+      },
+      {
+        "audience": "keeper",
+        "authority": "mixed",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "Realize one frozen Psychology observation as player-safe behavior",
+        "node_id": "decision:coc7:psychology:realize-player-safe",
+        "node_kind": "decision",
+        "properties": {
+          "family_id": "psychology",
+          "implementation": {
+            "adapter": "resolver",
+            "kind": "psychology_policy",
+            "payload_constants": {},
+            "payload_slots": [
+              {
+                "name": "external_behavior",
+                "ownership": "keeper-semantic"
+              },
+              {
+                "name": "inference_ceiling",
+                "ownership": "host-locked"
+              },
+              {
+                "name": "observation_receipt_ref",
+                "ownership": "host-locked"
+              }
+            ],
+            "phase": "realize"
+          }
+        },
+        "visibility": "public"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "conversation window id",
+        "node_id": "input-slot:coc7:psychology:conversation-window-id",
+        "node_kind": "input-slot",
+        "properties": {
+          "family_id": "psychology",
+          "ownership": "host-locked",
+          "path": "receipt.last_outcome",
+          "value_type": "string"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "external behavior",
+        "node_id": "input-slot:coc7:psychology:external-behavior",
+        "node_kind": "input-slot",
+        "properties": {
+          "family_id": "psychology",
+          "ownership": "keeper-semantic",
+          "path": "intent.method",
+          "value_type": "string"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "inference ceiling",
+        "node_id": "input-slot:coc7:psychology:inference-ceiling",
+        "node_kind": "input-slot",
+        "properties": {
+          "family_id": "psychology",
+          "ownership": "host-locked",
+          "path": "receipt.last_outcome",
+          "value_type": "string"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "investigator id",
+        "node_id": "input-slot:coc7:psychology:investigator-id",
+        "node_kind": "input-slot",
+        "properties": {
+          "family_id": "psychology",
+          "ownership": "host-locked",
+          "path": "actor.id",
+          "value_type": "string"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "npc id",
+        "node_id": "input-slot:coc7:psychology:npc-id",
+        "node_kind": "input-slot",
+        "properties": {
+          "family_id": "psychology",
+          "ownership": "host-locked",
+          "path": "actor.id",
+          "value_type": "string"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "observable fact refs",
+        "node_id": "input-slot:coc7:psychology:observable-fact-refs",
+        "node_kind": "input-slot",
+        "properties": {
+          "family_id": "psychology",
+          "ownership": "host-locked",
+          "path": "receipt.last_outcome",
+          "value_type": "object"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "observation receipt ref",
+        "node_id": "input-slot:coc7:psychology:observation-receipt-ref",
+        "node_kind": "input-slot",
+        "properties": {
+          "family_id": "psychology",
+          "ownership": "host-locked",
+          "path": "receipt.last_outcome",
+          "value_type": "string"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "observation revision",
+        "node_id": "input-slot:coc7:psychology:observation-revision",
+        "node_kind": "input-slot",
+        "properties": {
+          "family_id": "psychology",
+          "ownership": "host-locked",
+          "path": "receipt.last_outcome",
+          "value_type": "int"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "observer scope",
+        "node_id": "input-slot:coc7:psychology:observer-scope",
+        "node_kind": "input-slot",
+        "properties": {
+          "family_id": "psychology",
+          "ownership": "host-locked",
+          "path": "receipt.last_outcome",
+          "value_type": "string"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "observer skill",
+        "node_id": "input-slot:coc7:psychology:observer-skill",
+        "node_kind": "input-slot",
+        "properties": {
+          "family_id": "psychology",
+          "ownership": "host-locked",
+          "path": "actor.sheet.psychology",
+          "value_type": "int"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "question",
+        "node_id": "input-slot:coc7:psychology:question",
+        "node_kind": "input-slot",
+        "properties": {
+          "family_id": "psychology",
+          "ownership": "player-source",
+          "path": "intent.method",
+          "value_type": "string"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "target opposing social",
+        "node_id": "input-slot:coc7:psychology:target-opposing-social",
+        "node_kind": "input-slot",
+        "properties": {
+          "family_id": "psychology",
+          "ownership": "host-locked",
+          "path": "actor.sheet.opposing_social",
+          "value_type": "int"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "Semantic retained psychology-target:<npc_id> reference",
+        "node_id": "input-slot:coc7:psychology:target-ref",
+        "node_kind": "input-slot",
+        "properties": {
+          "family_id": "psychology",
+          "ownership": "keeper-semantic",
+          "path": "intent.method",
+          "value_type": "string"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "keeper",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "Complete source-reviewed psychology family",
+        "node_id": "rule-family:coc7:psychology",
+        "node_kind": "rule-family",
+        "properties": {
+          "family_id": "psychology",
+          "legacy_surface": "visible",
+          "runtime_ownership": "legacy"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22"
+        ],
+        "hard_gate": false,
+        "name": "Psychology has a base chance of ten percent",
+        "node_id": "rule:coc7:psychology:base-chance-ten",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "psychology"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-83-block-22"
+        ],
+        "hard_gate": false,
+        "name": "The Keeper may roll Psychology concealed and announce only gained information",
+        "node_id": "rule:coc7:psychology:concealed-keeper-roll",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "psychology"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-84-block-24"
+        ],
+        "hard_gate": false,
+        "name": "Psychology can oppose Disguise",
+        "node_id": "rule:coc7:psychology:disguise-opposition",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "psychology"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56"
+        ],
+        "hard_gate": false,
+        "name": "After failure information may be true or false and its reliability stays unknown",
+        "node_id": "rule:coc7:psychology:failure-reliability-unknown",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "psychology"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "hard_gate": false,
+        "name": "Opposing social skill below 50 is Regular and 50 through 89 is Hard",
+        "node_id": "rule:coc7:psychology:social-difficulty-bands",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "psychology"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-84-block-24"
+        ],
+        "hard_gate": false,
+        "name": "Psychology opposes Charm, Fast Talk, Intimidate, and Persuade",
+        "node_id": "rule:coc7:psychology:social-opposition",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "psychology"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22"
+        ],
+        "hard_gate": false,
+        "name": "Psychology studies a person to infer motives and character",
+        "node_id": "rule:coc7:psychology:study-motives-character",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "psychology"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56"
+        ],
+        "hard_gate": false,
+        "name": "A successful Psychology roll reveals the truth",
+        "node_id": "rule:coc7:psychology:success-reveals-truth",
+        "node_kind": "rule",
+        "properties": {
+          "family_id": "psychology"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-83-block-22"
+        ],
+        "hard_gate": false,
+        "name": "Observation die and outcome remain Keeper-concealed",
+        "node_id": "visibility-policy:coc7:psychology:concealed-observe",
+        "node_kind": "visibility-policy",
+        "properties": {
+          "policy": "concealed-result"
+        },
+        "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56"
+        ],
+        "hard_gate": false,
+        "name": "Only external behavior is player-visible",
+        "node_id": "visibility-policy:coc7:psychology:player-safe-realize",
+        "node_kind": "visibility-policy",
+        "properties": {
+          "policy": "public"
+        },
+        "visibility": "keeper-only"
+      }
+    ],
+    "receipt": {
+      "candidate_sha256": "58dfc96ba04355fbf58723b5d603f2ae4bc584ecaeda2fb168cba000ce8e28d1",
+      "contract_id": "coc.rule-graph-review-receipt.v1",
+      "family_id": "psychology",
+      "packet_sha256": "636ab3703418d42adb4353a92baabaddec7b4e87694c90bb13ee806f421bb9c7",
+      "ruleset_id": "coc7",
+      "schema_version": 1,
+      "section_id": "section-psychology-complete-source",
+      "shard_id": "shard:coc7:psychology:section-psychology-complete-source",
+      "shard_sha256": "803da1b867ff4deed3217c4fda63330008da970944d73935b26704514103988d"
+    },
+    "relations": [
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22"
+        ],
+        "from_node_id": "rule:coc7:psychology:base-chance-ten",
+        "relation_id": "relation:coc7:psychology:base-chance-ten-applies-to-decision",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:psychology:observe-concealed"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22"
+        ],
+        "from_node_id": "rule:coc7:psychology:base-chance-ten",
+        "relation_id": "relation:coc7:psychology:base-chance-ten-invokes-capability",
+        "relation_kind": "invokes",
+        "to_node_id": "capability:coc7:psychology-check-contract"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22"
+        ],
+        "from_node_id": "rule:coc7:psychology:base-chance-ten",
+        "relation_id": "relation:coc7:psychology:base-chance-ten-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:psychology"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-83-block-22"
+        ],
+        "from_node_id": "rule:coc7:psychology:concealed-keeper-roll",
+        "relation_id": "relation:coc7:psychology:concealed-keeper-roll-applies-to-decision",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:psychology:observe-concealed"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-83-block-22"
+        ],
+        "from_node_id": "rule:coc7:psychology:concealed-keeper-roll",
+        "relation_id": "relation:coc7:psychology:concealed-keeper-roll-invokes-capability",
+        "relation_kind": "invokes",
+        "to_node_id": "capability:coc7:psychology-check-contract"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-83-block-22"
+        ],
+        "from_node_id": "rule:coc7:psychology:concealed-keeper-roll",
+        "relation_id": "relation:coc7:psychology:concealed-keeper-roll-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:psychology"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-83-block-22"
+        ],
+        "from_node_id": "visibility-policy:coc7:psychology:concealed-observe",
+        "relation_id": "relation:coc7:psychology:concealed-policy-applies-observe",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:psychology:observe-concealed"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-84-block-24"
+        ],
+        "from_node_id": "rule:coc7:psychology:disguise-opposition",
+        "relation_id": "relation:coc7:psychology:disguise-opposition-applies-to-decision",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:psychology:observe-concealed"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-84-block-24"
+        ],
+        "from_node_id": "rule:coc7:psychology:disguise-opposition",
+        "relation_id": "relation:coc7:psychology:disguise-opposition-invokes-capability",
+        "relation_kind": "invokes",
+        "to_node_id": "capability:coc7:psychology-check-contract"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-84-block-24"
+        ],
+        "from_node_id": "rule:coc7:psychology:disguise-opposition",
+        "relation_id": "relation:coc7:psychology:disguise-opposition-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:psychology"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56"
+        ],
+        "from_node_id": "rule:coc7:psychology:failure-reliability-unknown",
+        "relation_id": "relation:coc7:psychology:failure-reliability-unknown-applies-to-decision",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:psychology:realize-player-safe"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56"
+        ],
+        "from_node_id": "rule:coc7:psychology:failure-reliability-unknown",
+        "relation_id": "relation:coc7:psychology:failure-reliability-unknown-invokes-capability",
+        "relation_kind": "invokes",
+        "to_node_id": "capability:coc7:psychology-policy"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56"
+        ],
+        "from_node_id": "rule:coc7:psychology:failure-reliability-unknown",
+        "relation_id": "relation:coc7:psychology:failure-reliability-unknown-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:psychology"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:observe-concealed",
+        "relation_id": "relation:coc7:psychology:observe-concealed-conversation-window-id",
+        "relation_kind": "locks-input",
+        "to_node_id": "input-slot:coc7:psychology:conversation-window-id"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:observe-concealed",
+        "relation_id": "relation:coc7:psychology:observe-concealed-investigator-id",
+        "relation_kind": "locks-input",
+        "to_node_id": "input-slot:coc7:psychology:investigator-id"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:observe-concealed",
+        "relation_id": "relation:coc7:psychology:observe-concealed-npc-id",
+        "relation_kind": "locks-input",
+        "to_node_id": "input-slot:coc7:psychology:npc-id"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:observe-concealed",
+        "relation_id": "relation:coc7:psychology:observe-concealed-observable-fact-refs",
+        "relation_kind": "locks-input",
+        "to_node_id": "input-slot:coc7:psychology:observable-fact-refs"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:observe-concealed",
+        "relation_id": "relation:coc7:psychology:observe-concealed-observation-revision",
+        "relation_kind": "locks-input",
+        "to_node_id": "input-slot:coc7:psychology:observation-revision"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:observe-concealed",
+        "relation_id": "relation:coc7:psychology:observe-concealed-observer-scope",
+        "relation_kind": "locks-input",
+        "to_node_id": "input-slot:coc7:psychology:observer-scope"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:observe-concealed",
+        "relation_id": "relation:coc7:psychology:observe-concealed-observer-skill",
+        "relation_kind": "locks-input",
+        "to_node_id": "input-slot:coc7:psychology:observer-skill"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:observe-concealed",
+        "relation_id": "relation:coc7:psychology:observe-concealed-question",
+        "relation_kind": "requires-input",
+        "to_node_id": "input-slot:coc7:psychology:question"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:observe-concealed",
+        "relation_id": "relation:coc7:psychology:observe-concealed-target-opposing-social",
+        "relation_kind": "locks-input",
+        "to_node_id": "input-slot:coc7:psychology:target-opposing-social"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:observe-concealed",
+        "relation_id": "relation:coc7:psychology:observe-concealed-target-ref",
+        "relation_kind": "requires-input",
+        "to_node_id": "input-slot:coc7:psychology:target-ref"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:observe-concealed",
+        "relation_id": "relation:coc7:psychology:observe-continues-as-realize",
+        "relation_kind": "continues-as",
+        "to_node_id": "decision:coc7:psychology:realize-player-safe"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:observe-concealed",
+        "relation_id": "relation:coc7:psychology:observe-invokes-contract",
+        "relation_kind": "invokes",
+        "to_node_id": "capability:coc7:psychology-check-contract"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "capability:coc7:psychology-policy",
+        "relation_id": "relation:coc7:psychology:policy-implemented-by-public-projection",
+        "relation_kind": "implemented-by",
+        "to_node_id": "capability:coc7:psychology-realization-public-projection"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56"
+        ],
+        "from_node_id": "visibility-policy:coc7:psychology:player-safe-realize",
+        "relation_id": "relation:coc7:psychology:public-policy-applies-realize",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:psychology:realize-player-safe"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:realize-player-safe",
+        "relation_id": "relation:coc7:psychology:realize-invokes-policy",
+        "relation_kind": "invokes",
+        "to_node_id": "capability:coc7:psychology-policy"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:realize-player-safe",
+        "relation_id": "relation:coc7:psychology:realize-player-safe-external-behavior",
+        "relation_kind": "requires-input",
+        "to_node_id": "input-slot:coc7:psychology:external-behavior"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:realize-player-safe",
+        "relation_id": "relation:coc7:psychology:realize-player-safe-inference-ceiling",
+        "relation_kind": "locks-input",
+        "to_node_id": "input-slot:coc7:psychology:inference-ceiling"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56",
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22",
+          "span-psychology-complete-source-page-84-block-24",
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "decision:coc7:psychology:realize-player-safe",
+        "relation_id": "relation:coc7:psychology:realize-player-safe-observation-receipt-ref",
+        "relation_kind": "locks-input",
+        "to_node_id": "input-slot:coc7:psychology:observation-receipt-ref"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "rule:coc7:psychology:social-difficulty-bands",
+        "relation_id": "relation:coc7:psychology:social-difficulty-bands-applies-to-decision",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:psychology:observe-concealed"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "rule:coc7:psychology:social-difficulty-bands",
+        "relation_id": "relation:coc7:psychology:social-difficulty-bands-invokes-capability",
+        "relation_kind": "invokes",
+        "to_node_id": "capability:coc7:psychology-check-contract"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-84-block-25",
+          "span-psychology-complete-source-page-84-block-26"
+        ],
+        "from_node_id": "rule:coc7:psychology:social-difficulty-bands",
+        "relation_id": "relation:coc7:psychology:social-difficulty-bands-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:psychology"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-84-block-24"
+        ],
+        "from_node_id": "rule:coc7:psychology:social-opposition",
+        "relation_id": "relation:coc7:psychology:social-opposition-applies-to-decision",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:psychology:observe-concealed"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-84-block-24"
+        ],
+        "from_node_id": "rule:coc7:psychology:social-opposition",
+        "relation_id": "relation:coc7:psychology:social-opposition-invokes-capability",
+        "relation_kind": "invokes",
+        "to_node_id": "capability:coc7:psychology-check-contract"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-84-block-24"
+        ],
+        "from_node_id": "rule:coc7:psychology:social-opposition",
+        "relation_id": "relation:coc7:psychology:social-opposition-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:psychology"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22"
+        ],
+        "from_node_id": "rule:coc7:psychology:study-motives-character",
+        "relation_id": "relation:coc7:psychology:study-motives-character-applies-to-decision",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:psychology:observe-concealed"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22"
+        ],
+        "from_node_id": "rule:coc7:psychology:study-motives-character",
+        "relation_id": "relation:coc7:psychology:study-motives-character-invokes-capability",
+        "relation_kind": "invokes",
+        "to_node_id": "capability:coc7:psychology-check-contract"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-83-block-21",
+          "span-psychology-complete-source-page-83-block-22"
+        ],
+        "from_node_id": "rule:coc7:psychology:study-motives-character",
+        "relation_id": "relation:coc7:psychology:study-motives-character-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:psychology"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56"
+        ],
+        "from_node_id": "rule:coc7:psychology:success-reveals-truth",
+        "relation_id": "relation:coc7:psychology:success-reveals-truth-applies-to-decision",
+        "relation_kind": "applies-to",
+        "to_node_id": "decision:coc7:psychology:realize-player-safe"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56"
+        ],
+        "from_node_id": "rule:coc7:psychology:success-reveals-truth",
+        "relation_id": "relation:coc7:psychology:success-reveals-truth-invokes-capability",
+        "relation_kind": "invokes",
+        "to_node_id": "capability:coc7:psychology-policy"
+      },
+      {
+        "evidence_span_ids": [
+          "span-psychology-complete-source-page-215-block-56"
+        ],
+        "from_node_id": "rule:coc7:psychology:success-reveals-truth",
+        "relation_id": "relation:coc7:psychology:success-reveals-truth-part-of",
+        "relation_kind": "part-of",
+        "to_node_id": "rule-family:coc7:psychology"
+      }
+    ],
+    "ruleset_id": "coc7",
+    "ruleset_version": "1.0.0",
+    "schema_version": 1,
+    "section_id": "section-psychology-complete-source",
+    "shard_id": "shard:coc7:psychology:section-psychology-complete-source",
+    "source_language": "en"
+  },
+  "contract_id": "coc.rule-graph-accepted-evidence.v1",
+  "shard_id": "shard:coc7:psychology:section-psychology-complete-source"
+}

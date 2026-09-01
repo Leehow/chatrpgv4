@@ -237,8 +237,8 @@ def test_full_flow_trigger_fires_after_safe_rest(campaign_with_inv):
 # --------------------------------------------------------------------------- #
 # Handler dispatch: treatment trigger + indefinite insanity recovery
 # --------------------------------------------------------------------------- #
-def test_indefinite_insanity_schedules_weekly_treatment(campaign):
-    """Triggering indefinite insanity schedules a weekly treatment trigger."""
+def test_indefinite_insanity_schedules_monthly_not_weekly_treatment(campaign):
+    """Indefinite treatment follows the rulebook's monthly cadence."""
     s = coc_sanity.SanitySession(
         "inv1", san_max=60, int_value=50, rng=random.Random(1),
         campaign_dir=campaign)
@@ -248,12 +248,15 @@ def test_indefinite_insanity_schedules_weekly_treatment(campaign):
     assert len(treatment) == 1
     assert treatment[0]["policy"] == "auto_apply_if_safe"
     assert treatment[0]["payload"]["condition"] == "indefinite_insane"
-    # Due ~1 week (7*24*60 = 10080 min) from now (elapsed 0).
-    assert treatment[0]["due_elapsed_minutes"] == 7 * 24 * 60
+    # The old 7-day trigger contradicted the source. The elapsed-time layer
+    # represents one treatment month as 30 days.
+    assert treatment[0]["due_elapsed_minutes"] == 30 * 24 * 60
+    assert treatment[0]["due_elapsed_minutes"] != 7 * 24 * 60
+    assert "monthly Psychoanalysis" in s.events[-1]["payload"]["summary"]
 
 
 def test_treatment_handler_dispatch_recovers_san(campaign_with_inv):
-    """When the weekly treatment trigger fires, PsychotherapySession runs and
+    """When the monthly treatment trigger fires, PsychotherapySession runs and
     the recovered SAN is written back to investigator-state."""
     campaign = campaign_with_inv
     # Seed an investigator in indefinite insanity with a Psychoanalysis skill.

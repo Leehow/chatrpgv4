@@ -2257,7 +2257,7 @@ _PERCENTILE_INVOCATION_FIELDS = frozenset({
 
 _COMBINED_PERCENTILE_INVOCATION_FIELDS = frozenset({
     *_PERCENTILE_INVOCATION_FIELDS,
-    "combined_targets", "helper_count", "helper_bonus_dice",
+    "combined_targets", "combined_mode",
 })
 
 _COMBINED_TARGET_FIELDS = frozenset({"label", "value"})
@@ -2677,23 +2677,18 @@ def _combined_roll_evidence_is_consistent(
     payload: dict[str, Any],
 ) -> bool:
     targets = operation.get("combined_targets")
-    helper_count = operation.get("helper_count")
-    helper_bonus = operation.get("helper_bonus_dice")
+    comparison_mode = operation.get("combined_mode")
     roll = data.get("roll")
     required_level = operation.get("required_level")
     rule = coc_rules.combined_roll_rule()
     minimum = int(rule["minimum_compared_targets"])
-    bonus_cap = int(rule["teamwork"]["max_bonus_dice"])
     if (
         set(operation) != set(_COMBINED_PERCENTILE_INVOCATION_FIELDS)
         or not isinstance(targets, list)
         or len(targets) < minimum
         or len(targets) > 8
-        or not _is_exact_int(helper_count)
-        or helper_count < 0
-        or not _is_exact_int(helper_bonus)
-        or helper_bonus != min(helper_count, bonus_cap)
-        or operation.get("bonus") != helper_bonus
+        or comparison_mode not in {"any", "all"}
+        or operation.get("bonus") != 0
         or operation.get("penalty") != 0
         or operation.get("visibility") != "public"
         or operation.get("skill") is not None
@@ -2724,8 +2719,7 @@ def _combined_roll_evidence_is_consistent(
         normalized,
         roll=roll,
         required_level=str(required_level),
-        helper_count=helper_count,
-        helper_bonus_dice=helper_bonus,
+        comparison_mode=str(comparison_mode),
     )
     projection = coc_roll.build_player_projection(
         data,
@@ -2927,6 +2921,10 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
             or any(
                 data.get(key) != value
                 for key, value in (expected_result or {}).items()
+                if not (
+                    is_combined
+                    and key in {"success", "outcome", "achieved_level"}
+                )
             )
             or resolution.get("resolved_target") != data.get("target")
             or resolution.get("resolved_target") != record.get("target")
@@ -5158,8 +5156,7 @@ def _combined_roll_projection(
     *,
     roll: int,
     required_level: str,
-    helper_count: int,
-    helper_bonus_dice: int,
+    comparison_mode: str,
 ) -> dict[str, Any]:
     """Project many target verdicts from the existing one-roll settlement."""
     comparisons: list[dict[str, Any]] = []
@@ -5175,17 +5172,19 @@ def _combined_roll_projection(
             "outcome": str(settled["outcome"]),
             "success": bool(settled["success"]),
         })
+    if comparison_mode not in {"any", "all"}:
+        raise ToolError("invalid_param", "combined_mode must be any or all")
+    overall_success = (
+        any(row["success"] for row in comparisons)
+        if comparison_mode == "any"
+        else all(row["success"] for row in comparisons)
+    )
     return {
         "rule_ref": "core.combined_roll",
         "roll_count": 1,
-        "comparison_mode": "any",
+        "comparison_mode": comparison_mode,
         "targets": comparisons,
-        "helper_count": helper_count,
-        "helper_bonus_dice": helper_bonus_dice,
-        "helper_bonus_cap": int(
-            coc_rules.combined_roll_rule()["teamwork"]["max_bonus_dice"]
-        ),
-        "overall_success": any(row["success"] for row in comparisons),
+        "overall_success": overall_success,
         "development_tick_eligible": False,
         "push_eligible": False,
         "luck_spend_eligible": False,
@@ -5348,6 +5347,11 @@ def _normalize_percentile_invocation(
         "social_adjudication_ref": social_adjudication_ref,
     }
     if "combined_targets" in args:
+        if "helper_count" in args:
+            raise ToolError(
+                "invalid_param",
+                "helper_count is not part of source-backed combined skill rolls",
+            )
         if any(
             args.get(field) not in (None, "")
             for field in ("skill", "characteristic", "target", "npc_id", "social_adjudication_ref")
@@ -5360,34 +5364,29 @@ def _normalize_percentile_invocation(
         if bonus != 0 or penalty != 0:
             raise ToolError(
                 "invalid_param",
-                "combined rolls derive bonus dice only from helper_count; "
-                "do not also pass bonus or penalty",
+                "combined rolls use one unmodified D100; do not pass bonus or penalty",
             )
         if visibility != "public":
             raise ToolError(
                 "invalid_param", "combined rolls must keep their one receipt public"
             )
         targets = _normalize_combined_targets(args.get("combined_targets"))
-        helper_count = args.get("helper_count", 0)
-        if not _is_exact_int(helper_count) or helper_count < 0:
+        comparison_mode = args.get("combined_mode")
+        if comparison_mode not in {"any", "all"}:
             raise ToolError(
-                "invalid_param", "helper_count must be a non-negative integer"
+                "invalid_param",
+                "combined_mode=any|all is required with combined_targets",
             )
-        rule = coc_rules.combined_roll_rule()
-        helper_bonus = min(
-            int(helper_count), int(rule["teamwork"]["max_bonus_dice"])
-        )
         operation.update({
             "explicit_target": max(int(row["value"]) for row in targets),
-            "bonus": helper_bonus,
+            "bonus": 0,
             "penalty": 0,
             "combined_targets": targets,
-            "helper_count": int(helper_count),
-            "helper_bonus_dice": helper_bonus,
+            "combined_mode": comparison_mode,
         })
-    elif "helper_count" in args:
+    elif "helper_count" in args or "combined_mode" in args:
         raise ToolError(
-            "invalid_param", "helper_count is valid only with combined_targets"
+            "invalid_param", "combined-only arguments require combined_targets"
         )
     if (
         isinstance(frozen_operation, dict)
@@ -6205,14 +6204,12 @@ def _roll_common(
             combined_targets,
             roll=int(result["roll"]),
             required_level=difficulty,
-            helper_count=int(operation["helper_count"]),
-            helper_bonus_dice=int(operation["helper_bonus_dice"]),
+            comparison_mode=str(operation["combined_mode"]),
         )
-        if result["combined_roll"]["overall_success"] != bool(result["success"]):
-            raise ToolError(
-                "invalid_ruleset",
-                "combined roll aggregate contradicts the one canonical die result",
-            )
+        result["success"] = bool(result["combined_roll"]["overall_success"])
+        if not result["success"]:
+            result["outcome"] = "failure"
+            result["achieved_level"] = "failure"
     if operation.get("reason"):
         result["reason"] = str(operation["reason"])
     if operation.get("npc_id"):
@@ -6653,6 +6650,80 @@ def _safe_sheet(ctx: Ctx, investigator_id: str) -> dict[str, Any] | None:
     return sheet if isinstance(sheet, dict) else None
 
 
+def _semantic_ref_value(value: Any, prefix: str) -> str | None:
+    text = str(value or "").strip()
+    expected = prefix + ":"
+    return text[len(expected):] if text.startswith(expected) and text[len(expected):] else None
+
+
+def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
+    world_provider = getattr(ctx, "world", None)
+    story_graph = getattr(ctx, "story_graph", None)
+    if not callable(world_provider) or not isinstance(story_graph, Mapping):
+        return {"actors": {}, "locations": {}, "scene_id": None}
+    world = world_provider()
+    scene_id = str(world.get("active_scene_id") or "")
+    scene = _scene_by_id(story_graph, scene_id)
+    if not scene_id or not isinstance(scene, Mapping):
+        return {"actors": {}, "locations": {}}
+    actors: dict[str, dict[str, Any]] = {}
+    for party_id in ctx.party_ids():
+        sheet = _safe_sheet(ctx, party_id)
+        if not isinstance(sheet, Mapping):
+            continue
+        state = ctx.inv_state(party_id)
+        chars = sheet.get("characteristics") if isinstance(sheet.get("characteristics"), Mapping) else {}
+        skills = sheet.get("skills") if isinstance(sheet.get("skills"), Mapping) else {}
+        derived = sheet.get("derived") if isinstance(sheet.get("derived"), Mapping) else {}
+        actors[f"investigator:{party_id}"] = {
+            "actor_id": party_id,
+            "mov": int(derived.get("MOV", 8)),
+            "dex": int(chars.get("DEX", 50)),
+            "con": int(chars.get("CON", 50)),
+            "hp": int(state.get("current_hp", derived.get("HP", 10))),
+            "fight": int(skills.get("Fighting (Brawl)", 25)),
+            "dodge": int(skills.get("Dodge", max(1, int(chars.get("DEX", 50)) // 2))),
+            "build": int(state.get("build", 0)),
+            "conditions": list(state.get("conditions") or []),
+        }
+    for npc_id in (scene.get("npc_ids") or []):
+        npc_id = str(npc_id)
+        npc = _npc_by_id(ctx.npc_agendas, npc_id)
+        mechanics = npc.get("mechanics") if isinstance(npc, Mapping) else None
+        profile = mechanics.get("profile") if isinstance(mechanics, Mapping) else None
+        if not isinstance(profile, Mapping):
+            continue
+        actors[f"npc:{npc_id}"] = {
+            "actor_id": npc_id,
+            "mov": int(profile.get("mov", profile.get("MOV", 8))),
+            "dex": int(profile.get("dex", profile.get("DEX", 50))),
+            "con": int(profile.get("con", profile.get("CON", 50))),
+            "hp": int(profile.get("hp", profile.get("HP", 10))),
+            "fight": int(profile.get("combat_skill", profile.get("fight", 25))),
+            "dodge": int(profile.get("dodge_skill", profile.get("dodge", 25))),
+            "build": int(profile.get("build", 0)),
+            "conditions": list(profile.get("conditions") or []),
+        }
+    connected = {scene_id}
+    connected.update(str(value) for value in scene.get("exit_targets") or [] if str(value))
+    for edge in scene.get("scene_edges") or []:
+        if isinstance(edge, Mapping):
+            target = edge.get("target_scene_id") or edge.get("destination_scene_id") or edge.get("to")
+            if isinstance(target, str) and target:
+                connected.add(target)
+    locations: dict[str, dict[str, Any]] = {}
+    for candidate_id in connected:
+        candidate = _scene_by_id(story_graph, candidate_id)
+        if not isinstance(candidate, Mapping):
+            continue
+        locations[f"scene:{candidate_id}"] = {
+            "label": candidate_id,
+            "hazard": deepcopy(candidate.get("hazard")) if isinstance(candidate.get("hazard"), Mapping) else None,
+            "barrier": deepcopy(candidate.get("barrier")) if isinstance(candidate.get("barrier"), Mapping) else None,
+        }
+    return {"actors": actors, "locations": locations, "scene_id": scene_id}
+
+
 def _facts_provider_for(ctx: Ctx, investigator_id: str, ruleset_id: str):
     """Live facts for card projection: investigator state + campaign clock.
 
@@ -6674,12 +6745,141 @@ def _facts_provider_for(ctx: Ctx, investigator_id: str, ruleset_id: str):
                 elapsed = candidate
         except Exception:
             elapsed = None
-        return coc_rules_runtime.facts_from_state(
+        facts = coc_rules_runtime.facts_from_state(
             state if isinstance(state, dict) else {},
             sheet,
             ruleset_id=ruleset_id,
             elapsed_minutes=elapsed,
         )
+        snapshot = _read_optional_json(
+            ctx.campaign_dir / "save" / "sanity-state" / f"{investigator_id}.json",
+            {},
+        )
+        try:
+            choices = coc_subsystem_executor.get_current_pending_choices(
+                ctx.campaign_dir,
+            )
+        except Exception:
+            choices = []
+        try:
+            due = coc_time.peek_due_triggers(ctx.campaign_dir)
+        except Exception:
+            due = []
+        facts.update({
+            "sanity.bout.pending": any(
+                isinstance(row, Mapping) and row.get("kind") == "bout_keeper_action"
+                for row in choices
+            ),
+            "sanity.delusion.active": isinstance(snapshot, Mapping)
+            and isinstance(snapshot.get("active_delusion"), Mapping),
+            "sanity.treatment.due": any(
+                isinstance(row, Mapping)
+                and row.get("handler") == "apply_psychoanalysis_treatment"
+                for row in due
+            ),
+            "sanity.recovery.due": any(
+                isinstance(row, Mapping)
+                and row.get("handler") == "recover_temporary_insanity"
+                for row in due
+            ),
+            "sanity.insane": isinstance(snapshot, Mapping) and bool(
+                snapshot.get("temporary_insane") or snapshot.get("indefinite_insane")
+            ),
+            # No canonical pending SAN-gain receipt producer exists yet.
+            "sanity.gain.pending": False,
+        })
+        chase = _read_optional_json(ctx.campaign_dir / "save" / "chase.json", None)
+        chase_active = isinstance(chase, Mapping) and chase.get("status") == "active"
+        chase_start = _chase_start_candidates(ctx, investigator_id)
+        chase_choices = [
+            row for row in choices
+            if isinstance(row, Mapping) and row.get("kind") == "chase_action"
+        ]
+        pending_kind = None
+        if len(chase_choices) == 1:
+            actions = {
+                str(option.get("action") or "")
+                for option in chase_choices[0].get("options") or []
+                if isinstance(option, Mapping)
+            }
+            if actions and all(action.startswith("barrier:") for action in actions):
+                pending_kind = "barrier"
+        if chase_active and pending_kind is None:
+            rounds = chase.get("rounds") if isinstance(chase.get("rounds"), list) else []
+            order = rounds[-1].get("dex_order") if rounds and isinstance(rounds[-1], Mapping) else []
+            cursor = int(chase.get("initiative_cursor", 0))
+            participants = {
+                str(row.get("actor_id")): row
+                for row in chase.get("participants") or [] if isinstance(row, Mapping)
+            }
+            if isinstance(order, list) and cursor < len(order):
+                actor = participants.get(str(order[cursor]))
+                chain = chase.get("location_chain") if isinstance(chase.get("location_chain"), list) else []
+                position = int(actor.get("position", 0)) if isinstance(actor, Mapping) else -1
+                nxt = chain[position + 1] if 0 <= position + 1 < len(chain) else None
+                if isinstance(nxt, Mapping) and isinstance(nxt.get("barrier"), Mapping):
+                    pending_kind = "barrier"
+                elif isinstance(nxt, Mapping) and isinstance(nxt.get("hazard"), Mapping):
+                    pending_kind = "hazard"
+                else:
+                    pending_kind = "move"
+            quarries = [
+                row for row in participants.values() if row.get("side") == "quarry"
+            ]
+            if quarries and all(row.get("escaped") or row.get("captured") for row in quarries):
+                pending_kind = "end"
+        facts.update({
+            "chase.session.active": chase_active,
+            "chase.session.inactive": not chase_active,
+            "chase.start.ready": (
+                not chase_active
+                and len(chase_start.get("actors") or {}) >= 2
+                and len(chase_start.get("locations") or {}) >= 2
+            ),
+            "chase.pending.kind": pending_kind,
+            "chase.conflict.receipt-ready": False,
+        })
+        magic = state.get("magic") if isinstance(state.get("magic"), Mapping) else {}
+        facts["magic.known_spells"] = [
+            str(value) for value in magic.get("learned_spells") or []
+            if isinstance(value, str)
+        ]
+        magic_sources: dict[str, list[str]] = {}
+        npc_agendas = getattr(ctx, "npc_agendas", {})
+        npc_rows = npc_agendas.get("npcs") if isinstance(npc_agendas, Mapping) else []
+        if isinstance(npc_rows, Mapping):
+            npc_rows = list(npc_rows.values())
+        for row in npc_rows if isinstance(npc_rows, list) else []:
+            if not isinstance(row, Mapping):
+                continue
+            npc_id = str(row.get("npc_id") or row.get("id") or "")
+            source_kind = str(row.get("magic_source_kind") or "")
+            profile = (
+                (row.get("mechanics") or {}).get("profile")
+                if isinstance(row.get("mechanics"), Mapping) else {}
+            )
+            spells = row.get("spells") or (
+                profile.get("spells") if isinstance(profile, Mapping) else []
+            )
+            if (
+                npc_id and source_kind in {"person", "entity"}
+                and isinstance(spells, list)
+            ):
+                magic_sources[f"{source_kind}:{npc_id}"] = [
+                    str(value) for value in spells if isinstance(value, str)
+                ]
+        facts["magic.learn.sources"] = magic_sources
+        ending = coc_development.structured_ending_evidence(ctx.campaign_dir)
+        facts["development.settlement.pending"] = bool(
+            isinstance(ending, Mapping)
+            and isinstance(ending.get("ending_id"), str)
+            and not coc_development.ending_settlement_path(
+                ctx.campaign_dir,
+                str(ending["ending_id"]),
+                investigator_id,
+            ).is_file()
+        )
+        return facts
     return provider
 
 
@@ -6773,6 +6973,18 @@ def _rules_runtime_for_ctx(
         adapter = coc_rulesets.get_rule_graph_adapter(ruleset_id)
         if adapter is not None:
             ruleset_adapter = adapter
+            host_index = getattr(adapter, "host_capability_index", None)
+            if callable(host_index):
+                host_capabilities = host_index()
+                if isinstance(host_capabilities, Mapping):
+                    index = {
+                        **(index if isinstance(index, dict) else {}),
+                        **{
+                            str(key): deepcopy(dict(value))
+                            for key, value in host_capabilities.items()
+                            if isinstance(value, Mapping)
+                        },
+                    }
             blocker_provider = getattr(adapter, "promotion_blockers", None)
             blockers = (
                 blocker_provider(family) if callable(blocker_provider) else []
@@ -6808,6 +7020,83 @@ def _rules_runtime_for_ctx(
     return runtime, owner, surface, loaded
 
 
+def _latest_graph_check_receipt(
+    ctx: Ctx,
+    *,
+    investigator_id: str,
+) -> tuple[str, dict[str, Any]] | None:
+    """Latest actor-owned graph D100 receipt for Push/Luck continuity."""
+    ledger = ctx._load_ledger()
+    candidates: list[tuple[str, str, dict[str, Any]]] = []
+    for entry in (ledger.get("entries") or {}).values():
+        if not isinstance(entry, Mapping) or entry.get("tool") != "rules.settle":
+            continue
+        data = entry.get("data") if isinstance(entry.get("data"), Mapping) else {}
+        source_decision = (
+            str(data.get("family") or ""),
+            str(data.get("decision_ref") or ""),
+        )
+        if source_decision not in {
+            (
+                "core-check",
+                "decision:coc7:core-check:ordinary-check",
+            ),
+            (
+                "social",
+                "decision:coc7:social:adjudicate-difficulty",
+            ),
+        }:
+            continue
+        settlement = data.get("settlement") if isinstance(data.get("settlement"), Mapping) else {}
+        result = settlement.get("result") if isinstance(settlement.get("result"), Mapping) else {}
+        check = result.get("bound_check") if isinstance(result.get("bound_check"), Mapping) else {}
+        if (
+            str(check.get("outcome") or "") != "failure"
+            or str(check.get("investigator_id") or "") != investigator_id
+        ):
+            continue
+        candidates.append((
+            str(entry.get("ts") or ""),
+            str(entry.get("decision_id") or ""),
+            deepcopy(dict(check)),
+        ))
+    if not candidates:
+        return None
+    _ts, decision_id, check = sorted(candidates)[-1]
+    return decision_id, check
+
+
+def _latest_graph_psychology_observation(
+    ctx: Ctx,
+) -> tuple[str, dict[str, Any]] | None:
+    """Latest durable graph observation for realization after host restart."""
+    ledger = ctx._load_ledger()
+    candidates: list[tuple[str, str, dict[str, Any]]] = []
+    for entry in (ledger.get("entries") or {}).values():
+        if not isinstance(entry, Mapping) or entry.get("tool") != "rules.settle":
+            continue
+        data = entry.get("data") if isinstance(entry.get("data"), Mapping) else {}
+        if (
+            data.get("family") != "psychology"
+            or data.get("decision_ref")
+            != "decision:coc7:psychology:observe-concealed"
+        ):
+            continue
+        settlement = data.get("settlement") if isinstance(data.get("settlement"), Mapping) else {}
+        result = settlement.get("result") if isinstance(settlement.get("result"), Mapping) else {}
+        if not str(result.get("insight_id") or ""):
+            continue
+        candidates.append((
+            str(entry.get("ts") or ""),
+            str(entry.get("decision_id") or ""),
+            deepcopy(dict(result)),
+        ))
+    if not candidates:
+        return None
+    _ts, decision_id, result = sorted(candidates)[-1]
+    return decision_id, result
+
+
 def _project_healing_decision_cards(
     ctx: Ctx, investigator_id: str | None,
 ) -> dict[str, Any]:
@@ -6839,7 +7128,7 @@ def _project_healing_decision_cards(
 
 
 def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
-    """Exact-discovery ``rules.context``. Grants stay host-internal."""
+    """Keeper-visible ``rules.context``. Grants stay host-internal."""
     family = str(args.get("family") or "healing").strip() or "healing"
     investigator_id: str | None = None
     try:
@@ -6867,6 +7156,18 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
         }, [], []
     kind = str(args.get("kind") or "procedure").strip() or "procedure"
     question: dict[str, Any] = {"family": family, "kind": kind}
+    if family == "push-luck":
+        source = _latest_graph_check_receipt(
+            ctx, investigator_id=investigator_id,
+        )
+        if source is not None:
+            question["_host_source_decision_id"] = source[0]
+            question["_host_source_receipt"] = source[1]
+    elif family == "psychology":
+        source = _latest_graph_psychology_observation(ctx)
+        if source is not None:
+            question["_host_source_decision_id"] = source[0]
+            question["_host_source_receipt"] = source[1]
     selected = args.get("selected_affordance_ids")
     if isinstance(selected, list):
         question["selected_affordance_ids"] = [
@@ -6880,6 +7181,28 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
         if isinstance(semantic, dict):
             question["semantic_inputs"] = semantic
     result = runtime.context(question)
+    if family == "combat":
+        handler = globals().get("_tool_combat_context")
+        if callable(handler):
+            context_data, context_warnings, context_hints = handler(
+                ctx, {"investigator": investigator_id},
+            )
+            result["canonical_context"] = context_data
+            if context_warnings:
+                result.setdefault("warnings", []).extend(context_warnings)
+            if context_hints:
+                result.setdefault("hints", []).extend(context_hints)
+    elif family == "sanity":
+        handler = globals().get("_tool_sanity_context")
+        if callable(handler):
+            context_data, context_warnings, context_hints = handler(
+                ctx, {"investigator": investigator_id},
+            )
+            result["canonical_context"] = context_data
+            if context_warnings:
+                result.setdefault("warnings", []).extend(context_warnings)
+            if context_hints:
+                result.setdefault("hints", []).extend(context_hints)
     findings = result.get("findings") if isinstance(result.get("findings"), list) else []
     if findings:
         coc_rules_runtime.record_host_internal_findings(
@@ -6900,6 +7223,441 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
         if isinstance(card, Mapping)
     ]
     return public, [], []
+
+
+def _canonical_social_binding(
+    ctx: Ctx,
+    *,
+    investigator_id: str,
+    semantic_inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Rebuild the retained SocialInteractionCandidate from canonical state.
+
+    Pi keeps its retained candidate in host memory, so the toolbox rebuilds
+    the same deterministic identity from semantic target + current scene.
+    This is intentionally narrower than accepting a model-authored NPC or
+    conversation id.
+    """
+    target_ref = str(semantic_inputs.get("target_ref") or "").strip()
+    prefix = "social-target:"
+    if not target_ref.startswith(prefix) or not target_ref[len(prefix):]:
+        raise ToolError(
+            "invalid_semantic_input",
+            "target_ref must use social-target:<npc_id>",
+        )
+    npc_id = target_ref[len(prefix):]
+    if ":" in npc_id:
+        raise ToolError(
+            "invalid_semantic_input",
+            "social target must contain one canonical npc id",
+        )
+    commitment_id = str(semantic_inputs.get("commitment_ref") or "").strip()
+    if not commitment_id.startswith("commitment:") or len(commitment_id) <= 11:
+        raise ToolError(
+            "invalid_semantic_input",
+            "commitment_ref must use commitment:<semantic-slug>",
+        )
+    active_scene_id = str(ctx.world().get("active_scene_id") or "").strip()
+    scene = _scene_by_id(ctx.story_graph, active_scene_id)
+    if not active_scene_id or not isinstance(scene, Mapping):
+        raise ToolError(
+            "social_candidate_stale",
+            "no canonical active scene is available for the social target",
+        )
+    authored_present = {
+        str(value) for value in (scene.get("npc_ids") or []) if str(value)
+    }
+    presence = _load_npc_presence_document(ctx).get("presence") or {}
+    live = presence.get(npc_id) if isinstance(presence, Mapping) else None
+    explicitly_present = (
+        isinstance(live, Mapping)
+        and live.get("status") == "present"
+        and str(live.get("scene_id") or "") == active_scene_id
+    )
+    explicitly_absent = isinstance(live, Mapping) and not explicitly_present
+    if (npc_id not in authored_present and not explicitly_present) or explicitly_absent:
+        raise ToolError(
+            "social_candidate_stale",
+            "the semantic social target is not present in the active scene",
+            details={"target_ref": target_ref, "active_scene_id": active_scene_id},
+        )
+    if not isinstance(_npc_by_id(ctx.npc_agendas, npc_id), Mapping):
+        raise ToolError(
+            "social_candidate_stale",
+            "the social target has no canonical authored NPC record",
+            details={"target_ref": target_ref},
+        )
+    evidence_ref = f"npc_agenda:{npc_id}"
+    return {
+        "target_ref": target_ref,
+        "npc_id": npc_id,
+        "conversation_window_id": (
+            f"conversation:{active_scene_id}:{investigator_id}:{npc_id}"
+        ),
+        "commitment_id": commitment_id,
+        "motive_evidence": [evidence_ref],
+    }
+
+
+def _canonical_psychology_binding(
+    ctx: Ctx,
+    *,
+    investigator_id: str,
+    semantic_inputs: Mapping[str, Any],
+    observation_result: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Bind one Psychology target/window from semantic ref or durable insight."""
+    observation: Mapping[str, Any] | None = None
+    if isinstance(observation_result, Mapping):
+        insight_id = str(observation_result.get("insight_id") or "")
+        document = _read_optional_json(
+            ctx.campaign_dir / "save" / "psychology-observations.json",
+            {"observations": {}},
+        )
+        rows = document.get("observations") if isinstance(document, Mapping) else {}
+        matches = [
+            row for row in (rows.values() if isinstance(rows, Mapping) else [])
+            if isinstance(row, Mapping) and str(row.get("insight_id") or "") == insight_id
+        ]
+        if len(matches) != 1:
+            raise ToolError(
+                "psychology_observation_stale",
+                "the durable Psychology observation receipt is unavailable or ambiguous",
+            )
+        observation = matches[0]
+        npc_id = str(observation.get("npc_id") or "")
+    else:
+        target_ref = str(semantic_inputs.get("target_ref") or "").strip()
+        prefix = "psychology-target:"
+        if not target_ref.startswith(prefix) or not target_ref[len(prefix):]:
+            raise ToolError(
+                "invalid_semantic_input",
+                "target_ref must use psychology-target:<npc_id>",
+            )
+        npc_id = target_ref[len(prefix):]
+        if ":" in npc_id:
+            raise ToolError(
+                "invalid_semantic_input",
+                "Psychology target must contain one canonical npc id",
+            )
+        active_scene_id = str(ctx.world().get("active_scene_id") or "").strip()
+        scene = _scene_by_id(ctx.story_graph, active_scene_id)
+        authored_present = {
+            str(value) for value in ((scene or {}).get("npc_ids") or []) if str(value)
+        }
+        presence = _load_npc_presence_document(ctx).get("presence") or {}
+        live = presence.get(npc_id) if isinstance(presence, Mapping) else None
+        explicitly_present = (
+            isinstance(live, Mapping)
+            and live.get("status") == "present"
+            and str(live.get("scene_id") or "") == active_scene_id
+        )
+        explicitly_absent = isinstance(live, Mapping) and not explicitly_present
+        if (
+            not active_scene_id
+            or not isinstance(scene, Mapping)
+            or (npc_id not in authored_present and not explicitly_present)
+            or explicitly_absent
+        ):
+            raise ToolError(
+                "psychology_candidate_stale",
+                "the semantic Psychology target is not present in the active scene",
+            )
+        npc = _npc_by_id(ctx.npc_agendas, npc_id)
+        if not isinstance(npc, Mapping):
+            raise ToolError(
+                "psychology_candidate_stale",
+                "the Psychology target has no canonical authored NPC record",
+            )
+        fact_refs = [
+            f"npc_fact:{npc_id}/{row['fact_id']}"
+            for row in (npc.get("facts") or [])
+            if isinstance(row, Mapping) and str(row.get("fact_id") or "")
+        ]
+        if not fact_refs:
+            fact_refs = [f"npc_agenda:{npc_id}"]
+        observation = {
+            "investigator_id": investigator_id,
+            "npc_id": npc_id,
+            "conversation_window_id": (
+                f"conversation:{active_scene_id}:{investigator_id}:{npc_id}"
+            ),
+            "observation_revision": 0,
+            "observer_scope": investigator_id,
+            "observable_fact_refs": fact_refs,
+            "question": str(semantic_inputs.get("question") or ""),
+        }
+    return {
+        "investigator_id": investigator_id,
+        "npc_id": npc_id,
+        "conversation_window_id": observation.get("conversation_window_id"),
+        "observation_revision": observation.get("observation_revision", 0),
+        "observer_scope": observation.get("observer_scope") or investigator_id,
+        "observable_fact_refs": list(observation.get("observable_fact_refs") or []),
+        "question": observation.get("question"),
+        "inference_ceiling": (
+            observation.get("inference_depth")
+            or (observation_result or {}).get("inference_depth")
+        ),
+        "observation_receipt_ref": observation.get("insight_id"),
+    }
+
+
+def _canonical_combat_binding(
+    ctx: Ctx,
+    *,
+    decision_ref: str,
+    investigator_id: str,
+    semantic_inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Compile semantic combat refs into the existing typed combat surface."""
+    action = decision_ref.rsplit(":", 1)[-1]
+    if action not in {"attack", "defend", "aim", "reload", "maneuver", "flee", "end"}:
+        raise ToolError("invalid_semantic_input", "unknown combat decision phase")
+    combat = _combat_state(ctx)
+    binding: dict[str, Any] = {
+        "investigator_id": investigator_id,
+        "combat_revision": int(combat.get("revision", 0)),
+    }
+    if action == "end":
+        binding["combat_outcome"] = combat.get("outcome")
+        return binding
+    candidate_ref = str(semantic_inputs.get("candidate_ref") or "").strip()
+    if action in {"attack", "maneuver"}:
+        if candidate_ref.startswith("attack:") and candidate_ref[7:]:
+            binding["target_npc_id"] = candidate_ref[7:]
+        elif candidate_ref.startswith("combat-route:") and candidate_ref[13:]:
+            binding["affordance_id"] = candidate_ref[13:]
+        else:
+            raise ToolError(
+                "invalid_semantic_input",
+                "combat candidate_ref must use attack:<npc_id> or combat-route:<affordance_id>",
+            )
+    elif candidate_ref:
+        raise ToolError(
+            "invalid_semantic_input",
+            f"combat {action} does not accept candidate_ref",
+        )
+    weapon_ref = str(semantic_inputs.get("weapon_ref") or "").strip()
+    if weapon_ref:
+        binding["weapon_id"] = (
+            weapon_ref[len("weapon:"):] if weapon_ref.startswith("weapon:") else weapon_ref
+        )
+    effects = semantic_inputs.get("weapon_effect_refs")
+    if isinstance(effects, list):
+        binding["weapon_effect_ids"] = [str(value) for value in effects]
+    if action == "defend":
+        pending = combat.get("pending_attack")
+        if not isinstance(pending, Mapping):
+            raise ToolError(
+                "combat_defense_not_pending",
+                "the canonical combat has no pending attack to defend",
+            )
+        binding.update({
+            "pending_attack_ref": pending.get("attack_command_id"),
+            "attack_command_id": pending.get("attack_command_id"),
+            "target_actor_id": pending.get("target_actor_id"),
+        })
+    return binding
+
+
+def _canonical_sanity_binding(
+    ctx: Ctx,
+    *,
+    decision_ref: str,
+    investigator_id: str,
+    semantic_inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Hydrate exact SanitySession/choice/time-trigger inputs from state."""
+    suffix = decision_ref.rsplit(":", 1)[-1]
+    snapshot = _read_optional_json(
+        ctx.campaign_dir / "save" / "sanity-state" / f"{investigator_id}.json",
+        {},
+    )
+    state = ctx.inv_state(investigator_id)
+    binding: dict[str, Any] = {
+        "investigator_id": investigator_id,
+        "san_before": snapshot.get("san_current", state.get("current_san")),
+        "san_max": snapshot.get("san_max", state.get("max_san")),
+    }
+    if suffix == "check":
+        trigger_ref = str(semantic_inputs.get("trigger_ref") or "").strip()
+        if trigger_ref:
+            binding["trigger_id"] = (
+                trigger_ref[len("san-trigger:"):]
+                if trigger_ref.startswith("san-trigger:") else trigger_ref
+            )
+    elif suffix in {"bout-tick", "bout-end"}:
+        choices = [
+            row for row in coc_subsystem_executor.get_current_pending_choices(
+                ctx.campaign_dir,
+            )
+            if isinstance(row, Mapping) and row.get("kind") == "bout_keeper_action"
+        ]
+        if len(choices) != 1:
+            raise ToolError(
+                "sanity_bout_choice_unavailable",
+                "exactly one canonical Keeper bout choice is required",
+            )
+        choice = choices[0]
+        binding.update({
+            "pending_choice_ref": choice.get("choice_id"),
+            "origin_command_id": choice.get("origin_command_id"),
+            "bout_revision": choice.get("revision"),
+        })
+    elif suffix == "reality-check":
+        delusion = snapshot.get("active_delusion")
+        if not isinstance(delusion, Mapping):
+            raise ToolError(
+                "reality_check_unavailable",
+                "no active canonical delusion exists",
+            )
+        binding["active_delusion_ref"] = "active-delusion:current"
+    elif suffix == "insane-insight":
+        if not (snapshot.get("temporary_insane") or snapshot.get("indefinite_insane")):
+            raise ToolError(
+                "insane_insight_unavailable",
+                "the investigator is not currently insane",
+            )
+        binding["insanity_state"] = (
+            "indefinite" if snapshot.get("indefinite_insane") else "temporary"
+        )
+    elif suffix in {"apply-treatment", "recover-temporary"}:
+        handler = (
+            "apply_psychoanalysis_treatment"
+            if suffix == "apply-treatment" else "recover_temporary_insanity"
+        )
+        due = [
+            row for row in coc_time.peek_due_triggers(ctx.campaign_dir)
+            if isinstance(row, Mapping)
+            and row.get("handler") == handler
+            and str(row.get("target_id") or "") == investigator_id
+        ]
+        if len(due) != 1:
+            raise ToolError(
+                "sanity_trigger_stale",
+                "exactly one canonical due Sanity trigger is required",
+            )
+        trigger = due[0]
+        binding.update({
+            (
+                "treatment_trigger_ref"
+                if suffix == "apply-treatment" else "recovery_trigger_ref"
+            ): trigger.get("trigger_id"),
+            "due_elapsed_minutes": trigger.get("due_elapsed_minutes"),
+            "safe_place": bool(
+                coc_time.read_time_state(ctx.campaign_dir).get("safe_place", False)
+            ),
+        })
+        if suffix == "apply-treatment":
+            sheet = ctx.sheet(investigator_id)
+            skills = sheet.get("skills") if isinstance(sheet.get("skills"), Mapping) else {}
+            binding["psychoanalysis_skill"] = int(skills.get("Psychoanalysis", 1))
+    return binding
+
+
+def _canonical_magic_binding(
+    ctx: Ctx,
+    *,
+    investigator_id: str,
+    decision_ref: str,
+    semantic_inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    spell = str(semantic_inputs.get("spell") or "").strip()
+    if not spell:
+        raise ToolError("invalid_semantic_input", "spell must be non-empty")
+    state = ctx.inv_state(investigator_id)
+    magic = state.get("magic") if isinstance(state.get("magic"), Mapping) else {}
+    if decision_ref.endswith(":cast-spell"):
+        learned = {str(value) for value in magic.get("learned_spells") or []}
+        if spell not in learned:
+            raise ToolError(
+                "magic_spell_not_known",
+                "the investigator has no canonical learned-spell record for this spell",
+            )
+        return {
+            "investigator": investigator_id,
+            "is_npc": False,
+            "known_spell_ref": (
+                f"learned-spell:{investigator_id}:"
+                + re.sub(r"[^a-z0-9]+", "-", spell.casefold()).strip("-")
+            ),
+        }
+    source_kind = str(semantic_inputs.get("source") or "")
+    source_ref = str(semantic_inputs.get("source_ref") or "")
+    if source_kind not in {"tome", "person", "entity"} or not source_ref.startswith(
+        source_kind + ":"
+    ):
+        raise ToolError(
+            "magic_source_invalid",
+            "source_ref must match the typed magic learning source",
+        )
+    source_id = source_ref.split(":", 1)[1]
+    row = _npc_by_id(ctx.npc_agendas, source_id) if source_kind in {"person", "entity"} else None
+    profile = (
+        (row.get("mechanics") or {}).get("profile")
+        if isinstance(row, Mapping) and isinstance(row.get("mechanics"), Mapping)
+        else {}
+    )
+    spells = (
+        row.get("spells") if isinstance(row, Mapping) else None
+    ) or (profile.get("spells") if isinstance(profile, Mapping) else None)
+    if not isinstance(spells, list) or spell not in {str(value) for value in spells}:
+        raise ToolError(
+            "magic_source_invalid",
+            "the canonical learning source does not contain the selected spell",
+        )
+    return {"investigator": investigator_id, "is_npc": False}
+
+
+def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: str,
+                             semantic_inputs: Mapping[str, Any]) -> dict[str, Any]:
+    suffix = decision_ref.rsplit(":", 1)[-1]
+    if suffix == "start":
+        candidates = _chase_start_candidates(ctx, investigator_id)
+        actors = candidates.get("actors") or {}
+        locations = candidates.get("locations") or {}
+        pursuers = list(semantic_inputs.get("pursuer_refs") or [])
+        quarries = list(semantic_inputs.get("quarry_refs") or [])
+        location_refs = list(semantic_inputs.get("location_refs") or [])
+        if (not pursuers or not quarries or len(location_refs) < 2
+                or set(pursuers) & set(quarries)
+                or any(ref not in actors for ref in [*pursuers, *quarries])
+                or any(ref not in locations for ref in location_refs)):
+            raise ToolError("chase_candidate_invalid", "chase refs must resolve to current actors and current/connected locations")
+        participants = []
+        for side, refs, position in (("pursuer", pursuers, 0), ("quarry", quarries, 1)):
+            for ref in refs:
+                participants.append({**deepcopy(actors[ref]), "side": side, "current_position": position})
+        chase_id = "chase:" + str(candidates.get("scene_id") or "scene") + ":" + "-vs-".join(
+            re.sub(r"[^a-z0-9-]+", "-", str(ref).casefold()).strip("-") for ref in [quarries[0], pursuers[0]]
+        )
+        return {"chase_id": chase_id, "participants": participants,
+                "locations": [deepcopy(locations[ref]) for ref in location_refs]}
+    chase = _read_optional_json(ctx.campaign_dir / "save" / "chase.json", None)
+    if not isinstance(chase, Mapping) or chase.get("status") != "active":
+        raise ToolError("chase_not_active", "canonical chase is not active")
+    rounds = chase.get("rounds") or []
+    order = rounds[-1].get("dex_order") if rounds and isinstance(rounds[-1], Mapping) else []
+    cursor = int(chase.get("initiative_cursor", 0))
+    actor_id = str(order[cursor]) if isinstance(order, list) and cursor < len(order) else ""
+    participants = {str(row.get("actor_id")): row for row in chase.get("participants") or [] if isinstance(row, Mapping)}
+    actor = participants.get(actor_id) or {}
+    chain = chase.get("location_chain") or []
+    position = int(actor.get("position", 0)) if actor else -1
+    nxt = chain[position + 1] if 0 <= position + 1 < len(chain) else {}
+    binding: dict[str, Any] = {"actor_id": actor_id, "revision": chase.get("revision"), "chase_id": chase.get("chase_id")}
+    if suffix == "move": binding["action_id"] = "advance"
+    elif suffix == "hazard":
+        hazard = nxt.get("hazard") if isinstance(nxt, Mapping) else None
+        if not isinstance(hazard, Mapping): raise ToolError("chase_action_unavailable", "next location has no hazard")
+        binding.update({"action_id": f"hazard:{hazard.get('hazard_id')}", "target": hazard.get("target"), "difficulty": hazard.get("difficulty", "regular")})
+    elif suffix == "barrier":
+        barrier = nxt.get("barrier") if isinstance(nxt, Mapping) else None
+        if not isinstance(barrier, Mapping): raise ToolError("chase_action_unavailable", "next location has no barrier")
+        method = str(semantic_inputs.get("method") or "")
+        binding.update({"action_id": f"barrier:{barrier.get('barrier_id')}:{method}", "target": barrier.get("target"), "difficulty": barrier.get("difficulty", "regular")})
+    return binding
 
 
 def dispatch_rules_settle(
@@ -6967,12 +7725,100 @@ def dispatch_rules_settle(
         "decision_ref": decision_ref,
         "semantic_inputs": dict(semantic_inputs),
     }
+    if family == "social":
+        selected["_host_social_binding"] = _canonical_social_binding(
+            ctx,
+            investigator_id=investigator_id,
+            semantic_inputs=semantic_inputs,
+        )
+    if (
+        family == "psychology"
+        and decision_ref.endswith(":observe-concealed")
+    ):
+        selected["_host_psychology_binding"] = _canonical_psychology_binding(
+            ctx,
+            investigator_id=investigator_id,
+            semantic_inputs=semantic_inputs,
+        )
+    if family == "combat":
+        selected["_host_combat_binding"] = _canonical_combat_binding(
+            ctx,
+            decision_ref=decision_ref,
+            investigator_id=investigator_id,
+            semantic_inputs=semantic_inputs,
+        )
+    if family == "sanity":
+        selected["_host_sanity_binding"] = _canonical_sanity_binding(
+            ctx,
+            decision_ref=decision_ref,
+            investigator_id=investigator_id,
+            semantic_inputs=semantic_inputs,
+        )
+    if family == "magic":
+        selected["_host_family_binding"] = {
+            "investigator": investigator_id,
+            "is_npc": False,
+        }
+    if family == "development":
+        binding: dict[str, Any] = {"investigator": investigator_id}
+        if decision_ref.endswith(":settle-ending"):
+            ending = coc_development.structured_ending_evidence(ctx.campaign_dir)
+            if not isinstance(ending, Mapping):
+                raise ToolError(
+                    "settlement_unavailable",
+                    "development.settle requires a persisted ending receipt",
+                )
+            binding["ending_id"] = ending.get("ending_id")
+        selected["_host_family_binding"] = binding
+    if family == "chase":
+        selected["_host_chase_binding"] = _canonical_chase_binding(
+            ctx, decision_ref=decision_ref, investigator_id=investigator_id,
+            semantic_inputs=semantic_inputs,
+        )
     ruleset_adapter = getattr(runtime, "_ruleset_adapter", None)
     if ruleset_adapter is None:
         raise ToolError(
             "rules_graph_unavailable",
             "graph settlement requires the active ruleset adapter",
         )
+    grant = runtime.latest_grant_covering(decision_ref)
+    if grant is None:
+        raise ToolError(
+            "rule_decision_stale",
+            "no live machine-issued card grant covers this decision; refresh context",
+            details={"family": family, "decision_ref": decision_ref},
+        )
+    source_decision_id = str(grant.get("source_decision_id") or "")
+    if source_decision_id:
+        prior = ctx.ledger_lookup("rules.settle", source_decision_id)
+        prior_data = prior.get("data") if isinstance(prior, Mapping) and isinstance(
+            prior.get("data"), Mapping
+        ) else {}
+        settlement = (
+            prior_data.get("settlement")
+            if isinstance(prior_data.get("settlement"), Mapping) else {}
+        )
+        prior_result = (
+            settlement.get("result")
+            if isinstance(settlement.get("result"), Mapping) else {}
+        )
+        source_receipt = (
+            prior_result.get("bound_check")
+            if isinstance(prior_result.get("bound_check"), Mapping) else None
+        )
+        if isinstance(source_receipt, Mapping):
+            selected["_host_source_receipt"] = deepcopy(dict(source_receipt))
+        if (
+            family == "psychology"
+            and decision_ref.endswith(":realize-player-safe")
+            and isinstance(prior_result, Mapping)
+        ):
+            selected["_host_psychology_binding"] = _canonical_psychology_binding(
+                ctx,
+                investigator_id=investigator_id,
+                semantic_inputs=semantic_inputs,
+                observation_result=prior_result,
+            )
     active_resolver = _rules_resolver(ctx, None)
     runtime._host_locked_provider = ruleset_adapter.host_locked_provider(
         ctx,
@@ -6985,14 +7831,8 @@ def dispatch_rules_settle(
                 active_resolver, sheet, skill_name,
             )
         ),
+        card_grant=grant,
     )
-    grant = runtime.latest_grant_covering(decision_ref)
-    if grant is None:
-        raise ToolError(
-            "rule_decision_stale",
-            "no live machine-issued card grant covers this decision; refresh context",
-            details={"family": family, "decision_ref": decision_ref},
-        )
 
     def executor(plan, decision_id, selected_decision):
         capability = (plan.get("capability") or {}).get("resolver_capability")
@@ -7000,7 +7840,7 @@ def dispatch_rules_settle(
         if handler is None:
             raise ToolError(
                 "unsupported_ruleset_operation",
-                f"no internal healing adapter for {capability!r}",
+                f"no internal RuleGraph adapter for {capability!r}",
             )
         adapter_args = ruleset_adapter.executor_args(
             ctx,
@@ -7027,7 +7867,10 @@ def dispatch_rules_settle(
             details=result,
         )
     settlement = result.get("settlement") if isinstance(result.get("settlement"), dict) else {}
-    adapter_data = settlement.get("result") if status == "settled" else None
+    adapter_data = (
+        coc_rules_runtime._thaw(settlement.get("result"))
+        if status == "settled" else None
+    )
     adapter_row = adapter_data if isinstance(adapter_data, dict) else {}
     data = {
         "decision_ref": result.get("decision_ref"),
@@ -11665,21 +12508,20 @@ def _project_storylet_candidate(move: dict[str, Any]) -> dict[str, Any]:
         field: deepcopy(move[field]) for field in fields if field in move
     }
 
-def _pi_rules_director_single_draft_profile() -> bool:
+def _pi_play_direct_single_draft() -> bool:
     return (
         str(os.environ.get("COC_PI_SESSION_ROLE") or "").strip().casefold()
         == "play"
-        and os.environ.get("COC_PI_ACCEPTANCE_PROFILE")
-        in {"rules-all-single-draft", "rules-director-single-draft"}
     )
 
 
 def _pi_play_agency_review_required() -> bool:
-    return (
-        str(os.environ.get("COC_PI_SESSION_ROLE") or "").strip().casefold()
-        == "play"
-        and not _pi_rules_director_single_draft_profile()
-    )
+    # Pi play now owns one direct Keeper draft followed by the existing
+    # authoritative finalization receipt.  The acceptance-profile names remain
+    # valid launcher aliases, but they no longer opt production into or out of
+    # a second narration/rewrite pass.
+    return False
+
 
 def _tool_evidence_record_adoption(ctx: Ctx, args: dict[str, Any]):
     prior = ctx.ledger_lookup(
@@ -12519,8 +13361,8 @@ OPERATION_RUNTIME_EXPORTS = (
     '_pi_opening_setup_gate',
     '_pi_opening_setup_operation_allowed',
     '_pi_opening_source_contract_error_gate',
+    '_pi_play_direct_single_draft',
     '_pi_play_agency_review_required',
-    '_pi_rules_director_single_draft_profile',
     '_pi_source_coordinator_dispatch',
     '_plan_receipt_owned_tail',
     '_plan_roll_materialization',

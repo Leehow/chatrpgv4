@@ -1,0 +1,97 @@
+{
+  "contract_id": "coc.rule-graph-build-manifest.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "source_bundles": [
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "86e7060a49958f0f3a6ecaeb23e71c9bdb85d95e794d009fa0e63763af5c155b",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    }
+  ],
+  "graph_content_digest": "a74ed43518294dc1b4d2bc41872c0f5e847c8fab06f8aca888f1924f27012e2c",
+  "shards": [
+    {
+      "shard_id": "shard:coc7:push-luck:section-push-luck-source-accepted",
+      "shard_digest": "0262b574672c8a3866a70adf53649c8a98d69f5e38f91676da4c73929d425103"
+    }
+  ],
+  "family_coverage": {
+    "chase": "unresolved",
+    "combat": "unresolved",
+    "core-check": "unresolved",
+    "development": "unresolved",
+    "healing": "unresolved",
+    "magic": "unresolved",
+    "psychology": "unresolved",
+    "push-luck": "accepted",
+    "sanity": "unresolved",
+    "social": "unresolved"
+  },
+  "family_promotion_eligibility": {
+    "chase": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "combat": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "core-check": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "development": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "healing": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "magic": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "psychology": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "push-luck": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "sanity": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "social": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    }
+  },
+  "data_table_dependencies": [
+    "difficulty-levels.json",
+    "luck.json",
+    "percentile-check.json",
+    "pushed-roll.json",
+    "roll-modifiers.json",
+    "success-levels.json"
+  ],
+  "resolver_capability_dependencies": [
+    "check",
+    "luck_spend",
+    "push_policy"
+  ],
+  "compiler_identity": "coc.rule-graph-compiler.v1",
+  "reviewer_identity": "codex-execgraph-gap-review-20260831:push-luck-v3",
+  "review_status": "accepted",
+  "findings": [
+    {
+      "code": "independent_source_review",
+      "path": "/reviews/push-luck",
+      "message": "Independent page-level semantic review accepted push-luck; see source-stage1/reviews/push-luck-source-review.md"
+    }
+  ]
+}

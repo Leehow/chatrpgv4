@@ -14,27 +14,18 @@ from test_toolbox import _finalize_pending_turn_for_test, _run, campaign_ws
 
 
 @pytest.mark.parametrize(
-    ("profile", "review_required"),
+    "profile",
     [
-        pytest.param(None, True, id="profile-absent"),
-        pytest.param("unknown-profile", True, id="profile-unknown"),
-        pytest.param(
-            "rules-director-single-draft",
-            False,
-            id="rules-director-single-draft",
-        ),
-        pytest.param(
-            "rules-all-single-draft",
-            False,
-            id="rules-all-single-draft",
-        ),
+        pytest.param(None, id="production-profile-absent"),
+        pytest.param("unknown-profile", id="production-profile-unknown"),
+        pytest.param("rules-director-single-draft", id="legacy-profile-alias"),
+        pytest.param("rules-all-single-draft", id="legacy-all-profile-alias"),
     ],
 )
-def test_pi_play_single_draft_profile_is_exact_opt_in_and_finalizes_once(
+def test_pi_play_is_direct_single_draft_and_finalizes_once_without_review(
     campaign_ws,
     monkeypatch,
     profile,
-    review_required,
 ):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     if profile is None:
@@ -56,14 +47,7 @@ def test_pi_play_single_draft_profile_is_exact_opt_in_and_finalizes_once(
     output = _run(campaign_ws, "turn.output_context")
     assert output["ok"] is True, output
     data = output["data"]
-    assert data["contract_projection"]["agency_review_required"] is review_required
-
-    if review_required:
-        assert data["agency_review_operation"]["operation"] == "narration.review"
-        assert data["agency_review_operation"][
-            "host_state_claim_compiler_required"
-        ] is True
-        return
+    assert data["contract_projection"]["agency_review_required"] is False
 
     serialized = json.dumps(data, ensure_ascii=False, sort_keys=True)
     assert "agency_review_operation" not in data

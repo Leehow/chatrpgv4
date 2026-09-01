@@ -1276,7 +1276,36 @@ def _healing_tool_data(
         }
     return data
 
+def _registered_operation_handler(operation: str):
+    row = TOOLS.get(operation) if isinstance(TOOLS, dict) else None
+    handler = row.get("handler") if isinstance(row, dict) else None
+    if not callable(handler):
+        raise ToolError(
+            "unsupported_ruleset_operation",
+            f"canonical handler for {operation!r} is unavailable",
+        )
+    return handler
+
+
+def _registered_adapter(operation: str):
+    def invoke(active_ctx: Ctx, active_args: dict[str, Any]):
+        return _registered_operation_handler(operation)(active_ctx, active_args)
+    return invoke
+
+
 def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
+    social_adjudicate = _registered_adapter("rules.social_adjudicate")
+    psychology_observe = _registered_adapter("rules.psychology_observe")
+    combat_resolve = _registered_adapter("combat.resolve")
+    combat_end = _registered_adapter("combat.end")
+    sanity_check = _registered_adapter("rules.sanity_check")
+    sanity_execute = _registered_adapter("sanity.execute")
+    magic_cast = _registered_adapter("magic.cast")
+    magic_learn = _registered_adapter("magic.learn")
+    end_session = _registered_adapter("state.end_session")
+    development_settle = _registered_adapter("development.settle")
+    chase_execute = _registered_adapter("chase.execute")
+
     return dispatch_rules_settle(
         ctx,
         args,
@@ -1285,6 +1314,29 @@ def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
             "medicine": _tool_rules_medicine,
             "dying_check": _tool_rules_dying_check,
             "weekly_recovery": _tool_rules_weekly_recovery,
+            "check": _tool_rules_roll,
+            "opposed": _tool_rules_opposed,
+            "push_policy": _tool_rules_push,
+            "luck_spend": _tool_rules_luck_spend,
+            "social_difficulty": social_adjudicate,
+            "psychology_check_contract": psychology_observe,
+            "psychology_policy": psychology_observe,
+            "combat.resolve": combat_resolve,
+            "combat.end": combat_end,
+            "rules.sanity_check": sanity_check,
+            "sanity.execute": sanity_execute,
+            "sanity.session.gain_san": sanity_execute,
+            "sanity.session.reality_check": sanity_execute,
+            "sanity.context": sanity_execute,
+            "time.recover_temporary_insanity": sanity_execute,
+            "time.apply_psychoanalysis_treatment": sanity_execute,
+            "magic.cast": magic_cast,
+            "magic.learn": magic_learn,
+            "state.end_session": end_session,
+            "development.settle": development_settle,
+            **{kind: chase_execute for kind in (
+                "chase_start", "chase_move", "chase_hazard", "chase_barrier", "chase_conflict", "chase_end"
+            )},
         },
     )
 
@@ -1649,7 +1701,7 @@ def register_operations(registry) -> None:
 )(_tool_rules_build_scale)
     registry.tool(
     "rules.roll",
-    "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Optional combined_targets performs one public D100 roll against two or more semantic target labels and succeeds when any target succeeds; helper_count grants at most two bonus dice. Combined rolls cannot be Pushed, adjusted with Luck, or earn development ticks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose.",
+    "Contextual percentile skill/characteristic check for NON-COMBAT, non-Psychology tasks. Optional combined_targets performs one public D100 roll for one investigator against two or more semantic target labels; the caller must choose any or all with combined_mode, and overall success follows that declared mode. Combined rolls cannot be Pushed, adjusted with Luck, or earn development ticks. Psychology observation must use rules.psychology_observe so its die/outcome stay Keeper-concealed and its conversation window reuses the first settlement. Attacks, shots, Dodge-in-combat, and Fight Back must use combat.resolve — never this tool and never unrolled hit/damage prose.",
     {
         "investigator": {"type": "string", "desc": "investigator id (optional when party has one member)"},
         "skill": {"type": "string", "desc": "skill name on the sheet (e.g. 'Library Use')"},
@@ -1670,7 +1722,7 @@ def register_operations(registry) -> None:
                 "additionalProperties": False,
             },
         },
-        "helper_count": {"type": "integer", "minimum": 0, "desc": "helpers contributing to combined_targets; one bonus die each, capped at two"},
+        "combined_mode": {"type": "string", "enum": ["any", "all"], "desc": "required with combined_targets: whether any named target or every named target must succeed"},
         "difficulty": {"type": "string", "required": True, "enum": ["regular", "hard", "extreme"], "desc": "required success level: regular | hard | extreme; never inferred or defaulted"},
         "goal": {"type": "string", "required": True, "desc": "the concrete fictional objective this one check may settle"},
         "stakes": {"type": "object", "required": True, "desc": "exactly {on_success, on_failure}, both non-empty player-action consequences", "properties": {"on_success": {"type": "string"}, "on_failure": {"type": "string"}}, "required_fields": ["on_success", "on_failure"]},
@@ -1866,7 +1918,7 @@ def register_operations(registry) -> None:
 )(_tool_rules_settle)
     registry.tool(
     "rules.context",
-    "Exact-discovery RuleGraph context for one compiled family. Absent from ordinary play working sets; load only by exact operation name. Cards are affordances, never action gates.",
+    "Keeper-visible RuleGraph context for one compiled family. Read the current semantic decision cards before rules.settle; cards are affordances, never action gates.",
     rule_context_schema,
     access="query",
     read_domains=("party", "mechanics"),

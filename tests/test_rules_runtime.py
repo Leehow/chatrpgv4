@@ -45,6 +45,7 @@ import shutil
 import sys
 import time as _time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -1769,12 +1770,1367 @@ def test_coc7_adapter_registers_settlement_state_effect_domains() -> None:
     decision_refs = adapter.settle_schema()["decision_ref"]["enum"]
     assert decision_refs
     for decision_ref in decision_refs:
+        expected = (
+            ("hp", "condition")
+            if decision_ref.startswith("decision:coc7:healing:")
+            else ("luck",)
+            if decision_ref == "decision:coc7:push-luck:luck-spend"
+            else ("san", "condition")
+            if decision_ref.startswith("decision:coc7:sanity:")
+            else ()
+        )
         assert coc_rulesets.rule_graph_state_effect_domains(
             "coc7", decision_ref,
-        ) == ("hp", "condition")
+        ) == expected
     assert coc_rulesets.rule_graph_state_effect_domains(
         "coc7", "decision:coc7:unknown:not-registered",
     ) == ()
+
+
+def test_coc7_adapter_binds_core_check_refs_without_model_numeric_targets(
+    tmp_path: Path,
+):
+    ws = _fresh_workspace(tmp_path, "adapter-core-bindings")
+    kernel = coc_toolbox.coc_operation_kernel
+    real_ctx = kernel.Ctx(ws["workspace"], ws["campaign_id"])
+    ctx = SimpleNamespace(
+        npc_agendas={
+        "npcs": [{
+            "npc_id": "guard",
+            "skills": {"Spot Hidden": 55},
+        }],
+        },
+        ledger_lookup=lambda *_args: None,
+    )
+    sheet = real_ctx.sheet(ws["investigator_id"])
+    sheet.setdefault("skills", {}).update({
+        "Library Use": 60,
+        "Mechanical Repair": 40,
+        "Electrical Repair": 50,
+        "Stealth": 45,
+    })
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    args = {
+        "investigator": ws["investigator_id"],
+        "decision_id": "adapter-core-check-1",
+    }
+
+    def provider_for(semantic):
+        return adapter.host_locked_provider(
+            ctx,
+            args,
+            {"semantic_inputs": semantic},
+            resolve_investigator=lambda _ctx, _args: ws["investigator_id"],
+            safe_sheet=lambda _ctx, _investigator: sheet,
+            skill_value=lambda current, skill_name: (
+                current.get("skills", {}).get(skill_name)
+            ),
+        )
+
+    ordinary = provider_for({"skill": "Library Use"})(
+        "decision:coc7:core-check:ordinary-check"
+    )
+    assert ordinary == {
+        "investigator_id": ws["investigator_id"],
+        "target": 60,
+    }
+    combined = provider_for({
+        "combined_target_refs": [
+            "skill:mechanical-repair", "skill:electrical-repair",
+        ],
+    })("decision:coc7:core-check:combined-check")
+    assert combined == {
+        "investigator_id": ws["investigator_id"],
+        "combined_targets": [
+            {"label": "Mechanical Repair", "value": 40},
+            {"label": "Electrical Repair", "value": 50},
+        ],
+    }
+    opposed_semantic = {
+        "actor_check_ref": "skill:stealth",
+        "opponent_check_ref": "npc:guard:skill:spot-hidden",
+    }
+    opposed = provider_for(opposed_semantic)(
+        "decision:coc7:core-check:opposed-check"
+    )
+    assert opposed == {
+        "investigator_id": ws["investigator_id"],
+        "investigator_target": 45,
+        "opponent_value": 55,
+    }
+    execution = adapter.executor_args(
+        ctx,
+        {
+            "capability": {"resolver_capability": "opposed"},
+            "command": {"payload": {**opposed_semantic, **opposed}},
+        },
+        {"semantic_inputs": opposed_semantic},
+        args,
+        resolve_investigator=lambda _ctx, _args: ws["investigator_id"],
+        tool_error=kernel.ToolError,
+    )
+    assert execution["contest_kind"] == "noncombat"
+    assert execution["skill"] == "Stealth"
+    assert execution["target"] == 45
+    assert execution["opponent_value"] == 55
+
+
+def test_core_check_graph_compiles_plan_then_calls_existing_executor_once():
+    candidate_root = (
+        Path.cwd() / "plugins" / "coc-keeper" / "rulesets" / "coc7"
+        / "rule-graph-candidates" / "source-stage1" / "accepted" / "core-check"
+    )
+    graph = json.loads((candidate_root / "rule-graph.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (candidate_root / "rule-graph-manifest.json").read_text(encoding="utf-8")
+    )
+    graph["family_runtime_ownership"]["core-check"] = "graph"
+    graph["legacy_surface_lifecycle"]["core-check"] = "hidden"
+    promo = manifest["family_promotion_eligibility"]["core-check"]
+    promo.update({"promotion_eligible": True, "runtime_ownership": "graph"})
+    package_manifest = {
+        "ruleset_id": "coc7",
+        "version": "1.0.0",
+        "rule_families": [{
+            "family_id": "core-check",
+            "runtime_owner": "graph",
+            "legacy_surface": "hidden",
+        }],
+    }
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    runtime = coc_rules_runtime.RulesRuntime(
+        graph,
+        ruleset_id="coc7",
+        graph_manifest=manifest,
+        package_manifest=package_manifest,
+        campaign_id="core-graph-runtime",
+        facts_provider=lambda: {
+            "campaign.ruleset_id": "coc7",
+            "actor.id": "investigator-one",
+        },
+        resolver_index={"check": {}, "opposed": {}},
+        ruleset_adapter=adapter,
+    )
+    decision_ref = "decision:coc7:core-check:ordinary-check"
+    context = runtime.context({
+        "family": "core-check",
+        "selected_affordance_ids": [decision_ref],
+    })
+    assert context["status"] == "ok"
+    assert [row["decision_ref"] for row in context["cards"]] == [decision_ref]
+    runtime._host_locked_provider = lambda _ref: {
+        "target": 60,
+        "investigator_id": "investigator-one",
+    }
+    calls = []
+
+    def executor(plan, decision_id, selected):
+        calls.append((plan, decision_id, selected))
+        assert plan["capability"]["resolver_capability"] == "check"
+        assert plan["command"]["payload"]["target"] == 60
+        return {
+            "investigator_id": "investigator-one",
+            "skill": "Library Use",
+            "target": 60,
+            "difficulty": "regular",
+            "bonus": 0,
+            "penalty": 0,
+            "roll_id": "roll:library-use",
+            "roll": 42,
+            "outcome": "regular",
+        }
+
+    result = runtime.settle(
+        {
+            "decision_ref": decision_ref,
+            "semantic_inputs": {
+                "skill": "Library Use",
+                "difficulty": "regular",
+                "goal": "find the record",
+                "stakes": {
+                    "on_success": "record found",
+                    "on_failure": "time passes",
+                },
+                "difficulty_basis": "environment",
+            },
+        },
+        "core-check-library-use-1",
+        card_grant=context["card_grant"],
+        executor=executor,
+    )
+    assert result["status"] == "settled"
+    assert result["settlement"]["execution"] == "canonical-resolver-subsystem"
+    assert len(calls) == 1
+    replay = runtime.settle(
+        {
+            "decision_ref": decision_ref,
+            "semantic_inputs": {
+                "skill": "Library Use",
+                "difficulty": "regular",
+                "goal": "find the record",
+                "stakes": {
+                    "on_success": "record found",
+                    "on_failure": "time passes",
+                },
+                "difficulty_basis": "environment",
+            },
+        },
+        "core-check-library-use-1",
+        card_grant=context["card_grant"],
+        executor=executor,
+    )
+    assert replay["status"] == "settled"
+    assert len(calls) == 1
+
+
+def test_push_restart_hydrates_canonical_receipt_and_continuation_grant():
+    package = Path.cwd() / "plugins" / "coc-keeper" / "rulesets" / "coc7"
+    graph = json.loads((package / "rule-graph.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (package / "rule-graph-manifest.json").read_text(encoding="utf-8")
+    )
+    for family in ("core-check", "push-luck"):
+        graph["family_runtime_ownership"][family] = "graph"
+        graph["legacy_surface_lifecycle"][family] = "hidden"
+        manifest["family_promotion_eligibility"][family].update({
+            "promotion_eligible": True,
+            "runtime_ownership": "graph",
+        })
+    package_manifest = {
+        "ruleset_id": "coc7",
+        "version": "1.0.0",
+        "rule_families": [{
+            "family_id": family,
+            "runtime_owner": "graph",
+            "legacy_surface": "hidden",
+        } for family in ("core-check", "push-luck")],
+    }
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+
+    def runtime():
+        return coc_rules_runtime.RulesRuntime(
+            graph,
+            ruleset_id="coc7",
+            graph_manifest=manifest,
+            package_manifest=package_manifest,
+            campaign_id="push-restart-runtime",
+            facts_provider=lambda: {
+                "campaign.ruleset_id": "coc7",
+                "actor.id": "investigator-one",
+            },
+            resolver_index={
+                "check": {}, "opposed": {}, "push_policy": {},
+                "luck_spend": {},
+            },
+            ruleset_adapter=adapter,
+        )
+
+    first = runtime()
+    ordinary_ref = "decision:coc7:core-check:ordinary-check"
+    ordinary_context = first.context({
+        "family": "core-check",
+        "selected_affordance_ids": [ordinary_ref],
+    })
+    first._host_locked_provider = lambda _ref: {
+        "target": 60,
+        "investigator_id": "investigator-one",
+    }
+    ordinary_selected = {
+        "decision_ref": ordinary_ref,
+        "semantic_inputs": {
+            "skill": "Library Use",
+            "difficulty": "regular",
+            "goal": "find the record",
+            "stakes": {"on_success": "found", "on_failure": "not found"},
+            "difficulty_basis": "environment",
+        },
+    }
+    ordinary_id = "core-check-failed-before-restart"
+    failed_roll = {
+        "investigator_id": "investigator-one",
+        "skill": "Library Use",
+        "target": 60,
+        "difficulty": "regular",
+        "bonus": 0,
+        "penalty": 0,
+        "roll_id": "roll:library-use-failed",
+        "roll": 72,
+        "outcome": "failure",
+    }
+    settled = first.settle(
+        ordinary_selected,
+        ordinary_id,
+        card_grant=ordinary_context["card_grant"],
+        executor=lambda *_args: failed_roll,
+    )
+    assert settled["status"] == "settled"
+    continuation = first.latest_grant_covering(
+        "decision:coc7:push-luck:pushed-roll"
+    )
+    assert continuation is not None
+    assert continuation["source_decision_id"] == ordinary_id
+
+    ledger_data = {
+        "family": "core-check",
+        "decision_ref": ordinary_ref,
+        "settlement": {"result": settled["settlement"]["result"]},
+    }
+    fake_ctx = SimpleNamespace(
+        npc_agendas={},
+        ledger_lookup=lambda tool, decision_id: (
+            {"data": ledger_data}
+            if tool == "rules.settle" and decision_id == ordinary_id else None
+        ),
+    )
+
+    restarted = runtime()
+    push_ref = "decision:coc7:push-luck:pushed-roll"
+    push_context = restarted.context({
+        "family": "push-luck",
+        "selected_affordance_ids": [push_ref],
+        "_host_source_decision_id": ordinary_id,
+        "_host_source_receipt": failed_roll,
+    })
+    assert push_context["status"] == "ok"
+    push_grant = push_context["card_grant"]
+    assert push_grant["source_decision_id"] == ordinary_id
+    push_semantic = {
+        "method_changed": "search the municipal index instead",
+        "failure_consequence": "the archive closes for the night",
+        "player_confirmed_risk": True,
+    }
+    provider = adapter.host_locked_provider(
+        fake_ctx,
+        {"investigator": "investigator-one", "decision_id": "push-after-restart"},
+        {"semantic_inputs": push_semantic},
+        resolve_investigator=lambda _ctx, _args: "investigator-one",
+        safe_sheet=lambda *_args: {},
+        skill_value=lambda *_args: None,
+        card_grant=push_grant,
+    )
+    restarted._host_locked_provider = provider
+    calls = []
+
+    def push_executor(plan, decision_id, selected):
+        calls.append((plan, decision_id, selected))
+        assert plan["command"]["payload"]["canonical_roll_receipt"] == failed_roll
+        return {**failed_roll, "roll": 22, "outcome": "hard", "pushed": True}
+
+    pushed = restarted.settle(
+        {
+            "decision_ref": push_ref,
+            "semantic_inputs": push_semantic,
+            "_host_source_receipt": failed_roll,
+        },
+        "push-after-restart",
+        card_grant=push_grant,
+        executor=push_executor,
+    )
+    assert pushed["status"] == "settled"
+    assert pushed["settlement"]["result"]["original_check_decision_id"] == ordinary_id
+    assert len(calls) == 1
+
+
+def _settle_failed_packaged_core_check(ws: dict, decision_id: str) -> None:
+    ordinary_ref = "decision:coc7:core-check:ordinary-check"
+    ordinary_context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "core-check",
+        "selected_affordance_ids": [ordinary_ref],
+    })
+    assert ordinary_context["ok"] is True, ordinary_context
+
+    failed = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": ordinary_ref,
+        "semantic_inputs": {
+            "skill": "Library Use",
+            "difficulty": "regular",
+            "goal": "locate the sealed municipal index",
+            "stakes": {
+                "on_success": "the index is found",
+                "on_failure": "the archive begins to close",
+            },
+            "difficulty_basis": "environment",
+        },
+        "decision_id": decision_id,
+        "seed": 88,
+    })
+    assert failed["ok"] is True, failed
+    assert failed["data"]["settlement"]["result"]["outcome"] == "failure"
+
+
+def test_packaged_push_settle_accepts_universal_investigator_routing_field(
+    tmp_path: Path,
+):
+    """The universal settle actor selector must not override push identity.
+
+    This is the normal production seam: a packaged ordinary check fails,
+    projects its Push continuation, then the Keeper settles that card through
+    ``rules.settle`` with the model-visible top-level ``investigator`` field.
+    The host must use that field only to bind the current actor; ``rules.push``
+    still inherits its immutable actor/check contract from the source receipt.
+    """
+    ws = _fresh_workspace(tmp_path, "packaged-push-universal-investigator")
+    original_id = "roll-library-index-initial-v1"
+    _settle_failed_packaged_core_check(ws, original_id)
+    push_ref = "decision:coc7:push-luck:pushed-roll"
+    push_context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "push-luck",
+        "selected_affordance_ids": [push_ref],
+    })
+    assert push_context["ok"] is True, push_context
+    assert [
+        card["decision_ref"] for card in push_context["data"]["cards"]
+    ] == [push_ref]
+
+    pushed = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": push_ref,
+        "semantic_inputs": {
+            "method_changed": "cross-check the index against the court docket",
+            "failure_consequence": "the clerk bars further access tonight",
+            "player_confirmed_risk": True,
+        },
+        "decision_id": "push-library-index-cross-check-v1",
+        "seed": 2,
+    })
+
+    assert pushed["ok"] is True, pushed
+    result = pushed["data"]["settlement"]["result"]
+    assert result["pushed"] is True
+    assert result["original_check_decision_id"] == original_id
+
+
+def test_packaged_push_context_accepts_actor_bound_social_failure(
+    tmp_path: Path,
+):
+    """A failed graph-owned Social D100 is the same immutable Push source.
+
+    Social settles its canonical D100 under ``bound_check``.  The Push/Luck
+    context must recover that actor-bound receipt after the Social settlement
+    instead of requiring the Keeper to rerun the check through core-check.
+    """
+    ws = _fresh_workspace(tmp_path, "packaged-push-social-source")
+    _set_sheet_skill(ws, "Persuade", 40)
+    social_ref = "decision:coc7:social:adjudicate-difficulty"
+    social_context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "social",
+        "selected_affordance_ids": [social_ref],
+    })
+    assert social_context["ok"] is True, social_context
+    assert [
+        card["decision_ref"] for card in social_context["data"]["cards"]
+    ] == [social_ref]
+
+    original_id = "roll-social-knott-terms-source-v1"
+    social = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": social_ref,
+        "semantic_inputs": {
+            "approach": "persuade",
+            "described_action": (
+                "push the commission back and ask for a two-day advance"
+            ),
+            "goal": "secure a two-day advance before accepting the job",
+            "target_ref": "social-target:npc-steven-knott",
+            "feasibility": "roll",
+            "motive_direction": "support",
+            "motive_intensity": 1,
+            "supporting_action": {"present": False},
+            "commitment_ref": "commitment:knott-two-day-advance",
+        },
+        "decision_id": original_id,
+        "seed": 88,
+    })
+    assert social["ok"] is True, social
+    bound_check = social["data"]["settlement"]["result"]["bound_check"]
+    assert bound_check["outcome"] == "failure"
+    assert bound_check["investigator_id"] == ws["investigator_id"]
+
+    push_ref = "decision:coc7:push-luck:pushed-roll"
+    other_investigator = _add_eleanor_to_party(ws)
+    foreign_context = _run(ws, "rules.context", {
+        "investigator": other_investigator,
+        "family": "push-luck",
+        "selected_affordance_ids": [push_ref],
+    })
+    assert foreign_context["ok"] is True, foreign_context
+    assert foreign_context["data"]["cards"] == []
+
+    push_context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "push-luck",
+        "selected_affordance_ids": [push_ref],
+    })
+    assert push_context["ok"] is True, push_context
+    assert [
+        card["decision_ref"] for card in push_context["data"]["cards"]
+    ] == [push_ref]
+
+    pushed = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": push_ref,
+        "semantic_inputs": {
+            "method_changed": "offer a written expense ledger and references",
+            "failure_consequence": "Knott withdraws the advance entirely",
+            "player_confirmed_risk": True,
+        },
+        "decision_id": "push-social-knott-references-v1",
+        "seed": 2,
+    })
+    assert pushed["ok"] is True, pushed
+    result = pushed["data"]["settlement"]["result"]
+    assert result["pushed"] is True
+    assert result["original_check_decision_id"] == original_id
+
+
+def test_packaged_push_context_does_not_offer_another_investigators_failure(
+    tmp_path: Path,
+):
+    ws = _fresh_workspace(tmp_path, "packaged-push-actor-isolation")
+    other_investigator = _add_eleanor_to_party(ws)
+    _settle_failed_packaged_core_check(ws, "roll-actor-isolation-source-v1")
+
+    push_ref = "decision:coc7:push-luck:pushed-roll"
+    foreign_context = _run(ws, "rules.context", {
+        "investigator": other_investigator,
+        "family": "push-luck",
+        "selected_affordance_ids": [push_ref],
+    })
+
+    assert foreign_context["ok"] is True, foreign_context
+    assert foreign_context["data"]["cards"] == []
+    rejected = _run(ws, "rules.settle", {
+        "investigator": other_investigator,
+        "decision_ref": push_ref,
+        "semantic_inputs": {
+            "method_changed": "search the docket by a different surname",
+            "failure_consequence": "the clerk bars further access tonight",
+            "player_confirmed_risk": True,
+        },
+        "decision_id": "push-foreign-actor-rejected-v1",
+        "seed": 2,
+    })
+    assert rejected["ok"] is False, rejected
+    assert rejected["error"]["code"] == "rule_decision_stale"
+    assert len(_rolls(ws)) == 1
+
+
+@pytest.mark.parametrize(("locked_field", "attempted_value"), [
+    ("original_check_decision_id", "roll-model-selected-source-v1"),
+    ("investigator_id", "model-selected-investigator"),
+    ("canonical_roll_receipt", {"roll_id": "model-selected-roll"}),
+])
+def test_packaged_push_rejects_model_authored_locked_source_identity(
+    tmp_path: Path,
+    locked_field: str,
+    attempted_value,
+):
+    ws = _fresh_workspace(tmp_path, f"packaged-push-locked-{locked_field}")
+    _settle_failed_packaged_core_check(
+        ws, f"roll-locked-{locked_field}-source-v1",
+    )
+
+    push_ref = "decision:coc7:push-luck:pushed-roll"
+    push_context = _run(ws, "rules.context", {
+        "investigator": ws["investigator_id"],
+        "family": "push-luck",
+        "selected_affordance_ids": [push_ref],
+    })
+    assert push_context["ok"] is True, push_context
+    rejected = _run(ws, "rules.settle", {
+        "investigator": ws["investigator_id"],
+        "decision_ref": push_ref,
+        "semantic_inputs": {
+            "method_changed": "cross-check the index against the court docket",
+            "failure_consequence": "the clerk bars further access tonight",
+            "player_confirmed_risk": True,
+            locked_field: attempted_value,
+        },
+        "decision_id": f"push-locked-{locked_field}-rejected-v1",
+        "seed": 2,
+    })
+
+    assert rejected["ok"] is False, rejected
+    assert rejected["error"]["code"] == "locked_input_override"
+    assert len(_rolls(ws)) == 1
+
+
+def _social_binding_ctx(active_npc_ids=("npc-knott",)):
+    return SimpleNamespace(
+        world=lambda: {"active_scene_id": "commission-briefing"},
+        story_graph={
+            "scenes": [{
+                "scene_id": "commission-briefing",
+                "npc_ids": list(active_npc_ids),
+            }],
+        },
+        npc_agendas={
+            "npcs": [{
+                "npc_id": "npc-knott",
+                "skills": {"Persuade": 45, "Psychology": 55},
+            }],
+        },
+    )
+
+
+def test_social_canonical_rebuild_binds_existing_adjudication_args(monkeypatch):
+    kernel = coc_toolbox.coc_operation_kernel
+    monkeypatch.setattr(
+        kernel, "_load_npc_presence_document",
+        lambda _ctx: {"presence": {}},
+    )
+    ctx = _social_binding_ctx()
+    semantic = {
+        "described_action": "出示有签名的委托信",
+        "target_ref": "social-target:npc-knott",
+        "commitment_ref": "commitment:increase-cooperation",
+        "approach": "persuade",
+        "goal": "请诺特完整说明委托经过",
+        "motive_direction": "oppose",
+        "motive_intensity": 1,
+        "supporting_action": None,
+        "feasibility": "roll",
+    }
+    binding = kernel._canonical_social_binding(
+        ctx, investigator_id="thomas-hayes", semantic_inputs=semantic,
+    )
+    assert binding == {
+        "target_ref": "social-target:npc-knott",
+        "npc_id": "npc-knott",
+        "conversation_window_id": (
+            "conversation:commission-briefing:thomas-hayes:npc-knott"
+        ),
+        "commitment_id": "commitment:increase-cooperation",
+        "motive_evidence": ["npc_agenda:npc-knott"],
+    }
+
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    selected = {
+        "semantic_inputs": semantic,
+        "_host_social_binding": binding,
+    }
+    provider = adapter.host_locked_provider(
+        ctx,
+        {"investigator": "thomas-hayes", "decision_id": "social-settle-1"},
+        selected,
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        safe_sheet=lambda *_args: {},
+        skill_value=lambda *_args: None,
+    )
+    locked = provider("decision:coc7:social:adjudicate-difficulty")
+    assert locked == {"motive_evidence": ["npc_agenda:npc-knott"]}
+    execution = adapter.executor_args(
+        ctx,
+        {
+            "capability": {"resolver_capability": "social_difficulty"},
+            "command": {"payload": {**semantic, **locked}},
+        },
+        selected,
+        {"investigator": "thomas-hayes", "decision_id": "social-settle-1"},
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        tool_error=kernel.ToolError,
+    )
+    assert execution["npc_id"] == "npc-knott"
+    assert execution["conversation_window_id"] == binding["conversation_window_id"]
+    assert execution["commitment_id"] == "commitment:increase-cooperation"
+    assert execution["motive"]["evidence_refs"] == ["npc_agenda:npc-knott"]
+    assert execution["feasibility_refs"] == ["npc_agenda:npc-knott"]
+    bound_plan = adapter._social_bound_check_plan.__func__(
+        SimpleNamespace(SCHEMA_VERSION=1),
+        {
+            "decision_ref": "decision:coc7:social:adjudicate-difficulty",
+            "family": "social",
+            "command": {"payload": {"goal": semantic["goal"]}},
+            "rule_refs": [],
+            "source_refs": [],
+        },
+        {
+            "npc_id": "npc-knott",
+            "goal_key": "canonical-social-goal",
+            "approach_skill": "Persuade",
+            "final_difficulty": "hard",
+            "bonus_dice": 0,
+            "penalty_dice": 0,
+        },
+    )
+    check_args = adapter.executor_args(
+        ctx,
+        coc_rules_runtime._thaw(bound_plan),
+        selected,
+        {"investigator": "thomas-hayes", "decision_id": "social-settle-1"},
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        tool_error=kernel.ToolError,
+    )
+    assert check_args["npc_id"] == "npc-knott"
+    assert check_args["social_adjudication_ref"] == "canonical-social-goal"
+
+
+def test_social_canonical_rebuild_rejects_stale_target(monkeypatch):
+    kernel = coc_toolbox.coc_operation_kernel
+    monkeypatch.setattr(
+        kernel, "_load_npc_presence_document",
+        lambda _ctx: {"presence": {}},
+    )
+    with pytest.raises(kernel.ToolError) as failure:
+        kernel._canonical_social_binding(
+            _social_binding_ctx(active_npc_ids=()),
+            investigator_id="thomas-hayes",
+            semantic_inputs={
+                "target_ref": "social-target:npc-knott",
+                "commitment_ref": "commitment:increase-cooperation",
+            },
+        )
+    assert failure.value.code == "social_candidate_stale"
+
+
+def test_social_canonical_rebuild_rejects_forged_free_text_target(monkeypatch):
+    kernel = coc_toolbox.coc_operation_kernel
+    monkeypatch.setattr(
+        kernel, "_load_npc_presence_document",
+        lambda _ctx: {"presence": {}},
+    )
+    with pytest.raises(kernel.ToolError) as failure:
+        kernel._canonical_social_binding(
+            _social_binding_ctx(),
+            investigator_id="thomas-hayes",
+            semantic_inputs={
+                "target_ref": "诺特先生",
+                "commitment_ref": "commitment:increase-cooperation",
+            },
+        )
+    assert failure.value.code == "invalid_semantic_input"
+
+
+def test_psychology_canonical_binding_survives_restart(monkeypatch, tmp_path: Path):
+    kernel = coc_toolbox.coc_operation_kernel
+    monkeypatch.setattr(
+        kernel, "_load_npc_presence_document",
+        lambda _ctx: {"presence": {}},
+    )
+    campaign_dir = tmp_path / "campaign"
+    (campaign_dir / "save").mkdir(parents=True)
+    ctx = SimpleNamespace(
+        campaign_dir=campaign_dir,
+        world=lambda: {"active_scene_id": "commission-briefing"},
+        story_graph={"scenes": [{
+            "scene_id": "commission-briefing", "npc_ids": ["npc-knott"],
+        }]},
+        npc_agendas={"npcs": [{
+            "npc_id": "npc-knott",
+            "facts": [{"fact_id": "commission"}],
+        }]},
+    )
+    semantic = {
+        "target_ref": "psychology-target:npc-knott",
+        "question": "他在回避什么？",
+    }
+    observed_binding = kernel._canonical_psychology_binding(
+        ctx,
+        investigator_id="thomas-hayes",
+        semantic_inputs=semantic,
+    )
+    assert observed_binding["conversation_window_id"] == (
+        "conversation:commission-briefing:thomas-hayes:npc-knott"
+    )
+    assert observed_binding["observable_fact_refs"] == [
+        "npc_fact:npc-knott/commission",
+    ]
+    insight_id = "psych-insight-durable"
+    _write_json(campaign_dir / "save" / "psychology-observations.json", {
+        "schema_version": 2,
+        "observations": {"window": {
+            **observed_binding,
+            "insight_id": insight_id,
+            "inference_depth": "motive_link",
+        }},
+        "realizations": {},
+    })
+    restarted_binding = kernel._canonical_psychology_binding(
+        ctx,
+        investigator_id="thomas-hayes",
+        semantic_inputs={"external_behavior": "他攥紧口袋。"},
+        observation_result={
+            "insight_id": insight_id,
+            "inference_depth": "motive_link",
+        },
+    )
+    assert restarted_binding["observation_receipt_ref"] == insight_id
+    assert restarted_binding["inference_ceiling"] == "motive_link"
+
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    selected = {
+        "semantic_inputs": {"external_behavior": "他攥紧口袋。"},
+        "_host_psychology_binding": restarted_binding,
+    }
+    provider = adapter.host_locked_provider(
+        ctx,
+        {"investigator": "thomas-hayes", "decision_id": "psych-realize-1"},
+        selected,
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        safe_sheet=lambda *_args: {},
+        skill_value=lambda *_args: None,
+    )
+    locked = provider("decision:coc7:psychology:realize-player-safe")
+    execution = adapter.executor_args(
+        ctx,
+        {
+            "capability": {"resolver_capability": "psychology_policy"},
+            "command": {"payload": {
+                "external_behavior": "他攥紧口袋。", **locked,
+            }},
+        },
+        selected,
+        {"investigator": "thomas-hayes", "decision_id": "psych-realize-1"},
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        tool_error=kernel.ToolError,
+    )
+    assert execution["action"] == "realize"
+    assert execution["insight_id"] == insight_id
+    assert execution["visible_observation"] == "他攥紧口袋。"
+
+
+def test_latest_graph_psychology_observation_reads_durable_ledger():
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = SimpleNamespace(_load_ledger=lambda: {"entries": {
+        "one": {
+            "tool": "rules.settle",
+            "ts": "2026-08-31T01:00:00Z",
+            "decision_id": "psych-observe-1",
+            "data": {
+                "family": "psychology",
+                "decision_ref": "decision:coc7:psychology:observe-concealed",
+                "settlement": {"result": {
+                    "insight_id": "psych-insight-durable",
+                    "inference_depth": "motive_link",
+                }},
+            },
+        },
+    }})
+    assert kernel._latest_graph_psychology_observation(ctx) == (
+        "psych-observe-1",
+        {
+            "insight_id": "psych-insight-durable",
+            "inference_depth": "motive_link",
+        },
+    )
+
+
+def test_combat_graph_attack_compiles_to_existing_typed_action(monkeypatch):
+    kernel = coc_toolbox.coc_operation_kernel
+    monkeypatch.setattr(kernel, "_combat_state", lambda _ctx: {
+        "status": "active", "revision": 2, "pending_attack": None,
+    })
+    ctx = SimpleNamespace()
+    semantic = {
+        "candidate_ref": "attack:npc-corbitt",
+        "weapon_ref": "weapon:unarmed",
+        "weapon_effect_refs": [],
+        "luck_spend_max": 3,
+    }
+    binding = kernel._canonical_combat_binding(
+        ctx,
+        decision_ref="decision:coc7:combat:attack",
+        investigator_id="thomas-hayes",
+        semantic_inputs=semantic,
+    )
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    selected = {
+        "decision_ref": "decision:coc7:combat:attack",
+        "semantic_inputs": semantic,
+        "_host_combat_binding": binding,
+    }
+    provider = adapter.host_locked_provider(
+        ctx,
+        {"investigator": "thomas-hayes", "decision_id": "combat-attack-1"},
+        selected,
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        safe_sheet=lambda *_args: {},
+        skill_value=lambda *_args: None,
+    )
+    package = Path.cwd() / "plugins" / "coc-keeper" / "rulesets" / "coc7"
+    graph = json.loads((package / "rule-graph.json").read_text(encoding="utf-8"))
+    graph["family_runtime_ownership"]["combat"] = "graph"
+    graph["legacy_surface_lifecycle"]["combat"] = "hidden"
+    graph_manifest = json.loads(
+        (package / "rule-graph-manifest.json").read_text(encoding="utf-8")
+    )
+    graph_manifest["family_promotion_eligibility"]["combat"].update({
+        "promotion_eligible": True,
+        "runtime_ownership": "graph",
+    })
+    runtime = coc_rules_runtime.RulesRuntime(
+        graph,
+        ruleset_id="coc7",
+        graph_manifest=graph_manifest,
+        package_manifest={"rule_families": [{
+            "family_id": "combat", "runtime_owner": "graph",
+            "legacy_surface": "hidden",
+        }]},
+        facts_provider=lambda: {"campaign.ruleset_id": "coc7"},
+        resolver_index=adapter.host_capability_index(),
+        ruleset_adapter=adapter,
+    )
+    context = runtime.context({
+        "family": "combat",
+        "selected_affordance_ids": ["decision:coc7:combat:attack"],
+    })
+    assert context["status"] == "ok", context
+    runtime._host_locked_provider = provider
+    calls = []
+    settled = runtime.settle(
+        selected,
+        "combat-attack-1",
+        card_grant=context["card_grant"],
+        executor=lambda plan, decision_id, chosen: (
+            calls.append((plan, decision_id, chosen)) or {"events": []}
+        ),
+    )
+    assert settled["status"] == "settled", settled
+    assert len(calls) == 1
+    binding = kernel._canonical_combat_binding(
+        ctx,
+        decision_ref="decision:coc7:combat:attack",
+        investigator_id="thomas-hayes",
+        semantic_inputs=semantic,
+    )
+    assert binding == {
+        "investigator_id": "thomas-hayes",
+        "combat_revision": 2,
+        "target_npc_id": "npc-corbitt",
+        "weapon_id": "unarmed",
+        "weapon_effect_ids": [],
+    }
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    selected = {
+        "decision_ref": "decision:coc7:combat:attack",
+        "semantic_inputs": semantic,
+        "_host_combat_binding": binding,
+    }
+    provider = adapter.host_locked_provider(
+        ctx,
+        {"investigator": "thomas-hayes", "decision_id": "combat-attack-1"},
+        selected,
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        safe_sheet=lambda *_args: {},
+        skill_value=lambda *_args: None,
+    )
+    locked = provider("decision:coc7:combat:attack")
+    execution = adapter.executor_args(
+        ctx,
+        {
+            "decision_ref": "decision:coc7:combat:attack",
+            "capability": {"resolver_capability": "combat.resolve"},
+            "command": {"payload": {**semantic, **locked}},
+        },
+        selected,
+        {"investigator": "thomas-hayes", "decision_id": "combat-attack-1"},
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        tool_error=kernel.ToolError,
+    )
+    assert execution == {
+        "investigator": "thomas-hayes",
+        "decision_id": "combat-attack-1",
+        "action_kind": "attack",
+        "target_npc_id": "npc-corbitt",
+        "weapon_id": "unarmed",
+        "weapon_effect_ids": [],
+        "combat_revision": 2,
+        "luck_spend_max": 3,
+    }
+
+
+def test_combat_graph_binding_rejects_forged_candidate_and_stale_defense(
+    monkeypatch,
+):
+    kernel = coc_toolbox.coc_operation_kernel
+    monkeypatch.setattr(kernel, "_combat_state", lambda _ctx: {
+        "status": "active", "revision": 2, "pending_attack": None,
+    })
+    with pytest.raises(kernel.ToolError) as forged:
+        kernel._canonical_combat_binding(
+            SimpleNamespace(),
+            decision_ref="decision:coc7:combat:attack",
+            investigator_id="thomas-hayes",
+            semantic_inputs={"candidate_ref": "the monster"},
+        )
+    assert forged.value.code == "invalid_semantic_input"
+    with pytest.raises(kernel.ToolError) as stale:
+        kernel._canonical_combat_binding(
+            SimpleNamespace(),
+            decision_ref="decision:coc7:combat:defend",
+            investigator_id="thomas-hayes",
+            semantic_inputs={"defense_kind": "dodge"},
+        )
+    assert stale.value.code == "combat_defense_not_pending"
+
+
+def test_sanity_graph_bout_binding_builds_existing_execute_command(
+    monkeypatch, tmp_path: Path,
+):
+    kernel = coc_toolbox.coc_operation_kernel
+    campaign_dir = tmp_path / "campaign"
+    (campaign_dir / "save").mkdir(parents=True)
+    monkeypatch.setattr(
+        kernel.coc_subsystem_executor,
+        "get_current_pending_choices",
+        lambda _path: [{
+            "kind": "bout_keeper_action",
+            "choice_id": "bout-choice-1",
+            "origin_command_id": "sanity-origin-1",
+            "revision": 2,
+        }],
+    )
+    ctx = SimpleNamespace(
+        campaign_dir=campaign_dir,
+        inv_state=lambda _investigator: {"current_san": 44, "max_san": 60},
+    )
+    binding = kernel._canonical_sanity_binding(
+        ctx,
+        decision_ref="decision:coc7:sanity:bout-tick",
+        investigator_id="thomas-hayes",
+        semantic_inputs={},
+    )
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    selected = {
+        "semantic_inputs": {},
+        "_host_sanity_binding": binding,
+    }
+    provider = adapter.host_locked_provider(
+        ctx,
+        {"investigator": "thomas-hayes", "decision_id": "san-bout-tick-1"},
+        selected,
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        safe_sheet=lambda *_args: {},
+        skill_value=lambda *_args: None,
+    )
+    locked = provider("decision:coc7:sanity:bout-tick")
+    execution = adapter.executor_args(
+        ctx,
+        {
+            "decision_ref": "decision:coc7:sanity:bout-tick",
+            "capability": {"resolver_capability": "sanity.execute"},
+            "command": {"phase": "bout-tick", "payload": locked},
+        },
+        selected,
+        {"investigator": "thomas-hayes", "decision_id": "san-bout-tick-1"},
+        resolve_investigator=lambda *_args: "thomas-hayes",
+        tool_error=kernel.ToolError,
+    )
+    assert execution["command"] == {
+        "command_id": "san-bout-tick-1:command",
+        "kind": "bout_tick",
+        "phase": "resolve",
+        "payload": {
+            "decision_id": "san-bout-tick-1",
+            "choice_id": "bout-choice-1",
+            "responder": "keeper",
+            "revision": 2,
+            "action": "tick",
+            "terminal_command_ids": ["san-bout-tick-1:command"],
+        },
+    }
+
+
+def test_sanity_graph_gain_fails_without_canonical_pending_receipt():
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    kernel = coc_toolbox.coc_operation_kernel
+    with pytest.raises(kernel.ToolError) as failure:
+        adapter.executor_args(
+            SimpleNamespace(),
+            {
+                "decision_ref": "decision:coc7:sanity:gain-current-san",
+                "capability": {"resolver_capability": "sanity.session.gain_san"},
+                "command": {"phase": "resolve", "payload": {
+                    "gain_source": "scenario conclusion",
+                }},
+            },
+            {"semantic_inputs": {"gain_source": "scenario conclusion"}},
+            {"investigator": "thomas-hayes", "decision_id": "san-gain-graph-1"},
+            resolve_investigator=lambda *_args: "thomas-hayes",
+            tool_error=kernel.ToolError,
+        )
+    assert failure.value.code == "sanity_gain_receipt_unavailable"
+
+
+@pytest.mark.parametrize(("facts", "added"), [
+    ({}, set()),
+    ({"sanity.bout.pending": True}, {"bout-end", "bout-tick"}),
+    ({"sanity.delusion.active": True}, {"reality-check"}),
+    ({"sanity.treatment.due": True}, {"apply-treatment"}),
+    ({"sanity.recovery.due": True}, {"recover-temporary"}),
+    ({"sanity.insane": True}, {"insane-insight"}),
+    ({"sanity.gain.pending": True}, {"gain-current-san"}),
+])
+def test_sanity_production_cards_follow_exact_canonical_facts(facts, added):
+    package = Path.cwd() / "plugins" / "coc-keeper" / "rulesets" / "coc7"
+    graph = json.loads((package / "rule-graph.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (package / "rule-graph-manifest.json").read_text(encoding="utf-8")
+    )
+    graph["family_runtime_ownership"]["sanity"] = "graph"
+    graph["legacy_surface_lifecycle"]["sanity"] = "hidden"
+    manifest["family_promotion_eligibility"]["sanity"].update({
+        "promotion_eligible": True, "runtime_ownership": "graph",
+    })
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    runtime = coc_rules_runtime.RulesRuntime(
+        graph,
+        ruleset_id="coc7",
+        graph_manifest=manifest,
+        package_manifest={"rule_families": [{
+            "family_id": "sanity", "runtime_owner": "graph",
+            "legacy_surface": "hidden",
+        }]},
+        facts_provider=lambda: {"campaign.ruleset_id": "coc7", **facts},
+        resolver_index=adapter.host_capability_index(),
+        ruleset_adapter=adapter,
+    )
+    cards = {
+        row["decision_ref"].rsplit(":", 1)[-1]
+        for row in runtime.context({"family": "sanity"})["cards"]
+        if row["applicability"] == "applicable"
+    }
+    assert cards == {"check", "context", *added}
+
+
+def test_development_pending_fact_and_adapter_recovery_binding(
+    monkeypatch, tmp_path: Path,
+):
+    kernel = coc_toolbox.coc_operation_kernel
+    ending_path = tmp_path / "ending-investigator.json"
+    ctx = SimpleNamespace(
+        campaign_dir=tmp_path,
+        inv_state=lambda _investigator: {},
+        sheet=lambda _investigator: {},
+    )
+    monkeypatch.setattr(
+        kernel.coc_development,
+        "structured_ending_evidence",
+        lambda _path: {"ending_id": "ending:canonical"},
+    )
+    monkeypatch.setattr(
+        kernel.coc_development,
+        "ending_settlement_path",
+        lambda *_args: ending_path,
+    )
+    monkeypatch.setattr(
+        kernel.coc_time, "current_stamp",
+        lambda _path: {"elapsed_minutes": 0},
+    )
+    monkeypatch.setattr(
+        kernel.coc_subsystem_executor,
+        "get_current_pending_choices",
+        lambda _path: [],
+    )
+    monkeypatch.setattr(kernel.coc_time, "peek_due_triggers", lambda _path: [])
+    provider = kernel._facts_provider_for(ctx, "investigator-one", "coc7")
+    assert provider()["development.settlement.pending"] is True
+    ending_path.write_text("{}", encoding="utf-8")
+    assert provider()["development.settlement.pending"] is False
+
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    selected = {
+        "semantic_inputs": {},
+        "_host_family_binding": {
+            "investigator": "investigator-one",
+            "ending_id": "ending:canonical",
+        },
+    }
+    locked_provider = adapter.host_locked_provider(
+        ctx,
+        {"investigator": "investigator-one", "decision_id": "dev-settle-1"},
+        selected,
+        resolve_investigator=lambda *_args: "investigator-one",
+        safe_sheet=lambda *_args: {},
+        skill_value=lambda *_args: None,
+    )
+    locked = locked_provider("decision:coc7:development:settle-ending")
+    execution = adapter.executor_args(
+        ctx,
+        {
+            "decision_ref": "decision:coc7:development:settle-ending",
+            "capability": {"resolver_capability": "development.settle"},
+            "command": {"payload": locked},
+        },
+        selected,
+        {"investigator": "investigator-one", "decision_id": "dev-settle-1"},
+        resolve_investigator=lambda *_args: "investigator-one",
+        tool_error=kernel.ToolError,
+    )
+    assert execution["ending_id"] == "ending:canonical"
+
+
+def test_magic_grounding_uses_known_spell_and_exact_source_records():
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = SimpleNamespace(
+        inv_state=lambda _investigator: {
+            "magic": {"learned_spells": ["Contact Ghoul"]},
+        },
+        npc_agendas={"npcs": [{
+            "npc_id": "professor-ward",
+            "magic_source_kind": "person",
+            "spells": ["Contact Ghoul"],
+        }]},
+    )
+    cast = kernel._canonical_magic_binding(
+        ctx,
+        investigator_id="investigator-one",
+        decision_ref="decision:coc7:magic:cast-spell",
+        semantic_inputs={"spell": "Contact Ghoul"},
+    )
+    assert cast["known_spell_ref"].startswith(
+        "learned-spell:investigator-one:contact-ghoul"
+    )
+    learned = kernel._canonical_magic_binding(
+        ctx,
+        investigator_id="investigator-one",
+        decision_ref="decision:coc7:magic:learn-spell",
+        semantic_inputs={
+            "spell": "Contact Ghoul",
+            "source": "person",
+            "source_ref": "person:professor-ward",
+        },
+    )
+    assert learned == {"investigator": "investigator-one", "is_npc": False}
+    with pytest.raises(kernel.ToolError) as missing:
+        kernel._canonical_magic_binding(
+            ctx,
+            investigator_id="investigator-one",
+            decision_ref="decision:coc7:magic:learn-spell",
+            semantic_inputs={
+                "spell": "Call Azathoth",
+                "source": "person",
+                "source_ref": "person:professor-ward",
+            },
+        )
+    assert missing.value.code == "magic_source_invalid"
+
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    facts = adapter.augment_facts(
+        SimpleNamespace(),
+        {"semantic_inputs": {
+            "spell": "Contact Ghoul",
+            "source": "person",
+            "source_ref": "person:professor-ward",
+        }},
+        {
+            "magic.known_spells": ["Contact Ghoul"],
+            "magic.learn.sources": {
+                "person:professor-ward": ["Contact Ghoul"],
+            },
+        },
+    )
+    assert facts["magic.spell.known"] is True
+    assert facts["magic.learn.source-available"] is True
+    package = Path.cwd() / "plugins" / "coc-keeper" / "rulesets" / "coc7"
+    graph = json.loads((package / "rule-graph.json").read_text(encoding="utf-8"))
+    manifest = json.loads((package / "rule-graph-manifest.json").read_text(encoding="utf-8"))
+    graph["family_runtime_ownership"]["magic"] = "graph"
+    graph["legacy_surface_lifecycle"]["magic"] = "hidden"
+    manifest["family_promotion_eligibility"]["magic"].update({
+        "promotion_eligible": True, "runtime_ownership": "graph",
+    })
+    runtime = coc_rules_runtime.RulesRuntime(
+        graph, ruleset_id="coc7", graph_manifest=manifest,
+        package_manifest={"rule_families": [{
+            "family_id": "magic", "runtime_owner": "graph", "legacy_surface": "hidden",
+        }]},
+        facts_provider=lambda: {
+            "campaign.ruleset_id": "coc7",
+            "magic.known_spells": ["Contact Ghoul"],
+            "magic.learn.sources": {"person:professor-ward": ["Contact Ghoul"]},
+        },
+        resolver_index=adapter.host_capability_index(), ruleset_adapter=adapter,
+    )
+    cast_cards = runtime.context({"family": "magic", "semantic_inputs": {"spell": "Contact Ghoul"}})
+    assert {row["decision_ref"].rsplit(":", 1)[-1] for row in cast_cards["cards"] if row["applicability"] == "applicable"} == {"cast-spell"}
+    learn_cards = runtime.context({"family": "magic", "semantic_inputs": {
+        "spell": "Contact Ghoul", "source": "person", "source_ref": "person:professor-ward",
+    }})
+    assert {row["decision_ref"].rsplit(":", 1)[-1] for row in learn_cards["cards"] if row["applicability"] == "applicable"} == {"cast-spell", "learn-spell"}
+
+
+@pytest.mark.parametrize(("pending", "expected"), [
+    (False, {"end-session"}),
+    (True, {"end-session", "settle-ending"}),
+])
+def test_development_production_cards_require_pending_settlement(pending, expected):
+    package = Path.cwd() / "plugins" / "coc-keeper" / "rulesets" / "coc7"
+    graph = json.loads((package / "rule-graph.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (package / "rule-graph-manifest.json").read_text(encoding="utf-8")
+    )
+    graph["family_runtime_ownership"]["development"] = "graph"
+    graph["legacy_surface_lifecycle"]["development"] = "hidden"
+    manifest["family_promotion_eligibility"]["development"].update({
+        "promotion_eligible": True, "runtime_ownership": "graph",
+    })
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    runtime = coc_rules_runtime.RulesRuntime(
+        graph,
+        ruleset_id="coc7",
+        graph_manifest=manifest,
+        package_manifest={"rule_families": [{
+            "family_id": "development", "runtime_owner": "graph",
+            "legacy_surface": "hidden",
+        }]},
+        facts_provider=lambda: {
+            "campaign.ruleset_id": "coc7",
+            "development.settlement.pending": pending,
+        },
+        resolver_index=adapter.host_capability_index(),
+        ruleset_adapter=adapter,
+    )
+    cards = {
+        row["decision_ref"].rsplit(":", 1)[-1]
+        for row in runtime.context({"family": "development"})["cards"]
+        if row["applicability"] == "applicable"
+    }
+    assert cards == expected
+
+
+def test_chase_generic_start_hydrates_only_current_semantic_refs():
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = SimpleNamespace(
+        world=lambda: {"active_scene_id": "alley"},
+        story_graph={"scenes": [
+            {"scene_id": "alley", "npc_ids": ["npc-pursuer"], "exit_targets": ["market"]},
+            {"scene_id": "market", "npc_ids": []},
+        ]},
+        party_ids=lambda: ["investigator-one"],
+        sheet=lambda _id: {"characteristics": {"DEX": 60, "CON": 50}, "derived": {"HP": 10, "MOV": 8}, "skills": {"Fighting (Brawl)": 40, "Dodge": 30}},
+        inv_state=lambda _id: {"current_hp": 10, "conditions": []},
+        npc_agendas={"npcs": [{"npc_id": "npc-pursuer", "mechanics": {"profile": {"mov": 7, "dex": 50, "con": 50, "hp": 9, "combat_skill": 35, "dodge_skill": 25, "build": 0}}}]},
+    )
+    binding = kernel._canonical_chase_binding(
+        ctx, decision_ref="decision:coc7:chase:start",
+        investigator_id="investigator-one",
+        semantic_inputs={
+            "pursuer_refs": ["npc:npc-pursuer"],
+            "quarry_refs": ["investigator:investigator-one"],
+            "location_refs": ["scene:alley", "scene:market"],
+        },
+    )
+    assert len(binding["participants"]) == 2
+    assert [row["label"] for row in binding["locations"]] == ["alley", "market"]
+    assert binding["locations"][0]["hazard"] is None
+    with pytest.raises(kernel.ToolError):
+        kernel._canonical_chase_binding(
+            ctx, decision_ref="decision:coc7:chase:start",
+            investigator_id="investigator-one",
+            semantic_inputs={"pursuer_refs": ["npc:invented"], "quarry_refs": ["investigator:investigator-one"], "location_refs": ["scene:alley", "scene:market"]},
+        )
+
+
+def test_chase_candidates_are_empty_without_world_context():
+    kernel = coc_toolbox.coc_operation_kernel
+    assert kernel._chase_start_candidates(SimpleNamespace(), "investigator-one") == {
+        "actors": {}, "locations": {}, "scene_id": None,
+    }
 
 
 def test_runtime_settle_exclusion_scopes_are_no_candidate(tmp_path: Path):

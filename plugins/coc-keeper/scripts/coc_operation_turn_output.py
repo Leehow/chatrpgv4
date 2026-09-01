@@ -20,8 +20,8 @@ from coc_operation_kernel_runtime import (
     _latest_narrative_opportunity,
     _load_sibling,
     _now_iso,
+    _pi_play_direct_single_draft,
     _pi_play_agency_review_required,
-    _pi_rules_director_single_draft_profile,
     _read_optional_json,
     _record_table_transcript_entry,
     _resolve_investigator,
@@ -2586,7 +2586,7 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
                 "coc_turn_finalize"
                 if (
                     agency_review_required
-                    or _pi_rules_director_single_draft_profile()
+                    or _pi_play_direct_single_draft()
                 )
                 else "coc_invoke"
             ),

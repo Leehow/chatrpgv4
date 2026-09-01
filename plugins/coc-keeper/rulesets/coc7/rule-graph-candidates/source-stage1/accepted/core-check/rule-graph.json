@@ -1,0 +1,2111 @@
+{
+  "contract_id": "coc.rule-graph.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "source_language": "en",
+  "nodes": [
+    {
+      "node_id": "capability:coc7:check",
+      "node_kind": "capability",
+      "name": "check",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "resolver_capability": "check",
+        "adapter": "resolver",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:opposed",
+      "node_kind": "capability",
+      "name": "opposed",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check",
+        "resolver_capability": "opposed",
+        "adapter": "resolver"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:core-check:actor-bound",
+      "node_kind": "condition",
+      "name": "The canonical acting investigator is bound before target hydration",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": true,
+      "properties": {
+        "family_id": "core-check",
+        "expression": {
+          "op": "exists",
+          "path": "actor.id"
+        }
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:combat",
+      "node_kind": "data-table",
+      "name": "combat.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "combat.json"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:difficulty-levels",
+      "node_kind": "data-table",
+      "name": "difficulty-levels.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "difficulty-levels.json"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:percentile-check",
+      "node_kind": "data-table",
+      "name": "percentile-check.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "percentile-check.json"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:roll-modifiers",
+      "node_kind": "data-table",
+      "name": "roll-modifiers.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "roll-modifiers.json"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:success-levels",
+      "node_kind": "data-table",
+      "name": "success-levels.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "success-levels.json"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:core-check:combined-check",
+      "node_kind": "decision",
+      "name": "Settle one investigator's one D100 roll against multiple skills using the Keeper-declared any/all mode",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check",
+        "implementation": {
+          "adapter": "resolver",
+          "kind": "check",
+          "phase": "resolve",
+          "payload_constants": {},
+          "payload_slots": [
+            {
+              "name": "combined_target_refs",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "combined_targets",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "combined_mode",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "difficulty",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "goal",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "stakes",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "investigator_id",
+              "ownership": "host-locked"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:core-check:opposed-check",
+      "node_kind": "decision",
+      "name": "Settle one non-combat opposed check with one roll for each side",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check",
+        "implementation": {
+          "adapter": "resolver",
+          "kind": "opposed",
+          "phase": "resolve",
+          "payload_constants": {},
+          "payload_slots": [
+            {
+              "name": "actor_check_ref",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "opponent_check_ref",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "investigator_target",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "opponent_value",
+              "ownership": "host-locked"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:core-check:ordinary-check",
+      "node_kind": "decision",
+      "name": "Settle one ordinary skill or characteristic percentile check as one bound roll",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "implementation": {
+          "adapter": "resolver",
+          "kind": "check",
+          "phase": "resolve",
+          "payload_constants": {},
+          "payload_slots": [
+            {
+              "name": "skill",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "characteristic",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "difficulty",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "goal",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "stakes",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "difficulty_basis",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "bonus",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "penalty",
+              "ownership": "optional-semantic"
+            },
+            {
+              "name": "target",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "investigator_id",
+              "ownership": "host-locked"
+            }
+          ]
+        },
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:actor-check-ref",
+      "node_kind": "input-slot",
+      "name": "Semantic acting skill or characteristic reference",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check",
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "actor_check_ref"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:characteristic",
+      "node_kind": "input-slot",
+      "name": "characteristic",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "optional-semantic",
+        "value_type": "scalar",
+        "path": "characteristic",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:combined-mode",
+      "node_kind": "input-slot",
+      "name": "Keeper-declared any or all comparison mode",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check",
+        "ownership": "keeper-semantic",
+        "value_type": "enum",
+        "path": "combined_mode"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:combined-target-refs",
+      "node_kind": "input-slot",
+      "name": "Semantic skill or characteristic references selected for the combined check",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check",
+        "ownership": "keeper-semantic",
+        "value_type": "array",
+        "path": "combined_target_refs"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:combined-targets",
+      "node_kind": "input-slot",
+      "name": "Authoritative named skill targets for the one investigator",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check",
+        "ownership": "host-locked",
+        "value_type": "object",
+        "path": "combined_targets"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:difficulty",
+      "node_kind": "input-slot",
+      "name": "difficulty",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "difficulty",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:difficulty-basis",
+      "node_kind": "input-slot",
+      "name": "difficulty_basis",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "difficulty_basis",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:goal",
+      "node_kind": "input-slot",
+      "name": "goal",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "goal",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:investigator-target",
+      "node_kind": "input-slot",
+      "name": "Canonical numeric value hydrated for the acting check reference",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check",
+        "ownership": "host-locked",
+        "value_type": "scalar",
+        "path": "investigator_target"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:opponent-check-ref",
+      "node_kind": "input-slot",
+      "name": "Semantic authored opponent skill or characteristic reference",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check",
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "opponent_check_ref"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:opponent-value",
+      "node_kind": "input-slot",
+      "name": "Authoritative opposing skill or characteristic value",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check",
+        "ownership": "host-locked",
+        "value_type": "scalar",
+        "path": "opponent_value"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:skill",
+      "node_kind": "input-slot",
+      "name": "skill",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "skill",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:stakes",
+      "node_kind": "input-slot",
+      "name": "stakes",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "stakes",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:core-check:target",
+      "node_kind": "input-slot",
+      "name": "target",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "ownership": "host-locked",
+        "value_type": "scalar",
+        "path": "target",
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "rule-family:coc7:core-check",
+      "node_kind": "rule-family",
+      "name": "Ordinary skill and characteristic checks",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:core-check:bonus-penalty",
+      "node_kind": "rule",
+      "name": "Bonus and penalty dice cancel one-for-one then extra tens dice",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:core-check:canonical-target-binding",
+      "node_kind": "rule",
+      "name": "Semantic skill, characteristic, and opponent references select the check; numeric targets are host-locked from the canonical investigator sheet or authored opponent state before resolver execution",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:core-check:combined",
+      "node_kind": "rule",
+      "name": "A combined skill roll uses one investigator's single D100 result against every named skill; the Keeper declares whether any or all named skills must succeed",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:core-check:difficulty",
+      "node_kind": "rule",
+      "name": "Regular / Hard (half) / Extreme (fifth) required success levels",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:core-check:goal-and-necessity",
+      "node_kind": "rule",
+      "name": "Roll only for an uncertain consequential outcome; the player's intention defines one clear goal and the Keeper selects the fitting skill or characteristic",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:core-check:multiple-investigators",
+      "node_kind": "rule",
+      "name": "Multiple investigators use separate rolls or a situation-specific cooperation procedure; a repeated attempt at the same goal generally becomes a pushed roll",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:core-check:opposed",
+      "node_kind": "rule",
+      "name": "Non-combat opposed rolls use one roll per side, compare success levels, break a tied successful level by higher skill or characteristic, and cannot be pushed",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:core-check:percentile",
+      "node_kind": "rule",
+      "name": "1D100 succeeds when the roll is less than or equal to the effective target",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:core-check:physical-human-limits",
+      "node_kind": "rule",
+      "name": "An Extreme check cannot overcome opposition more than 100 plus the investigator's skill or characteristic; multiple investigators may reduce the opposing characteristic through the stated sequential procedure",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:core-check:success-levels",
+      "node_kind": "rule",
+      "name": "Critical is a natural 1; fumble is 96-100 below 50% target else 100",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "core-check"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "node_id": "visibility-policy:coc7:core-check:public-roll",
+      "node_kind": "visibility-policy",
+      "name": "Ordinary checks and their Push/Luck follow-ups are public unless the card says otherwise",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "policy": "public"
+      },
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "relation:coc7:core-check:binding-invokes-check",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:core-check:canonical-target-binding",
+      "to_node_id": "capability:coc7:check",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:binding-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:core-check:canonical-target-binding",
+      "to_node_id": "rule-family:coc7:core-check",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:combined-actor-bound",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:core-check:combined-check",
+      "to_node_id": "condition:coc7:core-check:actor-bound",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:combined-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:core-check:combined-check",
+      "to_node_id": "capability:coc7:check",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:combined-locks-targets",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:core-check:combined-check",
+      "to_node_id": "input-slot:coc7:core-check:combined-targets",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:combined-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:core-check:combined",
+      "to_node_id": "rule-family:coc7:core-check",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:combined-reads-combat",
+      "relation_kind": "reads-table",
+      "from_node_id": "decision:coc7:core-check:combined-check",
+      "to_node_id": "data-table:coc7:combat",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:combined-requires-mode",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:core-check:combined-check",
+      "to_node_id": "input-slot:coc7:core-check:combined-mode",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:combined-requires-target-refs",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:core-check:combined-check",
+      "to_node_id": "input-slot:coc7:core-check:combined-target-refs",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:combined-rule-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:core-check:combined",
+      "to_node_id": "capability:coc7:check",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:difficulty-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:core-check:difficulty",
+      "to_node_id": "rule-family:coc7:core-check",
+      "evidence_span_ids": [
+        "span-checks-push-luck-source-page-100-block-70",
+        "span-checks-push-luck-source-page-101-block-101",
+        "span-checks-push-luck-source-page-101-block-97",
+        "span-checks-push-luck-source-page-102-block-103",
+        "span-checks-push-luck-source-page-102-block-116",
+        "span-checks-push-luck-source-page-102-block-119",
+        "span-checks-push-luck-source-page-102-block-121",
+        "span-checks-push-luck-source-page-103-block-136",
+        "span-checks-push-luck-source-page-103-block-138",
+        "span-checks-push-luck-source-page-103-block-142",
+        "span-checks-push-luck-source-page-104-block-145",
+        "span-checks-push-luck-source-page-93-block-14",
+        "span-checks-push-luck-source-page-93-block-6",
+        "span-checks-push-luck-source-page-94-block-29"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:goal-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:core-check:goal-and-necessity",
+      "to_node_id": "rule-family:coc7:core-check",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:human-limits-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:core-check:physical-human-limits",
+      "to_node_id": "rule-family:coc7:core-check",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:locks-target",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:core-check:ordinary-check",
+      "to_node_id": "input-slot:coc7:core-check:target",
+      "evidence_span_ids": [
+        "span-checks-push-luck-source-page-100-block-70",
+        "span-checks-push-luck-source-page-101-block-101",
+        "span-checks-push-luck-source-page-101-block-97",
+        "span-checks-push-luck-source-page-102-block-103",
+        "span-checks-push-luck-source-page-102-block-116",
+        "span-checks-push-luck-source-page-102-block-119",
+        "span-checks-push-luck-source-page-102-block-121",
+        "span-checks-push-luck-source-page-103-block-136",
+        "span-checks-push-luck-source-page-103-block-138",
+        "span-checks-push-luck-source-page-103-block-142",
+        "span-checks-push-luck-source-page-104-block-145",
+        "span-checks-push-luck-source-page-93-block-14",
+        "span-checks-push-luck-source-page-93-block-6",
+        "span-checks-push-luck-source-page-94-block-29"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:modifiers-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:core-check:bonus-penalty",
+      "to_node_id": "rule-family:coc7:core-check",
+      "evidence_span_ids": [
+        "span-checks-push-luck-source-page-100-block-70",
+        "span-checks-push-luck-source-page-101-block-101",
+        "span-checks-push-luck-source-page-101-block-97",
+        "span-checks-push-luck-source-page-102-block-103",
+        "span-checks-push-luck-source-page-102-block-116",
+        "span-checks-push-luck-source-page-102-block-119",
+        "span-checks-push-luck-source-page-102-block-121",
+        "span-checks-push-luck-source-page-103-block-136",
+        "span-checks-push-luck-source-page-103-block-138",
+        "span-checks-push-luck-source-page-103-block-142",
+        "span-checks-push-luck-source-page-104-block-145",
+        "span-checks-push-luck-source-page-93-block-14",
+        "span-checks-push-luck-source-page-93-block-6",
+        "span-checks-push-luck-source-page-94-block-29"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:multiple-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:core-check:multiple-investigators",
+      "to_node_id": "rule-family:coc7:core-check",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:opposed-actor-bound",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:core-check:opposed-check",
+      "to_node_id": "condition:coc7:core-check:actor-bound",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:opposed-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:core-check:opposed-check",
+      "to_node_id": "capability:coc7:opposed",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:opposed-locks-actor-target",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:core-check:opposed-check",
+      "to_node_id": "input-slot:coc7:core-check:investigator-target",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:opposed-locks-opponent-value",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:core-check:opposed-check",
+      "to_node_id": "input-slot:coc7:core-check:opponent-value",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:opposed-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:core-check:opposed",
+      "to_node_id": "rule-family:coc7:core-check",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:opposed-reads-combat",
+      "relation_kind": "reads-table",
+      "from_node_id": "decision:coc7:core-check:opposed-check",
+      "to_node_id": "data-table:coc7:combat",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:opposed-requires-actor-ref",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:core-check:opposed-check",
+      "to_node_id": "input-slot:coc7:core-check:actor-check-ref",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:opposed-requires-opponent-ref",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:core-check:opposed-check",
+      "to_node_id": "input-slot:coc7:core-check:opponent-check-ref",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:opposed-rule-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:core-check:opposed",
+      "to_node_id": "capability:coc7:opposed",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:ordinary-actor-bound",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:core-check:ordinary-check",
+      "to_node_id": "condition:coc7:core-check:actor-bound",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:ordinary-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:core-check:ordinary-check",
+      "to_node_id": "capability:coc7:check",
+      "evidence_span_ids": [
+        "span-core-check-source-accepted-page-100-block-61",
+        "span-core-check-source-accepted-page-101-block-88",
+        "span-core-check-source-accepted-page-101-block-92",
+        "span-core-check-source-accepted-page-102-block-101",
+        "span-core-check-source-accepted-page-102-block-107",
+        "span-core-check-source-accepted-page-102-block-110",
+        "span-core-check-source-accepted-page-102-block-94",
+        "span-core-check-source-accepted-page-103-block-127",
+        "span-core-check-source-accepted-page-103-block-133",
+        "span-core-check-source-accepted-page-93-block-13",
+        "span-core-check-source-accepted-page-93-block-2",
+        "span-core-check-source-accepted-page-94-block-29",
+        "span-core-check-source-accepted-page-97-block-50",
+        "span-core-check-source-accepted-page-99-block-53",
+        "span-core-check-source-accepted-page-99-block-54",
+        "span-core-check-source-accepted-page-99-block-55"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:percentile-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:core-check:percentile",
+      "to_node_id": "rule-family:coc7:core-check",
+      "evidence_span_ids": [
+        "span-checks-push-luck-source-page-100-block-70",
+        "span-checks-push-luck-source-page-101-block-101",
+        "span-checks-push-luck-source-page-101-block-97",
+        "span-checks-push-luck-source-page-102-block-103",
+        "span-checks-push-luck-source-page-102-block-116",
+        "span-checks-push-luck-source-page-102-block-119",
+        "span-checks-push-luck-source-page-102-block-121",
+        "span-checks-push-luck-source-page-103-block-136",
+        "span-checks-push-luck-source-page-103-block-138",
+        "span-checks-push-luck-source-page-103-block-142",
+        "span-checks-push-luck-source-page-104-block-145",
+        "span-checks-push-luck-source-page-93-block-14",
+        "span-checks-push-luck-source-page-93-block-6",
+        "span-checks-push-luck-source-page-94-block-29"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:requires-basis",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:core-check:ordinary-check",
+      "to_node_id": "input-slot:coc7:core-check:difficulty-basis",
+      "evidence_span_ids": [
+        "span-checks-push-luck-source-page-100-block-70",
+        "span-checks-push-luck-source-page-101-block-101",
+        "span-checks-push-luck-source-page-101-block-97",
+        "span-checks-push-luck-source-page-102-block-103",
+        "span-checks-push-luck-source-page-102-block-116",
+        "span-checks-push-luck-source-page-102-block-119",
+        "span-checks-push-luck-source-page-102-block-121",
+        "span-checks-push-luck-source-page-103-block-136",
+        "span-checks-push-luck-source-page-103-block-138",
+        "span-checks-push-luck-source-page-103-block-142",
+        "span-checks-push-luck-source-page-104-block-145",
+        "span-checks-push-luck-source-page-93-block-14",
+        "span-checks-push-luck-source-page-93-block-6",
+        "span-checks-push-luck-source-page-94-block-29"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:requires-difficulty",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:core-check:ordinary-check",
+      "to_node_id": "input-slot:coc7:core-check:difficulty",
+      "evidence_span_ids": [
+        "span-checks-push-luck-source-page-100-block-70",
+        "span-checks-push-luck-source-page-101-block-101",
+        "span-checks-push-luck-source-page-101-block-97",
+        "span-checks-push-luck-source-page-102-block-103",
+        "span-checks-push-luck-source-page-102-block-116",
+        "span-checks-push-luck-source-page-102-block-119",
+        "span-checks-push-luck-source-page-102-block-121",
+        "span-checks-push-luck-source-page-103-block-136",
+        "span-checks-push-luck-source-page-103-block-138",
+        "span-checks-push-luck-source-page-103-block-142",
+        "span-checks-push-luck-source-page-104-block-145",
+        "span-checks-push-luck-source-page-93-block-14",
+        "span-checks-push-luck-source-page-93-block-6",
+        "span-checks-push-luck-source-page-94-block-29"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:requires-goal",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:core-check:ordinary-check",
+      "to_node_id": "input-slot:coc7:core-check:goal",
+      "evidence_span_ids": [
+        "span-checks-push-luck-source-page-100-block-70",
+        "span-checks-push-luck-source-page-101-block-101",
+        "span-checks-push-luck-source-page-101-block-97",
+        "span-checks-push-luck-source-page-102-block-103",
+        "span-checks-push-luck-source-page-102-block-116",
+        "span-checks-push-luck-source-page-102-block-119",
+        "span-checks-push-luck-source-page-102-block-121",
+        "span-checks-push-luck-source-page-103-block-136",
+        "span-checks-push-luck-source-page-103-block-138",
+        "span-checks-push-luck-source-page-103-block-142",
+        "span-checks-push-luck-source-page-104-block-145",
+        "span-checks-push-luck-source-page-93-block-14",
+        "span-checks-push-luck-source-page-93-block-6",
+        "span-checks-push-luck-source-page-94-block-29"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:requires-skill",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:core-check:ordinary-check",
+      "to_node_id": "input-slot:coc7:core-check:skill",
+      "evidence_span_ids": [
+        "span-checks-push-luck-source-page-100-block-70",
+        "span-checks-push-luck-source-page-101-block-101",
+        "span-checks-push-luck-source-page-101-block-97",
+        "span-checks-push-luck-source-page-102-block-103",
+        "span-checks-push-luck-source-page-102-block-116",
+        "span-checks-push-luck-source-page-102-block-119",
+        "span-checks-push-luck-source-page-102-block-121",
+        "span-checks-push-luck-source-page-103-block-136",
+        "span-checks-push-luck-source-page-103-block-138",
+        "span-checks-push-luck-source-page-103-block-142",
+        "span-checks-push-luck-source-page-104-block-145",
+        "span-checks-push-luck-source-page-93-block-14",
+        "span-checks-push-luck-source-page-93-block-6",
+        "span-checks-push-luck-source-page-94-block-29"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:requires-stakes",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:core-check:ordinary-check",
+      "to_node_id": "input-slot:coc7:core-check:stakes",
+      "evidence_span_ids": [
+        "span-checks-push-luck-source-page-100-block-70",
+        "span-checks-push-luck-source-page-101-block-101",
+        "span-checks-push-luck-source-page-101-block-97",
+        "span-checks-push-luck-source-page-102-block-103",
+        "span-checks-push-luck-source-page-102-block-116",
+        "span-checks-push-luck-source-page-102-block-119",
+        "span-checks-push-luck-source-page-102-block-121",
+        "span-checks-push-luck-source-page-103-block-136",
+        "span-checks-push-luck-source-page-103-block-138",
+        "span-checks-push-luck-source-page-103-block-142",
+        "span-checks-push-luck-source-page-104-block-145",
+        "span-checks-push-luck-source-page-93-block-14",
+        "span-checks-push-luck-source-page-93-block-6",
+        "span-checks-push-luck-source-page-94-block-29"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:core-check:success-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:core-check:success-levels",
+      "to_node_id": "rule-family:coc7:core-check",
+      "evidence_span_ids": [
+        "span-checks-push-luck-source-page-100-block-70",
+        "span-checks-push-luck-source-page-101-block-101",
+        "span-checks-push-luck-source-page-101-block-97",
+        "span-checks-push-luck-source-page-102-block-103",
+        "span-checks-push-luck-source-page-102-block-116",
+        "span-checks-push-luck-source-page-102-block-119",
+        "span-checks-push-luck-source-page-102-block-121",
+        "span-checks-push-luck-source-page-103-block-136",
+        "span-checks-push-luck-source-page-103-block-138",
+        "span-checks-push-luck-source-page-103-block-142",
+        "span-checks-push-luck-source-page-104-block-145",
+        "span-checks-push-luck-source-page-93-block-14",
+        "span-checks-push-luck-source-page-93-block-6",
+        "span-checks-push-luck-source-page-94-block-29"
+      ]
+    }
+  ],
+  "coverage": {
+    "chase": "unresolved",
+    "combat": "unresolved",
+    "core-check": "accepted",
+    "development": "unresolved",
+    "healing": "unresolved",
+    "magic": "unresolved",
+    "psychology": "unresolved",
+    "push-luck": "unresolved",
+    "sanity": "unresolved",
+    "social": "unresolved"
+  },
+  "family_runtime_ownership": {
+    "chase": "legacy",
+    "combat": "legacy",
+    "core-check": "legacy",
+    "development": "legacy",
+    "healing": "legacy",
+    "magic": "legacy",
+    "psychology": "legacy",
+    "push-luck": "legacy",
+    "sanity": "legacy",
+    "social": "legacy"
+  },
+  "legacy_surface_lifecycle": {
+    "chase": "visible",
+    "combat": "visible",
+    "core-check": "visible",
+    "development": "visible",
+    "healing": "visible",
+    "magic": "visible",
+    "psychology": "visible",
+    "push-luck": "visible",
+    "sanity": "visible",
+    "social": "visible"
+  }
+}

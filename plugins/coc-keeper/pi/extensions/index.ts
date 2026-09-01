@@ -13544,10 +13544,52 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       if (deliverable !== null) deliverTurnProcessingFault(deliverable);
     }
   };
+  const deliverStartupResumeInstruction = (gate: StartupResumeGate): boolean => {
+    if (
+      gate.phase !== "pending"
+      || gate.hiddenRepromptDelivery !== "pending"
+    ) return false;
+    gate.hiddenRepromptDelivery = "sending";
+    try {
+      sendCocSystemInstruction(pi, {
+        sourceType: STARTUP_RESUME_CUSTOM_TYPE,
+        customType: STARTUP_RESUME_CUSTOM_TYPE,
+        instruction: startupResumeInstruction(
+          gate.campaignId,
+          gate.workspaceRoot,
+        ),
+        context: {
+          campaign_id: gate.campaignId,
+          first_campaign_operation: "session.resume",
+        },
+      }, { triggerTurn: true, deliverAs: "followUp" });
+      gate.hiddenRepromptDelivery = "delivered";
+      return true;
+    } catch {
+      // Leave delivery unclaimed so one later transcript/empty boundary can
+      // retry; the campaign gate remains armed throughout.
+      gate.hiddenRepromptDelivery = "pending";
+      return false;
+    }
+  };
   const recoverEmptyAssistantOutput = () => {
-    // Startup resume owns its own reprompt/quarantine lifecycle; a blank
-    // stream or terminal there must not re-awaken historical player input.
-    if (startupResumeGate !== null || startupSilentResumeQuarantine !== null) {
+    // Startup resume owns its own bounded reprompt lifecycle. Thinking-only
+    // terminals do not reach the visible-final callback, so deliver that same
+    // host instruction here exactly once instead of falling through to the
+    // ordinary player-input recovery path.
+    if (startupResumeGate !== null) {
+      const gate = startupResumeGate;
+      if (gate.phase === "terminal_failure") {
+        publishStartupResumeBlocker(
+          gate,
+          gate.failureClass ?? "startup_resume_failed",
+        );
+      } else {
+        deliverStartupResumeInstruction(gate);
+      }
+      return;
+    }
+    if (startupSilentResumeQuarantine !== null) {
       return;
     }
     const recovery = openingContinuationGate.takeEmptyTerminalRecovery();
@@ -13608,26 +13650,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           gate.phase === "pending"
           && gate.hiddenRepromptDelivery === "pending"
         ) {
-          gate.hiddenRepromptDelivery = "sending";
-          try {
-            sendCocSystemInstruction(pi, {
-              sourceType: STARTUP_RESUME_CUSTOM_TYPE,
-              customType: STARTUP_RESUME_CUSTOM_TYPE,
-              instruction: startupResumeInstruction(
-                gate.campaignId,
-                gate.workspaceRoot,
-              ),
-              context: {
-                campaign_id: gate.campaignId,
-                first_campaign_operation: "session.resume",
-              },
-            }, { triggerTurn: true, deliverAs: "followUp" });
-            gate.hiddenRepromptDelivery = "delivered";
-          } catch {
-            // Leave delivery unclaimed so one later transcript boundary can
-            // retry; the campaign gate remains armed throughout.
-            gate.hiddenRepromptDelivery = "pending";
-          }
+          deliverStartupResumeInstruction(gate);
         }
         return false;
       }
@@ -13736,6 +13759,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const externalPlayerText = userMessageText(message);
       const externalUser = externalPlayerText !== null;
       if (externalUser) operatorSystemInstructionScope = null;
+      if (
+        externalUser
+        && startupResumeGate !== null
+        && startupResumeGate.phase === "pending"
+      ) {
+        // The startup branch snapshot is read before this process can receive
+        // a new live player message. Preserve that newer structured fact so an
+        // accepted awaiting_player resume does not quarantine the very turn
+        // that requested it.
+        startupBranchTrailingPlayerUser = true;
+      }
       openingContinuationGate.observeMessageStart(message);
       if (externalUser) {
         stateClaimCompiler.beginExternalTurn();

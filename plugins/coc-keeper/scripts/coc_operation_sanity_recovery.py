@@ -8,6 +8,7 @@ from coc_operation_kernel_runtime import (
     ToolError,
     _active_scene,
     _execute_subsystem_command,
+    _load_sibling,
     emit_core_canonical_event,
     _player_mechanical_snapshot,
     _player_state_receipt,
@@ -17,9 +18,20 @@ from coc_operation_kernel_runtime import (
     _rules_resolver,
     _scene_by_id,
     coc_subsystem_executor,
+    coc_time,
     deepcopy,
     tool,
 )
+
+coc_sanity = _load_sibling("coc_sanity_sanity_execute", "coc_sanity.py")
+
+_EXTENDED_SANITY_COMMAND_PHASES = {
+    "reality_check": "resolve",
+    "gain_current_san": "resolve",
+    "insane_insight": "advise",
+    "apply_psychoanalysis_treatment": "due-trigger",
+    "recover_temporary_insanity": "due-trigger",
+}
 
 def _bout_active_hint(session: Any) -> str:
     return (
@@ -389,11 +401,260 @@ def _tool_sanity_context(ctx: Ctx, args: dict[str, Any]):
         "pending_choices": choices,
     }, [], ["use sanity.execute for full checks, bouts, and their persisted consequences"]
 
+
+def _load_live_sanity_session(ctx: Ctx, investigator_id: str, args: dict[str, Any]):
+    sheet = ctx.sheet(investigator_id)
+    characteristics = (
+        sheet.get("characteristics")
+        if isinstance(sheet.get("characteristics"), dict) else {}
+    )
+    skills = sheet.get("skills") if isinstance(sheet.get("skills"), dict) else {}
+    derived = sheet.get("derived") if isinstance(sheet.get("derived"), dict) else {}
+    had_snapshot = coc_sanity.sanity_snapshot_exists(
+        ctx.campaign_dir, investigator_id,
+    )
+    session = coc_sanity.SanitySession.load(
+        ctx.campaign_dir,
+        investigator_id,
+        int_value=int(characteristics.get("INT", 50)),
+        rng=_rng(args),
+        cm_value=int(skills.get("Cthulhu Mythos", 0)),
+    )
+    if not had_snapshot:
+        sheet_san = int(derived.get("SAN", characteristics.get("POW", 50)))
+        state = ctx.inv_state(investigator_id)
+        current_san = int(state.get("current_san", sheet_san))
+        session.san_max = sheet_san
+        session.san_current = current_san
+        session.day_start_san = current_san
+    return session
+
+
+def _exact_due_trigger(
+    ctx: Ctx,
+    *,
+    investigator_id: str,
+    trigger_ref: str,
+    expected_handler: str,
+) -> dict[str, Any]:
+    trigger_id = str(trigger_ref or "").strip()
+    if not trigger_id:
+        raise ToolError("invalid_param", "a canonical due trigger ref is required")
+    due = [
+        row for row in coc_time.peek_due_triggers(ctx.campaign_dir)
+        if isinstance(row, dict) and str(row.get("trigger_id") or "") == trigger_id
+    ]
+    if len(due) != 1:
+        raise ToolError(
+            "sanity_trigger_stale",
+            "the exact pending due sanity trigger is unavailable",
+            details={"trigger_ref": trigger_id},
+        )
+    trigger = due[0]
+    if (
+        str(trigger.get("target_id") or "") != investigator_id
+        or str(trigger.get("handler") or "") != expected_handler
+    ):
+        raise ToolError(
+            "sanity_trigger_mismatch",
+            "the due trigger is not owned by this investigator and phase",
+            details={"trigger_ref": trigger_id},
+        )
+    time_state = coc_time.read_time_state(ctx.campaign_dir)
+    if trigger.get("policy") == "auto_apply_if_safe" and not bool(
+        time_state.get("safe_place", False)
+    ):
+        raise ToolError(
+            "sanity_trigger_deferred",
+            "the due sanity trigger remains deferred until a canonical safe place",
+        )
+    return trigger
+
+
+def _execute_extended_sanity_command(
+    ctx: Ctx,
+    args: dict[str, Any],
+    *,
+    investigator_id: str,
+    command: dict[str, Any],
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    kind = str(command.get("kind") or "")
+    phase = str(command.get("phase") or "")
+    if _EXTENDED_SANITY_COMMAND_PHASES.get(kind) != phase:
+        raise ToolError(
+            "invalid_param",
+            f"sanity.execute command {kind!r} requires phase "
+            f"{_EXTENDED_SANITY_COMMAND_PHASES.get(kind)!r}",
+        )
+    payload = command.get("payload")
+    if not isinstance(payload, dict):
+        raise ToolError("invalid_param", "command.payload must be an object")
+    if str(payload.get("decision_id") or "") != str(args.get("decision_id") or ""):
+        raise ToolError(
+            "invalid_param",
+            "command.payload.decision_id must equal the toolbox decision_id",
+        )
+    state_before = _player_mechanical_snapshot(ctx, investigator_id)
+    events: list[dict[str, Any]] = []
+    result: dict[str, Any]
+
+    if kind == "reality_check":
+        if payload.get("request_reality_check") is not True:
+            raise ToolError(
+                "invalid_param", "reality_check requires player confirmation",
+            )
+        session = _load_live_sanity_session(ctx, investigator_id, args)
+        if not isinstance(session.active_delusion, dict):
+            raise ToolError(
+                "reality_check_unavailable",
+                "the investigator has no active canonical delusion to test",
+            )
+        before = int(session.san_current)
+        outcome = session.reality_check()
+        session.save(ctx.campaign_dir, strict_mirror=True)
+        after = int(session.san_current)
+        roll = ctx.log_roll({
+            "event_type": "roll",
+            "kind": "sanity_reality_check",
+            "actor": investigator_id,
+            "visibility": "consequence_public",
+            "payload": {
+                "roll": int(outcome["roll"]),
+                "target": before,
+                "outcome": "success" if outcome["success"] else "failure",
+                "san_before": before,
+                "san_after": after,
+                "rule_ref": outcome["rule_ref"],
+            },
+        })
+        event = {
+            "event_type": "reality_check",
+            **outcome,
+            "roll_id": roll["roll_id"],
+            "san_before": before,
+            "san_after": after,
+        }
+        ctx.log_event({"investigator_id": investigator_id, **event})
+        events.append(event)
+        result = {"outcome": outcome, "roll_id": roll["roll_id"]}
+    elif kind == "gain_current_san":
+        amount = payload.get("san_gain")
+        if isinstance(amount, bool) or not isinstance(amount, int) or amount <= 0:
+            raise ToolError("invalid_param", "san_gain must be a positive integer")
+        source = str(payload.get("gain_source") or "").strip()
+        if not source:
+            raise ToolError("invalid_param", "gain_source must be non-empty")
+        session = _load_live_sanity_session(ctx, investigator_id, args)
+        before = int(session.san_current)
+        session.gain_san(amount, source=source)
+        session.save(ctx.campaign_dir, strict_mirror=True)
+        after = int(session.san_current)
+        event = {
+            "event_type": "sanity_gain",
+            "source": source,
+            "requested": amount,
+            "san_before": before,
+            "san_gain": after - before,
+            "san_after": after,
+        }
+        ctx.log_event({"investigator_id": investigator_id, **event})
+        events.append(event)
+        result = event
+    elif kind == "insane_insight":
+        session = _load_live_sanity_session(ctx, investigator_id, args)
+        if not (session.temporary_insane or session.indefinite_insane):
+            raise ToolError(
+                "insane_insight_unavailable",
+                "insane insight applies only while temporary or indefinite insanity is active",
+            )
+        insight = str(payload.get("insight") or "").strip()
+        if not insight:
+            raise ToolError("invalid_param", "insight must be non-empty")
+        result = {
+            "insight": insight,
+            "insanity_state": (
+                "indefinite" if session.indefinite_insane else "temporary"
+            ),
+            "authority": "keeper-advisory",
+        }
+    else:
+        ref_key = (
+            "treatment_trigger_ref"
+            if kind == "apply_psychoanalysis_treatment"
+            else "recovery_trigger_ref"
+        )
+        expected_handler = kind
+        if kind == "apply_psychoanalysis_treatment":
+            sheet = ctx.sheet(investigator_id)
+            skills = sheet.get("skills") if isinstance(sheet.get("skills"), dict) else {}
+            raw_skill = skills.get("Psychoanalysis", 1)
+            skill_value = (
+                int(raw_skill)
+                if isinstance(raw_skill, int) and not isinstance(raw_skill, bool)
+                else 1
+            )
+            state = ctx.inv_state(investigator_id)
+            state["psychoanalysis_skill"] = max(1, min(100, skill_value))
+            ctx.save_inv_state(investigator_id, state)
+        trigger = _exact_due_trigger(
+            ctx,
+            investigator_id=investigator_id,
+            trigger_ref=str(payload.get(ref_key) or ""),
+            expected_handler=expected_handler,
+        )
+        fired = coc_time.process_due_triggers(ctx.campaign_dir)
+        matched = [
+            row for row in fired
+            if str(row.get("trigger_id") or "") == str(trigger.get("trigger_id") or "")
+        ]
+        if len(matched) != 1 or matched[0].get("dispatch_error"):
+            raise ToolError(
+                "sanity_trigger_dispatch_failed",
+                "the exact due sanity trigger did not settle cleanly",
+                details={"trigger": matched[0] if matched else trigger},
+            )
+        result = {"trigger": matched[0], "dispatch_outcome": matched[0].get("dispatch_outcome")}
+        events.append({
+            "event_type": kind,
+            "trigger_id": trigger.get("trigger_id"),
+            "dispatch_outcome": matched[0].get("dispatch_outcome"),
+        })
+
+    data = {
+        "schema_version": 1,
+        "authority": "deterministic_sanity_session",
+        "investigator_id": investigator_id,
+        "command_kind": kind,
+        "result": result,
+        "events": events,
+        "player_state_receipt": _player_state_receipt(
+            state_before, _player_mechanical_snapshot(ctx, investigator_id),
+        ),
+    }
+    ctx.ledger_record(args.get("decision_id"), "sanity.execute", data)
+    return data, [], [
+        "the sanity result is authoritative; preserve its state and public roll evidence",
+    ]
+
 def _tool_sanity_execute(ctx: Ctx, args: dict[str, Any]):
     investigator_id = _resolve_investigator(ctx, args)
+    prior = ctx.ledger_lookup("sanity.execute", args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously settled result"
+        ], []
     player_state_before = _player_mechanical_snapshot(ctx, investigator_id)
     normalized_args = deepcopy(args)
     command = normalized_args.get("command")
+    if not isinstance(command, dict):
+        raise ToolError("invalid_param", "command must be an exact subsystem command object")
+    if str(command.get("kind") or "") in _EXTENDED_SANITY_COMMAND_PHASES:
+        return _execute_extended_sanity_command(
+            ctx,
+            normalized_args,
+            investigator_id=investigator_id,
+            command=command,
+        )
     payload = command.get("payload") if isinstance(command, dict) else None
     trigger_id = ""
     if isinstance(payload, dict):
@@ -491,10 +752,10 @@ def register_operations(registry) -> None:
 )(_tool_sanity_context)
     registry.tool(
     "sanity.execute",
-    "Execute one exact sanity_check/bout command through the existing full SanitySession subsystem.",
+    "Execute one exact sanity check, bout, reality check, SAN gain, insanity insight, or due recovery/treatment command through the existing full SanitySession/time subsystem.",
     {
         "investigator": {"type": "string", "desc": "investigator id"},
-        "command": {"type": "object", "required": True, "desc": "exact sanity_check, bout_tick, or bout_end command"},
+        "command": {"type": "object", "required": True, "desc": "exact sanity_check, bout_tick, bout_end, reality_check, gain_current_san, insane_insight, apply_psychoanalysis_treatment, or recover_temporary_insanity command"},
         "decision_id": {"type": "string", "desc": "idempotency key; must match command.payload.decision_id"},
     },
 )(_tool_sanity_execute)

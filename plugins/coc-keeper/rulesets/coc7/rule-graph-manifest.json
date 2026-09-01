@@ -6,80 +6,177 @@
   "source_bundles": [
     {
       "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "5e1a929b0b37f9782fcfb67a24c94846d6e12612f84b3523f9d01cd97413c8eb",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    },
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "86e7060a49958f0f3a6ecaeb23e71c9bdb85d95e794d009fa0e63763af5c155b",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    },
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
       "bundle_sha256": "96f09b55e1e9cbe65139e2bbe0498079a063b18140a93b1d94740d15fc25d2d5",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    },
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "ce3c510abac55d751b3d8f35e418d5a17e378baaa3317b2fe75604f3ab2c6754",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    },
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "df4cceb1c29cdc530a43ef8b51122d85c20be2fb43a7fcfd0bbb6191ae1f1ae0",
       "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
     }
   ],
-  "graph_content_digest": "73bf0e31da1d510322180982c86e86e739cee481651ed41b51820d8023a536aa",
+  "graph_content_digest": "85bbb17b07ac399d35164386744290acfb8f0900305505e7ea67dd39c026d2a2",
   "shards": [
     {
+      "shard_id": "shard:coc7:chase:section-chase-complete-source",
+      "shard_digest": "35bcbf9c9829fef07dbc57ec7af48fe705986ca24e499fc73f9ca83bc5d2270e"
+    },
+    {
+      "shard_id": "shard:coc7:combat:section-combat-complete-source",
+      "shard_digest": "8f7541c32d46d259bee72eb520e9d1b0d9800585da5ffe5045e1efd611a5d348"
+    },
+    {
+      "shard_id": "shard:coc7:core-check:section-core-check-source-accepted",
+      "shard_digest": "d986da9f1292433be9eddb4907431ac6b488ae4d3ed40733c1671fba986a9c68"
+    },
+    {
+      "shard_id": "shard:coc7:development:section-development-phase-source",
+      "shard_digest": "fff9c8bc9c400a24278c1a0b53a4870955a77e09c5190aa9851d30a722ffa16b"
+    },
+    {
       "shard_id": "shard:coc7:healing:section-wounds-and-healing",
-      "shard_digest": "8908a5e9874464082b73f90bb6386b8008d4c28a30ae14822817f349e4da827b"
+      "shard_digest": "4344dda8affd473b5af5ab8d1bcdfdad6608014b31f3fe408d8b555f263f0b65"
+    },
+    {
+      "shard_id": "shard:coc7:magic:section-magic-source-and-runtime-gaps",
+      "shard_digest": "ea328ea3e3fd260e35c0012c8094c591673177b20ff010464d1c6397491cbd7f"
+    },
+    {
+      "shard_id": "shard:coc7:psychology:section-psychology-complete-source",
+      "shard_digest": "e61c29d464e8eafffe2f2576b0b79863f98bced01e8b1d37a79ef46d740d4d97"
+    },
+    {
+      "shard_id": "shard:coc7:push-luck:section-push-luck-source-accepted",
+      "shard_digest": "0262b574672c8a3866a70adf53649c8a98d69f5e38f91676da4c73929d425103"
+    },
+    {
+      "shard_id": "shard:coc7:sanity:section-sanity-complete-source",
+      "shard_digest": "2c098117e957e2258f565aa146d9d32babe5b4c1f4b303e414144e865a97cbfd"
+    },
+    {
+      "shard_id": "shard:coc7:social:section-social-source-accepted",
+      "shard_digest": "f8d10e1e2427284e9bafbcd97bf90302b32d5ef2529417832071969b71844a18"
     }
   ],
   "family_coverage": {
-    "chase": "unresolved",
-    "combat": "unresolved",
-    "core-check": "unresolved",
-    "development": "unresolved",
+    "chase": "accepted",
+    "combat": "accepted",
+    "core-check": "accepted",
+    "development": "accepted",
     "healing": "accepted",
-    "magic": "unresolved",
-    "psychology": "unresolved",
-    "push-luck": "unresolved",
-    "sanity": "unresolved",
-    "social": "unresolved"
+    "magic": "accepted",
+    "psychology": "accepted",
+    "push-luck": "accepted",
+    "sanity": "accepted",
+    "social": "accepted"
   },
   "family_promotion_eligibility": {
     "chase": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "combat": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "core-check": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "development": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "healing": {
       "promotion_eligible": true,
       "runtime_ownership": "graph"
     },
     "magic": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "psychology": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "push-luck": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "sanity": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     },
     "social": {
-      "promotion_eligible": false,
-      "runtime_ownership": "legacy"
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
     }
   },
-  "data_table_dependencies": [],
+  "data_table_dependencies": [
+    "chase.json",
+    "combat.json",
+    "development.json",
+    "difficulty-levels.json",
+    "luck.json",
+    "manias.json",
+    "percentile-check.json",
+    "phobias.json",
+    "pushed-roll.json",
+    "roll-modifiers.json",
+    "sanity.json",
+    "skill-descriptions.json",
+    "spells.json",
+    "success-levels.json",
+    "weapons.json"
+  ],
   "resolver_capability_dependencies": [
+    "chase.context",
+    "chase.execute",
+    "check",
+    "combat.context",
+    "combat.end",
+    "combat.resolve",
+    "development.settle",
     "dying_check",
     "first_aid",
+    "luck_spend",
+    "magic.cast",
+    "magic.learn",
     "medicine",
+    "opposed",
+    "psychology_check_contract",
+    "psychology_policy",
+    "psychology_realization_public_projection",
+    "push_policy",
+    "rules.sanity_check",
+    "sanity.context",
+    "sanity.execute",
+    "sanity.session.gain_san",
+    "sanity.session.reality_check",
+    "social_difficulty",
+    "social_skill_names",
+    "state.end_session",
+    "time.apply_psychoanalysis_treatment",
+    "time.recover_temporary_insanity",
     "weekly_recovery"
   ],
   "compiler_identity": "coc.rule-graph-compiler.v1",
-  "reviewer_identity": "codex-main-healing-source-review-20260830",
+  "reviewer_identity": "production-composite:accepted-family-reviews",
   "review_status": "accepted",
   "findings": [
     {

@@ -29,7 +29,7 @@ EXPECTED_MIN_COUNTS = {
     "skills": (78, "skills"),          # ~80 incl specializations
     "characteristic-dice": (9, "characteristics"),
     "occupations": (28, "occupations"),
-    "spells": (66, "spells"),          # Grimoire; 66 verified real (20 fabricated removed)
+    "spells": (56, "spells"),          # Exact 40th Anniversary Grimoire; supplement-only rows excluded
     "tomes": (15, "tomes"),
     "monsters": (25, "monsters"),
     "phobias": (100, "phobias"),       # Table IX p160 = exactly 100
@@ -145,14 +145,17 @@ def audit_db_extrapolation(root: Path) -> list[str]:
     return []
 
 
-def audit_teamwork(root: Path) -> list[str]:
-    """Section B: combined_roll should have a teamwork field."""
+def audit_combined_roll_source_shape(root: Path) -> list[str]:
+    """Section B: combined roll stays one-investigator / one-roll / any-or-all."""
     try:
         combat = _load_table(root, "combat")
         cr = combat.get("combined_roll", {}) if isinstance(combat, dict) else {}
-        blob = json.dumps(cr).lower()
-        if "teamwork" not in blob:
-            return ["[B] combat.json combined_roll: no teamwork field"]
+        if cr.get("roll_count") != 1:
+            return ["[B] combat.json combined_roll: roll_count must be 1"]
+        if cr.get("comparison_modes") != ["any", "all"]:
+            return ["[B] combat.json combined_roll: comparison_modes must be any/all"]
+        if "teamwork" in cr:
+            return ["[B] combat.json combined_roll: unsupported generic teamwork field"]
     except (FileNotFoundError, json.JSONDecodeError):
         return ["[B] combat.json: UNREADABLE"]
     return []
@@ -777,7 +780,7 @@ def main() -> int:
     all_gaps += audit_data_counts(root)
     all_gaps += audit_rule_ids(root)
     all_gaps += audit_db_extrapolation(root)
-    all_gaps += audit_teamwork(root)
+    all_gaps += audit_combined_roll_source_shape(root)
     all_gaps += audit_bout_content(root)
     all_gaps += audit_weapon_db_flags(root)
     all_gaps += audit_weapon_damage_type(root)

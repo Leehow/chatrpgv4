@@ -39,13 +39,16 @@ def _candidate_paths() -> list[Path]:
     return sorted((TREE / "candidates").glob("*.candidate.json"))
 
 
-def test_source_stage1_is_revision_required_and_never_accepted():
+def test_source_stage1_draft_remains_revision_required_after_family_acceptance():
     manifest = _read(TREE / "manifest-draft.json")
     assert manifest["review_status"] == "revision-required"
     assert manifest["reviewer_identity"] is None
     assert manifest["graph_content_digest"] is None
     assert all(row["shard_digest"] is None for row in manifest["shards"])
-    assert not (TREE / "accepted").exists()
+    # Independent family reviews may write isolated accepted evidence.  The
+    # six-section producer draft itself never becomes an accepted package.
+    assert not (TREE / "accepted" / "rule-graph.json").exists()
+    assert not (TREE / "accepted" / "rule-graph-manifest.json").exists()
     assert all(
         row["promotion_eligible"] is False
         for row in manifest["family_promotion_eligibility"].values()
@@ -179,6 +182,9 @@ def test_external_source_bundles_reproduce_committed_tree(tmp_path: Path):
     expected = {
         path.relative_to(TREE): path.read_bytes()
         for path in TREE.rglob("*.json")
+        if not path.relative_to(TREE).as_posix().startswith((
+            "accepted/", "families/",
+        ))
     }
     actual = {
         path.relative_to(output): path.read_bytes()

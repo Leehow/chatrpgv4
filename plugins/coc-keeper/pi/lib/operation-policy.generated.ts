@@ -72,23 +72,22 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "chase.context": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "subsystem",
+    "kp_surface": "none",
     "phases": [
-      "live_turn",
-      "pending_finalization"
+      "live_turn"
     ]
   },
   "chase.execute": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "subsystem",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -108,47 +107,46 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "combat.context": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "subsystem",
+    "kp_surface": "none",
     "phases": [
-      "live_turn",
-      "pending_finalization"
+      "live_turn"
     ]
   },
   "combat.end": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "subsystem",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
   },
   "combat.resolve": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "subsystem",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
   },
   "development.settle": {
     "advisory": false,
-    "audience": "audit",
+    "audience": "host",
     "contract": "none",
     "discovery": "surface",
     "execution_class": "serial_campaign",
     "kp_surface": "none",
     "phases": [
-      "ending"
+      "live_turn"
     ]
   },
   "director.advise": {
@@ -238,22 +236,22 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "magic.cast": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "exact",
     "execution_class": "serial_campaign",
-    "kp_surface": "subsystem",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
   },
   "magic.learn": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "exact",
     "execution_class": "serial_campaign",
-    "kp_surface": "subsystem",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -708,9 +706,9 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     "advisory": true,
     "audience": "keeper",
     "contract": "none",
-    "discovery": "exact",
+    "discovery": "surface",
     "execution_class": "parallel_read",
-    "kp_surface": "context",
+    "kp_surface": "rules",
     "phases": [
       "live_turn"
     ]
@@ -750,11 +748,11 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "rules.luck_spend": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -772,33 +770,33 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "rules.opposed": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
   },
   "rules.psychology_observe": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
   },
   "rules.push": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -816,11 +814,11 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "rules.roll": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -840,11 +838,11 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "rules.sanity_check": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -873,11 +871,11 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "rules.social_adjudicate": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "rules",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -895,23 +893,22 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "sanity.context": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "subsystem",
+    "kp_surface": "none",
     "phases": [
-      "live_turn",
-      "pending_finalization"
+      "live_turn"
     ]
   },
   "sanity.execute": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "rules",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "subsystem",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -1250,11 +1247,11 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
   },
   "state.end_session": {
     "advisory": false,
-    "audience": "keeper",
+    "audience": "host",
     "contract": "state",
     "discovery": "surface",
     "execution_class": "serial_campaign",
-    "kp_surface": "state",
+    "kp_surface": "none",
     "phases": [
       "live_turn"
     ]
@@ -1830,17 +1827,11 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "rules.build_scale",
     "rules.cash_assets",
     "rules.catalog_search",
+    "rules.context",
     "rules.damage",
-    "rules.luck_spend",
-    "rules.opposed",
-    "rules.psychology_observe",
-    "rules.push",
-    "rules.roll",
     "rules.roll_dice",
-    "rules.sanity_check",
     "rules.settle",
-    "rules.skill_describe",
-    "rules.social_adjudicate"
+    "rules.skill_describe"
   ],
   "setup": [
     "progressive.follow_mentions",
@@ -1877,7 +1868,6 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "state.clear_transient_condition",
     "state.clock_discontinuity",
     "state.deliver_handout",
-    "state.end_session",
     "state.exceptional_effect",
     "state.finance_query",
     "state.inventory_list",
@@ -1907,14 +1897,7 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "timeline.transfer"
   ],
   "subsystem": [
-    "chase.context",
-    "chase.execute",
-    "combat.context",
-    "combat.end",
-    "combat.resolve",
-    "mechanics.ensure",
-    "sanity.context",
-    "sanity.execute"
+    "mechanics.ensure"
   ],
   "turn": [
     "state.journal",

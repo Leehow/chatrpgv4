@@ -22,6 +22,51 @@
       "family_id": "healing",
       "runtime_owner": "graph",
       "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "core-check",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "push-luck",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "social",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "psychology",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "combat",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "sanity",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "development",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "chase",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "magic",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
     }
   ],
   "resources": [

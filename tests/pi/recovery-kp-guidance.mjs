@@ -1040,7 +1040,9 @@ assert.deepEqual(
   OPEN_TURN_RECOVERY_CLOSURE_SEQUENCE.map((row) => row.operation),
 );
 const recoveryTools = recovery.activeTools.at(-1);
-for (const name of ["coc_scene_context", "coc_actions_list", "coc_rules_roll"]) {
+for (const name of [
+  "coc_scene_context", "coc_actions_list", "coc_rules_context", "coc_rules_settle",
+]) {
   assert.ok(recoveryTools.includes(name), name);
 }
 const recoveredScene = await invoke(
@@ -1062,17 +1064,8 @@ assert.ok(
 for (const name of ["coc_turn_output_context", "coc_narration_review", "coc_turn_finalize"]) {
   assert.ok(!recoveryTools.includes(name), name);
 }
-const discover = recovery.registered.get("coc_discover");
-for (const operation of ["rules.context", "rules.settle"]) {
-  const loaded = JSON.parse((await discover.execute(
-    `recovery-discover-${operation}`,
-    { operation },
-    undefined,
-    undefined,
-    recovery.ctx,
-  )).content[0].text);
-  assert.equal(loaded.ok, true, operation);
-}
+assert.ok(recovery.activeTools.at(-1).includes("coc_rules_context"));
+assert.ok(recovery.activeTools.at(-1).includes("coc_rules_settle"));
 assert.ok(
   recovery.audits.some((entry) => (
     entry.name === OPEN_TURN_RECOVERY_GUIDANCE_AUDIT
@@ -1250,7 +1243,9 @@ assert.equal(
 );
 assert.equal(zeroToolResumed.data.host_recovery_guidance.acting_authorized, true);
 assert.equal(zeroToolResumed.data.open_turn_anchor, undefined);
-for (const name of ["coc_scene_context", "coc_actions_list", "coc_rules_roll"]) {
+for (const name of [
+  "coc_scene_context", "coc_actions_list", "coc_rules_context", "coc_rules_settle",
+]) {
   assert.ok(zeroToolRecovery.activeTools.at(-1).includes(name), name);
 }
 for (const name of [

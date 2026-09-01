@@ -1,0 +1,91 @@
+{
+  "contract_id": "coc.rule-graph-build-manifest.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "source_bundles": [
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "86e7060a49958f0f3a6ecaeb23e71c9bdb85d95e794d009fa0e63763af5c155b",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    }
+  ],
+  "graph_content_digest": "b41e3d1365e0ebf686f6f81297e1f512e34ddc888e38aee3c73569deaf3d74a9",
+  "shards": [
+    {
+      "shard_id": "shard:coc7:social:section-social-source-accepted",
+      "shard_digest": "f8d10e1e2427284e9bafbcd97bf90302b32d5ef2529417832071969b71844a18"
+    }
+  ],
+  "family_coverage": {
+    "chase": "unresolved",
+    "combat": "unresolved",
+    "core-check": "unresolved",
+    "development": "unresolved",
+    "healing": "unresolved",
+    "magic": "unresolved",
+    "psychology": "unresolved",
+    "push-luck": "unresolved",
+    "sanity": "unresolved",
+    "social": "accepted"
+  },
+  "family_promotion_eligibility": {
+    "chase": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "combat": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "core-check": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "development": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "healing": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "magic": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "psychology": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "push-luck": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "sanity": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    },
+    "social": {
+      "promotion_eligible": false,
+      "runtime_ownership": "legacy"
+    }
+  },
+  "data_table_dependencies": [
+    "skill-descriptions.json"
+  ],
+  "resolver_capability_dependencies": [
+    "social_difficulty",
+    "social_skill_names"
+  ],
+  "compiler_identity": "coc.rule-graph-compiler.v1",
+  "reviewer_identity": "codex-execgraph-gap-review-20260831:social-v3",
+  "review_status": "accepted",
+  "findings": [
+    {
+      "code": "independent_source_review",
+      "path": "/reviews/social",
+      "message": "Independent page-level semantic review accepted social; see source-stage1/reviews/social-source-review.md"
+    }
+  ]
+}

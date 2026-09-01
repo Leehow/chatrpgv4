@@ -1,0 +1,39 @@
+{
+  "reviewer_identity": "codex-execgraph-gap-review-20260831:push-luck-v3",
+  "source_id": "pdf:coc7-keeper-rulebook-40th",
+  "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+  "bundle_id": "core-social-psychology-v2",
+  "bundle_sha256": "86e7060a49958f0f3a6ecaeb23e71c9bdb85d95e794d009fa0e63763af5c155b",
+  "pages": [
+    {
+      "pdf_index": 95,
+      "text_sha256": "7ae682bf226d43d7d6ecf7088dffa263f26db12f46dc00df78a982984a6db9a5",
+      "review_state": "manual_accepted"
+    },
+    {
+      "pdf_index": 96,
+      "text_sha256": "8cb78b0e480408c9a9d8390024b5d26cfc49e883bb7c292170ba38d25f594b0e",
+      "review_state": "manual_accepted"
+    },
+    {
+      "pdf_index": 97,
+      "text_sha256": "65b53395c8dd8826e34365f13b27d0db6edc2643163fa40a3d64993d5c3dc60f",
+      "review_state": "manual_accepted"
+    },
+    {
+      "pdf_index": 100,
+      "text_sha256": "bc66d48f0d16c18a03725c787ec853722faa6e573e57cc83a884d738c6af6f18",
+      "review_state": "manual_accepted"
+    },
+    {
+      "pdf_index": 101,
+      "text_sha256": "822469933049eb55e0b50fc5897283076395bece7170a4ed6a8c19aaa9f1af08",
+      "review_state": "manual_accepted"
+    },
+    {
+      "pdf_index": 110,
+      "text_sha256": "6666ded4694bee69326437f6d8bc498e9d30dc51d0cdcdb8f59a77224d880364",
+      "review_state": "manual_accepted"
+    }
+  ]
+}

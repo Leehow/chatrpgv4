@@ -428,6 +428,7 @@ export const HOST_OWNED_FIELDS: Readonly<Record<string, readonly string[]>> = {
     "decision_id",
     "target_npc_id",
     "affordance_id",
+    "combat_revision",
   ],
   "chase.execute": [
     "root",
@@ -2153,6 +2154,17 @@ function bindingValues(binding: TypedToolBindingCard): Record<string, unknown> {
       investigator: binding.investigator,
     };
   }
+  if (binding.operation === "combat.resolve") {
+    const revision = Number(binding.combat_revision);
+    return {
+      root: binding.root,
+      campaign: binding.campaign,
+      decision_id: binding.decision_id,
+      ...(Number.isInteger(revision) && revision >= 0
+        ? { combat_revision: revision }
+        : {}),
+    };
+  }
   if (binding.operation === "sanity.execute") {
     return {
       root: binding.root,
@@ -2517,6 +2529,7 @@ export function projectBoundTypedToolParameters(
     if (isPlainObject(cloned.properties)) {
       if (pending) {
         delete cloned.properties.action_kind;
+        delete cloned.properties.goal;
         delete cloned.properties.weapon_id;
         delete cloned.properties.weapon_effect_ids;
         const candidate = valid.candidates[0];
@@ -2538,10 +2551,14 @@ export function projectBoundTypedToolParameters(
         setEnumProperty(
           cloned,
           "action_kind",
-          ["attack"],
-          "Confirm that the player's semantic action is an attack. Maneuvers, waiting, Dodge, and Fight Back are not attacks and must not use this card.",
+          ["attack", "aim", "reload", "maneuver", "flee"],
+          "Choose one explicit CombatSession action. Attack and maneuver use a current target candidate; aim/reload/flee are actor-local actions.",
         );
-        requireSchemaField(cloned, "weapon_id");
+        cloned.properties.goal = {
+          type: "string",
+          enum: ["disarm", "ongoing_disadvantage", "escape", "push"],
+          description: "Choose one rulebook maneuver goal when action_kind is maneuver; omit for every other action.",
+        };
         if (isPlainObject(cloned.properties.weapon_id)) {
           cloned.properties.weapon_id = {
             ...cloned.properties.weapon_id,
@@ -2955,18 +2972,9 @@ export function bindRetainedTypedToolArguments(
     }
   }
   if (valid.operation === "combat.resolve") {
-    const candidateId = valid.candidates.length === 1
-      ? valid.candidates[0].candidate_id
-      : typeof result.candidate_id === "string" ? result.candidate_id : "";
-    const candidate = valid.candidates.find((row) => row.candidate_id === candidateId);
-    if (!candidate) {
-      throw new ToolContractProjectionError(
-        "semantic_candidate_stale",
-        "selected combat route is not in the current retained semantic candidates",
-        { operation, candidate_field: "candidate_id" },
-      );
-    }
-    if (candidate.invocation_mode === "pending_defense") {
+    const pending = valid.candidates[0].invocation_mode === "pending_defense";
+    if (pending) {
+      const candidate = valid.candidates[0];
       const defenseKind = typeof modelInput.defense_kind === "string"
         ? modelInput.defense_kind
         : "";
@@ -2982,29 +2990,51 @@ export function bindRetainedTypedToolArguments(
           { operation, candidate_field: "defense_kind" },
         );
       }
+      result.action_kind = "defend";
     } else {
+      const actionKind = typeof modelInput.action_kind === "string"
+        ? modelInput.action_kind
+        : "";
       const weaponId = typeof modelInput.weapon_id === "string"
         ? modelInput.weapon_id.trim()
         : "";
       if (
-        modelInput.action_kind !== "attack"
-        || !weaponId
+        !["attack", "aim", "reload", "maneuver", "flee"].includes(actionKind)
+        || (actionKind === "attack" && !weaponId)
         || Object.hasOwn(modelInput, "defense_kind")
       ) {
         throw new ToolContractProjectionError(
           "semantic_candidate_stale",
-          "combat attack must preserve explicit attack semantics and an exact selected weapon; defense or maneuver intent cannot be substituted",
+          "combat action must use an allowed explicit action; attacks require an exact selected weapon and cannot substitute a defense",
           { operation, candidate_field: "action_kind" },
         );
       }
-      delete result.action_kind;
+      const needsCandidate = actionKind === "attack" || actionKind === "maneuver";
+      const candidateId = valid.candidates.length === 1
+        ? valid.candidates[0].candidate_id
+        : typeof result.candidate_id === "string" ? result.candidate_id : "";
+      const candidate = valid.candidates.find((row) => row.candidate_id === candidateId);
+      if (needsCandidate && !candidate) {
+        throw new ToolContractProjectionError(
+          "semantic_candidate_stale",
+          "selected combat route is not in the current retained semantic candidates",
+          { operation, candidate_field: "candidate_id" },
+        );
+      }
+      if (actionKind === "maneuver" && typeof modelInput.goal !== "string") {
+        throw new ToolContractProjectionError(
+          "semantic_candidate_stale",
+          "combat maneuver requires one structured goal",
+          { operation, candidate_field: "goal" },
+        );
+      }
+      if (candidate?.invocation_mode === "target_npc_id") {
+        result.target_npc_id = candidate.target_npc_id;
+      } else if (candidate?.invocation_mode === "affordance_id") {
+        result.affordance_id = candidate.affordance_id;
+      }
     }
     delete result.candidate_id;
-    if (candidate.invocation_mode === "target_npc_id") {
-      result.target_npc_id = candidate.target_npc_id;
-    } else if (candidate.invocation_mode === "affordance_id") {
-      result.affordance_id = candidate.affordance_id;
-    }
   }
   if (valid.operation === "chase.execute") {
     const command = isPlainObject(modelInput.command)
@@ -3804,10 +3834,11 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   )],
   ["rules.roll", declaredIdentityTable(
     [
-      "attempt_id", "decision_id", "original_check_decision_id", "rule_ref",
-      "scene_id",
+      "attempt_id", "decision_id", "npc_id", "original_check_decision_id",
+      "rule_ref", "scene_id",
     ],
     [],
+    ["social_adjudication_ref", "social_goal_key"],
   )],
   ["rules.push", declaredIdentityTable(
     ["attempt_id", "decision_id", "original_check_decision_id", "scene_id"],
@@ -3829,8 +3860,8 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   )],
   ["rules.social_adjudicate", declaredIdentityTable(
     ["npc_id", "commitment_id"],
-    ["source_digest", "request_digest"],
-    ["conversation_window_id", "social_adjudication_ref"],
+    ["record_digest", "source_digest", "request_digest"],
+    ["conversation_window_id", "social_adjudication_ref", "source_ref"],
   )],
   ["rules.psychology_observe", declaredIdentityTable(
     ["source_ref"],
@@ -4891,6 +4922,234 @@ function sanitizeEnvelopeBranch(
 }
 
 /**
+ * Closed model view of the canonical Social adjudication receipt. The exact
+ * goal key is a host-owned correlation into the one canonical social roll;
+ * the Keeper consumes the goal, approach, feasibility, and difficulty, never
+ * the digest-backed lookup key.
+ */
+function projectSocialAdjudicationData(
+  value: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  fieldPath = "",
+): Record<string, unknown> {
+  const view = { ...value };
+  delete view.goal_key;
+  return stripOpaqueModelIdentity(
+    view,
+    null,
+    semanticIds,
+    diagnostics,
+    "rules.social_adjudicate",
+    fieldPath,
+  ) as Record<string, unknown>;
+}
+
+/**
+ * RuleGraph composes a Social adjudication and its already-executed bound
+ * D100 under `rules.settle`. Project each embedded canonical family through
+ * its own closed identity contract instead of judging the whole composite as
+ * flat rules.settle output. The machine-derived bound-check plan is internal:
+ * after settlement it has no model consumer and exposing it would invite a
+ * duplicate roll. Unknown identity fields in the retained branches still run
+ * through the normal V4 fail-closed discovery path.
+ */
+function projectSocialRulesSettleData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const settlement = isPlainObject(data.settlement) ? data.settlement : null;
+  const result = settlement !== null && isPlainObject(settlement.result)
+    ? settlement.result
+    : null;
+  const adjudication = result !== null && isPlainObject(result.adjudication)
+    ? result.adjudication
+    : null;
+  const boundCheck = result !== null && isPlainObject(result.bound_check)
+    ? result.bound_check
+    : null;
+  if (settlement === null || result === null || adjudication === null) {
+    return sanitizeEnvelopeBranch(
+      data,
+      semanticIds,
+      diagnostics,
+      "rules.settle",
+    ) as Record<string, unknown>;
+  }
+
+  const genericResult: Record<string, unknown> = { ...result };
+  delete genericResult.adjudication;
+  delete genericResult.bound_check;
+  // The plan has already been consumed by the host-owned adapter. Outer
+  // next_decisions carries any remaining semantic continuation.
+  delete genericResult.bound_check_plan;
+  const genericData: Record<string, unknown> = {
+    ...data,
+    settlement: {
+      ...settlement,
+      result: genericResult,
+    },
+  };
+  const projected = sanitizeEnvelopeBranch(
+    genericData,
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+  ) as Record<string, unknown>;
+  const projectedSettlement = isPlainObject(projected.settlement)
+    ? projected.settlement
+    : null;
+  const projectedResult = projectedSettlement !== null
+    && isPlainObject(projectedSettlement.result)
+    ? projectedSettlement.result
+    : null;
+  if (projectedSettlement === null || projectedResult === null) return projected;
+
+  const settledAdjudication: Record<string, unknown> = { ...adjudication };
+  // This instruction produced bound_check and is no longer actionable.
+  delete settledAdjudication.roll_operation;
+  projectedResult.adjudication = projectSocialAdjudicationData(
+    settledAdjudication,
+    semanticIds,
+    diagnostics,
+    "settlement.result.adjudication",
+  );
+  if (boundCheck !== null) {
+    const boundCheckView: Record<string, unknown> = { ...boundCheck };
+    // The bound check is already complete. Its canonical roll identity is
+    // retained in host details; later semantic continuations come from the
+    // outer next_decisions rather than by relaying this opaque id.
+    delete boundCheckView.roll_id;
+    // Ordinary-check failure advice is also copied into the completed roll.
+    // It carries host correlation under source and recommends the hidden
+    // legacy rules.push operation. Preserve only human-meaningful failure
+    // choices; neither the receipt nor the ungranted invocation template is
+    // part of the settled Social model contract.
+    const operationOpportunities = Array.isArray(
+      boundCheckView.operation_opportunities,
+    )
+      ? boundCheckView.operation_opportunities
+        .filter(isPlainObject)
+        .map((opportunity) => {
+          const visible = selectedFields(opportunity, [
+            "schema_version",
+            "kind",
+            "authority",
+            "hard_gate",
+            "reason_code",
+            "attempt_pressure",
+            "alternatives",
+          ]);
+          if (isPlainObject(opportunity.retry_status)) {
+            visible.retry_status = selectedFields(
+              opportunity.retry_status,
+              [
+                "schema_version",
+                "authority",
+                "hard_gate",
+                "eligible",
+                "status",
+              ],
+            );
+          }
+          return visible;
+        })
+      : [];
+    delete boundCheckView.operation_opportunities;
+    if (operationOpportunities.length > 0) {
+      boundCheckView.operation_opportunities = operationOpportunities;
+    }
+    projectedResult.bound_check = stripOpaqueModelIdentity(
+      boundCheckView,
+      null,
+      semanticIds,
+      diagnostics,
+      "rules.roll",
+      "settlement.result.bound_check",
+    );
+  }
+  projectedSettlement.result = projectedResult;
+  projected.settlement = projectedSettlement;
+  return projected;
+}
+
+/**
+ * Development end-session settlement embeds the already-committed canonical
+ * `state.end_session` result. Keep the RuleGraph envelope under rules.settle,
+ * but project that embedded result through its native closed contract. This
+ * is projection only: the deterministic settlement must never be re-run.
+ */
+function projectDevelopmentEndSessionRulesSettleData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const settlement = isPlainObject(data.settlement) ? data.settlement : null;
+  const result = settlement !== null && isPlainObject(settlement.result)
+    ? settlement.result
+    : null;
+  if (settlement === null || result === null) {
+    return sanitizeEnvelopeBranch(
+      data,
+      semanticIds,
+      diagnostics,
+      "rules.settle",
+    ) as Record<string, unknown>;
+  }
+
+  const genericSettlement: Record<string, unknown> = { ...settlement };
+  delete genericSettlement.result;
+  const projected = sanitizeEnvelopeBranch(
+    {
+      ...data,
+      settlement: genericSettlement,
+    },
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+  ) as Record<string, unknown>;
+  const projectedSettlement = isPlainObject(projected.settlement)
+    ? projected.settlement
+    : null;
+  if (projectedSettlement === null) return projected;
+  projectedSettlement.result = projectEndSessionData(
+    result,
+    semanticIds,
+    diagnostics,
+  );
+  projected.settlement = projectedSettlement;
+  return projected;
+}
+
+/** Closed family-aware compositor for embedded rules.settle products. */
+function projectRulesSettleData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  if (data.family === "social") {
+    return projectSocialRulesSettleData(data, semanticIds, diagnostics);
+  }
+  if (
+    data.family === "development"
+    && data.decision_ref === "decision:coc7:development:end-session"
+  ) {
+    return projectDevelopmentEndSessionRulesSettleData(
+      data,
+      semanticIds,
+      diagnostics,
+    );
+  }
+  return sanitizeEnvelopeBranch(
+    data,
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+  ) as Record<string, unknown>;
+}
+
+/**
  * Structured semantic view of `turn.output_context`: obligations, visible
  * mechanics, guidance, and draft instructions only. Turn/source/revision/
  * journal/review/integrity identities are hidden here and retained in host
@@ -4942,28 +5201,74 @@ function projectEndSessionData(
   semanticIds: SemanticIdMap | null,
   diagnostics: ProjectionIdentityDiagnostics | null,
 ): Record<string, unknown> {
+  diagnoseUnprojectedIdentityKeys(
+    "state.end_session",
+    data,
+    new Set([
+      "session_ending", "kind", "reason", "scene_id", "player_visible",
+      "status", "development", "ending_id", "investigator_ids",
+    ]),
+    diagnostics,
+  );
   const view = selectedFields(
     data,
     ["session_ending", "kind", "reason", "scene_id", "player_visible", "status"],
   );
   const development = isPlainObject(data.development) ? data.development : null;
   if (development !== null) {
+    diagnoseUnprojectedIdentityKeys(
+      "state.end_session",
+      development,
+      new Set(["status", "settlements", "ending_id"]),
+      diagnostics,
+    );
     const developmentView = selectedFields(development, ["status"]);
     if (Array.isArray(development.settlements)) {
       developmentView.settlements = development.settlements.flatMap((entry) => {
         if (!isPlainObject(entry)) return [];
+        diagnoseUnprojectedIdentityKeys(
+          "state.end_session",
+          entry,
+          new Set(["investigator_id", "status", "attempts", "receipt"]),
+          diagnostics,
+        );
         const settlement = selectedFields(
           entry,
           ["investigator_id", "status", "attempts"],
         );
         const receipt = isPlainObject(entry.receipt) ? entry.receipt : null;
         if (receipt === null) return [settlement];
+        diagnoseUnprojectedIdentityKeys(
+          "state.end_session",
+          receipt,
+          new Set([
+            "schema_version", "status", "kind", "result",
+            "player_facing_mechanics", "operation_id", "state_refs",
+            "replayed_from_boundary_id", "replayed_from_ending_id",
+          ]),
+          diagnostics,
+        );
         const receiptView = selectedFields(
           receipt,
           ["schema_version", "status", "kind"],
         );
         const result = isPlainObject(receipt.result) ? receipt.result : null;
         if (result !== null) {
+          diagnoseUnprojectedIdentityKeys(
+            "state.end_session",
+            result,
+            new Set([
+              "skills_checked", "san_reward_expr", "san_reward_planned_delta",
+              "scenario_san_reward_expr", "scenario_san_reward_planned_delta",
+              "scenario_san_reward_applied", "merge_policy",
+              "improvement_checks", "skills_improved", "san_reward",
+              "san_reward_roll", "development_san_reward",
+              "scenario_san_reward", "scenario_san_reward_roll",
+              "luck_recovery", "ending_evidence", "player_facing_mechanics",
+              "settlement_plan_sha256",
+            ]),
+            diagnostics,
+          );
           const resultView = selectedFields(result, [
             "skills_checked", "san_reward_expr", "san_reward_planned_delta",
             "scenario_san_reward_expr", "scenario_san_reward_planned_delta",
@@ -6166,11 +6471,11 @@ export function projectModelVisibleCanonicalResult(
     } else if (operation === "state.deliver_handout") {
       projected.data = projectHandoutDeliveryData(data, semanticIds, diagnostics);
     } else if (operation === "rules.social_adjudicate") {
-      const view = { ...data };
-      delete view.goal_key;
-      projected.data = sanitizeEnvelopeBranch(
-        view, semanticIds, diagnostics, operationName,
+      projected.data = projectSocialAdjudicationData(
+        data, semanticIds, diagnostics,
       );
+    } else if (operation === "rules.settle") {
+      projected.data = projectRulesSettleData(data, semanticIds, diagnostics);
     } else if (operation === "rules.psychology_observe") {
       const view = { ...data };
       delete view.window_key;

@@ -4316,11 +4316,24 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                 if preparation.get("armor_rule") not in coc_combat.VALID_ARMOR_RULES:
                     raise _error("invalid_command_payload", f"{ppath}.armor_rule", "invalid armor rule")
         elif kind == "combat_attack":
-            for field in ("actor_id", "target_actor_id", "declared_intent", "resolution_hint"):
+            for field in ("actor_id", "declared_intent", "resolution_hint"):
                 if not isinstance(payload.get(field), str) or not payload[field].strip():
                     raise _error("invalid_command_payload", f"{base}.{field}", "field is required")
-            if payload.get("resolution_hint") not in {"opposed_melee", "firearm_attack"}:
-                raise _error("invalid_command_payload", f"{base}.resolution_hint", "attack hint must be structured combat")
+            hint = payload.get("resolution_hint")
+            if hint not in {
+                "opposed_melee", "firearm_attack", "aim", "reload", "maneuver", "flee",
+            }:
+                raise _error("invalid_command_payload", f"{base}.resolution_hint", "unsupported structured combat action")
+            if hint in {"opposed_melee", "firearm_attack", "maneuver"} and (
+                not isinstance(payload.get("target_actor_id"), str)
+                or not payload["target_actor_id"].strip()
+            ):
+                raise _error("invalid_command_payload", f"{base}.target_actor_id", "target is required for attack or maneuver")
+            if hint == "maneuver":
+                if payload.get("goal") not in coc_combat.CombatSession.VALID_MANEUVER_GOALS:
+                    raise _error("invalid_command_payload", f"{base}.goal", "invalid maneuver goal")
+                if payload.get("defense_kind") not in coc_combat.VALID_DEFENSE:
+                    raise _error("invalid_command_payload", f"{base}.defense_kind", "invalid maneuver defense")
             if "resource_cost" in payload:
                 cost = payload["resource_cost"]
                 if (
@@ -7588,8 +7601,10 @@ def _dispatch_combat(
         if payload["revision"] != session.revision:
             raise _error("stale_combat_revision", "commands[0].payload.revision", "combat revision is stale")
         actor_id = payload["actor_id"]
-        target_id = payload["target_actor_id"]
-        if actor_id not in session.participants or target_id not in session.participants:
+        target_id = payload.get("target_actor_id")
+        if actor_id not in session.participants or (
+            target_id is not None and target_id not in session.participants
+        ):
             raise _error("combat_actor_missing", "commands[0].payload", "attack actor or target is absent")
         resource_cost = payload.get("resource_cost")
         if isinstance(resource_cost, dict):
@@ -7620,34 +7635,70 @@ def _dispatch_combat(
         ):
             raise _error("combat_initiative_violation", "commands[0].payload.actor_id", "actor is not next in initiative")
         hint = payload["resolution_hint"]
-        allowed = ["dive_for_cover", "none"] if hint == "firearm_attack" else ["dodge", "fight_back"]
-        session.pending_attack = {
-            "attack_command_id": command_id,
-            "actor_id": actor_id,
-            "target_actor_id": target_id,
-            "declared_intent": payload["declared_intent"],
-            "resolution_hint": hint,
-            "weapon_id": payload.get("weapon_id"),
-            "rulebook_exception": payload.get("rulebook_exception"),
-            "on_success": _json_copy(payload.get("on_success")),
-            "victory_outcome": payload.get("victory_outcome"),
-            "defeat_outcome": payload.get("defeat_outcome"),
-            "allowed_defenses": allowed,
-        }
-        session.revision += 1
-        session.save(campaign_dir)
-        _sync_investigator_from_combat(
-            campaign_dir,
-            investigator_id,
-            session,
-            expected_current_mp=canonical_mp_before,
-        )
-        event = {
-            "event_type": "combat_defense_required",
-            **_json_copy(session.pending_attack),
-            "revision": session.revision,
-            "source_command_id": command_id,
-        }
+        if hint in {"aim", "reload", "maneuver", "flee"}:
+            try:
+                turn = session.declare_and_resolve_turn(
+                    actor_id,
+                    payload["declared_intent"],
+                    target_actor_id=payload.get("target_actor_id"),
+                    defense_kind=payload.get("defense_kind"),
+                    weapon_id=payload.get("weapon_id"),
+                    resolution_hint=hint,
+                    goal=payload.get("goal"),
+                    resolution_command_id=command_id,
+                )
+            except coc_combat.UnknownWeaponError as exc:
+                raise _error("unknown_weapon", "weapon_id", str(exc)) from exc
+            rolls, engine_events = session.drain_pending()
+            session.mark_current_initiative_acted()
+            session.initiative_cursor += 1
+            _normalize_combat_cursor(session)
+            session.revision += 1
+            session.save(campaign_dir)
+            _sync_investigator_from_combat(
+                campaign_dir,
+                investigator_id,
+                session,
+                expected_current_mp=canonical_mp_before,
+            )
+            event = {
+                "event_type": "combat_turn_resolved",
+                "combat_id": session.combat_id,
+                "revision": session.revision,
+                "turn": _json_copy(turn),
+                "roll_evidence": _json_copy(rolls),
+                "engine_events": _json_copy(engine_events),
+                "source_command_id": command_id,
+            }
+        else:
+            allowed = ["dive_for_cover", "none"] if hint == "firearm_attack" else ["dodge", "fight_back"]
+            session.pending_attack = {
+                "attack_command_id": command_id,
+                "actor_id": actor_id,
+                "target_actor_id": target_id,
+                "declared_intent": payload["declared_intent"],
+                "resolution_hint": hint,
+                "weapon_id": payload.get("weapon_id"),
+                "rulebook_exception": payload.get("rulebook_exception"),
+                "on_success": _json_copy(payload.get("on_success")),
+                "victory_outcome": payload.get("victory_outcome"),
+                "defeat_outcome": payload.get("defeat_outcome"),
+                "allowed_defenses": allowed,
+            }
+            session.revision += 1
+            session.save(campaign_dir)
+            _sync_investigator_from_combat(
+                campaign_dir,
+                investigator_id,
+                session,
+                expected_current_mp=canonical_mp_before,
+            )
+            event = {
+                "event_type": "combat_defense_required",
+                **_json_copy(session.pending_attack),
+                "revision": session.revision,
+                "source_command_id": command_id,
+            }
     elif kind == "combat_defend":
         session = _load_combat_session(
             campaign_dir, rng=rng, investigator_id=investigator_id,

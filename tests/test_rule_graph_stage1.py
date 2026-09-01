@@ -17,16 +17,17 @@ Floors asserted here:
 - Deterministic review build: ``review_status="revision-required"``, reviewer
   identity derived from the independent reviews, real graph/shard digests,
   and both committed review evidence paths bound as contract findings.
-- Healing ownership preservation: production contains only the independently
-  source-promoted healing graph; candidates and the accepted graph never
-  redeclare healing-owned ``resource:coc7:hp``.
+- Healing ownership preservation: candidates and the accepted derivative graph
+  never redeclare healing-owned ``resource:coc7:hp``; current production
+  ownership is read from the package manifest rather than an old one-row shape.
 - Unsupported claims absent from candidates (and therefore from the accepted
   graph): higher-of social composition, PC-coercion penalty, psychology truth
   mapping, generic HP/MP/Luck delta.
 - Per-file source identities preserved through accept/build.
-- Ownership isolation: production healing is graph/hidden, while every stage-1
-  candidate family stays unresolved and legacy/visible in production.
-  Nothing from this candidate package is integrated or deleted.
+- Ownership isolation: every derivative Stage1 candidate family remains
+  ineligible and legacy/visible inside the derivative package. Current
+  production may independently promote source-accepted families. Nothing from
+  this derivative package mutates production or package authority.
 """
 from __future__ import annotations
 
@@ -96,27 +97,23 @@ def draft_manifest() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_production_graph_contains_only_source_promoted_healing_nodes():
+def test_production_graph_contains_all_source_accepted_families():
     prod = _load(GRAPH)
     assert prod["family_runtime_ownership"]["healing"] == "graph"
     assert prod["legacy_surface_lifecycle"]["healing"] == "hidden"
-    assert all(
-        node["properties"].get("family_id") == "healing"
-        or node["node_id"] in {
-            "resource:coc7:hp",
-            "subsystem:coc7:healing",
-        }
-        for node in prod["nodes"]
-    )
+    assert set(prod["coverage"].values()) == {"accepted"}
+    assert len(prod["coverage"]) == 10
 
 
-def test_production_manifest_keeps_stage1_candidate_families_unresolved():
+def test_production_manifest_matches_current_package_cutover():
     manifest = _load(MANIFEST)
+    package = _load(PACKAGE)
+    authority = {row["family_id"]: row for row in package["rule_families"]}
     for family in STAGE1_PARTIAL:
-        assert manifest["family_coverage"][family] == "unresolved", family
+        assert manifest["family_coverage"][family] == "accepted", family
         assert manifest["family_promotion_eligibility"][family] == {
-            "promotion_eligible": False,
-            "runtime_ownership": "legacy",
+            "promotion_eligible": authority[family]["runtime_owner"] == "graph",
+            "runtime_ownership": authority[family]["runtime_owner"],
         }, family
 
 
@@ -438,7 +435,9 @@ def test_candidate_sources_cite_only_declared_files():
 
 def test_ownership_unchanged_and_promotion_ineligible(draft_manifest):
     ruleset = _load(PACKAGE)
-    assert [row["family_id"] for row in ruleset["rule_families"]] == ["healing"]
+    assert {row["family_id"] for row in ruleset["rule_families"]} == set(
+        gen.ALL_FAMILIES
+    )
     for family in gen.ALL_FAMILIES:
         promo = draft_manifest["family_promotion_eligibility"][family]
         if family == "healing":
@@ -512,12 +511,16 @@ def accepted_package() -> tuple[dict, dict]:
 
 
 def test_accepted_package_equals_independent_accept_build(tmp_path):
+    production_before = {
+        path: path.read_bytes() for path in (GRAPH, MANIFEST, PACKAGE)
+    }
     graph, manifest = acc.accept_and_build(tmp_path / "evidence")
     acc.write_accepted(tmp_path / "out", graph, manifest)
     for name in ("rule-graph.json", "rule-graph-manifest.json"):
         assert (tmp_path / "out" / name).read_bytes() == (
             ACCEPTED / name
         ).read_bytes(), name
+    assert {path: path.read_bytes() for path in production_before} == production_before
 
 
 def test_accepted_reviewer_is_independent_not_producer(accepted_package):
@@ -610,7 +613,9 @@ def test_accepted_ownership_unchanged(accepted_package):
         "healing"
     ]
     ruleset = _load(PACKAGE)
-    assert [row["family_id"] for row in ruleset["rule_families"]] == ["healing"]
+    assert {row["family_id"] for row in ruleset["rule_families"]} == set(
+        gen.ALL_FAMILIES
+    )
 
 
 def test_accepted_graph_does_not_redeclare_healing_hp(accepted_package):
@@ -631,7 +636,9 @@ def test_accepted_package_is_not_production_integration(accepted_package):
     production_manifest = _load(MANIFEST)
     production_ids = {node["node_id"] for node in production["nodes"]}
     accepted_ids = {node["node_id"] for node in graph["nodes"]}
-    assert production_ids.isdisjoint(accepted_ids)
+    assert accepted_ids != production_ids
+    assert manifest["graph_content_digest"] != production_manifest["graph_content_digest"]
     for family in STAGE1_PARTIAL:
-        assert production_manifest["family_coverage"][family] == "unresolved"
+        assert production_manifest["family_coverage"][family] == "accepted"
+        assert graph["coverage"][family] == "partial"
     assert graph["coverage"] == manifest["family_coverage"]

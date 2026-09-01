@@ -792,6 +792,12 @@ def test_social_settle_bound_check_payload_is_machine_derived(tmp_path: Path):
     assert check_call["payload"]["difficulty"] == "extreme"
     assert check_call["payload"]["bonus"] == 1
     assert check_call["payload"]["goal"] == "套出真相"
+    assert check_call["payload"]["stakes"] == {
+        "on_success": "the described social action achieves its declared goal: 套出真相",
+        "on_failure": (
+            "the described social action does not achieve its declared goal: 套出真相"
+        ),
+    }
 
 
 def test_shadow_psychology_observe_no_double_execution_same_seed(
@@ -968,3 +974,168 @@ def _npc_id(ws) -> str:
     ).get("npcs") or []
     assert npcs, "the-haunting fixture must author at least one NPC"
     return str(npcs[0]["npc_id"])
+
+
+def test_real_toolbox_psychology_context_then_settle_uses_registered_handler(
+    campaign_ws,
+):
+    npc_id = _npc_id(campaign_ws)
+    decision_ref = "decision:coc7:psychology:observe-concealed"
+    semantic = {
+        "target_ref": f"psychology-target:{npc_id}",
+        "question": "他此刻在回避什么可见问题？",
+    }
+    context = _run(campaign_ws, "rules.context", {
+        "investigator": campaign_ws["investigator_id"],
+        "family": "psychology",
+        "selected_affordance_ids": [decision_ref],
+        "semantic_inputs": semantic,
+    })
+    assert context["ok"] is True, context
+    settled = _run(campaign_ws, "rules.settle", {
+        "investigator": campaign_ws["investigator_id"],
+        "decision_ref": decision_ref,
+        "semantic_inputs": semantic,
+        "decision_id": "psychology-registry-observe-1",
+        "seed": 7,
+    })
+    assert settled["ok"] is True, settled
+    assert settled["data"]["family"] == "psychology"
+    assert settled["data"]["settlement"]["result"]["insight_id"]
+
+
+def test_real_toolbox_social_context_then_settle_does_not_require_core_stakes(
+    campaign_ws,
+):
+    decision_ref = "decision:coc7:social:adjudicate-difficulty"
+    npc_id = "npc-steven-knott"
+    semantic = {
+        "described_action": "出示委托书并要求诺特说明房屋的完整历史",
+        "target_ref": f"social-target:{npc_id}",
+        "commitment_ref": "commitment:explain-house-history",
+        "approach": "persuade",
+        "goal": "让诺特说明他知道的房屋历史",
+        "motive_direction": "oppose",
+        "motive_intensity": 1,
+        "supporting_action": None,
+        "feasibility": "roll",
+    }
+    context = _run(campaign_ws, "rules.context", {
+        "investigator": campaign_ws["investigator_id"],
+        "family": "social",
+        "selected_affordance_ids": [decision_ref],
+        "semantic_inputs": semantic,
+    })
+    assert context["ok"] is True, context
+    settled = _run(campaign_ws, "rules.settle", {
+        "investigator": campaign_ws["investigator_id"],
+        "decision_ref": decision_ref,
+        "semantic_inputs": semantic,
+        "decision_id": "social-registry-adjudicate-1",
+        "seed": 7,
+    })
+    assert settled["ok"] is True, settled
+    assert settled["data"]["family"] == "social"
+    result = settled["data"]["settlement"]["result"]
+    assert result["adjudication"]["goal_key"]
+    assert result["bound_check"]["social_adjudication_ref"] == (
+        result["adjudication"]["goal_key"]
+    )
+    assert result["bound_check"]["stakes"] == {
+        "on_success": (
+            "the described social action achieves its declared goal: "
+            "让诺特说明他知道的房屋历史"
+        ),
+        "on_failure": (
+            "the described social action does not achieve its declared goal: "
+            "让诺特说明他知道的房屋历史"
+        ),
+    }
+
+
+def test_real_toolbox_social_rejects_core_only_stakes_slot(campaign_ws):
+    decision_ref = "decision:coc7:social:adjudicate-difficulty"
+    semantic = {
+        "described_action": "出示委托书并要求诺特说明房屋的完整历史",
+        "target_ref": "social-target:npc-steven-knott",
+        "commitment_ref": "commitment:explain-house-history",
+        "approach": "persuade",
+        "goal": "让诺特说明他知道的房屋历史",
+        "motive_direction": "oppose",
+        "motive_intensity": 1,
+        "supporting_action": None,
+        "feasibility": "roll",
+    }
+    context = _run(campaign_ws, "rules.context", {
+        "investigator": campaign_ws["investigator_id"],
+        "family": "social",
+        "selected_affordance_ids": [decision_ref],
+        "semantic_inputs": semantic,
+    })
+    assert context["ok"] is True, context
+    settled = _run(campaign_ws, "rules.settle", {
+        "investigator": campaign_ws["investigator_id"],
+        "decision_ref": decision_ref,
+        "semantic_inputs": {
+            **semantic,
+            "stakes": {
+                "on_success": "model-authored social success",
+                "on_failure": "model-authored social failure",
+            },
+        },
+        "decision_id": "social-registry-smuggled-stakes-1",
+        "seed": 7,
+    })
+    assert settled["ok"] is False, settled
+    assert settled["error"]["code"] == "unknown_semantic_input"
+    assert "'stakes' is not a declared slot" in settled["error"]["message"]
+
+
+def test_real_toolbox_core_ordinary_check_still_requires_stakes(campaign_ws):
+    decision_ref = "decision:coc7:core-check:ordinary-check"
+    semantic = {
+        "skill": "Library Use",
+        "difficulty": "regular",
+        "goal": "找到房屋记录",
+        "difficulty_basis": "environment",
+    }
+    context = _run(campaign_ws, "rules.context", {
+        "investigator": campaign_ws["investigator_id"],
+        "family": "core-check",
+        "selected_affordance_ids": [decision_ref],
+        "semantic_inputs": semantic,
+    })
+    assert context["ok"] is True, context
+    settled = _run(campaign_ws, "rules.settle", {
+        "investigator": campaign_ws["investigator_id"],
+        "decision_ref": decision_ref,
+        "semantic_inputs": semantic,
+        "decision_id": "core-registry-missing-stakes-1",
+        "seed": 7,
+    })
+    assert settled["ok"] is False, settled
+    assert settled["error"]["code"] == "missing_semantic_input"
+    assert settled["error"]["details"]["failure"]["missing"] == ["stakes"]
+
+
+def test_cross_module_rulegraph_handlers_resolve_from_live_registry():
+    module = coc_toolbox.OPERATION_MODULES["rules-core"]
+    for operation in (
+        "combat.resolve", "magic.cast", "rules.psychology_observe",
+    ):
+        assert module._registered_operation_handler(operation) is (
+            coc_toolbox.TOOLS[operation]["handler"]
+        )
+
+
+def test_registered_rulegraph_handler_fails_closed_when_missing_or_noncallable(
+    monkeypatch,
+):
+    module = coc_toolbox.OPERATION_MODULES["rules-core"]
+    with pytest.raises(coc_toolbox.ToolError) as missing:
+        module._registered_operation_handler("missing.operation")
+    assert missing.value.code == "unsupported_ruleset_operation"
+    monkeypatch.setitem(module.TOOLS, "broken.operation", {"handler": None})
+    with pytest.raises(coc_toolbox.ToolError) as broken:
+        module._registered_operation_handler("broken.operation")
+    assert broken.value.code == "unsupported_ruleset_operation"

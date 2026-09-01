@@ -258,6 +258,13 @@ test("live host bindings narrow closure tools without changing the stage table",
   assertPolicyVisible(finalizeProjected, finalizeOnly);
   assert.ok(finalizeProjected.activeOperationNames.includes("turn.finalize"));
   assert.ok(!finalizeProjected.activeOperationNames.includes("narration.review"));
+
+  const staleReviewLoad = workingSet.loadToolNamespace(finalizeOnly, {
+    kind: "exact_operation",
+    operation: "narration.review",
+  });
+  assert.equal(staleReviewLoad.ok, false);
+  assert.equal(staleReviewLoad.code, "stage_forbidden");
 });
 
 test("exact long-tail and bounded namespace loads remain provider-neutral", () => {
@@ -472,14 +479,27 @@ const SHADOW_HEALING = [
   "rules.weekly_recovery",
 ];
 
-test("play acting keeps graph healing settle card-driven", () => {
+const GRAPH_HIDDEN_LEGACY = [
+  "rules.roll", "rules.opposed", "rules.push", "rules.luck_spend",
+  "rules.social_adjudicate", "rules.psychology_observe",
+  "combat.context", "combat.resolve", "combat.end",
+  "chase.context", "chase.execute", "rules.sanity_check", "sanity.context",
+  "sanity.execute", "magic.cast", "magic.learn", "development.settle",
+  "state.end_session",
+];
+
+test("normal play acting exposes the two graph rule operations and hides every legacy family", () => {
   const source = snapshot();
   const projected = workingSet.projectToolWorkingSet(source);
   assert.equal(projected.ok, true, projected.error?.message);
   assertPolicyVisible(projected, source);
-  assert.ok(!projected.activeOperationNames.includes("rules.settle"));
-  assert.ok(!projected.activeOperationNames.includes("rules.context"));
-  for (const operation of SHADOW_HEALING) {
+  assert.deepEqual(
+    projected.activeOperationNames.filter((operation) => (
+      policyModule.OPERATION_POLICY[operation]?.kp_surface === "rules"
+    )),
+    ["rules.context", "rules.settle"],
+  );
+  for (const operation of [...SHADOW_HEALING, ...GRAPH_HIDDEN_LEGACY]) {
     assert.ok(!projected.activeOperationNames.includes(operation), operation);
   }
   assert.ok(projected.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET);
@@ -545,10 +565,11 @@ test("rules-director single-draft profile keeps only focused acting operations",
   else process.env.COC_PI_ACCEPTANCE_PROFILE = priorProfile;
 });
 
-test("rules.context is exact-loadable only and grants expire on epoch change", () => {
+test("rules.context and rules.settle stay on the normal acting baseline across load expiry", () => {
   const source = snapshot();
   const baseline = workingSet.projectToolWorkingSet(source);
-  assert.ok(!baseline.activeOperationNames.includes("rules.context"));
+  assert.ok(baseline.activeOperationNames.includes("rules.context"));
+  assert.ok(baseline.activeOperationNames.includes("rules.settle"));
 
   const loaded = workingSet.loadToolNamespace(source, {
     kind: "exact_operation",
@@ -556,7 +577,7 @@ test("rules.context is exact-loadable only and grants expire on epoch change", (
   });
   assert.equal(loaded.ok, true, loaded.message);
   assert.ok(loaded.workingSet.activeOperationNames.includes("rules.context"));
-  assert.ok(!loaded.workingSet.activeOperationNames.includes("rules.settle"));
+  assert.ok(loaded.workingSet.activeOperationNames.includes("rules.settle"));
   assert.ok(loaded.workingSet.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET);
 
   const namespaceLoad = workingSet.loadToolNamespace(source, {
@@ -572,7 +593,8 @@ test("rules.context is exact-loadable only and grants expire on epoch change", (
     loadedOperations: [loaded.grant],
   });
   assert.equal(expired.ok, true, expired.error?.message);
-  assert.ok(!expired.activeOperationNames.includes("rules.context"));
+  assert.ok(expired.activeOperationNames.includes("rules.context"));
+  assert.ok(expired.activeOperationNames.includes("rules.settle"));
   assert.ok(expired.reasons.some((reason) => (
     reason.code === "expired_load" && reason.operation === "rules.context"
   )));
@@ -593,12 +615,12 @@ test("verified pre-journal open-turn recovery restores the acting surface withou
   for (const operation of [
     "scene.context",
     "actions.list",
-    "rules.roll",
     "npc.query",
     "state.journal",
   ]) {
     assert.ok(projected.activeOperationNames.includes(operation), operation);
   }
+  assert.ok(!projected.activeOperationNames.includes("rules.roll"));
   for (const operation of [
     "turn.output_context",
     "narration.review",
@@ -647,7 +669,7 @@ test("graph healing legacy ops are not model-loadable", () => {
   }
 });
 
-test("graph healing cards activate the single rules.settle operation", () => {
+test("graph healing cards preserve the single baseline rules.settle operation", () => {
   const empty = workingSet.affordancesFromHealingCardProjection({
     rule_decision_cards: { cards: [], authority: { hard_gate: false } },
   });
@@ -674,12 +696,13 @@ test("graph healing cards activate the single rules.settle operation", () => {
   const projected = workingSet.projectToolWorkingSet(source);
   assert.equal(projected.ok, true, projected.error?.message);
   assert.ok(projected.activeOperationNames.includes("rules.settle"));
+  assert.ok(projected.activeOperationNames.includes("rules.context"));
   assert.ok(projected.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET);
   const baseline = workingSet.projectToolWorkingSet(snapshot());
-  assert.equal(projected.activeToolNames.length, baseline.activeToolNames.length + 1);
+  assert.equal(projected.activeToolNames.length, baseline.activeToolNames.length);
 });
 
-test("pending authored SAN trigger activates the flat authoritative surface", () => {
+test("pending authored SAN trigger stays pending without reopening legacy SAN", () => {
   assert.deepEqual(
     workingSet.affordancesFromSanityTriggerProjection({
       pending_san_triggers: [{
@@ -689,7 +712,7 @@ test("pending authored SAN trigger activates the flat authoritative surface", ()
     }),
     [],
   );
-  const hints = workingSet.affordancesFromSanityTriggerProjection({
+  const pendingProjection = {
     pending_san_triggers: [{
       trigger_id: "see-corbitt-body",
       source: "seeing Walter Corbitt's animated corpse",
@@ -697,13 +720,21 @@ test("pending authored SAN trigger activates the flat authoritative surface", ()
       san_loss_fail_expr: "1D8",
       status: "pending",
     }],
-  });
-  assert.deepEqual(hints, [{ operation: "rules.sanity_check", source: "scene" }]);
+  };
+  const hints = workingSet.affordancesFromSanityTriggerProjection(pendingProjection);
+  assert.deepEqual(hints, []);
+  assert.equal(pendingProjection.pending_san_triggers[0].status, "pending");
 
   const source = snapshot({ affordances: { operations: hints } });
   const projected = workingSet.projectToolWorkingSet(source);
   assert.equal(projected.ok, true, projected.error?.message);
-  assert.ok(projected.activeOperationNames.includes("rules.sanity_check"));
+  assert.ok(!projected.activeOperationNames.includes("rules.sanity_check"));
   assert.ok(!projected.activeOperationNames.includes("sanity.execute"));
+  const context = workingSet.loadToolNamespace(source, {
+    kind: "exact_operation",
+    operation: "rules.context",
+  });
+  assert.equal(context.ok, true, context.message);
+  assert.ok(context.workingSet.activeOperationNames.includes("rules.context"));
   assert.ok(projected.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET);
 });

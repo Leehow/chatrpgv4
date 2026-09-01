@@ -81,6 +81,68 @@ _HEALING_SETTLE_DECISION_REFS = (
     "decision:coc7:healing:medicine-stabilization",
     "decision:coc7:healing:weekly-major-wound-recovery",
 )
+_CORE_SETTLE_DECISION_REFS = (
+    "decision:coc7:core-check:ordinary-check",
+    "decision:coc7:core-check:combined-check",
+    "decision:coc7:core-check:opposed-check",
+)
+_PUSH_LUCK_SETTLE_DECISION_REFS = (
+    "decision:coc7:push-luck:pushed-roll",
+    "decision:coc7:push-luck:luck-spend",
+    "decision:coc7:push-luck:luck-roll",
+)
+_SOCIAL_SETTLE_DECISION_REFS = (
+    "decision:coc7:social:adjudicate-difficulty",
+)
+_PSYCHOLOGY_SETTLE_DECISION_REFS = (
+    "decision:coc7:psychology:observe-concealed",
+    "decision:coc7:psychology:realize-player-safe",
+)
+_COMBAT_CONTEXT_REF = "decision:coc7:combat:context"
+_COMBAT_SETTLE_DECISION_REFS = (
+    "decision:coc7:combat:attack",
+    "decision:coc7:combat:defend",
+    "decision:coc7:combat:aim",
+    "decision:coc7:combat:reload",
+    "decision:coc7:combat:maneuver",
+    "decision:coc7:combat:flee",
+    "decision:coc7:combat:end",
+)
+_SANITY_CONTEXT_REF = "decision:coc7:sanity:context"
+_SANITY_SETTLE_DECISION_REFS = (
+    "decision:coc7:sanity:check",
+    "decision:coc7:sanity:bout-tick",
+    "decision:coc7:sanity:bout-end",
+    "decision:coc7:sanity:reality-check",
+    "decision:coc7:sanity:gain-current-san",
+    "decision:coc7:sanity:insane-insight",
+    "decision:coc7:sanity:apply-treatment",
+    "decision:coc7:sanity:recover-temporary",
+)
+_MAGIC_SETTLE_DECISION_REFS = (
+    "decision:coc7:magic:cast-spell",
+    "decision:coc7:magic:learn-spell",
+)
+_DEVELOPMENT_SETTLE_DECISION_REFS = (
+    "decision:coc7:development:end-session",
+    "decision:coc7:development:settle-ending",
+)
+_CHASE_SETTLE_DECISION_REFS = tuple(
+    f"decision:coc7:chase:{name}"
+    for name in ("start", "move", "hazard", "barrier", "conflict", "end")
+)
+_GROUP_ONE_SETTLE_DECISION_REFS = (
+    *_HEALING_SETTLE_DECISION_REFS,
+    *_CORE_SETTLE_DECISION_REFS,
+    *_PUSH_LUCK_SETTLE_DECISION_REFS,
+    *_SOCIAL_SETTLE_DECISION_REFS,
+    *_PSYCHOLOGY_SETTLE_DECISION_REFS,
+    *_COMBAT_SETTLE_DECISION_REFS,
+    *_SANITY_SETTLE_DECISION_REFS,
+    *_MAGIC_SETTLE_DECISION_REFS,
+    *_DEVELOPMENT_SETTLE_DECISION_REFS,
+    *_CHASE_SETTLE_DECISION_REFS,
+)
 
 
 def _observation_inference_ceiling(data: Mapping[str, Any]) -> str | None:
@@ -110,6 +172,74 @@ def _paired_observe_decision_id(realize_decision_id: str) -> str | None:
     if not prefix.startswith("psychology:"):
         return None
     return prefix + PSYCHOLOGY_OBSERVE_DECISION_SUFFIX
+
+
+def _semantic_slug(value: Any) -> str:
+    return "-".join(
+        token for token in "".join(
+            char.lower() if char.isalnum() else " " for char in str(value or "")
+        ).split() if token
+    )
+
+
+def _sheet_check(
+    sheet: Mapping[str, Any], ref: str,
+) -> tuple[str, int] | None:
+    kind, separator, slug = str(ref or "").partition(":")
+    if not separator or not slug:
+        return None
+    if kind == "skill":
+        skills = sheet.get("skills") if isinstance(sheet.get("skills"), Mapping) else {}
+        for label, value in skills.items():
+            if (
+                _semantic_slug(label) == _semantic_slug(slug)
+                and isinstance(value, int) and not isinstance(value, bool)
+                and 0 <= value <= 100
+            ):
+                return str(label), int(value)
+    if kind == "characteristic":
+        values = (
+            sheet.get("characteristics")
+            if isinstance(sheet.get("characteristics"), Mapping) else {}
+        )
+        for label, value in values.items():
+            if (
+                _semantic_slug(label) == _semantic_slug(slug)
+                and isinstance(value, int) and not isinstance(value, bool)
+                and 0 <= value <= 100
+            ):
+                return str(label).upper(), int(value)
+    return None
+
+
+def _npc_check(ctx: Any, ref: str) -> tuple[str, int] | None:
+    parts = str(ref or "").split(":")
+    if len(parts) != 4 or parts[0] != "npc" or parts[2] != "skill":
+        return None
+    npc_id, skill_slug = parts[1], parts[3]
+    document = getattr(ctx, "npc_agendas", None)
+    rows: list[Mapping[str, Any]] = []
+    if isinstance(document, Mapping):
+        raw = document.get("npcs")
+        if isinstance(raw, list):
+            rows = [row for row in raw if isinstance(row, Mapping)]
+        elif isinstance(raw, Mapping):
+            rows = [row for row in raw.values() if isinstance(row, Mapping)]
+    npc = next(
+        (row for row in rows if str(row.get("npc_id") or row.get("id") or "") == npc_id),
+        None,
+    )
+    if npc is None:
+        return None
+    skills = npc.get("skills") if isinstance(npc.get("skills"), Mapping) else {}
+    for label, value in skills.items():
+        if (
+            _semantic_slug(label) == _semantic_slug(skill_slug)
+            and isinstance(value, int) and not isinstance(value, bool)
+            and 0 <= value <= 100
+        ):
+            return f"{npc_id} {label}", int(value)
+    return None
 
 
 _SETTLEMENT_METHOD_BY_DECISION = {
@@ -189,6 +319,16 @@ class Coc7RuleGraphAdapter:
 
     @staticmethod
     def promotion_blockers(family: str) -> list[str]:
+        if family in {
+            "healing", "core-check", "push-luck", "social", "psychology", "combat",
+            "sanity",
+        }:
+            return []
+        if family == "magic":
+            return []
+        if family == "chase": return []
+        if family == "development":
+            return []
         candidate_families = {
             decision_ref.split(":", 3)[2]
             for decision_ref in _SETTLEMENT_METHOD_BY_DECISION
@@ -210,7 +350,7 @@ class Coc7RuleGraphAdapter:
             "decision_ref": {
                 "type": "string",
                 "required": True,
-                "enum": list(_HEALING_SETTLE_DECISION_REFS),
+                "enum": list(_GROUP_ONE_SETTLE_DECISION_REFS),
                 "desc": "semantic decision ref from a machine-projected card",
             },
             "semantic_inputs": {
@@ -225,6 +365,77 @@ class Coc7RuleGraphAdapter:
                     "failure_consequence": {"type": "string"},
                     "complete_rest": {"type": "boolean"},
                     "poor_environment": {"type": "boolean"},
+                    "skill": {"type": "string"},
+                    "characteristic": {"type": "string"},
+                    "combined_target_refs": {
+                        "type": "array", "items": {"type": "string"},
+                    },
+                    "combined_mode": {"type": "string", "enum": ["any", "all"]},
+                    "difficulty": {
+                        "type": "string", "enum": ["regular", "hard", "extreme"],
+                    },
+                    "goal": {"type": "string"},
+                    "stakes": {"type": "object"},
+                    "difficulty_basis": {"type": "string"},
+                    "bonus": {"type": "integer"},
+                    "penalty": {"type": "integer"},
+                    "actor_check_ref": {"type": "string"},
+                    "opponent_check_ref": {"type": "string"},
+                    "method_changed": {"type": "string"},
+                    "failure_consequence": {"type": "string"},
+                    "player_confirmed_risk": {"type": "boolean"},
+                    "points": {"type": "integer"},
+                    "described_action": {"type": "string"},
+                    "target_ref": {"type": "string"},
+                    "commitment_ref": {"type": "string"},
+                    "approach": {
+                        "type": "string",
+                        "enum": ["charm", "fast_talk", "intimidate", "persuade"],
+                    },
+                    "motive_direction": {
+                        "type": "string",
+                        "enum": ["support", "neutral", "oppose"],
+                    },
+                    "motive_intensity": {"type": "integer"},
+                    "supporting_action": {"type": "object"},
+                    "feasibility": {
+                        "type": "string",
+                        "enum": ["automatic", "roll", "conditional", "impossible"],
+                    },
+                    "target_ref": {"type": "string"},
+                    "question": {"type": "string"},
+                    "external_behavior": {"type": "string"},
+                    "candidate_ref": {"type": "string"},
+                    "weapon_ref": {"type": "string"},
+                    "weapon_effect_refs": {
+                        "type": "array", "items": {"type": "string"},
+                    },
+                    "luck_spend_max": {"type": "integer"},
+                    "defense_kind": {
+                        "type": "string",
+                        "enum": ["dodge", "fight_back", "dive_for_cover", "none"],
+                    },
+                    "source": {"type": "string"},
+                    "loss_success": {"type": "string"},
+                    "loss_failure": {"type": "string"},
+                    "trigger_ref": {"type": "string"},
+                    "involuntary_kind": {"type": "string"},
+                    "involuntary_summary": {"type": "string"},
+                    "request_reality_check": {"type": "boolean"},
+                    "gain_source": {"type": "string"},
+                    "insight": {"type": "string"},
+                    "outcome": {"type": "string"},
+                    "spell": {"type": "string"},
+                    "pushed": {"type": "boolean"},
+                    "interrupted": {"type": "boolean"},
+                    "source": {"type": "string"},
+                    "source_ref": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "kind": {"type": "string"},
+                    "pursuer_refs": {"type": "array", "items": {"type": "string"}},
+                    "quarry_refs": {"type": "array", "items": {"type": "string"}},
+                    "location_refs": {"type": "array", "items": {"type": "string"}},
+                    "method": {"type": "string", "enum": ["negotiate", "break"]},
                 },
             },
             "decision_id": {
@@ -239,6 +450,10 @@ class Coc7RuleGraphAdapter:
         """Package-owned authority for graph settlement state receipts."""
         if decision_ref in _HEALING_SETTLE_DECISION_REFS:
             return ("hp", "condition")
+        if decision_ref == _LUCK_SPEND_REF:
+            return ("luck",)
+        if decision_ref in _SANITY_SETTLE_DECISION_REFS:
+            return ("san", "condition")
         return ()
 
     @staticmethod
@@ -250,7 +465,12 @@ class Coc7RuleGraphAdapter:
             },
             "family": {
                 "type": "string",
-                "enum": ["healing"],
+                "enum": [
+                    "healing", "core-check", "push-luck", "social", "psychology",
+                    "combat",
+                    "sanity",
+                    "magic", "development", "chase",
+                ],
                 "desc": "source-accepted compiled family",
             },
             "selected_affordance_ids": {
@@ -258,48 +478,68 @@ class Coc7RuleGraphAdapter:
                 "items": {"type": "string"},
                 "desc": "optional semantic decision refs to narrow the card set",
             },
+            "semantic_inputs": {
+                "type": "object",
+                "desc": "structured candidate semantics used to evaluate exact applicability",
+            },
         }
 
     @staticmethod
     def operation_policy_overrides(
         package_manifest: Mapping[str, Any],
     ) -> dict[str, dict[str, Any]]:
-        owner = "legacy"
-        surface = "visible"
-        for row in package_manifest.get("rule_families") or []:
-            if isinstance(row, Mapping) and row.get("family_id") == "healing":
-                owner = str(row.get("runtime_owner") or owner)
-                surface = str(row.get("legacy_surface") or surface)
-                break
-        legacy_operations = (
-            "rules.first_aid",
-            "rules.dying_check",
-            "rules.medicine",
-            "rules.weekly_recovery",
-        )
-        overrides: dict[str, dict[str, Any]] = {}
-        graph_visible = owner == "graph" and surface in {"hidden", "removed"}
-        for operation in legacy_operations:
-            overrides[operation] = (
-                {
-                    "audience": "host",
-                    "kp_surface": "none",
-                    "phases": ("live_turn",),
-                }
-                if graph_visible
-                else {
-                    "audience": "keeper",
-                    "kp_surface": "rules",
-                    "phases": ("live_turn",),
-                }
+        ownership = {
+            str(row.get("family_id")): (
+                str(row.get("runtime_owner") or "legacy"),
+                str(row.get("legacy_surface") or "visible"),
             )
+            for row in package_manifest.get("rule_families") or []
+            if isinstance(row, Mapping) and isinstance(row.get("family_id"), str)
+        }
+        legacy_by_family = {
+            "healing": (
+                "rules.first_aid", "rules.dying_check", "rules.medicine",
+                "rules.weekly_recovery",
+            ),
+            "core-check": ("rules.roll", "rules.opposed", "rules.check"),
+            "push-luck": ("rules.push", "rules.luck_spend"),
+            "social": ("rules.social_adjudicate",),
+            "psychology": ("rules.psychology_observe",),
+            "combat": ("combat.context", "combat.resolve", "combat.end"),
+            "sanity": ("rules.sanity_check", "sanity.context", "sanity.execute"),
+            "magic": ("magic.cast", "magic.learn"),
+            "development": ("state.end_session", "development.settle"),
+            "chase": ("chase.context", "chase.execute"),
+        }
+        overrides: dict[str, dict[str, Any]] = {}
+        any_graph_visible = False
+        for family, legacy_operations in legacy_by_family.items():
+            if family not in ownership:
+                continue
+            owner, surface = ownership[family]
+            graph_visible = owner == "graph" and surface in {"hidden", "removed"}
+            any_graph_visible = any_graph_visible or graph_visible
+            for operation in legacy_operations:
+                overrides[operation] = (
+                    {
+                        "audience": "host",
+                        "kp_surface": "none",
+                        "phases": ("live_turn",),
+                    }
+                    if graph_visible
+                    else {
+                        "audience": "keeper",
+                        "kp_surface": "rules",
+                        "phases": ("live_turn",),
+                    }
+                )
         overrides["rules.settle"] = (
             {
                 "audience": "keeper",
                 "kp_surface": "rules",
                 "phases": ("live_turn",),
             }
-            if graph_visible
+            if any_graph_visible
             else {
                 "audience": "host",
                 "kp_surface": "none",
@@ -307,6 +547,28 @@ class Coc7RuleGraphAdapter:
             }
         )
         return overrides
+
+    @staticmethod
+    def host_capability_index() -> dict[str, dict[str, Any]]:
+        """Existing typed host operations accepted by the graph compiler."""
+        return {
+            "combat.resolve": {"adapter": "typed_operation"},
+            "combat.end": {"adapter": "typed_operation"},
+            "rules.sanity_check": {"adapter": "typed_operation"},
+            "sanity.context": {"adapter": "typed_operation"},
+            "sanity.execute": {"adapter": "typed_operation"},
+            "sanity.session.gain_san": {"adapter": "sanity.execute"},
+            "sanity.session.reality_check": {"adapter": "sanity.execute"},
+            "time.recover_temporary_insanity": {"adapter": "sanity.execute"},
+            "time.apply_psychoanalysis_treatment": {"adapter": "sanity.execute"},
+            "magic.cast": {"adapter": "typed_operation"},
+            "magic.learn": {"adapter": "typed_operation"},
+            "state.end_session": {"adapter": "typed_operation"},
+            "development.settle": {"adapter": "typed_operation"},
+            **{kind: {"adapter": "chase.execute"} for kind in (
+                "chase_start", "chase_move", "chase_hazard", "chase_barrier", "chase_conflict", "chase_end"
+            )},
+        }
 
     @staticmethod
     def augment_facts(
@@ -325,6 +587,35 @@ class Coc7RuleGraphAdapter:
         assistant = semantic.get("assistant_rescuer_ref")
         if isinstance(assistant, str) and assistant.strip():
             augmented["intent.rescuer_count"] = 2
+        source_receipt = (
+            selected.get("_host_source_receipt")
+            if isinstance(selected, Mapping)
+            and isinstance(selected.get("_host_source_receipt"), Mapping)
+            else {}
+        )
+        if source_receipt:
+            outcome = source_receipt.get("outcome")
+            if isinstance(outcome, str) and outcome:
+                augmented["receipt.last_outcome"] = outcome
+            augmented["intent.pushed"] = bool(source_receipt.get("pushed", False))
+        spell = str(semantic.get("spell") or "").strip()
+        known = {
+            str(value) for value in augmented.get("magic.known_spells") or []
+        }
+        augmented["magic.spell.known"] = bool(spell and spell in known)
+        source_ref = str(semantic.get("source_ref") or "").strip()
+        source_kind = str(semantic.get("source") or "").strip()
+        sources = augmented.get("magic.learn.sources")
+        source_spells = (
+            sources.get(source_ref)
+            if isinstance(sources, Mapping)
+            and isinstance(sources.get(source_ref), list)
+            else []
+        )
+        augmented["magic.learn.source-available"] = bool(
+            spell and source_ref.startswith(source_kind + ":")
+            and spell in {str(value) for value in source_spells}
+        )
         return augmented
 
     @staticmethod
@@ -336,6 +627,7 @@ class Coc7RuleGraphAdapter:
         resolve_investigator: Callable[[Any, dict[str, Any]], str],
         safe_sheet: Callable[[Any, str], Mapping[str, Any] | None],
         skill_value: Callable[[Mapping[str, Any] | None, str], int | None],
+        card_grant: Mapping[str, Any] | None = None,
     ) -> Callable[[str], Mapping[str, Any]]:
         semantic = (
             selected.get("semantic_inputs")
@@ -384,6 +676,132 @@ class Coc7RuleGraphAdapter:
                 if value is not None:
                     locked["medicine_skill_value"] = value
                     locked["caregiver_id"] = caregiver
+            elif decision_ref in _CORE_SETTLE_DECISION_REFS or decision_ref == "decision:coc7:push-luck:luck-roll":
+                sheet = safe_sheet(ctx, investigator_id) or {}
+                locked["investigator_id"] = investigator_id
+                if decision_ref.endswith(":ordinary-check"):
+                    ref = (
+                        f"skill:{semantic['skill']}" if semantic.get("skill")
+                        else f"characteristic:{semantic['characteristic']}"
+                        if semantic.get("characteristic") else ""
+                    )
+                    resolved = _sheet_check(sheet, ref)
+                    if resolved is not None:
+                        locked["target"] = resolved[1]
+                elif decision_ref.endswith(":combined-check"):
+                    rows = []
+                    for ref in semantic.get("combined_target_refs") or []:
+                        resolved = _sheet_check(sheet, str(ref))
+                        if resolved is not None:
+                            rows.append({"label": resolved[0], "value": resolved[1]})
+                    if rows:
+                        locked["combined_targets"] = rows
+                elif decision_ref.endswith(":opposed-check"):
+                    actor = _sheet_check(sheet, str(semantic.get("actor_check_ref") or ""))
+                    opponent = _npc_check(ctx, str(semantic.get("opponent_check_ref") or ""))
+                    if actor is not None:
+                        locked["investigator_target"] = actor[1]
+                    if opponent is not None:
+                        locked["opponent_value"] = opponent[1]
+                elif decision_ref.endswith(":luck-roll"):
+                    resolved = _sheet_check(sheet, "characteristic:luck")
+                    if resolved is not None:
+                        locked["target"] = resolved[1]
+            elif decision_ref in {_PUSHED_ROLL_REF, _LUCK_SPEND_REF}:
+                source_decision_id = (
+                    str(card_grant.get("source_decision_id") or "")
+                    if isinstance(card_grant, Mapping) else ""
+                )
+                prior = (
+                    ctx.ledger_lookup("rules.settle", source_decision_id)
+                    if source_decision_id else None
+                )
+                prior_data = (
+                    prior.get("data") if isinstance(prior, Mapping)
+                    and isinstance(prior.get("data"), Mapping) else {}
+                )
+                settlement = (
+                    prior_data.get("settlement")
+                    if isinstance(prior_data.get("settlement"), Mapping) else {}
+                )
+                result = (
+                    settlement.get("result")
+                    if isinstance(settlement.get("result"), Mapping) else {}
+                )
+                check = (
+                    result.get("bound_check")
+                    if isinstance(result.get("bound_check"), Mapping) else {}
+                )
+                if source_decision_id and check:
+                    locked.update({
+                        "original_check_decision_id": source_decision_id,
+                        "canonical_roll_receipt": _thaw(check),
+                        "continuation_grant": _thaw(dict(card_grant or {})),
+                        "investigator_id": check.get("investigator_id"),
+                    })
+                    if decision_ref == _LUCK_SPEND_REF:
+                        locked["source_roll_id"] = check.get("roll_id")
+                    else:
+                        for key in ("target", "difficulty", "bonus", "penalty", "skill"):
+                            if check.get(key) is not None:
+                                locked[key] = check[key]
+            elif decision_ref in _SOCIAL_SETTLE_DECISION_REFS:
+                binding = (
+                    selected.get("_host_social_binding")
+                    if isinstance(selected.get("_host_social_binding"), Mapping)
+                    else {}
+                )
+                evidence = binding.get("motive_evidence")
+                if isinstance(evidence, (list, tuple)):
+                    locked["motive_evidence"] = list(evidence)
+            elif decision_ref in _PSYCHOLOGY_SETTLE_DECISION_REFS:
+                binding = (
+                    selected.get("_host_psychology_binding")
+                    if isinstance(selected.get("_host_psychology_binding"), Mapping)
+                    else {}
+                )
+                for key in (
+                    "investigator_id", "npc_id", "observer_skill",
+                    "target_opposing_social", "conversation_window_id",
+                    "observation_revision", "observer_scope",
+                    "observable_fact_refs", "inference_ceiling",
+                    "observation_receipt_ref",
+                ):
+                    if binding.get(key) is not None:
+                        locked[key] = _thaw(binding[key])
+            elif decision_ref in _COMBAT_SETTLE_DECISION_REFS:
+                binding = (
+                    selected.get("_host_combat_binding")
+                    if isinstance(selected.get("_host_combat_binding"), Mapping)
+                    else {}
+                )
+                for key, value in binding.items():
+                    if value is not None:
+                        locked[str(key)] = _thaw(value)
+            elif decision_ref in _SANITY_SETTLE_DECISION_REFS:
+                binding = (
+                    selected.get("_host_sanity_binding")
+                    if isinstance(selected.get("_host_sanity_binding"), Mapping)
+                    else {}
+                )
+                for key, value in binding.items():
+                    if value is not None:
+                        locked[str(key)] = _thaw(value)
+            elif decision_ref in (
+                *_MAGIC_SETTLE_DECISION_REFS, *_DEVELOPMENT_SETTLE_DECISION_REFS,
+            ):
+                binding = (
+                    selected.get("_host_family_binding")
+                    if isinstance(selected.get("_host_family_binding"), Mapping)
+                    else {}
+                )
+                for key, value in binding.items():
+                    if value is not None:
+                        locked[str(key)] = _thaw(value)
+            elif decision_ref in _CHASE_SETTLE_DECISION_REFS:
+                binding = selected.get("_host_chase_binding") if isinstance(selected.get("_host_chase_binding"), Mapping) else {}
+                for key, value in binding.items():
+                    if value is not None: locked[str(key)] = _thaw(value)
             return locked
 
         return provider
@@ -474,6 +892,276 @@ class Coc7RuleGraphAdapter:
             for key in ("medicine_skill_value", "caregiver_id"):
                 if payload.get(key) is not None:
                     out[key] = payload[key]
+        elif capability == "check":
+            for key in (
+                "skill", "characteristic", "target", "combined_targets",
+                "combined_mode", "difficulty", "goal", "stakes",
+                "difficulty_basis", "bonus", "penalty", "npc_id",
+                "social_adjudication_ref",
+            ):
+                if payload.get(key) is not None:
+                    out[key] = _thaw(payload[key])
+            # Luck-roll's graph constant is authoritative.
+            if payload.get("characteristic") == "LUCK":
+                out["characteristic"] = "LUCK"
+        elif capability == "opposed":
+            actor_ref = str(payload.get("actor_check_ref") or "")
+            kind, _, label = actor_ref.partition(":")
+            if kind == "skill" and label:
+                out["skill"] = label.replace("-", " ").title()
+            elif kind == "characteristic" and label:
+                out["characteristic"] = label.upper()
+            else:
+                raise tool_error(
+                    "invalid_semantic_input",
+                    "actor_check_ref must be skill:<slug> or characteristic:<slug>",
+                )
+            if payload.get("investigator_target") is not None:
+                out["target"] = payload["investigator_target"]
+            if payload.get("opponent_value") is None:
+                raise tool_error(
+                    "missing_param", "host-locked opponent value could not be resolved",
+                )
+            out.update({
+                "contest_kind": "noncombat",
+                "opponent_value": payload["opponent_value"],
+                "opponent_label": str(payload.get("opponent_check_ref") or "opponent"),
+                "reason": "RuleGraph opposed check",
+            })
+        elif capability == "push_policy":
+            # ``investigator`` is the universal rules.settle routing selector,
+            # not a rules.push argument.  The pushed check inherits its actor
+            # from the host-locked original receipt; forwarding the selector
+            # would make the legacy anti-override boundary reject a normal
+            # graph settlement (or, if accepted, create a second actor source).
+            out.pop("investigator", None)
+            for key in (
+                "original_check_decision_id", "method_changed",
+                "failure_consequence",
+            ):
+                if payload.get(key) is not None:
+                    out[key] = payload[key]
+        elif capability == "luck_spend":
+            for key in ("points", "source_roll_id"):
+                if payload.get(key) is not None:
+                    out[key] = payload[key]
+        elif capability == "social_difficulty":
+            binding = (
+                selected.get("_host_social_binding")
+                if isinstance(selected.get("_host_social_binding"), Mapping)
+                else {}
+            )
+            required_binding = (
+                "npc_id", "conversation_window_id", "commitment_id",
+                "motive_evidence",
+            )
+            missing = [key for key in required_binding if not binding.get(key)]
+            if missing:
+                raise tool_error(
+                    "social_candidate_stale",
+                    "canonical social target binding is unavailable",
+                    details={"missing": missing},
+                )
+            out.update({
+                "npc_id": binding["npc_id"],
+                "conversation_window_id": binding["conversation_window_id"],
+                "commitment_id": binding["commitment_id"],
+                "approach": payload.get("approach"),
+                "goal_summary": payload.get("goal"),
+                "motive": {
+                    "direction": payload.get("motive_direction"),
+                    "intensity": payload.get("motive_intensity"),
+                    "evidence_refs": list(binding["motive_evidence"]),
+                },
+                "feasibility": payload.get("feasibility"),
+                "feasibility_refs": list(binding["motive_evidence"]),
+            })
+            if payload.get("npc_defense") is not None:
+                out["npc_defense_value"] = payload["npc_defense"]
+            supporting = payload.get("supporting_action")
+            if isinstance(supporting, Mapping) and supporting.get("level") == 1:
+                source_ref = str(supporting.get("source_ref") or "").strip()
+                if not source_ref:
+                    raise tool_error(
+                        "invalid_semantic_input",
+                        "supporting_action level 1 requires canonical source_ref",
+                    )
+                out["leverage"] = [{
+                    "leverage_id": str(
+                        supporting.get("leverage_id") or f"support:{source_ref}"
+                    ),
+                    "source_ref": source_ref,
+                    "independence_group": str(
+                        supporting.get("independence_group") or source_ref
+                    ),
+                    "credibility": "verified",
+                    "relevance": "direct",
+                    "reason": str(supporting.get("description") or "supporting case"),
+                    "type": str(supporting.get("type") or "supporting_action"),
+                }]
+            else:
+                out["leverage"] = []
+        elif capability in {"psychology_check_contract", "psychology_policy"}:
+            binding = (
+                selected.get("_host_psychology_binding")
+                if isinstance(selected.get("_host_psychology_binding"), Mapping)
+                else {}
+            )
+            required = (
+                "npc_id", "conversation_window_id", "observation_revision",
+                "observer_scope",
+            )
+            missing = [key for key in required if binding.get(key) is None]
+            if missing:
+                raise tool_error(
+                    "psychology_candidate_stale",
+                    "canonical Psychology target binding is unavailable",
+                    details={"missing": missing},
+                )
+            out.update({
+                "action": (
+                    "realize" if capability == "psychology_policy" else "settle"
+                ),
+                "npc_id": binding["npc_id"],
+                "conversation_window_id": binding["conversation_window_id"],
+                "observation_revision": binding["observation_revision"],
+                "observer_scope": binding["observer_scope"],
+                "question": str(
+                    payload.get("question") or binding.get("question") or ""
+                ),
+            })
+            if capability == "psychology_check_contract":
+                out["observable_fact_refs"] = list(
+                    binding.get("observable_fact_refs") or []
+                )
+            else:
+                out.update({
+                    "insight_id": binding.get("observation_receipt_ref"),
+                    "visible_observation": payload.get("external_behavior"),
+                })
+        elif capability == "combat.resolve":
+            action = str(plan.get("decision_ref") or "").rsplit(":", 1)[-1]
+            if not action:
+                raise tool_error("missing_param", "host-locked combat action is unavailable")
+            out["action_kind"] = action
+            for source, target in (
+                ("affordance_id", "affordance_id"),
+                ("target_npc_id", "target_npc_id"),
+                ("weapon_id", "weapon_id"),
+                ("weapon_effect_ids", "weapon_effect_ids"),
+                ("combat_revision", "combat_revision"),
+                ("defense_kind", "defense_kind"),
+                ("luck_spend_max", "luck_spend_max"),
+                ("goal", "goal"),
+            ):
+                if payload.get(source) is not None:
+                    out[target] = _thaw(payload[source])
+        elif capability == "combat.end":
+            outcome = str(payload.get("outcome") or "")
+            if not outcome:
+                raise tool_error(
+                    "combat_outcome_unavailable",
+                    "combat.end requires a mechanically concluded canonical outcome",
+                )
+            out["outcome"] = outcome
+        elif capability == "rules.sanity_check":
+            out.update({
+                "source": payload.get("source"),
+                "loss_success": payload.get("loss_success", "0"),
+                "loss_failure": payload.get("loss_failure"),
+                "trigger_id": payload.get("trigger_id"),
+                "involuntary_action": {
+                    "kind": payload.get("involuntary_kind"),
+                    "summary": payload.get("involuntary_summary"),
+                },
+            })
+        elif capability in {
+            "sanity.execute", "sanity.session.gain_san",
+            "sanity.session.reality_check", "sanity.context",
+            "time.recover_temporary_insanity",
+            "time.apply_psychoanalysis_treatment",
+        }:
+            suffix = str(plan.get("decision_ref") or "").rsplit(":", 1)[-1]
+            kind = {
+                "bout-tick": "bout_tick",
+                "bout-end": "bout_end",
+                "reality-check": "reality_check",
+                "gain-current-san": "gain_current_san",
+                "insane-insight": "insane_insight",
+                "apply-treatment": "apply_psychoanalysis_treatment",
+                "recover-temporary": "recover_temporary_insanity",
+            }.get(suffix)
+            phase = str((plan.get("command") or {}).get("phase") or "resolve")
+            if not kind:
+                raise tool_error("unsupported_ruleset_operation", "unknown sanity phase")
+            command_id = f"{args['decision_id']}:command"
+            command_payload: dict[str, Any] = {"decision_id": str(args["decision_id"])}
+            if kind in {"bout_tick", "bout_end"}:
+                command_payload.update({
+                    "choice_id": payload.get("pending_choice_ref"),
+                    "responder": "keeper",
+                    "revision": payload.get("bout_revision"),
+                    "action": "tick" if kind == "bout_tick" else "end",
+                    "terminal_command_ids": [command_id],
+                })
+                phase = "resolve"
+            elif kind == "reality_check":
+                command_payload["request_reality_check"] = payload.get(
+                    "request_reality_check"
+                )
+            elif kind == "gain_current_san":
+                if payload.get("san_gain") is None:
+                    raise tool_error(
+                        "sanity_gain_receipt_unavailable",
+                        "gain-current-san requires a canonical host SAN gain receipt",
+                    )
+                command_payload.update({
+                    "san_gain": payload.get("san_gain"),
+                    "gain_source": payload.get("gain_source"),
+                })
+            elif kind == "insane_insight":
+                command_payload["insight"] = payload.get("insight")
+            elif kind == "apply_psychoanalysis_treatment":
+                command_payload["treatment_trigger_ref"] = payload.get(
+                    "treatment_trigger_ref"
+                )
+            elif kind == "recover_temporary_insanity":
+                command_payload["recovery_trigger_ref"] = payload.get(
+                    "recovery_trigger_ref"
+                )
+            out["command"] = {
+                "command_id": command_id,
+                "kind": kind,
+                "phase": phase,
+                "payload": command_payload,
+            }
+        elif capability in {"magic.cast", "magic.learn"}:
+            out.update({
+                "spell": payload.get("spell"),
+            })
+            if capability == "magic.cast":
+                out.update({
+                    "pushed": payload.get("pushed") is True,
+                    "interrupted": payload.get("interrupted") is True,
+                    "is_npc": payload.get("is_npc") is True,
+                })
+            else:
+                out["source"] = payload.get("source")
+                out["source_ref"] = payload.get("source_ref")
+        elif capability == "state.end_session":
+            out.update({
+                "summary": payload.get("summary"),
+                "kind": payload.get("kind"),
+            })
+        elif capability == "development.settle":
+            if payload.get("ending_id") is not None:
+                out["ending_id"] = payload.get("ending_id")
+        elif capability.startswith("chase_"):
+            command_id = f"{args['decision_id']}:command"
+            command_payload = {"decision_id": str(args["decision_id"])}
+            for key in ("chase_id", "participants", "locations", "actor_id", "action_id", "choice_id", "skill", "target", "difficulty", "roll_id", "revision", "target_actor_id", "combat_command_id", "outcome", "method"):
+                if payload.get(key) is not None: command_payload[key] = _thaw(payload[key])
+            out["command"] = {"command_id": command_id, "kind": capability, "phase": "start" if capability == "chase_start" else "resolve", "payload": command_payload}
         else:
             raise tool_error(
                 "unsupported_ruleset_operation",
@@ -483,7 +1171,9 @@ class Coc7RuleGraphAdapter:
 
     @staticmethod
     def is_context_only(decision_ref: str) -> bool:
-        return decision_ref in LOOKUP_CONTEXT_DECISION_REFS
+        return decision_ref in (
+            *LOOKUP_CONTEXT_DECISION_REFS, _COMBAT_CONTEXT_REF, _SANITY_CONTEXT_REF,
+        )
 
     def context_lookup(
         self,
@@ -501,47 +1191,18 @@ class Coc7RuleGraphAdapter:
         decision_id: str,
         selected: Mapping[str, Any],
     ) -> dict[str, Any]:
-        if decision_ref != _PSYCHOLOGY_REALIZE_REF:
+        if (
+            decision_ref != _PSYCHOLOGY_REALIZE_REF
+            or isinstance(selected.get("_host_psychology_binding"), Mapping)
+        ):
             return {}
-        view = self._view(runtime)
         observe_id = _paired_observe_decision_id(decision_id)
-        node = runtime._nodes.get(decision_ref)
-        family = (
-            (node.get("properties") or {}).get("family_id") or ""
-            if isinstance(node, Mapping)
-            else ""
+        frozen = (
+            self._view(runtime)._psychology_frozen.get(observe_id)
+            if observe_id is not None else None
         )
-        if observe_id is None:
-            return {"failure_envelope": {
-                "schema_version": runtime.SCHEMA_VERSION,
-                "decision_ref": decision_ref,
-                "decision_id": decision_id,
-                "family": family,
-                "status": "invalid_decision_id",
-                "failure": {
-                    "code": "invalid_decision_id",
-                    "message": (
-                        "realization decision_id must pair with the settle window "
-                        "(shared prefix, :realize-player-safe suffix)"
-                    ),
-                },
-            }}
-        frozen = view._psychology_frozen.get(observe_id)
-        if frozen is None:
-            return {"failure_envelope": {
-                "schema_version": runtime.SCHEMA_VERSION,
-                "decision_ref": decision_ref,
-                "decision_id": decision_id,
-                "family": family,
-                "status": "rule_decision_not_applicable",
-                "failure": {
-                    "code": "rule_decision_not_applicable",
-                    "message": (
-                        "the realization has no frozen observation for its window; "
-                        "settle observe-concealed first"
-                    ),
-                },
-            }}
+        if observe_id is None or frozen is None:
+            return {}
         return {"host_locked": {
             "inference_ceiling": frozen["inference_ceiling"],
         }}
@@ -781,14 +1442,31 @@ class Coc7RuleGraphAdapter:
         if not isinstance(payload, Mapping):
             payload = {}
         rule_refs = list(plan.get("rule_refs") or [])
+        goal = str(payload.get("goal") or "").strip()
         check_payload: dict[str, Any] = {
             "skill": str(adjudication.get("approach_skill") or ""),
             "difficulty": str(adjudication.get("final_difficulty") or "regular"),
             "bonus": int(adjudication.get("bonus_dice") or 0),
             "penalty": int(adjudication.get("penalty_dice") or 0),
             "difficulty_basis": "opponent_skill",
-            "goal": payload.get("goal"),
-            "social_adjudication_ref": plan["decision_ref"],
+            "goal": goal,
+            # `stakes` belongs to the derived percentile-check contract, not
+            # to the closed Social card inputs.  Bind both consequences to
+            # the already validated Social goal so the nested Core resolver
+            # keeps its ordinary-check invariant without leaking a Core-only
+            # model field into the Social decision.
+            "stakes": {
+                "on_success": (
+                    "the described social action achieves its declared goal: "
+                    + goal
+                ),
+                "on_failure": (
+                    "the described social action does not achieve its declared goal: "
+                    + goal
+                ),
+            },
+            "npc_id": adjudication.get("npc_id"),
+            "social_adjudication_ref": adjudication.get("goal_key"),
         }
         return {
             "schema_version": self.SCHEMA_VERSION,
@@ -822,15 +1500,9 @@ class Coc7RuleGraphAdapter:
         facts: Mapping[str, Any],
         envelope: dict[str, Any],
     ) -> dict[str, Any]:
-        """Concealed psychology observation settlement (spec §11.3).
-
-        Executes the observation once; the runtime FREEZES the settled
-        observation identity (inference ceiling + concealed outcome) keyed by
-        the semantic observe decision_id so the realization can bind it via
-        the paired decision_id.  Concealed dice/outcome never enter public
-        player-visible fields.
-        """
-        if decision_id in self._psychology_frozen:
+        """Execute the existing durable concealed-observation operation once."""
+        durable = isinstance(selected.get("_host_psychology_binding"), Mapping)
+        if not durable and decision_id in self._psychology_frozen:
             record = self._psychology_frozen[decision_id]
             return self._settled_envelope(
                 envelope, plan, _freeze(record), [],
@@ -852,7 +1524,10 @@ class Coc7RuleGraphAdapter:
                 },
             }
         ceiling = _observation_inference_ceiling(data)
-        if ceiling is None:
+        insight_id = data.get("insight_id")
+        if ceiling is None or (
+            durable and (not isinstance(insight_id, str) or not insight_id)
+        ):
             return {
                 "schema_version": self.SCHEMA_VERSION,
                 "decision_ref": plan["decision_ref"],
@@ -862,24 +1537,34 @@ class Coc7RuleGraphAdapter:
                 "failure": {
                     "code": "invalid_settlement_result",
                     "message": (
-                        "concealed observation result lacks a frozen inference "
-                        "ceiling"
+                        "concealed observation result lacks durable insight "
+                        "identity or inference ceiling"
                     ),
                 },
             }
-        frozen = {
-            "decision_id": decision_id,
-            "realm": "psychology",
-            "inference_ceiling": ceiling,
-            "concealed": _thaw(data),
-        }
-        self._psychology_frozen[decision_id] = deepcopy(frozen)
+        if durable:
+            continuation = self._card(
+                _PSYCHOLOGY_REALIZE_REF, self._facts_for_decision(selected),
+            )
+            if continuation.get("applicability") == "applicable":
+                self._issue_card_grant(
+                    [continuation], source_decision_id=decision_id,
+                )
+            result = _thaw(data)
+        else:
+            result = {
+                "decision_id": decision_id,
+                "realm": "psychology",
+                "inference_ceiling": ceiling,
+                "concealed": _thaw(data),
+            }
+            self._psychology_frozen[decision_id] = deepcopy(result)
         hints = list(hints) + [
             "the roll and outcome are keeper-concealed: the player sees only "
             "the realization's external_behavior; do not expose the die",
         ]
         return self._settled_envelope(
-            envelope, plan, _freeze(frozen), warnings, hints,
+            envelope, plan, _freeze(result), warnings, hints,
             extra={"visibility": "concealed-result"},
         )
 
@@ -892,82 +1577,103 @@ class Coc7RuleGraphAdapter:
         facts: Mapping[str, Any],
         envelope: dict[str, Any],
     ) -> dict[str, Any]:
-        """Player-safe realization bound to a frozen observation (spec §11.3).
-
-        The realization decision_id binds the frozen observe-settlement
-        identity: the host re-attaches the observe decision_id (derived by
-        suffix swap — no hash relay, no model echo) and the frozen inference
-        ceiling; the realization performs NO RNG and NO re-execution of the
-        check.  The public player-visible output is exactly the contract's
-        allowlist ({external_behavior}); concealed dice/outcome never enter
-        player-visible fields.
-        """
-        observe_decision_id = _paired_observe_decision_id(decision_id)
-        if observe_decision_id is None:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
+        """Bind player-safe prose through the durable Psychology operation."""
+        if not isinstance(selected.get("_host_psychology_binding"), Mapping):
+            observe_decision_id = _paired_observe_decision_id(decision_id)
+            if observe_decision_id is None:
+                return {
+                    "schema_version": self.SCHEMA_VERSION,
+                    "decision_ref": plan["decision_ref"],
+                    "decision_id": decision_id,
+                    "family": plan["family"],
+                    "status": "invalid_decision_id",
+                    "failure": {
+                        "code": "invalid_decision_id",
+                        "message": "realization decision_id is not paired to an observation",
+                    },
+                }
+            frozen = self._psychology_frozen.get(observe_decision_id)
+            if frozen is None:
+                return {
+                    "schema_version": self.SCHEMA_VERSION,
+                    "decision_ref": plan["decision_ref"],
+                    "decision_id": decision_id,
+                    "family": plan["family"],
+                    "status": "rule_decision_not_applicable",
+                    "failure": {
+                        "code": "rule_decision_not_applicable",
+                        "message": "no frozen observation exists for the realization",
+                    },
+                }
+            request_identity = _json_digest({
                 "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "invalid_decision_id",
-                "failure": {
-                    "code": "invalid_decision_id",
-                    "message": (
-                        "realization decision_id must pair with the settle "
-                        "window (shared prefix, :realize-player-safe suffix)"
-                    ),
-                },
+                "semantic": selected.get("semantic_inputs"),
+            })
+            prior = self._psychology_realized.get(decision_id)
+            if prior is not None:
+                if prior.get("request_identity") != request_identity:
+                    return {
+                        "schema_version": self.SCHEMA_VERSION,
+                        "decision_ref": plan["decision_ref"],
+                        "decision_id": decision_id,
+                        "family": plan["family"],
+                        "status": "decision_conflict",
+                        "failure": {
+                            "code": "decision_conflict",
+                            "message": "decision changed; executor not invoked",
+                        },
+                    }
+                return self._settled_envelope(
+                    envelope, plan, _freeze(prior["result"]), [],
+                    ["frozen realization reused: identical decision_id"],
+                    extra={
+                        "visibility": "public",
+                        "player_projection": deepcopy(prior["player_projection"]),
+                        "concealed_result": deepcopy(prior["concealed_result"]),
+                    },
+                )
+            realized = executor(_thaw(plan), decision_id, selected)
+            data, warnings, hints = self._split_executor_result(realized)
+            public = data.get("player_projection") if isinstance(data, Mapping) else None
+            if not isinstance(public, Mapping):
+                return {
+                    "schema_version": self.SCHEMA_VERSION,
+                    "decision_ref": plan["decision_ref"],
+                    "decision_id": decision_id,
+                    "family": plan["family"],
+                    "status": "concealed_projection_violation",
+                    "failure": {"code": "concealed_projection_violation", "message": "missing projection"},
+                }
+            leaked = sorted(set(public) - PSYCHOLOGY_REALIZATION_PUBLIC_KEYS)
+            if leaked:
+                return {
+                    "schema_version": self.SCHEMA_VERSION,
+                    "decision_ref": plan["decision_ref"],
+                    "decision_id": decision_id,
+                    "family": plan["family"],
+                    "status": "concealed_projection_violation",
+                    "failure": {"code": "concealed_projection_violation", "leaked": leaked},
+                }
+            projection = {"external_behavior": _thaw(public.get("external_behavior"))}
+            concealed_outcome = _observation_public_outcome(frozen)
+            result = {
+                "player_projection": _freeze(projection),
+                "bound_to_observe": observe_decision_id,
             }
-        frozen = self._psychology_frozen.get(observe_decision_id)
-        if frozen is None:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "rule_decision_not_applicable",
-                "failure": {
-                    "code": "rule_decision_not_applicable",
-                    "message": (
-                        "the realization has no frozen observation for its "
-                        "window; settle observe-concealed first"
-                    ),
-                },
+            self._psychology_realized[decision_id] = {
+                "request_identity": request_identity,
+                "result": _thaw(result),
+                "player_projection": dict(projection),
+                "concealed_result": dict(concealed_outcome),
             }
-        # No reroll / no re-execution: the realization executor consumes the
-        # frozen ceiling; the runtime never invokes a check plan here.  A
-        # replayed decision_id returns the SAME projection without invoking
-        # the executor again (host re-attach idempotency, spec §13.1).
-        prior = self._psychology_realized.get(decision_id)
-        request_identity = _json_digest({
-            "decision_ref": plan["decision_ref"],
-            "semantic": selected.get("semantic_inputs"),
-        })
-        if prior is not None and prior.get("request_identity") == request_identity:
             return self._settled_envelope(
-                envelope, plan, _freeze(prior["result"]), [],
-                ["frozen realization reused: identical decision_id"],
+                envelope, plan, _freeze(result), warnings, hints,
                 extra={
                     "visibility": "public",
-                    "player_projection": deepcopy(prior["player_projection"]),
-                    "concealed_result": deepcopy(prior["concealed_result"]),
+                    "player_projection": deepcopy(projection),
+                    "concealed_result": concealed_outcome,
                 },
             )
-        if prior is not None:
-            return {
-                "schema_version": self.SCHEMA_VERSION,
-                "decision_ref": plan["decision_ref"],
-                "decision_id": decision_id,
-                "family": plan["family"],
-                "status": "decision_conflict",
-                "failure": {
-                    "code": "decision_conflict",
-                    "message": (
-                        "decision_id already bound to a different "
-                        "realization request; executor not invoked"
-                    ),
-                },
-            }
         realized = executor(_thaw(plan), decision_id, selected)
         data, warnings, hints = self._split_executor_result(realized)
         if not isinstance(data, Mapping):
@@ -1017,17 +1723,9 @@ class Coc7RuleGraphAdapter:
                 },
             }
         projection = {"external_behavior": _thaw(public.get("external_behavior"))}
-        concealed_outcome = _observation_public_outcome(frozen)
-        result = {
-            "player_projection": _freeze(projection),
-            "bound_to_observe": observe_decision_id,
-        }
-        self._psychology_realized[decision_id] = {
-            "request_identity": request_identity,
-            "result": _thaw(result),
-            "player_projection": dict(projection),
-            "concealed_result": dict(concealed_outcome),
-        }
+        concealed = data.get("concealed_result")
+        concealed_outcome = _thaw(concealed) if isinstance(concealed, Mapping) else {}
+        result = _thaw(data)
         return self._settled_envelope(
             envelope, plan, _freeze(result), warnings, hints,
             extra={
@@ -1561,6 +2259,24 @@ class Coc7RuleGraphAdapter:
         }
         if outcome in _CHECK_FAILURE_OUTCOMES:
             result["next_continuations"] = [_PUSHED_ROLL_REF, _LUCK_SPEND_REF]
+            continuation_selected = {
+                **dict(selected),
+                "_host_source_receipt": _thaw(data),
+            }
+            continuation_cards = [
+                self._card(ref, self._facts_for_decision(continuation_selected))
+                for ref in result["next_continuations"]
+                if isinstance(self._nodes.get(ref), Mapping)
+            ]
+            continuation_cards = [
+                card for card in continuation_cards
+                if card.get("applicability") == "applicable"
+            ]
+            if continuation_cards:
+                self._issue_card_grant(
+                    continuation_cards,
+                    source_decision_id=decision_id,
+                )
             hints = list(hints) + [
                 "ordinary failure: the player may push this roll with a "
                 "changed method and an announced consequence, or spend Luck; "
@@ -1581,6 +2297,24 @@ class Coc7RuleGraphAdapter:
             envelope, plan, _freeze(result), warnings, hints,
             extra={"visibility": "public"},
         )
+
+    def _hydrate_original_check(
+        self,
+        payload: Mapping[str, Any],
+    ) -> tuple[str, Mapping[str, Any] | None]:
+        original_id = str(payload.get("original_check_decision_id") or "").strip()
+        original = self._check_frozen.get(original_id) if original_id else None
+        receipt = payload.get("canonical_roll_receipt")
+        if original is None and original_id and isinstance(receipt, Mapping):
+            result = {
+                "bound_check": _thaw(receipt),
+                "outcome": str(receipt.get("outcome") or ""),
+                "pushed": False,
+                "luck_roll": False,
+            }
+            original = {"request_identity": "canonical-receipt", "result": result}
+            self._check_frozen[original_id] = deepcopy(original)
+        return original_id, original
 
     def _settle_luck_roll(
         self,
@@ -1693,8 +2427,7 @@ class Coc7RuleGraphAdapter:
                     "fields": ["player_confirmed_risk"],
                 },
             }
-        original_id = str(payload.get("original_check_decision_id") or "").strip()
-        original = self._check_frozen.get(original_id) if original_id else None
+        original_id, original = self._hydrate_original_check(payload)
         if original is None:
             return {
                 "schema_version": self.SCHEMA_VERSION,
@@ -1850,8 +2583,7 @@ class Coc7RuleGraphAdapter:
                     "missing": ["source_roll_id"],
                 },
             }
-        original_id = str(payload.get("original_check_decision_id") or "").strip()
-        original = self._check_frozen.get(original_id) if original_id else None
+        original_id, original = self._hydrate_original_check(payload)
         if original is not None:
             original_result = original.get("result") or {}
             if original_result.get("luck_roll"):

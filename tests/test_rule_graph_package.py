@@ -100,9 +100,7 @@ def test_packaged_coc7_rule_graph_conforms_to_r1_contract():
     assert graph["family_runtime_ownership"]["healing"] == "graph"
     assert graph["legacy_surface_lifecycle"]["healing"] == "hidden"
     assert manifest["compiler_identity"] == CONTRACT["compiler_identity"]
-    assert manifest["reviewer_identity"] == (
-        "codex-main-healing-source-review-20260830"
-    )
+    assert manifest["reviewer_identity"] == "production-composite:accepted-family-reviews"
     assert manifest["review_status"] == "accepted"
     medicine = next(
         node for node in graph["nodes"]
@@ -150,9 +148,35 @@ def test_composed_settlement_dispatch_is_owned_by_coc7_package():
     assert adapter.__class__.__name__ == "Coc7RuleGraphAdapter"
     assert callable(adapter.settle)
     assert adapter.promotion_blockers("healing") == []
-    assert adapter.promotion_blockers("social")
+    assert adapter.promotion_blockers("core-check") == []
+    assert adapter.promotion_blockers("push-luck") == []
+    assert adapter.promotion_blockers("social") == []
+    assert adapter.promotion_blockers("psychology") == []
+    assert adapter.promotion_blockers("combat") == []
+    assert adapter.promotion_blockers("sanity") == []
+    assert adapter.promotion_blockers("magic") == []
+    assert adapter.promotion_blockers("development") == []
+    assert adapter.promotion_blockers("chase") == []
     current = adapter.operation_policy_overrides(ruleset)
     assert current["rules.first_aid"]["audience"] == "host"
+    assert current["rules.roll"]["audience"] == "host"
+    assert current["rules.opposed"]["audience"] == "host"
+    assert current["rules.push"]["audience"] == "host"
+    assert current["rules.luck_spend"]["audience"] == "host"
+    assert current["rules.social_adjudicate"]["audience"] == "host"
+    assert current["rules.psychology_observe"]["audience"] == "host"
+    assert current["combat.context"]["audience"] == "host"
+    assert current["combat.resolve"]["audience"] == "host"
+    assert current["combat.end"]["audience"] == "host"
+    assert current["rules.sanity_check"]["audience"] == "host"
+    assert current["sanity.context"]["audience"] == "host"
+    assert current["sanity.execute"]["audience"] == "host"
+    assert current["magic.cast"]["audience"] == "host"
+    assert current["magic.learn"]["audience"] == "host"
+    assert current["state.end_session"]["audience"] == "host"
+    assert current["development.settle"]["audience"] == "host"
+    assert current["chase.context"]["audience"] == "host"
+    assert current["chase.execute"]["audience"] == "host"
     assert current["rules.settle"]["audience"] == "keeper"
 
     shadowed = json.loads(json.dumps(ruleset))
@@ -162,7 +186,8 @@ def test_composed_settlement_dispatch_is_owned_by_coc7_package():
     })
     switched = adapter.operation_policy_overrides(shadowed)
     assert switched["rules.first_aid"]["audience"] == "keeper"
-    assert switched["rules.settle"]["audience"] == "host"
+    assert switched["rules.settle"]["audience"] == "keeper"
+    assert switched["rules.roll"]["audience"] == "host"
 
 
 def test_packaged_healing_has_no_remaining_promotion_exclusions():

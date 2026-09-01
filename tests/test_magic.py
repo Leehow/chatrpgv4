@@ -67,7 +67,7 @@ def test_first_cast_failure_on_high_roll():
     res = coc_magic.cast_spell("Cloud Memory", state, is_first_cast=True, rng=random.Random(seed))
     assert res["success"] is False
     assert res["roll_result"]["outcome"] not in ("regular", "hard", "extreme", "critical")
-    # Failed first cast loses no SAN/MP beyond the base (none charged on fail).
+    # Failed first cast loses no SAN; its base MP was committed.
     assert res["san_lost"] == 0
 
 
@@ -188,7 +188,7 @@ def test_pushed_cast_failure_multiplies_san_and_rolls_side_effect():
         pushed=True, rng=random.Random(seed),
     )
     assert res["pushed"] is True
-    assert res["success"] is False
+    assert res["success"] is True
     assert res["mp_spent"] in {8, 16, 24, 32, 40, 48}
     # SAN cost (1D6) × same push multiplier as MP.
     multiplier = res["mp_spent"] // 8
@@ -213,13 +213,13 @@ def test_pushed_cast_failure_major_tier_when_mp_cost_ge_10():
         "Apportion Ka", state, is_first_cast=True,
         pushed=True, rng=random.Random(seed),
     )
-    assert res["success"] is False
+    assert res["success"] is True
     assert res["side_effect"]["tier"] == "major"
     assert 1 <= res["side_effect"]["roll"] <= 8
 
 
 def test_pushed_cast_success_has_no_side_effect_table():
-    """Successful pushed cast still multiplies MP but skips the side-effect table."""
+    """Successful pushed cast pays the ordinary attempt cost and has no side-effect."""
     seed = _seed_for_hard_pow(60, succeed=True)
     state = {"pow": 60, "current_mp": 100, "current_hp": 12, "current_san": 70}
     res = coc_magic.cast_spell(
@@ -229,7 +229,7 @@ def test_pushed_cast_success_has_no_side_effect_table():
     assert res["success"] is True
     assert res["pushed"] is True
     assert res.get("side_effect") is None
-    assert res["mp_spent"] in {8, 16, 24, 32, 40, 48}
+    assert res["mp_spent"] == 8
 
 
 # --------------------------------------------------------------------------- #
@@ -246,7 +246,8 @@ def test_interrupted_cast_fails_loses_committed_mp_no_side_effect():
     assert res["mp_spent"] == 8  # base cost committed and lost
     assert state["current_mp"] == 12
     assert res.get("side_effect") is None
-    assert res["san_lost"] == 0  # no SAN multiplier / no success SAN
+    assert res["san_lost"] >= 1
+    assert state["current_san"] == 70 - res["san_lost"]
 
 
 def test_interrupted_pushed_cast_skips_side_effect_and_san_multiplier():
@@ -259,8 +260,8 @@ def test_interrupted_pushed_cast_skips_side_effect_and_san_multiplier():
     assert res["interrupted"] is True
     assert res["success"] is False
     assert res.get("side_effect") is None
-    assert res["san_lost"] == 0
-    assert state["current_san"] == 70
+    assert res["san_lost"] >= 1
+    assert state["current_san"] == 70 - res["san_lost"]
 
 
 # --------------------------------------------------------------------------- #
@@ -380,6 +381,39 @@ def test_learn_spell_from_entity_returns_san_floor():
     assert res["san_cost_expr"] == "1D6"  # learning.from_entity_min_sanity_cost
     assert res["study_weeks"] == 0
     assert res["study_days"] == 0  # entity teaching has no study delay
+
+
+def test_entity_learning_uses_regular_not_hard_int_success():
+    seed = next(
+        value for value in range(1, 500)
+        if 30 < coc_magic.coc_roll.percentile_check(
+            60, difficulty="regular", rng=random.Random(value)
+        )["roll"] <= 60
+    )
+    state = {"int": 60, "current_san": 70}
+    result = coc_magic.learn_spell(
+        "Cloud Memory", state, source="entity", rng=random.Random(seed)
+    )
+    assert result["learned"] is True
+    assert result["roll_result"]["difficulty"] == "regular"
+
+
+def test_push_side_effect_tables_match_rulebook_rows():
+    tables = coc_magic.push_side_effect_tables()
+    assert tables["minor"][0]["effect"] == "Blurred vision or temporary blindness."
+    assert tables["minor"][7]["effect"] == "Mythos monster is accidentally summoned."
+    assert tables["major"][0]["effect"] == "Earth shaking, walls rent asunder."
+    assert tables["major"][7]["effect"] == "Mythos deity is accidentally called."
+
+
+@pytest.mark.parametrize("spell", [
+    "Mantle of Cthulhu", "Resurrection of Me", "Seal of Nyarlathotep",
+    "See Invisible", "Steal Mind", "Summon Hellfire", "Swim Like a Fish",
+    "Touch of Death", "True Seeing", "Walk the Path",
+])
+def test_unbacked_spells_are_not_in_production_catalog(spell):
+    with pytest.raises(KeyError):
+        coc_rules.spell_by_name(spell)
 
 
 def test_learn_spell_invalid_source_raises():

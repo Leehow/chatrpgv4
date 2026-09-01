@@ -1,0 +1,3369 @@
+{
+  "contract_id": "coc.rule-graph-shard.v1",
+  "schema_version": 1,
+  "shard_id": "shard:coc7:social:section-social-source-accepted",
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "family_id": "social",
+  "section_id": "section-social-source-accepted",
+  "source_language": "en",
+  "coverage": {
+    "social": "accepted"
+  },
+  "nodes": [
+    {
+      "node_id": "capability:coc7:social-difficulty",
+      "node_kind": "capability",
+      "name": "social_difficulty",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "resolver_capability": "social_difficulty",
+        "adapter": "resolver"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "capability:coc7:social-skill-names",
+      "node_kind": "capability",
+      "name": "social_skill_names",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "resolver_capability": "social_skill_names",
+        "adapter": "resolver"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:social:ruleset-coc7",
+      "node_kind": "condition",
+      "name": "Campaign is using the coc7 ruleset",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "expression": {
+          "op": "eq",
+          "path": "campaign.ruleset_id",
+          "value": "coc7"
+        }
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "data-table:coc7:skill-descriptions",
+      "node_kind": "data-table",
+      "name": "skill-descriptions.json",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "table_name": "skill-descriptions.json"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "decision:coc7:social:adjudicate-difficulty",
+      "node_kind": "decision",
+      "name": "Adjudicate one possible social goal from described conduct, approach, higher-of defense, motive, and one-level support",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "implementation": {
+          "adapter": "resolver",
+          "kind": "social_difficulty",
+          "phase": "resolve",
+          "payload_constants": {},
+          "payload_slots": [
+            {
+              "name": "described_action",
+              "ownership": "player-source"
+            },
+            {
+              "name": "target_ref",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "commitment_ref",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "approach",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "goal",
+              "ownership": "player-source"
+            },
+            {
+              "name": "npc_defense",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "motive_direction",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "motive_intensity",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "motive_evidence",
+              "ownership": "host-locked"
+            },
+            {
+              "name": "supporting_action",
+              "ownership": "keeper-semantic"
+            },
+            {
+              "name": "feasibility",
+              "ownership": "keeper-semantic"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "effect:coc7:social:pc-refusal-penalty",
+      "node_kind": "effect",
+      "name": "One non-stacking penalty die held by the coercer against the refusing investigator for one later chosen roll",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "effect_kind": "one-use-penalty-die"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:approach",
+      "node_kind": "input-slot",
+      "name": "Social approach chosen by the Keeper from the described method",
+      "authority": "keeper-semantic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "enum",
+        "path": "intent.method"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:commitment-ref",
+      "node_kind": "input-slot",
+      "name": "Semantic durable requested commitment reference; the host binds it to commitment_id without parsing goal prose",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "commitment_ref"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:described-action",
+      "node_kind": "input-slot",
+      "name": "Player-described conduct (what the investigator is doing and saying)",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "player-source",
+        "value_type": "string",
+        "path": "intent.method"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:feasibility",
+      "node_kind": "input-slot",
+      "name": "Story-grounded automatic, rollable, conditional, or impossible disposition",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "enum",
+        "path": "feasibility"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:goal",
+      "node_kind": "input-slot",
+      "name": "Player-defined goal of the social attempt",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "player-source",
+        "value_type": "string",
+        "path": "intent.method"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:motive-direction",
+      "node_kind": "input-slot",
+      "name": "NPC inclination toward the exact player goal",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "enum",
+        "path": "motive.direction"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:motive-evidence",
+      "node_kind": "input-slot",
+      "name": "Host-resolved typed evidence rows grounding the NPC motive adjustment",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "host-locked",
+        "value_type": "array",
+        "path": "motive_evidence"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:motive-intensity",
+      "node_kind": "input-slot",
+      "name": "Source-grounded opposition adjustment of zero, one, or two levels",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "motive.intensity"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:npc-defense",
+      "node_kind": "input-slot",
+      "name": "Host-selected opposing skill level",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "host-locked",
+        "value_type": "int",
+        "path": "actor.sheet.social_defense"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:supporting-action",
+      "node_kind": "input-slot",
+      "name": "One substantive argument, bribe, threat, or other source-grounded support for the case",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "object",
+        "path": "supporting_action"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "input-slot:coc7:social:target-ref",
+      "node_kind": "input-slot",
+      "name": "Semantic retained SocialInteractionCandidate target reference in the social-target:<npc_id> namespace",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "ownership": "keeper-semantic",
+        "value_type": "scalar",
+        "path": "target_ref"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "pending-choice:coc7:social:pc-refusal",
+      "node_kind": "pending-choice",
+      "name": "The player remains free to refuse the successful social request",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule-family:coc7:social",
+      "node_kind": "rule-family",
+      "name": "Social interaction",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social",
+        "runtime_ownership": "legacy",
+        "legacy_surface": "visible"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:approach-selection",
+      "node_kind": "rule",
+      "name": "Player describes conduct; the Keeper then chooses Charm, Fast Talk, Intimidate, or Persuade",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:canonical-motive-evidence-binding",
+      "node_kind": "rule",
+      "name": "A non-neutral motive adjustment is grounded by host-resolved authored NPC agenda, fact, or state evidence bound to the exact target and goal; free prose cannot supply motive evidence",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:charm-scope",
+      "node_kind": "rule",
+      "name": "Charm uses warmth, attraction, flattery, or seduction and cannot compel behavior completely contrary to the target's normal behavior",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:extreme-ceiling",
+      "node_kind": "rule",
+      "name": "Extreme is the lowest rollable chance; rare circumstances may make the present goal impossible and allow no roll",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:fast-talk-temporary",
+      "node_kind": "rule",
+      "name": "Fast Talk is quick deception or misdirection; its effect is temporary, though a higher success may last longer",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:feasibility",
+      "node_kind": "rule",
+      "name": "Roleplay first and roll only for a genuine possible conflict; story position, approach, and the NPC's weakness determine whether the goal is automatic, rollable, or presently impossible",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:intimidate-scope",
+      "node_kind": "rule",
+      "name": "Intimidate uses force, threats, or psychological pressure; a credible powerful threat may support the case and a pushed failure may carry out the threat",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:motive-and-support",
+      "node_kind": "rule",
+      "name": "Positive inclination grants agreement without a roll; neutrality leaves difficulty unchanged; strong opposition raises one or two levels; a substantive supporting case lowers one level",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:opposing-difficulty",
+      "node_kind": "rule",
+      "name": "Base difficulty uses the higher of the matching interpersonal skill or Psychology: below 50 Regular, 50-89 Hard, 90+ Extreme",
+      "authority": "deterministic",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:pc-agency-and-penalty",
+      "node_kind": "rule",
+      "name": "A successful social skill never compels another player's investigator; refusal lets the coercer hold one penalty die for one later roll of the coercer's choice, not indefinitely and never stacking per pair",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:persuade-duration",
+      "node_kind": "rule",
+      "name": "Persuade uses reasoned argument and normally takes at least half an hour; depending on the goal and time invested its effect may persist",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "rule:coc7:social:player-goal",
+      "node_kind": "rule",
+      "name": "The player's intention defines the goal of the social attempt",
+      "authority": "mixed",
+      "audience": "keeper",
+      "visibility": "public",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "social"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "node_id": "subsystem:coc7:social-source-evidence-registry",
+      "node_kind": "subsystem",
+      "name": "Canonical authored NPC and player-known social evidence registry",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "subsystem_kind": "canonical-social-source-evidence"
+      },
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "relation:coc7:social:adjudicate-available",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "condition:coc7:social:ruleset-coc7",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:adjudicate-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "capability:coc7:social-difficulty",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:adjudicate-reads-names",
+      "relation_kind": "requires-fact",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "capability:coc7:social-skill-names",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:approach-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:approach-selection",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:ceiling-applies",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:social:extreme-ceiling",
+      "to_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:ceiling-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:extreme-ceiling",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:charm-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:charm-scope",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:fast-talk-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:fast-talk-temporary",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:feasibility-applies",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:social:feasibility",
+      "to_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:feasibility-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:feasibility",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:goal-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:player-goal",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:intimidate-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:intimidate-scope",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:ladder-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:opposing-difficulty",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:locks-motive-evidence",
+      "relation_kind": "locks-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:motive-evidence",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:motive-binding-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:canonical-motive-evidence-binding",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:motive-evidence-requires-source",
+      "relation_kind": "requires-fact",
+      "from_node_id": "input-slot:coc7:social:motive-evidence",
+      "to_node_id": "subsystem:coc7:social-source-evidence-registry",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:motive-rule-invokes",
+      "relation_kind": "invokes",
+      "from_node_id": "rule:coc7:social:canonical-motive-evidence-binding",
+      "to_node_id": "capability:coc7:social-difficulty",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:motive-support-applies",
+      "relation_kind": "applies-to",
+      "from_node_id": "rule:coc7:social:motive-and-support",
+      "to_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:motive-support-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:motive-and-support",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:pc-agency-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:pc-agency-and-penalty",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:pc-refusal-emits",
+      "relation_kind": "emits",
+      "from_node_id": "pending-choice:coc7:social:pc-refusal",
+      "to_node_id": "effect:coc7:social:pc-refusal-penalty",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:pc-refusal-offered",
+      "relation_kind": "offers-choice",
+      "from_node_id": "rule:coc7:social:pc-agency-and-penalty",
+      "to_node_id": "pending-choice:coc7:social:pc-refusal",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:persuade-part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "rule:coc7:social:persuade-duration",
+      "to_node_id": "rule-family:coc7:social",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:reads-skill-descriptions",
+      "relation_kind": "reads-table",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "data-table:coc7:skill-descriptions",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-approach",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:approach",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-commitment-ref",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:commitment-ref",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-described-action",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:described-action",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-feasibility",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:feasibility",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-goal",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:goal",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-motive-direction",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:motive-direction",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-motive-intensity",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:motive-intensity",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-npc-defense",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:npc-defense",
+      "evidence_span_ids": [
+        "span-interpersonal-skills-source-page-104-block-225",
+        "span-interpersonal-skills-source-page-208-block-238",
+        "span-interpersonal-skills-source-page-208-block-239",
+        "span-interpersonal-skills-source-page-215-block-266",
+        "span-interpersonal-skills-source-page-70-block-17",
+        "span-interpersonal-skills-source-page-71-block-30",
+        "span-interpersonal-skills-source-page-75-block-57",
+        "span-interpersonal-skills-source-page-75-block-61",
+        "span-interpersonal-skills-source-page-77-block-90",
+        "span-interpersonal-skills-source-page-82-block-121",
+        "span-interpersonal-skills-source-page-82-block-126"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-support",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:supporting-action",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:social:requires-target-ref",
+      "relation_kind": "requires-input",
+      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
+      "to_node_id": "input-slot:coc7:social:target-ref",
+      "evidence_span_ids": [
+        "span-social-source-accepted-page-104-block-169",
+        "span-social-source-accepted-page-208-block-182",
+        "span-social-source-accepted-page-208-block-183",
+        "span-social-source-accepted-page-70-block-17",
+        "span-social-source-accepted-page-71-block-30",
+        "span-social-source-accepted-page-71-block-37",
+        "span-social-source-accepted-page-75-block-57",
+        "span-social-source-accepted-page-75-block-61",
+        "span-social-source-accepted-page-77-block-90",
+        "span-social-source-accepted-page-82-block-121",
+        "span-social-source-accepted-page-82-block-126",
+        "span-social-source-accepted-page-84-block-138"
+      ]
+    }
+  ],
+  "evidence_span_ids": [
+    "span-interpersonal-skills-source-page-104-block-225",
+    "span-interpersonal-skills-source-page-208-block-238",
+    "span-interpersonal-skills-source-page-208-block-239",
+    "span-interpersonal-skills-source-page-215-block-266",
+    "span-interpersonal-skills-source-page-70-block-17",
+    "span-interpersonal-skills-source-page-71-block-30",
+    "span-interpersonal-skills-source-page-75-block-57",
+    "span-interpersonal-skills-source-page-75-block-61",
+    "span-interpersonal-skills-source-page-77-block-90",
+    "span-interpersonal-skills-source-page-82-block-121",
+    "span-interpersonal-skills-source-page-82-block-126",
+    "span-social-source-accepted-page-104-block-169",
+    "span-social-source-accepted-page-208-block-182",
+    "span-social-source-accepted-page-208-block-183",
+    "span-social-source-accepted-page-70-block-17",
+    "span-social-source-accepted-page-71-block-30",
+    "span-social-source-accepted-page-71-block-37",
+    "span-social-source-accepted-page-75-block-57",
+    "span-social-source-accepted-page-75-block-61",
+    "span-social-source-accepted-page-77-block-90",
+    "span-social-source-accepted-page-82-block-121",
+    "span-social-source-accepted-page-82-block-126",
+    "span-social-source-accepted-page-84-block-138"
+  ],
+  "evidence_binding": {
+    "contract_id": "coc.rule-graph-evidence.v1",
+    "schema_version": 1,
+    "section_id": "section-social-source-accepted",
+    "spans": [
+      {
+        "span_id": "span-social-source-accepted-page-70-block-1",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "## Examples of Art and Craft Specializations",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-2",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "Acting (05%): The performer is trained in theatrical and/or film acting (in the modern era, this may also include television), able to adopt a persona, memorize",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-3",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "Fine Art (05%): The artist is accomplished in the art of painting (oils, acrylic, watercolor), as well as sketching in pencil, crayon or pastels. While serious ",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-4",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "Forgery (05%): Adept at fine detail, the user can produce high quality fake documents, be it a person's handwriting, a bureaucratic form or permit, or a duplica",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-5",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "A successful roll indicates the forgery will pass a normal, cursory inspection. Someone spending time and thoroughly examining the forgery would use the Apprais",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-6",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "Photography (05%): Covers both still and motion photography. This skill allows one to take clear pictures, develop them properly and enhance half-hidden detail.",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-7",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "In the 1920s, the user is able to prepare the necessary chemicals to make flashpowder.",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-8",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "In the present day, the skill extends to cover video cameras, video playback equipment, digital photography and digital editing, where the user is adept at the ",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-9",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "Regular snapshots do not require a skill roll. Rolls would be required to achieve effective candid photographs, or shots that capture fine detail—especially at ",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-10",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "## Artillery (01%) [Uncommon]",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-11",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "This skill assumes some form of military training and experience. The user is experienced in the operation of field weapons in warfare: able to work in a crew o",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-12",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "Various specializations exist, depending on the period setting of the game, including cannon, howitzer, mortar and rocket launcher.",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-13",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "## Opposing skill/Difficulty level:",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-14",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "⑨ Regular difficulty: if the artillery is well maintained and used in favorable conditions.",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-15",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "Hard difficulty: if the artillery is poorly maintained or used in a rush and/or while under fire.",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-16",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "Note: as a combat skill, this cannot be pushed.",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-17",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "## Charm (15%)",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-18",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "Charm takes many forms, including physical attraction, seduction, flattery or simply warmth of personality. Charm may be used to compel someone to act in a cert",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-19",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "Charm may be used for bargaining, to haggle the price of an item or service down. If successful, the seller is won over and they may well reduce the price a lit",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-20",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "## Opposing skill/Difficulty level:",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-21",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "See Charm, Fast Talk, Intimidate and Persuade Skills: Difficulty Levels, page 93.",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-22",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "Pushing examples: overtly flattering the target with affection; presenting an expensive gift; building trust by imparting a secret.",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-23",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "Remember this is about being charming. If the investigator begins to take an alternative approach the Keeper may ask for a different skill to be used. If threat",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-24",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "Sample Consequences of failing a Pushed roll: the target takes offence and will have nothing further to do with you; the target is associated in some way with y",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-25",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "If an insane investigator fails a pushed roll, he or she falls head over heels in love with their target and will act as if the target had successfully used a D",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-26",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "## Climb (20%)",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-27",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "This skill allows a character to climb trees, walls and other vertical surfaces with or without ropes and climbing gear. The skill also encompasses rappelling.",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-28",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "Conditions such as firmness of surface, available handholds, wind, visibility, rain, etc., may all affect the difficulty level.",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-70-block-29",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 70,
+          "grep_anchor": "Failing this skill on the first roll indicates that the climb is perhaps beyond the investigator's capability. Failing a pushed roll is likely to indicate a fal",
+          "text_sha256": "d3bc3eced925eb2d7c871e747d8a3104834c883242ffd35dfcc36300cd78aada"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-30",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "# Interpersonal Skills: Disambiguation",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-31",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "The relative values in the Charm, Fast Talk, Intimidate, and Persuade skills serve to define a character and how they interact with people.",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-32",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "It is not for the player to nominate which one of these four skills they are using in a given situation. Instead the player should describe what their investiga",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-33",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "If the investigator is threatening violence or acting aggressively, the skill is Intimidate.",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-34",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "If the investigator is attempting to befriend or seduce, the skill is Charm.",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-35",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "If the investigator is using rational arguments and debate over a prolonged time, the skill is Persuade.",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-36",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "If the investigator is acting quickly to deceive, con, or trick, the skill is Fast Talk.",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-37",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "## When Used on Player Characters",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-38",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "Each player (normally) has only one investigator through which they act in the game; it would therefore not be fair to allow one player to dictate the actions o",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-39",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "When one of these four skills is successfully used on an investigator (either by an NPC or another investigator), the player is not compelled to follow the wish",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-40",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "repeated rolls). A challenging or longer climb should have an increased difficulty level.",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-41",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "## Opposing skill/Difficulty level:",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-42",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "⑨ Regular difficulty: plenty of handholds; perhaps a rope or drainpipe to climb.",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-43",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "⑨ Hard difficulty: few handholds, or surfaces slick with rain.",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-44",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "Pushing examples: reassessing the climb; taking a longer route; straining one's reach.",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-45",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "Sample Consequences of failing a Pushed roll: fall and suffer damage (1D6 damage per ten feet onto grass, or 1D10 damage per 10 feet onto concrete); lose a valu",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-46",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "If an insane investigator fails a pushed roll, he or she holds on for dear life and screams at the top of their lungs for as long as they can.",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-47",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "## Computer Use (05%) [Modern]",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-48",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "This skill allows the investigator to program in various computer languages; retrieve and analyze obscure data; break into a secured system; explore a complicat",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-49",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "The Internet places a wealth of information at the fingertips of an investigator. Use of the Internet to find highly specific and/or obscure information may req",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-50",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "This skill is not needed to use computers when surfing the Internet, collecting email or to run regular commercially available software.",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-51",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "## Opposing skill/Difficulty level:",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-52",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "⑨ Regular difficulty: write, analyze and debug a computer program.",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-53",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "Hard difficulty: decipher and hack into a secure network without being identified or traced.",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-54",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "Pushing examples: taking longer to develop a program; using another's code as a shortcut; using untested software (e.g. a virus) to exploit a system.",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-55",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "Sample Consequences of failing a Pushed roll: accidentally erasing the sought-after files, or even corrupting the whole system; leaving evidence or alerting oth",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-71-block-56",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 71,
+          "grep_anchor": "If an insane investigator fails a pushed roll, he or she is lost in cyberspace, and it will require physical intervention to get the person to stop using the co",
+          "text_sha256": "24317bc6b237f6b2432578879710c970a41981ac7d1a5d80133e4111023f4635"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-57",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "## Fast Talk (05%)",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-58",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Fast Talk is specifically limited to verbal trickery, deception, and misdirection, such as bamboozling a bouncer to let you inside a club, getting someone to si",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-59",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Fast Talk may be used to haggle the price of an item or service down. If successful, the seller momentarily thinks that they have struck a good deal; however, i",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-60",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "## Opposing skill/Difficulty level:",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-61",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "See Charm, Fast Talk, Intimidate, and Persuade Skills: Difficulty Levels, page 93.",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-62",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Pushing examples: getting up close and personal to the target; talking outlandishly, aiming to confuse the target. Remember this is Fast Talk, so if the investi",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-63",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Sample Consequences of failing a Pushed roll: cause great offence leading to violence, outrage, or criminal proceedings.",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-64",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "If an insane investigator fails a pushed roll, he or she begins hurling random abusive phrases at people.",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-65",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "## Fighting (Specializations) (varies %)",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-66",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Fighting skill denotes a character's skill in melee combat. You may spend skill points to purchase any skill specialization. The generic \"Fighting\" skill cannot",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-67",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Those starting with a Fighting (Brawl) skill of 50% or higher may wish to choose a type of formal training as part of their background to account for his or her",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-68",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Note: as a combat skill, this cannot be pushed.",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-69",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "## Fighting specializations:",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-70",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Axe (15%): use this skill for larger wood axes. A small hatch-et can be used with the basic brawling skill. If thrown, use Throw skill.",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-71",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Brawl (25%): includes all unarmed fighting and basic weapons that anyone could pick up and make use of, such as clubs (up to cricket bats or baseball bats), kni",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-72",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Chainsaw (10%): the first gasoline-powered, mass-produced chainsaw appeared in 1927; however, earlier versions existed.",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-73",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Flail (10%): nunchaku, morning stars, and similar medieval weapons.",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-74",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Garrote (15%): any length of material used to strangle. Requires the victim to make a Fighting Maneuver to escape, or suffer 1D6 damage per round.",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-75",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Spear (20%): lances and spears. If thrown, use Throw skill.",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-76",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Sword (20%): all blades over two feet in length.",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-77",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Whip (05%): bolas and whips.",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-78",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Note: Thrown knives use the Throw skill.",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-79",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Weapons and their skill categories are listed in Table XVII: Weapons (pages 401-405). The above specializations may not cover all weapons, but where possible tr",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-80",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "## Firearms (Specializations) (varies %)",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-81",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Covers all manner of firearms, as well as bows and crossbows. You may spend skill points to purchase any skill specialization. The generic \"Firearms\" skill cann",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-82",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Note: as a combat skill, this cannot be pushed.",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-83",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "## Firearms specializations:",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-84",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Bow (15%): use of bows and crossbows, ranging from medieval longbows to modern, high-powered compound bows.",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-85",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Handgun (20%): use for all pistol-like firearms when firing discrete shots. For machine pistols (MAC-11, Uzi pistol, etc.) in Modern era games, use the Submachi",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-86",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Heavy Weapons (10%): use for grenade launchers, anti-tank rockets, etc.",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-75-block-87",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 75,
+          "grep_anchor": "Flamethrower (10%): weapons projecting a stream of ignited flammable liquid or gas. May either be carried by the operator or mounted on a vehicle.",
+          "text_sha256": "5dc3654abc67988ea912acda3aeb79c01999ff601ecd10a210e1a85c580c04c0"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-88",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "Sample Consequences of failing a Pushed roll: some past memory or trauma is bought to the surface, causing the target 1D6 Sanity loss; the target falls into a t",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-89",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "If an insane investigator fails a pushed roll, his or her mind regresses to a childlike state until treatment is administered.",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-90",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "## Intimidate (15%)",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-91",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "Intimidation can take many forms, including physical force, psychological manipulation, and threats. It is used to frighten or compel a person to act in a certa",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-92",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "Backing up intimidation with a weapon or some other powerful threat or incentive may reduce the difficulty level. When Pushing an Intimidation roll, one possibl",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-93",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "Intimidate may be used to force down the price of an item or service. If successful, the seller may reduce the price, or hand the item over free of charge, but ",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-94",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "## Opposing skill/Difficulty level:",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-95",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "See Charm, Fast Talk, Intimidate and Persuade Skills: Difficulty Levels, page 93.",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-96",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "Pushing examples: Causing actual physical harm to the target or to something or someone that the target cares about. Remember that this is Intimidation; if the ",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-97",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "Sample Consequences of failing a Pushed roll: accidentally pulling the trigger of the gun you're waving in the target's face; the target's mind snaps, resulting",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-98",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "It is important to note that Pushing an Intimidate roll means taking things to the limit. This could involve days of interrogation, or an ultimatum with a gun t",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-99",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "If an insane investigator fails a pushed roll, he or she becomes intensely fearful of the target and does their bidding.",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-100",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "## Jump (20%)",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-101",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "With success, the investigator may leap up or down vertically, or jump horizontally from a standing or running start. When falling, Jump may be used to lessen t",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-102",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "Judgment must be exercised as to what constitutes a regular jump, a hard jump or an extreme jump (respectively requiring Regular success, Hard success, and Extr",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-103",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "If falling from a height, a successful Jump prepares for the fall, reducing resultant damage by half.",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-104",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "## Opposing skill/Difficulty level:",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-105",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "⑨ Regular difficulty: safely leap down vertically a distance equal to the jumper's own height; jump horizontally from a standing start, across a gap for a dista",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-106",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "Hard difficulty: as for a regular difficulty but increase distances by 50%; perhaps attempting to jump from a rooftop and through the window of a neighboring bu",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-107",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "Pushing examples: Delaying and taking time to assess the jump; throwing all your weight and force behind the jump—really stretching for it. In some instances a ",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-108",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "Sample Consequences of failing a Pushed roll: fall and suffer physical harm; achieve the jump but a valuable possession (of the Keeper's choice) is dropped in t",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-109",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "If an insane investigator fails a pushed roll, he or she will become convinced that they can fly.",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-110",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "## Language, Other (Specializations) (01%)",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-111",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "When choosing this skill, the exact language must be specified and written next to the skill. An individual can know any number of languages. The skill represen",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-77-block-112",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 77,
+          "grep_anchor": "Ancient or unknown languages (such as Aklo, Hyperborean, etc.) should not be chosen (unless agreed with the Keeper), but ordinary earthly languages may be. The ",
+          "text_sha256": "95db93a1455b02301539cdc998ab454174c1e354b5dc2d59bb1b3aa9ddcadd52"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-113",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "## Operate Heavy Machinery (01%)",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-114",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "Required to drive and operate a tank, backhoe, steam shovel, or other large-scale construction machine. For very different sorts of machines, the Keeper may dec",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-115",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "Opposing skill/Difficulty level:",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-116",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "⑨ Regular difficulty: operate a crane or road digger.",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-117",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "⑨ Hard difficulty: manipulate the machinery to achieve some delicate or specific task, such as unearthing delicate dinosaur eggs with a mechanical digger withou",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-118",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "Pushing examples: going step-by-step with the operating manual; taking time to practice; seeking a teacher.",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-119",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "Sample Consequences of failing a Pushed roll: you're driving the bulldozer, but get overconfident, and lose control so it veers into a brick wall (the wall come",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-120",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "If an insane investigator fails a pushed roll, he or she may believe they are tasked with unearthing or building a temple to the old ones.",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-121",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "## Persuade (10%)",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-122",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "Use Persuade to convince a target about a particular idea, concept, or belief through reasoned argument, debate and discussion. Persuade may be employed without",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-123",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "Depending on the goal expressed by the player, if the investigator takes sufficient time, the effect may linger indefinitely and insidiously; for years perhaps,",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-124",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "Persuade may be used for bargaining, to haggle the price of an item or service down. If successful, the seller is thoroughly convinced that they have struck a g",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-125",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "Opposing skill/Difficulty level:",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-126",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "See Charm, Fast Talk, Intimidate, and Persuade Skills: Difficulty Levels, page 93.",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-127",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "Pushing examples: getting close and personal to advance your argument or appeal to the target's reason; demonstrating through logical reasoning and examples, in",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-128",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "Remember that this is Persuade; if the investigator begins to take an alternative approach, the Keeper may ask for a different skill to be used. If threats are ",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-129",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "Sample Consequences of failing a Pushed roll: the target takes great offence and refuses to have any more to do with you; your bribe worked and the target signe",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-130",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "If an insane investigator fails a pushed roll, they may be found later on a street corner trying to convince passersby of their argument or bizarre point of vie",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-131",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "## Pilot (Specializations) (01%)",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-132",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "The air or water equivalent of Drive Automobile, this is the maneuver skill for flying or floating craft. You may spend skill points to purchase any skill speci",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-133",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "Anyone with modest skill can sail or fly on a calm day with good visibility, although skill rolls are required for storms, navigation by instrument, low visibil",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-134",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "## Opposing skill/Difficulty level:",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-135",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "⑨ Regular difficulty: make an emergency landing with a light aircraft in a farmer's field.",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-82-block-136",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 82,
+          "grep_anchor": "⑨ Hard difficulty: pilot the craft in very poor conditions (e.g. extremely bad weather, faulty equipment).",
+          "text_sha256": "4d8cb2a8de23771b22e8512ddd3f007370005c506a8b9ed868a8b99798d7d496"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-137",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "## Opposing skill/Difficulty level:",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-138",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "Psychology can be used to oppose all forms of social interaction rolls: Intimidate, Fast Talk, Persuade, and Charm. It can also be used to see through someone's",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-139",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "⑨ Regular difficulty: read someone's intent or determine if the person is lying if their relevant skill (Intimidate, Fast Talk, Persuade, and Charm) is below 50",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-140",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "Hard difficulty: read someone's intent or determine if the person is lying if their relevant skill (Intimidate, Fast Talk, Persuade, and Charm) is between 50% a",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-141",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "Pushing examples: being very unsubtle and asking highly personal, intimate, or downright direct questions of the target; immersing yourself in data regarding a ",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-142",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "Sample Consequences of failing a Pushed roll: you somehow reveal your own motivations to the target; the target is offended by your prying questions or curious ",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-143",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "If an insane investigator fails a pushed roll, he or she believes that they hear the target's evil thoughts, and launches a physical attack upon them.",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-144",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "## Read Lips (01%) [Uncommon]",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-145",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "This skill allows the inquisitive investigator to listen in on a conversation, without requiring them to hear the speakers. Line of sight is necessary, and if o",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-146",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "Read Lips may also be used to silently communicate with another person (if both are proficient), allowing for relatively complex phrasing and meaning.",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-147",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "## Opposing skill/Difficulty level:",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-148",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "Depending on the situation, Read Lips is usually unopposed. If attempting to read the lips of a target who wishes to remain hidden or unobserved, the skill may ",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-149",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "⑨ Regular difficulty: understand the spoken communication of a person who is in clear sight and in relatively close proximity.",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-150",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "Hard difficulty: determine the spoken communication of a person whose mouth is occasionally obscured and/or is some distance away (e.g. in a large crowd of peop",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-151",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "Pushing examples: putting yourself in an obvious position and staring unsubtly at the target(s); filming the target (and thus likely to be observed filming the ",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-152",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "Sample Consequences of failing a Pushed roll: the target becomes aware that you are watching them intently, and takes offense and confronts you; the drunken man",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-153",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "If an insane investigator fails a pushed roll, there is plenty of scope for imagining all manner of strange and bizarre things being said.",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-154",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "## Ride (05%)",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-155",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "This skill is intended to apply to saddle horses, donkeys, or mules, and grants knowledge of basic care of the riding animal, riding gear, and how to handle the",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-156",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "If an investigator falls from a mount, either because the animal has collapsed, fallen or died (or because a pushed Ride roll failed), at least 1D6 hit points a",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-157",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "## Opposing skill/Difficulty level:",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-158",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "Basic animal handling or riding a mount at walking pace does not require a ride roll.",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-159",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "⑤ Regular difficulty: riding at speed; holding onto a scared mount.",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-160",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "⑨ Hard difficulty: riding a mount at speed in rough, unfamiliar terrain where weather conditions are poor (e.g. a heavily wooded forest at night in the pouring ",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-161",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "Pushing examples: whipping or pushing the mount aggressively—perhaps forcing a horse to jump a ravine or high ditch; taking the risk of keeping your mount rathe",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-162",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "Sample Consequences of failing a Pushed roll: rider is thrown from mount and takes falling damage; mount is injured; rider's foot is entangled in the mount's br",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-163",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "If an insane investigator fails a pushed roll, he or she becomes obsessed with the animal.",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-164",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "## Science (Specializations) (01%)",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-84-block-165",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 84,
+          "grep_anchor": "Practical and theoretical ability with a science specialty would suggest some degree of formalized education and training, although a well-read amateur scientis",
+          "text_sha256": "7cdbd1b09f9b0235c797dbdc9386683dfbd13039e0aed4d4eddebee7eb7114b3"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-104-block-166",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 104,
+          "grep_anchor": "The Keeper must decide whether a situation calls for sequential skill rolls or a combined skill roll.",
+          "text_sha256": "51952cdb452ec8877308efddd06b40511d54efee4d8ac9091f40a3ff21d7d7b8"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-104-block-167",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 104,
+          "grep_anchor": "A deranged cultist suddenly moves to draw a gun on Harvey. A successful Spot Hidden roll would allow Harvey to see the cultist's hand moving towards the gun, wh",
+          "text_sha256": "51952cdb452ec8877308efddd06b40511d54efee4d8ac9091f40a3ff21d7d7b8"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-104-block-168",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 104,
+          "grep_anchor": "Later, Harvey attempts to repair an electric turbine. The item is both mechanical and electrical, so the Keeper asks for a combined Mechanical Repair and Electr",
+          "text_sha256": "51952cdb452ec8877308efddd06b40511d54efee4d8ac9091f40a3ff21d7d7b8"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-104-block-169",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 104,
+          "grep_anchor": "## Charm, Fast Talk, Intimidate, and Persuade Skills: Difficulty Levels",
+          "text_sha256": "51952cdb452ec8877308efddd06b40511d54efee4d8ac9091f40a3ff21d7d7b8"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-104-block-170",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 104,
+          "grep_anchor": "An investigator may have a Charm skill of 75%, but this does not mean that he or she can charm anyone and everyone 75% of the time. The difficulty level is base",
+          "text_sha256": "51952cdb452ec8877308efddd06b40511d54efee4d8ac9091f40a3ff21d7d7b8"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-104-block-171",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 104,
+          "grep_anchor": "⑨ If the non-player character is positively inclined towards the player's goal, don't bother rolling dice, but simply have them agree.",
+          "text_sha256": "51952cdb452ec8877308efddd06b40511d54efee4d8ac9091f40a3ff21d7d7b8"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-104-block-172",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 104,
+          "grep_anchor": "⑨ If the non-player character lacks strong feelings towards the player's goal then no modification to the difficulty level is required.",
+          "text_sha256": "51952cdb452ec8877308efddd06b40511d54efee4d8ac9091f40a3ff21d7d7b8"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-104-block-173",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 104,
+          "grep_anchor": "⑨ If the non-player character is strongly opposed to the player's goal, the difficulty is raised by one or two levels.",
+          "text_sha256": "51952cdb452ec8877308efddd06b40511d54efee4d8ac9091f40a3ff21d7d7b8"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-104-block-174",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 104,
+          "grep_anchor": "⑨ If the player comes up with something to support their case, such as a substantive argument (if using Persuade), or is holding a weapon and is clearly willing",
+          "text_sha256": "51952cdb452ec8877308efddd06b40511d54efee4d8ac9091f40a3ff21d7d7b8"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-104-block-175",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 104,
+          "grep_anchor": "The lowest chance of success requires an Extreme success (equal to or below one-fifth of the skill), but in some rare circumstances the Keeper may rule that the",
+          "text_sha256": "51952cdb452ec8877308efddd06b40511d54efee4d8ac9091f40a3ff21d7d7b8"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-104-block-176",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 104,
+          "grep_anchor": "Brian's investigator is trying to intimidate a cultist into revealing the name of the cult's contact in the police force. The cultist is a doctor by profession,",
+          "text_sha256": "51952cdb452ec8877308efddd06b40511d54efee4d8ac9091f40a3ff21d7d7b8"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-104-block-177",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 104,
+          "grep_anchor": "Brian fails the skill roll. Brian seeks to push the roll by threatening violence. He pulls out a crowbar, swings it near the doctor's head and then looks the do",
+          "text_sha256": "51952cdb452ec8877308efddd06b40511d54efee4d8ac9091f40a3ff21d7d7b8"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-208-block-178",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 208,
+          "grep_anchor": "Matthew asks a hotel receptionist if a certain person has stayed at the hotel recently. After failing initially, he refuses to take no for an answer and offers ",
+          "text_sha256": "86d629b035364b45d93b2af4aae456fcd4d154a43e2b6987532ff9976883fc5b"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-208-block-179",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 208,
+          "grep_anchor": "Notice that the receptionist had not been considered a threat until the player lost the pushed roll. It was only then that the Keeper changed the status of the ",
+          "text_sha256": "86d629b035364b45d93b2af4aae456fcd4d154a43e2b6987532ff9976883fc5b"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-208-block-180",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 208,
+          "grep_anchor": "Alternatively, if the investigator is insane at the time of losing the pushed roll then this presents a prime opportunity to introduce a delusion:",
+          "text_sha256": "86d629b035364b45d93b2af4aae456fcd4d154a43e2b6987532ff9976883fc5b"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-208-block-181",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 208,
+          "grep_anchor": "If in the example above, Matthew's investigator were insane, the Keeper might pick an alternative consequence, choosing to hit Matthew's investigator with a del",
+          "text_sha256": "86d629b035364b45d93b2af4aae456fcd4d154a43e2b6987532ff9976883fc5b"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-208-block-182",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 208,
+          "grep_anchor": "## Verbal Conflicts",
+          "text_sha256": "86d629b035364b45d93b2af4aae456fcd4d154a43e2b6987532ff9976883fc5b"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-208-block-183",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 208,
+          "grep_anchor": "Verbal confrontations should be roleplayed at the table with much gusto and performance. However, when there's a genuine conflict, you will want to pick up the ",
+          "text_sha256": "86d629b035364b45d93b2af4aae456fcd4d154a43e2b6987532ff9976883fc5b"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-208-block-184",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 208,
+          "grep_anchor": "You must decide when a non-player character can be coerced and when they cannot. It might require a pretty face, a threat, a bribe, and so on, but most people c",
+          "text_sha256": "86d629b035364b45d93b2af4aae456fcd4d154a43e2b6987532ff9976883fc5b"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-208-block-185",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 208,
+          "grep_anchor": "Hasna has taken a cultist captive and tries to get him to reveal the cult's plans. The Keeper asks what Hasna is doing to elicit information from the cultist an",
+          "text_sha256": "86d629b035364b45d93b2af4aae456fcd4d154a43e2b6987532ff9976883fc5b"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-208-block-186",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 208,
+          "grep_anchor": "In this case, Hasna's goal is possible as the cultist is relatively ineffective; however, if the cultist had an Intimidate or Psychology skill over 50%, the ini",
+          "text_sha256": "86d629b035364b45d93b2af4aae456fcd4d154a43e2b6987532ff9976883fc5b"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-208-block-187",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 208,
+          "grep_anchor": "## Violence and Sanity Rolls",
+          "text_sha256": "86d629b035364b45d93b2af4aae456fcd4d154a43e2b6987532ff9976883fc5b"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-208-block-188",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 208,
+          "grep_anchor": "Intimidation may use threats of physical violence. One suggested consequence of losing a pushed Intimidation roll is to have the investigator unintentionally ca",
+          "text_sha256": "86d629b035364b45d93b2af4aae456fcd4d154a43e2b6987532ff9976883fc5b"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-208-block-189",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 208,
+          "grep_anchor": "Taking a life in a game is easy—we grew up doing it in make-up games as children, we do it in video games, we watch it on television, and so on. Actually doing ",
+          "text_sha256": "86d629b035364b45d93b2af4aae456fcd4d154a43e2b6987532ff9976883fc5b"
+        }
+      },
+      {
+        "span_id": "span-social-source-accepted-page-208-block-190",
+        "source_ref": {
+          "source_id": "pdf:coc7-keeper-rulebook-40th",
+          "pdf_index": 208,
+          "grep_anchor": "Cold-blooded murder is especially difficult, and an investigator may find themselves incapable of doing it. Such callous behavior may require the player to fail",
+          "text_sha256": "86d629b035364b45d93b2af4aae456fcd4d154a43e2b6987532ff9976883fc5b"
+        }
+      }
+    ]
+  },
+  "receipt": {
+    "contract_id": "coc.rule-graph-review-receipt.v1",
+    "schema_version": 1,
+    "ruleset_id": "coc7",
+    "family_id": "social",
+    "section_id": "section-social-source-accepted",
+    "shard_id": "shard:coc7:social:section-social-source-accepted",
+    "candidate_sha256": "0d7cb9ace10fddf6d71ef7d3de0b493b40642401ae4e353cddda7836b9e828bb",
+    "packet_sha256": "269b673fd3d6b716d1f0268449e0e25a51bb4fd84f6bb85e28e846d3cd650a4b",
+    "shard_sha256": "3a6dc74b7c29c6bc8974b55528e3edb6b60e87cb936a79b0227fe1b0c8fc03d6"
+  }
+}

@@ -12,6 +12,15 @@ const typed = await import(
 
 const catalog = typed.defaultTypedToolCatalog();
 
+function hostProjectedParameters(operation) {
+  const contract = catalog.contracts.operations.get(operation);
+  assert.ok(contract, operation);
+  return typed.projectModelOwnedSchema(
+    operation,
+    typed.presentedTypedToolParameters(operation, contract.inputSchema),
+  );
+}
+
 function assertProjectionError(fn, code) {
   assert.throws(fn, (error) => {
     assert.ok(error instanceof typed.ToolContractProjectionError);
@@ -80,7 +89,7 @@ test("sanity bout binding exposes only semantic action and restores the exact re
   };
   const schema = typed.projectBoundTypedToolParameters(
     operation,
-    catalog.byOperation.get(operation).parameters,
+    hostProjectedParameters(operation),
     binding,
     independentCurrent(binding),
   );
@@ -239,7 +248,7 @@ test("social adjudication binding owns exact conversation identity and keeps app
   };
   const schema = typed.projectBoundTypedToolParameters(
     binding.operation,
-    catalog.byOperation.get(binding.operation).parameters,
+    hostProjectedParameters(binding.operation),
     binding,
     independentCurrent(binding),
   );
@@ -295,7 +304,7 @@ test("psychology binding auto-attaches one verified fact and makes multiple targ
   };
   const oneSchema = typed.projectBoundTypedToolParameters(
     one.operation,
-    catalog.byOperation.get(one.operation).parameters,
+    hostProjectedParameters(one.operation),
     one,
     independentCurrent(one),
   );
@@ -333,7 +342,7 @@ test("psychology binding auto-attaches one verified fact and makes multiple targ
   });
   const manySchema = typed.projectBoundTypedToolParameters(
     many.operation,
-    catalog.byOperation.get(many.operation).parameters,
+    hostProjectedParameters(many.operation),
     many,
     independentCurrent(many),
   );
@@ -374,7 +383,7 @@ test("psychology binding auto-attaches one verified fact and makes multiple targ
   ), "semantic_candidate_stale");
   assertProjectionError(() => typed.projectBoundTypedToolParameters(
     many.operation,
-    catalog.byOperation.get(many.operation).parameters,
+    hostProjectedParameters(many.operation),
     many,
     { ...independentCurrent(many), binding_revision: "newer-npc-query" },
   ), "binding_context_stale");
@@ -1238,7 +1247,7 @@ test("state.move_scene projects retained semantic routes and host-binds exact tr
   ), "semantic_candidate_stale");
   assertProjectionError(() => typed.projectBoundTypedToolParameters(
     binding.operation,
-    catalog.byOperation.get(binding.operation).parameters,
+    hostProjectedParameters(binding.operation),
     {
       ...binding,
       candidates: [{
@@ -1253,7 +1262,7 @@ test("state.move_scene projects retained semantic routes and host-binds exact tr
   delete missingSelectionMode.selection_mode;
   assertProjectionError(() => typed.projectBoundTypedToolParameters(
     binding.operation,
-    catalog.byOperation.get(binding.operation).parameters,
+    hostProjectedParameters(binding.operation),
     missingSelectionMode,
     independentCurrent(missingSelectionMode),
   ), "binding_context_invalid");
@@ -1411,7 +1420,7 @@ test("same-destination scene routes preserve exact optional travel shape", () =>
   assert.equal(timed.travel_minutes, 10);
   assertProjectionError(() => typed.projectBoundTypedToolParameters(
     binding.operation,
-    catalog.byOperation.get(binding.operation).parameters,
+    hostProjectedParameters(binding.operation),
     {
       ...binding,
       candidates: [binding.candidates[0], { ...binding.candidates[0] }],
@@ -1482,7 +1491,7 @@ test("precise clock hides day_phase_after while imprecise clock leaves the seman
 });
 
 test("social motive overlay encodes the intensity/evidence cross-field contract", () => {
-  const schema = catalog.byOperation.get("rules.social_adjudicate").parameters;
+  const schema = hostProjectedParameters("rules.social_adjudicate");
   const motive = schema.properties.motive;
   assert.equal(motive.oneOf.length, 2);
   const zero = motive.oneOf.find((branch) => branch.properties.intensity.const === 0);
@@ -1522,7 +1531,7 @@ test("combat.resolve binds exactly one canonical route, while pending defense bi
   const current = independentCurrent(binding);
   const schema = typed.projectBoundTypedToolParameters(
     binding.operation,
-    catalog.byOperation.get(binding.operation).parameters,
+    hostProjectedParameters(binding.operation),
     binding,
     current,
   );
@@ -1580,7 +1589,7 @@ test("combat.resolve binds exactly one canonical route, while pending defense bi
   ), "semantic_candidate_stale");
   assertProjectionError(() => typed.projectBoundTypedToolParameters(
     binding.operation,
-    catalog.byOperation.get(binding.operation).parameters,
+    hostProjectedParameters(binding.operation),
     {
       ...binding,
       candidates: [{
@@ -1602,7 +1611,7 @@ test("combat.resolve binds exactly one canonical route, while pending defense bi
   };
   assertProjectionError(() => typed.projectBoundTypedToolParameters(
     invalidXorCard.operation,
-    catalog.byOperation.get(invalidXorCard.operation).parameters,
+    hostProjectedParameters(invalidXorCard.operation),
     invalidXorCard,
     independentCurrent(invalidXorCard),
   ), "binding_context_invalid");
@@ -1610,7 +1619,7 @@ test("combat.resolve binds exactly one canonical route, while pending defense bi
   const single = { ...binding, candidates: [binding.candidates[0]] };
   const singleSchema = typed.projectBoundTypedToolParameters(
     single.operation,
-    catalog.byOperation.get(single.operation).parameters,
+    hostProjectedParameters(single.operation),
     single,
     independentCurrent(single),
   );
@@ -1674,13 +1683,15 @@ test("combat.resolve keeps attack weapon semantics separate from pending defense
   };
   const attackSchema = typed.projectBoundTypedToolParameters(
     attack.operation,
-    catalog.byOperation.get(attack.operation).parameters,
+    hostProjectedParameters(attack.operation),
     attack,
     independentCurrent(attack),
   );
   assert.ok(attackSchema.required.includes("action_kind"));
-  assert.ok(attackSchema.required.includes("weapon_id"));
-  assert.deepEqual(attackSchema.properties.action_kind.enum, ["attack"]);
+  assert.equal(attackSchema.required.includes("weapon_id"), false);
+  assert.deepEqual(attackSchema.properties.action_kind.enum, [
+    "attack", "aim", "reload", "maneuver", "flee",
+  ]);
   assert.ok(!Object.hasOwn(attackSchema.properties, "defense_kind"));
 
   const unarmed = typed.bindRetainedTypedToolArguments(
@@ -1690,14 +1701,17 @@ test("combat.resolve keeps attack weapon semantics separate from pending defense
     independentCurrent(attack),
   );
   assert.equal(unarmed.weapon_id, "unarmed");
-  assert.ok(!Object.hasOwn(unarmed, "action_kind"));
+  assert.equal(unarmed.action_kind, "attack");
   assert.ok(!Object.hasOwn(unarmed, "defense_kind"));
-  assertProjectionError(() => typed.bindRetainedTypedToolArguments(
+  const maneuver = typed.bindRetainedTypedToolArguments(
     attack.operation,
-    { action_kind: "maneuver", weapon_id: "unarmed" },
+    { action_kind: "maneuver", goal: "push" },
     attack,
     independentCurrent(attack),
-  ), "semantic_candidate_stale");
+  );
+  assert.equal(maneuver.action_kind, "maneuver");
+  assert.equal(maneuver.goal, "push");
+  assert.equal(maneuver.target_npc_id, "walter-corbitt");
   assertProjectionError(() => typed.bindRetainedTypedToolArguments(
     attack.operation,
     { action_kind: "attack", defense_kind: "dodge", weapon_id: "unarmed" },
@@ -1724,7 +1738,7 @@ test("combat.resolve keeps attack weapon semantics separate from pending defense
   };
   const defenseSchema = typed.projectBoundTypedToolParameters(
     pendingDefense.operation,
-    catalog.byOperation.get(pendingDefense.operation).parameters,
+    hostProjectedParameters(pendingDefense.operation),
     pendingDefense,
     independentCurrent(pendingDefense),
   );
@@ -1740,6 +1754,7 @@ test("combat.resolve keeps attack weapon semantics separate from pending defense
     independentCurrent(pendingDefense),
   );
   assert.equal(dodge.defense_kind, "dodge");
+  assert.equal(dodge.action_kind, "defend");
   assertProjectionError(() => typed.bindRetainedTypedToolArguments(
     pendingDefense.operation,
     { defense_kind: "dive_for_cover" },

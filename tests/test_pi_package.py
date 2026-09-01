@@ -852,6 +852,13 @@ def _pi_coc_test_home(
         encoding="utf-8",
     )
     fake_pi.chmod(0o755)
+    (fake_bin / "package.json").write_text(
+        json.dumps({
+            "name": "@earendil-works/pi-coding-agent",
+            "version": "0.84.2",
+        }),
+        encoding="utf-8",
+    )
     if uv_version is not None:
         fake_uv = fake_bin / "uv"
         fake_uv.write_text(
@@ -886,6 +893,7 @@ def _run_pi_coc(
     env = {
         **os.environ,
         "PATH": f"{fake_bin}{os.pathsep}{path_tail}",
+        "COC_PI_CLI": str(fake_bin / "pi"),
         "PI_COC_AGENT_DIR": str(agent_dir),
         "PI_COC_TEST_ARGS": str(args_path),
         "PI_COC_TEST_CAMPAIGN": str(tmp_path / "campaign-id.txt"),
@@ -930,6 +938,14 @@ def _supported_pi_settings() -> tuple[dict, dict]:
     )
 
 
+def _copy_pi_cli_version_contract(target_root: Path) -> None:
+    target = target_root / "runtime" / "adapters" / "keeper"
+    target.mkdir(parents=True, exist_ok=True)
+    source = ROOT / "runtime" / "adapters" / "keeper"
+    shutil.copy2(source / "package.json", target / "package.json")
+    shutil.copy2(source / "package-lock.json", target / "package-lock.json")
+
+
 def test_pi_coc_exports_validated_fallback_uv_directory_to_pi_children(
     tmp_path: Path,
 ):
@@ -951,6 +967,7 @@ def test_pi_coc_exports_validated_fallback_uv_directory_to_pi_children(
         **os.environ,
         "HOME": str(home),
         "PATH": f"{fake_bin}{os.pathsep}/usr/bin{os.pathsep}/bin",
+        "COC_PI_CLI": str(fake_bin / "pi"),
         "PI_COC_AGENT_DIR": str(agent_dir),
         "PI_COC_TEST_ARGS": str(args_path),
         "PI_COC_TEST_CAMPAIGN": str(tmp_path / "campaign-id.txt"),
@@ -985,6 +1002,7 @@ def test_pi_coc_runs_required_uv_when_path_contains_spaces(tmp_path: Path):
         env={
             **os.environ,
             "PATH": f"{spaced_bin}{os.pathsep}{os.environ['PATH']}",
+            "COC_PI_CLI": str(fake_bin / "pi"),
             "PI_COC_AGENT_DIR": str(agent_dir),
             "PI_COC_TEST_ARGS": str(args_path),
             "PI_COC_TEST_CAMPAIGN": str(tmp_path / "campaign-id.txt"),
@@ -1471,6 +1489,7 @@ def test_pi_coc_launcher_exports_quiet_offline_env(tmp_path: Path):
     env = {
         **os.environ,
         "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "COC_PI_CLI": str(fake_bin / "pi"),
         "PI_COC_AGENT_DIR": str(agent_dir),
         "PI_COC_TEST_ENVDUMP": str(envdump),
     }
@@ -1525,6 +1544,7 @@ def test_pi_coc_attached_ui_bootstraps_agent_home(tmp_path: Path):
     env = {
         **os.environ,
         "PATH": f"{fake_bin}{os.pathsep}{donor / 'bin'}{os.pathsep}{os.environ['PATH']}",
+        "COC_PI_CLI": str(fake_bin / "pi"),
         "HOME": str(tmp_path / "empty-home"),
         "PI_COC_AGENT_DIR": str(bare),
         "COC_PI_ATTACHED_UI": "1",
@@ -1620,6 +1640,7 @@ def test_pi_coc_repo_local_launches_pin_the_package_that_owns_the_launcher(
         json.dumps({"name": "@chatrpg/coc-keeper-pi"}) + "\n",
         encoding="utf-8",
     )
+    _copy_pi_cli_version_contract(worktree_root)
     agent_dir, fake_bin = _pi_coc_test_home(
         tmp_path / "worktree-run",
         settings={**preserved, "packages": [str(ROOT)]},
@@ -1637,6 +1658,7 @@ def test_pi_coc_repo_local_launches_pin_the_package_that_owns_the_launcher(
         env={
             **os.environ,
             "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "COC_PI_CLI": str(fake_bin / "pi"),
             "PI_COC_AGENT_DIR": str(agent_dir),
             "PI_COC_TEST_ARGS": str(args_path),
             "PI_COC_TEST_CAMPAIGN": str(tmp_path / "worktree-run" / "campaign.txt"),
@@ -1678,6 +1700,7 @@ def test_pi_coc_rules_director_profile_assembles_focused_play_package(
         json.dumps({"name": "@chatrpg/coc-keeper-pi"}) + "\n",
         encoding="utf-8",
     )
+    _copy_pi_cli_version_contract(worktree_root)
 
     settings, models = _supported_pi_settings()
     agent_dir, fake_bin = _pi_coc_test_home(
@@ -1713,6 +1736,7 @@ def test_pi_coc_rules_director_profile_assembles_focused_play_package(
         env={
             **os.environ,
             "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "COC_PI_CLI": str(fake_bin / "pi"),
             "PI_COC_AGENT_DIR": str(agent_dir),
             "PI_COC_TEST_ARGS": str(args_path),
             "PI_COC_TEST_ENVDUMP": str(env_path),
@@ -1783,6 +1807,7 @@ def test_pi_coc_tui_still_requires_settings_without_attached_ui(tmp_path: Path):
         env={
             **os.environ,
             "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "COC_PI_CLI": str(fake_bin / "pi"),
             "PI_COC_AGENT_DIR": str(bare),
         },
         check=False,
@@ -1816,6 +1841,7 @@ def test_pi_coc_user_can_re_enable_update_checks(tmp_path: Path):
     env = {
         **os.environ,
         "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "COC_PI_CLI": str(fake_bin / "pi"),
         "PI_COC_AGENT_DIR": str(agent_dir),
         "PI_COC_TEST_ENVDUMP": str(envdump),
         "PI_OFFLINE": "0",

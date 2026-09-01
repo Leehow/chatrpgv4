@@ -1178,7 +1178,12 @@ class RulesRuntime:
                         binding[key] = deepcopy(provided[key])
         return binding
 
-    def _issue_card_grant(self, cards: list[dict[str, Any]]) -> dict[str, Any]:
+    def _issue_card_grant(
+        self,
+        cards: list[dict[str, Any]],
+        *,
+        source_decision_id: str | None = None,
+    ) -> dict[str, Any]:
         """Issue one machine-attached card grant for a projected card set.
 
         The grant is recorded in this runtime's issuance registry; the copy
@@ -1195,6 +1200,11 @@ class RulesRuntime:
             "binding": self._grant_binding(),
             "decision_refs": sorted({str(card["decision_ref"]) for card in cards}),
         }
+        if isinstance(source_decision_id, str) and source_decision_id:
+            # Host-only continuation provenance. Public card projection never
+            # exposes grants; the next settle uses this to hydrate the exact
+            # canonical source receipt after process restart.
+            grant["source_decision_id"] = source_decision_id
         self._grants[grant_id] = deepcopy(grant)
         return deepcopy(grant)
 
@@ -1459,7 +1469,6 @@ class RulesRuntime:
 
     # -- context (spec §8.3/§8.4) -------------------------------------------
     def context(self, question: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        facts = self._facts_provider() if self._facts_provider is not None else {}
         if question is None:
             return {
                 "schema_version": self.SCHEMA_VERSION,
@@ -1469,6 +1478,7 @@ class RulesRuntime:
                 "family_status": self._family_status(None),
             }
         question = dict(question)
+        facts = self._facts_for_decision(question)
         family = question.get("family")
         if not isinstance(family, str) or not family:
             return {
@@ -1546,7 +1556,12 @@ class RulesRuntime:
             # Machine-attached card grant (spec §8.5/§8.6): the projected card
             # set bound to campaign + ruleset version + graph generation +
             # canonical state revision. settle() accepts ONLY this object.
-            result["card_grant"] = self._issue_card_grant(cards)
+            result["card_grant"] = self._issue_card_grant(
+                cards,
+                source_decision_id=(
+                    str(question.get("_host_source_decision_id") or "") or None
+                ),
+            )
         if str(question.get("kind") or "procedure") == "lookup":
             lookup = None
             if self._ruleset_adapter is not None:

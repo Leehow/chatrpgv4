@@ -71,8 +71,8 @@
     },
     {
       "source_id": "rules-json:coc7:spells",
-      "bundle_sha256": "33d95ac8e99aabffda481c5992468885463e1a7c91c7a163524714d34f9805a9",
-      "file_sha256": "b327f0cc8bff987c6239b491ff88e8ff399b90ac9da8f6956062f25802f633d7"
+      "bundle_sha256": "25e4bcafae9732c17fa50e3823288e38d2a486b9ef2c75e34b438bab50b7b6f9",
+      "file_sha256": "0d83987e0a518fb82796a5f508564794e2b468374c2727b3917ef4c5d957995e"
     },
     {
       "source_id": "rules-json:coc7:success-levels",
@@ -80,7 +80,7 @@
       "file_sha256": "2486d01ac3edd9cdc382fff401075d42b167528275e8bd2d57dfe9aeaa23beff"
     }
   ],
-  "graph_content_digest": "1fc13307ee33ab8507eb33d3f76804793de52bd24327ab52850dd3666f69dd85",
+  "graph_content_digest": "dee23ffef52f6ae469bd179dede71b301445402b2c58a78946fa3a440d22f88f",
   "shards": [
     {
       "shard_id": "shard:coc7:combat:section-non-session-damage",
@@ -88,7 +88,7 @@
     },
     {
       "shard_id": "shard:coc7:core-check:section-checks-push-luck",
-      "shard_digest": "397949bff69f1e2147313ffd4341e94a7281518a25cda405a065a1ce2229435d"
+      "shard_digest": "c29df3e985d108fc0d9c603de7e05675a41350fdbc94c04ec80c19a83ab6b82f"
     },
     {
       "shard_id": "shard:coc7:development:section-reference-lookups",
