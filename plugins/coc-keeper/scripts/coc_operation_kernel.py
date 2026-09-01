@@ -9570,7 +9570,20 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         mechanics = agenda.get("mechanics") if isinstance(agenda.get("mechanics"), dict) else {}
         mechanics_status = str(mechanics.get("status") or "unresolved")
         if mechanics_status == "authored" and isinstance(mechanics.get("profile"), dict):
-            current_npc_mechanics[str(npc_id)] = deepcopy(mechanics["profile"])
+            # Keeper view of the stat block. Weapon rows keep their names and
+            # numbers but drop the catalog ids: those are ruleset-internal
+            # vocabulary ("claws", "revolver_38_or_9mm") that the model-view
+            # identity grammar rightly refuses, and the first scene that ever
+            # carried an authored NPC profile failed its whole scene.context
+            # on exactly that. The host resolves weapons by id itself; the
+            # Keeper narrates by name.
+            profile_view = deepcopy(mechanics["profile"])
+            weapon_rows = profile_view.get("weapons")
+            if isinstance(weapon_rows, list):
+                for weapon_row in weapon_rows:
+                    if isinstance(weapon_row, dict):
+                        weapon_row.pop("weapon_id", None)
+            current_npc_mechanics[str(npc_id)] = profile_view
         npcs.append({
             "npc_id": npc_id,
             "name": agenda.get("name") or campaign_names.get(str(npc_id)),
