@@ -3834,10 +3834,11 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   )],
   ["rules.roll", declaredIdentityTable(
     [
-      "attempt_id", "decision_id", "original_check_decision_id", "rule_ref",
-      "scene_id",
+      "attempt_id", "decision_id", "npc_id", "original_check_decision_id",
+      "rule_ref", "scene_id",
     ],
     [],
+    ["social_adjudication_ref", "social_goal_key"],
   )],
   ["rules.push", declaredIdentityTable(
     ["attempt_id", "decision_id", "original_check_decision_id", "scene_id"],
@@ -3859,8 +3860,8 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   )],
   ["rules.social_adjudicate", declaredIdentityTable(
     ["npc_id", "commitment_id"],
-    ["source_digest", "request_digest"],
-    ["conversation_window_id", "social_adjudication_ref"],
+    ["record_digest", "source_digest", "request_digest"],
+    ["conversation_window_id", "social_adjudication_ref", "source_ref"],
   )],
   ["rules.psychology_observe", declaredIdentityTable(
     ["source_ref"],
@@ -4918,6 +4919,120 @@ function sanitizeEnvelopeBranch(
   operation: string | null = null,
 ): unknown {
   return stripOpaqueModelIdentity(value, null, semanticIds, diagnostics, operation);
+}
+
+/**
+ * Closed model view of the canonical Social adjudication receipt. The exact
+ * goal key is a host-owned correlation into the one canonical social roll;
+ * the Keeper consumes the goal, approach, feasibility, and difficulty, never
+ * the digest-backed lookup key.
+ */
+function projectSocialAdjudicationData(
+  value: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  fieldPath = "",
+): Record<string, unknown> {
+  const view = { ...value };
+  delete view.goal_key;
+  return stripOpaqueModelIdentity(
+    view,
+    null,
+    semanticIds,
+    diagnostics,
+    "rules.social_adjudicate",
+    fieldPath,
+  ) as Record<string, unknown>;
+}
+
+/**
+ * RuleGraph composes a Social adjudication and its already-executed bound
+ * D100 under `rules.settle`. Project each embedded canonical family through
+ * its own closed identity contract instead of judging the whole composite as
+ * flat rules.settle output. The machine-derived bound-check plan is internal:
+ * after settlement it has no model consumer and exposing it would invite a
+ * duplicate roll. Unknown identity fields in the retained branches still run
+ * through the normal V4 fail-closed discovery path.
+ */
+function projectSocialRulesSettleData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const settlement = isPlainObject(data.settlement) ? data.settlement : null;
+  const result = settlement !== null && isPlainObject(settlement.result)
+    ? settlement.result
+    : null;
+  const adjudication = result !== null && isPlainObject(result.adjudication)
+    ? result.adjudication
+    : null;
+  const boundCheck = result !== null && isPlainObject(result.bound_check)
+    ? result.bound_check
+    : null;
+  if (settlement === null || result === null || adjudication === null) {
+    return sanitizeEnvelopeBranch(
+      data,
+      semanticIds,
+      diagnostics,
+      "rules.settle",
+    ) as Record<string, unknown>;
+  }
+
+  const genericResult: Record<string, unknown> = { ...result };
+  delete genericResult.adjudication;
+  delete genericResult.bound_check;
+  // The plan has already been consumed by the host-owned adapter. Outer
+  // next_decisions carries any remaining semantic continuation.
+  delete genericResult.bound_check_plan;
+  const genericData: Record<string, unknown> = {
+    ...data,
+    settlement: {
+      ...settlement,
+      result: genericResult,
+    },
+  };
+  const projected = sanitizeEnvelopeBranch(
+    genericData,
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+  ) as Record<string, unknown>;
+  const projectedSettlement = isPlainObject(projected.settlement)
+    ? projected.settlement
+    : null;
+  const projectedResult = projectedSettlement !== null
+    && isPlainObject(projectedSettlement.result)
+    ? projectedSettlement.result
+    : null;
+  if (projectedSettlement === null || projectedResult === null) return projected;
+
+  const settledAdjudication: Record<string, unknown> = { ...adjudication };
+  // This instruction produced bound_check and is no longer actionable.
+  delete settledAdjudication.roll_operation;
+  projectedResult.adjudication = projectSocialAdjudicationData(
+    settledAdjudication,
+    semanticIds,
+    diagnostics,
+    "settlement.result.adjudication",
+  );
+  if (boundCheck !== null) {
+    const boundCheckView: Record<string, unknown> = { ...boundCheck };
+    // The bound check is already complete. Its canonical roll identity is
+    // retained in host details; later semantic continuations come from the
+    // outer next_decisions rather than by relaying this opaque id.
+    delete boundCheckView.roll_id;
+    projectedResult.bound_check = stripOpaqueModelIdentity(
+      boundCheckView,
+      null,
+      semanticIds,
+      diagnostics,
+      "rules.roll",
+      "settlement.result.bound_check",
+    );
+  }
+  projectedSettlement.result = projectedResult;
+  projected.settlement = projectedSettlement;
+  return projected;
 }
 
 /**
@@ -6196,10 +6311,12 @@ export function projectModelVisibleCanonicalResult(
     } else if (operation === "state.deliver_handout") {
       projected.data = projectHandoutDeliveryData(data, semanticIds, diagnostics);
     } else if (operation === "rules.social_adjudicate") {
-      const view = { ...data };
-      delete view.goal_key;
-      projected.data = sanitizeEnvelopeBranch(
-        view, semanticIds, diagnostics, operationName,
+      projected.data = projectSocialAdjudicationData(
+        data, semanticIds, diagnostics,
+      );
+    } else if (operation === "rules.settle" && data.family === "social") {
+      projected.data = projectSocialRulesSettleData(
+        data, semanticIds, diagnostics,
       );
     } else if (operation === "rules.psychology_observe") {
       const view = { ...data };

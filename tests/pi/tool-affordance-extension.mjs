@@ -1491,6 +1491,247 @@ test("RuleDecisionCard survives resume, scene, baseline context, and typed settl
   });
 });
 
+test("RuleGraph Social settlement keeps semantic result and hides host correlation", async () => {
+  const socialGoalKey = "cb45f81061371aa8";
+  const socialRollId = "toolbox-gate9-social-projection-000001";
+  const canonicalSocialSettle = {
+    ok: true,
+    tool: "rules.settle",
+    wire: {
+      schema_version: 1,
+      profile: "keeper_hot_v1",
+      canonical_operation: "rules.settle",
+      full_result_sha256: `sha256:${"f".repeat(64)}`,
+      payload_projected: false,
+    },
+    data: {
+      decision_ref: "decision:coc7:social:adjudicate-difficulty",
+      family: "social",
+      status: "settled",
+      rule_refs: [
+        "rule:coc7:social:goal-feasibility",
+        "rule:coc7:social:approach-difficulty",
+      ],
+      investigator_id: "thomas-hayes",
+      event: null,
+      player_state_receipt: null,
+      current_hp: null,
+      conditions: null,
+      settlement: {
+        existing_result_envelope: true,
+        result: {
+          adjudication: {
+            schema_version: 1,
+            resolution: "adjudicated",
+            investigator_id: "thomas-hayes",
+            npc_id: "npc-steven-knott",
+            conversation_window_id:
+              "conversation:commission-briefing:thomas-hayes:npc-steven-knott",
+            commitment_id: "commitment:knott-two-day-advance",
+            approach: "persuade",
+            approach_skill: "Persuade",
+            goal_summary: "让诺特接受两天定金预付，并将事故写入书面委托",
+            goal_key: socialGoalKey,
+            feasibility: "roll",
+            final_difficulty: "regular",
+            motive: {
+              direction: "aligned",
+              resolved_evidence: [{
+                source_ref: "npc_fact:steven-knott/commission-pressure",
+                kind: "npc_fact",
+                identifier: "steven-knott/commission-pressure",
+                player_known: false,
+                record_digest: `sha256:${"1".repeat(64)}`,
+              }],
+            },
+            feasibility_refs: [{
+              source_ref: "npc_fact:steven-knott/cash-on-hand",
+              kind: "npc_fact",
+              identifier: "steven-knott/cash-on-hand",
+              player_known: false,
+              record_digest: `sha256:${"2".repeat(64)}`,
+            }],
+            source_digest: `sha256:${"3".repeat(64)}`,
+            request_digest: `sha256:${"4".repeat(64)}`,
+            roll_operation: {
+              operation: "rules.roll",
+              invoke_via: "coc_rules_roll",
+              prefilled_arguments: {
+                investigator: "thomas-hayes",
+                npc_id: "npc-steven-knott",
+                skill: "Persuade",
+                social_adjudication_ref: socialGoalKey,
+              },
+              missing_arguments: ["stakes", "decision_id"],
+            },
+          },
+          bound_check: {
+            investigator_id: "thomas-hayes",
+            npc_id: "npc-steven-knott",
+            social_goal_key: socialGoalKey,
+            social_adjudication_ref: socialGoalKey,
+            goal: "让诺特接受两天定金预付，并将事故写入书面委托",
+            stakes: {
+              on_success: "诺特接受条款",
+              on_failure: "诺特坚持原条件",
+            },
+            skill: "Persuade",
+            roll: 66,
+            target: 40,
+            required_level: "regular",
+            outcome: "failure",
+            passed: false,
+            success: false,
+            roll_id: socialRollId,
+          },
+          bound_check_plan: {
+            schema_version: 1,
+            decision_ref: "decision:coc7:core-check:ordinary-check",
+            family: "core-check",
+            machine_derived: true,
+            capability: { ref: "capability:coc7:percentile-check" },
+          },
+        },
+      },
+      next_decisions: [],
+      authority: "canonical-resolver-state-receipts",
+      request_digest: `sha256:${"5".repeat(64)}`,
+    },
+    warnings: [],
+    hints: [],
+  };
+  let currentSettle = canonicalSocialSettle;
+  await withPlayHarness(async (h) => {
+    await invokeCompat(h, "social-projection-scene", "scene.context");
+    const settle = async (callId, decisionId) => h.tools
+      .get("coc_rules_settle")
+      .execute(
+        callId,
+        {
+          campaign: "tool-affordance-campaign",
+          investigator: "current-investigator",
+          decision_ref: "decision:coc7:social:adjudicate-difficulty",
+          semantic_inputs: {
+            target_ref: "npc:steven-knott",
+            commitment_ref: "commitment:knott-two-day-advance",
+            approach: "persuade",
+            goal: "让诺特接受两天定金预付，并将事故写入书面委托",
+          },
+          decision_id: decisionId,
+        },
+        undefined,
+        undefined,
+        h.ctx,
+      );
+
+    const settled = await settle(
+      "social-rulegraph-settle",
+      "roll-social-knott-terms-v1",
+    );
+    const visible = JSON.parse(settled.content[0].text);
+    assert.equal(
+      visible.ok,
+      true,
+      `settled Social goal and D100 must remain visible: ${JSON.stringify({
+        visible,
+        diagnostics: settled.details?.semantic_identity_diagnostics,
+      })}`,
+    );
+    assert.equal(visible.data.decision_ref, canonicalSocialSettle.data.decision_ref);
+    assert.equal(visible.data.family, "social");
+    assert.equal(visible.data.status, "settled");
+    const result = visible.data.settlement.result;
+    assert.equal(result.adjudication.approach, "persuade");
+    assert.equal(result.adjudication.feasibility, "roll");
+    assert.equal(result.adjudication.motive.direction, "aligned");
+    assert.equal(
+      result.adjudication.goal_summary,
+      "让诺特接受两天定金预付，并将事故写入书面委托",
+    );
+    assert.equal(result.bound_check.skill, "Persuade");
+    assert.equal(result.bound_check.roll, 66);
+    assert.equal(result.bound_check.target, 40);
+    assert.equal(result.bound_check.outcome, "failure");
+    assert.equal(result.bound_check.passed, false);
+    assert.equal(
+      result.bound_check.goal,
+      "让诺特接受两天定金预付，并将事故写入书面委托",
+    );
+    assert.equal(result.bound_check.stakes.on_success, "诺特接受条款");
+    assert.equal(result.adjudication.goal_key, undefined);
+    assert.equal(result.adjudication.source_digest, undefined);
+    assert.equal(result.adjudication.request_digest, undefined);
+    assert.equal(result.adjudication.conversation_window_id, undefined);
+    assert.equal(
+      result.adjudication.motive.resolved_evidence[0].source_ref,
+      undefined,
+    );
+    assert.equal(
+      result.adjudication.motive.resolved_evidence[0].record_digest,
+      undefined,
+    );
+    assert.equal(result.adjudication.roll_operation, undefined);
+    assert.equal(result.bound_check.social_goal_key, undefined);
+    assert.equal(result.bound_check.social_adjudication_ref, undefined);
+    assert.equal(result.bound_check.roll_id, undefined);
+    assert.equal(result.bound_check_plan, undefined);
+    assert.equal(visible.data.request_digest, undefined);
+    assert.ok(!settled.content[0].text.includes(socialGoalKey));
+    assert.ok(!settled.content[0].text.includes(socialRollId));
+    assert.deepEqual(
+      settled.details,
+      canonicalSocialSettle,
+      "the exact Social settlement and correlation stay host-only",
+    );
+
+    currentSettle = structuredClone(canonicalSocialSettle);
+    currentSettle.data.settlement.result.adjudication.undeclared_result_ref =
+      "social-result:knott-terms";
+    const misplaced = await settle(
+      "social-rulegraph-identity-probe",
+      "roll-social-identity-boundary-v2",
+    );
+    const misplacedVisible = JSON.parse(misplaced.content[0].text);
+    assert.equal(misplacedVisible.ok, false);
+    assert.equal(
+      misplacedVisible.error.code,
+      "semantic_identity_unavailable",
+      "an unknown nested Social identity path remains fail-closed",
+    );
+    assert.ok(
+      misplaced.details.semantic_identity_diagnostics.some(
+        (entry) => entry.field === "undeclared_result_ref"
+          && entry.domain === "undeclared",
+      ),
+    );
+    assert.ok(!misplaced.content[0].text.includes("social-result:knott-terms"));
+  }, (_name, params) => (
+    params.operation === "rules.settle"
+      ? structuredClone(currentSettle)
+      : params.operation === "scene.context"
+        ? contextReceipt("social-projection", {
+            active_scene_id: "commission-briefing",
+            party: ["thomas-hayes"],
+            exits: [],
+            time: { elapsed_minutes: 0 },
+            npcs_present: [{ npc_id: "npc-steven-knott" }],
+            action_routes: [],
+            clues_here: [],
+          })
+      : params.operation === "session.resume"
+        ? {
+            ok: true,
+            tool: "session.resume",
+            data: {
+              mode: "awaiting_player",
+              evidence: { table_opening_id: "table-opening:social-projection" },
+              next_operations: [],
+            },
+          }
+        : { ok: true, tool: params.operation, data: {} }
+  ));
+});
+
 test("rules-director profile activates healing card without discovery or broad tools", async () => {
   const priorProfile = process.env[PROFILE_ENV];
   process.env[PROFILE_ENV] = "rules-director-single-draft";
