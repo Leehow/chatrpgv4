@@ -8210,6 +8210,17 @@ export type SemanticIdentityHandleResolver = {
   resolveWeapon: (handle: string) => string | null;
   resolveRoute: (handle: string) => string | null;
   resolveAffordance: (handle: string) => string | null;
+  /**
+   * Why a resolve failed, when the host can say. The registry distinguishes
+   * seven causes; a resolver that collapses them to `null` leaves the Keeper
+   * told to "refresh the turn context" when the truth may be that another
+   * owner holds the handle, or that it was consumed — neither of which a
+   * refresh fixes. Optional so existing resolvers keep working unchanged.
+   */
+  describeFailure?: (
+    domain: "roll" | "effect" | "item" | "weapon" | "route" | "affordance",
+    handle: string,
+  ) => string | null;
 };
 
 /** Scalar fields whose entire value is a registry roll handle. */
@@ -8451,10 +8462,12 @@ export function restoreSemanticEntityHandles(
         : resolver.resolveAffordance;
       const canonical = resolve(value);
       if (canonical === null) {
+        const specific = resolver.describeFailure?.(domain, value) ?? null;
         return {
           ok: false,
-          reason: `unknown or no-longer-authoritative semantic ${domain} `
-            + "handle; refresh the current turn context before referencing it.",
+          reason: specific
+            ?? `unknown or no-longer-authoritative semantic ${domain} `
+              + "handle; refresh the current turn context before referencing it.",
         };
       }
       return { ok: true, value: canonical };

@@ -4271,6 +4271,42 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const result = semanticRegistry.resolveHandle(domain, handle, scope);
       return result.ok ? result.canonicalId : null;
     };
+    // The registry knows WHY a handle did not resolve. Saying "refresh the
+    // turn context" for all seven causes is wrong for most of them: a refresh
+    // does not transfer ownership, un-consume an effect, or move a handle
+    // between campaigns. Each message names the real cause and only promises a
+    // refresh where a refresh is genuinely the route out.
+    const failureReason = (
+      domain: "roll" | "effect" | "item" | "weapon" | "route" | "affordance",
+      handle: string,
+    ): string | null => {
+      const result = semanticRegistry.resolveHandle(domain, handle, scope);
+      if (result.ok) return null;
+      switch (result.reason) {
+        case "stale_turn":
+          return `this ${domain} handle was issued in an earlier player turn; `
+            + "refresh the current turn context and use the handle it presents.";
+        case "stale_session":
+          return `this ${domain} handle belongs to an earlier session; `
+            + "refresh the current turn context and use the handle it presents.";
+        case "campaign_mismatch":
+          return `this ${domain} handle belongs to a different campaign.`;
+        case "owner_mismatch":
+          return `this ${domain} handle is held by a different owner; use the `
+            + "handle presented for the owner you are acting on.";
+        case "ambiguous_owner":
+          return `two owners hold this ${domain} handle; name the owner `
+            + "explicitly so the host can bind the right one.";
+        case "invalidated":
+          return `this ${domain} handle was consumed or retired and cannot be `
+            + "referenced again.";
+        case "unknown_handle":
+          return `no ${domain} handle by that name was ever presented this `
+            + "turn; copy one verbatim from the current turn context.";
+        default:
+          return null;
+      }
+    };
     return {
       resolveRoll: (handle) => resolve("roll", handle),
       resolveEffect: (handle) => resolve("effect", handle),
@@ -4278,6 +4314,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       resolveWeapon: (handle) => resolve("weapon", handle),
       resolveRoute: (handle) => resolve("route", handle),
       resolveAffordance: (handle) => resolve("affordance", handle),
+      describeFailure: failureReason,
     };
   };
   const clearTurnEntityFacts = (): void => {
