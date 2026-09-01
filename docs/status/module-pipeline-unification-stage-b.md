@@ -275,6 +275,63 @@ one player (this session), one turn at a time through the repo's own
     envelope shows those. Verified live: the presence write succeeded and the
     following intimidate roll settled through the rules path.
 
+16. **The host emptied turns the whitespace guard was meant to protect.** The
+    guard bounds a stream that emits leading whitespace forever, and it aborted
+    on either 32 whitespace deltas or 128 whitespace characters. A counted
+    delta always carries at least one character, so the delta bound can only
+    ever fire first — four times sooner when a provider streams one character
+    at a time. Every abort in this run was exactly 32 deltas of 32 characters,
+    and the Keeper, re-prompted by the empty-terminal recovery its own abort
+    triggered, narrated correctly and immediately: the stream was padding, not
+    runaway. Eight of 28 turns paid an extra model round trip, six of them
+    consecutive. The character count alone now triggers, and every stream that
+    leads with whitespace reports how much, so the bound stays chosen from
+    measurements. A stream measured after the change led with 42 characters and
+    finished normally — exactly the case the old bound destroyed.
+
+17. **The module's central mechanic had no way to fire.** A scene's pressure
+    moves name a `clock_id` and the segments they cost; `threat-fronts.json`
+    defines that clock's segments, per-segment cues and `on_full`. The two
+    halves live in different documents and `scene.context` projected only the
+    first, so the Keeper held an id pointing at nothing. It never acted on it:
+    across all three sessions `state.threat_tick` was called **zero** times and
+    `clock-loop-doom` never left 0/6 — including ~30 turns inside
+    `scene-church-climax`, whose dramatic question is literally "before the
+    bell rings". The authored loop reset was unreachable the whole time.
+
+    Delivering the resolved reading took all three projections, and each one
+    was its own defect: the producer (new), the RPC wire whitelist (which
+    nulled it — the third authored mechanic that whitelist has silently
+    dropped), and the identity declarations (`front_id` would have failed the
+    whole scene read closed, and `memory_id` was one impression memory away
+    from doing the same, being declared on `npc.query` and not here). The
+    first draft also put the actionable sentence in the Python envelope, where
+    nothing could read it — Pi authors model-visible hints from structured
+    fields and never relays canonical prose — so it moved to the consuming
+    side. That is the same "field with no reader" defect this stage keeps
+    finding, committed by this work and caught before it shipped.
+
+    `tests/test_scene_context_wire_coverage.py` turns the whitelist into an
+    accounting question: every key the producer emits is either carried or
+    listed as deliberately withheld with a reason, so a fourth silent drop
+    fails on the day it is written.
+
+18. **A forward nudge nobody has ever received.** That accounting check
+    immediately found a second one: `recommended_next_beat` has a single
+    producer line, no consumer anywhere in the repository, and zero
+    occurrences across every live transcript. Its comment promises the Keeper
+    a beat "without a separate director.advise call"; the RPC path did not
+    name it. Worse, its PRESSURE branch was unreachable in the scenes it was
+    written for — the order is agenda NPC, then clues, then pressure, and an
+    authored climax always has an NPC with an agenda, so the beat was
+    NPC_MOVE every turn while the doom clock stood still. It is carried now,
+    and a lethal pressure move on a clock that is still running outranks a
+    routine agenda beat, recording what it superseded. Lethality and the tick
+    are authored facts, not a pacing opinion.
+
+    Verified live: both the clock block and the beat now reach the table with
+    full content.
+
 ## 5. Open defect that stopped deeper play (not owned by this work)
 
 On a fumbled STR roll the turn could not settle:
