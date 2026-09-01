@@ -4510,7 +4510,144 @@
                 "page": 435,
                 "grep_anchor": "Walter Corbitt"
               }
-            ]
+            ],
+            "mechanics": {
+              "status": "authored",
+              "subject_kind": "npc",
+              "source_refs": [
+                {
+                  "pdf_index": 459,
+                  "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+                  "grep_anchor": "Walter Corbitt, Undead Fiend"
+                },
+                {
+                  "pdf_index": 456,
+                  "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+                  "grep_anchor": "Using a Fighting Maneuver to Grab the Knife"
+                }
+              ],
+              "provenance": {
+                "authority": "source_authored",
+                "basis": "Stat block, skills, spells, armor rule and Sanity loss are printed verbatim on page 459 (Walter Corbitt, Undead Fiend). The floating dagger's damage and impale line are printed on page 456."
+              },
+              "fields_observed": [
+                "characteristics.STR",
+                "characteristics.CON",
+                "characteristics.SIZ",
+                "characteristics.DEX",
+                "characteristics.INT",
+                "characteristics.APP",
+                "characteristics.POW",
+                "characteristics.EDU",
+                "derived.HP",
+                "derived.MP",
+                "derived.SAN",
+                "derived.MOV",
+                "derived.Build",
+                "derived.DB",
+                "skills",
+                "weapons",
+                "attacks",
+                "attacks_per_round",
+                "spells",
+                "san_loss_to_see",
+                "armor_rule"
+              ],
+              "fields_extracted": [
+                "characteristics.STR",
+                "characteristics.CON",
+                "characteristics.SIZ",
+                "characteristics.DEX",
+                "characteristics.INT",
+                "characteristics.APP",
+                "characteristics.POW",
+                "characteristics.EDU",
+                "derived.HP",
+                "derived.MP",
+                "derived.SAN",
+                "derived.MOV",
+                "derived.Build",
+                "derived.DB",
+                "skills",
+                "weapons",
+                "attacks",
+                "attacks_per_round",
+                "spells",
+                "san_loss_to_see",
+                "armor_rule"
+              ],
+              "fields_not_authored": [
+                "armor"
+              ],
+              "profile": {
+                "profile_kind": "actor",
+                "characteristic_scale": "percentile",
+                "authority": "source_authored",
+                "characteristics": {
+                  "STR": 90,
+                  "CON": 115,
+                  "SIZ": 55,
+                  "INT": 80,
+                  "POW": 90,
+                  "DEX": 35,
+                  "APP": 5,
+                  "EDU": 80
+                },
+                "derived": {
+                  "HP": 16,
+                  "MP": 18,
+                  "SAN": 0,
+                  "MOV": 8,
+                  "Build": 1,
+                  "DB": "+1D4"
+                },
+                "skills": {
+                  "Fighting": 50,
+                  "Dodge": 17,
+                  "Cthulhu Mythos": 17,
+                  "Intimidate": 64,
+                  "Listen": 60,
+                  "Sleight of Hand": 30,
+                  "Stealth": 72
+                },
+                "weapons": [
+                  {
+                    "weapon_id": "claws",
+                    "extends": "claws",
+                    "name": "Clawed fingernails (kick, punch, claw)",
+                    "note": "Page 459: Fighting 50% (Hard 25%/Extreme 10%), damage 1D3 + damage bonus (1D4) + possible infection."
+                  },
+                  {
+                    "weapon_id": "floating-dagger",
+                    "extends": "knife_medium",
+                    "name": "Floating magical dagger",
+                    "note": "Page 456: resolved as 1D100 against Corbitt's POW opposed by the investigator's Dodge; 1D4+2 damage, 6+1D4+2 on an Extreme success (impale). Costs 1 Magic point per round and counts as Corbitt's action for that round."
+                  }
+                ],
+                "attacks": [
+                  {
+                    "attack_id": "corbitt-claws",
+                    "name": "Fighting attacks",
+                    "printed": "Fighting 50% (Hard 25%/Extreme 10%), damage 1D3 + damage bonus (1D4) + possible infection.",
+                    "rider": "On a successful attack the investigator makes a Luck roll. On failure, a day later the victim is delirious and must make a CON roll: failure = delirium 1D10 days and lose 1D10 CON; success = delirium 1D6 days, no further CON loss. Repeat until recovery or death. CON lost does not regenerate."
+                  },
+                  {
+                    "attack_id": "corbitt-floating-dagger",
+                    "name": "Floating knife",
+                    "printed": "Roll 1D100 against Corbitt's POW, opposed by the investigator's Dodge; compare levels of success. Regular or Hard success beating the Dodge inflicts 1D4+2. Extreme success impales for 6+1D4+2. Seeing the knife attack costs SAN 1/1D4.",
+                    "cost": "1 Magic point per round; that point covers all actions made with the knife during the round."
+                  }
+                ],
+                "attacks_per_round": 1,
+                "spells": [
+                  "Dominate (variant)",
+                  "Flesh Ward",
+                  "Summon/Bind Dimensional Shambler"
+                ],
+                "san_loss_to_see": "1/1D8 Sanity points to see him move",
+                "armor_rule": "Each point of armor reduces the damage received by 1 point. Corbitt has cast Flesh Ward already: roll 2D6 for his armor. Reduce his armor by one point for each point of damage he suffers."
+              }
+            }
           }
         }
       },
