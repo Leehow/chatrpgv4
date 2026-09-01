@@ -5036,6 +5036,81 @@ function projectSocialRulesSettleData(
 }
 
 /**
+ * Development end-session settlement embeds the already-committed canonical
+ * `state.end_session` result. Keep the RuleGraph envelope under rules.settle,
+ * but project that embedded result through its native closed contract. This
+ * is projection only: the deterministic settlement must never be re-run.
+ */
+function projectDevelopmentEndSessionRulesSettleData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const settlement = isPlainObject(data.settlement) ? data.settlement : null;
+  const result = settlement !== null && isPlainObject(settlement.result)
+    ? settlement.result
+    : null;
+  if (settlement === null || result === null) {
+    return sanitizeEnvelopeBranch(
+      data,
+      semanticIds,
+      diagnostics,
+      "rules.settle",
+    ) as Record<string, unknown>;
+  }
+
+  const genericSettlement: Record<string, unknown> = { ...settlement };
+  delete genericSettlement.result;
+  const projected = sanitizeEnvelopeBranch(
+    {
+      ...data,
+      settlement: genericSettlement,
+    },
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+  ) as Record<string, unknown>;
+  const projectedSettlement = isPlainObject(projected.settlement)
+    ? projected.settlement
+    : null;
+  if (projectedSettlement === null) return projected;
+  projectedSettlement.result = projectEndSessionData(
+    result,
+    semanticIds,
+    diagnostics,
+  );
+  projected.settlement = projectedSettlement;
+  return projected;
+}
+
+/** Closed family-aware compositor for embedded rules.settle products. */
+function projectRulesSettleData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  if (data.family === "social") {
+    return projectSocialRulesSettleData(data, semanticIds, diagnostics);
+  }
+  if (
+    data.family === "development"
+    && data.decision_ref === "decision:coc7:development:end-session"
+  ) {
+    return projectDevelopmentEndSessionRulesSettleData(
+      data,
+      semanticIds,
+      diagnostics,
+    );
+  }
+  return sanitizeEnvelopeBranch(
+    data,
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+  ) as Record<string, unknown>;
+}
+
+/**
  * Structured semantic view of `turn.output_context`: obligations, visible
  * mechanics, guidance, and draft instructions only. Turn/source/revision/
  * journal/review/integrity identities are hidden here and retained in host
@@ -5087,28 +5162,74 @@ function projectEndSessionData(
   semanticIds: SemanticIdMap | null,
   diagnostics: ProjectionIdentityDiagnostics | null,
 ): Record<string, unknown> {
+  diagnoseUnprojectedIdentityKeys(
+    "state.end_session",
+    data,
+    new Set([
+      "session_ending", "kind", "reason", "scene_id", "player_visible",
+      "status", "development", "ending_id", "investigator_ids",
+    ]),
+    diagnostics,
+  );
   const view = selectedFields(
     data,
     ["session_ending", "kind", "reason", "scene_id", "player_visible", "status"],
   );
   const development = isPlainObject(data.development) ? data.development : null;
   if (development !== null) {
+    diagnoseUnprojectedIdentityKeys(
+      "state.end_session",
+      development,
+      new Set(["status", "settlements", "ending_id"]),
+      diagnostics,
+    );
     const developmentView = selectedFields(development, ["status"]);
     if (Array.isArray(development.settlements)) {
       developmentView.settlements = development.settlements.flatMap((entry) => {
         if (!isPlainObject(entry)) return [];
+        diagnoseUnprojectedIdentityKeys(
+          "state.end_session",
+          entry,
+          new Set(["investigator_id", "status", "attempts", "receipt"]),
+          diagnostics,
+        );
         const settlement = selectedFields(
           entry,
           ["investigator_id", "status", "attempts"],
         );
         const receipt = isPlainObject(entry.receipt) ? entry.receipt : null;
         if (receipt === null) return [settlement];
+        diagnoseUnprojectedIdentityKeys(
+          "state.end_session",
+          receipt,
+          new Set([
+            "schema_version", "status", "kind", "result",
+            "player_facing_mechanics", "operation_id", "state_refs",
+            "replayed_from_boundary_id", "replayed_from_ending_id",
+          ]),
+          diagnostics,
+        );
         const receiptView = selectedFields(
           receipt,
           ["schema_version", "status", "kind"],
         );
         const result = isPlainObject(receipt.result) ? receipt.result : null;
         if (result !== null) {
+          diagnoseUnprojectedIdentityKeys(
+            "state.end_session",
+            result,
+            new Set([
+              "skills_checked", "san_reward_expr", "san_reward_planned_delta",
+              "scenario_san_reward_expr", "scenario_san_reward_planned_delta",
+              "scenario_san_reward_applied", "merge_policy",
+              "improvement_checks", "skills_improved", "san_reward",
+              "san_reward_roll", "development_san_reward",
+              "scenario_san_reward", "scenario_san_reward_roll",
+              "luck_recovery", "ending_evidence", "player_facing_mechanics",
+              "settlement_plan_sha256",
+            ]),
+            diagnostics,
+          );
           const resultView = selectedFields(result, [
             "skills_checked", "san_reward_expr", "san_reward_planned_delta",
             "scenario_san_reward_expr", "scenario_san_reward_planned_delta",
@@ -6314,10 +6435,8 @@ export function projectModelVisibleCanonicalResult(
       projected.data = projectSocialAdjudicationData(
         data, semanticIds, diagnostics,
       );
-    } else if (operation === "rules.settle" && data.family === "social") {
-      projected.data = projectSocialRulesSettleData(
-        data, semanticIds, diagnostics,
-      );
+    } else if (operation === "rules.settle") {
+      projected.data = projectRulesSettleData(data, semanticIds, diagnostics);
     } else if (operation === "rules.psychology_observe") {
       const view = { ...data };
       delete view.window_key;

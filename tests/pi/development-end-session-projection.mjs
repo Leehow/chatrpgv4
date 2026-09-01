@@ -179,10 +179,125 @@ for (const forbidden of [
   assert.ok(!serialized.includes(forbidden), `host-only field leaked: ${forbidden}`);
 }
 
+function rulesSettleEnvelope(
+  embeddedResult,
+  { replay = false, unknownNestedIdentity = false } = {},
+) {
+  const result = structuredClone(embeddedResult);
+  if (replay) {
+    const receipt = result.development.settlements[0].receipt;
+    receipt.replayed_from_boundary_id = "boundary-host-correlation";
+    receipt.replayed_from_ending_id = "ending-host-correlation";
+  }
+  if (unknownNestedIdentity) {
+    result.development.settlements[0].receipt.result.unknown_identity_id =
+      "unknown-host-identity";
+  }
+  return {
+    ok: true,
+    tool: "rules.settle",
+    data: {
+      authority: "canonical-resolver-state-receipts",
+      conditions: {},
+      current_hp: 10,
+      decision_ref: "decision:coc7:development:end-session",
+      event: null,
+      family: "development",
+      investigator_id: "thomas-hayes",
+      next_decisions: [],
+      player_state_receipt: null,
+      request_digest: `sha256:${hex}`,
+      rule_refs: [],
+      settlement: {
+        existing_result_envelope: true,
+        result,
+      },
+      status: "settled",
+    },
+    warnings: [],
+    hints: [],
+  };
+}
+
+function projectRulesSettle(envelope) {
+  const identityDiagnostics = { unmapped: [] };
+  const projected = projectModelVisibleCanonicalResult(
+    "rules.settle",
+    envelope,
+    null,
+    identityDiagnostics,
+  );
+  return { projected, identityDiagnostics };
+}
+
+for (const replay of [false, true]) {
+  const outer = rulesSettleEnvelope(canonical.data, { replay });
+  const { projected, identityDiagnostics } = projectRulesSettle(outer);
+  assert.deepEqual(identityDiagnostics.unmapped, []);
+  assert.equal(projected.ok, true);
+  assert.equal(projected.data.authority, "canonical-resolver-state-receipts");
+  assert.equal(
+    projected.data.decision_ref,
+    "decision:coc7:development:end-session",
+  );
+  assert.equal(projected.data.family, "development");
+  assert.equal(projected.data.status, "settled");
+  assert.deepEqual(projected.data.rule_refs, []);
+  assert.deepEqual(projected.data.next_decisions, []);
+  const embedded = projected.data.settlement.result;
+  assert.equal(embedded.session_ending, true);
+  assert.equal(embedded.kind, "conclusion");
+  assert.equal(embedded.scene_id, "commission-briefing");
+  assert.equal(embedded.development.status, "PASS");
+  const embeddedSettlement = embedded.development.settlements[0];
+  assert.equal(embeddedSettlement.investigator_id, "current-investigator");
+  assert.equal(embeddedSettlement.receipt.result.luck_recovery.roll, 43);
+  assert.equal(
+    embeddedSettlement.receipt.result.player_facing_mechanics.complete,
+    true,
+  );
+  assert.equal(
+    embeddedSettlement.receipt.result.player_facing_mechanics.required_roll_count,
+    1,
+  );
+  assert.equal(
+    embeddedSettlement.receipt.result.player_facing_mechanics.missing_roll_count,
+    0,
+  );
+  const outerSerialized = JSON.stringify(projected);
+  for (const forbidden of [
+    "ending_id", "operation_id", "event_id", "event_ref", "scenario_id",
+    "boundary_id", "replayed_from_boundary_id", "replayed_from_ending_id",
+    "state_refs", "source_digest", "source_images", "event_token",
+    "input_tokens", "deterministic_plan", "plan_sha256", "input_sha256",
+    "capsule_sha256", "settlement_plan_sha256", "required_roll_ids",
+    "missing_roll_ids", hex,
+  ]) {
+    assert.ok(
+      !outerSerialized.includes(forbidden),
+      `rules.settle host-only field leaked: ${forbidden}`,
+    );
+  }
+}
+
+const unknown = projectRulesSettle(rulesSettleEnvelope(
+  canonical.data,
+  { unknownNestedIdentity: true },
+));
+const unknownFailureCode = unknown.identityDiagnostics.unmapped.length > 0
+  ? "semantic_identity_unavailable"
+  : null;
+assert.equal(unknownFailureCode, "semantic_identity_unavailable");
+assert.ok(unknown.identityDiagnostics.unmapped.some(
+  (entry) => entry.field === "unknown_identity_id" && entry.domain === "unknown",
+));
+
 console.log(JSON.stringify({
   ok: visible.ok,
   kind: visible.data.kind,
   developmentStatus: visible.data.development.status,
   mechanicsComplete: settlement.receipt.result.player_facing_mechanics.complete,
+  rulesSettleFirstAndReplaySafe: true,
+  unknownIdentityFailureCode: unknownFailureCode,
   opaqueFieldsAbsent: true,
 }));
