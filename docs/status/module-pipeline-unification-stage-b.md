@@ -188,6 +188,19 @@ one player (this session), one turn at a time through the repo's own
    the provenance differs. Verified against the campaign this bricked: it
    resumed and played on into the mill fire. Evidence: `.rpc-evidence-run3/`.
 
+10. **A committed write was reported to the Keeper as a failure.** Paying the
+    beggar for local news made `state.cash_grant` return
+    `semantic_identity_unavailable`: its result carries the shared `game_time`
+    block, whose `location_id` was declared per operation and never for the
+    cash family. The ledger shows the money moved; the Keeper was told it did
+    not — the worst direction for this error class, since it invites a second
+    write or prose that contradicts state. `location_id` is now globally
+    declared alongside `civil_segment_id`, for the same stated reason: it is
+    operation-neutral vocabulary of a block many results carry. The
+    identity-declaration sweep's outstanding ledger shrank by the three
+    progressive operations this paid down. Verified live: the next alms
+    deducted correctly (5.00 → 4.99).
+
 ## 5. Open defect that stopped deeper play (not owned by this work)
 
 On a fumbled STR roll the turn could not settle:

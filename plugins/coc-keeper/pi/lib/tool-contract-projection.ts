@@ -4071,12 +4071,17 @@ const IDENTITY_NAMED_FIELD = /(^|_)(id|ids|ref|refs)$/;
  * Globally declared host-semantic fields whose meaning is operation-neutral:
  * contract ids may appear in any bounded fault receipt, and civil segment ids
  * are the canonical time-coordinate vocabulary shared by state mutations.
+ * `location_id` belongs to the same shared `game_time` block: finance, kernel
+ * and NPC-world results all carry it, and declaring it per operation left
+ * state.cash_grant failing closed on a write that had already committed --
+ * the Keeper was told the money did not move while the ledger says it did.
  * Values still pass the closed semantic grammar; unknown namespaced or
  * entropy-bearing values fail closed.
  */
 const GLOBAL_SEMANTIC_IDENTITY_FIELDS: ReadonlySet<string> = new Set([
   "contract_id",
   "civil_segment_id",
+  "location_id",
 ]);
 
 /**
