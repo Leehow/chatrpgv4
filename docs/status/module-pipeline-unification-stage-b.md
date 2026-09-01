@@ -132,6 +132,28 @@ one player (this session), one turn at a time through the repo's own
      STR/CON/SIZ/DEX/POW. No numbers were invented for it; a ghost-shaped
      mechanics path is a separate question.
 
+7. **The whole structured conversation surface was empty.** The projection
+   field audit (added with these fixes) reported that no NPC record populated
+   any of `facts`, `known_fact_ids`, `revealable_fact_ids`, `disclosure_order`,
+   `lie_options`, `deflect_options`, `leverage_ids` or `active_reactions` —
+   the A21 contract the disclosure engine reads. The Keeper had NPCs and
+   agendas but no structured fact any of them could be made to give up, so
+   every conversation was improvisation.
+
+   Authored from the module's own text for the nine NPCs who actually talk,
+   each fact bound to exactly one authored clue: Lucas answers anything once
+   alms are given; Henry Scott names the loop and the ageing; Holt opens with
+   "the master is not at home" and yields the attic under intimidation;
+   Hawkins denies everything until subdued; the three hunters warm up only
+   when Sarah or the relic is mentioned; Fynche keeps his revelation to
+   himself until persuaded. `coc_npc_state.validate_a21_contract` reports
+   **0 findings**, and the deflect/lie lines and leverage ids reach the
+   Keeper through the ordinary `npc.query` surface.
+
+   The audit now reports only `foreign_dialogue` (for NPCs who speak no
+   foreign language) and `source_refs` (deliberately kept out of runtime
+   records; the evidence lives in the graph) as unpopulated.
+
 ## 5. Open defect that stopped deeper play (not owned by this work)
 
 On a fumbled STR roll the turn could not settle:
