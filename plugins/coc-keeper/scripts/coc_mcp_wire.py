@@ -40,6 +40,12 @@ RULE_DECISION_CARD_LIMIT = 8
 RULE_DECISION_INPUT_LIMIT = 16
 RULE_DECISION_REF_LIMIT = 16
 RULE_DECISION_LABEL_BYTE_LIMIT = 512
+# Sibling decisions in one family repeat nearly identical rule/source refs, so
+# the producer hoists the distinct refs into one block-level ``ref_table`` and
+# leaves zero-based indexes on each card.  The wire keeps that shape: the table
+# is the union of the block's per-card refs, so it is bounded by the per-card
+# limit times the card limit rather than by the per-card limit alone.
+RULE_DECISION_REF_TABLE_LIMIT = RULE_DECISION_REF_LIMIT * RULE_DECISION_CARD_LIMIT
 RULE_DECISION_CARD_FIELDS = frozenset({
     "schema_version",
     "decision_ref",
@@ -48,8 +54,8 @@ RULE_DECISION_CARD_FIELDS = frozenset({
     "applicability",
     "required_inputs",
     "locked_inputs",
-    "rule_refs",
-    "source_refs",
+    "rule_ref_ids",
+    "source_ref_ids",
     "capability_ref",
     "effect_refs",
     "possible_continuations",
@@ -61,7 +67,11 @@ RULE_DECISION_BLOCK_FIELDS = frozenset({
     "investigator_id",
     "status",
     "cards",
+    "ref_table",
     "authority",
+})
+RULE_DECISION_REF_TABLE_FIELDS = frozenset({
+    "rule_refs", "source_refs", "resolution",
 })
 RULE_DECISION_INPUT_FIELDS = frozenset({"name", "owner", "type"})
 RULE_DECISION_INPUT_OWNERS = frozenset({
@@ -1191,10 +1201,11 @@ def _closed_rule_decision_ref_list(
     value: Any,
     *,
     prefix: str,
+    limit: int = RULE_DECISION_REF_LIMIT,
 ) -> list[str] | None:
     if (
         not isinstance(value, list)
-        or len(value) > RULE_DECISION_REF_LIMIT
+        or len(value) > limit
         or any(not _semantic_prefixed_ref(ref, prefix) for ref in value)
         or len(set(value)) != len(value)
     ):
@@ -1202,21 +1213,95 @@ def _closed_rule_decision_ref_list(
     return list(value)
 
 
-def _closed_rule_source_refs(value: Any) -> list[str] | None:
+def _closed_rule_source_refs(
+    value: Any,
+    *,
+    limit: int = RULE_DECISION_REF_LIMIT,
+    allow_empty: bool = False,
+) -> list[str] | None:
+    """The one source-ref grammar for rule decision surfaces.
+
+    ``limit`` widens only for the block-level ``ref_table``, which holds the
+    union of the block's per-card refs rather than one card's list.  That table
+    may also be empty (13 decisions in the production coc7 graph bind no rules
+    at all); "this card must have sources" is enforced per card instead.
+    """
     if (
         not isinstance(value, list)
-        or not value
-        or len(value) > RULE_DECISION_REF_LIMIT
-        or len(set(value)) != len(value)
+        or (not value and not allow_empty)
+        or len(value) > limit
     ):
         return None
     prefixes = ("span-", "source:", "pdf:", "module:", "handout:")
+    # Grammar before dedupe: an unhashable member must fail closed here, never
+    # raise out of the wire projection.
     if any(
-        not _model_semantic_identifier(ref)
-        or not isinstance(ref, str)
+        not isinstance(ref, str)
+        or not _model_semantic_identifier(ref)
         or not any(ref.startswith(prefix) for prefix in prefixes)
         for ref in value
     ):
+        return None
+    if len(set(value)) != len(value):
+        return None
+    return list(value)
+
+
+def _closed_rule_ref_table(value: Any) -> dict[str, Any] | None:
+    """Project the block-level rule/source ref table.
+
+    Both member lists use the same closed grammars the cards used to carry
+    inline, so hoisting never widens what reaches the model.
+    """
+    if not isinstance(value, dict) or set(value) != RULE_DECISION_REF_TABLE_FIELDS:
+        return None
+    resolution = value.get("resolution")
+    if not isinstance(resolution, str) or not resolution.strip():
+        return None
+    rule_refs = _closed_rule_decision_ref_list(
+        value.get("rule_refs"),
+        prefix="rule:",
+        limit=RULE_DECISION_REF_TABLE_LIMIT,
+    )
+    source_refs = _closed_rule_source_refs(
+        value.get("source_refs"),
+        limit=RULE_DECISION_REF_TABLE_LIMIT,
+        allow_empty=True,
+    )
+    bounded_resolution, _trimmed = _bounded_source_text_bytes(
+        resolution, RULE_DECISION_LABEL_BYTE_LIMIT,
+    )
+    if rule_refs is None or source_refs is None or bounded_resolution is None:
+        return None
+    return {
+        "rule_refs": rule_refs,
+        "source_refs": source_refs,
+        "resolution": bounded_resolution,
+    }
+
+
+def _closed_rule_ref_id_list(
+    value: Any, *, table_size: int, required: bool,
+) -> list[int] | None:
+    """Zero-based indexes into the block ref table, bounded and resolvable.
+
+    An index outside the table would be an unreachable ref, so the card fails
+    closed exactly as a malformed inline ref did.
+    """
+    if (
+        not isinstance(value, list)
+        or len(value) > RULE_DECISION_REF_LIMIT
+        or (required and not value)
+    ):
+        return None
+    # Type and range before dedupe: an unhashable member must fail closed
+    # here, never raise out of the wire projection.
+    for index in value:
+        if not isinstance(index, int) or isinstance(index, bool):
+            return None
+        if index < 0 or index >= table_size:
+            return None
+    if len(set(value)) != len(value):
         return None
     return list(value)
 
@@ -1276,6 +1361,8 @@ def _compact_rule_decision_card(
     value: Any,
     *,
     family: str,
+    rule_table_size: int = 0,
+    source_table_size: int = 0,
 ) -> dict[str, Any] | None:
     """Project one source-bound model-safe RuleDecisionCard.
 
@@ -1302,10 +1389,12 @@ def _compact_rule_decision_card(
         return None
     required_inputs = _closed_rule_required_inputs(value.get("required_inputs"))
     locked_inputs = _closed_rule_locked_inputs(value.get("locked_inputs"))
-    rule_refs = _closed_rule_decision_ref_list(
-        value.get("rule_refs"), prefix="rule:",
+    rule_refs = _closed_rule_ref_id_list(
+        value.get("rule_ref_ids"), table_size=rule_table_size, required=True,
     )
-    source_refs = _closed_rule_source_refs(value.get("source_refs"))
+    source_refs = _closed_rule_ref_id_list(
+        value.get("source_ref_ids"), table_size=source_table_size, required=True,
+    )
     effect_refs = _closed_rule_decision_ref_list(
         value.get("effect_refs"), prefix="effect:",
     )
@@ -1337,8 +1426,8 @@ def _compact_rule_decision_card(
         "applicability": "applicable",
         "required_inputs": required_inputs,
         "locked_inputs": locked_inputs,
-        "rule_refs": rule_refs,
-        "source_refs": source_refs,
+        "rule_ref_ids": rule_refs,
+        "source_ref_ids": source_refs,
         "capability_ref": capability_ref,
         "effect_refs": effect_refs,
         "possible_continuations": continuations,
@@ -1374,22 +1463,42 @@ def _compact_rule_decision_card_block(value: Any) -> dict[str, Any] | None:
         return None
     family = value["family"]
     authority = _closed_rule_block_authority(value.get("authority"))
-    if authority is None:
+    ref_table = _closed_rule_ref_table(value.get("ref_table"))
+    if authority is None or ref_table is None:
         return None
     cards = [
         projected
         for raw in value["cards"][:RULE_DECISION_CARD_LIMIT]
         if (
-            projected := _compact_rule_decision_card(raw, family=family)
+            projected := _compact_rule_decision_card(
+                raw,
+                family=family,
+                rule_table_size=len(ref_table["rule_refs"]),
+                source_table_size=len(ref_table["source_refs"]),
+            )
         ) is not None
     ]
     if not cards:
         return None
+    # Only keep the table members the surviving cards can still reach, and
+    # renumber their indexes so every id resolves inside this exact payload.
+    kept_rules = sorted({i for card in cards for i in card["rule_ref_ids"]})
+    kept_sources = sorted({i for card in cards for i in card["source_ref_ids"]})
+    rule_remap = {old: new for new, old in enumerate(kept_rules)}
+    source_remap = {old: new for new, old in enumerate(kept_sources)}
+    for card in cards:
+        card["rule_ref_ids"] = [rule_remap[i] for i in card["rule_ref_ids"]]
+        card["source_ref_ids"] = [source_remap[i] for i in card["source_ref_ids"]]
     return {
         "schema_version": 1,
         "family": family,
         "status": "ok",
         "cards": cards,
+        "ref_table": {
+            "rule_refs": [ref_table["rule_refs"][i] for i in kept_rules],
+            "source_refs": [ref_table["source_refs"][i] for i in kept_sources],
+            "resolution": ref_table["resolution"],
+        },
         "settle_operation": _operation_card(
             "rules.settle",
             missing=["decision_ref", "semantic_inputs", "decision_id"],

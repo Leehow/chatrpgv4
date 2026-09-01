@@ -744,12 +744,8 @@ Illustrative model-safe card:
     "pushed_status",
     "wound_ref"
   ],
-  "rule_refs": [
-    "rule:coc7:healing:first-aid-stabilization"
-  ],
-  "source_refs": [
-    "source:coc7:keeper-rulebook:page-120:first-aid"
-  ],
+  "rule_ref_ids": [0],
+  "source_ref_ids": [0],
   "capability_ref": "capability:coc7:first-aid",
   "effect_refs": [
     "effect:coc7:healing:temporary-stabilization"
@@ -768,6 +764,44 @@ Illustrative model-safe card:
 
 The card does not contain state hashes, receipt hashes, random IDs, file paths,
 secret prose, or model-authored numeric state.
+
+#### 8.4.1 Block-level `ref_table`
+
+A decision's `rule_refs` come from every rule reachable through the capability
+it invokes, so sibling decisions in one family repeat almost the same rule and
+source arrays. Measured on the production `coc7` graph, combat's 8 cards carried
+132 rule-ref occurrences over 22 distinct refs and 336 source-ref occurrences
+over 56 distinct refs: 21,346 of the block's 26,003 bytes were duplicated
+strings. The whole `rules.context` result then measured 27,131 bytes against the
+16,384-byte MCP inline cap, collapsed to an identity-only envelope, and reached
+the Keeper as `semantic_identity_unavailable` instead of cards.
+
+Every block that carries a family card set therefore hoists the distinct refs
+into one sibling `ref_table` and leaves zero-based indexes on each card:
+
+```json
+{
+  "cards": [{ "rule_ref_ids": [0], "source_ref_ids": [0, 1] }],
+  "ref_table": {
+    "rule_refs": ["rule:coc7:healing:first-aid-stabilization"],
+    "source_refs": [
+      "span-wounds-and-healing-page-131-block-18",
+      "span-wounds-and-healing-page-131-block-24"
+    ],
+    "resolution": "card.rule_ref_ids and card.source_ref_ids are zero-based indexes into ref_table.rule_refs and ref_table.source_refs in this same result"
+  }
+}
+```
+
+This is a transport shape, never a content cut. Every ref a card could
+previously reach is still reachable, and the indirection resolves inside the
+same payload — no second call, no host lookup. Blocks carrying the table are
+`rules.context` and the `scene.context` / recovery affordance block
+(`rule_decision_cards`). `rules.settle.next_decisions` keeps inline `rule_refs`:
+it is not a family card set and its measured envelopes stay far under the cap.
+`ref_table` members use exactly the closed ref grammars the cards used inline,
+so hoisting never widens what reaches the model. An index that does not resolve
+in the table fails the card closed, exactly as a malformed inline ref did.
 
 ### 8.5 Turn-scoped settlement schema
 
@@ -1594,8 +1628,8 @@ authorized by any current slice; it requires its own authorization.
 
 #### Future candidate B — applicability trace projection and graph-generated oracle tests
 
-Cards already carry `rule_refs` / `source_refs`. Two further projections are
-recorded as future candidates:
+Cards already reach their rule and source refs through the block `ref_table`
+(§8.4.1). Two further projections are recorded as future candidates:
 
 - a compact "why applicable" condition-evaluation trace for Keeper/audit
   surfaces;

@@ -7309,11 +7309,15 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
         key: value for key, value in result.items()
         if key not in {"card_grant", "findings"}
     }
-    public["cards"] = [
+    # Sibling decisions in one family repeat nearly identical rule/source ref
+    # arrays; inline they pushed combat's card set past the MCP inline cap and
+    # the Keeper got an identity-only error instead of cards.  Hoist the
+    # distinct refs into one table and leave resolvable indexes on each card.
+    public["cards"], public["ref_table"] = coc_rules_runtime.hoist_card_ref_table([
         coc_rules_runtime.public_card_projection(card)
         for card in (public.get("cards") or [])
         if isinstance(card, Mapping)
-    ]
+    ])
     return public, [], []
 
 

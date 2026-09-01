@@ -2026,6 +2026,104 @@ class RulesRuntime:
         return envelope
 
 
+# -- card ref table (transport shape, not a content cut) -------------------- #
+#
+# ``_rules_for`` binds a decision to every rule reachable through the
+# capability it invokes, so sibling decisions in one family repeat almost the
+# same ``rule_refs``/``source_refs`` arrays.  Measured on the production
+# coc7 graph, combat's 8 cards carry 132 rule-ref occurrences over 22 distinct
+# refs and 336 source-ref occurrences over 56 distinct refs: 21,346 of the
+# block's 26,003 bytes are duplicated strings.  That pushed the whole
+# ``rules.context`` result past the MCP inline cap, where it collapsed to an
+# identity-only envelope and reached the Keeper as an error instead of cards.
+#
+# Hoisting the distinct refs into one envelope-level table and leaving
+# zero-based indexes on each card keeps every ref the Keeper could previously
+# read -- the indirection resolves inside the same payload -- while removing
+# the duplication.  This is a transport shape, never a content cut.
+CARD_REF_TABLE_RESOLUTION = (
+    "card.rule_ref_ids and card.source_ref_ids are zero-based indexes into "
+    "ref_table.rule_refs and ref_table.source_refs in this same result"
+)
+
+
+def hoist_card_ref_table(
+    cards: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Replace per-card ref arrays with indexes into one envelope-level table.
+
+    Returns ``(cards, ref_table)``.  Card order and every other field are
+    preserved; ``rule_refs``/``source_refs`` become ``rule_ref_ids`` /
+    ``source_ref_ids``.  Refs keep first-seen order so the projection stays
+    deterministic for a deterministic card list.
+
+    The ``isinstance(ref, str)`` guards are defensive, not a filter that can
+    lose real refs: ``_rules_for`` returns ``sorted(str(...))`` and
+    ``_source_refs_for`` already admits only ``str`` spans, so every ref the
+    graph produces is a string.  The wire and the Pi identity projection
+    re-validate the table's grammar independently.
+    """
+    rule_table: list[str] = []
+    source_table: list[str] = []
+    rule_index: dict[str, int] = {}
+    source_index: dict[str, int] = {}
+    projected: list[dict[str, Any]] = []
+    for card in cards:
+        if not isinstance(card, Mapping):
+            continue
+        row = {
+            key: value for key, value in card.items()
+            if key not in {"rule_refs", "source_refs"}
+        }
+        rule_ids: list[int] = []
+        for ref in card.get("rule_refs") or []:
+            if not isinstance(ref, str):
+                continue
+            if ref not in rule_index:
+                rule_index[ref] = len(rule_table)
+                rule_table.append(ref)
+            rule_ids.append(rule_index[ref])
+        source_ids: list[int] = []
+        for ref in card.get("source_refs") or []:
+            if not isinstance(ref, str):
+                continue
+            if ref not in source_index:
+                source_index[ref] = len(source_table)
+                source_table.append(ref)
+            source_ids.append(source_index[ref])
+        row["rule_ref_ids"] = rule_ids
+        row["source_ref_ids"] = source_ids
+        projected.append(row)
+    ref_table = {
+        "rule_refs": rule_table,
+        "source_refs": source_table,
+        "resolution": CARD_REF_TABLE_RESOLUTION,
+    }
+    return projected, ref_table
+
+
+def resolve_card_refs(
+    card: Mapping[str, Any], ref_table: Mapping[str, Any] | None,
+) -> dict[str, list[str]]:
+    """Inverse of :func:`hoist_card_ref_table` for one card.
+
+    Consumers that want the flat arrays back (tests, exporters, any host that
+    prefers inline refs) resolve them from the same payload.
+    """
+    rule_table = list((ref_table or {}).get("rule_refs") or [])
+    source_table = list((ref_table or {}).get("source_refs") or [])
+    return {
+        "rule_refs": [
+            rule_table[i] for i in (card.get("rule_ref_ids") or [])
+            if isinstance(i, int) and 0 <= i < len(rule_table)
+        ],
+        "source_refs": [
+            source_table[i] for i in (card.get("source_ref_ids") or [])
+            if isinstance(i, int) and 0 <= i < len(source_table)
+        ],
+    }
+
+
 def public_card_projection(card: Mapping[str, Any]) -> dict[str, Any]:
     """Strip host-only grant fields; keep semantic card identity."""
     row = _thaw(card)
@@ -2058,6 +2156,11 @@ def project_family_cards(
         "investigator_id": investigator_id,
         "status": "no_candidate_in_compiled_scope",
         "cards": [],
+        "ref_table": {
+            "rule_refs": [],
+            "source_refs": [],
+            "resolution": CARD_REF_TABLE_RESOLUTION,
+        },
         "authority": {
             "hard_gate": False,
             "role": "affordance",
@@ -2073,12 +2176,14 @@ def project_family_cards(
         for card in (result.get("cards") or [])
         if isinstance(card, Mapping)
     ][:8]
+    cards, ref_table = hoist_card_ref_table(cards)
     return {
         "schema_version": RulesRuntime.SCHEMA_VERSION,
         "family": family,
         "investigator_id": investigator_id,
         "status": result.get("status") or ("ok" if cards else "no_candidate_in_compiled_scope"),
         "cards": cards,
+        "ref_table": ref_table,
         "authority": {
             "hard_gate": False,
             "role": "affordance",
