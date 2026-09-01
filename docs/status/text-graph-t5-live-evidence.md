@@ -118,3 +118,26 @@ the mechanics placement order both ran on live T4 code.
 `settle_class=not_settled` in the driver's own classification is a driver
 verdict about its evidence probe, not a finalization failure: `turn.finalize`
 returned `ok=true` and `turn-finalizations.jsonl` holds the accepted record.
+
+### 5. A turn that ran twenty tools and delivered nothing to the player
+
+Turn 4 (`turn-p-53f8a7db2e70`) classified `undelivered_settle_with_tools`: the
+KP called tools, produced no player-visible output, and added no finalization.
+The failures were repeats of the same error class:
+
+| operation | failures | error |
+| --- | ---: | --- |
+| `rules.settle` | 4 | `invalid_semantic_input`, then `unknown_semantic_input` ×3 |
+| `state.move_scene` | 3 | `missing_param` ×3 |
+| `mechanics.ensure` | 1 | `mechanics_source_unavailable` |
+
+The shape worth recording is the retry pattern: three identical `missing_param`
+failures on `state.move_scene` and three identical `unknown_semantic_input`
+failures on `rules.settle`. The error told the KP that something was wrong but
+evidently not enough to change what it sent, and the turn ended with the player
+receiving silence.
+
+This is a product observation about error actionability, not a TextGraph
+finding — none of these operations is in the text layer, and the text layer's
+own calls in the same turn (`turn.output_context`, `turn.finalize`) were the
+ones that succeeded. Recorded, not repaired.
