@@ -4021,9 +4021,12 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   )],
   ["mechanics.ensure", declaredIdentityTable(
     // The fallback archetype is a Keeper-chosen word ("capable_adult"), not
-    // a handle.
-    ["actor_id", "affordance_id", "fallback_archetype_id", "stable_id",
-      "subject_id"],
+    // a handle. The ensured profile echoes the resolved one back as
+    // `profile.archetype_id`, which was never an input and so no input-echo
+    // check could have found it: ensuring a ghost's combat profile mid-fight
+    // failed the whole result closed on it (2026-09-01, live).
+    ["actor_id", "affordance_id", "archetype_id", "fallback_archetype_id",
+      "stable_id", "subject_id"],
     ["content_sha256"],
     ["monster_ref"],
   )],
@@ -7847,9 +7850,20 @@ function isNamespacedSemantic(
   // host-minted from three-letter CoC characteristics (CON, DEX, POW, SAN,
   // etc.); those exact live handles remain registry-resolved and therefore
   // use a three-character minimum. Other ASCII namespaces keep four.
+  //
+  // `characteristic:` needs that same three-character floor for the same
+  // stated reason, and having only `roll:` carry it made the namespace
+  // unusable: EVERY CoC7 characteristic abbreviation is exactly three letters
+  // (STR CON SIZ DEX APP INT POW EDU, and Luck), so `characteristic:pow`
+  // failed on length alone. `actor_check_ref` and `combined_target_refs`
+  // explicitly allow that namespace, so the allowance contradicted itself and
+  // no characteristic-based opposed or combined check could be settled at all.
+  // Found live on 2026-09-01: the Keeper rolled POW against a ghost, was told
+  // "must use its closed semantic form: namespace `skill:`, `characteristic:`
+  // only", retried with exactly that form, and was refused again.
   const minimum = /[\u3400-\u9fff]/.test(remainder)
     ? 2
-    : namespace === "roll:" ? 3 : 4;
+    : (namespace === "roll:" || namespace === "characteristic:") ? 3 : 4;
   if (remainder.length < minimum) return false;
   return remainder.split(":").every((segment) => isSemanticSlugShape(segment));
 }
