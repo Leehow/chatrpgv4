@@ -3764,6 +3764,15 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       "source_digest", "full_capsule_sha256", "data_digest", "row_digest",
       "content_sha256", "contract_projection_sha256",
     ],
+    // Not integrity evidence: the opening gate carries the exact setup route
+    // a prior action must have taken ("investigator.create:guided_quick_fire").
+    // `projectDiscoveredIdentityValue` claims any field whose name carries the
+    // `receipt` infra token before any declaration is consulted, so a semantic
+    // declaration cannot rescue it and the whole resume result failed closed —
+    // on the one operation a host restart depends on. Host-only stops that;
+    // renaming the producer field in `pi/lib/opening-setup-machine.ts` to say
+    // "route" is the real fix.
+    ["requires_current_opening_receipt"],
   )],
   ["scene.map", declaredIdentityTable(
     ["active_scene_id", "progressive_asset_root_id", "scene_id"],
@@ -3783,7 +3792,14 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   )],
   ["npc.query", declaredIdentityTable(
     [
-      "campaign_id", "clue_id", "deflect_id", "fact_id", "known_fact_ids", "npc_id",
+      // `lie_id` is the exact counterpart of the already-declared
+      // `deflect_id`: both name one authored option row the producer emits
+      // beside a fact. Only `deflect_id` was declared, so any NPC authored
+      // with a lie failed the whole result closed with
+      // `semantic_identity_unavailable`. It was invisible while the oversize
+      // roster collapsed before this projection ever saw the options.
+      "campaign_id", "clue_id", "deflect_id", "fact_id", "known_fact_ids",
+      "lie_id", "npc_id",
       "revealable_fact_ids", "schedule_id", "subject_id",
       "valid_optional_evidence_refs",
     ],
@@ -3803,7 +3819,19 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   )],
   ["setup.phase", declaredIdentityTable(["asset_root_id", "campaign_id"], [])],
   ["setup.adopt_source_facts", declaredIdentityTable(["campaign_id"], [])],
-  ["setup.investigator_contract", declaredIdentityTable(["campaign_id"], [])],
+  ["setup.investigator_contract", declaredIdentityTable(
+    // The ruleset the contract is bound to ("coc7") is an ordinary slug.
+    ["campaign_id", "ruleset_id"],
+    [],
+    // These two are NOT refs. They carry the ruleset's free-prose citation
+    // ("Keeper Rulebook p.48 / PDF index 59"), which cannot pass the closed
+    // semantic grammar no matter how it is declared, so an undeclared one
+    // failed the whole character-creation contract closed. Host-only stops
+    // that; the real fix is renaming the producer field in
+    // `rulesets/coc7/resolver.py` out of the `_ref` grammar, which is a
+    // shared-ruleset change and not in this sweep's scope.
+    ["starting_skill_cap_source_ref", "standard_sheet_source_ref"],
+  )],
   ["setup.quick_start", declaredIdentityTable(
     ["campaign_id", "decision_id", "pregen_id", "scenario_id", "state_refs"],
     [],
@@ -3924,6 +3952,16 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ],
     ["request_digest"],
     ["command_id", "source_command_id", "state_refs"],
+  )],
+  // `state.npc_update` had no entry at all, so even `npc_id` — the most
+  // ordinary authored slug in the system — failed the whole result closed.
+  // Dispositions follow `npc.query`, which reads back the very impression
+  // this operation writes: authored slugs stay semantic, digest-bearing
+  // handles stay host-only.
+  ["state.npc_update", declaredIdentityTable(
+    ["npc_id", "promise_id"],
+    [],
+    ["memory_id", "source_ref"],
   )],
   ["state.advance_time", declaredIdentityTable(
     ["civil_segment_id", "location_id", "source_ref"],
