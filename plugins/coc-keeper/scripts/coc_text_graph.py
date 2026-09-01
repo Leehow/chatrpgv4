@@ -79,21 +79,36 @@ SEMANTIC_ID_RE = re.compile(str(CONTRACT["semantic_id_pattern"]))
 EXTERNAL_TARGET_RELATION_KINDS = frozenset({"renders-settled-output"})
 
 
+_RULE_EFFECT_CACHE: dict[str, str] | None = None
+
+
+def reset_rule_effect_cache() -> None:
+    """Drop the parsed RuleGraph (tests point at a patched artifact)."""
+    global _RULE_EFFECT_CACHE
+    _RULE_EFFECT_CACHE = None
+
+
 def _renderable_rule_effects() -> dict[str, str]:
     """Return {effect node id: visibility} from the production RuleGraph.
 
     Read live, so an effect that is renamed, removed, or reclassified in the
     RuleGraph breaks the TextGraph build instead of leaving a stale edge.
+    Cached per process: the artifact is 2.3MB, and acceptance validates one
+    edge at a time, so an uncached read would reparse it per edge.
     """
+    global _RULE_EFFECT_CACHE
+    if _RULE_EFFECT_CACHE is not None:
+        return _RULE_EFFECT_CACHE
     try:
         graph = json.loads(RULE_GRAPH_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
-    return {
+    _RULE_EFFECT_CACHE = {
         str(node["node_id"]): str(node.get("visibility") or "")
         for node in graph.get("nodes") or []
         if isinstance(node, dict) and node.get("node_kind") == "effect"
     }
+    return _RULE_EFFECT_CACHE
 
 # --------------------------------------------------------------------------
 # Frozen legacy declarations being migrated out of coc_turn_finalization.py.
