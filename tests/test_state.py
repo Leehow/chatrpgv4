@@ -251,12 +251,15 @@ def test_create_campaign_persists_play_language(tmp_path):
 
     assert default_campaign["play_language"] == "zh-Hans"
     assert default_campaign["localized_terms"] == {"zh-Hans": {}}
-    assert default_campaign["language_profile"]["language"] == "zh-Hans"
-    assert "Chinese transliterations" in default_campaign["language_profile"]["name_policy"]
     assert custom_campaign["play_language"] == "ja-JP"
     assert custom_campaign["localized_terms"] == {"ja-JP": {}}
-    assert custom_campaign["language_profile"]["language"] == "ja-JP"
-    assert "localized_terms.ja-JP" in custom_campaign["language_profile"]["term_policy"]
+    # Regression guard: campaigns persist the play language and the term
+    # vocabulary, never a `language_profile` label bundle.  Every key that
+    # bundle carried had zero production readers; player-visible prose is
+    # written by the Keeper in the player's own language instead.  See
+    # docs/status/play-language-layer-is-unnecessary.md before restoring it.
+    assert "language_profile" not in default_campaign
+    assert "language_profile" not in custom_campaign
 
 
 def test_create_campaign_initializes_resume_state_files(tmp_path):
@@ -319,17 +322,6 @@ def test_create_campaign_initializes_resume_state_files(tmp_path):
         "turn_number": 0,
         "luck_spent_last": 0,
     }
-
-
-def test_custom_language_profiles_are_independent_copies():
-    first = coc_language.language_profile("fr-FR")
-    first["speaker_labels"]["player"] = "joueur"
-
-    second = coc_language.language_profile("fr-FR")
-    english = coc_language.language_profile("en-US")
-
-    assert second["speaker_labels"]["player"] == "Player"
-    assert english["speaker_labels"]["player"] == "Player"
 
 
 def test_append_jsonl_and_snapshot(tmp_path):

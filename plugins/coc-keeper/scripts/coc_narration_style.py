@@ -339,33 +339,20 @@ def player_facing_style_contract(language: str = "zh-Hans") -> dict[str, Any]:
         ),
     }
     guard = player_visible_style_guard_contract(language)
-    if language == "zh-Hans":
-        return {
-            "language": "zh-Hans",
-            "deterministic_guard": "non_authoritative_surface_smoke",
-            "register": "natural_tabletop_narration",
-            "avoid": [
-                "translationese",
-                "ai_summary_voice",
-                "log_style_summary",
-                "semantic_repetition",
-                "abstract_psychological_explanation",
-            ],
-            "prefer": [
-                "short_sentences",
-                "concrete_sensory_detail",
-                "observable_behavior",
-                "open_ended_prompt",
-            ],
-            "repetition_policy": repetition_policy,
-            "style_guard": guard,
-            "render_contract": crisis_scene_render_contract(language),
-        }
+    zh = language == "zh-Hans"
     return {
         "language": language,
-        "deterministic_guard": "unavailable",
+        # The deterministic surface-smoke checks below are written against
+        # Chinese writing habits and have no equivalent for other languages.
+        "deterministic_guard": (
+            "non_authoritative_surface_smoke" if zh else "unavailable"
+        ),
         "register": "natural_tabletop_narration",
-        "avoid": [
+        "avoid": (
+            # `translationese` is a zh-specific craft failure: prose that reads
+            # as translated-from-English rather than natively written.
+            ["translationese"] if zh else []
+        ) + [
             "ai_summary_voice",
             "log_style_summary",
             "semantic_repetition",
@@ -380,6 +367,19 @@ def player_facing_style_contract(language: str = "zh-Hans") -> dict[str, Any]:
         "repetition_policy": repetition_policy,
         "style_guard": guard,
         "render_contract": crisis_scene_render_contract(language),
+        "output_language": {
+            "play_language": language,
+            "instruction": (
+                "Write every player-visible sentence in the language the player "
+                "is using. The campaign's declared play_language is the default; "
+                "when the player writes in another language, follow the player "
+                "rather than the declared default. This is a writing "
+                "instruction, not a lookup: there is no translation table to "
+                "consult and no supported-language list to stay inside. "
+                "Machine-facing identifiers, JSON keys, canonical skill keys, "
+                "and stable ids stay canonical in every language."
+            ),
+        },
     }
 
 

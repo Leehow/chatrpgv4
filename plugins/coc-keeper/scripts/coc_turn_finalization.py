@@ -253,15 +253,6 @@ def _campaign_player_terms(campaign_dir: Path, play_language: str | None = None)
     )
 
 
-def _infer_play_language_from_rendered(rendered_text: str) -> str:
-    """Best-effort language recovery for validating stored finalization receipts."""
-    if "【Public roll】" in rendered_text or "【Change】" in rendered_text:
-        return "en-US"
-    if "【公開ロール】" in rendered_text or "【変化】" in rendered_text:
-        return "ja-JP"
-    return coc_language.DEFAULT_PLAY_LANGUAGE
-
-
 def _structured_skill_labels(
     campaign_dir: Path, investigator_id: str, play_language: str
 ) -> dict[str, str]:
@@ -568,12 +559,9 @@ def _valid_finalization_contract(
         return False
     source_lines: dict[str, dict[str, str]] = {}
     try:
-        play_language = _infer_play_language_from_rendered(
-            str(row.get("rendered_text") or "")
-        )
-        source_lines = _mechanic_source_lines(
-            row["bundle"], play_language=play_language
-        )
+        # Only the source-id keys are read below; the rendered values are
+        # discarded, so this validation is language-independent.
+        source_lines = _mechanic_source_lines(row["bundle"])
         expected_sources = {
             (segment_type, source_id)
             for segment_type, values in source_lines.items()
@@ -4370,9 +4358,7 @@ def replay_matches(
         play_language = (
             _campaign_play_language(campaign_dir)
             if campaign_dir is not None
-            else _infer_play_language_from_rendered(
-                str(receipt.get("rendered_text") or "")
-            )
+            else coc_language.DEFAULT_PLAY_LANGUAGE
         )
         _segments, rendered, _placements = compose_segments(
             draft,
