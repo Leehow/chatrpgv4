@@ -40,6 +40,58 @@ KP_SURFACES = frozenset({
     "none",
 })
 DISCOVERY_MODES = frozenset({"surface", "exact"})
+
+# Host-private operations (`kp_surface: "none"`) that the model may still
+# reach through the hidden `coc_invoke` compatibility wrapper. Every other
+# host-private operation has NO model-facing invocation at all: the Pi execute
+# ACL refuses it with `host_private_operation`, so nothing may advertise one.
+#
+# This list is canonical here and projected into
+# `pi/lib/operation-policy.generated.ts`; the Pi ACL and the wire-projection
+# replay cards must not keep separate copies that can drift apart.
+HOST_INVOKE_COMPAT_OPERATIONS = frozenset({
+    "progressive.project_opening",
+    "progressive.register_source_bundle",
+    "progressive.request_locator_pass",
+    "progressive.request_opening_pack",
+    "progressive.retry_full_parse",
+    "progressive.status",
+    "session.begin",
+    "session.continuation_detail",
+    "session.delivery_ack",
+})
+
+# Model-facing wrapper tool for each non-`none` KP surface. A replay card for
+# an operation on one of these surfaces names its domain tool, never
+# `coc_invoke` (which is the host-private compatibility wrapper).
+_TOOL_BY_KP_SURFACE: dict[str, str] = {
+    "context": "coc_context",
+    "rules": "coc_rules",
+    "state": "coc_state",
+    "npc": "coc_npc",
+    "turn": "coc_turn",
+    "setup": "coc_setup",
+    "advice": "coc_advice",
+    "subsystem": "coc_subsystem",
+}
+
+
+def model_invocation_tool(operation: str) -> str | None:
+    """Tool the model may invoke ``operation`` through, or None if host-private.
+
+    ``None`` means the operation has no model-facing invocation: it is
+    ``kp_surface: "none"`` and outside the ``coc_invoke`` compatibility set.
+    Callers building a model-facing replay/continuation card MUST NOT invent
+    one; the Pi execute ACL will refuse it and the model spends a round trip
+    discovering that.
+    """
+    surface = str(policy_for_operation(operation).get("kp_surface") or "none")
+    if surface != "none":
+        return _TOOL_BY_KP_SURFACE.get(surface)
+    if operation in HOST_INVOKE_COMPAT_OPERATIONS:
+        return "coc_invoke"
+    return None
+
 _RULESET_POLICY_OVERRIDES: dict[str, dict[str, Any]] | None = None
 
 # Domain defaults apply to every registered operation in that prefix.

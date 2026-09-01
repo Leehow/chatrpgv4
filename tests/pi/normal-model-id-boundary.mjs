@@ -54,6 +54,9 @@ const {
 } = await import(
   path.join(root, "plugins/coc-keeper/pi/lib/tool-contract-projection.ts")
 );
+const { isTypedOperationTool } = await import(
+  path.join(root, "plugins/coc-keeper/pi/lib/typed-tools.ts")
+);
 
 const FAMILIES = JSON.parse(
   readFileSync(
@@ -974,9 +977,14 @@ for (const [family, envelope] of CANONICAL_FAMILIES) {
   assert.equal(out.data.passed, false);
   // Hints are Pi-authored from structured fields; canonical hint prose is
   // never parsed or relayed, so no opaque cache/session tokens can appear.
+  // The Pi-authored hint names the graph decision. Legacy `rules.push` is
+  // `kp_surface: "none"` after the ten-family cutover, so a hint naming it
+  // would send the Keeper into a refused call on the exact failure path where
+  // it is looking for the next move.
   assert.deepEqual(out.hints, [
     "failed: the player may push this roll with a changed method and an "
-      + "announced consequence (rules.push)",
+      + "announced consequence (rules.settle with decision_ref "
+      + "decision:coc7:push-luck:pushed-roll)",
   ]);
 }
 {
@@ -1823,6 +1831,11 @@ assertModelSafeContent(
 // wire to an identity-only replay card. Its projection digest remains
 // host-only, while the replay operation must survive the FIRST response so
 // the model does not repeat an already-authoritative combat mutation.
+//
+// Since the ten-family RuleGraph cutover, combat.end is `kp_surface: "none"`
+// and outside the coc_invoke compatibility set: it has NO model-facing
+// invocation. The card must therefore name the operation without advertising
+// one, and a direct coc_invoke must be refused rather than silently accepted.
 {
   const combatProjectionDigest = `sha256:${"9".repeat(64)}`;
   const combatEndCanonical = {
@@ -1844,7 +1857,8 @@ assertModelSafeContent(
       projection_sha256: combatProjectionDigest,
       replay_operation: {
         operation: "combat.end",
-        invoke_via: "coc_invoke",
+        invoke_via: null,
+        model_invocable: false,
         prefilled_arguments: {},
         missing_arguments: [],
         authority: "advisory",
@@ -1862,16 +1876,35 @@ assertModelSafeContent(
   const callsBefore = clientCalls.filter(
     (call) => call.operation === "combat.end",
   ).length;
-  const combatEndResult = await executeTool("coc_invoke", {
-    operation: "combat.end",
-    root: testRoot,
-    campaign,
-    arguments: {
-      outcome: "investigator escaped the confrontation",
-      decision_id: "combat-end-corbitt-escape-v1",
-    },
-  });
-  const combatEndVisible = JSON.parse(modelContents.at(-1).text);
+  // The model has no route to a host-private operation. Attempting the hidden
+  // compatibility wrapper must fail closed at the ACL, and must not reach the
+  // canonical client.
+  await assert.rejects(
+    () => executeTool("coc_invoke", {
+      operation: "combat.end",
+      root: testRoot,
+      campaign,
+      arguments: {
+        outcome: "investigator escaped the confrontation",
+        decision_id: "combat-end-corbitt-escape-v1",
+      },
+    }),
+    /combat\.end is not on the live KP domain surface/,
+    "a host-private operation has no coc_invoke route",
+  );
+  assert.equal(
+    clientCalls.filter((call) => call.operation === "combat.end").length,
+    callsBefore,
+    "a refused host-private call must not reach the canonical client",
+  );
+  // The identity-only projection of that same canonical result still hides the
+  // digest and still names the operation — it just does not invite a call.
+  const combatEndVisible = projectModelVisibleCanonicalResult(
+    "combat.end",
+    combatEndCanonical,
+    null,
+    { unmapped: [] },
+  );
   assert.equal(combatEndVisible.ok, true, JSON.stringify(combatEndVisible));
   assert.equal(combatEndVisible.data.projection_sha256, undefined);
   assert.equal(
@@ -1879,12 +1912,12 @@ assertModelSafeContent(
     "combat.end",
   );
   assert.equal(
-    clientCalls.filter((call) => call.operation === "combat.end").length,
-    callsBefore + 1,
-    "the first authoritative combat.end result must remain usable",
+    combatEndVisible.data.replay_operation.invoke_via,
+    null,
+    "a host-private replay card must not advertise an invocation",
   );
-  assert.ok(!modelContents.at(-1).text.includes(combatProjectionDigest));
-  assert.deepEqual(combatEndResult.details, combatEndCanonical);
+  assert.equal(combatEndVisible.data.replay_operation.model_invocable, false);
+  assert.ok(!JSON.stringify(combatEndVisible).includes(combatProjectionDigest));
   assertModelSafeContent("combat.end identity-only content", combatEndVisible);
 }
 // Random dice and opposed checks are authoritative rolls too. Their exact
@@ -1921,9 +1954,25 @@ assertModelSafeContent(
   assert.equal(randomResult.details.data.roll_id, randomCanonicalId);
   assertModelSafeContent("rules.roll_dice content", randomVisible);
 
+  // `rules.opposed` is host-private since the ten-family cutover: core-check
+  // is graph-owned and its legacy surface is hidden, so there is no typed tool
+  // and no coc_invoke route. The Keeper reaches an opposed check through
+  // rules.settle / decision:coc7:core-check:opposed-check.
+  //
+  // The invariant this block guards is unchanged and still worth guarding: one
+  // canonical opposed settlement yields one usable model result whose two
+  // canonical roll ids are replaced by distinct semantic handles. It is now
+  // asserted on the projection directly, because the operation has no
+  // model-facing tool to drive it through.
   const investigatorRollId = "toolbox-live-rules-000102";
   const opponentRollId = "toolbox-live-rules-000103";
-  routeOperation("rules.opposed", {
+  assert.equal(
+    isTypedOperationTool("coc_rules_opposed"),
+    false,
+    "rules.opposed has no typed tool after the core-check cutover",
+  );
+  assert.equal(tools.get("coc_rules_opposed"), undefined);
+  const opposedCanonical = {
     ok: true,
     tool: "rules.opposed",
     data: {
@@ -1947,339 +1996,120 @@ assertModelSafeContent(
       investigator_roll_id: investigatorRollId,
       opponent_roll_id: opponentRollId,
     },
-  });
-  const opposedCallsBefore = clientCalls.filter(
-    (call) => call.operation === "rules.opposed",
-  ).length;
-  const opposedResult = await executeTool("coc_rules_opposed", {
-    campaign,
-    contest_kind: "noncombat",
-    decision_id: "roll-stealth-vs-guard-v1",
-    investigator: CURRENT_INVESTIGATOR_HANDLE,
-    skill: "Stealth",
-    opponent_value: 55,
-    opponent_label: "守卫侦查",
-    reason: "潜行避开守卫",
-  });
-  const opposedVisible = JSON.parse(modelContents.at(-1).text);
+  };
+  const opposedView = {
+    ...emptySemanticProjectionView(),
+    investigators: new Map([
+      ["inv-x6a217e22-e0532209", CURRENT_INVESTIGATOR_HANDLE],
+    ]),
+    rolls: new Map([
+      [investigatorRollId, "roll:stealth-vs-guard-investigator"],
+      [opponentRollId, "roll:stealth-vs-guard-opponent"],
+    ]),
+  };
+  const opposedDiagnostics = { unmapped: [] };
+  const opposedVisible = projectModelVisibleCanonicalResult(
+    "rules.opposed",
+    opposedCanonical,
+    opposedView,
+    opposedDiagnostics,
+  );
   assert.equal(opposedVisible.ok, true, JSON.stringify(opposedVisible));
+  assert.deepEqual(opposedDiagnostics.unmapped, []);
   assert.match(opposedVisible.data.investigator_roll_id, /^roll:/);
   assert.match(opposedVisible.data.opponent_roll_id, /^roll:/);
   assert.notEqual(
     opposedVisible.data.investigator_roll_id,
     opposedVisible.data.opponent_roll_id,
   );
-  assert.equal(
-    clientCalls.filter((call) => call.operation === "rules.opposed").length,
-    opposedCallsBefore + 1,
-    "one canonical opposed settlement must yield one usable model result",
-  );
-  assert.ok(!modelContents.at(-1).text.includes(investigatorRollId));
-  assert.ok(!modelContents.at(-1).text.includes(opponentRollId));
-  assert.equal(
-    opposedResult.details.data.investigator_roll_id,
-    investigatorRollId,
-  );
+  const opposedRendered = JSON.stringify(opposedVisible);
+  assert.ok(!opposedRendered.includes(investigatorRollId));
+  assert.ok(!opposedRendered.includes(opponentRollId));
   assertModelSafeContent("rules.opposed content", opposedVisible);
 }
 // SAN typed tools expose only semantic cause/loss/trigger data. Host-owned
 // idempotency and subsystem command identity never reach the model schema.
 {
-  const flatTool = tools.get("coc_rules_sanity_check");
+  // `rules.sanity_check` is host-private since the sanity family cutover, so
+  // there is no typed tool to inspect or drive. Its model-visible projection —
+  // semantic cause/loss/trigger data only, with every canonical session roll id
+  // replaced by a `roll:` handle — is asserted directly on the projector
+  // earlier in this file, where a populated roll view makes the mapping
+  // observable without a tool round trip.
   assert.equal(
-    Object.hasOwn(flatTool.parameters.properties, "decision_id"),
+    isTypedOperationTool("coc_rules_sanity_check"),
     false,
+    "rules.sanity_check has no typed tool after the sanity cutover",
   );
-  routeOperation("rules.sanity_check", {
-    ok: true,
-    tool: "rules.sanity_check",
-    data: {
-      source: "目睹床自行移动",
-      check: {
-        skill: "SAN",
-        roll: 42,
-        outcome: "regular",
-        trigger_id: "bed-moves",
-        san_loss: 1,
-      },
-      san_before: 60,
-      san_after: 59,
-      san_loss: 1,
-      trigger_id: "bed-moves",
-      session_roll_ids: [
-        "toolbox-live-san-000001",
-        "toolbox-live-san-000002",
-        "toolbox-live-san-000003",
-      ],
-      check_roll_id: "toolbox-live-san-000001",
-      loss_roll_id: "toolbox-live-san-000002",
-      phobia_roll_id: "toolbox-live-san-000003",
-      session_events: [{
-        event_id: "se1",
-        event_type: "sanity",
-        summary: "SAN 60->59 (lost 1).",
-      }],
-    },
-  });
-  await executeTool("coc_rules_sanity_check", {
-    campaign,
-    investigator: CURRENT_INVESTIGATOR_HANDLE,
-    source: "目睹床自行移动",
-    trigger_id: "bed-moves",
-    loss_success: "1",
-    loss_failure: "1D4",
-  });
-  const flatCall = clientCalls.filter((call) => (
-    call.operation === "rules.sanity_check"
-  )).at(-1);
-  assert.match(flatCall.arguments.decision_id, /^pi-rules-sanity_check:bed-moves:/);
-  const flatVisible = JSON.parse(modelContents.at(-1).text);
-  assert.equal(flatVisible.ok, true, JSON.stringify(flatVisible));
-  assert.match(flatVisible.data.check_roll_id, /^roll:/);
-  assert.match(flatVisible.data.loss_roll_id, /^roll:/);
-  assert.match(flatVisible.data.phobia_roll_id, /^roll:/);
-  assert.deepEqual(
-    flatVisible.data.session_roll_ids.sort(),
-    [
-      flatVisible.data.check_roll_id,
-      flatVisible.data.loss_roll_id,
-      flatVisible.data.phobia_roll_id,
-    ].sort(),
-  );
-  assert.equal(flatVisible.data.san_before, 60);
-  assert.equal(flatVisible.data.san_after, 59);
-  assert.equal(flatVisible.data.session_events[0].summary, "SAN 60->59 (lost 1).");
-  assert.ok(!("event_id" in flatVisible.data.session_events[0]));
+  assert.equal(tools.get("coc_rules_sanity_check"), undefined);
 
-  const sanityTool = tools.get("coc_sanity_execute");
+  // `sanity.execute` is host-private for the same reason: the sanity family is
+  // graph-owned, so the subsystem command surface is no longer Keeper-facing.
+  // Host-owned command identity (command_id / kind / phase / payload
+  // decision_id) is therefore not a model schema question any more — nothing
+  // presents that schema to the model at all.
   assert.equal(
-    Object.hasOwn(sanityTool.parameters.properties, "decision_id"),
+    isTypedOperationTool("coc_sanity_execute"),
     false,
+    "sanity.execute has no typed tool after the sanity cutover",
   );
-  const sanityCommand = sanityTool.parameters.properties.command;
-  assert.ok(Array.isArray(sanityCommand.oneOf));
-  const checkBranch = sanityCommand.oneOf.find((branch) => (
-    branch.properties?.payload?.properties?.san_loss_fail_expr
-  ));
-  assert.ok(checkBranch);
-  assert.equal(Object.hasOwn(checkBranch.properties, "command_id"), false);
-  assert.equal(Object.hasOwn(checkBranch.properties, "phase"), false);
-  assert.equal(Object.hasOwn(checkBranch.properties, "kind"), false);
-  assert.equal(
-    Object.hasOwn(checkBranch.properties.payload.properties, "decision_id"),
-    false,
-  );
+  assert.equal(tools.get("coc_sanity_execute"), undefined);
 
-  routeOperation("sanity.execute", {
-    ok: true,
-    tool: "sanity.execute",
-    data: {
-      schema_version: 1,
-      authority: "deterministic_subsystem",
-      results: [],
-    },
-  });
-  await executeTool("coc_sanity_execute", {
-    campaign,
-    investigator: CURRENT_INVESTIGATOR_HANDLE,
-    command: {
-      payload: {
-        source: "目睹床自行移动",
-        trigger_id: "bed-moves",
-        san_loss_success: 1,
-        san_loss_fail_expr: "1D4",
-      },
-    },
-  });
-  const sanityCall = clientCalls.filter((call) => (
-    call.operation === "sanity.execute"
-  )).at(-1);
-  assert.match(
-    sanityCall.arguments.decision_id,
-    /^pi-sanity-execute:sanity_check:bed-moves:/,
-  );
-  assert.equal(
-    sanityCall.arguments.command.command_id,
-    sanityCall.arguments.decision_id,
-  );
-  assert.equal(sanityCall.arguments.command.kind, "sanity_check");
-  assert.equal(sanityCall.arguments.command.phase, "resolve");
-  assert.equal(
-    sanityCall.arguments.command.payload.decision_id,
-    sanityCall.arguments.decision_id,
-  );
-
+  // The sanity bout surface was Keeper-facing before the cutover: the Keeper
+  // read `sanity.context` for pending bout choices and drove them through
+  // `sanity.execute`. Both are host-private now, so the armed-choice schema,
+  // the semantic choice handles and the stale-choice transport guard no longer
+  // have a model-facing surface to assert against.
+  //
+  // What still matters is the leak invariant: if a sanity context is ever
+  // projected to the model, the host-owned bout, choice and command identity
+  // must not survive it. Assert that on the projector directly.
   const boutChoiceId = "pi-sanity:opaque:bout";
   const boutSourceCommandId = "pi-sanity:opaque";
   const boutId = "inv-x6a217e22-e0532209:bout:1";
-  routeOperation("sanity.context", {
-    ok: true,
-    tool: "sanity.context",
-    data: {
-      investigator_id: "inv-x6a217e22-e0532209",
-      active: true,
-      snapshot: {
+  assert.equal(isTypedOperationTool("coc_sanity_context"), false);
+  assert.equal(tools.get("coc_sanity_context"), undefined);
+  const boutVisible = projectModelVisibleCanonicalResult(
+    "sanity.context",
+    {
+      ok: true,
+      tool: "sanity.context",
+      data: {
         investigator_id: "inv-x6a217e22-e0532209",
-        bout_active: true,
-        active_bout_id: boutId,
-        bout_rounds_remaining: 2,
-      },
-      pending_choices: [{
-        choice_id: boutChoiceId,
-        command_id: boutSourceCommandId,
-        kind: "bout_keeper_action",
-        responder: "keeper",
-        revision: 0,
-        prompt: "Advance or end the active Keeper-controlled bout?",
-        options: [
-          { action: "tick", label: "Advance Keeper-controlled round" },
-          { action: "end", label: "End the bout now" },
-        ],
-      }],
-    },
-  });
-  await executeTool("coc_sanity_context", {
-    campaign,
-    investigator: CURRENT_INVESTIGATOR_HANDLE,
-  });
-  const boutVisible = JSON.parse(modelContents.at(-1).text);
-  assertModelSafeContent("sanity.context active bout", boutVisible);
-  assert.ok(!JSON.stringify(boutVisible).includes(boutChoiceId));
-  assert.ok(!JSON.stringify(boutVisible).includes(boutSourceCommandId));
-  assert.ok(!JSON.stringify(boutVisible).includes(boutId));
-
-  const armedSanityCommand = tools.get("coc_sanity_execute")
-    .parameters.properties.command;
-  assert.deepEqual(
-    tools.get("coc_sanity_execute").parameters.properties.investigator.enum,
-    [CURRENT_INVESTIGATOR_HANDLE],
-  );
-  assert.deepEqual(armedSanityCommand.oneOf.map((branch) => (
-    branch.properties.action.const
-  )), ["tick", "end"]);
-  assert.ok(!JSON.stringify(armedSanityCommand).includes(boutChoiceId));
-
-  const tickDigest = "543a58c34816235b79c8897f511511e22f1d338dc5d105514fb43c7764d9803b";
-  const tickCommandId = `resume:${tickDigest}:confirm`;
-  routeOperation("sanity.execute", {
-    ok: true,
-    tool: "sanity.execute",
-    data: {
-      investigator_id: "inv-x6a217e22-e0532209",
-      results: [{
-        command_id: tickCommandId,
-        kind: "bout_tick",
-        status: "pending_choice",
-        events: [{
-          event_id: "san-bout-tick-event-1",
-          event_type: "bout_tick",
-          bout_id: boutId,
-          remaining_rounds: 1,
-        }],
-        pending_choice: {
+        active: true,
+        snapshot: {
+          investigator_id: "inv-x6a217e22-e0532209",
+          bout_active: true,
+          active_bout_id: boutId,
+          bout_rounds_remaining: 2,
+        },
+        pending_choices: [{
           choice_id: boutChoiceId,
-          command_id: tickCommandId,
+          command_id: boutSourceCommandId,
           kind: "bout_keeper_action",
           responder: "keeper",
-          revision: 1,
+          revision: 0,
           prompt: "Advance or end the active Keeper-controlled bout?",
           options: [
             { action: "tick", label: "Advance Keeper-controlled round" },
             { action: "end", label: "End the bout now" },
           ],
-        },
-      }],
+        }],
+      },
     },
-  });
-  const tickResult = await executeTool("coc_sanity_execute", {
-    investigator: CURRENT_INVESTIGATOR_HANDLE,
-    command: { action: "tick" },
-  });
-  assert.equal(
-    JSON.parse(modelContents.at(-1).text).ok,
-    true,
-    JSON.stringify(tickResult.details),
+    {
+      ...emptySemanticProjectionView(),
+      investigators: new Map([
+        ["inv-x6a217e22-e0532209", CURRENT_INVESTIGATOR_HANDLE],
+      ]),
+    },
   );
-  const tickCall = clientCalls.filter((call) => (
-    call.operation === "sanity.execute"
-  )).at(-1);
-  assert.equal(tickCall.arguments.decision_id, `resume-${tickDigest.slice(0, 32)}`);
-  assert.deepEqual(tickCall.arguments.command, {
-    command_id: tickCommandId,
-    kind: "bout_tick",
-    phase: "resolve",
-    payload: {
-      choice_id: boutChoiceId,
-      responder: "keeper",
-      revision: 0,
-      action: "tick",
-      terminal_command_ids: [tickCommandId],
-      decision_id: `resume-${tickDigest.slice(0, 32)}`,
-      request_index: 1,
-    },
-  });
+  assertModelSafeContent("sanity.context active bout", boutVisible);
+  const boutRendered = JSON.stringify(boutVisible);
+  assert.ok(!boutRendered.includes(boutChoiceId));
+  assert.ok(!boutRendered.includes(boutSourceCommandId));
+  assert.ok(!boutRendered.includes(boutId));
 
-  const endDigest = "749835543e9df9f2abc8d6d5e785e06249494a89312566fd9e43e9ef7e6dc87f";
-  const endCommandId = `resume:${endDigest}:confirm`;
-  routeOperation("sanity.execute", {
-    ok: true,
-    tool: "sanity.execute",
-    data: {
-      investigator_id: "inv-x6a217e22-e0532209",
-      results: [{
-        command_id: endCommandId,
-        kind: "bout_end",
-        status: "completed",
-        events: [{ event_type: "bout_ended", bout_id: boutId }],
-        pending_choice: null,
-      }],
-    },
-  });
-  const endResult = await executeTool("coc_sanity_execute", {
-    investigator: CURRENT_INVESTIGATOR_HANDLE,
-    command: { action: "end" },
-  });
-  assert.equal(
-    JSON.parse(modelContents.at(-1).text).ok,
-    true,
-    JSON.stringify(endResult.details),
-  );
-  const endCall = clientCalls.filter((call) => (
-    call.operation === "sanity.execute"
-  )).at(-1);
-  assert.equal(endCall.arguments.decision_id, `resume-${endDigest.slice(0, 32)}`);
-  assert.equal(endCall.arguments.command.command_id, endCommandId);
-  assert.deepEqual(endCall.arguments.command, {
-    command_id: endCommandId,
-    kind: "bout_end",
-    phase: "resolve",
-    payload: {
-      choice_id: boutChoiceId,
-      responder: "keeper",
-      revision: 1,
-      action: "end",
-      terminal_command_ids: [endCommandId],
-      decision_id: `resume-${endDigest.slice(0, 32)}`,
-      request_index: 1,
-    },
-  });
-
-  const callsAfterEnd = clientCalls.filter((call) => (
-    call.operation === "sanity.execute"
-  )).length;
-  const staleEnd = await executeTool("coc_sanity_execute", {
-    investigator: CURRENT_INVESTIGATOR_HANDLE,
-    command: { action: "end" },
-  });
-  const staleVisible = JSON.parse(modelContents.at(-1).text);
-  assert.equal(staleVisible.ok, false);
-  assert.equal(staleVisible.error.code, "binding_context_missing");
-  assert.equal(staleEnd.isError, true);
-  assert.equal(
-    clientCalls.filter((call) => call.operation === "sanity.execute").length,
-    callsAfterEnd,
-    "a consumed/stale semantic choice must not reach canonical transport",
-  );
 }
 
 // 2c) Canonical mutation success must survive the model projection. These
@@ -2560,7 +2390,7 @@ const opaqueArgs = {
   goal: "probe",
   decision_id: "roll-probe-opaque",
 };
-const opaqueRoll = await executeTool("coc_rules_roll", opaqueArgs);
+const opaqueRoll = await executeTool("coc_rules_damage", opaqueArgs);
 assert.equal(opaqueRoll.isError, true);
 const opaqueRollVisible = JSON.parse(modelContents.at(-1).text);
 // The RAW model payload is grammar-checked before any host restoration, so
@@ -2571,35 +2401,73 @@ assert.ok(
   "rejected opaque investigator id must not be echoed",
 );
 assert.equal(
-  clientCalls.filter((call) => call.operation === "rules.roll").length,
+  clientCalls.filter((call) => call.operation === "rules.damage").length,
   0,
   "fail-closed opaque id must never reach transport",
 );
 
 // 4) Normal roll with the semantic handle succeeds.
-routeOperation("rules.roll", FAMILIES.rules_roll);
-await executeTool("coc_rules_roll", {
+routeOperation("rules.damage", FAMILIES.rules_damage);
+await executeTool("coc_rules_damage", {
   root: testRoot,
   campaign,
   investigator: CURRENT_INVESTIGATOR_HANDLE,
-  skill: "Spot Hidden",
-  difficulty: "regular",
-  difficulty_basis: "environment",
-  goal: "查看门窗墙根",
+  kind: "damage",
+  amount: "1",
+  source: "查看门窗墙根",
   decision_id: "roll-spot-hidden-t1",
 });
 assert.equal(
-  clientCalls.find((call) => call.operation === "rules.roll").arguments
+  clientCalls.find((call) => call.operation === "rules.damage").arguments
     .investigator,
   "inv-x6a217e22-e0532209",
 );
 const rulesRollVisible = JSON.parse(modelContents.at(-1).text);
+// `rules.damage` carries this block's identity-binding checks because
+// `rules.roll` is host-private after the core-check cutover. Damage keeps its
+// canonical roll host-side rather than publishing a handle, so what is
+// asserted here is that the canonical id does not leak while the semantic
+// result survives. The complementary invariant — a public roll the model may
+// reference DOES retain its registry-backed `roll:` handle — is asserted on
+// `rules.roll_dice`, which is still a Keeper-facing operation.
+assert.equal(rulesRollVisible.ok, true, JSON.stringify(rulesRollVisible));
+assert.equal(rulesRollVisible.data.roll_id, undefined);
+assert.ok(
+  !modelContents.at(-1).text.includes(FAMILIES.rules_damage.data.roll_id),
+  "the canonical damage roll id must not reach model content",
+);
+assert.equal(rulesRollVisible.data.hp_after, 10);
+assertModelSafeContent("rules.damage carrier content", rulesRollVisible);
+
+// Publishing the public roll handle that later effect/coverage blocks bind to.
+// Before the cutover this came from a `rules.roll` result's
+// `resolution_context.attempt_id`; a graph-settled check keeps its canonical
+// roll host-side, so the Keeper-facing publisher is now `rules.roll_dice`.
+routeOperation("rules.roll_dice", {
+  ok: true,
+  tool: "rules.roll_dice",
+  data: {
+    expression: "1D100",
+    count: 1,
+    sides: 100,
+    modifier: 0,
+    rolls: [62],
+    total: 62,
+    reason: "inspect exterior stone street t1",
+    roll_id: "toolbox-king-shreds-recovery-live-01-000003",
+  },
+});
+await executeTool("coc_rules_roll_dice", {
+  campaign,
+  decision_id: "roll-inspect-exterior-stone-street-t1",
+  expression: "1D100",
+  reason: "inspect exterior stone street t1",
+});
 assert.equal(
-  rulesRollVisible.data.roll_id,
+  JSON.parse(modelContents.at(-1).text).data.roll_id,
   "roll:inspect-exterior-stone-street-t1",
   "public rolls the model may reference retain their registry-backed handle",
 );
-assertModelSafeContent("rules.roll content", rulesRollVisible);
 
 // 4a) A damage expression mints its canonical roll id inside the successful
 // mutation result, after the model's pre-call roll view was established. The
@@ -2643,6 +2511,9 @@ assertModelSafeContent("rules.roll content", rulesRollVisible);
     hints: [],
   };
   routeOperation("rules.damage", canonicalDamage);
+  const damageTransportsBefore = clientCalls.filter(
+    (call) => call.operation === "rules.damage",
+  ).length;
   const damageResult = await executeTool("coc_rules_damage", {
     root: testRoot,
     campaign,
@@ -2685,7 +2556,7 @@ assertModelSafeContent("rules.roll content", rulesRollVisible);
   );
   assert.equal(
     clientCalls.filter((call) => call.operation === "rules.damage").length,
-    1,
+    damageTransportsBefore + 1,
     "a successful damage mutation reaches canonical transport exactly once",
   );
   assertModelSafeContent("rules.damage content", damageVisible);
@@ -2707,7 +2578,6 @@ assertModelSafeContent("rules.roll content", rulesRollVisible);
     hp_gained: 1,
     caregiver_id: "doctor-one",
     rule_ref: "core.combat.first_aid",
-    skill: "First Aid",
     source_command_id: graphCommandId,
     treatment_scope: {
       day_id: "day-0",
@@ -2724,7 +2594,6 @@ assertModelSafeContent("rules.roll content", rulesRollVisible);
     roll: 8,
     roll_id: graphRollId,
     roll_role: "percentile_check",
-    skill: "First Aid",
     source_command_id: graphCommandId,
     target: 80,
   };
@@ -3132,13 +3001,15 @@ assert.equal(
   );
   // The registry retired the lost entities: a model reference to the lost
   // weapon handle fails resolution with zero transport.
-  const lostProbe = await executeTool("coc_invoke", {
-    operation: "combat.resolve",
+  // `combat.resolve` carried this handle-resolution check before the cutover;
+  // it is host-private now, so the probe rides `state.item_grant`, which is
+  // still Keeper-facing and takes the same `weapon_id` handle. The invariant
+  // under test is the registry's, not combat's.
+  const lostProbe = await executeTool("coc_state_item_grant", {
     root: testRoot,
     campaign,
-    arguments: {
-      weapon_id: "weapon:weapon-lost-derringer",
-    },
+    weapon_id: "weapon:weapon-lost-derringer",
+    decision_id: "item-lost-derringer-probe-v1",
   });
   assert.equal(lostProbe.isError, true);
   assert.equal(
@@ -3148,19 +3019,17 @@ assert.equal(
   );
   // Restoration: the model echoes a CURRENT weapon handle and the host
   // restores the exact canonical value the operation expects.
-  routeOperation("combat.resolve", {
+  routeOperation("state.item_grant", {
     ok: true,
-    tool: "combat.resolve",
-    data: { schema_version: 1, resolved: true },
+    tool: "state.item_grant",
+    data: { schema_version: 1, granted: true },
   });
   const combatCall = clientCalls.length;
-  await executeTool("coc_invoke", {
-    operation: "combat.resolve",
+  await executeTool("coc_state_item_grant", {
     root: testRoot,
     campaign,
-    arguments: {
-      weapon_id: "weapon:柯尔特m1911",
-    },
+    weapon_id: "weapon:柯尔特m1911",
+    decision_id: "item-colt-restore-v1",
   });
   assert.equal(
     clientCalls.at(combatCall).arguments.weapon_id,
@@ -3176,13 +3045,16 @@ assert.equal(
     arguments: {},
   });
   const nameOnlyCall = clientCalls.length;
-  const nameOnlyResult = await executeTool("coc_invoke", {
-    operation: "combat.resolve",
+  routeOperation("state.item_grant", {
+    ok: true,
+    tool: "state.item_grant",
+    data: { schema_version: 1, granted: true },
+  });
+  const nameOnlyResult = await executeTool("coc_state_item_grant", {
     root: testRoot,
     campaign,
-    arguments: {
-      weapon_id: "weapon:猎刀",
-    },
+    weapon_id: "weapon:猎刀",
+    decision_id: "item-hunting-knife-restore-v1",
   });
   assert.equal(
     clientCalls.at(nameOnlyCall).arguments.weapon_id,
@@ -3496,16 +3368,16 @@ assert.equal(
   // Restoration across the whole flow: current handles restore exact
   // canonical values per owner scope; the consumed and NPC-removed handles
   // stay dead, and A's 猎刀 survives every other owner's loss.
-  routeOperation("combat.resolve", {
+  routeOperation("state.item_grant", {
     ok: true,
-    tool: "combat.resolve",
-    data: { active: false, weapon_id: "weapon-purchased-cane-id" },
+    tool: "state.item_grant",
+    data: { schema_version: 1, weapon_id: "weapon-purchased-cane-id" },
   });
-  const restoreCane = await executeTool("coc_invoke", {
-    operation: "combat.resolve",
+  const restoreCane = await executeTool("coc_state_item_grant", {
     root: testRoot,
     campaign,
-    arguments: { weapon_id: "weapon:手杖" },
+    weapon_id: "weapon:手杖",
+    decision_id: "item-cane-restore-v1",
   });
   assert.equal(
     JSON.parse(modelContents.at(-1).text).ok,
@@ -4384,15 +4256,14 @@ for (const handler of handlers.get("message_start") || []) {
     },
   }, ctx);
 }
-routeOperation("rules.roll", FAMILIES.rules_roll);
-await executeTool("coc_rules_roll", {
+routeOperation("rules.damage", FAMILIES.rules_damage);
+await executeTool("coc_rules_damage", {
   root: testRoot,
   campaign,
   investigator: CURRENT_INVESTIGATOR_HANDLE,
-  skill: "Listen",
-  difficulty: "regular",
-  difficulty_basis: "environment",
-  goal: "贴墙听屋内动静",
+  kind: "damage",
+  amount: "1",
+  source: "贴墙听屋内动静",
   decision_id: "roll-listen-side-wall-t2",
 });
 assert.equal(
@@ -4402,7 +4273,7 @@ assert.equal(
 );
 assert.equal(
   clientCalls.filter(
-    (call) => call.operation === "rules.roll"
+    (call) => call.operation === "rules.damage"
       && call.arguments.decision_id === "roll-listen-side-wall-t2",
   ).at(-1).arguments.investigator,
   "inv-x6a217e22-e0532209",
@@ -4412,21 +4283,20 @@ assert.equal(
 // 11b) DIRECT campaign switch without a rebinding resume: the identity slot
 // is campaign-tagged, so a call targeting another campaign fails closed with
 // zero transport and zero leakage of the first campaign's investigator.
-const directSwitchRoll = await executeTool("coc_rules_roll", {
+const directSwitchRoll = await executeTool("coc_rules_damage", {
   root: testRoot,
   campaign: secondCampaign,
   investigator: CURRENT_INVESTIGATOR_HANDLE,
-  skill: "Listen",
-  difficulty: "regular",
-  difficulty_basis: "environment",
-  goal: "未重新绑定的跨战役调用",
+  kind: "damage",
+  amount: "1",
+  source: "未重新绑定的跨战役调用",
   decision_id: "roll-listen-direct-switch",
 });
 assert.equal(directSwitchRoll.isError, true);
 assert.equal(JSON.parse(modelContents.at(-1).text).error.code,
   "semantic_entity_binding_missing");
 const directSwitchTransports = clientCalls.filter(
-  (call) => call.operation === "rules.roll"
+  (call) => call.operation === "rules.damage"
     && call.arguments.decision_id === "roll-listen-direct-switch",
 ).length;
 assert.equal(directSwitchTransports, 0, "direct switch must never transport");
@@ -4439,18 +4309,17 @@ assert.ok(
 
 // 11c) Typed model calls omit the transport campaign by construction. The
 // active canonical campaign scopes semantic restoration before transport.
-const omittedCampaignRoll = await executeTool("coc_rules_roll", {
+const omittedCampaignRoll = await executeTool("coc_rules_damage", {
   root: testRoot,
   investigator: CURRENT_INVESTIGATOR_HANDLE,
-  skill: "Listen",
-  difficulty: "regular",
-  difficulty_basis: "environment",
-  goal: "缺少当前战役的聆听",
+  kind: "damage",
+  amount: "1",
+  source: "缺少当前战役的聆听",
   decision_id: "roll-listen-omitted-campaign",
 });
 assert.equal(JSON.parse(modelContents.at(-1).text).ok, true);
 const activeCampaignRoll = clientCalls.find(
-  (call) => call.operation === "rules.roll"
+  (call) => call.operation === "rules.damage"
     && call.arguments.decision_id === "roll-listen-omitted-campaign",
 );
 assert.equal(activeCampaignRoll.campaign, campaign);
@@ -4471,19 +4340,18 @@ assert.equal(
   clientCalls.filter((call) => call.operation === "session.resume").length,
   switchResumeCallCount + 1,
 );
-routeOperation("rules.roll", FAMILIES.rules_roll);
-await executeTool("coc_rules_roll", {
+routeOperation("rules.damage", FAMILIES.rules_damage);
+await executeTool("coc_rules_damage", {
   root: testRoot,
   campaign: secondCampaign,
   investigator: CURRENT_INVESTIGATOR_HANDLE,
-  skill: "Spot Hidden",
-  difficulty: "regular",
-  difficulty_basis: "environment",
-  goal: "另一场战役中的侦查",
+  kind: "damage",
+  amount: "1",
+  source: "另一场战役中的侦查",
   decision_id: "roll-spot-other-campaign-t1",
 });
 const switchRoll = clientCalls.filter(
-  (call) => call.operation === "rules.roll"
+  (call) => call.operation === "rules.damage"
     && call.arguments.decision_id === "roll-spot-other-campaign-t1",
 ).at(-1);
 assert.equal(
@@ -4568,16 +4436,15 @@ assert.equal(
     undefined,
     ctxTwo,
   );
-  const lonelyRoll = await sessionTwoTools.get("coc_rules_roll").execute(
+  const lonelyRoll = await sessionTwoTools.get("coc_rules_damage").execute(
     "roll-two",
     {
       root: testRoot,
       campaign: "lonely-campaign",
       investigator: CURRENT_INVESTIGATOR_HANDLE,
-      skill: "Spot Hidden",
-      difficulty: "regular",
-      difficulty_basis: "environment",
-      goal: "无队伍会话的侦查",
+      kind: "damage",
+      amount: "1",
+      source: "无队伍会话的侦查",
       decision_id: "roll-lonely-campaign-t1",
     },
     undefined,
@@ -4591,7 +4458,7 @@ assert.equal(
     "no cross-session investigator leakage",
   );
   assert.equal(
-    sessionTwoCalls.filter((call) => call.operation === "rules.roll").length,
+    sessionTwoCalls.filter((call) => call.operation === "rules.damage").length,
     0,
     "unbound handle must never reach transport",
   );
@@ -4618,23 +4485,22 @@ await executeTool("coc_invoke", {
   arguments: {},
 });
 const emptyRollTransportsBefore = clientCalls.filter(
-  (call) => call.operation === "rules.roll",
+  (call) => call.operation === "rules.damage",
 ).length;
-const emptyRoll = await executeTool("coc_rules_roll", {
+const emptyRoll = await executeTool("coc_rules_damage", {
   root: testRoot,
   campaign: secondCampaign,
   investigator: CURRENT_INVESTIGATOR_HANDLE,
-  skill: "Listen",
-  difficulty: "regular",
-  difficulty_basis: "environment",
-  goal: "无当前调查员时的聆听",
+  kind: "damage",
+  amount: "1",
+  source: "无当前调查员时的聆听",
   decision_id: "roll-listen-empty-party-t3",
 });
 assert.equal(emptyRoll.isError, true);
 assert.equal(JSON.parse(modelContents.at(-1).text).error.code,
   "semantic_entity_binding_missing");
 assert.equal(
-  clientCalls.filter((call) => call.operation === "rules.roll").length,
+  clientCalls.filter((call) => call.operation === "rules.damage").length,
   emptyRollTransportsBefore,
   "empty-party invalidation must never transport the handle",
 );
@@ -4665,23 +4531,22 @@ await executeTool("coc_invoke", {
   arguments: {},
 });
 const ambiguousRollTransportsBefore = clientCalls.filter(
-  (call) => call.operation === "rules.roll",
+  (call) => call.operation === "rules.damage",
 ).length;
-const ambiguousRoll = await executeTool("coc_rules_roll", {
+const ambiguousRoll = await executeTool("coc_rules_damage", {
   root: testRoot,
   campaign: secondCampaign,
   investigator: CURRENT_INVESTIGATOR_HANDLE,
-  skill: "Listen",
-  difficulty: "regular",
-  difficulty_basis: "environment",
-  goal: "多人队伍时的聆听",
+  kind: "damage",
+  amount: "1",
+  source: "多人队伍时的聆听",
   decision_id: "roll-listen-ambiguous-party-t4",
 });
 assert.equal(ambiguousRoll.isError, true);
 assert.equal(JSON.parse(modelContents.at(-1).text).error.code,
   "semantic_entity_binding_missing");
 assert.equal(
-  clientCalls.filter((call) => call.operation === "rules.roll").length,
+  clientCalls.filter((call) => call.operation === "rules.damage").length,
   ambiguousRollTransportsBefore,
   "ambiguous-party invalidation must never transport the handle",
 );
@@ -4695,19 +4560,18 @@ await executeTool("coc_invoke", {
   campaign: secondCampaign,
   arguments: {},
 });
-routeOperation("rules.roll", FAMILIES.rules_roll);
-await executeTool("coc_rules_roll", {
+routeOperation("rules.damage", FAMILIES.rules_damage);
+await executeTool("coc_rules_damage", {
   root: testRoot,
   campaign: secondCampaign,
   investigator: CURRENT_INVESTIGATOR_HANDLE,
-  skill: "Spot Hidden",
-  difficulty: "regular",
-  difficulty_basis: "environment",
-  goal: "重置前的侦查",
+  kind: "damage",
+  amount: "1",
+  source: "重置前的侦查",
   decision_id: "roll-spot-before-reset",
 });
 const resetRollCallsBefore = clientCalls.filter(
-  (call) => call.operation === "rules.roll",
+  (call) => call.operation === "rules.damage",
 ).length;
 for (const handler of handlers.get("session_start") || []) {
   await handler({ type: "session_start", reason: "probe-reset" }, ctx);
@@ -4718,14 +4582,13 @@ const clientCallsAtReset = clientCalls.length;
 // the established ACL rejection, still with zero transport.
 let postResetRollRejected = null;
 try {
-  await executeTool("coc_rules_roll", {
+  await executeTool("coc_rules_damage", {
     root: testRoot,
     campaign: secondCampaign,
     investigator: CURRENT_INVESTIGATOR_HANDLE,
-    skill: "Spot Hidden",
-    difficulty: "regular",
-    difficulty_basis: "environment",
-    goal: "重置后的侦查",
+    kind: "damage",
+    amount: "1",
+    source: "重置后的侦查",
     decision_id: "roll-spot-after-reset",
   });
 } catch (error) {
@@ -4738,7 +4601,7 @@ assert.ok(
     + JSON.stringify(postResetRollRejected),
 );
 assert.equal(
-  clientCalls.filter((call) => call.operation === "rules.roll").length,
+  clientCalls.filter((call) => call.operation === "rules.damage").length,
   resetRollCallsBefore,
   "session reset must clear the identity without transport",
 );

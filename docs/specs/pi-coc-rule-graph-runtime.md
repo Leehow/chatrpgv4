@@ -5,7 +5,7 @@
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`; Codex-host implementation, adapters, prompts, launchers, tests, and documentation remain off-limits.
 > **Scope owner:** Pi-Coc host plus the canonical ruleset packages under `plugins/coc-keeper/rulesets/`.
 > **Ruleset:** Generic contract with `coc7` as the first production Adapter.
-> **Last updated:** 2026-08-30 (runtime safety and authorization correction; see Revision log).
+> **Last updated:** 2026-08-31 (ten-family cutover delivered; model-view projection and per-turn budget recorded — see §0 and Revision log entry 22).
 > **Depends on:** [`docs/ruleset-contract.md`](../ruleset-contract.md), [`docs/rulebook-abstraction-paradigm.md`](../rulebook-abstraction-paradigm.md), the PDF Source Bundle Contract in `AGENTS.md`, and the existing operation/state/finalization contracts.
 > **Prototype evidence:** Artifacts recovered uncommitted in the sibling worktree `chatrpgv4-wt-rule-graph-prototype-20260829` at `/Users/haoli/leehow/code/chatrpgv4-wt-rule-graph-prototype-20260829/plugins/coc-keeper/pi/prototypes/rule-graph/` (`rule_graph_prototype.py`, `candidate-rule-graph.json`, `built-rule-graph.json`, `test_rule_graph_prototype.py`, `README.md`, `VERDICT.md`), based on `0.7.1a@43552e2c`. They are external evidence, not committed to the repository. Future implementation branches use the **`pi-coc/`** prefix.
 
@@ -16,6 +16,44 @@ It does not authorize Codex-track changes, push, deploy, migration, destruction
 of historical playtest evidence, or promotion of a family before §14 passes.
 
 The words MUST, MUST NOT, SHOULD, and MAY below are acceptance requirements.
+
+---
+
+## 0. Delivery state (2026-08-31)
+
+This section records what is actually true in the repository, so the slice
+descriptions in §18 are read as history rather than as plans.
+
+**Compiled and promoted.** All ten families — healing, core-check, push-luck,
+social, psychology, combat, chase, sanity, magic, development — have
+source-bound accepted shards in the production CoC7 RuleGraph
+(`plugins/coc-keeper/rulesets/coc7/rule-graph.json`, 433 nodes / 665
+relations), carry `family_runtime_ownership=graph` and
+`legacy_surface_lifecycle=hidden`, and are promotion-eligible in the
+graph manifest. `rules.context` and `rules.settle` are the normal Keeper
+surface; legacy family operations are host-internal.
+
+**Proven in normal play.** Compilation and promotion are not the same as
+playable. A family is proven only by a fresh normal production-profile
+`pi-coc --mode rpc` turn with no acceptance profile, fixture, seed, injected
+trigger, reduced tool surface, or legacy family operation (§14 Gate 9).
+As of this revision, Development and Social have passed that bar. Core-check
+has settled naturally but predates the corrected bundled-Pi launcher.
+Push/Luck and Psychology each committed a canonical settlement and then failed
+to produce a model view; both projectors are now closed and covered by
+`tests/pi/rules-settle-recorded-projection.mjs`, but neither has been replayed
+in live RPC since. Healing, Combat, Sanity, Chase and Magic have **never
+produced a recorded settlement of any kind** — no evidence exists for them at
+all, and their projections are therefore unproven rather than passing.
+
+**The model view is a promotion requirement, not a detail.** A settlement whose
+canonical result cannot be projected is worse than one that fails: the host has
+already committed the mechanics, and the Keeper is handed
+`semantic_identity_unavailable` instead of the D100 it just caused. Its only
+recourse is to settle again. Every recorded projection failure to date has
+produced exactly that loop. Adding a family to the graph without a closed
+model view of its settled result therefore does not make the family playable —
+see §16 for what the loop costs.
 
 ---
 
@@ -706,12 +744,8 @@ Illustrative model-safe card:
     "pushed_status",
     "wound_ref"
   ],
-  "rule_refs": [
-    "rule:coc7:healing:first-aid-stabilization"
-  ],
-  "source_refs": [
-    "source:coc7:keeper-rulebook:page-120:first-aid"
-  ],
+  "rule_ref_ids": [0],
+  "source_ref_ids": [0],
   "capability_ref": "capability:coc7:first-aid",
   "effect_refs": [
     "effect:coc7:healing:temporary-stabilization"
@@ -730,6 +764,44 @@ Illustrative model-safe card:
 
 The card does not contain state hashes, receipt hashes, random IDs, file paths,
 secret prose, or model-authored numeric state.
+
+#### 8.4.1 Block-level `ref_table`
+
+A decision's `rule_refs` come from every rule reachable through the capability
+it invokes, so sibling decisions in one family repeat almost the same rule and
+source arrays. Measured on the production `coc7` graph, combat's 8 cards carried
+132 rule-ref occurrences over 22 distinct refs and 336 source-ref occurrences
+over 56 distinct refs: 21,346 of the block's 26,003 bytes were duplicated
+strings. The whole `rules.context` result then measured 27,131 bytes against the
+16,384-byte MCP inline cap, collapsed to an identity-only envelope, and reached
+the Keeper as `semantic_identity_unavailable` instead of cards.
+
+Every block that carries a family card set therefore hoists the distinct refs
+into one sibling `ref_table` and leaves zero-based indexes on each card:
+
+```json
+{
+  "cards": [{ "rule_ref_ids": [0], "source_ref_ids": [0, 1] }],
+  "ref_table": {
+    "rule_refs": ["rule:coc7:healing:first-aid-stabilization"],
+    "source_refs": [
+      "span-wounds-and-healing-page-131-block-18",
+      "span-wounds-and-healing-page-131-block-24"
+    ],
+    "resolution": "card.rule_ref_ids and card.source_ref_ids are zero-based indexes into ref_table.rule_refs and ref_table.source_refs in this same result"
+  }
+}
+```
+
+This is a transport shape, never a content cut. Every ref a card could
+previously reach is still reachable, and the indirection resolves inside the
+same payload — no second call, no host lookup. Blocks carrying the table are
+`rules.context` and the `scene.context` / recovery affordance block
+(`rule_decision_cards`). `rules.settle.next_decisions` keeps inline `rule_refs`:
+it is not a family card set and its measured envelopes stay far under the cap.
+`ref_table` members use exactly the closed ref grammars the cards used inline,
+so hoisting never widens what reaches the model. An index that does not resolve
+in the table fails the card closed, exactly as a malformed inline ref did.
 
 ### 8.5 Turn-scoped settlement schema
 
@@ -1144,6 +1216,44 @@ No full ruleset may be called migrated while any accepted family remains in
 - Graph compilation may be offline/model-backed; live context and settlement
   must not invoke another LLM.
 
+### 16.1 Per-turn wall-clock budget
+
+One Keeper turn MUST complete within **180 seconds**. This is the product
+requirement, not a transport setting that happens to be 180; the RPC harness
+enforces the same number as its turn timeout, and a turn that reaches it is a
+failed turn, not a slow one.
+
+Measured across the 44 preserved Gate 9 evidence turns (2026-08-31):
+
+| | |
+| --- | --- |
+| median turn | 103.2 s |
+| p90 turn | 180.2 s |
+| turns that hit the 180 s timeout | **16 / 44** |
+| host tool execution, median | 2.1 s (max 5.0 s) |
+| model/provider share of a median turn | ~98 % |
+
+The budget is therefore **not** spent in the graph. Host-side settlement is two
+seconds; everything else is model and provider time. What separates a turn that
+settles from a turn that times out is the number of model↔host round trips:
+timed-out turns averaged 15.8 tool calls against 9.4 for settled turns
+(corr(tool calls, duration) = 0.60), and `rules.settle` / `rules.context`
+appear about **4.5× more often per turn** in the timed-out group.
+
+Consequences for this specification:
+
+- Optimising RuleGraph load, index, or query cost cannot buy back the budget;
+  it is already ~2 % of a turn. Round-trip count is the only lever that moves it.
+- Therefore every avoidable rejection is a performance defect, not only a
+  correctness one. A rejected `rules.settle` — wrong ref namespace, undeclared
+  slot, or an unprojectable canonical result — costs one full model round trip,
+  and the recorded failures cluster: one Psychology decision consumed four
+  `rules.settle` calls in a single 155 s turn (wrong `target_ref` namespace,
+  two undeclared slots, then a projection failure).
+- A family MUST NOT be counted as promoted on graph content alone. Closed
+  model-view projection (§0) and a closed input grammar for its
+  `semantic_inputs` refs are budget requirements as much as safety ones.
+
 ---
 
 ## 17. Security, secrecy, and model-visible projection
@@ -1164,6 +1274,12 @@ No full ruleset may be called migrated while any accepted family remains in
 ---
 
 ## 18. Implementation slices and exact scope
+
+> **Status (2026-08-31):** R1–R7 have all been implemented; all ten families
+> are compiled, promoted and hidden behind `rules.context` / `rules.settle`.
+> The slice text below is retained as the original plan of record. For what is
+> true now — and in particular for the difference between *promoted* and
+> *proven in play* — read §0, not this section.
 
 ### R0 — Spec and bounded prototype
 
@@ -1512,8 +1628,8 @@ authorized by any current slice; it requires its own authorization.
 
 #### Future candidate B — applicability trace projection and graph-generated oracle tests
 
-Cards already carry `rule_refs` / `source_refs`. Two further projections are
-recorded as future candidates:
+Cards already reach their rule and source refs through the block `ref_table`
+(§8.4.1). Two further projections are recorded as future candidates:
 
 - a compact "why applicable" condition-evaluation trace for Keeper/audit
   surfaces;
@@ -1587,5 +1703,7 @@ Changes to the 2026-08-29 original, and why:
 19. **Follow-up patch (2026-08-29):** header Prototype evidence, §18 R0, and §20 opening recharacterized from “artifacts absent” to “artifacts recovered uncommitted in sibling worktree `chatrpgv4-wt-rule-graph-prototype-20260829` at `plugins/coc-keeper/pi/prototypes/rule-graph/`, based on `0.7.1a@43552e2c`; external evidence, not committed.” `VERDICT.md` claims (30/38/7; 6+42+2 green at prototype time; J1 floor-vs-ceiling drift) recorded as independently readable. Prototype is not imported (throwaway by its own README); R1 still rebuilds key claims as committed in-repo evidence; final worktree disposition is the user's call at closeout. §20 baseline-failure FIX note unchanged. Reason: Boss-verified recovery of uncommitted prototype artifacts after the first revision.
 20. **Follow-up patch — §13 receipt-store wording.** Clarified that the RuleGraph build-evidence root (§6.4) is compile-time acceptance evidence owned by the compiler, not a settlement receipt store; RuleGraph still introduces no new runtime receipt store, and canonical roll/source/state receipts remain the only settlement evidence. Reason: final review found a wording collision between §13 “no new receipt store” and the persisted compile-time acceptance store.
 21. **Follow-up patch — §21.1 further notes and future candidates.** Recorded the 2026-08-29 external technology-comparison review: verdict matches this spec’s custom Rule Graph IR with backends deferred (V1 validated JSON, no graph database, §16); future candidate A (five-kind extraction scaffold at R4+ as extraction-packet/`accept()`-lint guidance, not a parallel ontology); future candidate B (applicability-trace projection and graph-generated oracle tests as a §19 matrix extension); rejected alternatives (formula ASTs, ASP default negation, Rete activation, graph-database backends). A and B are not authorized by any current slice. Reason: user-approved addition after the technology-comparison review.
+
+22. **2026-08-31 — ten-family cutover recorded; model view and turn budget made explicit.** Added §0 (delivery state) separating *compiled and promoted* from *proven in normal play*, and recorded that five families (healing, combat, sanity, chase, magic) have never produced a recorded settlement at all. Added §16.1 with the measured 180-second per-turn budget: 16 of 44 preserved Gate 9 turns hit the timeout, host tool time is ~2 % of a median turn, and round-trip count — not graph cost — is the only lever. Marked §18 as the original plan of record. Reason: the previous text still described the healing-only slice as current, and the per-turn budget the product actually has to meet was recorded nowhere, so a rejected settlement read as a correctness nit rather than as the round trip that ends the turn.
 
 Reconstruction judgment calls: (a) the exact original prose for the R1/R0 sub-headings and the §8.3 exact-discovery addendum was not preserved verbatim in the brief, so I re-wrote them as clean specification prose preserving the MUST/MUST NOT/SHOULD/MAY semantics; (b) the §8.5 deferred design paragraph was kept intact (verbatim from the original) and only its framing/status paragraph was changed, so the binding semantics the original described are preserved as the deferred design; (c) I anchored §8.3's exact-discovery requirement to the existing `coc_discover`/`setActiveTools`/`pi-coc-tool-affordance-and-bounded-recovery.md` pattern because that is the actual exact-operation enforcement machinery recon located.

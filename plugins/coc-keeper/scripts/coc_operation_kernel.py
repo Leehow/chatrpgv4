@@ -507,6 +507,60 @@ class ToolError(ValueError):
         self.violations = violations
         self.details = deepcopy(details) if isinstance(details, dict) else None
 
+def _model_invocation_tool(operation: str) -> str | None:
+    """Tool the model may reach ``operation`` through, or None if host-private."""
+    try:
+        import coc_operation_policy
+    except ImportError:
+        return None
+    try:
+        return coc_operation_policy.model_invocation_tool(operation)
+    except (KeyError, ValueError):
+        return None
+
+
+def _suggested_push_operation(
+    prefilled: dict[str, Any], missing: list[str],
+) -> dict[str, Any]:
+    """Advisory follow-up for an ordinary failure with an unresolved attempt.
+
+    This used to name ``rules.push`` through ``coc_invoke`` unconditionally.
+    Once a ruleset promotes push-luck to the graph, that operation becomes
+    ``kp_surface: "none"`` and the execute ACL refuses it — so the advice
+    pointed the Keeper at a call that could only be denied, on the exact path
+    where it is deciding what to do about a failure. A live core-check failure
+    confirmed the suggestion reaching the model view.
+
+    Where the legacy operation is still Keeper-facing it remains the right
+    advice. Where it is not, name the ruleset-agnostic discovery path instead:
+    ``rules.context`` for the push-luck family returns that ruleset's own
+    applicable decision with its real slots. The kernel deliberately does not
+    guess a ruleset-specific ``decision_ref`` — that is the graph's to answer,
+    not the kernel's to hardcode.
+    """
+    push_tool = _model_invocation_tool("rules.push")
+    if push_tool is not None:
+        return {
+            "operation": "rules.push",
+            "invoke_via": push_tool,
+            "prefilled_arguments": deepcopy(prefilled),
+            "missing_arguments": list(missing),
+        }
+    context_tool = _model_invocation_tool("rules.context")
+    return {
+        "operation": "rules.context",
+        "invoke_via": context_tool,
+        "model_invocable": context_tool is not None,
+        "prefilled_arguments": {"family": "push-luck"},
+        "missing_arguments": [],
+        "reason": (
+            "the legacy push operation is host-private for this ruleset; "
+            "discover the applicable push decision and settle it through "
+            "rules.settle"
+        ),
+    }
+
+
 class Ctx:
     """Resolved campaign context shared by tool handlers."""
 
@@ -5439,7 +5493,9 @@ def _compile_new_percentile_invocation(
             for existing in existing_pushes.values()
         )
         push_verdict = _rules_resolver(ctx, "push_policy").push_policy(
-            original["data"].get("outcome"), already_pushed
+            original["data"].get("outcome"),
+            already_pushed,
+            original.get("operation", {}).get("skill"),
         )
         if push_verdict is not None:
             raise ToolError("invalid_push", push_verdict)
@@ -5861,6 +5917,23 @@ def _settle_contextual_route(
     })
     return completion, route_warnings
 
+def _skill_is_pushable(ctx: Ctx, skill: Any) -> bool:
+    """Whether the active ruleset lets a failed check on ``skill`` be pushed.
+
+    CoC7 takes the push option away from combat rolls, so a failed Fighting,
+    Firearms, Dodge, or Artillery check must not be offered a push it would be
+    refused at settlement. The scope is the ruleset's, not the kernel's: a
+    ruleset that does not declare ``skill_pushable`` states no such
+    restriction and every failed check stays pushable.
+    """
+    if not str(skill or "").strip():
+        return True
+    try:
+        resolver = _rules_resolver(ctx, "skill_pushable")
+    except ToolError:
+        return True
+    return bool(resolver.skill_pushable(skill))
+
 def _push_operation_opportunity(
     ctx: Ctx,
     receipt: dict[str, Any],
@@ -5914,12 +5987,7 @@ def _push_operation_opportunity(
             "route_id": context.get("route_id"),
             "roll_density_group": context.get("roll_density_group"),
         },
-        "suggested_operation": {
-            "operation": "rules.push",
-            "invoke_via": "coc_invoke",
-            "prefilled_arguments": prefilled,
-            "missing_arguments": missing,
-        },
+        "suggested_operation": _suggested_push_operation(prefilled, missing),
         "attempt_pressure": {
             "schema_version": 1,
             "same_goal_no_progress_count": max(1, int(no_progress_count)),
@@ -5972,6 +6040,11 @@ def _open_attempt_opportunities_from_document(
         ):
             continue
         data = receipt.get("data") if isinstance(receipt.get("data"), dict) else {}
+        if data.get("push_eligible") is False:
+            # The receipt already recorded that its own skill cannot be
+            # pushed. A combat roll has no push to leave open: its failure is
+            # closed by the next attack, not by a second roll at the same one.
+            continue
         context = data.get("resolution_context")
         if not isinstance(context, dict):
             continue
@@ -6309,9 +6382,22 @@ def _roll_common(
         hints.append(
             "fumble: before state.journal apply a source-bound cost with state.exceptional_effect and realize its causal complication"
         )
-    if outcome == "failure" and not pushed and not is_combined:
+    push_offer_open = (
+        outcome == "failure"
+        and not pushed
+        and not is_combined
+        and _skill_is_pushable(ctx, operation.get("skill"))
+    )
+    if push_offer_open:
         hints.append(
             "failed: the player may push this roll with a changed method and an announced consequence (rules.push)"
+        )
+    elif outcome == "failure" and not pushed and not is_combined:
+        result["push_eligible"] = False
+        hints.append(
+            f"failed: {label} is a combat skill, so this roll cannot be pushed "
+            "(Keeper Rulebook 'No Pushing Combat Rolls'); the next attempt is "
+            "the next attack or shot, not a second roll at the same one"
         )
     if pushed and not success:
         hints.append(
@@ -6343,7 +6429,7 @@ def _roll_common(
             f"{active_modifier['effect_id']}; call state.exceptional_effect "
             "action=consume with this roll_id before state.journal"
         )
-    if outcome == "failure" and not pushed and not is_combined:
+    if push_offer_open:
         result["operation_opportunities"] = [
             _push_operation_opportunity(
                 ctx,
@@ -6376,7 +6462,7 @@ def _roll_common(
         result["player_projection"] = projection
         roll_record["player_projection"] = deepcopy(projection)
         roll_record["payload"]["player_projection"] = deepcopy(projection)
-    if outcome == "failure" and not pushed and not is_combined:
+    if push_offer_open:
         result["operation_opportunities"][0]["source"]["roll_id"] = result[
             "roll_id"
         ]
@@ -7173,13 +7259,19 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
         question["selected_affordance_ids"] = [
             str(item) for item in selected if isinstance(item, str)
         ]
+    # `semantic_inputs` is a declared `rules.context` input, but `kind` is not:
+    # the inputSchema has no `kind` property and forbids additional ones, so a
+    # Keeper call always lands on the "procedure" default. Gating the forward on
+    # `kind == "lookup"` therefore discarded the caller's semantics on every
+    # real call, and applicability facts derived from them (magic.spell.known,
+    # magic.learn.source-available) could never become true. Forward always.
+    semantic = args.get("semantic_inputs")
+    if isinstance(semantic, Mapping):
+        question["semantic_inputs"] = dict(semantic)
     if kind == "lookup":
         lookup_ref = args.get("lookup_ref") or args.get("decision_ref")
         if isinstance(lookup_ref, str) and lookup_ref.strip():
             question["lookup_ref"] = lookup_ref.strip()
-        semantic = args.get("semantic_inputs")
-        if isinstance(semantic, dict):
-            question["semantic_inputs"] = semantic
     result = runtime.context(question)
     if family == "combat":
         handler = globals().get("_tool_combat_context")
@@ -7213,15 +7305,36 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
             ruleset_id=_active_ruleset_id(ctx),
             tool="rules.context",
         )
+    # The passive scene surface already stamps its healing cards with the
+    # settle route; an explicit family query got cards with no route at all.
+    # Live evidence: the first combat card set ever delivered arrived with 16
+    # cards whose labels name "the existing typed subsystem operation", and
+    # the Keeper's next move was to discover `combat.resolve` — refused,
+    # host-private. Cards without their settle route are a map without roads.
+    if isinstance(result.get("cards"), list) and result["cards"]:
+        settle_tool = _model_invocation_tool("rules.settle")
+        result.setdefault("settle_operation", {
+            "operation": "rules.settle",
+            "invoke_via": settle_tool,
+            "model_invocable": settle_tool is not None,
+            "prefilled_arguments": {},
+            "missing_arguments": ["decision_ref", "semantic_inputs", "decision_id"],
+            "authority": "advisory",
+            "hard_gate": False,
+        })
     public = {
         key: value for key, value in result.items()
         if key not in {"card_grant", "findings"}
     }
-    public["cards"] = [
+    # Sibling decisions in one family repeat nearly identical rule/source ref
+    # arrays; inline they pushed combat's card set past the MCP inline cap and
+    # the Keeper got an identity-only error instead of cards.  Hoist the
+    # distinct refs into one table and leave resolvable indexes on each card.
+    public["cards"], public["ref_table"] = coc_rules_runtime.hoist_card_ref_table([
         coc_rules_runtime.public_card_projection(card)
         for card in (public.get("cards") or [])
         if isinstance(card, Mapping)
-    ]
+    ])
     return public, [], []
 
 
@@ -7783,10 +7896,34 @@ def dispatch_rules_settle(
         )
     grant = runtime.latest_grant_covering(decision_ref)
     if grant is None:
+        # This pre-check short-circuits before settle() can reach
+        # _check_card_grant/_stale_envelope, so the refresh route the runtime
+        # already knows how to compute never reached the Keeper: the model saw
+        # a terminal error while the host was holding the current cards. Build
+        # the same envelope here and carry the cards through.
+        stale = runtime.stale_decision_envelope(
+            decision_ref,
+            "no_live_card_grant",
+            "no live machine-issued card grant covers this decision",
+        )
+        # Grants stay host-internal (see dispatch_rules_context); only the
+        # public card projection crosses the boundary. The refreshed grant is
+        # re-registered on this runtime, so the named rules.context call
+        # returns the same live card set.
         raise ToolError(
             "rule_decision_stale",
-            "no live machine-issued card grant covers this decision; refresh context",
-            details={"family": family, "decision_ref": decision_ref},
+            "no live machine-issued card grant covers this decision; call "
+            "rules.context for this family, then settle a decision_ref it returns",
+            details={
+                "family": family or stale.get("family") or "",
+                "decision_ref": decision_ref,
+                "refresh_operation": "rules.context",
+                "refreshed_cards": [
+                    coc_rules_runtime.public_card_projection(card)
+                    for card in (stale.get("refreshed_cards") or [])
+                    if isinstance(card, Mapping)
+                ],
+            },
         )
     source_decision_id = str(grant.get("source_decision_id") or "")
     if source_decision_id:
@@ -13424,6 +13561,7 @@ OPERATION_RUNTIME_EXPORTS = (
     '_settle_pending_roll_side_effect',
     '_skill_catalog',
     '_skill_check_clues_missing_roll_evidence',
+    '_skill_is_pushable',
     '_source_claiming_pack_task',
     '_source_coordinator_dispatch',
     '_source_direct_single_dispatch',

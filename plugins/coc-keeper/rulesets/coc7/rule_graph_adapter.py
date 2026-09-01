@@ -598,6 +598,12 @@ class Coc7RuleGraphAdapter:
             if isinstance(outcome, str) and outcome:
                 augmented["receipt.last_outcome"] = outcome
             augmented["intent.pushed"] = bool(source_receipt.get("pushed", False))
+            # The canonical check receipt states whether its own skill may be
+            # pushed at all; only a rulebook-excluded skill sets it False, so
+            # a receipt that stays silent is pushable.
+            augmented["receipt.push_eligible"] = (
+                source_receipt.get("push_eligible") is not False
+            )
         spell = str(semantic.get("spell") or "").strip()
         known = {
             str(value) for value in augmented.get("magic.known_spells") or []
@@ -2258,7 +2264,17 @@ class Coc7RuleGraphAdapter:
             "pushed": False,
         }
         if outcome in _CHECK_FAILURE_OUTCOMES:
-            result["next_continuations"] = [_PUSHED_ROLL_REF, _LUCK_SPEND_REF]
+            # The rulebook takes the push option away from combat rolls, and
+            # the canonical check receipt says so per roll (``push_eligible``).
+            # Projecting the Push card anyway would advertise a continuation
+            # ``rules.push`` then refuses, so it is dropped here rather than
+            # left for the Keeper to discover at settlement. Luck spend is a
+            # separate rule and is unaffected.
+            result["next_continuations"] = (
+                [_PUSHED_ROLL_REF, _LUCK_SPEND_REF]
+                if data.get("push_eligible") is not False
+                else [_LUCK_SPEND_REF]
+            )
             continuation_selected = {
                 **dict(selected),
                 "_host_source_receipt": _thaw(data),
@@ -2278,9 +2294,14 @@ class Coc7RuleGraphAdapter:
                     source_decision_id=decision_id,
                 )
             hints = list(hints) + [
-                "ordinary failure: the player may push this roll with a "
-                "changed method and an announced consequence, or spend Luck; "
-                "not both"
+                (
+                    "ordinary failure: the player may push this roll with a "
+                    "changed method and an announced consequence, or spend "
+                    "Luck; not both"
+                ) if data.get("push_eligible") is not False else (
+                    "ordinary failure: this check cannot be pushed; the "
+                    "player may spend Luck instead"
+                )
             ]
         elif outcome in _CHECK_FUMBLE_OUTCOMES:
             result["next_continuations"] = []

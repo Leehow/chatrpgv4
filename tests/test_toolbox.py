@@ -789,6 +789,59 @@ def test_current_dice_reason_tamper_fails_global_preflight_without_mutation(
         for path in (receipt_path, rolls_path, state_path, ledger_path)
     ) == before
 
+@pytest.mark.parametrize("skill", [
+    "Dodge", "Fighting (Brawl)", "Firearms (Handgun)", "Artillery",
+])
+def test_failed_combat_skill_roll_is_refused_a_push_and_never_advises_one(
+    campaign_ws, skill,
+):
+    """CoC7 removes the push option from combat rolls; the roll surface obeys.
+
+    ``rules.roll`` used to close a failed Fighting/Firearms/Dodge/Artillery
+    check by emitting an ``open_push_or_context_change`` opportunity and a
+    hint naming ``rules.push``, and ``rules.push`` then settled the pushed
+    roll. Both are the rulebook's "No Pushing Combat Rolls" (p.116), stated
+    again per skill on p.71/75/76.
+    """
+    original_id = f"combat-skill-no-push-{skill[:8].strip().lower()}"
+    rolled = _failed_roll_for_push(campaign_ws, original_id, skill=skill)
+    assert rolled["data"]["push_eligible"] is False
+    assert rolled["data"].get("operation_opportunities") in (None, [])
+    assert not any(
+        "rules.push" in hint for hint in rolled.get("hints") or []
+    )
+    pushed = _run(campaign_ws, "rules.push", {
+        "original_check_decision_id": original_id,
+        "method_changed": "throw everything into the next attempt",
+        "failure_consequence": "the opening closes for good",
+        "decision_id": f"{original_id}-push",
+        "seed": 3,
+    })
+    assert pushed["ok"] is False, pushed
+    assert pushed["error"]["code"] == "invalid_push"
+    assert "combat skill" in pushed["error"]["message"]
+
+
+def test_failed_ordinary_skill_roll_still_advises_and_allows_its_push(
+    campaign_ws,
+):
+    """The combat-skill guard must leave every other failed check pushable."""
+    original_id = "ordinary-skill-still-pushable"
+    rolled = _failed_roll_for_push(campaign_ws, original_id)
+    assert "push_eligible" not in rolled["data"]
+    assert [row["kind"] for row in rolled["data"]["operation_opportunities"]] == [
+        "open_push_or_context_change"
+    ]
+    pushed = _run(campaign_ws, "rules.push", {
+        "original_check_decision_id": original_id,
+        "method_changed": "search a different archive",
+        "failure_consequence": "the archive closes",
+        "decision_id": f"{original_id}-push",
+        "seed": 3,
+    })
+    assert pushed["ok"] is True, pushed
+
+
 @pytest.mark.parametrize(
     ("tool_name", "operation_field", "tampered_value"),
     [
@@ -3116,7 +3169,16 @@ def test_same_attempt_retry_is_soft_advice_and_survives_resume(campaign_ws):
     assert first["data"]["success"] is False
     opportunity = first["data"]["operation_opportunities"][0]
     assert opportunity["hard_gate"] is False
-    assert opportunity["suggested_operation"]["operation"] == "rules.push"
+    # The advice must name something the Keeper can actually reach. coc7 has
+    # promoted push-luck to the graph, so the legacy `rules.push` is
+    # `kp_surface: "none"` and suggesting it would be a guaranteed refusal;
+    # the ruleset-agnostic discovery path is the honest advice there. A
+    # ruleset that has not promoted the family still gets `rules.push`.
+    suggested = opportunity["suggested_operation"]
+    assert suggested["operation"] in {"rules.push", "rules.context"}
+    assert suggested["invoke_via"], suggested
+    if suggested["operation"] == "rules.context":
+        assert suggested["prefilled_arguments"]["family"] == "push-luck"
     assert opportunity["attempt_pressure"]["same_goal_no_progress_count"] == 1
     assert opportunity["retry_status"]["status"] == "waiting"
 

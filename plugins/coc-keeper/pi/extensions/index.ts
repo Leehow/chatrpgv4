@@ -4271,6 +4271,42 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const result = semanticRegistry.resolveHandle(domain, handle, scope);
       return result.ok ? result.canonicalId : null;
     };
+    // The registry knows WHY a handle did not resolve. Saying "refresh the
+    // turn context" for all seven causes is wrong for most of them: a refresh
+    // does not transfer ownership, un-consume an effect, or move a handle
+    // between campaigns. Each message names the real cause and only promises a
+    // refresh where a refresh is genuinely the route out.
+    const failureReason = (
+      domain: "roll" | "effect" | "item" | "weapon" | "route" | "affordance",
+      handle: string,
+    ): string | null => {
+      const result = semanticRegistry.resolveHandle(domain, handle, scope);
+      if (result.ok) return null;
+      switch (result.reason) {
+        case "stale_turn":
+          return `this ${domain} handle was issued in an earlier player turn; `
+            + "refresh the current turn context and use the handle it presents.";
+        case "stale_session":
+          return `this ${domain} handle belongs to an earlier session; `
+            + "refresh the current turn context and use the handle it presents.";
+        case "campaign_mismatch":
+          return `this ${domain} handle belongs to a different campaign.`;
+        case "owner_mismatch":
+          return `this ${domain} handle is held by a different owner; use the `
+            + "handle presented for the owner you are acting on.";
+        case "ambiguous_owner":
+          return `two owners hold this ${domain} handle; name the owner `
+            + "explicitly so the host can bind the right one.";
+        case "invalidated":
+          return `this ${domain} handle was consumed or retired and cannot be `
+            + "referenced again.";
+        case "unknown_handle":
+          return `no ${domain} handle by that name was ever presented this `
+            + "turn; copy one verbatim from the current turn context.";
+        default:
+          return null;
+      }
+    };
     return {
       resolveRoll: (handle) => resolve("roll", handle),
       resolveEffect: (handle) => resolve("effect", handle),
@@ -4278,6 +4314,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       resolveWeapon: (handle) => resolve("weapon", handle),
       resolveRoute: (handle) => resolve("route", handle),
       resolveAffordance: (handle) => resolve("affordance", handle),
+      describeFailure: failureReason,
     };
   };
   const clearTurnEntityFacts = (): void => {
@@ -5187,6 +5224,57 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           resolutionContext?.roll_density_group,
           rollArguments?.decision_id,
         ]);
+      }
+      // The ten-family cutover moved execution to `rules.settle` and left
+      // this registration behind. Seven of the operations named in this block
+      // (`rules.roll`, `rules.push`, `rules.opposed`, `rules.sanity_check`,
+      // `sanity.execute`, `combat.resolve`, `rules.psychology_observe`) are
+      // `kp_surface: "none"` now, so in normal play they never fire — and
+      // every roll a graph settlement produces went unregistered.
+      //
+      // The damage is not cosmetic. An unregistered roll has no semantic
+      // handle, so its `roll:<canonical>` obligation cannot map; the
+      // `state.journal` refusal that names the remedy for a fumble is then
+      // collapsed into `semantic_identity_unavailable`, and the Keeper is
+      // left with a turn it cannot journal and no route out. That deadlock
+      // was observed at a live table.
+      if (operation === "rules.settle") {
+        const settlement = objectOrNull(data.settlement);
+        const settled = objectOrNull(settlement?.result);
+        const family = data.family;
+        const decisionRef = data.decision_ref;
+        walkCanonicalRows(settled ?? {}, (row) => {
+          // Every canonical roll a settlement carries, wherever it sits:
+          // the bound check, a sanity check and its loss roll, and any
+          // session roll the subsystem recorded.
+          // Facts are ordered most-distinctive first, matching the sibling
+          // branches: a handle built from the family alone collides the
+          // moment one settlement rolls twice.
+          const check = objectOrNull(row.check);
+          registerRoll(row.roll_id, [
+            row.skill ?? row.characteristic,
+            row.goal ?? row.source,
+            family,
+          ]);
+          for (const [field, role] of [
+            ["check_roll_id", "check"],
+            ["loss_roll_id", "loss"],
+            ["phobia_roll_id", "phobia"],
+            ["mania_roll_id", "mania"],
+          ] as const) {
+            registerRoll(row[field], [
+              row.source ?? row.goal,
+              check?.skill ?? row.skill,
+              role,
+            ]);
+          }
+          const sessionRollIds = Array.isArray(row.session_roll_ids)
+            ? row.session_roll_ids
+            : [];
+          sessionRollIds.forEach((rollId, index) => {
+            registerRoll(rollId, [row.source, family, "session-roll", index + 1]);
+          });
+        });
       }
       if (operation === "rules.roll_dice") {
         registerRoll(data.roll_id, [

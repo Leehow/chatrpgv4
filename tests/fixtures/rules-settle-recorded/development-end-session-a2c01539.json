@@ -1,0 +1,241 @@
+{
+  "decision_ref": "decision:coc7:development:end-session",
+  "family": "development",
+  "status": "settled",
+  "rule_refs": [],
+  "investigator_id": "thomas-hayes",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "session_ending": true,
+      "scene_id": "commission-briefing",
+      "kind": "retreat",
+      "investigator_ids": [
+        "thomas-hayes"
+      ],
+      "ending_id": "ending-27de9b7ca631d4640102",
+      "development": {
+        "status": "PASS",
+        "ending_id": "ending-27de9b7ca631d4640102",
+        "settlements": [
+          {
+            "investigator_id": "thomas-hayes",
+            "status": "PASS",
+            "attempts": 1,
+            "receipt": {
+              "schema_version": 1,
+              "status": "PASS",
+              "kind": "development.settle",
+              "operation_id": "op-development-settle-46965bcc17ed-55aef081d61a",
+              "result": {
+                "skills_checked": [],
+                "improvement_checks": [],
+                "skills_improved": [],
+                "san_reward_expr": null,
+                "san_reward_roll": null,
+                "san_reward_planned_delta": 0,
+                "ending_evidence": {
+                  "schema_version": 2,
+                  "capsule_type": "ending_settlement",
+                  "ending_id": "ending-27de9b7ca631d4640102",
+                  "event_id": "ending-event-b2f5e037684e4c7066fd",
+                  "event_ref": "logs/events.jsonl#ending-event-b2f5e037684e4c7066fd",
+                  "scene_id": "commission-briefing",
+                  "kind": "retreat",
+                  "summary": "托马斯·海斯当面拒绝史蒂文·诺特的科比特宅调查委托，不取钥匙也不收预付款，离开办公室并放弃此项调查。",
+                  "decision_id": "development-end-retreat-refuse-commission-v1",
+                  "investigator_ids": [
+                    "thomas-hayes"
+                  ],
+                  "scenario_id": "the-haunting",
+                  "conclusion_id": null,
+                  "conclusion_evidence": null,
+                  "conclusion_reward_id": null,
+                  "scenario_san_reward_expr": null,
+                  "scenario_san_reward_rule_ref": null,
+                  "event_line_at_capture": 2,
+                  "source_digest": {
+                    "campaign": {
+                      "exists": true,
+                      "sha256": "2ca95b83e47e9a671901ad10830994ab9cc5d4bae5a899958b4e88f3c62cc811"
+                    },
+                    "module_meta": {
+                      "exists": true,
+                      "sha256": "fad93e78c63d106dff42f91f2d01ac32817ff2b27c061cdb6d73e745ee2ae08d"
+                    },
+                    "story_graph": {
+                      "exists": true,
+                      "sha256": "348e5952bf3fc635e458810752e1d333a0cd21caaa6f7cb1195c1166822c2f1d"
+                    },
+                    "combat_snapshot": {
+                      "exists": false,
+                      "sha256": null
+                    }
+                  },
+                  "development_inputs": {
+                    "thomas-hayes": {
+                      "schema_version": 2,
+                      "skills_checked": [],
+                      "check_events": [],
+                      "input_tokens": [],
+                      "claim_owner": {
+                        "campaign_id": "gate9-d2-development-38a3a4af",
+                        "ending_id": "ending-27de9b7ca631d4640102",
+                        "investigator_id": "thomas-hayes"
+                      },
+                      "source_images": {
+                        "development_events": {
+                          "exists": true,
+                          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                        },
+                        "investigator_state": {
+                          "exists": true,
+                          "sha256": "e1377468c1733bb4c90598f7e3f1638df1bfe7c17991922db21a67489508f8e5"
+                        },
+                        "claim_ledger": {
+                          "exists": false,
+                          "sha256": null
+                        },
+                        "character": {
+                          "exists": true,
+                          "sha256": "8a714daf5371b5bafc202c7b84bc3743d7bddd0569dbb283e890ea3bc21151d1"
+                        },
+                        "sanity": {
+                          "exists": true,
+                          "sha256": "e1377468c1733bb4c90598f7e3f1638df1bfe7c17991922db21a67489508f8e5"
+                        }
+                      },
+                      "mechanical_baseline": {
+                        "skills": {},
+                        "luck": 50,
+                        "sanity": {
+                          "source": "investigator_state",
+                          "current": 55,
+                          "max": 99,
+                          "awfulness_caps": {}
+                        }
+                      },
+                      "deterministic_plan": {
+                        "schema_version": 2,
+                        "improvement_checks": [],
+                        "luck_recovery": {
+                          "roll": 26,
+                          "success": false,
+                          "gained": 0,
+                          "luck_before": 50,
+                          "luck_after": 50,
+                          "rule_ref": "core.optional.luck_recovery"
+                        },
+                        "awfulness_decay": {},
+                        "development_san_reward": null,
+                        "scenario_san_reward": null,
+                        "development_san_planned_delta": 0,
+                        "scenario_san_planned_delta": 0,
+                        "plan_sha256": "55aef081d61a6f083da7976b5deaa179d6a04853ed288b6ee74a80791a8b4294"
+                      },
+                      "input_sha256": "7e12d42c0b6ef17b57e3ad939be9096e6d8629b8aab616d10d05cdcd5a3f3db1"
+                    }
+                  },
+                  "rng_identity": {
+                    "thomas-hayes": {
+                      "algorithm": "python-random-seed-v1",
+                      "seed_material": "ending-27de9b7ca631d4640102:thomas-hayes:development.settle"
+                    }
+                  },
+                  "captured_at": "2026-09-01T01:17:06.524926+00:00",
+                  "capsule_sha256": "4866446c9cf38ab15bbcb2851fd85688493114d1b172bccb6a4c0dfd1023a11e"
+                },
+                "scenario_san_reward_expr": null,
+                "scenario_san_reward_roll": null,
+                "scenario_san_reward_planned_delta": 0,
+                "luck_recovery": {
+                  "roll": 26,
+                  "success": false,
+                  "gained": 0,
+                  "luck_before": 50,
+                  "luck_after": 50,
+                  "rule_ref": "core.optional.luck_recovery",
+                  "planned_luck_before": 50,
+                  "planned_luck_after": 50,
+                  "planned_gained": 0,
+                  "current_luck_before_apply": 50,
+                  "applied_delta": 0,
+                  "merge_policy": "additive_monotonic_capped_99"
+                },
+                "awfulness_decay": {},
+                "awfulness_merge": {},
+                "inventory_settlement": null,
+                "mechanical_baseline": {
+                  "skills": {},
+                  "luck": 50,
+                  "sanity": {
+                    "source": "investigator_state",
+                    "current": 55,
+                    "max": 99,
+                    "awfulness_caps": {}
+                  }
+                },
+                "settlement_plan_sha256": "55aef081d61a6f083da7976b5deaa179d6a04853ed288b6ee74a80791a8b4294",
+                "merge_policy": "frozen_plan_additive_monotonic_v1",
+                "input_tokens_consumed": [],
+                "player_facing_mechanics": {
+                  "schema_version": 1,
+                  "investigator_id": "thomas-hayes",
+                  "operation_id": "op-development-settle-46965bcc17ed-55aef081d61a",
+                  "required_roll_ids": [
+                    "op-development-settle-46965bcc17ed-55aef081d61a:luck-recovery"
+                  ],
+                  "rendered_lines": [
+                    "【明骰】幸运（1D100）：骰面 26 → 总值 26"
+                  ],
+                  "rendered_text": "【明骰】幸运（1D100）：骰面 26 → 总值 26",
+                  "complete": true,
+                  "missing_roll_ids": []
+                },
+                "settlement_boundary": {
+                  "boundary_id": "gate9-d2-development-38a3a4af:session:1",
+                  "session_ids": [
+                    "gate9-d2-development-38a3a4af:session:1"
+                  ],
+                  "settlement_types": [
+                    "skill_development",
+                    "luck_recovery"
+                  ]
+                }
+              },
+              "player_facing_mechanics": {
+                "schema_version": 1,
+                "investigator_id": "thomas-hayes",
+                "operation_id": "op-development-settle-46965bcc17ed-55aef081d61a",
+                "required_roll_ids": [
+                  "op-development-settle-46965bcc17ed-55aef081d61a:luck-recovery"
+                ],
+                "rendered_lines": [
+                  "【明骰】幸运（1D100）：骰面 26 → 总值 26"
+                ],
+                "rendered_text": "【明骰】幸运（1D100）：骰面 26 → 总值 26",
+                "complete": true,
+                "missing_roll_ids": []
+              },
+              "state_refs": [
+                "save/investigator-state/thomas-hayes.json",
+                "save/development-settlements/endings/ending-27de9b7ca631d4640102/thomas-hayes.json",
+                "save/development-settlements/boundaries/thomas-hayes.json",
+                "../../investigators/thomas-hayes/character.json",
+                "logs/events.jsonl",
+                "logs/rolls.jsonl"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "next_decisions": [],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:b215596efbae058c5a58c4a9b97e5e0b1a70230c4c9ae5cf8cf32d1cc3d95b5b"
+}

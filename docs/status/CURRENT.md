@@ -1,6 +1,6 @@
 # COC Keeper Current Status
 
-**Last updated:** 2026-07-17
+**Last updated:** 2026-08-31
 
 **Current manifest version:** `0.4.0-alpha.0`
 
@@ -34,6 +34,62 @@
 - Runtime saves must match the exact current schema. Old or mismatched runtime
   state is rejected and replaced with a fresh campaign generation; historical
   reports remain read-only evidence.
+
+## Pi-Coc RuleGraph cutover (`ACTIVE_IMPLEMENTATION_TRACK=pi-coc`)
+
+Integration branch `codex/pi-coc-all-rule-families-20260831` (= branch
+`0.8.1a`) at `65ca572b`. Note that `0.8.1a` is a branch name; the plugin
+manifest version above is unchanged and remains authoritative.
+
+**Compiled and promoted — all ten families.** healing, core-check, push-luck,
+social, psychology, combat, chase, sanity, magic, development are source-bound
+in the production CoC7 RuleGraph (433 nodes / 665 relations), all
+`family_runtime_ownership=graph`, all `legacy_surface_lifecycle=hidden`.
+`rules.context` and `rules.settle` are the normal Keeper surface.
+
+**Promoted is not playable.** A family counts as playable only after a fresh
+normal-profile `pi-coc --mode rpc` turn settles it with no fixture, seed,
+injected trigger, or legacy operation (spec §14 Gate 9):
+
+| Family | State |
+| --- | --- |
+| Development, Social | passed Gate 9 |
+| Core-check | settled naturally, but predates the corrected bundled-Pi launcher |
+| Push/Luck, Psychology | committed a settlement, then failed to project a model view; both projectors are now closed, neither has been replayed live |
+| Healing, Combat, Sanity, Chase, Magic | **no recorded settlement of any kind** — never reached in any preserved run |
+
+**Per-turn budget: 180 s, currently missed.** Across the 44 preserved Gate 9
+evidence turns: median 103 s, and **16 of 44 hit the timeout**. Host tool
+execution is ~2 s median (≈2 % of a turn); the rest is model/provider time.
+Timed-out turns averaged 15.8 tool calls vs 9.4 for settled turns, so
+round-trip count is the lever, not graph cost. Every avoidable `rules.settle`
+rejection costs one round trip. See spec §16.1.
+
+### Open items
+
+1. Closed model-view projectors exist for social, development/end-session,
+   push-luck/pushed-roll and psychology/observe-concealed. The other six
+   families have no recorded settlement to build one against; each needs one
+   real settlement before its projector can be written honestly.
+2. `tests/pi/normal-model-id-boundary.mjs` still fails, now on a different
+   defect than before: `_operation_card` in `coc_mcp_wire.py` advertises
+   `invoke_via: "coc_invoke"` for **any** operation, including the 45
+   host-private (`kp_surface: none`) ones that the execute ACL then refuses
+   with `host_private_operation`. `combat.end` is the reachable case, because
+   the cutover hid the legacy combat surface. The host instructs the model into
+   a call that cannot succeed — a guaranteed wasted round trip. `coc_mcp_wire.py`
+   is a cross-track shared file; the fix is unauthorized as of this entry.
+3. `references/system-ontology-registry-v1.json` still describes the module
+   coverage row against "the current production healing-only RuleGraph", which
+   contradicts the rule row in the same file. Cross-track shared registry file;
+   unauthorized as of this entry.
+4. The production RuleGraph has no explicit Social → Push `continues-as`
+   relation. Runtime continuation works through the canonical failed-check
+   grant, so this is a source-graph/Ontology completeness gap, not a live bug.
+5. `decision:coc7:development:settle-ending` has no production projection and
+   no Gate 9 proof; only `end-session` does.
+6. Rotate the xAI OAuth credential — one earlier diagnostic printed token
+   fields before redaction. No credential was committed.
 
 ## Whole-product acceptance
 

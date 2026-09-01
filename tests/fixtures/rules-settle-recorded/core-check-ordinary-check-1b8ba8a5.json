@@ -1,0 +1,56 @@
+{
+  "decision_ref": "decision:coc7:core-check:ordinary-check",
+  "family": "core-check",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:core-check:canonical-target-binding",
+    "rule:coc7:core-check:combined",
+    "rule:coc7:push-luck:luck-roll"
+  ],
+  "investigator_id": "thomas-hayes",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "bound_check": {
+        "base_target": 45,
+        "target": 45,
+        "required_level": "regular",
+        "difficulty": "regular",
+        "required_target": 45,
+        "effective_target": 45,
+        "achieved_level": "fumble",
+        "passed": false,
+        "success": false,
+        "surplus_levels": 0,
+        "outcome": "fumble",
+        "bonus": 0,
+        "penalty": 0,
+        "roll": 100,
+        "unmodified_roll": 100,
+        "tens_values": [],
+        "units": null,
+        "investigator_id": "thomas-hayes",
+        "skill": "Listen",
+        "target_source": "explicit",
+        "pushed": false,
+        "goal": "stand just inside the unlocked front door without going deeper and hear whether the house makes any sound",
+        "stakes": {
+          "on_success": "catch upstairs thumps or scrapes if anything answers the intrusion",
+          "on_failure": "house noise blends with street sound and nothing clear registers"
+        },
+        "difficulty_basis": "environment",
+        "roll_id": "toolbox-gate9-chase-8d454eb8-01-000004"
+      },
+      "outcome": "fumble",
+      "pushed": false,
+      "next_continuations": []
+    }
+  },
+  "next_decisions": [],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:7f50d8baa0db534c76a68b7e553e078a89357df4120911220474453185f7ef8b"
+}

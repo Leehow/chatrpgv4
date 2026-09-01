@@ -46,8 +46,8 @@
     },
     {
       "source_id": "rules-json:coc7:pushed-roll",
-      "bundle_sha256": "04baa9df720b10b3fb873be9b1ada8cfa5b9d2f9b0eea3ff506cce9a142d71e5",
-      "file_sha256": "7dbfbbf6a95244a99f0918d2db07d35d1a38b6988286daab26ae288caadfce6a"
+      "bundle_sha256": "453e6353d8f3fdf718337f070b29fd937a3d117a4006c0c88836d5fc5a957e23",
+      "file_sha256": "63c01366232f033ce5f887d25d9d9085b02aef6e8c1ec5395a9679704b6f69c7"
     },
     {
       "source_id": "rules-json:coc7:roll-modifiers",
@@ -88,7 +88,7 @@
     },
     {
       "shard_id": "shard:coc7:core-check:section-checks-push-luck",
-      "shard_digest": "c29df3e985d108fc0d9c603de7e05675a41350fdbc94c04ec80c19a83ab6b82f"
+      "shard_digest": "a860a74f7896db22bc9feca4700242617d3d3d3a9a4cad4b92c16e0572483a3a"
     },
     {
       "shard_id": "shard:coc7:development:section-reference-lookups",

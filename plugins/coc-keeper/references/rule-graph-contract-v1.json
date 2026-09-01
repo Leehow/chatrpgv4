@@ -127,6 +127,7 @@
     "intent.poor_environment",
     "intent.rescuer_count",
     "receipt.last_outcome",
+    "receipt.push_eligible",
     "time.day",
     "time.minutes_since_injury",
     "clock.dying",

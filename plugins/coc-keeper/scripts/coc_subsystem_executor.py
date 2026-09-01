@@ -266,6 +266,37 @@ def _package_damage_state_effect(
     )
 
 
+def _package_skill_is_pushable(campaign_dir: Path, skill: Any) -> bool:
+    """Ask the bound package whether a failed check on ``skill`` may be pushed.
+
+    CoC7 removes the push option from combat rolls, so an authored roll gate
+    that says ``push_policy.eligible`` on a Fighting/Firearms/Dodge/Artillery
+    check must not mint push authority the settlement path would refuse. A
+    package that does not declare the capability states no such restriction.
+    """
+    if not str(skill or "").strip():
+        return True
+    campaign_path = Path(campaign_dir) / "campaign.json"
+    campaign = None
+    if campaign_path.is_file():
+        try:
+            loaded = json.loads(campaign_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return True
+        if isinstance(loaded, dict):
+            campaign = loaded
+    try:
+        resolver = coc_rulesets.get_resolver(campaign)
+        provider = getattr(resolver, "skill_pushable", None)
+        if not callable(provider):
+            return True
+        return bool(provider(skill))
+    except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError):
+        # An unbound or unreadable package states no restriction; push
+        # eligibility is still settled authoritatively by ``push_policy``.
+        return True
+
+
 def _resolved_percentile_fields(
     roll: int,
     base_target: int,
@@ -3203,6 +3234,10 @@ def _mint_push_continuation_capsule(
     roll non-pushable.  It is never repaired later from prose or adjacent IDs.
     """
     if event.get("passed") is not False or event.get("outcome") != "failure":
+        return None
+    if not _package_skill_is_pushable(campaign_dir, event.get("skill")):
+        # An authored gate cannot grant a push the rulebook withholds; a
+        # failed combat roll is answered by the next attack, not a reroll.
         return None
     contract = event.get("roll_contract")
     policy = contract.get("push_policy") if isinstance(contract, dict) else None

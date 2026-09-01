@@ -48,8 +48,8 @@
     {
       "source_id": "rules-json:coc7:pushed-roll",
       "file": "plugins/coc-keeper/rulesets/coc7/rules-json/pushed-roll.json",
-      "file_sha256": "7dbfbbf6a95244a99f0918d2db07d35d1a38b6988286daab26ae288caadfce6a",
-      "bundle_manifest_sha256": "04baa9df720b10b3fb873be9b1ada8cfa5b9d2f9b0eea3ff506cce9a142d71e5",
+      "file_sha256": "63c01366232f033ce5f887d25d9d9085b02aef6e8c1ec5395a9679704b6f69c7",
+      "bundle_manifest_sha256": "453e6353d8f3fdf718337f070b29fd937a3d117a4006c0c88836d5fc5a957e23",
       "pages": 1
     },
     {

@@ -30,9 +30,13 @@ test("oversized combat.end card keeps replay semantics and hides integrity", () 
     },
     data: {
       projection_sha256: digest,
+      // Post ten-family cutover `combat.end` is `kp_surface: "none"` and
+      // outside the coc_invoke compatibility set, so the host emits a card
+      // that names the operation without inviting a call the ACL refuses.
       replay_operation: {
         operation: "combat.end",
-        invoke_via: "coc_invoke",
+        invoke_via: null,
+        model_invocable: false,
         prefilled_arguments: {},
         missing_arguments: [],
         authority: "advisory",
@@ -60,7 +64,8 @@ test("oversized combat.end card keeps replay semantics and hides integrity", () 
   assert.equal(visible.data.projection_sha256, undefined);
   assert.deepEqual(visible.data.replay_operation, {
     operation: "combat.end",
-    invoke_via: "coc_invoke",
+    invoke_via: null,
+    model_invocable: false,
     prefilled_arguments: {},
     missing_arguments: [],
     authority: "advisory",

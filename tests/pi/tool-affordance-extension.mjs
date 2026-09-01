@@ -1662,7 +1662,11 @@ test("RuleGraph Social settlement keeps semantic result and hides host correlati
           investigator: "current-investigator",
           decision_ref: "decision:coc7:social:adjudicate-difficulty",
           semantic_inputs: {
-            target_ref: "npc:steven-knott",
+            // The canonical kernel accepts only `social-target:<npc_id>`
+            // here (coc_operation_kernel `_canonical_social_binding`); the
+            // bare `npc:` form this fixture used before was never a value
+            // the real validator would take.
+            target_ref: "social-target:npc-steven-knott",
             commitment_ref: "commitment:knott-two-day-advance",
             approach: "persuade",
             goal: "让诺特接受两天定金预付，并将事故写入书面委托",
