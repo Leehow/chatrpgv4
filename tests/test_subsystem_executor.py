@@ -2307,6 +2307,29 @@ def test_push_offer_validates_origin_and_keeps_private_context_out_of_public_cho
     )
 
 
+def test_authored_gate_cannot_mint_push_authority_for_a_combat_roll(tmp_path):
+    """``push_policy.eligible`` is authored; the rulebook still overrides it.
+
+    CoC7 has no push for combat rolls, so a roll gate that claims a failed
+    Dodge is pushable must not mint push continuation authority. The same
+    authored gate on Spot Hidden still does -- the restriction is the
+    rulebook's named combat skills, not a veto on authored push gates.
+    """
+    executor = _executor("coc_subsystem_executor_push_combat_skill")
+    campaign, character = _campaign_and_character(tmp_path)
+
+    pushable = _persist_failed_pushable_roll(executor, campaign, character)
+    assert "push_continuation_capsule" in pushable["events"][0]
+
+    command = _pushable_roll_command("original-failed-dodge")
+    command["payload"]["skill"] = "Dodge"
+    combat = _execute(
+        executor, campaign, character, [command], random.Random(5),
+    )[0]
+    assert combat["events"][0]["outcome"] == "failure"
+    assert "push_continuation_capsule" not in combat["events"][0]
+
+
 def test_push_offer_and_confirmation_use_only_opaque_continuation_capability(
     tmp_path,
 ):
