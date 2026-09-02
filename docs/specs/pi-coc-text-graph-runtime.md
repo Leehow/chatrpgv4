@@ -986,7 +986,7 @@ the run is preserved at `.coc/playtests/textgraph-t5-en-20260901/`.
 | 1 live | **blocked** — see correction 23 |
 | 2 real play | run, and degraded: 2 turns finalized, 2 undelivered, 1 opening |
 | 3 retune experiment | **not started** — it depends on gate 4 |
-| 4 `findings` | **not measured** — see correction 24 |
+| 4 `findings` | **answered, not by measurement** — the zero has a mechanical cause; see [why-narration-review-fired-zero-times](../status/why-narration-review-fired-zero-times.md) |
 
 ### Corrections this specification needed (T5)
 
