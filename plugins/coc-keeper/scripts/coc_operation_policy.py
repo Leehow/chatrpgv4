@@ -604,6 +604,19 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
         "kp_surface": "none",
         "phases": ("live_turn",),
     },
+    # A stat is the Keeper's to change when the source says so: a spell's POW
+    # cost, a drain, time-loop ageing, or whatever this table's house rules
+    # cost. Nothing could reach one before -- `rules.resource_delta` declares
+    # only the four coc7 pools and no rule-graph decision touches a
+    # characteristic -- so an authored consequence had no canonical path and
+    # the Keeper improvised with HP damage at a live table. This is a KP
+    # surface, not a host adapter.
+    "state.stat_delta": {
+        "audience": "keeper",
+        "kp_surface": "state",
+        "contract": "state",
+        "phases": ("live_turn",),
+    },
     "rules.roll_dice": {
         "phases": ("cold_start", "opening", "live_turn"),
     },

@@ -1039,6 +1039,53 @@ def _project_state_deltas(
             )
             if effect:
                 _add_effect(effects, effect)
+        elif tool == "state.stat_delta" and investigator_id:
+            # The stat itself, plus every derived maximum that moved with it.
+            # Without this the player is never told a drain happened: the write
+            # lands, the sheet changes, and the turn's visible state block stays
+            # silent about it.
+            stat_name = str(data.get("stat") or "").strip()
+            if stat_name:
+                effect = _scalar_effect(
+                    decision_id, stat_name,
+                    data.get("before"), data.get("after"),
+                    investigator_id=investigator_id,
+                )
+                if effect:
+                    _add_effect(effects, effect)
+            derived_before = (
+                data.get("derived_before")
+                if isinstance(data.get("derived_before"), dict) else {}
+            )
+            derived_after = (
+                data.get("derived_after")
+                if isinstance(data.get("derived_after"), dict) else {}
+            )
+            for derived_key in ("HP", "MP", "SAN"):
+                effect = _scalar_effect(
+                    decision_id, f"max {derived_key}",
+                    derived_before.get(derived_key), derived_after.get(derived_key),
+                    investigator_id=investigator_id,
+                )
+                if effect:
+                    _add_effect(effects, effect)
+            clamped = (
+                data.get("clamped_pools")
+                if isinstance(data.get("clamped_pools"), dict) else {}
+            )
+            for pool, display in (
+                ("current_hp", "hp"), ("current_mp", "mp"), ("current_san", "san"),
+            ):
+                row = clamped.get(pool)
+                if not isinstance(row, dict):
+                    continue
+                effect = _scalar_effect(
+                    decision_id, resource_display.get(display, display.upper()),
+                    row.get("before"), row.get("after"),
+                    investigator_id=investigator_id,
+                )
+                if effect:
+                    _add_effect(effects, effect)
         elif tool == "rules.luck_spend" and investigator_id:
             effect = _scalar_effect(
                 decision_id, resource_display.get("luck", "Luck"), data.get("luck_before"), data.get("luck_after"),

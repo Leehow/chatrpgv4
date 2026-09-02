@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:3917db63e82accdfeb257a7541fb42279879d71422188b269ce39a4598b22bc5",
+  "content_sha256": "sha256:ce83778d83ab3e7ce84268a57360efa6a6699d7db5c2cb198a5c0d1f7d2b0042",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 147,
+  "operation_count": 148,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -8679,6 +8679,64 @@
         ]
       },
       "summary": "Set or clear a structured world flag (feeds flag_set unlock conditions)."
+    },
+    "state.stat_delta": {
+      "access": "mutation",
+      "canonical_operation": "state.stat_delta",
+      "description": "Apply a signed change to any numeric stat on an investigator. A core characteristic (STR/CON/SIZ/DEX/APP/INT/POW/EDU) re-derives everything that reads from it; a derived value (HP/MP/SAN/Luck/Build/MOV) is recorded as an override that survives later recomputation; any other name is a house-rule stat. Current pools above a dropped maximum are clamped. Use for authored consequences that cost a stat: a spell's POW cost, a drain, time-loop ageing, or whatever this table's rules cost. Canonical operation `state.stat_delta`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "delta": {
+            "description": "signed change; negative drains, positive restores",
+            "type": "integer"
+          },
+          "investigator": {
+            "description": "investigator id; defaults to the active PC",
+            "type": "string"
+          },
+          "reason": {
+            "description": "in-fiction cause of the change, in the campaign's play language",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "stat": {
+            "description": "characteristic (STR..EDU), derived value (HP/MP/SAN/Luck/Build/MOV), or a house-rule stat name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "stat",
+          "delta",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "discovery": "surface",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Apply a signed change to any numeric stat on an investigator. A core characteristic (STR/CON/SIZ/DEX/APP/INT/POW/EDU) re-derives everything that reads from it; a derived value (HP/MP/SAN/Luck/Build/MOV) is recorded as an override that survives later recomputation; any other name is a house-rule stat. Current pools above a dropped maximum are clamped. Use for authored consequences that cost a stat: a spell's POW cost, a drain, time-loop ageing, or whatever this table's rules cost."
     },
     "state.supersede_settlement": {
       "access": "mutation",
