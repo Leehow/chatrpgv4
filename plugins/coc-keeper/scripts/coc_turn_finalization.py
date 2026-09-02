@@ -1039,7 +1039,7 @@ def _project_state_deltas(
             )
             if effect:
                 _add_effect(effects, effect)
-        elif tool == "state.stat_delta" and investigator_id:
+        elif tool == "state.characteristic_delta" and investigator_id:
             # The stat itself, plus every derived maximum that moved with it.
             # Without this the player is never told a drain happened: the write
             # lands, the sheet changes, and the turn's visible state block stays

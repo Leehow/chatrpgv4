@@ -236,10 +236,10 @@ def test_lowercase_is_accepted_because_the_grammar_lowercases_refs(campaign):
 
 def test_the_operation_is_on_the_keepers_surface():
     """The permission half: an operation the KP cannot reach is not a fix."""
-    row = policy.policy_for_operation("state.stat_delta")
+    row = policy.policy_for_operation("state.characteristic_delta")
     assert row["audience"] == "keeper"
     assert row["kp_surface"] == "state"
-    assert policy.model_invocation_tool("state.stat_delta") == "coc_state"
+    assert policy.model_invocation_tool("state.characteristic_delta") == "coc_state"
 
 
 def test_the_change_reaches_the_player_visible_state_block():
@@ -255,7 +255,7 @@ def test_the_change_reaches_the_player_visible_state_block():
     )
     projected = finalization._project_state_deltas([{
         "ok": True,
-        "tool": "state.stat_delta",
+        "tool": "state.characteristic_delta",
         "args": {"decision_id": "npc-ghost-drain-1"},
         "data": {
             "investigator_id": "probe-investigator",
@@ -286,7 +286,7 @@ def test_an_unchanged_characteristic_projects_nothing():
     )
     assert finalization._project_state_deltas([{
         "ok": True,
-        "tool": "state.stat_delta",
+        "tool": "state.characteristic_delta",
         "args": {"decision_id": "noop-1"},
         "data": {
             "investigator_id": "probe-investigator",
@@ -296,3 +296,31 @@ def test_an_unchanged_characteristic_projects_nothing():
             "clamped_pools": {},
         },
     }], ruleset_id="coc7") == []
+
+
+def test_the_operation_keeps_the_name_the_keeper_guesses():
+    """Discoverability is part of the capability, not a cosmetic concern.
+
+    Renaming this to `state.stat_delta` -- more accurate, since it takes
+    derived values and house-rule stats too -- made it unreachable in one live
+    turn: the Keeper guessed `state.characteristic_adjust`,
+    `state.adjust_characteristic`, `rules.characteristic_damage` and
+    `state.resource_adjust`, found none of them, and narrated a STR loss that
+    never reached the sheet. Listing the namespace is not a fallback: `state`
+    is over the discovery budget. Under this name it guessed right first try.
+    """
+    row = policy.policy_for_operation("state.characteristic_delta")
+    assert row["audience"] == "keeper"
+    contracts = json.loads(
+        (ROOT / "plugins" / "coc-keeper" / "references"
+         / "mcp-operation-contracts.json").read_text(encoding="utf-8")
+    )["operations"]
+    assert "state.characteristic_delta" in contracts, (
+        "the generated contract projection must carry the operation under the "
+        "name the Keeper searches for"
+    )
+    schema = contracts["state.characteristic_delta"]["inputSchema"]
+    assert "characteristic" in schema["required"]
+    # ...and the argument must say it is not limited to STR..EDU, or the
+    # Keeper will not try it for Luck or a house-rule stat.
+    assert "house-rule" in schema["properties"]["characteristic"]["description"]

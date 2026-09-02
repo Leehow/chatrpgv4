@@ -88,8 +88,8 @@ def _tool_state_backstory_corruption_add(ctx: Ctx, args: dict[str, Any]):
     ctx.ledger_record(args["decision_id"], "state.backstory_corruption_add", data)
     return data, [], ["this records an accepted consequence; it does not author one automatically"]
 
-def _tool_state_stat_delta(ctx: Ctx, args: dict[str, Any]):
-    prior = ctx.ledger_lookup("state.stat_delta", args.get("decision_id"))
+def _tool_state_characteristic_delta(ctx: Ctx, args: dict[str, Any]):
+    prior = ctx.ledger_lookup("state.characteristic_delta", args.get("decision_id"))
     if prior is not None:
         return prior.get("data"), ["duplicate decision_id: returning the previous receipt"], []
     investigator_id = _resolve_investigator(ctx, args)
@@ -107,7 +107,7 @@ def _tool_state_stat_delta(ctx: Ctx, args: dict[str, Any]):
         result = coc_state.apply_stat_delta(
             ctx.campaign_dir,
             investigator_id,
-            stat=str(args["stat"]),
+            stat=str(args["characteristic"]),
             delta=delta,
         )
     except ValueError as exc:
@@ -115,7 +115,7 @@ def _tool_state_stat_delta(ctx: Ctx, args: dict[str, Any]):
     except FileNotFoundError as exc:
         raise ToolError("unknown_investigator", str(exc)) from exc
     data = {**result, "reason": reason}
-    ctx.ledger_record(args["decision_id"], "state.stat_delta", data)
+    ctx.ledger_record(args["decision_id"], "state.characteristic_delta", data)
     hints = [
         "derived values were recomputed and are authoritative; do not restate "
         "or recompute HP/MP/SAN/DB/Build/MOV yourself",
@@ -433,14 +433,14 @@ def register_operations(registry) -> None:
     {},
 )(_tool_threat_query)
     registry.tool(
-    "state.stat_delta",
-    "Apply a signed change to any numeric stat on an investigator. A core characteristic (STR/CON/SIZ/DEX/APP/INT/POW/EDU) re-derives everything that reads from it; a derived value (HP/MP/SAN/Luck/Build/MOV) is recorded as an override that survives later recomputation; any other name is a house-rule stat. Current pools above a dropped maximum are clamped. Use for authored consequences that cost a stat: a spell's POW cost, a drain, time-loop ageing, or whatever this table's rules cost.",
+    "state.characteristic_delta",
+    "Apply a signed change to any numeric stat on an investigator (the `characteristic` argument takes any stat name, not only STR..EDU). A core characteristic (STR/CON/SIZ/DEX/APP/INT/POW/EDU) re-derives everything that reads from it; a derived value (HP/MP/SAN/Luck/Build/MOV) is recorded as an override that survives later recomputation; any other name is a house-rule stat. Current pools above a dropped maximum are clamped. Use for authored consequences that cost a stat: a spell's POW cost, a drain, time-loop ageing, or whatever this table's rules cost.",
     {
         "investigator": {"type": "string", "desc": "investigator id; defaults to the active PC"},
-        "stat": {
+        "characteristic": {
             "type": "string",
             "required": True,
-            "desc": "characteristic (STR..EDU), derived value (HP/MP/SAN/Luck/Build/MOV), or a house-rule stat name",
+            "desc": "any stat name: a characteristic (STR..EDU), a derived value (HP/MP/SAN/Luck/Build/MOV), or this table's own house-rule stat",
         },
         "delta": {
             "type": "integer",
@@ -454,7 +454,7 @@ def register_operations(registry) -> None:
         },
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
-)(_tool_state_stat_delta)
+)(_tool_state_characteristic_delta)
     registry.tool(
     "state.threat_tick",
     "Advance one authored threat clock segment transactionally. Consequences are returned as advice, never auto-narrated.",
