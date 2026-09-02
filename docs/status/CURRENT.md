@@ -125,14 +125,15 @@ rejection costs one round trip. See spec §16.1.
 6. Rotate the `openai-codex` and `qoder-cn` OAuth credentials — one earlier
    diagnostic printed their refresh fields before redaction; the xAI credential
    was re-issued. No credential was committed.
-7. TextGraph T0–T5 is merged, and its own gates are not all met. Gate 1's
-   live half needs a non-`zh-Hans` table, which no operation can create:
-   mechanics chrome is still a closed three-language table that falls back to
-   English silently, so prose follows the player but chrome cannot. See
-   `docs/status/play-language-layer-is-unnecessary.md`. Gate 3 depends on gate
-   4, and gate 4 is unmeasured — `narration.review` fired 0 times in 60 calls
-   in one run and 7 times in another on the same day, path and model.
-   Attribution needs several runs per arm, not a verdict from n=1.
+7. TextGraph T0–T5 is merged. Gate 1's live half was blocked on mechanics
+   chrome being a closed three-language table; that is now fixed —
+   `setup.player_vocabulary` lets a campaign carry chrome in any language, and
+   ja-JP no longer renders English bodies under Japanese tags. What remains is
+   gate 2 itself: a non-`zh-Hans` table played end to end with a live Keeper,
+   which no fixture can stand in for. Gate 3 depends on gate 4, and gate 4 is
+   answered rather than measured — see
+   `docs/status/why-narration-review-fired-zero-times.md`.
+
 8. The pre-existing `0.8.1a` test debt is cleared except one file.
    `tests/test_pi_package.py` is 186/187, and the whole `tests/pi` suite
    passes through its own wrappers. Five of those failures were real product

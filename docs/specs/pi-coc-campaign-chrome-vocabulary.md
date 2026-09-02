@@ -1,7 +1,8 @@
 # Campaign chrome vocabulary — specification
 
-> **Status:** built, except the model-facing writer. Two premises in §2 and
-> §3 were wrong and are corrected in place — see *Corrections*.
+> **Status:** built. Gate 2 (a fourth-language table in real play) is the
+> only piece left, and it needs a live Keeper session. Two premises in §2
+> and §3 were wrong and are corrected in place — see *Corrections*.
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`
 > **Date:** 2026-09-01
 
@@ -166,5 +167,5 @@ language was needed to make this a present defect.
 | per-campaign `chrome.` overrides, any language | done |
 | coverage reporting instead of silent substitution | done |
 | `set_campaign_player_vocabulary()` writer | done |
-| a model-facing operation that calls it | **not done** — moves the surface 148 → 149, which several agents' tests pin |
+| `setup.player_vocabulary`, the model-facing entrance | done; surface 148 → 149, and the suites pin `operation_count == len(operations)` rather than a literal |
 | gate 2: a fourth-language table in real play | **not done** — needs a live Keeper session |
