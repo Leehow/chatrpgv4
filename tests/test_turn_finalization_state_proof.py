@@ -134,13 +134,13 @@ def _call(
 def _reasons(window, effects) -> list[str]:
     return [
         row["reason"]
-        for row in coc_turn_finalization._state_delta_proof_violations(window, effects)
+        for row in coc_state_effect_authority.state_delta_proof_violations(window, effects)
     ]
 
 
 def test_shape_only_typed_delta_is_rejected() -> None:
     effect = _item_effect()
-    rows = coc_turn_finalization._state_delta_proof_violations([], [effect])
+    rows = coc_state_effect_authority.state_delta_proof_violations([], [effect])
     assert len(rows) == 1
     assert rows[0]["code"] == "unproven_state_delta"
     assert rows[0]["stage"] == "state_proof"
@@ -168,7 +168,7 @@ def test_failed_and_unknown_ops_are_rejected() -> None:
 
 def test_successful_registered_state_op_is_accepted() -> None:
     effect = _item_effect()
-    rows = coc_turn_finalization._state_delta_proof_violations(
+    rows = coc_state_effect_authority.state_delta_proof_violations(
         [_call("state.item_grant", "grant-keys", extra_data=_item_data())],
         [effect],
     )
@@ -207,7 +207,7 @@ def test_combat_receipt_proves_loaded_ammunition_not_item() -> None:
             },
         },
     )]
-    assert coc_turn_finalization._state_delta_proof_violations(window, [ammo]) == []
+    assert coc_state_effect_authority.state_delta_proof_violations(window, [ammo]) == []
     # combat.resolve writes ammunition, never an item grant.
     assert _reasons(window, [_item_effect(decision_id="combat-shot")]) == [
         "operation_cannot_write"
@@ -215,7 +215,7 @@ def test_combat_receipt_proves_loaded_ammunition_not_item() -> None:
 
 
 def test_rules_owned_scalar_accepts_registered_rules_receipt() -> None:
-    rows = coc_turn_finalization._state_delta_proof_violations(
+    rows = coc_state_effect_authority.state_delta_proof_violations(
         [_call(
             "rules.damage",
             "dmg-001",
@@ -224,7 +224,7 @@ def test_rules_owned_scalar_accepts_registered_rules_receipt() -> None:
         [_scalar_effect()],
     )
     assert rows == []
-    shape_only = coc_turn_finalization._state_delta_proof_violations(
+    shape_only = coc_state_effect_authority.state_delta_proof_violations(
         [],
         [_scalar_effect()],
     )
@@ -265,7 +265,7 @@ def test_idempotent_replay_links_to_original_success() -> None:
     effect = _item_effect(decision_id="grant-keys")
     original = _call("state.item_grant", "grant-keys", extra_data=_item_data())
     replay = _call("state.item_grant", "grant-keys", replay=True, extra_data=_item_data())
-    assert coc_turn_finalization._state_delta_proof_violations(
+    assert coc_state_effect_authority.state_delta_proof_violations(
         [original, replay],
         [effect],
     ) == []
@@ -289,7 +289,7 @@ def test_same_valid_and_invalid_receipt_match_exporter_authority() -> None:
         "dmg-001",
         extra_data={"player_state_receipt": _hp_receipt()},
     )
-    assert coc_turn_finalization._state_delta_proof_violations([valid], [effect]) == []
+    assert coc_state_effect_authority.state_delta_proof_violations([valid], [effect]) == []
     assert _reasons([invalid], [effect]) == ["operation_cannot_write"]
     assert coc_state_effect_authority.state_delta_proof_reason(effect, [valid]) is None
     assert coc_state_effect_authority.state_delta_proof_reason(
@@ -317,7 +317,7 @@ def test_combat_receipt_projects_and_proves_hp_and_luck() -> None:
     projected = coc_turn_finalization._project_state_deltas(window)
     resources = [row.get("resource") for row in projected if row.get("effect_kind") == "scalar"]
     assert resources == ["HP", "Luck"]
-    assert coc_turn_finalization._state_delta_proof_violations(window, projected) == []
+    assert coc_state_effect_authority.state_delta_proof_violations(window, projected) == []
     blank = {
         "schema_version": 1,
         "category": "state_delta",
@@ -377,7 +377,7 @@ def test_multi_effect_window_proves_each_effect_once() -> None:
         window[2],
     ])
     assert [row["effect_kind"] for row in projected] == ["item", "cash"]
-    assert coc_turn_finalization._state_delta_proof_violations(
+    assert coc_state_effect_authority.state_delta_proof_violations(
         window, projected,
     ) == []
     bundle = {
@@ -417,7 +417,7 @@ def test_proof_failure_names_the_calls_made_and_the_operation_to_call() -> None:
     the effect.
     """
     effect = _scalar_effect()
-    rows = coc_turn_finalization._state_delta_proof_violations(
+    rows = coc_state_effect_authority.state_delta_proof_violations(
         [_call("state.journal", "dmg-001", extra_data={"hp_before": 10, "hp_after": 8})],
         [effect],
     )
@@ -431,7 +431,7 @@ def test_proof_failure_names_the_calls_made_and_the_operation_to_call() -> None:
 
 def test_wrong_subject_names_both_investigators() -> None:
     item = _item_effect(decision_id="shared", investigator_id="hero")
-    rows = coc_turn_finalization._state_delta_proof_violations(
+    rows = coc_state_effect_authority.state_delta_proof_violations(
         [_call(
             "state.item_grant",
             "shared",
@@ -444,3 +444,42 @@ def test_wrong_subject_names_both_investigators() -> None:
     assert rows[0]["reason"] == "wrong_subject"
     assert "'hero'" in rows[0]["message"]
     assert "'other'" in rows[0]["message"]
+
+
+def test_a_host_projected_delta_the_host_cannot_evidence_does_not_shut_the_table() -> None:
+    """The Keeper does not author typed state deltas; the host projects them.
+
+    So an unprovable one is either "nothing was written" -- the narration
+    would claim a change that never happened, which must still fail closed --
+    or "something was written and the host's own receipt cannot evidence it",
+    which is the host disagreeing with itself. There is no operation to
+    abandon or repair a pending turn, so failing the second case closed leaves
+    the campaign permanently unable to deliver any turn. Seen live on
+    2026-09-02 in campaign amaranthine-loop.
+    """
+    effect = _scalar_effect()
+    wrote_but_cannot_evidence = [
+        _call("state.journal", "dmg-001", extra_data={"hp_before": 10, "hp_after": 8})
+    ]
+    assert coc_state_effect_authority.state_delta_proof_violations(
+        wrote_but_cannot_evidence, [effect]
+    ), "the authority must still report the shortfall"
+    assert coc_turn_finalization._state_delta_proof_violations(
+        wrote_but_cannot_evidence, [effect]
+    ) == [], "a host bookkeeping shortfall must not block the turn"
+
+    nothing_written = []
+    assert coc_turn_finalization._state_delta_proof_violations(
+        nothing_written, [effect]
+    ), "a delta with no write behind it must still fail closed"
+
+
+def test_host_shortfalls_are_carried_not_dropped() -> None:
+    effect = _scalar_effect()
+    blocking, host_faults = coc_turn_finalization._classify_state_delta_proof_rows(
+        [_call("state.journal", "dmg-001", extra_data={"hp_before": 10, "hp_after": 8})],
+        [effect],
+    )
+    assert blocking == []
+    assert len(host_faults) == 1
+    assert host_faults[0]["reason"] == "operation_cannot_write"

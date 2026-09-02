@@ -3784,6 +3784,25 @@ def _state_delta_proof_reason(
     )
 
 
+# A typed state delta is not authored by the Keeper: the host projects it from
+# the turn's own window. So a proof failure is one of two very different
+# things, and only one of them is the Keeper's to answer.
+#
+# "Nothing was written" -- no successful call under that decision id at all --
+# means the narration would claim a change that never happened. That still
+# fails closed.
+#
+# "Something was written, and the host's own receipt cannot evidence it" is the
+# host disagreeing with itself: the projector read the change off a call the
+# verifier then refuses. Failing the turn closed for that punishes the Keeper
+# for a shortfall it cannot see, cannot fix, and cannot route around -- there
+# is no operation to abandon or repair a pending turn, so the campaign is
+# simply dead. Seen live on 2026-09-02: a Sanity settlement whose envelope
+# predated the fields the authority requires left campaign amaranthine-loop
+# unable to deliver any turn, ever.
+_UNWRITTEN_PROOF_REASONS = frozenset({"missing", "failed", "replay", "advisory"})
+
+
 def _state_delta_proof_violations(
     window: list[dict[str, Any]],
     effects: Any,
@@ -3791,9 +3810,54 @@ def _state_delta_proof_violations(
     registry: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """Fail closed when a typed visible delta lacks a registered write receipt."""
-    return coc_state_effect_authority.state_delta_proof_violations(
+    blocking, _host_faults = _classify_state_delta_proof_rows(
         window, effects, registry=registry,
     )
+    return blocking
+
+
+def _classify_state_delta_proof_rows(
+    window: list[dict[str, Any]],
+    effects: Any,
+    *,
+    registry: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Split proof failures into the Keeper's and the host's own."""
+    rows = coc_state_effect_authority.state_delta_proof_violations(
+        window, effects, registry=registry,
+    )
+    blocking: list[dict[str, str]] = []
+    host_faults: list[dict[str, str]] = []
+    for row in rows:
+        if str(row.get("reason") or "") in _UNWRITTEN_PROOF_REASONS:
+            blocking.append(row)
+        else:
+            host_faults.append(row)
+    return blocking, host_faults
+
+
+def _record_host_state_proof_shortfall(
+    campaign_dir: Path,
+    rows: list[dict[str, str]],
+) -> None:
+    """Write host-side proof shortfalls to the audit log, never to nowhere."""
+    if not rows:
+        return
+    try:
+        import coc_state as _coc_state
+
+        for row in rows:
+            _coc_state.append_jsonl(
+                Path(campaign_dir) / "logs" / "audit.jsonl",
+                {
+                    "event_type": "host_state_proof_shortfall",
+                    "source": "coc_turn_finalization",
+                    "reason": row.get("reason"),
+                    "message": row.get("message"),
+                },
+            )
+    except Exception:
+        pass
 
 
 def collect_finalize_violations(
@@ -3855,12 +3919,15 @@ def collect_finalize_violations(
         )
     except coc_turn_manifest.TurnManifestError:
         source_window = []
-    violations.extend(
-        _state_delta_proof_violations(
-            source_window,
-            context["mechanics_bundle"].get("state_delta") or [],
-        )
+    proof_blocking, proof_host_faults = _classify_state_delta_proof_rows(
+        source_window,
+        context["mechanics_bundle"].get("state_delta") or [],
     )
+    violations.extend(proof_blocking)
+    # Carried, never dropped: a delta the host projected and then could not
+    # evidence is recorded with the reason it failed, so a shortfall that no
+    # longer blocks the table is still visible afterwards.
+    _record_host_state_proof_shortfall(campaign_dir, proof_host_faults)
     coverage_violations, coverage_rows = _collect_coverage_violations(
         context["obligations"], coverage, draft
     )
