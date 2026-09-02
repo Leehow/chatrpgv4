@@ -207,6 +207,12 @@ rejection costs one round trip. See spec §16.1.
     `agency_violation` "the only hard gate" while the operation is not offered
     in normal play — the descriptions now say so explicitly, but the wording
     inside `findings.rule_id` has not been revisited.
+12. Four banter/timing signals reach the Keeper through `turn.output_context`,
+    verified in live play, and whether they change the writing is **unproven**.
+    The A/B pair that exists is not clean — different NPCs in different scenes —
+    and the reading has to be blind and done by someone other than the author.
+    `docs/status/banter-signals-delivered-effect-unproven.md`. Delivery is a
+    precondition for the effect, not evidence of it.
 
 ## Whole-product acceptance
 
