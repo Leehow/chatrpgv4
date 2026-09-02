@@ -3582,6 +3582,26 @@ class CombatSession:
         return rolls, events
 
 
+class CombatNotStartedError(FileNotFoundError):
+    """No combat snapshot exists yet: nothing is wrong, nothing has begun.
+
+    Distinguished from a corrupt snapshot so the absence can be answered with
+    the way forward. Without it the bare errno travelled all the way to the
+    Keeper: settling `decision:coc7:combat:maneuver` with no combat underway
+    came back as `subsystem_transaction_failed: [Errno 2] No such file or
+    directory: .../save/combat.json`, which names no operation and no
+    condition. Seen live on 2026-09-02.
+    """
+
+
 def load_combat_state(path: Path) -> dict[str, Any]:
     """Read a combat.json snapshot (used by audit/report)."""
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    resolved = Path(path)
+    if not resolved.is_file():
+        raise CombatNotStartedError(
+            "no combat is underway (no canonical combat snapshot): read "
+            "combat.context to confirm, and begin the exchange with "
+            "combat.resolve — a combat decision cannot be settled before one "
+            "has started"
+        )
+    return json.loads(resolved.read_text(encoding="utf-8"))

@@ -1,0 +1,60 @@
+#!/bin/zsh
+# 换 KP 模型 / 放 key 的小工具。用法:
+#   ./kp            列出能用的模型
+#   ./kp glm        换成 glm-5.3-flash
+#   ./kp grok       换成 grok-4.5
+#   ./kp key <名字> 放一把 key(不回显,不进终端历史)
+set -e
+cd "${0:A:h}"
+export RPC_EVIDENCE_DIR="${RPC_EVIDENCE_DIR:-.rpc-evidence-run3}"
+export COC_PI_CAMPAIGN_ID="${COC_PI_CAMPAIGN_ID:-amaranthine-run3}"
+
+case "$1" in
+  key)
+    [[ -z "$2" ]] && { echo "用法: ./kp key zai-coding-cn"; exit 1; }
+    read -s "K?粘贴 $2 的 key 然后回车: "; echo
+    K="$K" P="$2" python3 -c "
+import json,os,pathlib
+p=pathlib.Path('.pi/coc-agent/auth.json')
+d=json.loads(p.read_text())
+d[os.environ['P']]={'type':'api_key','key':os.environ['K']}
+p.write_text(json.dumps(d,indent=2)+chr(10))
+print('已写入',os.environ['P'],'凭据')"
+    unset K
+    ;;
+  ""|list)
+    python3 -c "
+import json,pathlib
+d=json.loads(pathlib.Path('.pi/coc-agent/models.json').read_text())
+auth=set(json.loads(pathlib.Path('.pi/coc-agent/auth.json').read_text()))
+print('能用的模型(有钥匙的):')
+for name,p in d['providers'].items():
+    mark='✓' if name in auth else '  (缺 key)'
+    for m in (p.get('models') or [])[:6]:
+        print(f\"  {mark} {name}/{m['id']}\")"
+    ;;
+  glm)  MODEL=zai-coding-cn/glm-5.3-flash; THINK=off ;;
+  grok) MODEL=xai/grok-4.5;                  THINK=low ;;
+  *)    MODEL="$1" ;;
+esac
+
+if [[ -n "$MODEL" ]]; then
+  # Thinking level travels with the model: pi refuses to start when the
+  # session default names a level the model does not support (it will not
+  # silently clamp). glm-5.3-flash supports only "off"; grok-4.5 takes "low".
+  if [[ -n "$THINK" ]]; then
+    THINK="$THINK" python3 -c "
+import json,os,pathlib
+p=pathlib.Path('.pi/coc-agent/settings.json')
+d=json.loads(p.read_text())
+d['defaultThinkingLevel']=os.environ['THINK']
+p.write_text(json.dumps(d,indent=2)+chr(10))"
+  fi
+  uv run --frozen python rpc-driver.py stop >/dev/null 2>&1 || true
+  rm -f "$RPC_EVIDENCE_DIR/rpc-control.fifo" "$RPC_EVIDENCE_DIR/rpc-daemon.pid"
+  uv run --frozen python rpc-driver.py start >/dev/null
+  sleep 3
+  uv run --frozen python rpc-driver.py set-model "$MODEL" 2>&1 | grep -q '"success": true' \
+    && echo "已切到 $MODEL,可以继续玩了" \
+    || { echo "切换失败: $MODEL"; exit 1; }
+fi
