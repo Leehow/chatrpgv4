@@ -256,6 +256,7 @@ def clear_runtime_cache() -> None:
     _GRAPH_CACHE.clear()
     _MANIFEST_CACHE.clear()
     _CAMPAIGN_RUNTIMES.clear()
+    _PUBLIC_EFFECT_RUNTIME_CACHE.clear()
 
 
 def _campaign_runtime_key(
@@ -561,6 +562,49 @@ def agree_all_family_ownerships(
         "findings": findings,
         "graph_claimed": graph_claimed,
     }
+
+
+_PUBLIC_EFFECT_RUNTIME_CACHE: dict[str, "RulesRuntime | None"] = {}
+
+
+def public_effect_refs_for_decision(
+    decision_ref: str,
+    *,
+    ruleset_id: str | None = None,
+) -> list[str]:
+    """Public effect semantic ids emitted by one decision ref.
+
+    Decision node -> ``emits`` -> effect nodes; only effects ``plan_for``
+    would treat as public (``visibility`` absent or ``"public"``) are
+    returned.  ``keeper-only`` / ``concealed-result`` effects are always
+    excluded.  Unknown, malformed, or non-decision input returns ``[]``.
+    Pure deterministic graph query with no semantic reasoning
+    (cross-graph wiring spec W1: RuleGraph -> text rendering bridge).
+    """
+    ref = str(decision_ref or "").strip()
+    if not ref.startswith("decision:"):
+        return []
+    segments = ref.split(":")
+    resolved = ruleset_id or (segments[1] if len(segments) >= 2 and segments[1] else "")
+    if not resolved:
+        return []
+    if resolved not in _PUBLIC_EFFECT_RUNTIME_CACHE:
+        runtime: RulesRuntime | None = None
+        try:
+            loaded = load_ruleset_graph(resolved)
+        except Exception:
+            loaded = {"ok": False}
+        if isinstance(loaded, dict) and loaded.get("ok"):
+            runtime = RulesRuntime(
+                loaded["graph"],
+                ruleset_id=resolved,
+                graph_manifest=loaded.get("graph_manifest") if isinstance(loaded.get("graph_manifest"), dict) else None,
+            )
+        _PUBLIC_EFFECT_RUNTIME_CACHE[resolved] = runtime
+    runtime = _PUBLIC_EFFECT_RUNTIME_CACHE[resolved]
+    if runtime is None:
+        return []
+    return runtime.public_effect_refs_for(ref)
 
 
 def resolve_family_ownership(
@@ -1069,6 +1113,28 @@ class RulesRuntime:
             target = self._nodes.get(str(rel.get("to_node_id")))
             if target is not None and target.get("node_kind") == "effect":
                 out.append(str(target.get("node_id")))
+        return sorted(set(out))
+
+    def public_effect_refs_for(self, decision_ref: str) -> list[str]:
+        """Public ``emits`` targets of one decision node (W1 runtime bridge).
+
+        Mirrors ``plan_for`` visibility semantics: an effect with no
+        ``visibility`` property or ``visibility == "public"`` is returned;
+        ``keeper-only`` and ``concealed-result`` effects are never returned.
+        Unknown or non-decision input yields ``[]``.  Pure deterministic
+        graph query; no semantic reasoning.
+        """
+        ref = str(decision_ref or "").strip()
+        node = self._nodes.get(ref)
+        if not isinstance(node, dict) or node.get("node_kind") != "decision":
+            return []
+        out: list[str] = []
+        for effect_id in self._effects_for(ref):
+            effect = self._nodes.get(effect_id) or {}
+            vis = (effect.get("properties") or {}).get("visibility") or effect.get("visibility")
+            if vis in {"keeper-only", "concealed-result"}:
+                continue
+            out.append(effect_id)
         return sorted(set(out))
 
     def _pending_choices_for(self, node_id: str) -> list[str]:
