@@ -604,6 +604,26 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
     # R5: low-level package primitives leave the Keeper working set.
     # Live Keepers use rules.roll for ordinary checks; graph effects invoke
     # resource_delta. Both stay registered as host-internal adapters.
+    # Precedent is a Keeper surface, not a gate. Recording is a deliberate act
+    # after a call has been made, so it sits beside rules.settle where the
+    # Keeper already is; reading is folded into rules.context, so rules.precedent
+    # stays off the ordinary hotset and is reached only on purpose.
+    "rules.record_ruling": {
+        "audience": "keeper",
+        "contract": "advisory",
+        "advisory": True,
+        "kp_surface": "rules",
+        "phases": ("live_turn",),
+        "discovery": "surface",
+    },
+    "rules.precedent": {
+        "audience": "keeper",
+        "contract": "none",
+        "advisory": True,
+        "kp_surface": "rules",
+        "phases": ("live_turn",),
+        "discovery": "exact",
+    },
     "rules.check": {
         "audience": "host",
         "kp_surface": "none",

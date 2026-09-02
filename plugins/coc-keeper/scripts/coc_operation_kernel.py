@@ -368,6 +368,38 @@ coc_language = _load_sibling("coc_language", "coc_language.py")
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
 
 coc_rulesets = _load_sibling("coc_rulesets", "coc_rulesets.py")
+coc_table_precedent = _load_sibling(
+    "coc_table_precedent_kernel", "coc_table_precedent.py"
+)
+
+#: Per-family enrichment for `rules.context`, registered by the operation cell
+#: that owns the family.
+#:
+#: This exists because the obvious spelling does not work. `dispatch_rules_context`
+#: used to reach for `globals().get("_tool_combat_context")`, but an operation
+#: cell's exports are written into the toolbox's globals by the loader, and the
+#: kernel is loaded a second time under the alias `coc_operation_kernel_runtime`
+#: that the cells import from -- so the lookup returned None and the branch never
+#: ran. It was born that way: the branch landed in bf08ad6b, after ab463b58 had
+#: already moved combat out of this file, so combat and sanity `canonical_context`
+#: reached a Keeper exactly zero times.
+#:
+#: An explicit registry cannot fail that way silently: registration is a call
+#: someone writes, and `tests/test_context_enrichers.py` asserts the families
+#: that own an enricher have actually registered one.
+_CONTEXT_ENRICHERS: dict[str, Any] = {}
+
+
+def register_context_enricher(family: str, handler: Any) -> None:
+    """Bind one family's `rules.context` enricher. Idempotent per family."""
+    if not callable(handler):
+        raise TypeError(f"context enricher for {family!r} must be callable")
+    _CONTEXT_ENRICHERS[str(family)] = handler
+
+
+def registered_context_enrichers() -> tuple[str, ...]:
+    """Families that have registered an enricher, for tests and diagnostics."""
+    return tuple(sorted(_CONTEXT_ENRICHERS))
 
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 
@@ -7491,28 +7523,35 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
         if isinstance(lookup_ref, str) and lookup_ref.strip():
             question["lookup_ref"] = lookup_ref.strip()
     result = runtime.context(question)
-    if family == "combat":
-        handler = globals().get("_tool_combat_context")
-        if callable(handler):
-            context_data, context_warnings, context_hints = handler(
-                ctx, {"investigator": investigator_id},
+    enricher = _CONTEXT_ENRICHERS.get(family)
+    if enricher is not None:
+        context_data, context_warnings, context_hints = enricher(
+            ctx, {"investigator": investigator_id},
+        )
+        result["canonical_context"] = context_data
+        if context_warnings:
+            result.setdefault("warnings", []).extend(context_warnings)
+        if context_hints:
+            result.setdefault("hints", []).extend(context_hints)
+    # What this table already decided about these decisions, handed back with
+    # them. A ruling that only lived in the transcript was the whole reason a
+    # long session drifted: the Keeper had no way to see their own earlier call
+    # when the same decision came round again. It is advisory -- it changes no
+    # card, no applicability and no arithmetic -- and it is attached only when
+    # there is something to say, so an ordinary read is unchanged.
+    if isinstance(result.get("cards"), list):
+        decision_refs = [
+            str(card["decision_ref"])
+            for card in result["cards"]
+            if isinstance(card, Mapping) and card.get("decision_ref")
+        ]
+        if decision_refs:
+            precedent = coc_table_precedent.precedent_for_decisions(
+                ctx.campaign_dir, decision_refs,
             )
-            result["canonical_context"] = context_data
-            if context_warnings:
-                result.setdefault("warnings", []).extend(context_warnings)
-            if context_hints:
-                result.setdefault("hints", []).extend(context_hints)
-    elif family == "sanity":
-        handler = globals().get("_tool_sanity_context")
-        if callable(handler):
-            context_data, context_warnings, context_hints = handler(
-                ctx, {"investigator": investigator_id},
-            )
-            result["canonical_context"] = context_data
-            if context_warnings:
-                result.setdefault("warnings", []).extend(context_warnings)
-            if context_hints:
-                result.setdefault("hints", []).extend(context_hints)
+            if precedent.get("rulings") or precedent.get("house_rules"):
+                result["table_precedent"] = precedent
+
     findings = result.get("findings") if isinstance(result.get("findings"), list) else []
     if findings:
         coc_rules_runtime.record_host_internal_findings(
@@ -7964,11 +8003,57 @@ def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: st
                 "npc_profile_invalid",
                 "; ".join(f"{ref}: {actor_errors[ref]}" for ref in blocked),
             )
+        # A chase needs someone to run from. When the current scene holds no
+        # actor besides the investigator there is no ref the Keeper could pass
+        # that would work, so saying "refs must resolve" sends it to re-guess a
+        # set that cannot exist. Observed live 2026-09-02: the Keeper narrated
+        # the flight, moved the scene, and only then tried to start the chase —
+        # leaving the pursuer behind in the scene it fled, with the generic
+        # message giving it no way to know that was the problem.
+        opponents = [ref for ref in actors if ref not in quarries]
+        if len(actors) < 2 or not opponents:
+            raise ToolError(
+                "chase_no_present_opponent",
+                "a chase needs a pursuer present in the current scene; only "
+                f"{sorted(actors) or 'no actor'} is present in "
+                f"{candidates.get('scene_id') or 'the current scene'}",
+                details={
+                    "scene_id": candidates.get("scene_id"),
+                    "present_actor_refs": sorted(actors),
+                    "hint": (
+                        "establish the pursuer in this scene first (state.npc_presence), "
+                        "or settle the chase before moving the investigator away from it"
+                    ),
+                },
+            )
+        rejected_actors = sorted(
+            {ref for ref in [*pursuers, *quarries] if ref not in actors}
+        )
+        rejected_locations = sorted(
+            {ref for ref in location_refs if ref not in locations}
+        )
         if (not pursuers or not quarries or len(location_refs) < 2
                 or set(pursuers) & set(quarries)
-                or any(ref not in actors for ref in [*pursuers, *quarries])
-                or any(ref not in locations for ref in location_refs)):
-            raise ToolError("chase_candidate_invalid", "chase refs must resolve to current actors and current/connected locations")
+                or rejected_actors or rejected_locations):
+            # The candidate sets are in hand here, so name them: a rejected ref
+            # is a choice from the wrong list, not a malformed argument, and
+            # the Keeper cannot read the right list from anywhere else.
+            raise ToolError(
+                "chase_candidate_invalid",
+                "chase refs must resolve to current actors and current/connected locations",
+                details={
+                    "scene_id": candidates.get("scene_id"),
+                    "rejected_actor_refs": rejected_actors,
+                    "rejected_location_refs": rejected_locations,
+                    "present_actor_refs": sorted(actors)[:12],
+                    "connected_location_refs": sorted(locations)[:12],
+                    "requires": {
+                        "pursuer_refs": "at least one, from present_actor_refs",
+                        "quarry_refs": "at least one, from present_actor_refs, disjoint from pursuer_refs",
+                        "location_refs": "at least two, from connected_location_refs",
+                    },
+                },
+            )
         participants = []
         for side, refs, position in (("pursuer", pursuers, 0), ("quarry", quarries, 1)):
             for ref in refs:

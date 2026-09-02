@@ -7,7 +7,14 @@
  * recovery metadata to an existing canonical failure envelope.
  */
 import type { JsonSchema } from "./operation-contracts.ts";
-import { OBLIGATION_ID_PREFIXES } from "./obligation-namespace.generated.ts";
+import {
+  AGENCY_CLAIM_TYPES,
+  COVERAGE_FIELDS,
+  OBLIGATION_ID_PREFIXES,
+  PLAYER_INPUT_HANDLING_VALUES,
+  REALIZATION_VALUES,
+  VOLUNTARY_CLAIM_TYPES,
+} from "./text-vocabulary.generated.ts";
 import type { SemanticProjectionView } from "./semantic-identity-registry.ts";
 
 export type StateJournalBindingCard = {
@@ -34,15 +41,21 @@ export type NarrationReviewBindingCard = {
   state_claim_compilation: Record<string, unknown>;
 };
 
-export const REVIEWED_AGENCY_CLAIM_TYPES = [
-  "voluntary_action",
-  "voluntary_speech",
-  "voluntary_plan",
-  "voluntary_belief",
-  "voluntary_trust",
-  "voluntary_active_emotion",
-  "forced_behavior",
-  "involuntary_physiology",
+export const REVIEWED_AGENCY_CLAIM_TYPES = AGENCY_CLAIM_TYPES;
+
+/**
+ * The MODEL-FACING coverage row shape. Deliberately not generated from the
+ * TextGraph: seven of these nine are the graph's own coverage field names, but
+ * `obligation_ref` and `reviewed_span` are the model-facing renames of
+ * `obligation_id` and `exact_excerpt`, and the graph declares no such mapping.
+ * Generating it would mean hardcoding that rename in the generator -- moving
+ * the copy, and asserting an equivalence nothing owns. What IS fixable is that
+ * this list was written out twice in this file; it is written once.
+ */
+const MODEL_FACING_COVERAGE_FIELDS = [
+  "obligation_ref", "reviewed_span", "realization", "action_realization",
+  "response", "causal_explanation", "persona_fit",
+  "player_input_handling", "exceptional_beat",
 ] as const;
 
 export type ReviewedAgencyClaimType = typeof REVIEWED_AGENCY_CLAIM_TYPES[number];
@@ -567,6 +580,18 @@ const PI_SCHEMA_CODES = new Set<string>([
   "missing_parameters",
   "invalid_arguments",
   "invalid_param_type",
+  // A settlement whose semantic_inputs name a slot the decision does not
+  // declare, or omit one it requires, is the model's own argument error and
+  // the host already hands back the exact declared/missing slot names. Left
+  // out of this set it projected as `invariant_terminal`, `recoverable_by:
+  // none`, with no allowed next action — the envelope handed over the fix and
+  // told the Keeper the failure was unrecoverable in the same breath.
+  // Observed live 2026-09-02: told `declared_slots: [affordance_id,
+  // candidate_ref, combat_revision, investigator_id]` for
+  // decision:coc7:combat:flee, the Keeper never retried with corrected
+  // arguments and went looking for other decisions to settle instead.
+  "unknown_semantic_input",
+  "missing_semantic_input",
 ]);
 
 /** Single schema-code policy shared by classification and schema attachment. */
@@ -576,6 +601,29 @@ export function isPiSchemaFailure(operation: string, code: string): boolean {
 }
 
 const DYNAMIC_CANDIDATE_ACTIONS: Record<string, readonly PiAllowedNextAction[]> = {
+  // A rejected chase ref is a choice from the wrong list, not a malformed
+  // argument: the host returns the present actors and connected locations in
+  // details. Classified terminal, the Keeper re-guessed the same refs twice
+  // and the chase family stayed at zero live settlements.
+  chase_candidate_invalid: [{
+    operation: "rules.settle",
+    action: "correct_model_arguments",
+    reason:
+      "choose pursuer_refs and quarry_refs from present_actor_refs and at "
+      + "least two location_refs from connected_location_refs, both returned "
+      + "in this error",
+    host_bound: false,
+  }],
+  // No opponent present is a state problem, not an argument problem: no ref
+  // the Keeper could pass would work until someone is there to give chase.
+  chase_no_present_opponent: [{
+    operation: "state.npc_presence",
+    action: "refresh_semantic_candidates",
+    reason:
+      "establish the pursuer in this scene before settling the chase, or "
+      + "settle it before the investigator leaves the scene they are fleeing",
+    host_bound: false,
+  }],
   unknown_combat_target: [{
     operation: "combat.context",
     action: "refresh_semantic_candidates",
@@ -1314,10 +1362,7 @@ export function buildReviewedAgencyBinding(
     .sort((left, right) => left.obligation_id.localeCompare(right.obligation_id));
   const authorities: ReviewedAgencyAuthority[] = [{
     authority: "current-player-input",
-    claim_types: [
-      "voluntary_action", "voluntary_speech", "voluntary_plan",
-      "voluntary_belief", "voluntary_trust", "voluntary_active_emotion",
-    ],
+    claim_types: [...VOLUNTARY_CLAIM_TYPES],
     subject_ref: subjectRef,
     source_ref: playerSourceRef,
     override_id: null,
@@ -1781,7 +1826,7 @@ function validateReviewedAgencyBinding(
       || raw.allowed_reviewed_spans.length
         !== new Set(raw.allowed_reviewed_spans).size
       || ![
-        "fictional_beat", "concealed_no_player_visible_beat",
+        ...REALIZATION_VALUES,
       ].includes(String(raw.realization))
       || ![
         "host_safe_default_before_result", "canonical_repair_if_unsafe",
@@ -2468,11 +2513,7 @@ function projectReviewedCoverageSchema(
             ? { type: "string", minLength: 1 }
             : { type: ["string", "null"] },
       },
-      required: [
-        "obligation_ref", "reviewed_span", "realization",
-        "action_realization", "response", "causal_explanation", "persona_fit",
-        "player_input_handling", "exceptional_beat",
-      ],
+      required: [...MODEL_FACING_COVERAGE_FIELDS],
     };
   });
   schema.properties.coverage = {
@@ -2728,11 +2769,7 @@ export function bindRetainedTypedToolArguments(
       valid.reviewed_agency_binding.spans.map((row) => [row.reviewed_span, row]),
     );
     const seenCoverage = new Set<string>();
-    const coverageFields = [
-      "obligation_ref", "reviewed_span", "realization", "action_realization",
-      "response", "causal_explanation", "persona_fit",
-      "player_input_handling", "exceptional_beat",
-    ];
+    const coverageFields = [...MODEL_FACING_COVERAGE_FIELDS];
     const semanticString = (
       value: unknown,
       field: string,

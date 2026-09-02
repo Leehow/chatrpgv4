@@ -71,6 +71,7 @@ RULE_DECISION_CARD_FIELDS = frozenset({
 #: the player actually said, which is the whole point of declaring one.
 RULE_DECISION_OPTIONAL_CARD_FIELDS = frozenset({
     "answers_declared_intent",
+    "settle_form",
 })
 RULE_DECISION_BLOCK_FIELDS = frozenset({
     "schema_version",
@@ -1466,6 +1467,11 @@ def _compact_rule_decision_card(
             if isinstance(value.get("answers_declared_intent"), bool)
             else {}
         ),
+        **(
+            {"settle_form": _closed_settle_form(value["settle_form"])}
+            if _closed_settle_form(value.get("settle_form")) is not None
+            else {}
+        ),
     }
 
 
@@ -1480,6 +1486,32 @@ def _closed_rule_block_authority(value: Any) -> dict[str, Any] | None:
     ):
         return None
     return {"hard_gate": False, "role": "affordance"}
+
+
+def _closed_settle_form(value: Any) -> dict[str, Any] | None:
+    """Carry the runtime's per-card settle form, or nothing."""
+    if not isinstance(value, dict):
+        return None
+    prefilled = value.get("prefilled_arguments")
+    missing = value.get("missing_arguments")
+    if not isinstance(prefilled, dict) or not isinstance(missing, list):
+        return None
+    decision_ref = prefilled.get("decision_ref")
+    if not _semantic_prefixed_ref(decision_ref, "decision:"):
+        return None
+    if not all(isinstance(name, str) and name for name in missing):
+        return None
+    form: dict[str, Any] = {
+        "prefilled_arguments": {"decision_ref": decision_ref},
+        "missing_arguments": [str(name) for name in missing],
+    }
+    optional = value.get("optional_arguments")
+    if isinstance(optional, list) and all(
+        isinstance(name, str) and name for name in optional
+    ):
+        if optional:
+            form["optional_arguments"] = [str(name) for name in optional]
+    return form
 
 
 def _compact_rule_decision_card_block(value: Any) -> dict[str, Any] | None:

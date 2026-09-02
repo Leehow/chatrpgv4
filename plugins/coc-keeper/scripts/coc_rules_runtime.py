@@ -1121,6 +1121,42 @@ class RulesRuntime:
         )
         return bool(passed), hard_gated
 
+    def _settle_form(self, node_id: str, slots: list[dict[str, Any]]) -> dict[str, Any]:
+        """The exact arguments that settle THIS decision.
+
+        `rules.settle` takes one flat `semantic_inputs` schema whose property
+        map is the union of every slot of every decision in every family —
+        56 keys, `additionalProperties: false`. That union is legal for the
+        tool and wrong for the decision, and a model composing a call from it
+        cannot tell the difference. Observed live on 2026-09-02: settling
+        decision:coc7:combat:flee, whose only model-owned slot is an optional
+        `candidate_ref`, the Keeper passed `source_ref` — a key belonging to
+        another family, in the union, so the schema accepted it and the graph
+        rejected it as an undeclared slot.
+
+        The card already describes its inputs. This states them as the call:
+        the decision_ref filled in, the required slots named, the optional
+        ones named apart so an empty form reads as complete rather than as
+        something withheld. Most decisions need nothing beyond the id — of
+        the 43, eleven take no model-owned slot and thirteen take one.
+        """
+        required = sorted(
+            slot["name"] for slot in slots
+            if slot["ownership"] in _REQUIRED_SEMANTIC_OWNERSHIPS
+        )
+        optional = sorted(
+            slot["name"] for slot in slots
+            if slot["ownership"] in _SEMANTIC_SLOT_OWNERSHIPS
+            and slot["ownership"] not in _REQUIRED_SEMANTIC_OWNERSHIPS
+        )
+        form: dict[str, Any] = {
+            "prefilled_arguments": {"decision_ref": node_id},
+            "missing_arguments": ["decision_id", *required],
+        }
+        if optional:
+            form["optional_arguments"] = optional
+        return form
+
     # -- declared-intent triggers ------------------------------------------ #
     #: A condition whose expression reads this path is a trigger on the
     #: player's declared action rather than on campaign state. Such a
@@ -1196,6 +1232,7 @@ class RulesRuntime:
                 "hard_gate": hard_gated,
             },
         }
+        card["settle_form"] = self._settle_form(node_id, slots)
         answers_intent = self.answers_declared_intent(node_id, facts)
         if answers_intent is not None:
             card["answers_declared_intent"] = answers_intent

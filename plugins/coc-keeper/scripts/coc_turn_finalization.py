@@ -2526,100 +2526,51 @@ def _render_exceptional_effect(
 ) -> str:
     language = play_language or coc_language.DEFAULT_PLAY_LANGUAGE
     chrome = coc_language.table_mechanics_labels(language, terms=terms)
-    zh = language == "zh-Hans" or language.startswith("zh")
-    if zh:
-        kind_labels = {
-            "bonus_die": "奖励骰",
-            "penalty_die": "惩罚骰",
-            "condition": "状态",
-            "restriction": "限制",
-            "relationship_or_clock": "关系/时钟",
-            "scene_event": "场景事件",
-            "resource_delta": "资源",
-        }
-    else:
-        kind_labels = {
-            "bonus_die": "bonus die",
-            "penalty_die": "penalty die",
-            "condition": "condition",
-            "restriction": "restriction",
-            "relationship_or_clock": "relationship/clock",
-            "scene_event": "scene event",
-            "resource_delta": "resource",
-        }
     boundary = effect["boundary"]
-    boundary_kind = boundary["kind"]
-    if zh:
-        if boundary_kind == "immediate":
-            boundary_text = "立即生效"
-        elif boundary_kind == "until_consumed":
-            boundary_text = "下一次符合范围的检定（一次）"
-        elif boundary_kind == "until_scene_end":
-            boundary_text = "持续至本场景结束"
-        elif boundary_kind == "until_time_marker":
-            boundary_text = "持续至约定时限"
-        else:
-            boundary_text = f"持续至：{boundary['description']}"
-        if effect.get("status") == "consumed":
-            status = "；已用于本次检定"
-        elif effect.get("status") == "resolved":
-            status = "；解除条件已满足"
-        else:
-            status = ""
-        direction = "收益" if effect["direction"] == "benefit" else "代价"
-        relationship_reward = bool(
-            effect["direction"] == "benefit"
-            and effect["effect_kind"] == "bonus_die"
-            and (effect.get("mechanics") or {}).get("target_id")
-        )
-        heading = "关系/印象奖励" if relationship_reward else chrome.get(
-            "exceptional_tag", "特殊影响"
-        )
-        target = (
-            f"｜适用对象：{effect['mechanics']['target_display_name']}"
-            if relationship_reward else ""
-        )
-        return (
-            f"【{heading}】{direction}·{kind_labels[effect['effect_kind']]}："
-            f"{effect['player_visible_impact']}｜"
-            f"{chrome.get('cause', '因果')}：{effect['causal_link']}｜"
-            f"边界：{boundary_text}{target}{status}"
-        )
-    if boundary_kind == "immediate":
-        boundary_text = "immediate"
-    elif boundary_kind == "until_consumed":
-        boundary_text = "until next matching check (once)"
-    elif boundary_kind == "until_scene_end":
-        boundary_text = "until the current scene ends"
-    elif boundary_kind == "until_time_marker":
-        boundary_text = "until the recorded time limit"
-    else:
-        boundary_text = f"until: {boundary['description']}"
-    if effect.get("status") == "consumed":
-        status = "; consumed this check"
-    elif effect.get("status") == "resolved":
-        status = "; end condition met"
-    else:
-        status = ""
-    direction = "benefit" if effect["direction"] == "benefit" else "cost"
+    boundary_kind = str(boundary["kind"])
+    boundary_text = chrome.get(
+        f"exceptional_boundary_{boundary_kind}",
+        chrome.get("exceptional_boundary_described", "until: {description}"),
+    ).format(description=boundary.get("description", ""))
+    status = chrome.get(f"exceptional_status_{effect.get('status')}", "")
+    benefit = effect["direction"] == "benefit"
+    direction = chrome.get(
+        "exceptional_direction_benefit" if benefit else "exceptional_direction_cost",
+        "benefit" if benefit else "cost",
+    )
+    kind_word = chrome.get(
+        f"exceptional_kind_{effect['effect_kind']}", str(effect["effect_kind"])
+    )
     relationship_reward = bool(
-        effect["direction"] == "benefit"
+        benefit
         and effect["effect_kind"] == "bonus_die"
         and (effect.get("mechanics") or {}).get("target_id")
     )
     heading = (
-        "Relationship/impression reward"
+        chrome.get("exceptional_relationship_heading", "Relationship/impression reward")
         if relationship_reward
         else chrome.get("exceptional_tag", "Exceptional")
     )
     target = (
-        f"| applies to: {effect['mechanics']['target_display_name']}"
+        chrome.get("exceptional_target", "\napplies to: {name}").format(
+            name=effect["mechanics"]["target_display_name"]
+        )
         if relationship_reward else ""
     )
-    return (
-        f"【{heading}】{direction}·{kind_labels[effect['effect_kind']]}: "
-        f"{effect['player_visible_impact']}|{chrome.get('cause', 'cause')}: "
-        f"{effect['causal_link']}|boundary: {boundary_text}{target}{status}"
+    body = chrome.get(
+        "exceptional_body",
+        "{direction}\u00b7{kind}: {impact}\n{cause_label}: {causal}\n"
+        "({boundary}{status}){target}",
+    )
+    return f"【{heading}】" + body.format(
+        direction=direction,
+        kind=kind_word,
+        impact=effect["player_visible_impact"],
+        cause_label=chrome.get("cause", "cause"),
+        causal=effect["causal_link"],
+        boundary=boundary_text,
+        status=status,
+        target=target,
     )
 
 

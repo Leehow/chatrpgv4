@@ -791,6 +791,17 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "live_turn"
     ]
   },
+  "rules.precedent": {
+    "advisory": true,
+    "audience": "keeper",
+    "contract": "none",
+    "discovery": "exact",
+    "execution_class": "serial_campaign",
+    "kp_surface": "rules",
+    "phases": [
+      "live_turn"
+    ]
+  },
   "rules.psychology_observe": {
     "advisory": false,
     "audience": "host",
@@ -809,6 +820,17 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
     "discovery": "surface",
     "execution_class": "serial_campaign",
     "kp_surface": "none",
+    "phases": [
+      "live_turn"
+    ]
+  },
+  "rules.record_ruling": {
+    "advisory": true,
+    "audience": "keeper",
+    "contract": "advisory",
+    "discovery": "surface",
+    "execution_class": "serial_campaign",
+    "kp_surface": "rules",
     "phases": [
       "live_turn"
     ]
@@ -1866,6 +1888,7 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "rules.context",
     "rules.damage",
     "rules.patch",
+    "rules.record_ruling",
     "rules.roll_dice",
     "rules.settle",
     "rules.skill_describe"

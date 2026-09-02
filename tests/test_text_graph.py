@@ -468,7 +468,7 @@ TEXT_SURFACE: tuple[str, ...] = (
     "plugins/coc-keeper/pi/lib/tool-contract-projection.ts",
     # the generated projection itself: scanned so that moving a copy into a
     # generated file cannot hide it from this gate
-    "plugins/coc-keeper/pi/lib/obligation-namespace.generated.ts",
+    "plugins/coc-keeper/pi/lib/text-vocabulary.generated.ts",
     "plugins/coc-keeper/pi/prompts/host-system-play.md",
     "plugins/coc-keeper/references/mcp-operation-contracts.json",
     "plugins/coc-keeper/skills/coc-export-battle-report/scripts/export_battle_report.py",
@@ -493,17 +493,21 @@ CLASSIFICATIONS = frozenset({
 # a copy is worse than one that asks a question.
 CENSUS: dict[str, dict[str, tuple[int, str, str]]] = {
     'plugins/coc-keeper/pi/lib/tool-contract-projection.ts': {
-        'agency-claim-type': (18, 'second-declaration', 'THREE independent TypeScript copies: exported const REVIEWED_AGENCY_CLAIM_TYPES (line 36) and inline claim_types arrays (lines 1290, 1673). A Python-only residue gate cannot see any of them. This is DirectorGraph correction 6 in another language'),
-        'coverage-field': (27, 'second-declaration', 'coverage row field names re-declared in TypeScript types and projections (lines 1717, 2445, 2704)'),
+        'agency-claim-type': (4, 'usage-only', "~~THREE independent TypeScript copies~~ **repaired.** REVIEWED_AGENCY_CLAIM_TYPES now aliases the generated AGENCY_CLAIM_TYPES and the inline voluntary array spreads VOLUNTARY_CLAIM_TYPES, taking the count 18 -> 4. What remains are single-value comparisons. T1 called this DirectorGraph correction 6 in another language and recorded it; generating it is what makes it unable to drift"),
+        'coverage-field': (22, 'second-declaration', "partly repaired, and the classification was partly wrong. This file carries the MODEL-FACING row shape: seven of its nine names are the graph's, but `obligation_ref` and `reviewed_span` are the model-facing renames of `obligation_id` and `exact_excerpt`, and the graph declares no such mapping -- generating it would hardcode that rename in the generator and assert an equivalence nothing owns. What was a real duplicate is gone: the same nine-name list was written twice and is now MODEL_FACING_COVERAGE_FIELDS once (27 -> 22). The rest are TypeScript types and per-field accesses"),
         'narration-budget-trigger': (2, 'usage-only', 'two event-type comparisons'),
         'obligation-kind': (11, 'usage-only', 'source_kind comparisons. Count grew 10 -> 11 when the TextGraph branch merged into 0.8.1a: the eleventh is `domain: "roll" | "effect" | ...`, a union of REGISTRY DOMAIN names that happens to spell one obligation kind. Coincidental spelling, not a copy -- the scanner over-reports by design'),
         'obligation-prefix': (54, 'usage-only', 'the three declarations are gone: `PYTHON_OBLIGATION_PREFIXES` -- a hand-copy under a name that admitted it -- and two `stringSet([...])` literals now read `OBLIGATION_ID_PREFIXES` from the generated projection, dropping the count 63 -> 54. What remains is `roll:` at roughly thirty comparison and composed-id sites, which construct or match ids rather than declaring the vocabulary. Earlier growth this gate caught and which the census recorded: 59 -> 61 at the 0.8.1a@bb0575d5 merge, 61 -> 63 at the TextGraph merge'),
         'obligation-source-kind': (3, 'usage-only', 'one source_kind comparison in the TypeScript projection. Count grew 1 -> 3 in the TextGraph merge, and both new hits are backtick-quoted English inside code comments (`check` at lines 5822 and 7981). The scanner accepts backticks as quotes, so comment prose counts; left counted rather than filtered, per SCANNER_LIMITS'),
         'player-input-handling': (9, 'second-declaration', 're-declared as a TypeScript union and projection literals (lines 2435, 2797)'),
-        'realization-mode': (9, 'second-declaration', 're-declared as a TypeScript union type at line 99 and as literals at lines 1276, 1756'),
+        'realization-mode': (7, 'second-declaration', 'the literal pair at line 1756 now spreads the generated REALIZATION_VALUES (9 -> 7); the TypeScript UNION TYPE at line 99 and the single literal at 1276 remain, because a union type is a compile-time shape a generated const cannot replace without changing how callers type-check'),
         'roll-visibility-class': (2, 'usage-only', 'two comparisons'),
     },
-    'plugins/coc-keeper/pi/lib/obligation-namespace.generated.ts': {
+    'plugins/coc-keeper/pi/lib/text-vocabulary.generated.ts': {
+        'agency-claim-type': (14, 'reads-from-graph', 'generated; REVIEWED_AGENCY_CLAIM_TYPES and the voluntary subset in the projection both alias this now'),
+        'coverage-field': (9, 'reads-from-graph', 'generated from the TextGraph coverage plane'),
+        'player-input-handling': (3, 'reads-from-graph', 'generated'),
+        'realization-mode': (2, 'reads-from-graph', 'generated'),
         'obligation-kind': (3, 'reads-from-graph', 'generated from the TextGraph obligation plane by coc_text_graph.py project'),
         'obligation-prefix': (3, 'reads-from-graph', 'generated; this file is the single TypeScript declaration the projection imports'),
         'obligation-source-kind': (1, 'reads-from-graph', 'generated; `check` is also an ordinary English word and the scanner counts backticks and quotes alike'),
@@ -539,7 +543,7 @@ CENSUS: dict[str, dict[str, tuple[int, str, str]]] = {
         'render-prohibition': (3, 'second-declaration', 'its own copy of the player-visible prohibitions at line 1908; recorded not repaired'),
         'render-slot': (13, 'second-declaration', 'its own envelope-validation copy of the crisis slots at lines 1855+; found by this gate in T4, recorded not repaired'),
         'review-rule': (4, 'usage-only', 'rule-id spellings in envelope validation messages'),
-        'roll-visibility-class': (7, 'second-declaration', "line 826 inlines {'public', 'consequence_public'} — an independent copy of PLAYER_FACING_ROLL_VISIBILITIES found by this gate; recorded, not repaired in T1"),
+        'roll-visibility-class': (5, 'usage-only', "~~line 826 inlines {'public', 'consequence_public'}~~ **repaired.** T1 recorded that independent copy rather than fixing it; adding the NPC-reaction hook needed the same question answered and the gate caught the third copy being written. `_resolved_roll_visibility` / `_roll_is_publicly_witnessed` now answer it once, reading the vocabulary from the graph, and the count fell 7 -> 5. The remaining four are DIFFERENT concepts that share spellings -- clue visibility (line 191) and NPC-move visibility (940, 1009) -- plus the one default resolution inside the shared helper"),
         'style-axis': (8, 'second-declaration', 'its own required_avoid/required_prefer sets at lines 1846-1847, including translationese; recorded not repaired'),
     },
     'plugins/coc-keeper/scripts/coc_narration_style.py': {
@@ -821,7 +825,7 @@ def test_the_generated_typescript_projection_matches_the_graph():
     )
     payload = json.loads(result.stdout)
     assert payload["drifted"] is False, (
-        "obligation-namespace.generated.ts is stale; regenerate with "
+        "text-vocabulary.generated.ts is stale; regenerate with "
         "`python plugins/coc-keeper/scripts/coc_text_graph.py project --write`"
     )
     assert result.returncode == 0
@@ -836,7 +840,7 @@ def test_the_second_declarations_this_gate_found_are_recorded():
     One has since been repaired rather than recorded, and is asserted GONE
     below so the repair cannot silently regress: the TypeScript projection's
     obligation-prefix declarations now import `OBLIGATION_ID_PREFIXES` from
-    `obligation-namespace.generated.ts`. Dropping it from this list without
+    `text-vocabulary.generated.ts`. Dropping it from this list without
     that assertion would look identical to losing the finding.
     """
     second = {
@@ -845,6 +849,23 @@ def test_the_second_declarations_this_gate_found_are_recorded():
         for kind, (_, classification, _) in per_kind.items()
         if classification == "second-declaration"
     }
+    assert (
+        "plugins/coc-keeper/pi/lib/tool-contract-projection.ts",
+        "agency-claim-type",
+    ) not in second, (
+        "the three TypeScript agency-claim-type copies were generated away; "
+        "REVIEWED_AGENCY_CLAIM_TYPES aliases the generated const and the "
+        "voluntary subset spreads it. A second declaration here is a regression"
+    )
+    assert (
+        "plugins/coc-keeper/scripts/coc_narration_contract.py",
+        "roll-visibility-class",
+    ) not in second, (
+        "the roll-visibility copy this gate found in T1 was repaired when the "
+        "NPC-reaction hook needed the same question answered; one resolver now "
+        "reads the vocabulary from the graph. A second declaration here is a "
+        "regression"
+    )
     assert (
         "plugins/coc-keeper/pi/lib/tool-contract-projection.ts",
         "obligation-prefix",
@@ -856,9 +877,7 @@ def test_the_second_declarations_this_gate_found_are_recorded():
         # in the inventory already
         ("plugins/coc-keeper/scripts/coc_npc_state.py", "obligation-prefix"),
         # found by this gate
-        ("plugins/coc-keeper/pi/lib/tool-contract-projection.ts", "agency-claim-type"),
         ("plugins/coc-keeper/pi/lib/tool-contract-projection.ts", "realization-mode"),
-        ("plugins/coc-keeper/scripts/coc_narration_contract.py", "roll-visibility-class"),
         ("plugins/coc-keeper/scripts/coc_state_authority.py", "segment-type"),
         (
             "plugins/coc-keeper/skills/coc-export-battle-report/scripts/"
