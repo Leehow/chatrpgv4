@@ -5048,6 +5048,27 @@ const SEMANTIC_ID_ARRAY_FIELDS: ReadonlyMap<string, string> = new Map([
  * Seen live on 2026-09-02 in campaign amaranthine-loop, on the first turn that
  * had NPCs in the scene.
  */
+/**
+ * An echoed handle is verified by its NAMESPACE, not by its tail. The tail is
+ * a content digest by design -- requiring it to read as an authored slug is
+ * the same as refusing the handle, which is what happened.
+ */
+export function isEchoedHandle(
+  value: unknown,
+  namespaces: ReadonlySet<string>,
+): value is string {
+  if (typeof value !== "string") return false;
+  for (const namespace of namespaces) {
+    if (!value.startsWith(namespace)) continue;
+    const remainder = value.slice(namespace.length);
+    if (remainder.length === 0 || remainder.length > 512) return false;
+    // No whitespace, no control characters, nothing that could carry markup
+    // or a second value smuggled in beside the handle.
+    return /^[A-Za-z0-9:_./+-]+$/.test(remainder);
+  }
+  return false;
+}
+
 const ECHOED_HANDLE_ARRAY_FIELDS: ReadonlyMap<string, ReadonlySet<string>> =
   new Map([
     ["obligation_ids", new Set<string>(OBLIGATION_ID_PREFIXES)],
@@ -5193,7 +5214,7 @@ function projectSemanticIdField(
   }
   const echoedScalar = ECHOED_HANDLE_SCALAR_FIELDS.get(field);
   if (echoedScalar !== undefined && typeof value === "string") {
-    if (isNamespacedSemantic(value, echoedScalar)) {
+    if (isEchoedHandle(value, echoedScalar)) {
       return { action: "keep", value };
     }
     diagnostics?.unmapped.push({ field, parentField, domain: "obligation" });
@@ -5203,7 +5224,7 @@ function projectSemanticIdField(
   if (echoedArray !== undefined && Array.isArray(value)) {
     const members: string[] = [];
     for (const entry of value) {
-      if (typeof entry === "string" && isNamespacedSemantic(entry, echoedArray)) {
+      if (isEchoedHandle(entry, echoedArray)) {
         members.push(entry);
         continue;
       }
