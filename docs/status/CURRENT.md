@@ -71,18 +71,16 @@ rejection costs one round trip. See spec §16.1.
    push-luck/pushed-roll and psychology/observe-concealed. The other six
    families have no recorded settlement to build one against; each needs one
    real settlement before its projector can be written honestly.
-2. `tests/pi/normal-model-id-boundary.mjs` still fails, now on a different
-   defect than before: `_operation_card` in `coc_mcp_wire.py` advertises
-   `invoke_via: "coc_invoke"` for **any** operation, including the 45
-   host-private (`kp_surface: none`) ones that the execute ACL then refuses
-   with `host_private_operation`. `combat.end` is the reachable case, because
-   the cutover hid the legacy combat surface. The host instructs the model into
-   a call that cannot succeed — a guaranteed wasted round trip. `coc_mcp_wire.py`
-   is a cross-track shared file; the fix is unauthorized as of this entry.
-3. `references/system-ontology-registry-v1.json` still describes the module
-   coverage row against "the current production healing-only RuleGraph", which
-   contradicts the rule row in the same file. Cross-track shared registry file;
-   unauthorized as of this entry.
+2. ~~`tests/pi/normal-model-id-boundary.mjs` still fails.~~ **Closed.** The
+   `invoke_via` half was fixed by `c21cd5a7`. The TextGraph merge then
+   published `narration.review.findings.rule_id` into a domain no identity
+   grammar claimed, and fixing that unmasked a stale `roll_id` assertion that
+   `33290a09` had deliberately reversed. The suite now passes end to end.
+3. ~~The system ontology registry's module coverage row describes a
+   "healing-only" RuleGraph.~~ **Closed.** That row now reads "ten
+   source-accepted families" and no longer contradicts the rule row beside it.
+   ADR 0003's amendment still cites the old wording as outstanding, and is
+   itself stale on this point.
 4. The production RuleGraph has no explicit Social → Push `continues-as`
    relation. Runtime continuation works through the canonical failed-check
    grant, so this is a source-graph/Ontology completeness gap, not a live bug.
@@ -90,6 +88,18 @@ rejection costs one round trip. See spec §16.1.
    no Gate 9 proof; only `end-session` does.
 6. Rotate the xAI OAuth credential — one earlier diagnostic printed token
    fields before redaction. No credential was committed.
+7. TextGraph T0–T5 is merged, and its own gates are not all met. Gate 1's
+   live half needs a non-`zh-Hans` table, which no operation can create:
+   mechanics chrome is still a closed three-language table that falls back to
+   English silently, so prose follows the player but chrome cannot. See
+   `docs/status/play-language-layer-is-unnecessary.md`. Gate 3 depends on gate
+   4, and gate 4 is unmeasured — `narration.review` fired 0 times in 60 calls
+   in one run and 7 times in another on the same day, path and model.
+   Attribution needs several runs per arm, not a verdict from n=1.
+8. The obligation namespace still has copies outside its owner, four of them
+   in the TypeScript projection. The TextGraph residue gate now counts them
+   cross-language and fails when a count moves, so they are pinned rather than
+   fixed.
 
 ## Whole-product acceptance
 
