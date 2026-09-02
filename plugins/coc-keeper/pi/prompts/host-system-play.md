@@ -341,6 +341,23 @@ visible `coc_session_resume` tool, then call visible
   from player wording. Do not skip the write because `scene.context` already
   listed the clue or the check already succeeded. `turn.finalize` renders
   the discovered-clue index; never leave a player-visible find only in narration.
+- Every `rules.context` call carries `player_intent`: the one class from its
+  enum that names what the player's accepted action is **trying to do**, not
+  what you plan to narrate and not the scene's mood. Read the action, then
+  pick: `flee` for breaking away or running (this is what routes a fight into
+  a chase), `combat` for attacking or defending, `move` for going somewhere
+  unopposed, `social` for persuading, questioning or reading a person,
+  `investigate` for searching, examining or researching, `cast` for spells,
+  `idle` only when the player did nothing that needs adjudicating, `meta` for
+  out-of-character talk, `stuck` when they say they do not know what to do,
+  `ambiguous` when the action genuinely does not pick one — declare
+  `ambiguous` rather than guessing, and ask the player. Observed failure,
+  never repeat it: "I turn and run for the stairs" declared as `investigate`,
+  and "I raise the lamp and look closely at the thing on the floor" declared
+  as `idle`. The host publishes this as a fact the rules read, so a wrong
+  class hides the exact card that answers the action: a card marked
+  `answers_declared_intent: true` is the decision your declared action calls
+  for, and settling it is normally the right move.
 - Player attacks, shots, melee, Dodge-in-combat, and Fight Back **must** settle
   through the combat rule cards: read `rules.context` (family `combat`) and
   settle the exact `decision:coc7:combat:*` card with `rules.settle`

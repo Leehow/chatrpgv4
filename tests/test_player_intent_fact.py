@@ -291,3 +291,22 @@ def test_the_scene_card_block_treats_the_mark_as_optional(campaign_ws):
         "the optional set buys one declared field, not a hole"
     )
 
+
+
+def test_the_play_prompt_teaches_the_intent_vocabulary():
+    """The Keeper reads the tool schema and does fill the argument in — three
+    of six live lanes did, unprompted. It filled it in WRONGLY: "I turn and
+    run for the stairs" came back as `investigate`. A closed vocabulary the
+    model has to map an action onto needs the mapping stated, and the two
+    observed misclassifications are named so they cannot come back silently.
+    """
+    prompt = (
+        ROOT / "plugins/coc-keeper/pi/prompts/host-system-play.md"
+    ).read_text(encoding="utf-8")
+    assert "player_intent" in prompt
+    # every class the Keeper may declare is explained, not just listed
+    for intent in coc_intent_router.PRIMARY_INTENT_ENUM:
+        if intent in {"montage"}:
+            continue  # director-internal; never Keeper-declared
+        assert f"`{intent}`" in prompt, intent
+    assert "answers_declared_intent" in prompt
