@@ -1557,6 +1557,9 @@ def _compact_scene(
             # producer and correct at the Keeper's identity projection, and
             # arrived as null because the RPC path did not name it.
             "threat_clocks",
+            # The module's loop declaration. Small, module-level, and the
+            # Keeper cannot fork a worldline it was never told loops.
+            "worldline_loop",
             # The forward nudge the kernel has computed on every scene read
             # since it was written, and that nothing has ever delivered: one
             # producer line, no consumer anywhere. The comment beside it

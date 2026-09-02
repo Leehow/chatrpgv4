@@ -7236,6 +7236,23 @@ def _latest_graph_psychology_observation(
     return decision_id, result
 
 
+def _scene_worldline_loop(ctx: Ctx) -> dict[str, Any] | None:
+    """The module's own loop declaration, or None when it declares none.
+
+    Read straight off module-meta, which the projection derives from the
+    graph's `resets-to` / `persists-across-loop` edges. Nothing here decides
+    what a loop means or when one fires.
+    """
+    if ctx.campaign_dir is None:
+        return None
+    try:
+        meta = ctx.scenario("module-meta.json")
+    except Exception:
+        return None
+    block = meta.get("worldline_loop") if isinstance(meta, dict) else None
+    return deepcopy(block) if isinstance(block, dict) and block.get("edges") else None
+
+
 def _scene_threat_clocks(
     ctx: Ctx, scene: dict[str, Any] | None, active_id: Any,
 ) -> list[dict[str, Any]]:
@@ -10162,6 +10179,12 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         "drilldown_refs": drilldown_refs,
         # Resolves the `clock_id` this scene's pressure moves already name.
         "threat_clocks": _scene_threat_clocks(ctx, scene, active_id),
+        # A module that declares its world loops says so in module-meta. Carried
+        # unconditionally rather than hung off a clock: what fires a reset is
+        # the module's business — a clock here, a flag somewhere else — and
+        # binding the declaration to one trigger would decide that for every
+        # module that ever ships.
+        "worldline_loop": _scene_worldline_loop(ctx),
     }
     focused_investigator = impression_investigator or (
         party_ids[0] if party_ids else None

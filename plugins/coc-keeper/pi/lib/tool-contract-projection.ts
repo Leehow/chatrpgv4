@@ -3753,7 +3753,13 @@ const SCENE_CONTEXT_SEMANTIC_IDENTITY_FIELDS = [
   // requires a meaning-bearing multi-token slug, so machine ids cannot ride
   // in on this declaration.
   "id",
-  "location_id", "mechanics_ref", "npc_id", "npc_ids", "ref_id",
+  "location_id", "mechanics_ref", "npc_id", "npc_ids",
+  // A module's own loop declaration names graph nodes on both ends of each
+  // authored edge ("concept-time-loop", "npc-sarah-browne"). They are the
+  // module's vocabulary, and a Keeper cannot act on a reset whose endpoints
+  // were dropped on the way to the table.
+  "node_id",
+  "ref_id",
   "scene_id", "source_ref", "trigger_id",
   ...RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS,
 ] as const;
@@ -5361,8 +5367,15 @@ function deriveModelVisibleHints(
   if (operation === "turn.finalize" && envelope.ok === true) {
     return [...FINALIZE_DELIVERY_HINTS];
   }
-  if (operation === "scene.context" && Array.isArray(data?.threat_clocks)) {
-    return threatClockHints(data.threat_clocks);
+  if (operation === "scene.context") {
+    const hints = Array.isArray(data?.threat_clocks)
+      ? threatClockHints(data.threat_clocks)
+      : [];
+    const loop = isPlainObject(data?.worldline_loop) ? data.worldline_loop : null;
+    if (loop !== null && Array.isArray(loop.edges) && loop.edges.length > 0) {
+      hints.push(worldlineLoopHint(loop.edges));
+    }
+    return hints;
   }
   return [];
 }
@@ -5378,6 +5391,41 @@ function deriveModelVisibleHints(
  * times and `clock-loop-doom` never left 0/6, so the module's loop reset — the
  * consequence the whole climax scene is about — had no way to fire.
  */
+/**
+ * The module says its world loops. Name the operation that performs one.
+ *
+ * The edges are the module's own and are read back as authored — this says
+ * nothing about what a loop means or when one fires, because a homebrew module
+ * decides both. Without it the Keeper narrates the reset and the world never
+ * forks: on 2026-09-02 exactly that happened, sixteen tool calls with zero
+ * `timeline.*` and a doom clock frozen mid-scene.
+ */
+function worldlineLoopHint(edges: readonly unknown[]): string {
+  const resets: string[] = [];
+  const persists: string[] = [];
+  for (const edge of edges) {
+    if (!isPlainObject(edge)) continue;
+    const from = isPlainObject(edge.from) ? edge.from : null;
+    const label = from && typeof from.name === "string" && from.name
+      ? from.name
+      : (from && typeof from.node_id === "string" ? from.node_id : "");
+    if (!label) continue;
+    if (edge.relation === "resets-to") resets.push(label);
+    else if (edge.relation === "persists-across-loop") persists.push(label);
+  }
+  const parts = [
+    "this module declares that its world loops",
+    resets.length ? `it resets: ${resets.join("、")}` : "",
+    persists.length ? `it carries across: ${persists.join("、")}` : "",
+    "when the module's own conditions say a reset is due, fork the worldline "
+      + "with timeline.fork_request and confirm it with timeline.fork_confirm; "
+      + "narrating a reset without forking leaves the old night as the only "
+      + "one that ever existed",
+  ].filter(Boolean);
+  return parts.join("; ");
+}
+
+
 function threatClockHints(rows: readonly unknown[]): string[] {
   const hints: string[] = [];
   for (const row of rows) {
