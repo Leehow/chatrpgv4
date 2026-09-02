@@ -3247,7 +3247,7 @@ def register_operations(registry) -> None:
 )(_tool_narration_brief)
     registry.tool(
     "narration.review",
-    "Semantically review the exact pending narration before Pi-play finalization. Declare every player-state change claim in state_authority_review and bind it to the exact current frozen mechanics effect; an unbound claim or agency_violation requires narration-only revision 2 with the same frozen settlement. Then finalize only a clean review and bind authorized PC propositions through agency_claims. Length, repetition, scope, and style findings remain advisory; no keyword matcher, second Keeper, or prose-quality hard gate.",
+    "Semantically review the exact pending narration before Pi-play finalization. Offered ONLY when turn.output_context.contract_projection.agency_review_required is true, as that context's agency_review_operation; calling it on the normal direct-draft path is refused with stage_forbidden, so never seek it out. Declare every player-state change claim in state_authority_review and bind it to the exact current frozen mechanics effect; an unbound claim or agency_violation requires narration-only revision 2 with the same frozen settlement. Then finalize only a clean review and bind authorized PC propositions through agency_claims. Length, repetition, scope, and style findings remain advisory; no keyword matcher, second Keeper, or prose-quality hard gate.",
     {
         "decision_id": {"type": "string", "required": True, "desc": "stable turn decision id"},
         "turn_id": {"type": "string", "required": True},
@@ -3414,7 +3414,7 @@ def register_operations(registry) -> None:
 )(_tool_turn_output_context)
     registry.tool(
     "turn.finalize",
-    "Hard final boundary for one journaled turn. In Pi play, first call the narration.review operation returned by turn.output_context for this exact draft/revision, including its closed state_authority_review, then pass its review_id plus all authorized agency_claims. Rewrite only narration as revision 2 if agency ownership or player-state authority is rejected; never rerun rules/state/journal. Prose-quality review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim.",
+    "Hard final boundary for one journaled turn. Read turn.output_context.contract_projection.agency_review_required. When it is false — the normal Pi-play path — draft once and call this operation directly with the returned finalize_operation; there is no review or revision loop, and narration.review is not offered. Only when it is true, first call the agency_review_operation turn.output_context returns for this exact draft/revision, including its closed state_authority_review, then pass its review_id plus all authorized agency_claims, rewriting narration only as revision 2 if agency ownership or player-state authority is rejected. Never rerun rules/state/journal. Prose-quality review findings stay advisory. Finalize validates causal coverage and mechanic placement, inserts authoritative mechanics, persists hashes, and returns rendered_text that direct hosts must echo verbatim.",
     {
         "draft": {
             "type": "string",
