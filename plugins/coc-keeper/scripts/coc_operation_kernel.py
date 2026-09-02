@@ -7868,6 +7868,24 @@ def _canonical_combat_binding(
     return binding
 
 
+# The state-bearing event each subsystem command produces, by command kind.
+# Listed rather than inferred: "the first event" would pick a roll row, and a
+# settlement that proves a state change with the wrong event proves nothing.
+_SUBSYSTEM_PRIMARY_EVENT_TYPES: dict[str, tuple[str, ...]] = {
+    "sanity_check": ("sanity",),
+    "bout_tick": ("bout_tick", "bout_ended"),
+    "bout_end": ("bout_ended",),
+    "reality_check": ("reality_check",),
+    "gain_current_san": ("sanity_gain",),
+    "apply_psychoanalysis_treatment": (
+        "sanity_recovered", "treatment_trigger_scheduled",
+    ),
+    "recover_temporary_insanity": (
+        "sanity_recovered", "recovery_trigger_scheduled",
+    ),
+}
+
+
 def _canonical_pending_resolution(
     ctx: Ctx, investigator_id: str, command: dict[str, Any],
 ) -> list[dict[str, Any]]:
@@ -8488,6 +8506,10 @@ def dispatch_rules_settle(
         "event": adapter_row.get("event"),
         "player_state_receipt": adapter_row.get("player_state_receipt"),
         "current_hp": adapter_row.get("current_hp"),
+        # Forwarded for the same reason `current_hp` is: the state-effect
+        # authority reads it off the settle envelope, and a settlement whose
+        # envelope cannot show the resource it moved proves nothing.
+        "current_san": adapter_row.get("current_san"),
         "conditions": adapter_row.get("conditions"),
         "settlement": {
             "existing_result_envelope": bool(settlement.get("existing_result_envelope")),
@@ -13157,6 +13179,44 @@ def _execute_subsystem_command(
         "investigator_id": investigator_id,
         "results": results,
     }
+    # The canonical event this command produced, chosen from an explicit
+    # per-kind list the way the healing adapter chooses its own primary.
+    #
+    # `_rules_settle_writer_domains` grants a settlement no write domain at all
+    # unless its result carries an `event` with an event_type, so without this
+    # a sanity settlement can prove no state change and the turn can never be
+    # finalized: `unproven_state_delta (mismatch)`. It never bit while the
+    # graph settled SAN through the advisory surface, which returned a flat
+    # result with its own `event`; the executor nests events under
+    # `results[].events[]`, so the field went empty when
+    # decision:coc7:sanity:check was rewired. Measured 2026-09-02: three
+    # diagnostic lanes settled rules and advanced bouts, and not one of them
+    # closed its turn -- the Keeper called turn.finalize four times and was
+    # told each time that recovery was impossible.
+    if kind in _SUBSYSTEM_PRIMARY_EVENT_TYPES:
+        # The canonical sheet after the write, read independently of the
+        # settlement's own receipt. `_rules_settle_writer_domains` cross-checks
+        # `current_san` and `conditions` against the receipt and the event
+        # before it will grant any write domain, and refuses outright when
+        # `conditions` disagrees -- None against the receipt's [] was enough to
+        # void the san domain with it. Deriving either from the receipt would
+        # make that cross-check tautological, so both come off the investigator
+        # state the way the healing adapter takes `current_hp`.
+        after_state = ctx.inv_state(investigator_id)
+        data["current_san"] = after_state.get("current_san")
+        data["conditions"] = list(after_state.get("conditions") or [])
+    primary_types = _SUBSYSTEM_PRIMARY_EVENT_TYPES.get(kind)
+    if primary_types:
+        events = coc_subsystem_executor.flatten_result_events(results)
+        data["events"] = events
+        data["event"] = next(
+            (
+                deepcopy(event) for event in events
+                if isinstance(event, Mapping)
+                and event.get("event_type") in primary_types
+            ),
+            None,
+        )
     ctx.ledger_record(args.get("decision_id"), tool_name, data)
     return data, [], [
         "the subsystem result is authoritative; the KP chooses the surrounding fiction but must not alter its numbers or state"
