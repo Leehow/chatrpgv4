@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "tests/fixtures/_build_rulegraph_production.py"
 PACKAGE = ROOT / "plugins/coc-keeper/rulesets/coc7"
 ONTOLOGY = ROOT / "plugins/coc-keeper/references/system-ontology-registry-v1.json"
+REFERENCES = ROOT / "plugins/coc-keeper/references"
 ARCHIVE = ROOT / "plugins/coc-keeper/references/mcp-operation-contracts.json"
 
 
@@ -164,9 +165,19 @@ def test_ontology_contains_only_resolvable_cross_layer_instances():
     registry = _load(ONTOLOGY)
     graph_nodes = {node["node_id"] for node in graph["nodes"]}
     refs = {row["ref_id"]: row for row in registry["references"]}
+    # The Director track registers its own grounding instances; each must
+    # resolve to a real node in the production DirectorGraph. The TextGraph
+    # has measured that it renders nothing the RuleGraph settles, so it still
+    # registers no instance at all.
+    director_nodes = {
+        node["node_id"]
+        for node in _load(REFERENCES / "director-graph.json")["nodes"]
+    }
+    for row in refs.values():
+        if row["graph_id"] == "graph:director:production":
+            assert row["semantic_id"] in director_nodes, row
     assert not any(
-        row["graph_id"] in {"graph:director:production", "graph:text:production"}
-        for row in refs.values()
+        row["graph_id"] == "graph:text:production" for row in refs.values()
     )
     for row in refs.values():
         if row["graph_id"] == "graph:rule:coc7":
@@ -190,9 +201,13 @@ def test_ontology_contains_only_resolvable_cross_layer_instances():
         row for row in registry["coverage"] if row["graph_kind"] == "rule"
     )
     assert "ten source-accepted families" in graph_coverage["reason"]
-    for kind in ("director", "text"):
+    # Authored by their own tracks: the Director grounds two dying craft
+    # directives in the RuleGraph (instance-linked); the TextGraph measured
+    # that it renders nothing the RuleGraph settles (no-proven-instance).
+    expected = {"director": "instance-linked", "text": "no-proven-instance"}
+    for kind, status in expected.items():
         row = next(item for item in registry["coverage"] if item["graph_kind"] == kind)
-        assert row["composition_status"] == "not-applicable"
+        assert row["composition_status"] == status, row
 
 
 def test_canonical_rules_roll_summary_requires_any_or_all_mode():

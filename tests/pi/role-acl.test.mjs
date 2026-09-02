@@ -66,32 +66,68 @@ test("play role allows session.resume", async () => {
   });
 });
 
+// RuleGraph cutover: the Keeper ends a session by settling
+// decision:coc7:development:end-session through rules.settle; the old
+// state.end_session write is host-private and must never surface.
+const END_SESSION = "decision:coc7:development:end-session";
+const RETIRED_TO_HOST = [
+  ["coc_state", "state.end_session"],
+  ["coc_rules", "rules.social_adjudicate"],
+  ["coc_rules", "rules.roll"],
+  ["coc_subsystem", "combat.resolve"],
+];
+
 test("play role ends before journal and then exposes ending closure tools", async () => {
   await withRole("play", async () => {
     const mod = await loadDomain();
     const allowed = mod.evaluateExecuteAcl({
-      toolName: "coc_state",
-      operation: "state.end_session",
+      toolName: "coc_rules",
+      operation: "rules.settle",
       phase: "live_turn",
     });
     assert.equal(allowed.ok, true);
     assert.equal(mod.evaluateExecuteAcl({
-      toolName: "coc_state",
-      operation: "state.end_session",
+      toolName: "coc_rules",
+      operation: "rules.settle",
       phase: "pending_finalization",
     }).ok, false);
     assert.ok(
-      mod.activeToolsForPhase("live_turn", "play").includes("coc_state_end_session"),
+      mod.activeToolsForPhase("live_turn", "play").includes("coc_rules_settle"),
     );
+    assert.ok(
+      !mod.activeToolsForPhase("live_turn", "play").includes("coc_state_end_session"),
+    );
+    const ending = mod.inferPhaseFromEnvelope(
+      "rules.settle",
+      { ok: true, data: { decision_ref: END_SESSION, status: "settled", session_ending: true } },
+      "live_turn",
+    );
+    assert.equal(ending, "ending");
+    for (const tool of ["coc_state_journal", "coc_turn_finalize"]) {
+      assert.ok(mod.activeToolsForPhase(ending, "play").includes(tool), tool);
+    }
   });
+});
+
+test("retired legacy operations are host-private for every role", async () => {
+  for (const role of ["setup", "play", undefined]) {
+    await withRole(role, async () => {
+      const mod = await loadDomain();
+      for (const [toolName, operation] of RETIRED_TO_HOST) {
+        const denied = mod.evaluateExecuteAcl({ toolName, operation, phase: "live_turn" });
+        assert.equal(denied.ok, false, `${role} ${operation}`);
+        assert.equal(denied.code, "host_private_operation", `${role} ${operation}`);
+      }
+    });
+  }
 });
 
 test("a settled ending cannot start another end_session", async () => {
   await withRole("play", async () => {
     const mod = await loadDomain();
     const denied = mod.evaluateExecuteAcl({
-      toolName: "coc_state",
-      operation: "state.end_session",
+      toolName: "coc_rules",
+      operation: "rules.settle",
       phase: "ending",
     });
     assert.equal(denied.ok, false);
@@ -175,14 +211,16 @@ test("play role requires a verified pre-journal binding before recovered acting"
       kind: "open_turn_pre_journal",
       stage: "acting",
     };
-    const roll = mod.evaluateExecuteAcl({
-      toolName: "coc_rules",
-      operation: "rules.roll",
-      phase: "recovery",
-      role: "play",
-      recoveryAuthorization: authorization,
-    });
-    assert.equal(roll.ok, true);
+    for (const operation of ["rules.context", "rules.settle"]) {
+      const roll = mod.evaluateExecuteAcl({
+        toolName: "coc_rules",
+        operation,
+        phase: "recovery",
+        role: "play",
+        recoveryAuthorization: authorization,
+      });
+      assert.equal(roll.ok, true, operation);
+    }
     assert.equal(mod.evaluateExecuteAcl({
       toolName: "coc_turn",
       operation: "state.journal",
@@ -203,25 +241,25 @@ test("play role requires a verified pre-journal binding before recovered acting"
     }
     assert.equal(mod.evaluateExecuteAcl({
       toolName: "coc_rules",
-      operation: "rules.roll",
+      operation: "rules.settle",
       phase: "live_turn",
     }).ok, true);
   });
 });
 
-test("play role allows social_adjudicate only after live_turn", async () => {
+test("play role allows rules.settle only after live_turn", async () => {
   await withRole("play", async () => {
     const mod = await loadDomain();
     const opening = mod.evaluateExecuteAcl({
       toolName: "coc_rules",
-      operation: "rules.social_adjudicate",
+      operation: "rules.settle",
       phase: "opening",
     });
     assert.equal(opening.ok, false);
     assert.equal(opening.code, "phase_forbidden");
     const live = mod.evaluateExecuteAcl({
       toolName: "coc_rules",
-      operation: "rules.social_adjudicate",
+      operation: "rules.settle",
       phase: "live_turn",
     });
     assert.equal(live.ok, true);
@@ -229,12 +267,12 @@ test("play role allows social_adjudicate only after live_turn", async () => {
   });
 });
 
-test("setup role still rejects live-turn social_adjudicate", async () => {
+test("setup role still rejects live-turn rules.settle", async () => {
   await withRole("setup", async () => {
     const mod = await loadDomain();
     const denied = mod.evaluateExecuteAcl({
       toolName: "coc_rules",
-      operation: "rules.social_adjudicate",
+      operation: "rules.settle",
       phase: "live_turn",
     });
     assert.equal(denied.ok, false);
@@ -264,7 +302,7 @@ test("setup role startup union does not grant play-only execute rights", async (
     }).code, "role_forbidden");
     assert.equal(mod.evaluateExecuteAcl({
       toolName: "coc_rules",
-      operation: "rules.roll",
+      operation: "rules.settle",
       phase: "live_turn",
     }).code, "role_forbidden");
     assert.equal(mod.evaluateExecuteAcl({
@@ -285,19 +323,21 @@ test("play role startup union keeps live tools and pending non-resume is forbidd
       role: "play",
     });
     assert.ok(tools.includes("coc_session_resume"));
-    assert.ok(tools.includes("coc_rules_roll"));
+    assert.ok(tools.includes("coc_rules_settle"));
+    assert.ok(tools.includes("coc_rules_context"));
+    assert.ok(!tools.includes("coc_rules_roll"));
     assert.ok(tools.includes("coc_turn_finalize"));
     assert.ok(tools.includes("coc_state_journal"));
     assert.ok(!tools.includes("coc_rules"));
     assert.ok(!tools.includes("coc_chargen_delegate"));
     assert.equal(mod.evaluateExecuteAcl({
       toolName: "coc_rules",
-      operation: "rules.roll",
+      operation: "rules.settle",
       phase: "recovery",
     }).code, "recovery_authorization_required");
     assert.equal(mod.evaluateExecuteAcl({
       toolName: "coc_rules",
-      operation: "rules.roll",
+      operation: "rules.settle",
       phase: "live_turn",
     }).ok, true);
     assert.equal(mod.evaluateExecuteAcl({
@@ -308,7 +348,7 @@ test("play role startup union keeps live tools and pending non-resume is forbidd
   });
 });
 
-test("setup role rejects turn.finalize and combat.resolve", async () => {
+test("setup role rejects turn.finalize and combat settlement", async () => {
   await withRole("setup", async () => {
     const mod = await loadDomain();
     const finalize = mod.evaluateExecuteAcl({
@@ -319,8 +359,8 @@ test("setup role rejects turn.finalize and combat.resolve", async () => {
     assert.equal(finalize.ok, false);
     assert.equal(finalize.code, "role_forbidden");
     const combat = mod.evaluateExecuteAcl({
-      toolName: "coc_subsystem",
-      operation: "combat.resolve",
+      toolName: "coc_rules",
+      operation: "rules.context",
       phase: "live_turn",
     });
     assert.equal(combat.ok, false);

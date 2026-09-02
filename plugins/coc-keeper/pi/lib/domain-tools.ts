@@ -751,6 +751,19 @@ export function resumeSatisfiesPlayAutoOpen(
   return true;
 }
 
+const END_SESSION_DECISION_REF = "decision:coc7:development:end-session";
+
+/** True when a settled rules.settle envelope ended the session (raw or projected shape). */
+export function settledSessionEnding(data: Record<string, unknown> | null): boolean {
+  if (!data) return false;
+  if (data.decision_ref !== END_SESSION_DECISION_REF) return false;
+  if (data.status !== undefined && data.status !== "settled") return false;
+  if (data.session_ending === true) return true;
+  const settlement = objectRecord(data.settlement);
+  const result = objectRecord(settlement?.result);
+  return result?.session_ending === true;
+}
+
 export function inferPhaseFromEnvelope(
   operation: string,
   value: unknown,
@@ -793,6 +806,13 @@ export function inferPhaseFromEnvelope(
     return previous === "ending" ? "ending" : "live_turn";
   }
   if (operation === "state.end_session" && envelope?.ok === true) return "ending";
+  // RuleGraph cutover: state.end_session is host-private. The Keeper ends the
+  // session by settling decision:coc7:development:end-session through
+  // rules.settle; that envelope must move the table to ending exactly like
+  // the host-private write did, or the closure tools never appear.
+  if (operation === "rules.settle" && envelope?.ok === true && settledSessionEnding(data)) {
+    return "ending";
+  }
   if (operation === "state.journal" && envelope?.ok === true) {
     return "pending_finalization";
   }
