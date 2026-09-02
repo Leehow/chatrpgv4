@@ -143,6 +143,7 @@ import {
   DOMAIN_TOOL_NAMES,
   domainToolSchema,
   evaluateExecuteAcl,
+  isPreCampaignFreshCreation,
   inferPhaseFromEnvelope,
   inferPhaseFromError,
   isCanonicalInvokeSurface,
@@ -10561,6 +10562,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (
       typedDefinition !== undefined
       && typedOperationNeedsCampaign(typedDefinition.operation)
+      // Never onto an operation that CREATES the campaign it names. The
+      // fresh-setup gate requires the transport selector absent for those,
+      // and attaching it here put `campaign.create` permanently out of reach
+      // on the typed surface: the gate refused it while telling the Keeper to
+      // call it. A later strip existed but only ran for launcher-less
+      // sessions, so a launched table -- every real one -- never reached it.
+      && !isPreCampaignFreshCreation(
+        typedDefinition.operation,
+        (objectOrNull(params.arguments) ?? params) as Record<string, unknown>,
+      )
       && (typeof params.campaign !== "string" || !params.campaign.trim())
       && canonicalProgressCampaignId
     ) {
@@ -10683,10 +10694,22 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }
     }
     params = bindStartupResumeInvocation(name, params);
-    if (
-      launcherRole === null
-      && typedDefinition?.operation === "setup.quick_start"
-    ) {
+    // `campaign.create` is pre-campaign in exactly the way setup.quick_start
+    // is: the campaign it names does not exist yet, so mirroring the id into
+    // the transport recovery selector asks the toolbox to recover a context
+    // for something unborn -- and the fresh-setup allowlist requires that
+    // selector to be ABSENT. Only quick_start was stripped, so on the typed
+    // surface (the only surface a live Keeper has) campaign.create could
+    // never satisfy the gate: every custom/PDF table was refused with a
+    // message telling the Keeper to call the very operation being refused.
+    // Seen live on 2026-09-02: five refusals, then the Keeper fell back to
+    // the built-in starter and told the player the requested module was
+    // ready. PDF -> playable campaign was impossible through the product.
+    const freshCreationOperation = isPreCampaignFreshCreation(
+      typedDefinition?.operation,
+      objectOrNull(params.arguments),
+    );
+    if (launcherRole === null && freshCreationOperation) {
       const { campaign: _freshCampaignSelector, ...freshCreationParams } = params;
       params = {
         ...freshCreationParams,

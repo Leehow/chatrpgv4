@@ -217,6 +217,27 @@ function roleForbidden(
   );
 }
 
+/**
+ * Operations that CREATE the campaign they name, so the campaign does not
+ * exist yet when they are called.
+ *
+ * The transport recovery selector must be absent for these: mirroring the id
+ * into it asks the toolbox to recover a context for something unborn, and the
+ * fresh-setup gate requires it absent. This was an inline check that named
+ * only `setup.quick_start`, so `campaign.create` -- equally pre-campaign --
+ * kept the mirrored selector and could never pass the gate on the typed
+ * surface. Every custom/PDF table was refused; only the built-in starter
+ * could be created. Naming the set makes the next pre-campaign operation a
+ * one-line addition instead of a silent omission.
+ */
+export function isPreCampaignFreshCreation(
+  operation: string | undefined,
+  args: Record<string, unknown> | null | undefined,
+): boolean {
+  if (operation === "setup.quick_start") return true;
+  return operation === "setup.invoke" && args?.kind === "campaign.create";
+}
+
 export function modelVisibleAclFailure(
   acl: Extract<AclDecision, { ok: false }>,
   toolName: string,
