@@ -391,3 +391,69 @@ def test_the_form_survives_transport_within_the_budget(campaign_ws):
         if card["decision_ref"] == "decision:coc7:combat:flee"
     )
     assert flee["settle_form"]["missing_arguments"] == ["decision_id"]
+
+
+def test_the_declared_intent_does_not_invalidate_a_card_grant(campaign_ws):
+    """A card grant binds "canonical state has not moved since these cards
+    were issued". With no separate state-revision provider that binding
+    degrades to a digest of the whole fact set, so a fact carried only by the
+    asking call invalidates every grant issued under it.
+
+    rules.context publishes the declared intent; rules.settle does not. Before
+    the exclusion the two digests differed, latest_grant_covering matched
+    nothing, and the Keeper was told `rule_decision_stale` immediately after a
+    successful refresh. Measured 2026-09-02: eight of fifteen failed
+    settlements across three lanes, and the chase that had settled once
+    stopped settling at all."""
+    import coc_rules_runtime  # noqa: PLC0415
+
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = kernel.Ctx(
+        Path(campaign_ws["workspace"]), campaign_ws["campaign_id"],
+    )
+    graph = json.loads(
+        (
+            ROOT / "plugins/coc-keeper/rulesets/coc7/rule-graph.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    def binding(intent):
+        runtime = coc_rules_runtime.RulesRuntime(
+            graph,
+            ruleset_id="coc7",
+            campaign_id=campaign_ws["campaign_id"],
+            facts_provider=kernel._facts_provider_for(
+                ctx, "thomas-hayes", "coc7", player_intent=intent,
+            ),
+        )
+        return runtime._grant_binding()
+
+    assert binding(None) == binding("flee"), (
+        "declaring an intent must not move the grant binding"
+    )
+    assert binding("flee") == binding("investigate"), (
+        "and neither must declaring a different one"
+    )
+
+    # The fact still reaches the graph; it is excluded from the binding only.
+    captured: dict[str, object] = {}
+    original = kernel._facts_provider_for
+
+    def spy(ctx_, investigator_id, ruleset_id, *, player_intent=None):
+        provider = original(
+            ctx_, investigator_id, ruleset_id, player_intent=player_intent,
+        )
+
+        def wrapped():
+            facts = provider()
+            captured.update(facts)
+            return facts
+
+        return wrapped
+
+    kernel._facts_provider_for = spy
+    try:
+        _context(campaign_ws, player_intent="flee")
+    finally:
+        kernel._facts_provider_for = original
+    assert captured.get("intent.action_kind") == "flee"

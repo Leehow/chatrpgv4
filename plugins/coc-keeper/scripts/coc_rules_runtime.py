@@ -110,6 +110,20 @@ _GRANT_CONTEXT_KEYS = frozenset({
     "role", "phase", "stage", "player_turn_epoch", "progress_revision",
 })
 
+#: Facts that describe the CALL rather than the campaign. A card grant binds
+#: "canonical state has not moved since these cards were issued", and with no
+#: separate state-revision provider that binding degrades to a digest of the
+#: whole fact set — so any fact carried only by the asking call invalidates
+#: every grant issued under it.
+#:
+#: `intent.action_kind` is exactly that: rules.context publishes the Keeper's
+#: declared player intent, rules.settle does not, so the digest differed
+#: between issuing a grant and using it and `latest_grant_covering` matched
+#: nothing. Measured 2026-09-02: eight of fifteen failed settlements across
+#: three lanes were this, and the chase that had settled once stopped settling
+#: at all.
+_CALL_SCOPED_FACT_KEYS = frozenset({"intent.action_kind"})
+
 # Closed v1 settle enum: compiled healing decision refs only. Exclusion
 # exception nodes are intentionally absent (spec §15 no_candidate).
 HEALING_SETTLE_DECISION_REFS = (
@@ -1306,7 +1320,11 @@ class RulesRuntime:
         if self._state_revision_provider is not None:
             revision = self._state_revision_provider()
         else:
-            revision = f"sha256:{_json_digest(facts)}"
+            state_facts = {
+                key: value for key, value in facts.items()
+                if key not in _CALL_SCOPED_FACT_KEYS
+            }
+            revision = f"sha256:{_json_digest(state_facts)}"
         binding = {
             "campaign_id": self._campaign_id,
             "ruleset_id": self._ruleset_id,
