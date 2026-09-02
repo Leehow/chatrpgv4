@@ -2191,7 +2191,7 @@ def _render_public_roll(
     terms: dict[str, str] | None = None,
 ) -> str:
     language = play_language or coc_language.DEFAULT_PLAY_LANGUAGE
-    chrome = coc_language.table_mechanics_labels(language)
+    chrome = coc_language.table_mechanics_labels(language, terms=terms)
     vocabulary = terms if terms is not None else coc_language.resolved_localized_terms(language)
     tag = chrome.get("public_check_tag", "Public roll")
     view = coc_roll.player_facing_roll_view(raw)
@@ -2330,10 +2330,13 @@ def _render_public_roll(
 
 
 def _render_state_delta(
-    effect: dict[str, Any], *, play_language: str | None = None
+    effect: dict[str, Any],
+    *,
+    play_language: str | None = None,
+    terms: dict[str, str] | None = None,
 ) -> str:
     language = play_language or coc_language.DEFAULT_PLAY_LANGUAGE
-    chrome = coc_language.table_mechanics_labels(language)
+    chrome = coc_language.table_mechanics_labels(language, terms=terms)
     tag = chrome.get("change_tag", "Change")
     kind = effect["effect_kind"]
     if kind == "scalar":
@@ -2516,10 +2519,13 @@ def _render_state_delta(
 
 
 def _render_exceptional_effect(
-    effect: dict[str, Any], *, play_language: str | None = None
+    effect: dict[str, Any],
+    *,
+    play_language: str | None = None,
+    terms: dict[str, str] | None = None,
 ) -> str:
     language = play_language or coc_language.DEFAULT_PLAY_LANGUAGE
-    chrome = coc_language.table_mechanics_labels(language)
+    chrome = coc_language.table_mechanics_labels(language, terms=terms)
     zh = language == "zh-Hans" or language.startswith("zh")
     if zh:
         kind_labels = {
@@ -3224,11 +3230,11 @@ def _mechanic_source_lines(
     for effect in bundle.get("state_delta") or []:
         bucket = "asset_delta" if _is_asset_effect(effect) else "state_delta"
         sources[bucket][str(effect["effect_id"])] = _render_state_delta(
-            effect, play_language=language
+            effect, play_language=language, terms=terms
         )
     for effect in bundle.get("exceptional_effect") or []:
         sources["exceptional_effect"][str(effect["event_id"])] = (
-            _render_exceptional_effect(effect, play_language=language)
+            _render_exceptional_effect(effect, play_language=language, terms=terms)
         )
     return sources
 

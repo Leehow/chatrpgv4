@@ -1533,13 +1533,64 @@ def player_facing_display_name(
     return localize_terms(value, vocabulary)
 
 
-def table_mechanics_labels(play_language: str | None = None) -> dict[str, str]:
-    """Chrome labels for public rolls / state deltas in the play language."""
+CHROME_TERM_PREFIX = "chrome."
+
+
+def table_mechanics_labels(
+    play_language: str | None = None,
+    terms: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Chrome labels for player-visible mechanics blocks in the play language.
+
+    The built-in table covers three languages. A campaign opens the rest by
+    carrying its own labels in `localized_terms[play_language]` under the
+    `chrome.` prefix -- `chrome.change_tag` overrides `change_tag` -- so the
+    language space is not a closed enum while rendering stays a deterministic
+    table lookup that a stored receipt can replay.
+
+    The prefix keeps render furniture from colliding with rulebook terminology
+    in the same map: `Spot Hidden` is a term the module and Keeper both use,
+    `change_tag` is a word only the host emits.
+    """
     language = play_language or DEFAULT_PLAY_LANGUAGE
     if language in TABLE_MECHANICS_LABELS:
-        return deepcopy(TABLE_MECHANICS_LABELS[language])
-    # Unknown language: English chrome, not Chinese.
-    return deepcopy(TABLE_MECHANICS_LABELS["en-US"])
+        labels = deepcopy(TABLE_MECHANICS_LABELS[language])
+    else:
+        # No built-in table: English chrome, and `chrome_is_substituted`
+        # reports it rather than letting the substitution pass unnoticed.
+        labels = deepcopy(TABLE_MECHANICS_LABELS["en-US"])
+    if isinstance(terms, dict):
+        for key, label in terms.items():
+            if not isinstance(key, str) or not key.startswith(CHROME_TERM_PREFIX):
+                continue
+            name = key[len(CHROME_TERM_PREFIX):]
+            if name and isinstance(label, str) and label.strip():
+                labels[name] = label
+    return labels
+
+
+def chrome_is_substituted(
+    play_language: str | None = None,
+    terms: dict[str, str] | None = None,
+) -> bool:
+    """True when the table is rendering chrome in a language nobody chose.
+
+    A campaign whose language has no built-in table and no `chrome.` overrides
+    silently gets English furniture around its prose. Silent is the defect;
+    this makes it answerable.
+    """
+    language = play_language or DEFAULT_PLAY_LANGUAGE
+    if language in TABLE_MECHANICS_LABELS:
+        return False
+    if isinstance(terms, dict):
+        return not any(
+            isinstance(key, str)
+            and key.startswith(CHROME_TERM_PREFIX)
+            and isinstance(value, str)
+            and value.strip()
+            for key, value in terms.items()
+        )
+    return True
 
 
 def living_standard_label(value: str, play_language: str | None = None) -> str:

@@ -220,3 +220,81 @@ def test_japanese_bodies_are_not_english(kind):
         f"ja-JP body is byte-identical to zh-Hans: {bodies['ja-JP']!r}"
     )
     assert len(set(bodies.values())) == 3, bodies
+
+
+# ---------------------------------------------------------------------------
+# The language space, opened through per-campaign chrome overrides
+# ---------------------------------------------------------------------------
+
+FRENCH_CHROME = {
+    "chrome.change_tag": "Changement",
+    "chrome.condition_delta": "état : {action} « {condition} »",
+    "chrome.condition_action_added": "ajouté",
+    "chrome.rest_delta": "repos : nuit complète en sécurité{reset}",
+    "chrome.rest_reset": " ; compteur de jours de {san} réinitialisé",
+}
+
+
+def test_a_campaign_language_with_no_built_in_table_can_still_render_itself():
+    """`play_language` is a free-form tag, and chrome must not be an enum.
+
+    Three built-in languages is a starting set, not the supported set. A
+    campaign carries its own labels under the `chrome.` prefix in
+    `localized_terms[play_language]`, so rendering stays a deterministic table
+    lookup a stored receipt can replay while the language space stays open.
+    """
+    effect = {
+        "effect_kind": "condition", "action": "added",
+        "condition": "prone", "effect_id": "e",
+    }
+    with_override = coc_turn._render_state_delta(
+        dict(effect), play_language="fr-FR", terms=FRENCH_CHROME
+    )
+    without = coc_turn._render_state_delta(dict(effect), play_language="fr-FR")
+
+    assert with_override == "【Changement】état : ajouté « prone »"
+    assert "condition: added" in without, (
+        "without overrides a fr-FR table still gets English chrome; that is the "
+        "state this override path exists to let a campaign leave"
+    )
+
+
+def test_a_substituted_chrome_language_is_answerable_not_silent():
+    """The defect was never English chrome; it was English chrome with no signal."""
+    import coc_language
+
+    assert coc_language.chrome_is_substituted("zh-Hans") is False
+    assert coc_language.chrome_is_substituted("en-US") is False
+    assert coc_language.chrome_is_substituted("ja-JP") is False
+    assert coc_language.chrome_is_substituted("fr-FR") is True
+    assert coc_language.chrome_is_substituted("fr-FR", FRENCH_CHROME) is False
+
+
+@pytest.mark.parametrize("language", ["zh-Hans", "en-US", "ja-JP"])
+def test_overrides_do_not_disturb_a_language_that_has_a_table(language):
+    """A built-in language with no overrides must render exactly as before."""
+    effect = {
+        "effect_kind": "condition", "action": "added",
+        "condition": "prone", "effect_id": "e",
+    }
+    plain = coc_turn._render_state_delta(dict(effect), play_language=language)
+    empty_terms = coc_turn._render_state_delta(
+        dict(effect), play_language=language, terms={}
+    )
+    unrelated_terms = coc_turn._render_state_delta(
+        dict(effect), play_language=language, terms={"Spot Hidden": "侦查"},
+    )
+    assert plain == empty_terms == unrelated_terms
+
+
+def test_chrome_overrides_do_not_collide_with_rulebook_terminology():
+    """`Spot Hidden` and `change_tag` share one map; only one is render furniture."""
+    import coc_language
+
+    labels = coc_language.table_mechanics_labels(
+        "zh-Hans", terms={"change_tag": "WRONG", "Spot Hidden": "侦查"},
+    )
+    assert labels["change_tag"] == "变化", (
+        "an unprefixed key must not reach chrome; the prefix is what keeps "
+        "rulebook terms and render furniture from overwriting each other"
+    )
