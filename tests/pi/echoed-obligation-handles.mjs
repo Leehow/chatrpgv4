@@ -61,4 +61,49 @@ assert.equal(
   "an unbounded tail is not a handle",
 );
 
+// The INPUT side must accept the same handle it presented. The Keeper copied
+// six of these byte for byte out of `required_obligation_ids` and every
+// finalize came back `opaque_identity_grammar` -- the mirror of the result
+// side, on the way in.
+const projectionModule = await import(
+  pathToFileURL(
+    path.join(root, "plugins/coc-keeper/pi/lib/tool-contract-projection.ts")
+  ).href
+);
+const { rejectOpaqueModelIdentity } = projectionModule;
+assert.equal(
+  rejectOpaqueModelIdentity({
+    coverage: [{
+      obligation_id:
+        "roll:npc-first-impression-roll-v2:1abb9188898dd78b8561360bcb11f1df72f8c327",
+    }],
+  }),
+  null,
+  "the host's own presented handle must survive its own input grammar",
+);
+assert.notEqual(
+  rejectOpaqueModelIdentity({
+    coverage: [{ obligation_id: "1abb9188898dd78b8561360bcb11f1df72f8c327" }],
+  }),
+  null,
+  "a bare digest with no namespace is still not a handle",
+);
+assert.notEqual(
+  rejectOpaqueModelIdentity({
+    coverage: [{ obligation_id: "route:npc-first-impression-v2:" + "a".repeat(40) }],
+  }),
+  null,
+  "an undeclared namespace does not become a handle by having a digest",
+);
+
+// The loosening is exactly this wide: an echoed field whose value is meant to
+// be readable keeps the strict rule, so a digest cannot ride in on it.
+assert.notEqual(
+  rejectOpaqueModelIdentity({
+    scene: { scene_id: "scene:" + "a".repeat(40) },
+  }),
+  null,
+  "scene_id is meaning-bearing on both sides and must not accept a digest",
+);
+
 console.log(JSON.stringify({ ok: true, module: "echoed-obligation-handles" }));

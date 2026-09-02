@@ -5212,26 +5212,6 @@ function projectSemanticIdField(
     }
     return { action: "keep", value: handle };
   }
-  const echoedScalar = ECHOED_HANDLE_SCALAR_FIELDS.get(field);
-  if (echoedScalar !== undefined && typeof value === "string") {
-    if (isEchoedHandle(value, echoedScalar)) {
-      return { action: "keep", value };
-    }
-    diagnostics?.unmapped.push({ field, parentField, domain: "obligation" });
-    return { action: "drop" };
-  }
-  const echoedArray = ECHOED_HANDLE_ARRAY_FIELDS.get(field);
-  if (echoedArray !== undefined && Array.isArray(value)) {
-    const members: string[] = [];
-    for (const entry of value) {
-      if (isEchoedHandle(entry, echoedArray)) {
-        members.push(entry);
-        continue;
-      }
-      diagnostics?.unmapped.push({ field, parentField, domain: "obligation" });
-    }
-    return { action: "keep", value: members };
-  }
   const arrayPrefix = SEMANTIC_ID_ARRAY_FIELDS.get(field);
   if (arrayPrefix !== undefined && Array.isArray(value)) {
     const members: string[] = [];
@@ -5300,6 +5280,10 @@ function projectObligationValue(
       if (typeof entry !== "string") continue;
       const handle = projectSemanticIdValue("roll:", entry, semanticIds);
       if (handle === null) {
+        if (isNonRollObligationHandle(entry)) {
+          members.push(entry);
+          continue;
+        }
         diagnostics?.unmapped.push({ field, parentField, domain: "roll" });
         continue;
       }
@@ -5310,11 +5294,38 @@ function projectObligationValue(
   if (typeof value !== "string") return null;
   const handle = projectSemanticIdValue("roll:", value, semanticIds);
   if (handle === null) {
+    if (isNonRollObligationHandle(value)) {
+      return { action: "keep", value };
+    }
     diagnostics?.unmapped.push({ field, parentField, domain: "roll" });
     return { action: "drop" };
   }
   return { action: "keep", value: handle };
 }
+
+/**
+ * An obligation handle the roll registry does not and cannot mint.
+ *
+ * Obligations carry three declared namespaces. `roll:` ones are backed by a
+ * settled roll and map through the registry. `first-impression:` and
+ * `sanity_bout:` are their own id families -- the registry has no entry for
+ * them and never will -- so mapping them through it dropped every one, and a
+ * dropped declared-semantic field collapses the whole result. That is why any
+ * turn with an NPC in the scene could not produce an output context on
+ * 2026-09-02.
+ *
+ * They stay verbatim, which is exactly what the grammar tells the Keeper:
+ * copy the handle from `required_obligation_ids` byte for byte.
+ */
+function isNonRollObligationHandle(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  if (value.startsWith("roll:")) return false;
+  return isEchoedHandle(value, NON_ROLL_OBLIGATION_NAMESPACES);
+}
+
+const NON_ROLL_OBLIGATION_NAMESPACES: ReadonlySet<string> = new Set(
+  OBLIGATION_ID_PREFIXES.filter((prefix) => prefix !== "roll:"),
+);
 
 // ─── Structured provenance projection (source_refs family) ───
 //
@@ -8131,7 +8142,16 @@ export function violatesSemanticIdentityGrammar(value: string): boolean {
  * model-authored identity fields (including inside coverage/claims arrays).
  * Failure messages name only the field — never the supplied value.
  */
-function rejectOpaqueModelIdentity(
+/** True when `value` is the echoed handle this field is declared to carry. */
+function isDeclaredEchoedHandle(field: string, value: string): boolean {
+  if (!RAW_MINTED_HANDLE_FIELDS.has(field)) return false;
+  const namespaces = RAW_ECHOED_FIELDS.get(field);
+  if (namespaces === undefined) return false;
+  return isEchoedHandle(value, namespaces);
+}
+
+
+export function rejectOpaqueModelIdentity(
   container: Record<string, unknown>,
 ): { field: string } | null {
   const visit = (value: unknown, field: string | null): { field: string } | null => {
@@ -8148,6 +8168,15 @@ function rejectOpaqueModelIdentity(
         && field !== null
         && isGrammarIdentityField(field)
         && violatesSemanticIdentityGrammar(value)
+        // An echoed field carries a handle the HOST minted and presented, and
+        // the Keeper's only correct move is to copy it back byte for byte.
+        // Judging it as an authored semantic id refuses the host's own
+        // handle: on 2026-09-02 the Keeper copied six obligation handles
+        // perfectly out of `required_obligation_ids` and every finalize was
+        // rejected with `opaque_identity_grammar`. The namespaces come from
+        // the field's own declaration, so this narrows to exactly what the
+        // host said it would present.
+        && !isDeclaredEchoedHandle(field, value)
       ) {
         return { field };
       }
@@ -8529,6 +8558,27 @@ const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
  * `rules.settle` refs joined it because a bare slug reaches their canonical
  * binding as an unresolvable candidate key.
  */
+/**
+ * Echoed fields whose handle the host MINTS with an opaque tail by design.
+ *
+ * Most echoed values are meaning-bearing on both sides -- `scene:corbitt-house`
+ * is a slug the Keeper can read -- and those must keep the strict semantic
+ * rule. An obligation handle is different: it ends in a content digest
+ * precisely so it cannot be authored, and the Keeper's only correct move is to
+ * copy it back byte for byte. Judging it by the slug rule refuses the host's
+ * own handle, which is what happened on 2026-09-02: the Keeper copied six of
+ * them perfectly out of `required_obligation_ids` and every finalize came back
+ * `opaque_identity_grammar`.
+ *
+ * Naming the set keeps the loosening exactly this wide.
+ */
+const RAW_MINTED_HANDLE_FIELDS: ReadonlySet<string> = new Set([
+  "obligation_id",
+  "obligation_ids",
+  "obligation_ref",
+  "required_obligation_ids",
+]);
+
 const RAW_NAMESPACE_ONLY_ECHOED_FIELDS: ReadonlySet<string> = new Set([
   "matched_affordance_ids",
   "selected_affordance_ids",
@@ -8678,6 +8728,15 @@ function rawIdentityFieldRule(
   }
   const echoed = RAW_ECHOED_FIELDS.get(field);
   if (echoed !== undefined) {
+    if (RAW_MINTED_HANDLE_FIELDS.has(field)) {
+      // Strictly additive: a registry-minted handle is meaning-bearing and
+      // keeps passing the ordinary echoed rule, and the opaque-tailed form is
+      // accepted beside it. Replacing the rule outright refused every handle
+      // whose slug carries characters the opaque form does not allow -- CJK
+      // among them, which is most of this table's rolls.
+      return (value) => isEchoedSemanticRef(value, echoed)
+        || isEchoedHandle(value, echoed);
+    }
     // Affordance binding fields are closed to the `affordance:` namespace:
     // the exact copy-verbatim handle is the only accepted form (campaign
     // 04/05/10 namespace-guessing ladder fails closed here).
@@ -9485,8 +9544,13 @@ export function restoreSemanticEntityHandles(
     // through the registry; bare canonical ids pass through untouched for
     // canonical validation to judge.
     const classify = (field: string, value: string): string => {
+      // `obligation_id` is in the roll scalars, but only its `roll:` members
+      // are registry-backed: `first-impression:` and `sanity_bout:` are their
+      // own id families and restoring them through the roll registry fails
+      // closed on a handle the host itself presented. The array form already
+      // tested the prefix; the scalar did not.
       if (
-        RESTORE_ROLL_SCALARS.has(field)
+        (RESTORE_ROLL_SCALARS.has(field) && !isNonRollObligationHandle(value))
         || (RESTORE_ROLL_ARRAYS.has(field) && value.startsWith("roll:"))
         || (field === "source_effect_id" && value.startsWith("roll:"))
       ) return "roll";

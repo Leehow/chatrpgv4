@@ -2579,6 +2579,68 @@ _OUTPUT_CONTEXT_TIGHT_DROP = (
 )
 
 
+def _mechanics_summary_identities(value: Any) -> dict[str, Any] | None:
+    """The identity-only form of a mechanics summary.
+
+    `buildReviewedCoverageBindingFacts` reads exactly three things from the
+    summary -- `public_check[].roll_id`, `state_delta[].effect_id` and
+    `exceptional_effect[].event_id` -- plus `journal_decision_id`. Everything
+    else in it is the bulk this projection exists to shed.
+    """
+    if not isinstance(value, dict):
+        return None
+    def ids(rows: Any, field: str) -> list[dict[str, Any]]:
+        if not isinstance(rows, list):
+            return []
+        kept: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            identity = row.get(field)
+            if isinstance(identity, str) and identity.strip():
+                kept.append({field: identity})
+        return kept
+
+    slim: dict[str, Any] = {
+        "public_check": ids(value.get("public_check"), "roll_id"),
+        "state_delta": ids(value.get("state_delta"), "effect_id"),
+        "exceptional_effect": ids(value.get("exceptional_effect"), "event_id"),
+        "concealed_consequence": [],
+    }
+    journal_decision_id = value.get("journal_decision_id")
+    if isinstance(journal_decision_id, str) and journal_decision_id:
+        slim["journal_decision_id"] = journal_decision_id
+    return slim
+
+
+def _obligation_identities(value: Any) -> list[dict[str, Any]] | None:
+    """The identity-only form of the retained obligations.
+
+    The coverage binding needs each obligation's id, its source, its kind and
+    visibility, and whether an exceptional beat is required. The prose the
+    obligation carries -- goals, allowed spans, npc display names -- is the
+    bulk this projection sheds.
+    """
+    if not isinstance(value, list):
+        return None
+    kept: list[dict[str, Any]] = []
+    for row in value:
+        if not isinstance(row, dict):
+            continue
+        slim: dict[str, Any] = {}
+        for field in ("obligation_id", "source_kind", "source_id", "visibility"):
+            text = row.get(field)
+            if not isinstance(text, str) or not text.strip():
+                slim = {}
+                break
+            slim[field] = text
+        if not slim:
+            continue
+        slim["exceptional_required"] = bool(row.get("exceptional_required"))
+        kept.append(slim)
+    return kept
+
+
 def _project_output_context_review_card(value: Any) -> Any:
     """Keep the exact Pi continuation cards when compact output is oversized.
 
@@ -2590,8 +2652,25 @@ def _project_output_context_review_card(value: Any) -> Any:
     if not isinstance(value, dict):
         return deepcopy(value)
     projected = _compact_output_context(value, tight=True)
+    slim_mechanics = _mechanics_summary_identities(projected.get("mechanics_summary"))
     for key in _OUTPUT_CONTEXT_TIGHT_DROP:
         projected.pop(key, None)
+    # Dropping the mechanics summary outright dropped the three id lists the
+    # Pi coverage binding is built from, so no turn.finalize binding was armed
+    # and the Keeper sat in `review_ready` with only the context producer to
+    # call -- an infinite loop ending in a lost turn. Only the bulk needs to
+    # go: the identities are three arrays of bare ids. Seen live on
+    # 2026-09-02 in campaign amaranthine-loop, on the first turn whose context
+    # was large enough to take this path (six NPC first-impression
+    # obligations).
+    if slim_mechanics is not None:
+        projected["mechanics_summary"] = slim_mechanics
+    # The obligations go with them: the binding checks that every public check
+    # source belongs to a retained obligation, so keeping the checks while
+    # dropping the obligations fails that check instead of the earlier one.
+    slim_obligations = _obligation_identities(value.get("obligations"))
+    if slim_obligations is not None:
+        projected["obligations"] = slim_obligations
     contract = value.get("contract_projection")
     if isinstance(contract, dict):
         slim_contract: dict[str, Any] = {}
