@@ -4750,10 +4750,19 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
             and payload["involuntary_kind"] is not None
             and payload["involuntary_kind"] not in coc_sanity.INVOLUNTARY_KINDS
         ):
+            # Name the enum. "an explicit supported enum" tells a Keeper that
+            # cannot see this module nothing at all: on 2026-09-02 r43 one
+            # tried `none`, was refused, tried `scream`, and was refused with
+            # the same six words -- the value it wanted, `cry_out`, is one of
+            # six the host has right here. The rulebook's own five involuntary
+            # actions plus flee (p.166).
             raise _error(
                 "invalid_command_payload",
                 f"{base}.involuntary_kind",
-                "involuntary_kind must be an explicit supported enum",
+                "involuntary_kind must be one of: "
+                + ", ".join(sorted(coc_sanity.INVOLUNTARY_KINDS))
+                + "; omit it entirely when the roll succeeds and no "
+                "involuntary action follows",
             )
         if "involuntary_summary" in payload and not isinstance(payload["involuntary_summary"], str):
             raise _error(
