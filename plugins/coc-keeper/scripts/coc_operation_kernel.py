@@ -8184,9 +8184,40 @@ def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: st
             # The candidate sets are in hand here, so name them: a rejected ref
             # is a choice from the wrong list, not a malformed argument, and
             # the Keeper cannot read the right list from anywhere else.
+            # Say which ref failed in the message, not only in details: the
+            # model reads the message first, and "refs must resolve" names
+            # nothing it can act on. The lists are already in hand.
+            trouble: list[str] = []
+            if not pursuers:
+                trouble.append("pursuer_refs is empty")
+            if not quarries:
+                trouble.append("quarry_refs is empty")
+            if len(location_refs) < 2:
+                trouble.append(
+                    f"location_refs needs at least two, got {len(location_refs)}"
+                )
+            overlap = sorted(set(pursuers) & set(quarries))
+            if overlap:
+                trouble.append(
+                    "the same actor cannot be pursuer and quarry: "
+                    + ", ".join(overlap)
+                )
+            if rejected_actors:
+                trouble.append(
+                    "not present in this scene: " + ", ".join(rejected_actors)
+                    + f" (present: {', '.join(sorted(actors)[:6]) or 'none'})"
+                )
+            if rejected_locations:
+                trouble.append(
+                    "not connected to this scene: " + ", ".join(rejected_locations)
+                    + f" (connected: {', '.join(sorted(locations)[:6]) or 'none'})"
+                )
             raise ToolError(
                 "chase_candidate_invalid",
-                "chase refs must resolve to current actors and current/connected locations",
+                "; ".join(trouble) or (
+                    "chase refs must resolve to current actors and "
+                    "current/connected locations"
+                ),
                 details={
                     "scene_id": candidates.get("scene_id"),
                     "rejected_actor_refs": rejected_actors,
@@ -8221,7 +8252,16 @@ def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: st
     chain = chase.get("location_chain") or []
     position = int(actor.get("position", 0)) if actor else -1
     nxt = chain[position + 1] if 0 <= position + 1 < len(chain) else {}
-    binding: dict[str, Any] = {"actor_id": actor_id, "revision": chase.get("revision"), "chase_id": chase.get("chase_id")}
+    # Only what this decision declares. `chase_id` is a slot of `start` and
+    # `end` alone, and the runtime rejects a host-locked input the decision
+    # never declared -- as `unknown_semantic_input`, which reads as the
+    # Keeper's argument error for a value the host itself supplied. Measured
+    # 2026-09-02 r36 on chase:move; hazard, barrier and conflict carry the
+    # same shape. Same defect as san_before across the sanity decisions.
+    declared = _declared_payload_slots(decision_ref)
+    binding: dict[str, Any] = {"actor_id": actor_id, "revision": chase.get("revision")}
+    if "chase_id" in declared:
+        binding["chase_id"] = chase.get("chase_id")
     if suffix == "move": binding["action_id"] = "advance"
     elif suffix == "hazard":
         hazard = nxt.get("hazard") if isinstance(nxt, Mapping) else None

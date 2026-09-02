@@ -116,3 +116,87 @@ def test_a_valid_start_still_binds(monkeypatch):
         },
     )
     assert binding, "a well-formed chase start must still bind"
+
+
+def test_the_host_binds_only_slots_the_chase_decision_declares(tmp_path):
+    """`chase_id` is a slot of start and end alone.
+
+    The binding supplied it for every non-start suffix, and the runtime
+    rejects a host-locked input the decision never declared -- as
+    `unknown_semantic_input`, which reads as the Keeper's argument error for a
+    value the host itself sent. Measured 2026-09-02 r36 on chase:move; hazard,
+    barrier and conflict carry the same shape. Same defect as `san_before`
+    across the sanity decisions.
+    """
+    import json as _json  # noqa: PLC0415
+
+    # A chase the product itself wrote, trimmed to what this binding reads.
+    save = tmp_path / "save"
+    save.mkdir(parents=True)
+    (save / "chase.json").write_text(_json.dumps({
+        "status": "active",
+        "revision": 3,
+        "chase_id": "chase:corbitt-confrontation:thomas-hayes-vs-corbitt",
+        "initiative_cursor": 0,
+        "rounds": [{"dex_order": ["thomas-hayes"]}],
+        "participants": [{"actor_id": "thomas-hayes", "position": 0}],
+        "location_chain": [{}, {}],
+    }), encoding="utf-8")
+
+    class _ChaseCtx:
+        campaign_id = "chase-slot-probe"
+        campaign_dir = tmp_path
+
+    for suffix in ("move",):
+        binding = kernel._canonical_chase_binding(
+            _ChaseCtx(),
+            decision_ref=f"decision:coc7:chase:{suffix}",
+            investigator_id="thomas-hayes",
+            semantic_inputs={},
+        )
+        declared = kernel._declared_payload_slots(
+            f"decision:coc7:chase:{suffix}"
+        )
+        assert "chase_id" not in declared, suffix
+        assert "chase_id" not in binding, (
+            f"the host sent chase:{suffix} an input it does not declare: "
+            f"{sorted(binding)}"
+        )
+        assert binding.get("actor_id") == "thomas-hayes", binding
+
+    assert "chase_id" in kernel._declared_payload_slots(
+        "decision:coc7:chase:end"
+    )
+
+
+def test_the_refusal_names_which_ref_failed_not_just_that_one_did(monkeypatch):
+    """The model reads the message before the details.
+
+    "chase refs must resolve to current actors and current/connected
+    locations" names nothing it can act on, and the lists that would have
+    answered it were already in hand. Two chase starts were refused this way
+    in r36.
+    """
+    with pytest.raises(kernel.ToolError) as excinfo:
+        _binding(
+            monkeypatch,
+            {
+                "actors": {
+                    "investigator:thomas-hayes": {"id": "thomas-hayes"},
+                    "npc:npc-walter-corbitt": {"id": "npc-walter-corbitt"},
+                },
+                "locations": {"scene:a": {}, "scene:b": {}},
+                "actor_errors": {},
+                "scene_id": "corbitt-house-ground",
+            },
+            {
+                "quarry_refs": ["investigator:thomas-hayes"],
+                "pursuer_refs": ["npc:someone-not-here"],
+                "location_refs": ["scene:a", "scene:elsewhere"],
+            },
+        )
+    message = excinfo.value.message
+    assert "npc:someone-not-here" in message, message
+    assert "scene:elsewhere" in message, message
+    assert "npc:npc-walter-corbitt" in message, "it must name who IS present"
+    assert "scene:a" in message, "and where IS connected"
