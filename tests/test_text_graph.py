@@ -539,7 +539,7 @@ CENSUS: dict[str, dict[str, tuple[int, str, str]]] = {
         'render-prohibition': (3, 'second-declaration', 'its own copy of the player-visible prohibitions at line 1908; recorded not repaired'),
         'render-slot': (13, 'second-declaration', 'its own envelope-validation copy of the crisis slots at lines 1855+; found by this gate in T4, recorded not repaired'),
         'review-rule': (4, 'usage-only', 'rule-id spellings in envelope validation messages'),
-        'roll-visibility-class': (7, 'second-declaration', "line 826 inlines {'public', 'consequence_public'} — an independent copy of PLAYER_FACING_ROLL_VISIBILITIES found by this gate; recorded, not repaired in T1"),
+        'roll-visibility-class': (5, 'usage-only', "~~line 826 inlines {'public', 'consequence_public'}~~ **repaired.** T1 recorded that independent copy rather than fixing it; adding the NPC-reaction hook needed the same question answered and the gate caught the third copy being written. `_resolved_roll_visibility` / `_roll_is_publicly_witnessed` now answer it once, reading the vocabulary from the graph, and the count fell 7 -> 5. The remaining four are DIFFERENT concepts that share spellings -- clue visibility (line 191) and NPC-move visibility (940, 1009) -- plus the one default resolution inside the shared helper"),
         'style-axis': (8, 'second-declaration', 'its own required_avoid/required_prefer sets at lines 1846-1847, including translationese; recorded not repaired'),
     },
     'plugins/coc-keeper/scripts/coc_narration_style.py': {
@@ -846,6 +846,15 @@ def test_the_second_declarations_this_gate_found_are_recorded():
         if classification == "second-declaration"
     }
     assert (
+        "plugins/coc-keeper/scripts/coc_narration_contract.py",
+        "roll-visibility-class",
+    ) not in second, (
+        "the roll-visibility copy this gate found in T1 was repaired when the "
+        "NPC-reaction hook needed the same question answered; one resolver now "
+        "reads the vocabulary from the graph. A second declaration here is a "
+        "regression"
+    )
+    assert (
         "plugins/coc-keeper/pi/lib/tool-contract-projection.ts",
         "obligation-prefix",
     ) not in second, (
@@ -858,7 +867,6 @@ def test_the_second_declarations_this_gate_found_are_recorded():
         # found by this gate
         ("plugins/coc-keeper/pi/lib/tool-contract-projection.ts", "agency-claim-type"),
         ("plugins/coc-keeper/pi/lib/tool-contract-projection.ts", "realization-mode"),
-        ("plugins/coc-keeper/scripts/coc_narration_contract.py", "roll-visibility-class"),
         ("plugins/coc-keeper/scripts/coc_state_authority.py", "segment-type"),
         (
             "plugins/coc-keeper/skills/coc-export-battle-report/scripts/"

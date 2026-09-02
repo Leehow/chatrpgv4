@@ -658,6 +658,18 @@ def _tool_narration_brief(ctx: Ctx, args: dict[str, Any]):
         "the KP owns the final narration and must preserve authoritative numerical results exactly",
         f"length budget ({budget['mode']}): ≤{budget['max_chars']} chars / ≤{budget['max_paragraphs']} paragraphs — write only what changed; never restate the player's own action",
     ]
+    openings = envelope.get("npc_reaction_openings") or []
+    if openings:
+        watched = ", ".join(
+            f"{row['skill'] or row['roll_id']}"
+            for row in openings[:3]
+        )
+        hints.append(
+            f"a present NPC just watched this fail in the open ({watched}); "
+            "table banter, light ribbing and NPC agency are yours to spend or "
+            "skip here — an NPC may mock, may help, may not have noticed. No "
+            "line is supplied and none is required"
+        )
     if control_overrides:
         hints.append(
             "portray investigator involuntary behavior ONLY within the listed "
