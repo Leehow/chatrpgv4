@@ -369,6 +369,53 @@ def validate_module_projection(
     }
 
 
+# Relation kinds a module uses to declare that its world loops. The projection
+# carries whatever they connect and interprets none of it: a homebrew module may
+# carry anything at all into its next turn of the loop, and a fixed vocabulary of
+# "what may persist" would silently drop exactly the things its author cared
+# about. Absent edges produce no block, so a module without a loop says nothing
+# rather than carrying an empty shell.
+WORLDLINE_LOOP_RELATION_KINDS = ("resets-to", "persists-across-loop")
+
+
+def worldline_loop_edges(graph: dict[str, Any]) -> list[dict[str, Any]]:
+    """The module's own loop edges, resolved to readable endpoints.
+
+    Faithful and flat: one entry per authored edge, both endpoints named, no
+    grouping and no direction inference. The contract puts no domain or range
+    on these kinds, so any grouping here would be this layer inventing a
+    semantics the author never wrote.
+    """
+    nodes = {
+        str(node.get("node_id")): node
+        for node in graph.get("nodes") or []
+        if isinstance(node, dict) and node.get("node_id")
+    }
+
+    def endpoint(node_id: Any) -> dict[str, Any]:
+        node = nodes.get(str(node_id)) or {}
+        return {
+            "node_id": str(node_id),
+            "node_kind": str(node.get("node_kind") or ""),
+            "name": str(node.get("name") or ""),
+        }
+
+    edges: list[dict[str, Any]] = []
+    for relation in graph.get("relations") or []:
+        if not isinstance(relation, dict):
+            continue
+        kind = str(relation.get("relation_kind") or "")
+        if kind not in WORLDLINE_LOOP_RELATION_KINDS:
+            continue
+        edges.append({
+            "relation": kind,
+            "from": endpoint(relation.get("from_node_id")),
+            "to": endpoint(relation.get("to_node_id")),
+        })
+    edges.sort(key=lambda row: (row["relation"], row["from"]["node_id"], row["to"]["node_id"]))
+    return edges
+
+
 def project_module_documents(
     graph: dict[str, Any], sidecar: dict[str, Any] | None = None
 ) -> dict[str, dict[str, Any]]:
@@ -386,6 +433,16 @@ def project_module_documents(
                 rows.append(_deepcopy(records[node_id].get("record")))
             document[name] = rows
         documents[filename] = document
+    # A module that declares a loop says so in module-meta, where the runtime
+    # already reads the module's own facts. Derived from the graph's edges
+    # rather than authored twice.
+    loop_edges = worldline_loop_edges(graph)
+    if loop_edges and "module-meta.json" in documents:
+        documents["module-meta.json"]["worldline_loop"] = {
+            "schema_version": 1,
+            "declared_by": "module-graph",
+            "edges": loop_edges,
+        }
     return documents
 
 
