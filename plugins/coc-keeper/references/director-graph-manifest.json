@@ -2,7 +2,7 @@
   "contract_id": "coc.director-graph-build-manifest.v1",
   "schema_version": 1,
   "graph_id": "graph:director:production",
-  "graph_content_digest": "db8892e40c9fc9982f8b65d754dc9e545e7c9e49a2fbb6337346a09dc01e2011",
+  "graph_content_digest": "0ac3bb58410d8c3ff2b7e9c490a422652789dacef4726b784efaca3854e106bc",
   "shards": [
     "shard:director:doctrine",
     "shard:director:vocabulary"
