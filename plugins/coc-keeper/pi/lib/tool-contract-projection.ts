@@ -575,6 +575,12 @@ const PI_SCHEMA_CODES = new Set<string>([
   // turn is over while the way out is in its hand. Seen live on 2026-09-02,
   // settling a social difficulty adjudication with a stray `source_ref`.
   "unknown_semantic_input",
+  // A declared slot given a value in the wrong closed form. The message
+  // always states the form ("commitment_ref must use commitment:<slug>"), so
+  // the fix is to resend with the value respelled. Seen live on 2026-09-02:
+  // the Keeper was told the exact grammar and, in the same envelope, that
+  // recovery was impossible.
+  "invalid_semantic_input",
   // A model-authored identity in the wrong closed form. The message always
   // names the accepted form and a RIGHT example, so the correction is always
   // "resend this call with the value respelled" -- the same shape as every
@@ -4035,6 +4041,18 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       "rescuer_id", "rule_ref", "rule_refs", "wound_id",
       // Who a combat exchange targeted — the Keeper narrates with it.
       "target_actor_id",
+      // A social adjudication's leverage row. Both are meaning-bearing: the
+      // ref names the player-known record the claim rests on
+      // (`clue:<clue_id>`, `npc_agenda:<npc_id>`, …) and the id is composed
+      // from it. Undeclared, they collapsed the WHOLE settle envelope to
+      // `semantic_identity_unavailable` — but only when leverage was actually
+      // granted, so an adjudication that gave the player nothing projected
+      // fine and one that finally counted their evidence did not.
+      //
+      // Live on 2026-09-02: a second, independent model wrote
+      // `{level: 1, source_ref: "clue:clue-crown-slab-heraldry"}` correctly on
+      // its first try and every settle collapsed here.
+      "leverage_id", "source_ref",
     ],
     ["request_digest"],
     ["command_id", "source_command_id", "state_refs"],

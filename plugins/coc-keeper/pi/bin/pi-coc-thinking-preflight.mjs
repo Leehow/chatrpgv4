@@ -25,6 +25,41 @@ const THINKING_LADDER = [
   "max",
 ];
 
+/**
+ * Models that think regardless of what is requested.
+ *
+ * The checks below judge DECLARED capability: whether the catalog says a level
+ * is supported, and whether Pi would silently clamp. They cannot see a model
+ * that accepts the disable request and ignores it — and that gap is not
+ * theoretical. `zai-coding-cn/glm-5.3-flash` declares no `reasoning` flag, so
+ * "off" reads as its only supported level and passes every check here;
+ * measured live on 2026-09-02 with thinking "off" in force, it still emitted
+ * 43,952 and 50,566 characters of reasoning across two turns.
+ *
+ * That is expensive in a way that hides: reasoning text and tool arguments
+ * share one response output budget, so ~16.8k reasoning tokens against a
+ * 16,384 cap truncated `state.journal` mid-argument three times in a row
+ * ("the response hit the output token limit"), and the turn never settled.
+ * Believing thinking is off is worse than knowing it is on.
+ *
+ * Keyed by exact `provider/model` and by bare model id, so the same model
+ * reached through a second provider is still caught. Vendor statement:
+ * GLM-5.3 and GLM-5.3-FLASH are forced-thinking; GLM-5.2 and earlier can be
+ * disabled.
+ */
+const FORCED_THINKING_MODELS = new Map([
+  ["glm-5.3-flash", "GLM-5.3-FLASH reasons on every request (vendor-documented; measured 2026-09-02)"],
+  ["glm-5.3", "GLM-5.3 reasons on every request (vendor-documented)"],
+  ["glm-5.3-highspeed", "GLM-5.3 variants reason on every request (vendor-documented)"],
+]);
+
+function forcedThinkingNote(provider, modelId) {
+  return (
+    FORCED_THINKING_MODELS.get(`${provider}/${modelId}`)
+    ?? FORCED_THINKING_MODELS.get(modelId)
+  );
+}
+
 function fail(message) {
   process.stderr.write(`pi-coc: ${message}\n`);
   process.exit(2);
@@ -227,6 +262,21 @@ if (!model) {
     `thinking "off" was requested for ${provider}/${modelId}, but its model metadata is unavailable; ` +
       "refusing to risk Pi silently selecting a thinking level",
   );
+}
+
+// A model that ignores the disable request cannot honour "off" no matter what
+// its catalog declares. Refuse rather than let the request read as a saving.
+if (requestedThinking === "off") {
+  const forced = forcedThinkingNote(provider, modelId);
+  if (forced) {
+    fail(
+      `${provider}/${modelId} cannot honour --thinking off: ${forced}. The request would be ` +
+        "accepted and change nothing, and that reasoning shares the response output budget with " +
+        "tool arguments — long tool calls get truncated mid-argument. Choose a model that can " +
+        "actually disable thinking (GLM-5.2 and earlier), or run this one knowingly by asking " +
+        "for a level it does declare",
+    );
+  }
 }
 
 const available = supportedThinkingLevels(model);

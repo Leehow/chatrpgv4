@@ -1,7 +1,8 @@
 #!/bin/zsh
 # 换 KP 模型 / 放 key 的小工具。用法:
 #   ./kp            列出能用的模型
-#   ./kp glm        换成 glm-5.3-flash
+#   ./kp glm        换成 glm-5.2 (thinking off,真能关)
+#   ./kp glm53      换成 glm-5.3-flash (强制思考,预检查会拦)
 #   ./kp grok       换成 grok-4.5
 #   ./kp key <名字> 放一把 key(不回显,不进终端历史)
 set -e
@@ -33,7 +34,8 @@ for name,p in d['providers'].items():
     for m in (p.get('models') or [])[:6]:
         print(f\"  {mark} {name}/{m['id']}\")"
     ;;
-  glm)  MODEL=zai-coding-cn/glm-5.3-flash; THINK=off ;;
+  glm)  MODEL=zai-coding-cn/glm-5.2;         THINK=off ;;
+  glm53) MODEL=zai-coding-cn/glm-5.3-flash;  THINK=off ;;
   grok) MODEL=xai/grok-4.5;                  THINK=low ;;
   *)    MODEL="$1" ;;
 esac
@@ -42,11 +44,18 @@ if [[ -n "$MODEL" ]]; then
   # Thinking level travels with the model: pi refuses to start when the
   # session default names a level the model does not support (it will not
   # silently clamp). glm-5.3-flash supports only "off"; grok-4.5 takes "low".
+  # Provider, model and thinking level are written together. pi validates the
+  # REMEMBERED model against the session's thinking level at startup and
+  # refuses rather than silently clamping, so setting the level alone bricks
+  # the launch: the new level is judged against the old model.
   if [[ -n "$THINK" ]]; then
-    THINK="$THINK" python3 -c "
+    THINK="$THINK" MODEL="$MODEL" python3 -c "
 import json,os,pathlib
 p=pathlib.Path('.pi/coc-agent/settings.json')
 d=json.loads(p.read_text())
+provider,_,model=os.environ['MODEL'].partition('/')
+d['defaultProvider']=provider
+d['defaultModel']=model
 d['defaultThinkingLevel']=os.environ['THINK']
 p.write_text(json.dumps(d,indent=2)+chr(10))"
   fi

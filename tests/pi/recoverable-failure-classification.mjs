@@ -60,6 +60,14 @@ assert.ok(
   leverage.error.allowed_next_actions.some((a) => a.operation === "rules.settle"),
 );
 
+// A declared slot given the wrong closed form: the message states the form, so
+// the fix is to resend respelled. Live on 2026-09-02 the Keeper was told the
+// exact grammar ("commitment_ref must use commitment:<semantic-slug>") and, in
+// the same envelope, that recovery was impossible.
+const wrongForm = project("invalid_semantic_input");
+assert.equal(wrongForm.error.recoverable_by, "model_next_action");
+assert.notEqual(wrongForm.error.class, "invariant_terminal");
+
 // Nothing was loosened: an unrecognised code still fails closed as terminal.
 const unknown = project("some_code_with_no_declared_recovery");
 assert.equal(unknown.error.class, "invariant_terminal");
