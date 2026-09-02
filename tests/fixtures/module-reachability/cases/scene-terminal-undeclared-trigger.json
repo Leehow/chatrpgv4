@@ -1,0 +1,97 @@
+{
+  "case": "scene-terminal-undeclared-trigger",
+  "intent": "A scene with no outbound edge that does not declare is_final, in a scenario that uses is_final elsewhere, is an undeclared dead end.",
+  "documents": {
+    "story-graph.json": {
+      "scenes": [
+        {
+          "scene_id": "scene-a",
+          "display_name": "Scene A",
+          "is_start": true,
+          "origin": "source",
+          "available_clues": [
+            "clue-a"
+          ],
+          "scene_edges": [
+            {
+              "to": "scene-b",
+              "kind": "travel",
+              "when": {
+                "kind": "narrative"
+              }
+            },
+            {
+              "to": "scene-c",
+              "kind": "travel",
+              "when": {
+                "kind": "narrative"
+              }
+            }
+          ]
+        },
+        {
+          "scene_id": "scene-b",
+          "display_name": "Scene B",
+          "origin": "source",
+          "available_clues": [
+            "clue-b"
+          ],
+          "scene_edges": []
+        },
+        {
+          "scene_id": "scene-c",
+          "display_name": "Scene C",
+          "is_final": true,
+          "origin": "source",
+          "available_clues": [],
+          "scene_edges": []
+        }
+      ]
+    },
+    "clue-graph.json": {
+      "conclusions": [
+        {
+          "conclusion_id": "conclusion-cellar-truth",
+          "importance": "core",
+          "minimum_routes": 2,
+          "origin": "source",
+          "clues": [
+            {
+              "clue_id": "clue-a",
+              "delivery_kind": "skill_check",
+              "origin": "source",
+              "skill": "Spot Hidden"
+            },
+            {
+              "clue_id": "clue-b",
+              "delivery_kind": "npc_question",
+              "origin": "source"
+            }
+          ]
+        }
+      ]
+    },
+    "module-meta.json": {
+      "schema_version": 1,
+      "scenario_id": "fx-scene-terminal-undeclared",
+      "title": "fx-scene-terminal-undeclared",
+      "structure_type": "branching_investigation"
+    }
+  },
+  "expect": {
+    "findings": [
+      {
+        "code": "scene-terminal-undeclared",
+        "subject_id": "scene-b",
+        "subject_kind": "scene",
+        "severity": "observation",
+        "completeness": "dead",
+        "related_ids": []
+      }
+    ],
+    "codes_not_measured": [
+      "front-scene-unknown",
+      "quest-destination-unknown"
+    ]
+  }
+}

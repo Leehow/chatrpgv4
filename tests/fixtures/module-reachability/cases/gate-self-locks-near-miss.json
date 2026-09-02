@@ -1,0 +1,77 @@
+{
+  "case": "gate-self-locks-near-miss",
+  "intent": "The same gate whose clue is also placed in the gating scene opens normally; one extra placement is the whole difference.",
+  "documents": {
+    "story-graph.json": {
+      "scenes": [
+        {
+          "scene_id": "scene-a",
+          "display_name": "Scene A",
+          "is_start": true,
+          "origin": "source",
+          "available_clues": [
+            "clue-a",
+            "clue-cellar-key"
+          ],
+          "scene_edges": [
+            {
+              "to": "scene-b",
+              "kind": "unlock",
+              "when": {
+                "kind": "clue_discovered",
+                "clue_id": "clue-cellar-key"
+              }
+            }
+          ]
+        },
+        {
+          "scene_id": "scene-b",
+          "display_name": "Scene B",
+          "is_final": true,
+          "origin": "source",
+          "available_clues": [
+            "clue-cellar-key"
+          ],
+          "scene_edges": []
+        }
+      ]
+    },
+    "clue-graph.json": {
+      "conclusions": [
+        {
+          "conclusion_id": "conclusion-cellar-truth",
+          "importance": "core",
+          "minimum_routes": 2,
+          "origin": "source",
+          "clues": [
+            {
+              "clue_id": "clue-a",
+              "delivery_kind": "skill_check",
+              "origin": "source",
+              "skill": "Spot Hidden"
+            },
+            {
+              "clue_id": "clue-cellar-key",
+              "delivery_kind": "skill_check",
+              "origin": "source",
+              "skill": "Spot Hidden"
+            }
+          ]
+        }
+      ]
+    },
+    "module-meta.json": {
+      "schema_version": 1,
+      "scenario_id": "fx-gate-opens",
+      "title": "fx-gate-opens",
+      "structure_type": "branching_investigation"
+    }
+  },
+  "expect": {
+    "findings": [],
+    "codes_not_measured": [
+      "front-scene-unknown",
+      "quest-destination-unknown"
+    ]
+  }
+}
