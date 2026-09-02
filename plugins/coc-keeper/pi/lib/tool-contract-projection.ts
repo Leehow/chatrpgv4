@@ -626,6 +626,20 @@ const BUSINESS_PRECONDITION_ACTIONS: Record<string, readonly PiAllowedNextAction
     reason: "continue the exact pending turn settlement before another journal",
     host_bound: true,
   }],
+  // The canonical operation SUCCEEDED and its receipts are recorded; only the
+  // model-facing projection could not fit the transport budget. Telling the
+  // Keeper to "replay after narrowing" hands it an empty replay card, the
+  // identical retry is repeat-blocked, and the turn dead-ends with the state
+  // already advanced. The settled mechanics are readable from the turn's own
+  // receipts, so the way forward is to close the turn, not to settle again.
+  mcp_wire_budget_exceeded: [{
+    operation: "turn.output_context",
+    action: "read_recorded_settlement",
+    reason:
+      "the settlement is already recorded canonically; read this turn's "
+      + "receipts and continue the turn instead of settling again",
+    host_bound: true,
+  }],
   narration_review_required: [{
     operation: "narration.review",
     action: "review_retained_draft",
