@@ -1,6 +1,6 @@
 # COC Keeper Current Status
 
-**Last updated:** 2026-08-31
+**Last updated:** 2026-09-02
 
 **Current manifest version:** `0.4.0-alpha.0`
 
@@ -37,13 +37,13 @@
 
 ## Pi-Coc RuleGraph cutover (`ACTIVE_IMPLEMENTATION_TRACK=pi-coc`)
 
-Integration branch `codex/pi-coc-all-rule-families-20260831` (= branch
-`0.8.1a`) at `65ca572b`. Note that `0.8.1a` is a branch name; the plugin
+Integration branch `0.8.1a` at `c07f6ad5` (the family-projector lane
+`claude/pi-coc-family-projectors-20260831` is merged and kept in sync). Note that `0.8.1a` is a branch name; the plugin
 manifest version above is unchanged and remains authoritative.
 
 **Compiled and promoted — all ten families.** healing, core-check, push-luck,
 social, psychology, combat, chase, sanity, magic, development are source-bound
-in the production CoC7 RuleGraph (433 nodes / 665 relations), all
+in the production CoC7 RuleGraph (434 nodes / 668 relations), all
 `family_runtime_ownership=graph`, all `legacy_surface_lifecycle=hidden`.
 `rules.context` and `rules.settle` are the normal Keeper surface.
 
@@ -55,8 +55,22 @@ injected trigger, or legacy operation (spec §14 Gate 9):
 | --- | --- |
 | Development, Social | passed Gate 9 |
 | Core-check | settled naturally, but predates the corrected bundled-Pi launcher |
-| Push/Luck, Psychology | committed a settlement, then failed to project a model view; both projectors are now closed, neither has been replayed live |
-| Healing, Combat, Sanity, Chase, Magic | **no recorded settlement of any kind** — never reached in any preserved run |
+| Push/Luck, Psychology, Sanity, Combat, Healing | settled live after the delivery fixes (16 KB wire overflow, dropped `semantic_inputs`, chase/combat NPC mechanics); recorded in `tests/fixtures/rules-settle-recorded/` (55 payloads, 8 families) and replayed by `tests/pi/rules-settle-recorded-projection.mjs` |
+| Chase, Magic | **no recorded settlement** — chase never fired because the Keeper's fiction never produced a pursuer; magic is a tome spell-inventory content gap |
+
+**Ending is reached through `rules.settle`.** `state.end_session` is
+host-private; the Keeper settles `decision:coc7:development:end-session`. The
+Pi phase machine only flipped to `ending` on the host-private name until
+`dc28bf4c`, so a settled ending used to leave the table in `live_turn` with no
+closure tools.
+
+**`/system debug run` can seed a situation** (`situation` on the run or per
+lane: structural `scene_id` / `npc_presence` / `clue_ids` / `flags`, validated
+against the sealed campaign tables, or `establish_from_prompt`). Seeding is
+applied after the resume settles, through the canonical toolbox, and is
+recorded in `final.json`; it makes a deep family reachable from turn 1 in one
+lane. It is diagnostic-only and is not Gate 9. See
+`docs/specs/pi-coc-debug-experiment.md`.
 
 **Per-turn budget: 180 s, currently missed.** Across the 44 preserved Gate 9
 evidence turns: median 103 s, and **16 of 44 hit the timeout**. Host tool
@@ -68,9 +82,9 @@ rejection costs one round trip. See spec §16.1.
 ### Open items
 
 1. Closed model-view projectors exist for social, development/end-session,
-   push-luck/pushed-roll and psychology/observe-concealed. The other six
-   families have no recorded settlement to build one against; each needs one
-   real settlement before its projector can be written honestly.
+   push-luck/pushed-roll, psychology/observe-concealed, sanity/check and
+   combat. Healing settles through the generic projection; chase and magic
+   have no recorded settlement to build one against.
 2. ~~`tests/pi/normal-model-id-boundary.mjs` still fails.~~ **Closed.** The
    `invoke_via` half was fixed by `c21cd5a7`. The TextGraph merge then
    published `narration.review.findings.rule_id` into a domain no identity
@@ -86,8 +100,9 @@ rejection costs one round trip. See spec §16.1.
    grant, so this is a source-graph/Ontology completeness gap, not a live bug.
 5. `decision:coc7:development:settle-ending` has no production projection and
    no Gate 9 proof; only `end-session` does.
-6. Rotate the xAI OAuth credential — one earlier diagnostic printed token
-   fields before redaction. No credential was committed.
+6. Rotate the `openai-codex` and `qoder-cn` OAuth credentials — one earlier
+   diagnostic printed their refresh fields before redaction; the xAI credential
+   was re-issued. No credential was committed.
 7. TextGraph T0–T5 is merged, and its own gates are not all met. Gate 1's
    live half needs a non-`zh-Hans` table, which no operation can create:
    mechanics chrome is still a closed three-language table that falls back to
@@ -96,7 +111,22 @@ rejection costs one round trip. See spec §16.1.
    4, and gate 4 is unmeasured — `narration.review` fired 0 times in 60 calls
    in one run and 7 times in another on the same day, path and model.
    Attribution needs several runs per arm, not a verdict from n=1.
-8. The obligation namespace still has copies outside its owner, four of them
+8. Pre-existing on `0.8.1a` before the projector merge: 12 `tests/pi/*.mjs`
+   files and 11 further `tests/test_pi_package.py` cases fail, most because
+   they probe retired legacy names (`rules.roll`, `coc_rules_roll`,
+   `rules.social_adjudicate`, `combat.resolve`, `state.end_session`) and read
+   the `host_private_operation` gate as an ACL failure; a few
+   (`no-selector-typed-onboarding` accepting a forged `state_claim_compilation`,
+   `async-memory-extraction` never scheduling prepare) may be real gaps. Under
+   repair on worker branches; `role-acl.test.mjs`, `test_pi_package.py`
+   manifest, the ontology registry replay and `agent-loop-graph-replan` are
+   already green on `0.8.1a`.
+9. A checkout whose `runtime/adapters/keeper/node_modules` predates
+   `f596864c` carries only half of the vendored Pi patch; `patch-package`
+   then refuses the whole package and the agent-loop replan hooks stay
+   missing. Reinstall (`npm ci`) when no Keeper session runs from that
+   checkout, or apply the missing hunks alone.
+10. The obligation namespace still has copies outside its owner, four of them
    in the TypeScript projection. The TextGraph residue gate now counts them
    cross-language and fails when a count moves, so they are pinned rather than
    fixed.
