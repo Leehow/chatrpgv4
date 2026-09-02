@@ -274,6 +274,10 @@ def _san_check(ws, *, decision_id: str, seed: int, loss_failure: str, loss_succe
             "source": f"horror {decision_id}",
             "loss_success": loss_success,
             "loss_failure": loss_failure,
+            "involuntary_action": {
+                "kind": "freeze",
+                "summary": "The investigator locks up for a beat.",
+            },
             "decision_id": decision_id,
             "seed": seed,
         },

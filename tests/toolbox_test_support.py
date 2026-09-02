@@ -72,6 +72,7 @@ EXPECTED_NAMESPACES = {
     "rules",
     "combat",
     "chase",
+    "magic",
     "sanity",
     "development",
     "scene",

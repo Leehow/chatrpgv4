@@ -573,6 +573,10 @@ def test_roll_receipt_replays_after_san_target_changes(campaign_ws):
             "source": "mutable target regression",
             "loss_success": "1",
             "loss_failure": "1",
+            "involuntary_action": {
+                "kind": "freeze",
+                "summary": "The investigator locks up for a beat.",
+            },
             "decision_id": "mutable-san-loss",
             "seed": 19,
         },
@@ -4262,6 +4266,10 @@ def test_scene_context_projects_and_sanity_check_consumes_authored_trigger(campa
             "loss_success": str(trigger["san_loss_success"]),
             "loss_failure": trigger["san_loss_fail_expr"],
             "trigger_id": trigger["trigger_id"],
+            "involuntary_action": {
+                "kind": "jump_in_fright",
+                "summary": "The investigator recoils from the moving bed.",
+            },
             "decision_id": "bed-san-once",
             "seed": 3,
         },

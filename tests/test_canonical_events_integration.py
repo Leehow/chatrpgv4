@@ -140,6 +140,10 @@ def _journey(ws: dict[str, object]) -> dict[str, object]:
             "source": f"integ-apparition-{seed}",
             "loss_failure": "1D6",
             "loss_success": "0",
+            "involuntary_action": {
+                "kind": "freeze",
+                "summary": "The investigator locks up for a beat.",
+            },
             "seed": seed,
             "decision_id": f"integ-san-{seed}",
         })["data"]
@@ -439,6 +443,10 @@ def test_failed_mutations_leave_no_canonical_event(
         "source": "integ-bad-source",
         "loss_failure": "这 不是 掷骰 表达式",
         "loss_success": "0",
+        "involuntary_action": {
+            "kind": "freeze",
+            "summary": "The investigator locks up for a beat.",
+        },
         "decision_id": "integ-bad-san-1",
     })
     assert missing_decision.get("ok") is False

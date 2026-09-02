@@ -184,6 +184,10 @@ def test_failed_mutation_leaves_no_canonical_event(ws: dict[str, object]) -> Non
         "source": "wiring-bad-source",
         "loss_failure": "这 不是 掷骰 表达式",
         "loss_success": "0",
+        "involuntary_action": {
+            "kind": "freeze",
+            "summary": "The investigator locks up for a beat.",
+        },
         "decision_id": "bad-san-1",
     })
     assert bad_expression.get("ok") is False
@@ -221,6 +225,10 @@ def _sanity_loss(ws: dict[str, object]) -> tuple[dict, dict | None]:
             "source": f"wiring-probe-{seed}",
             "loss_failure": "1D6",
             "loss_success": "0",
+            "involuntary_action": {
+                "kind": "freeze",
+                "summary": "The investigator locks up for a beat.",
+            },
             "seed": seed,
             "decision_id": f"sanity-seed-{seed}",
         })["data"]
@@ -260,6 +268,10 @@ def test_zero_sanity_delta_emits_no_event(ws: dict[str, object]) -> None:
         "source": "wiring-probe-zero",
         "loss_failure": "0",
         "loss_success": "0",
+        "involuntary_action": {
+            "kind": "freeze",
+            "summary": "The investigator locks up for a beat.",
+        },
         "seed": 4,
         "decision_id": "sanity-zero-1",
     })
