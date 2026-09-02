@@ -114,8 +114,12 @@ const finalizeEnvelope = () => structuredClone({
   },
 });
 
-// Model-owned finalize surface: revision is gateway-bound.
+// Model-owned finalize surface (single-draft direct finalize): the draft and
+// its coverage rows are model-owned; revision/decision identity is
+// gateway-bound and never passed here.
 const finalizeArguments = {
+  draft: renderedText,
+  coverage: [],
   agency_claims: [{
     claim_id: "claim-probe",
     subject_ref: "pc:current-investigator",
@@ -522,7 +526,7 @@ async function startSessionToFinalize(h) {
   await h.invoke("journal-live-fixture", {
     operation: "state.journal",
     campaign: campaignId,
-    arguments: {},
+    arguments: { summary: "调查员接过卷轴，领命前往德里克斯地。" },
   });
 }
 
