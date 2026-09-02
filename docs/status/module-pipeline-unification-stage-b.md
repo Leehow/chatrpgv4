@@ -170,6 +170,212 @@ one player (this session), one turn at a time through the repo's own
    exhausted. Evidence: `.rpc-evidence-run2/` (the failure) and
    `.rpc-evidence-run3/` (the fix).
 
+9. **A restart mid-turn bricked the campaign permanently.** The durable
+   open-turn player-input cache is only written when an anchor already exists,
+   and a fresh process has none until its first `session.resume` — so the first
+   message after a restart was never persisted. If that turn stayed open, the
+   next resume reported `player_input_binding_unavailable`, the startup gate
+   stayed pending (an `open_turn_recovery` disposition never clears it), the ACL
+   held the phase at `recovery`, and `state.journal` was denied for want of a
+   recovery binding. Exiting recovery needed the journal; the journal needed the
+   input; the input could no longer exist. A new session did not help: the dead
+   end is in campaign state, so the table was unplayable for good.
+
+   The host now keeps the live player message in memory regardless of phase and,
+   when a resume finds the durable cache empty, adopts it as the open turn's
+   input — recorded durably so the next restart recovers it the ordinary way,
+   and audited as `adopted_live_message` rather than a cache recovery, because
+   the provenance differs. Verified against the campaign this bricked: it
+   resumed and played on into the mill fire. Evidence: `.rpc-evidence-run3/`.
+
+10. **A committed write was reported to the Keeper as a failure.** Paying the
+    beggar for local news made `state.cash_grant` return
+    `semantic_identity_unavailable`: its result carries the shared `game_time`
+    block, whose `location_id` was declared per operation and never for the
+    cash family. The ledger shows the money moved; the Keeper was told it did
+    not — the worst direction for this error class, since it invites a second
+    write or prose that contradicts state. `location_id` is now globally
+    declared alongside `civil_segment_id`, for the same stated reason: it is
+    operation-neutral vocabulary of a block many results carry. The
+    identity-declaration sweep's outstanding ledger shrank by the three
+    progressive operations this paid down. Verified live: the next alms
+    deducted correctly (5.00 → 4.99).
+
+11. **The conversation the module is built around could not be recorded.**
+    `state.record_npc_engagement` had no identity declaration at all, so the
+    first real talk with an NPC failed closed on `route_completion.scene_id`
+    — after the engagement had already been written. Declared from the fields
+    its own canonical result carries: authored slugs semantic, the
+    registry-backed identity and receipt refs host-only.
+
+12. **The first player turn after a restart got an empty reply.**
+    `state.journal` declares `player_text` and `decision_id` host-owned, and
+    the host arms that binding at message start — but that arming is skipped
+    while the startup resume gate is still pending, which is exactly when the
+    player's message reaches a freshly restarted process. Nothing re-armed
+    once the resume was accepted. The Keeper spent eight minutes cycling
+    `missing_param` → `nonretryable_repeat_blocked` and the player received
+    nothing; the turn only recovered because the Keeper eventually opened a
+    turn and the `open_turn_recovery` path adopted the live message. The
+    accepted-resume path now arms the binding for the message that owns the
+    turn. Verified live: the next restart turn journaled on its first attempt
+    and the player got a full reply. `tests/pi/startup-resume-journal-binding.mjs`
+    pins it (and fails without the fix).
+
+13. **The core social rule was missing from every Keeper's rules context.**
+    A decision card's `possible_continuations` names whatever its `continues-as`
+    relation points at, and the coc7 rule graph authors two node kinds there —
+    11 decisions and 3 dedicated `continuation` nodes. Both consumers accepted
+    only `decision:`, and both fail destructively rather than partially: the
+    Python wire returns `None` for the whole list and its caller then drops the
+    entire card; Pi reports the field unmapped and the extension replaces the
+    entire envelope with `semantic_identity_unavailable`. Since
+    `decision:coc7:social:adjudicate-difficulty` continues as
+    `continuation:coc7:push-luck:after-fail-push`, the Keeper asking for social
+    rules mid-conversation was told the tool had failed. Both sides now share
+    one prefix set, and `tests/test_rule_continuation_namespaces.py` reads the
+    authored graph plus both consumers' own declarations, so a new continuation
+    target kind fails there instead of deleting a rule card in play. Verified
+    live: `rules.context` returned the social card and the next social settle
+    succeeded.
+
+14. **The Keeper could not read its own memory of the previous loop.** The
+    identity-declaration ledger stood at 35 operations and 122 fields, and two
+    of them reached the table in one evening: `memory.recall` and
+    `transcript.locate` both returned `semantic_identity_unavailable` for the
+    whole result when the Keeper asked what it remembered of the loop before
+    this one — which a time-loop module cannot survive. Every field was
+    classified from the value its producer actually emits in the sweep corpus,
+    paying the ledger down to three entries. Those three are proved to be a
+    fixture artifact rather than debt: the corpus campaign is named
+    `toolbox-test`, and `toolbox-` is a machine prefix the value grammar
+    refuses by design, so no declaration can close them and loosening the
+    grammar would be the wrong trade.
+
+15. **A whole scene was lost to two of the most ordinary slugs in the system.**
+    `state.npc_presence` had no declaration, so placing Henry Scott in the
+    scene failed closed on `npc_id` and `scene_id`; the social roll that
+    followed was then refused as `social_candidate_stale`, because the scene
+    had nobody in it to talk to. The operation was not in the sweep corpus at
+    all — and neither are 88 of the registry's 147 operations, so the sweep was
+    watching 40% of the surface while the other 60% waited to fail at a table.
+    That is the actual root cause of findings 11, 14 and 15.
+
+    The systemic repair does not require capturing 88 more envelopes. A result
+    echoes the identity-shaped fields of its own input, and every keeper-facing
+    contract's `inputSchema` is already in the registry, so
+    `tests/pi/operation-input-identity-coverage.mjs` projects each one as if
+    echoed. That found 19 operations that would fail closed, each now
+    classified from the value its own contract description names. The test also
+    asserts the declared fields accept their documented value shapes and still
+    refuse entropy, UUIDs and digests — a disposition says what a field means,
+    it does not wave it through. It is a companion to the corpus sweep, not a
+    replacement: a result also names fields that were never inputs
+    (`active_scene_id`, `lie_id`, `possible_continuations`), and only a real
+    envelope shows those. Verified live: the presence write succeeded and the
+    following intimidate roll settled through the rules path.
+
+16. **The host emptied turns the whitespace guard was meant to protect.** The
+    guard bounds a stream that emits leading whitespace forever, and it aborted
+    on either 32 whitespace deltas or 128 whitespace characters. A counted
+    delta always carries at least one character, so the delta bound can only
+    ever fire first — four times sooner when a provider streams one character
+    at a time. Every abort in this run was exactly 32 deltas of 32 characters,
+    and the Keeper, re-prompted by the empty-terminal recovery its own abort
+    triggered, narrated correctly and immediately: the stream was padding, not
+    runaway. Eight of 28 turns paid an extra model round trip, six of them
+    consecutive. The character count alone now triggers, and every stream that
+    leads with whitespace reports how much, so the bound stays chosen from
+    measurements. A stream measured after the change led with 42 characters and
+    finished normally — exactly the case the old bound destroyed.
+
+17. **The module's central mechanic had no way to fire.** A scene's pressure
+    moves name a `clock_id` and the segments they cost; `threat-fronts.json`
+    defines that clock's segments, per-segment cues and `on_full`. The two
+    halves live in different documents and `scene.context` projected only the
+    first, so the Keeper held an id pointing at nothing. It never acted on it:
+    across all three sessions `state.threat_tick` was called **zero** times and
+    `clock-loop-doom` never left 0/6 — including ~30 turns inside
+    `scene-church-climax`, whose dramatic question is literally "before the
+    bell rings". The authored loop reset was unreachable the whole time.
+
+    Delivering the resolved reading took all three projections, and each one
+    was its own defect: the producer (new), the RPC wire whitelist (which
+    nulled it — the third authored mechanic that whitelist has silently
+    dropped), and the identity declarations (`front_id` would have failed the
+    whole scene read closed, and `memory_id` was one impression memory away
+    from doing the same, being declared on `npc.query` and not here). The
+    first draft also put the actionable sentence in the Python envelope, where
+    nothing could read it — Pi authors model-visible hints from structured
+    fields and never relays canonical prose — so it moved to the consuming
+    side. That is the same "field with no reader" defect this stage keeps
+    finding, committed by this work and caught before it shipped.
+
+    `tests/test_scene_context_wire_coverage.py` turns the whitelist into an
+    accounting question: every key the producer emits is either carried or
+    listed as deliberately withheld with a reason, so a fourth silent drop
+    fails on the day it is written.
+
+18. **A forward nudge nobody has ever received.** That accounting check
+    immediately found a second one: `recommended_next_beat` has a single
+    producer line, no consumer anywhere in the repository, and zero
+    occurrences across every live transcript. Its comment promises the Keeper
+    a beat "without a separate director.advise call"; the RPC path did not
+    name it. Worse, its PRESSURE branch was unreachable in the scenes it was
+    written for — the order is agenda NPC, then clues, then pressure, and an
+    authored climax always has an NPC with an agenda, so the beat was
+    NPC_MOVE every turn while the doom clock stood still. It is carried now,
+    and a lethal pressure move on a clock that is still running outranks a
+    routine agenda beat, recording what it superseded. Lethality and the tick
+    are authored facts, not a pacing opinion.
+
+    Verified live: both the clock block and the beat now reach the table with
+    full content.
+
+19. **A module asset root named with a digest.** Found by taking a second
+    module through the real path rather than by another turn of play.
+    Registering the prepared Cold Harvest bundle minted
+    `asset_root_id: pdf-e4832eec4aa06a2a` — a 16-character hex token, which is
+    exactly what the Keeper's closed grammar refuses. `asset_root_id` is
+    declared semantic on `setup.phase`, `progressive.status` and
+    `session.resume`, so a campaign rooted that way would have failed all three
+    closed, `session.resume` being the one a host restart depends on. The root
+    now derives from the bundle's semantic `source_id`
+    ("pdf:cold-harvest" → "cold-harvest"), and a caller with neither a
+    canonical module id nor a semantic source id is refused rather than handed
+    an unreadable name. Roots already on disk resolve by file digest first and
+    keep their names.
+
+    That same module re-proved finding 0's bind gate against a different
+    producer: `codex-pdf-skill` had minted `pdf:e4832eec4aa06a2a4946ac91`, and
+    the gate refused it with the actionable message before any table time was
+    spent.
+
+20. **No characteristic check could be settled, ever.** `actor_check_ref` and
+    `combined_target_refs` declare `characteristic:` an allowed namespace — the
+    core-check adapter partitions on exactly `skill:` / `characteristic:` — but
+    the closed grammar required four characters after the namespace and granted
+    a three-character floor only to `roll:`, whose own comment already names
+    the reason ("three-letter CoC characteristics"). Every CoC7 characteristic
+    abbreviation is exactly three letters, so the allowance contradicted itself.
+
+    At the table the Keeper rolled POW against the ghost, sent
+    `characteristic:POW`, was told the value "must use its closed semantic
+    form: namespace `skill:`, `characteristic:` only", retried with exactly
+    that form as `characteristic:pow`, and was refused again — an error
+    instructing it to do what it had just done. It abandoned the opposed check
+    and improvised, which is how §5.1 was reached. `characteristic:` now
+    carries the same floor, verified live: the same ref passed the grammar on
+    the next attempt. The floor is three, not zero — `characteristic:x` and
+    entropy stay refused.
+
+21. **A field that was never an input.** `mechanics.ensure` echoes its resolved
+    archetype back as `profile.archetype_id`, and ensuring the ghost's combat
+    profile mid-fight failed the whole result closed on it. The input is named
+    `fallback_archetype_id`, so the input-echo sweep from finding 15 could not
+    have found this one — exactly the limit that check's own documentation
+    states. Both sweeps are needed, and neither subsumes the other.
+
 ## 5. Open defect that stopped deeper play (not owned by this work)
 
 On a fumbled STR roll the turn could not settle:
@@ -193,6 +399,40 @@ refused while the prior turn remained open.
 This is a rules/turn-domain defect (roll-handle lifecycle plus error masking),
 independent of module projection, and is left for its owning track rather than
 patched from here.
+
+### 5.1 An authored consequence with no canonical path: POW drain
+
+The module authors "与鬼魂交战损失 POW" as a scene failure mode, and on
+2026-09-01 the table reached it: the ghost struck, the investigator failed an
+ordinary POW check (92 vs 60), and the Keeper had no operation that could
+record the loss.
+
+- `rules.resource_delta` is the generic characteristic arithmetic and is
+  `audience: host`, `kp_surface: none`.
+- `state.exceptional_effect` does carry `effect_kind: resource_delta`, but its
+  `source_roll_id` must be a critical, fumble, failed pushed check, or
+  exceptional first impression. An ordinary failure does not qualify.
+- The compiled rule graph has **zero** decision nodes touching POW, and none of
+  its ten families is characteristic drain, so `rules.settle` cannot reach it
+  either.
+
+What the Keeper did instead is the diagnostic: it applied `rules.damage` with
+`kind: damage, amount: 2D10` and the source note "POW 被抽走", taking HP 11 → 0
+with `dying` and `major_wound`; noticed its own category error; and issued a
+compensating `kind: heal, amount: 11` labelled "纠正：幽灵之击抽走的是意志而非
+肉体生命". HP came back and `dying` cleared, but `major_wound` stayed — a heal
+is not a retraction, and correctly does not clear a major wound. The
+investigator now carries a major wound from damage that was withdrawn.
+
+The residue is a symptom, not the defect. The defect is that an authored
+consequence has no canonical path, which leaves the Keeper choosing between the
+wrong operation and narrating state that never lands.
+
+Not patched from here on purpose: every route to a fix widens the Keeper's
+authority over characteristics, and the current narrowness looks deliberate
+(host-only arithmetic, an exceptional-roll gate on the one KP-facing door).
+That is an authority decision for the rules track and its owner, not a 4am
+judgement call from the module-projection branch.
 
 ## 6. Honest boundary
 

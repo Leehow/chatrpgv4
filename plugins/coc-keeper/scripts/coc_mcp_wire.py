@@ -1188,6 +1188,10 @@ def _model_semantic_identifier(value: Any) -> bool:
     )
 
 
+# The two node kinds a `continues-as` relation may name.
+RULE_CONTINUATION_REF_PREFIXES = ("decision:", "continuation:")
+
+
 def _semantic_prefixed_ref(value: Any, prefix: str) -> bool:
     return (
         _model_semantic_identifier(value)
@@ -1200,13 +1204,17 @@ def _semantic_prefixed_ref(value: Any, prefix: str) -> bool:
 def _closed_rule_decision_ref_list(
     value: Any,
     *,
-    prefix: str,
+    prefix: str | tuple[str, ...],
     limit: int = RULE_DECISION_REF_LIMIT,
 ) -> list[str] | None:
+    prefixes = (prefix,) if isinstance(prefix, str) else prefix
     if (
         not isinstance(value, list)
         or len(value) > limit
-        or any(not _semantic_prefixed_ref(ref, prefix) for ref in value)
+        or any(
+            not any(_semantic_prefixed_ref(ref, one) for one in prefixes)
+            for ref in value
+        )
         or len(set(value)) != len(value)
     ):
         return None
@@ -1398,8 +1406,15 @@ def _compact_rule_decision_card(
     effect_refs = _closed_rule_decision_ref_list(
         value.get("effect_refs"), prefix="effect:",
     )
+    # A `continues-as` edge points at either a decision or a `continuation`
+    # node -- the rule graph authors both (11 and 3 of them in coc7). This
+    # accepted only `decision:`, and a single unmatched ref returns None for
+    # the whole list, which drops the ENTIRE card: `social:adjudicate-difficulty`
+    # continues as `continuation:coc7:push-luck:after-fail-push`, so the core
+    # social rule vanished from every Keeper's rules context.
     continuations = _closed_rule_decision_ref_list(
-        value.get("possible_continuations"), prefix="decision:",
+        value.get("possible_continuations"),
+        prefix=RULE_CONTINUATION_REF_PREFIXES,
     )
     authority = _closed_rule_card_authority(value.get("authority"))
     if (
@@ -1536,6 +1551,18 @@ def _compact_scene(
             "keeper_mechanics",
             "exit_ready",
             "drilldown_refs",
+            # The live reading of the clocks this scene's own pressure moves
+            # name. Third time this whitelist has been the reason an authored
+            # mechanic never reached a table: the block was correct at the
+            # producer and correct at the Keeper's identity projection, and
+            # arrived as null because the RPC path did not name it.
+            "threat_clocks",
+            # The forward nudge the kernel has computed on every scene read
+            # since it was written, and that nothing has ever delivered: one
+            # producer line, no consumer anywhere. The comment beside it
+            # promised the KP a beat "without a separate director.advise
+            # call"; the RPC path did not name it, so no Keeper ever saw one.
+            "recommended_next_beat",
         ),
     )
     # Where the main line stands. This is the second projection between the

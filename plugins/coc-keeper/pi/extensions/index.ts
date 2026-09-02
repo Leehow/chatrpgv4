@@ -1844,9 +1844,22 @@ export function registerPlayerTranscriptGate(
     details: { deltaCount: number; charCount: number },
     ctx: ExtensionContext,
   ) => void,
+  onLeadingWhitespaceObserved?: (
+    details: { deltaCount: number; charCount: number },
+  ) => void,
 ): void {
-  const LEADING_WHITESPACE_DELTA_LIMIT = 32;
-  const LEADING_WHITESPACE_CHAR_LIMIT = 128;
+  // Bound a stream that emits leading whitespace forever, and nothing else.
+  //
+  // Only the character count is a trigger. A counted delta always carries at
+  // least one character, so `charCount >= deltaCount` always holds and a delta
+  // bound can only ever fire FIRST — four times sooner when a provider streams
+  // one character at a time, which is exactly what happened: every abort in
+  // the 2026-09-01 run3 table was 32 deltas of 32 characters, and the Keeper
+  // re-prompted by the empty-terminal recovery then produced its narration
+  // immediately. The stream was padding, not runaway, and the host's own abort
+  // was what emptied the turn: eight of 28 turns paid an extra model round
+  // trip for it. The character bound alone says what the guard means.
+  const LEADING_WHITESPACE_CHAR_LIMIT = 512;
   let whitespaceDeltaCount = 0;
   let whitespaceCharCount = 0;
   let streamHasSemanticOutput = false;
@@ -1875,10 +1888,7 @@ export function registerPlayerTranscriptGate(
         whitespaceCharCount += update.delta.length;
         if (
           !whitespaceLimitDelivered
-          && (
-            whitespaceDeltaCount >= LEADING_WHITESPACE_DELTA_LIMIT
-            || whitespaceCharCount >= LEADING_WHITESPACE_CHAR_LIMIT
-          )
+          && whitespaceCharCount >= LEADING_WHITESPACE_CHAR_LIMIT
         ) {
           whitespaceLimitDelivered = true;
           onLeadingWhitespaceStreamLimit?.({
@@ -1898,6 +1908,12 @@ export function registerPlayerTranscriptGate(
   pi.on("message_end", (event) => {
     const assistant = assistantContentMessage(event.message);
     if (!assistant) return;
+    if (whitespaceCharCount > 0) {
+      onLeadingWhitespaceObserved?.({
+        deltaCount: whitespaceDeltaCount,
+        charCount: whitespaceCharCount,
+      });
+    }
     const stopReason = (assistant as { stopReason?: unknown }).stopReason;
     if (stopReason === "error" || stopReason === "aborted") {
       // A terminal provider failure is not a player-visible assistant final.
@@ -3928,6 +3944,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     campaignId: string;
     anchor: OpenTurnAnchor;
     turnNumber: number;
+  } | null = null;
+  // The live player message for the current turn, kept in memory regardless of
+  // phase. A restart leaves the durable open-turn input cache empty for the
+  // first message of the new process (no anchor existed when it arrived), and
+  // recovery cannot exit without that input: the journal it requires is denied,
+  // so the campaign stays in `recovery` forever. Holding the message here lets
+  // the resume path adopt what the player just said instead of stranding the
+  // table on a turn nobody can reconstruct.
+  let livePlayerMessageForOpenTurn: {
+    campaignId: string;
+    text: string;
+    playerTurnEpoch: number;
   } | null = null;
   let openTurnRecoveryAuthorization: {
     campaignId: string;
@@ -6495,6 +6523,42 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               source: "host_open_turn_input_cache",
             });
           } catch { /* recovery binding audit is best effort */ }
+        } else if (
+          resumedAnchor !== null
+          && livePlayerMessageForOpenTurn !== null
+          && livePlayerMessageForOpenTurn.campaignId === campaignId
+        ) {
+          // The durable cache is empty because the message arrived before this
+          // process had an anchor. The player is right here and just spoke, so
+          // adopt that message as the open turn's input rather than leaving the
+          // table in a recovery it can never exit. Recorded durably now, so the
+          // next restart recovers it the ordinary way, and audited as adopted
+          // rather than recovered — the provenance difference is real.
+          const adopted = recordOpenTurnPlayerInput({
+            root: recoveryRoot,
+            campaignId,
+            sessionId: currentHostSessionId ?? "",
+            playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+            text: livePlayerMessageForOpenTurn.text,
+            anchor: resumedAnchor,
+          });
+          if (adopted === "recorded" || adopted === "replaced_stale" || adopted === "idempotent") {
+            openingContinuationGate.currentExternalPlayerText =
+              livePlayerMessageForOpenTurn.text;
+            armJournalBinding(campaignId);
+            try {
+              pi.appendEntry("coc-open-turn-player-input-rebound", {
+                schema_version: 1,
+                status: "adopted_live_message",
+                campaign_id: campaignId,
+                player_turn_epoch: canonicalProgress.playerTurnEpoch,
+                source: "live_player_message_after_restart",
+              });
+            } catch { /* recovery binding audit is best effort */ }
+          } else {
+            openingContinuationGate.currentExternalPlayerText = null;
+            clearTypedBinding("state.journal");
+          }
         } else {
           openingContinuationGate.currentExternalPlayerText = null;
           clearTypedBinding("state.journal");
@@ -12387,6 +12451,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               };
             }
           }
+          if (
+            startupSilentResumeQuarantine === null
+            && livePlayerMessageForOpenTurn !== null
+            && livePlayerMessageForOpenTurn.campaignId === selectedCampaignId
+            && livePlayerMessageForOpenTurn.playerTurnEpoch
+              === canonicalProgress.playerTurnEpoch
+          ) {
+            // The player message that reached this process before the startup
+            // resume classified it owns this turn — the quarantine above is
+            // disarmed precisely so the agent finishes it with ordinary tools.
+            // state.journal is one of those tools and its player_text is
+            // host-owned, so without arming here the Keeper spends the whole
+            // turn on missing_param and the player gets an empty reply.
+            openingContinuationGate.currentExternalPlayerText =
+              livePlayerMessageForOpenTurn.text;
+            armJournalBinding(selectedCampaignId);
+          }
           startupResumeGate = null;
           if (startupGateOrigin === "role_null_handoff") {
             refreshTypedToolDefinition("session.resume");
@@ -13950,6 +14031,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           reprojectTools: false,
         });
         rearmCurrentCombatBinding(campaignId);
+        livePlayerMessageForOpenTurn = (
+          campaignId && externalPlayerText !== null && externalPlayerText !== ""
+        ) ? {
+          campaignId,
+          text: externalPlayerText,
+          playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+        } : null;
         if (
           startupResumeGate === null
           && kpPlayPhase === "live_turn"
@@ -14031,6 +14119,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       } catch { /* watchdog audit is best effort */ }
       ctx.abort();
       recoverEmptyAssistantOutput();
+    },
+    (details) => {
+      try {
+        pi.appendEntry("coc-leading-whitespace-observed", {
+          schema_version: 1,
+          player_turn_epoch: canonicalProgress.playerTurnEpoch,
+          whitespace_delta_count: details.deltaCount,
+          whitespace_char_count: details.charCount,
+        });
+      } catch { /* watchdog evidence is best effort */ }
     },
   );
   // Forced raw-PDF bind injection: the KP must not need to read coc-module-init

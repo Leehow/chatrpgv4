@@ -2818,11 +2818,38 @@ def resolve_asset_root_id(
     *,
     canonical_module_id: str | None = None,
     file_sha256: str | None = None,
+    source_id: str | None = None,
 ) -> str:
+    """Name a module's asset root with something the Keeper can read.
+
+    The digest fallback minted ``pdf-<sha[:16]>``, and a 16-character hex token
+    is precisely what the Keeper's closed identity grammar refuses: every
+    operation that carries `asset_root_id` — `setup.phase`,
+    `progressive.status`, and `session.resume`, the one a host restart depends
+    on — would have failed its whole result closed for such a campaign. The
+    bundle already carries a semantic `source_id`, enforced at bind time by
+    `coc_pdf_bundle.semantic_source_id_problem`, so the root derives from that
+    instead. Roots already on disk are resolved by file digest before this is
+    called and keep the names they have.
+    """
     cid = (canonical_module_id or "").strip()
     if cid:
         return _require_id(cid, "canonical_module_id")
-    return f"pdf-{_require_sha256(file_sha256, 'file_sha256')[:16]}"
+    derived = str(source_id or "").strip()
+    if derived:
+        # "pdf:cold-harvest" -> "cold-harvest"; a namespaced id keeps only the
+        # meaning-bearing segments.
+        derived = "-".join(part for part in derived.split(":")[1:] if part)
+        if derived:
+            return _require_id(derived, "source_id")
+    # Never mint an id the table cannot read. A caller with neither a canonical
+    # module id nor a semantic source id has to supply one.
+    _require_sha256(file_sha256, "file_sha256")
+    raise ModuleAssetsError(
+        "asset_root_id needs a canonical_module_id or a semantic source_id: a "
+        "digest-derived root is not readable by the Keeper, and every result "
+        "carrying it — session.resume included — would fail closed at the table"
+    )
 
 
 def _require_sha256(value: Any, field: str) -> str:
@@ -4717,7 +4744,9 @@ def register_source_bundle(
         str(existing["asset_root_id"])
         if isinstance(existing, dict) and existing.get("asset_root_id")
         else requested_root_id
-        or resolve_asset_root_id(file_sha256=file_sha256)
+        or resolve_asset_root_id(
+            file_sha256=file_sha256, source_id=source.get("source_id"),
+        )
     )
     # A content hit belongs to the already-registered module identity.  A new
     # campaign-local scenario id must not rename the shared parse cache.

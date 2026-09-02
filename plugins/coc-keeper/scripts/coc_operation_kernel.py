@@ -399,6 +399,8 @@ coc_belief_state = _load_sibling("coc_belief_state_toolbox", "coc_belief_state.p
 
 coc_quest_state = _load_sibling("coc_quest_state_toolbox", "coc_quest_state.py")
 
+coc_threat_state = _load_sibling("coc_threat_state_toolbox", "coc_threat_state.py")
+
 coc_exceptional_effects = _load_sibling(
     "coc_exceptional_effects", "coc_exceptional_effects.py"
 )
@@ -6746,13 +6748,14 @@ def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
     world_provider = getattr(ctx, "world", None)
     story_graph = getattr(ctx, "story_graph", None)
     if not callable(world_provider) or not isinstance(story_graph, Mapping):
-        return {"actors": {}, "locations": {}, "scene_id": None}
+        return {"actors": {}, "locations": {}, "actor_errors": {}, "scene_id": None}
     world = world_provider()
     scene_id = str(world.get("active_scene_id") or "")
     scene = _scene_by_id(story_graph, scene_id)
     if not scene_id or not isinstance(scene, Mapping):
-        return {"actors": {}, "locations": {}}
+        return {"actors": {}, "locations": {}, "actor_errors": {}}
     actors: dict[str, dict[str, Any]] = {}
+    actor_errors: dict[str, str] = {}
     for party_id in ctx.party_ids():
         sheet = _safe_sheet(ctx, party_id)
         if not isinstance(sheet, Mapping):
@@ -6779,16 +6782,31 @@ def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
         profile = mechanics.get("profile") if isinstance(mechanics, Mapping) else None
         if not isinstance(profile, Mapping):
             continue
+        # A canonical actor profile is nested (characteristics/derived/skills).
+        # Read it through the same normalizer combat uses, so an authored NPC
+        # carries one set of numbers across both surfaces.
+        try:
+            part = coc_mechanics.actor_combat_participant(
+                npc_id, deepcopy(dict(profile)),
+            )
+        except coc_mechanics.MechanicsError as exc:
+            # Never invent stats for a profile we cannot read. Withhold the
+            # actor and carry the reason to the settle path, which names it.
+            actor_errors[f"npc:{npc_id}"] = str(exc)
+            continue
+        derived = profile.get("derived") if isinstance(profile.get("derived"), Mapping) else {}
         actors[f"npc:{npc_id}"] = {
             "actor_id": npc_id,
-            "mov": int(profile.get("mov", profile.get("MOV", 8))),
-            "dex": int(profile.get("dex", profile.get("DEX", 50))),
-            "con": int(profile.get("con", profile.get("CON", 50))),
-            "hp": int(profile.get("hp", profile.get("HP", 10))),
-            "fight": int(profile.get("combat_skill", profile.get("fight", 25))),
-            "dodge": int(profile.get("dodge_skill", profile.get("dodge", 25))),
-            "build": int(profile.get("build", 0)),
-            "conditions": list(profile.get("conditions") or []),
+            # MOV is a chase-only characteristic; the combat normalizer,
+            # which has no use for it, does not carry it.
+            "mov": int(derived.get("MOV", 8)),
+            "dex": part["dex"],
+            "con": part["con"],
+            "hp": part["hp_current"],
+            "fight": part["combat_skill"],
+            "dodge": part["dodge_skill"],
+            "build": part["build"],
+            "conditions": list(part["conditions"]),
         }
     connected = {scene_id}
     connected.update(str(value) for value in scene.get("exit_targets") or [] if str(value))
@@ -6807,7 +6825,8 @@ def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
             "hazard": deepcopy(candidate.get("hazard")) if isinstance(candidate.get("hazard"), Mapping) else None,
             "barrier": deepcopy(candidate.get("barrier")) if isinstance(candidate.get("barrier"), Mapping) else None,
         }
-    return {"actors": actors, "locations": locations, "scene_id": scene_id}
+    return {"actors": actors, "locations": locations,
+            "actor_errors": actor_errors, "scene_id": scene_id}
 
 
 def _facts_provider_for(ctx: Ctx, investigator_id: str, ruleset_id: str):
@@ -7181,6 +7200,79 @@ def _latest_graph_psychology_observation(
         return None
     _ts, decision_id, result = sorted(candidates)[-1]
     return decision_id, result
+
+
+def _scene_threat_clocks(
+    ctx: Ctx, scene: dict[str, Any] | None, active_id: Any,
+) -> list[dict[str, Any]]:
+    """Live readings for the threat clocks this scene's own moves reference.
+
+    A scene's pressure moves name a ``clock_id`` and the segments they cost,
+    but nothing told the Keeper what that id pointed at: not whether the clock
+    existed, not how full it was, not what happened when it filled. A dangling
+    reference is information the Keeper has to assemble before it can act, so
+    it never acted -- ~30 live turns inside a climax scene whose whole dramatic
+    question is "before the bell rings" passed without `clock-loop-doom`
+    advancing a single segment, and the module's central mechanic (the loop
+    reset) could not fire because its clock never moved.
+
+    This resolves the reference in place: for every clock the scene points at,
+    the authored definition plus the live progress, the cue printed for the
+    segment a tick would fill, and the authored consequence of filling it.
+    Read-only -- `state.threat_tick` remains the only writer.
+    """
+    if ctx.campaign_dir is None:
+        return []
+    referenced: list[str] = []
+    for move in (scene or {}).get("pressure_moves") or []:
+        if not isinstance(move, dict):
+            continue
+        clock_id = move.get("clock_id")
+        if isinstance(clock_id, str) and clock_id and clock_id not in referenced:
+            referenced.append(clock_id)
+    if not referenced:
+        return []
+    try:
+        fronts = ctx.scenario("threat-fronts.json")
+        merged = coc_threat_state.merge_threat_fronts(
+            fronts, coc_threat_state.load_threat_state(ctx.campaign_dir / "save"),
+        )
+    except Exception:
+        # A scene reference the Keeper cannot resolve is exactly the defect
+        # this closes; never turn it into a failed scene read.
+        return []
+    scene_key = str(active_id or "")
+    rows: list[dict[str, Any]] = []
+    for front in merged.get("fronts") or []:
+        if not isinstance(front, dict):
+            continue
+        for clock in front.get("clocks") or []:
+            if not isinstance(clock, dict):
+                continue
+            clock_id = str(clock.get("clock_id") or "")
+            if clock_id not in referenced:
+                continue
+            current = int(clock.get("current_segments") or 0)
+            segments = int(clock.get("segments") or 6)
+            visible = [
+                str(cue) for cue in (clock.get("on_tick_visible") or [])
+                if isinstance(cue, str)
+            ]
+            rows.append({
+                "clock_id": clock_id,
+                "front_id": str(front.get("front_id") or ""),
+                "current_segments": current,
+                "segments": segments,
+                "remaining_segments": max(segments - current, 0),
+                "full": bool(clock.get("full")),
+                "scene_scoped": scene_key in {
+                    str(value) for value in (front.get("scene_ids") or [])
+                },
+                # The cue printed for the segment the next tick would fill.
+                "next_tick_cue": visible[current] if current < len(visible) else None,
+                "on_full": clock.get("on_full"),
+            })
+    return rows
 
 
 def _project_healing_decision_cards(
@@ -7733,6 +7825,13 @@ def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: st
         pursuers = list(semantic_inputs.get("pursuer_refs") or [])
         quarries = list(semantic_inputs.get("quarry_refs") or [])
         location_refs = list(semantic_inputs.get("location_refs") or [])
+        actor_errors = candidates.get("actor_errors") or {}
+        blocked = [ref for ref in [*pursuers, *quarries] if ref in actor_errors]
+        if blocked:
+            raise ToolError(
+                "npc_profile_invalid",
+                "; ".join(f"{ref}: {actor_errors[ref]}" for ref in blocked),
+            )
         if (not pursuers or not quarries or len(location_refs) < 2
                 or set(pursuers) & set(quarries)
                 or any(ref not in actors for ref in [*pursuers, *quarries])
@@ -9324,6 +9423,7 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
     drilldown_refs: dict[str, Any] = {"npc": [], "clue": [], "secret": []}
     covered_domains = [
         "scene", "npc_presence", "clues", "time", "active_effects", "flags", "party",
+        "threat_clocks",
     ]
 
     # Prefer the compiled archive scene shard for authored static material.
@@ -10007,6 +10107,8 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             list((archive_meta or {}).get("covered_domains") or [])
         ),
         "drilldown_refs": drilldown_refs,
+        # Resolves the `clock_id` this scene's pressure moves already name.
+        "threat_clocks": _scene_threat_clocks(ctx, scene, active_id),
     }
     focused_investigator = impression_investigator or (
         party_ids[0] if party_ids else None
@@ -10053,6 +10155,32 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             "action": "PRESSURE",
             "moves": _pressure[:2],
             "reason": "authored pressure moves are available; escalate tension",
+        }
+    # A lethal pressure move on a clock that is still running outranks a
+    # routine agenda beat. The agenda branch above wins whenever any present
+    # NPC has one, which in an authored climax is always, so the PRESSURE
+    # branch could not be reached in the scenes it was written for: 30 live
+    # turns in `scene-church-climax` never surfaced it while `clock-loop-doom`
+    # sat at 0/6 and the scene's own dramatic question was "before the bell
+    # rings". Lethality and the tick are authored facts, not a pacing opinion.
+    _live_clocks = {
+        row["clock_id"] for row in data["threat_clocks"] if not row["full"]
+    }
+    _urgent = [
+        move for move in _pressure
+        if isinstance(move, dict)
+        and move.get("lethal") is True
+        and move.get("clock_id") in _live_clocks
+    ]
+    if _urgent and _next_beat["action"] != "PRESSURE":
+        _next_beat = {
+            "action": "PRESSURE",
+            "moves": _urgent[:2],
+            "reason": (
+                "a lethal authored pressure move advances a clock that is "
+                "still running; its consequence is unreachable until it ticks"
+            ),
+            "superseded_action": _next_beat["action"],
         }
     data["recommended_next_beat"] = _next_beat
     hints: list[str] = []
