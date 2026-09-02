@@ -17,6 +17,15 @@
  *
  * Each row states where the value comes from. Nothing here is module-specific
  * — the pledge is a property of the operation pair, not of any campaign.
+ *
+ * Scope: pledges live in host memory for the session that minted them. The
+ * producers write durable ledger rows (`timeline.fork_confirm` resolves its
+ * request from the ledger, not from this table), so a pledge minted in an
+ * earlier session is not carried across a restart — the consumer then reports
+ * `host_pledge_unavailable` naming its producer, and calling that producer
+ * again re-mints it. That is a real limitation, not an oversight: reading the
+ * durable ledger from here would need a host query lane this layer does not
+ * have. It costs one extra operation after a restart and never loses state.
  */
 
 type JsonRecord = Record<string, unknown>;
