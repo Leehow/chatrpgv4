@@ -779,6 +779,18 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "live_turn"
     ]
   },
+  "rules.patch": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "state",
+    "discovery": "surface",
+    "execution_class": "serial_campaign",
+    "kp_surface": "rules",
+    "phases": [
+      "opening",
+      "live_turn"
+    ]
+  },
   "rules.psychology_observe": {
     "advisory": false,
     "audience": "host",
@@ -1853,6 +1865,7 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "rules.catalog_search",
     "rules.context",
     "rules.damage",
+    "rules.patch",
     "rules.roll_dice",
     "rules.settle",
     "rules.skill_describe"

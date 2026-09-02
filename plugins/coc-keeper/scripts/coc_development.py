@@ -59,6 +59,7 @@ coc_investigator_guard = _load_sibling(
     "coc_investigator_guard_development", "coc_investigator_guard.py"
 )
 coc_inventory = _load_sibling("coc_inventory_development", "coc_inventory.py")
+coc_rule_options = _load_sibling("coc_rule_options_development", "coc_rule_options.py")
 
 
 def _investigators_root(campaign_dir: Path) -> Path:
@@ -1216,11 +1217,24 @@ def _valid_plan_against_baseline(
             bool(row["improved"]) and int(row["planned_value_after"]) >= threshold
         )
     luck = plan.get("luck_recovery")
-    if not isinstance(luck, dict) or set(luck) != {
+    if isinstance(luck, dict) and set(luck) == _SKIPPED_LUCK_KEYS:
+        # A recorded skip is a frozen plan row like any other: the option was
+        # disabled when the ending capsule froze, so no recovery roll exists
+        # and Luck must be carried over unchanged.
+        if (
+            luck.get("skipped") is not True
+            or luck.get("reason") != "optional_rule_disabled"
+            or luck.get("gained") != 0
+            or luck.get("luck_before") != baseline["luck"]
+            or luck.get("luck_after") != baseline["luck"]
+        ):
+            return False
+        luck = None
+    elif not isinstance(luck, dict) or set(luck) != {
         "roll", "success", "gained", "luck_before", "luck_after", "rule_ref"
     }:
         return False
-    if (
+    if luck is not None and (
         isinstance(luck.get("roll"), bool)
         or not isinstance(luck.get("roll"), int)
         or not 1 <= luck["roll"] <= 100
@@ -1820,6 +1834,32 @@ def _sanity_mechanical_baseline(
     }, path
 
 
+def _skipped_luck_recovery(luck: int, gate: dict[str, Any]) -> dict[str, Any]:
+    """Frozen plan row when the luck-recovery optional rule is disabled.
+
+    Same identity fields as ``coc_roll.recover_luck`` (before/after/gained/
+    rule_ref) so every consumer that reads the applied delta keeps working;
+    no ``roll`` so the public-roll writer emits nothing to invent.
+    """
+    return {
+        "skipped": True,
+        "reason": "optional_rule_disabled",
+        "option_id": str(gate.get("option_id")),
+        "decided_by": str(gate.get("decided_by")),
+        "layer": str(gate.get("layer")),
+        "gained": 0,
+        "luck_before": int(luck),
+        "luck_after": int(luck),
+        "rule_ref": "core.optional.luck_recovery",
+    }
+
+
+_SKIPPED_LUCK_KEYS = frozenset({
+    "skipped", "reason", "option_id", "decided_by", "layer",
+    "gained", "luck_before", "luck_after", "rule_ref",
+})
+
+
 def _deterministic_development_plan(
     *,
     skills: dict[str, int],
@@ -1827,6 +1867,7 @@ def _deterministic_development_plan(
     sanity: dict[str, Any],
     seed_material: str,
     scenario_reward_expr: str | None,
+    luck_recovery_gate: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     rng = random.Random(seed_material)
     rule = coc_rules.development_rule()
@@ -1853,7 +1894,10 @@ def _deterministic_development_plan(
             "planned_value_after": planned_after,
             "improved": improved,
         })
-    luck_recovery = coc_roll.recover_luck(luck, rng=rng)
+    if luck_recovery_gate is not None:
+        luck_recovery = _skipped_luck_recovery(luck, luck_recovery_gate)
+    else:
+        luck_recovery = coc_roll.recover_luck(luck, rng=rng)
     development_reward = (
         coc_roll.roll_expression(sanity_expr, rng) if earns_san else None
     )
@@ -1887,6 +1931,36 @@ def _deterministic_development_plan(
     }
     plan["plan_sha256"] = _canonical_sha256(plan)
     return plan
+
+
+def _luck_recovery_gate(campaign_dir: Path) -> dict[str, Any] | None:
+    """Disabling status for the ``development.luck_recovery`` settlement gate.
+
+    Read at capsule-freeze time: the ending capsule is the frozen input, so a
+    ruling recorded after the ending does not rewrite a settled plan.
+    """
+    # The development phase never required a full campaign.json (its
+    # fixtures are bare save/ trees or identity stubs), so this reads only
+    # the two fields the gate needs, the same way ``_campaign_id`` does. A
+    # declared but unregistered ruleset still fails closed; an unreadable
+    # file is a corrupt campaign, not "no patches".
+    campaign_path = Path(campaign_dir) / "campaign.json"
+    campaign: dict[str, Any] | None = None
+    if campaign_path.exists():
+        loaded = json.loads(campaign_path.read_text(encoding="utf-8"))
+        campaign = loaded if isinstance(loaded, dict) else None
+    ruleset_id = coc_rule_options.coc_rulesets.get_campaign_ruleset_id(
+        campaign if campaign is not None and "ruleset_id" in campaign else None
+    )
+    scene_id = campaign.get("active_scene_id") if isinstance(campaign, dict) else None
+    effective = coc_rule_options.campaign_effective_optional_rules(
+        campaign_dir,
+        ruleset_id,
+        scene_id=scene_id if isinstance(scene_id, str) and scene_id else None,
+    )
+    return coc_rule_options.gate_for(
+        ruleset_id, effective, settlement="development.luck_recovery",
+    )
 
 
 def _development_input_snapshot(
@@ -1924,6 +1998,7 @@ def _development_input_snapshot(
         sanity=sanity,
         seed_material=seed_material,
         scenario_reward_expr=scenario_reward_expr,
+        luck_recovery_gate=_luck_recovery_gate(campaign_dir),
     )
     snapshot = {
         "schema_version": 2,
@@ -2423,9 +2498,10 @@ def run_development_phase(
     planned_gain = int(luck_plan.get("gained", 0) or 0)
     luck_after = min(99, current_luck + planned_gain)
     applied_luck = luck_after - current_luck
-    coc_state.apply_luck_recovery(
-        campaign_dir, investigator_id, luck_after=luck_after
-    )
+    if not luck_plan.get("skipped"):
+        coc_state.apply_luck_recovery(
+            campaign_dir, investigator_id, luck_after=luck_after
+        )
     luck_recovery = {
         **luck_plan,
         "planned_luck_before": int(baseline["luck"]),

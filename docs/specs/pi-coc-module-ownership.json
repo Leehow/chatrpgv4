@@ -8,7 +8,7 @@
     "migration_source_commit": "affeedc3a78ac6da82e0c47ce5dafa95bf12d7fd",
     "verified_on": "2026-08-25",
     "canonical_operation_source": "plugins/coc-keeper/scripts/coc_toolbox.py",
-    "canonical_operation_count": 145
+    "canonical_operation_count": 146
   },
   "migration_states": {
     "planned": "Handlers or tests still occupy shared files; no parallel implementation edit is allowed.",
@@ -146,6 +146,7 @@
         "rules.luck_spend",
         "rules.medicine",
         "rules.opposed",
+        "rules.patch",
         "rules.push",
         "rules.resource_delta",
         "rules.roll",
@@ -155,6 +156,7 @@
         "rules.weekly_recovery"
       ],
       "implementation_dependencies": [
+        "plugins/coc-keeper/scripts/coc_rule_options.py",
         "plugins/coc-keeper/scripts/coc_rules.py",
         "plugins/coc-keeper/scripts/coc_rulesets.py"
       ],

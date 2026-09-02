@@ -79,6 +79,71 @@ Optional fields (absent means the documented default, never an error):
 - Per-resource `projected` (inside `resources` entries) — when `true`, the
   kernel projects `current_<key>` into the runtime player-safe investigator
   surface. Defaults to `false` when absent.
+- `optional_rules` — the package's rulebook-optional rules (§2.3). Default
+  when absent: the package declares none, and `rules.patch` accepts no
+  target.
+
+### 2.3 Optional rules and rule patches (optional)
+
+A rulebook separates core rules from optional ones (coc7: Spending Luck and
+Luck Recovery, Keeper Rulebook p.99). A package declares each optional rule
+once, in `optional_rules`:
+
+```json
+{
+  "option_id": "luck-spend",
+  "display": "Spending Luck",
+  "enabled_by_default": true,
+  "rule_refs": ["rule:coc7:push-luck:luck-spend"],
+  "decision_refs": ["decision:coc7:push-luck:luck-spend"],
+  "operation_gates": ["rules.luck_spend"],
+  "settlement_gates": [],
+  "source_note": "Keeper Rulebook p.99 ... why the package default is on"
+}
+```
+
+- `option_id` is the only name a campaign may enable or disable; a patch
+  naming anything else is `unknown_optional_rule`. A patch can never invent
+  a rule.
+- `rule_refs` / `decision_refs` must resolve to `rule` / `decision` nodes of
+  the package graph when one is declared (conformance item 6). A disabled
+  option projects its `decision_refs` cards as `not_applicable` with
+  `disabled_by_optional_rule`, and `rules.settle` on one of them fails closed
+  with `optional_rule_disabled`.
+- `operation_gates` name canonical operations a disabled option refuses
+  (`optional_rule_disabled`); `settlement_gates` name settlement steps it
+  skips as a recorded skip row (coc7: `development.luck_recovery`).
+- `enabled_by_default` is the package's product profile, not the rulebook's
+  word: when a rulebook-optional rule defaults to `true`, `source_note`
+  states why.
+
+A campaign records its decisions as **rule patches** in
+`save/rule-patches.json` (`scripts/coc_rule_options.py`), written only by
+the Keeper operation `rules.patch`:
+
+```json
+{
+  "patch_id": "house:no-luck-spend",
+  "layer": "house_rule",
+  "scope": "campaign",
+  "operation": "DISABLES",
+  "target": "luck-spend",
+  "reason": "this table plays classic resource pressure"
+}
+```
+
+Layers resolve by specificity, `session_ruling` > `house_rule` >
+`campaign_patch` > package default; inside one layer the latest recorded
+patch wins. `scope` is `campaign` or `scene:<scene_id>` (a scene-scoped
+ruling applies only while that scene is active). Operations are `ENABLES`
+and `DISABLES` only: replacing a rule body (`AUGMENTS` / `OVERRIDES`) needs a
+replacement rule node with its own evidence and is compiler work, not
+campaign state. A `patch_id` is the ruling's identity: recording it again
+with the same content is a no-op, with different content a
+`rule_patch_conflict`. The kernel reads the patch file on every rules
+context, settle, Luck spend and development capsule freeze; a corrupt file
+fails closed (`rule_patches_corrupt`) rather than silently re-enabling
+every option.
 
 ### 2.1 RuleGraph artifacts (optional)
 
@@ -400,6 +465,8 @@ through `scripts/coc_rulesets.py` (`ruleset_resources`,
    run is clean for that package.
 5. Skill pack parses (frontmatter `name`/`description` present) and every
    kernel protocol skill that references the pack resolves its path.
+6. `optional_rules` ids are unique and every `rule_refs` / `decision_refs`
+   entry resolves to a node of that kind in the package graph (§2.3).
 
 A deliberately broken fixture package must fail the suite (vacuous-pass
 protection, same philosophy as the playtest-log validator).

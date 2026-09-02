@@ -144,6 +144,69 @@
         "pattern": "^[A-Za-z0-9]+$"
       },
       "uniqueItems": true
+    },
+    "optional_rules": {
+      "type": "array",
+      "description": "Rulebook-optional rules this package declares (docs/ruleset-contract.md \u00a72.3). Only declared option_ids can be enabled or disabled by a campaign rule patch.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "option_id",
+          "enabled_by_default",
+          "source_note"
+        ],
+        "properties": {
+          "option_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+          },
+          "display": {
+            "type": "string",
+            "minLength": 1
+          },
+          "enabled_by_default": {
+            "type": "boolean",
+            "description": "The package default when no campaign patch decides the option. State the reason in source_note when a rulebook-optional rule defaults to true."
+          },
+          "rule_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "RuleGraph rule node ids this option covers; each must exist in the package graph when one is declared."
+          },
+          "decision_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "RuleGraph decision node ids the option gates; disabled options make these cards not_applicable and refuse rules.settle."
+          },
+          "operation_gates": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Canonical operation names a disabled option refuses (for example rules.luck_spend)."
+          },
+          "settlement_gates": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Settlement steps a disabled option skips (for example development.luck_recovery)."
+          },
+          "source_note": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     }
   }
 }

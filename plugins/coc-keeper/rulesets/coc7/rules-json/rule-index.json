@@ -23,13 +23,15 @@
       "id": "core.percentile_check.roll_modifiers",
       "category": "core_resolution",
       "source_table": "roll-modifiers.json",
-      "source_note": "Keeper Rulebook bonus and penalty dice for percentile checks cancel one-for-one, then choose the lowest or highest tens digit from extra tens dice.",
+      "source_note": "Keeper Rulebook bonus and penalty dice for percentile checks cancel one-for-one, then choose the lowest or highest tens digit from extra tens dice; after cancellation at most two bonus dice or two penalty dice apply to one roll (p.91).",
       "numeric": {
         "bonus_extra_tens_dice_per_die": 1,
         "penalty_extra_tens_dice_per_die": 1,
         "cancellation": "one_for_one",
         "bonus_selected_tens": "lowest",
-        "penalty_selected_tens": "highest"
+        "penalty_selected_tens": "highest",
+        "maximum_bonus_dice": 2,
+        "maximum_penalty_dice": 2
       }
     },
     {

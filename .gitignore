@@ -27,3 +27,6 @@ archives/**/*.tar.gz
 # Local scratch / playtest workspaces — do not commit
 tmp/
 .scratch/
+
+# External rulegraph reference pack — design reference only, never committed
+docs/coc7-core-rulegraph-v0.1/

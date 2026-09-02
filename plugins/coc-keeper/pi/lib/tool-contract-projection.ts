@@ -6233,6 +6233,9 @@ function projectEndSessionData(
               "planned_luck_before", "planned_luck_after", "planned_gained",
               "current_luck_before_apply", "applied_delta", "merge_policy",
               "rule_ref",
+              // A disabled luck-recovery option settles as a recorded skip;
+              // the Keeper must see why no recovery roll happened.
+              "skipped", "reason", "option_id", "decided_by", "layer",
             ]);
           }
           const endingEvidence = isPlainObject(result.ending_evidence)

@@ -896,9 +896,15 @@ class RulesRuntime:
         resolver_index: Mapping[str, Any] | None = None,
         projection_audience: str = "keeper",
         ruleset_adapter: Any | None = None,
+        optional_rules_provider: Callable[[], Mapping[str, Mapping[str, Any]]] | None = None,
     ) -> None:
         if not isinstance(graph, dict) or not isinstance(graph.get("nodes"), list):
             raise ValueError("RulesRuntime requires a compiled RuleGraph object")
+        # Optional-rule gates (coc_rule_options): ``decision_ref -> status``
+        # for every card a disabled ruleset-declared optional rule covers.
+        # Injected like the facts provider so the runtime never reads
+        # campaign files itself; absent means no option is disabled.
+        self._optional_rules_provider = optional_rules_provider
         self._graph = graph
         self._ruleset_id = ruleset_id or str(graph.get("ruleset_id") or "")
         self._ruleset_version = ruleset_version or (
@@ -1093,6 +1099,14 @@ class RulesRuntime:
         return sorted(slots.values(), key=lambda slot: slot["name"])
 
     # -- applicability ------------------------------------------------------ #
+    def optional_rule_gate(self, node_id: str) -> dict[str, Any] | None:
+        """The disabling optional-rule status for one decision, or None."""
+        if self._optional_rules_provider is None:
+            return None
+        gates = self._optional_rules_provider()
+        row = gates.get(node_id) if isinstance(gates, Mapping) else None
+        return dict(row) if isinstance(row, Mapping) else None
+
     def applicability(self, node_id: str, facts: Mapping[str, Any]) -> tuple[bool, bool]:
         """Return ``(applicable, hard_gated)`` for one decision."""
         conditions = self._conditions_for(node_id)
@@ -1185,6 +1199,12 @@ class RulesRuntime:
         answers_intent = self.answers_declared_intent(node_id, facts)
         if answers_intent is not None:
             card["answers_declared_intent"] = answers_intent
+        gate = self.optional_rule_gate(node_id)
+        if gate is not None:
+            # A disabled optional rule is a table decision, not a state fact:
+            # the card stays projected as not applicable and names the ruling.
+            card["applicability"] = "not_applicable"
+            card["disabled_by_optional_rule"] = gate
         if active:
             card["active_exceptions"] = active
         if unevaluated:
@@ -1560,6 +1580,7 @@ class RulesRuntime:
         ]
         cards: list[dict[str, Any]] = []
         missing: list[str] = []
+        optional_rule_gates: list[dict[str, Any]] = []
         for node in candidates:
             node_id = str(node["node_id"])
             if node_id not in self._nodes:
@@ -1569,6 +1590,11 @@ class RulesRuntime:
             card = self._card(node_id, facts)
             if card["applicability"] != "applicable":
                 missing.append(node_id)
+                if card.get("disabled_by_optional_rule"):
+                    optional_rule_gates.append({
+                        "decision_ref": node_id,
+                        **card["disabled_by_optional_rule"],
+                    })
                 continue
             cards.append(card)
             if len(cards) >= 8:
@@ -1605,6 +1631,13 @@ class RulesRuntime:
             "cards": cards,
             "family_status": self._family_status(family),
         }
+        if optional_rule_gates:
+            # The Keeper sees which cards a house rule / session ruling took
+            # off the table, so a missing Luck card reads as a ruling, not
+            # as a runtime hole.
+            result["disabled_by_optional_rules"] = sorted(
+                optional_rule_gates, key=lambda row: str(row["decision_ref"]),
+            )
         if findings:
             result["findings"] = findings
         if cards:
@@ -1874,6 +1907,23 @@ class RulesRuntime:
                         "or exception scope; the KP treats it as ordinary long-tail"
                     ),
                 },
+            }
+        gate = self.optional_rule_gate(decision_ref)
+        if gate is not None:
+            return {
+                "schema_version": self.SCHEMA_VERSION,
+                "decision_ref": decision_ref,
+                "decision_id": decision_id,
+                "status": "optional_rule_disabled",
+                "failure": {
+                    "code": "optional_rule_disabled",
+                    "message": (
+                        f"decision {decision_ref!r} belongs to optional rule "
+                        f"{gate.get('option_id')!r}, disabled by {gate.get('layer')} "
+                        f"{gate.get('decided_by')!r} ({gate.get('scope')})"
+                    ),
+                },
+                "optional_rule": gate,
             }
         facts = self._facts_for_decision(selected)
         active_exceptions, unevaluated_exceptions, exception_findings = (

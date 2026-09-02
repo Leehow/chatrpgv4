@@ -373,6 +373,8 @@ coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 
 coc_rules_runtime = _load_sibling("coc_rules_runtime", "coc_rules_runtime.py")
 
+coc_rule_options = _load_sibling("coc_rule_options", "coc_rule_options.py")
+
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
@@ -6864,6 +6866,45 @@ def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
             "actor_errors": actor_errors, "scene_id": scene_id}
 
 
+def _effective_optional_rules_for_ctx(ctx: Ctx, ruleset_id: str) -> dict[str, dict[str, Any]]:
+    """Current effective optional-rule set for this campaign and scene.
+
+    Reads ``save/rule-patches.json`` on every call so a ruling recorded this
+    turn applies to this turn. A corrupt patch file fails closed as a tool
+    error rather than silently re-enabling every option.
+    """
+    scene_id: str | None = None
+    if ctx.campaign_dir is not None:
+        try:
+            campaign = coc_state.load_campaign_state(ctx.campaign_dir)
+        except Exception:
+            campaign = {}
+        active = campaign.get("active_scene_id") if isinstance(campaign, dict) else None
+        scene_id = active if isinstance(active, str) and active else None
+    try:
+        return coc_rule_options.campaign_effective_optional_rules(
+            ctx.campaign_dir, ruleset_id, scene_id=scene_id,
+        ) if ctx.campaign_dir is not None else coc_rule_options.effective_optional_rules(
+            ruleset_id, [], scene_id=None,
+        )
+    except coc_rule_options.RulePatchError as exc:
+        raise ToolError(exc.code, str(exc), details=dict(exc.details)) from exc
+
+
+def _optional_rule_gate_for_operation(ctx: Ctx, operation: str) -> dict[str, Any] | None:
+    """Disabling status row when ``operation`` is gated by a disabled option."""
+    ruleset_id = _active_ruleset_id(ctx)
+    effective = _effective_optional_rules_for_ctx(ctx, ruleset_id)
+    return coc_rule_options.gate_for(ruleset_id, effective, operation=operation)
+
+
+def _optional_rules_provider_for(ctx: Ctx, ruleset_id: str):
+    def provider() -> Mapping[str, Mapping[str, Any]]:
+        effective = _effective_optional_rules_for_ctx(ctx, ruleset_id)
+        return coc_rule_options.disabled_decision_gates(ruleset_id, effective)
+    return provider
+
+
 def _facts_provider_for(
     ctx: Ctx,
     investigator_id: str,
@@ -7169,6 +7210,7 @@ def _rules_runtime_for_ctx(
         grant_context_provider=_grant_context_provider_for(ctx),
         resolver_index=index if isinstance(index, dict) else None,
         ruleset_adapter=ruleset_adapter,
+        optional_rules_provider=_optional_rules_provider_for(ctx, ruleset_id),
     )
     if campaign_id:
         coc_rules_runtime.bind_campaign_runtime(

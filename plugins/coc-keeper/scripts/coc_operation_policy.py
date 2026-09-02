@@ -581,6 +581,16 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
         "phases": ("opening", "live_turn", "pending_finalization"),
         "kp_surface": "context",
     },
+    # rules.patch records a house rule or session ruling that enables or
+    # disables one ruleset-declared optional rule. It is a Keeper state
+    # write on the rules surface: the ruling must reach the runtime and the
+    # next settlement, not only the transcript. Opening is included because
+    # a table agrees its house rules before the first scene.
+    "rules.patch": {
+        "contract": "state",
+        "kp_surface": "rules",
+        "phases": ("opening", "live_turn"),
+    },
     "rules.context": {
         # RuleGraph applicability is a normal Keeper read. Keep it beside
         # rules.settle so the model can inspect a current card before settling
