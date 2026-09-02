@@ -48,6 +48,18 @@ const stale = project("rule_decision_stale", { family: "social" });
 assert.equal(stale.error.recoverable_by, "model_next_action");
 assert.notEqual(stale.error.class, "invariant_terminal");
 
+// A leverage source that does not resolve is corrected in place -- respell the
+// ref, or drop the claim to level 0. Live on 2026-09-02 the Keeper wrote
+// `level: 1` correctly on its first try, was told only "does not resolve" with
+// no next action, read that as "this cannot be done", and downgraded its own
+// claim -- so the player's earned clue counted for nothing on the roll.
+const leverage = project("leverage_source_invalid");
+assert.equal(leverage.error.recoverable_by, "model_next_action");
+assert.notEqual(leverage.error.class, "invariant_terminal");
+assert.ok(
+  leverage.error.allowed_next_actions.some((a) => a.operation === "rules.settle"),
+);
+
 // Nothing was loosened: an unrecognised code still fails closed as terminal.
 const unknown = project("some_code_with_no_declared_recovery");
 assert.equal(unknown.error.class, "invariant_terminal");

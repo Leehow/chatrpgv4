@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:b24e4b0ede48adae1646c20606202b95c04cca1eb2ea2bd500e3bc54c7571ddb",
+  "content_sha256": "sha256:7f79c570bd0594d84f20105ff562e56a2c165b2493dc6f963af22050b47d574c",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -4600,7 +4600,8 @@
                     "type": "string"
                   },
                   "source_ref": {
-                    "description": "canonical id of the player-known source the support rests on; required when level is 1",
+                    "description": "player-known source the support rests on, as <kind>:<id> where kind is one of npc_agenda, npc_fact, npc_state, clue, event (e.g. clue:<clue_id>); required when level is 1",
+                    "pattern": "^(npc_agenda|npc_fact|npc_state|clue|event):.+$",
                     "type": "string"
                   }
                 },

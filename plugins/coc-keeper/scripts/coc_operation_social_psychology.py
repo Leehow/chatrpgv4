@@ -63,6 +63,23 @@ def _observer_psychology_skill(
         return value, "sheet"
     return base_chance, "rulebook_base"
 
+# The closed set `_resolve_contract_ref` dispatches on. Published on the
+# `supporting_action` shape and named in every rejection: a Keeper that cannot
+# spell a source_ref cannot claim leverage, and the player's earned clue then
+# counts for nothing. Seen live on 2026-09-02 -- the Keeper wrote
+# `level: 1` correctly, spelled the ref `player_input:current`, was told only
+# that it "does not resolve", and downgraded its own claim to level 0 with
+# `clue-crown-slab-heraldry` sitting in the provenance field it had just
+# filled in.
+LEVERAGE_SOURCE_KINDS: tuple[str, ...] = (
+    "npc_agenda", "npc_fact", "npc_state", "clue", "event",
+)
+
+
+def _leverage_source_forms() -> str:
+    return ", ".join(f"{kind}:<id>" for kind in LEVERAGE_SOURCE_KINDS)
+
+
 def _resolve_contract_ref(
     ctx: Ctx,
     source_ref: str,
@@ -77,7 +94,11 @@ def _resolve_contract_ref(
     kind, separator, identifier = source_ref.partition(":")
     identifier = identifier.strip()
     if not separator or not kind or not identifier:
-        raise ToolError("leverage_source_invalid", f"invalid structured source_ref {source_ref!r}")
+        raise ToolError(
+            "leverage_source_invalid",
+            f"invalid structured source_ref {source_ref!r}; use one of "
+            f"{_leverage_source_forms()}",
+        )
     record: dict[str, Any] | None = None
     player_known = False
     if kind == "npc_agenda":
@@ -150,11 +171,17 @@ def _resolve_contract_ref(
                 for delivery in deliveries
             )
     if not isinstance(record, dict):
-        raise ToolError("leverage_source_invalid", f"source_ref {source_ref!r} does not resolve")
+        raise ToolError(
+            "leverage_source_invalid",
+            f"source_ref {source_ref!r} does not resolve; use one of "
+            f"{_leverage_source_forms()} naming a record this campaign holds",
+        )
     if require_player_known and not player_known:
         raise ToolError(
             "leverage_source_invalid",
-            f"source_ref {source_ref!r} is not established as player-known",
+            f"source_ref {source_ref!r} resolves but is not established as "
+            "player-known; leverage may only rest on what the players have "
+            "actually learned in play",
         )
     return {
         "source_ref": source_ref,

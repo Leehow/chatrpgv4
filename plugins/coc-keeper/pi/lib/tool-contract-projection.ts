@@ -616,6 +616,22 @@ const DYNAMIC_CANDIDATE_ACTIONS: Record<string, readonly PiAllowedNextAction[]> 
 };
 
 const BUSINESS_PRECONDITION_ACTIONS: Record<string, readonly PiAllowedNextAction[]> = {
+  // A leverage source that does not resolve is corrected in place: respell
+  // the ref in one of the accepted forms, which the rejection now names, or
+  // drop the claim to level 0. It fell through to invariant_terminal /
+  // recoverable_by "none" / no next action, and on 2026-09-02 the Keeper --
+  // having written `level: 1` correctly on the first try -- read that as
+  // "this cannot be done", downgraded its own claim to level 0, and the
+  // player's earned clue counted for nothing on the roll that followed.
+  leverage_source_invalid: [{
+    operation: "rules.settle",
+    action: "correct_model_arguments",
+    reason:
+      "respell supporting_action.source_ref in one of the accepted "
+      + "<kind>:<id> forms named in the message, or send level 0 to make no "
+      + "leverage claim",
+    host_bound: false,
+  }],
   no_unfinalized_journal: [{
     operation: "state.journal",
     action: "journal_current_turn",

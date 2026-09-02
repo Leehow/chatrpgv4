@@ -425,10 +425,22 @@ class Coc7RuleGraphAdapter:
                             },
                             "source_ref": {
                                 "type": "string",
+                                # The closed kind set the resolver dispatches
+                                # on, published for the same reason `approach`
+                                # publishes its enum: the Keeper wrote level 1
+                                # correctly and then spelled this
+                                # `player_input:current`, because the accepted
+                                # spellings existed only in the resolver.
+                                "pattern": (
+                                    "^(npc_agenda|npc_fact|npc_state|clue"
+                                    "|event):.+$"
+                                ),
                                 "desc": (
-                                    "canonical id of the player-known source "
-                                    "the support rests on; required when "
-                                    "level is 1"
+                                    "player-known source the support rests "
+                                    "on, as <kind>:<id> where kind is one of "
+                                    "npc_agenda, npc_fact, npc_state, clue, "
+                                    "event (e.g. clue:<clue_id>); required "
+                                    "when level is 1"
                                 ),
                             },
                             "description": {"type": "string"},

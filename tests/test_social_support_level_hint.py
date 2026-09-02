@@ -89,3 +89,27 @@ def test_no_support_claim_says_nothing() -> None:
     assert hints_for({}, {"leverage": [], "leverage_delta": 0}) == []
     assert hints_for({"supporting_action": {}}, {"leverage_delta": 0}) == []
     assert hints_for({"supporting_action": None}, {"leverage_delta": 0}) == []
+
+
+def test_a_rejected_leverage_source_names_the_accepted_forms() -> None:
+    """A Keeper that cannot spell a source_ref cannot claim leverage.
+
+    Live on 2026-09-02: the new card shape taught the Keeper to write
+    `level: 1` with a `source_ref` on its first try -- the contract it could
+    not learn before -- and it then spelled the ref `player_input:current`.
+    The rejection said only that it "does not resolve", so the Keeper
+    downgraded its own claim to level 0 and the player's earned clue counted
+    for nothing, with `clue-crown-slab-heraldry` sitting in the provenance
+    field it had just filled in.
+    """
+    _load("coc_toolbox_forms_tests", SCRIPTS / "coc_toolbox.py")
+    social = _load(
+        "coc_operation_social_psychology_forms_tests",
+        SCRIPTS / "coc_operation_social_psychology.py",
+    )
+    assert social.LEVERAGE_SOURCE_KINDS == (
+        "npc_agenda", "npc_fact", "npc_state", "clue", "event",
+    )
+    forms = social._leverage_source_forms()
+    for kind in social.LEVERAGE_SOURCE_KINDS:
+        assert f"{kind}:<id>" in forms
