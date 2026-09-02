@@ -133,7 +133,52 @@ type RetainedFailure = {
   operation: string;
   playerTurnEpoch: number;
   canonicalProgressToken: string;
+  /**
+   * Operations whose success is this failure's own documented remedy.
+   *
+   * The fingerprint is computed from model-owned arguments and canonical
+   * progress, so a failure whose remedy is a HOST-STATE refresh can never be
+   * retried: performing the remedy changes neither. Seen live on 2026-09-02 --
+   * `rules.settle` returned `rule_decision_stale` ("call rules.context for
+   * this family, then settle a decision_ref it returns"), the Keeper called
+   * `rules.context` for that exact family, re-settled, and was answered
+   * `nonretryable_repeat_blocked`. The social difficulty adjudicator stayed
+   * unreachable for the rest of the turn and the Keeper fell back to plain
+   * core checks.
+   */
+  clearedBy: ReadonlySet<string>;
 };
+
+/**
+ * Operations named by a failure as the way to fix it on the host side.
+ *
+ * Read from the canonical envelope, not from a table here: `details
+ * .refresh_operation` is what the producer itself names, and a host-bound
+ * `allowed_next_actions` entry is the same statement in the projected form.
+ * A model-owned next action is excluded on purpose -- correcting arguments
+ * already changes the fingerprint, so it needs no clearing rule.
+ */
+function remedyOperations(error: JsonRecord | null): ReadonlySet<string> {
+  const found = new Set<string>();
+  const details = error?.details && typeof error.details === "object"
+    ? error.details as JsonRecord
+    : null;
+  const refresh = details?.refresh_operation;
+  if (typeof refresh === "string" && refresh.trim()) found.add(refresh.trim());
+  const actions = Array.isArray(error?.allowed_next_actions)
+    ? error.allowed_next_actions
+    : [];
+  for (const raw of actions) {
+    if (!raw || typeof raw !== "object") continue;
+    const action = raw as JsonRecord;
+    if (action.host_bound !== true) continue;
+    const operation = action.operation;
+    if (typeof operation === "string" && operation.trim()) {
+      found.add(operation.trim());
+    }
+  }
+  return found;
+}
 
 type HostBindingRefreshAuthorizationRecord = {
   campaignId: string;
@@ -291,6 +336,17 @@ export class NonRetryableFailureCircuit {
       ? args.envelope as JsonRecord
       : null;
     if (envelope?.ok === true) {
+      // A retained failure whose own remedy names this operation is now
+      // stale: the host state it complained about has just been refreshed.
+      // Without this, following the remedy could not unblock the retry.
+      for (const [fingerprint, failure] of this.#failures) {
+        if (
+          failure.campaignId === args.campaignId
+          && failure.clearedBy.has(args.operation)
+        ) {
+          this.#failures.delete(fingerprint);
+        }
+      }
       this.#advanceResolved({
         campaignId: args.campaignId,
         playerTurnEpoch: scope.playerTurnEpoch,
@@ -333,6 +389,7 @@ export class NonRetryableFailureCircuit {
       operation: args.operation,
       playerTurnEpoch: scope.playerTurnEpoch,
       canonicalProgressToken: scope.canonicalProgressToken,
+      clearedBy: remedyOperations(error),
     });
   }
 
