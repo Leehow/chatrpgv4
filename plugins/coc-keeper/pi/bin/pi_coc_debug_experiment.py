@@ -526,10 +526,16 @@ def _normalize_run_spec(raw: Any) -> dict[str, Any]:
             "situation": lane_situation,
         })
 
-    timeout = spec.get("timeout_seconds", 180)
-    if not isinstance(timeout, int) or isinstance(timeout, bool) or not 1 <= timeout <= 180:
+    timeout = spec.get("timeout_seconds", PRODUCT_TURN_BUDGET_SECONDS)
+    if (
+        not isinstance(timeout, int)
+        or isinstance(timeout, bool)
+        or not 1 <= timeout <= MAX_DIAGNOSTIC_TIMEOUT_SECONDS
+    ):
         raise DebugExperimentError(
-            "debug_request_invalid", "timeout_seconds must be an integer from 1 to 180",
+            "debug_request_invalid",
+            "timeout_seconds must be an integer from 1 to "
+            f"{MAX_DIAGNOSTIC_TIMEOUT_SECONDS}",
         )
     concurrency = spec.get("concurrency", min(2, len(lanes)))
     if (
@@ -567,6 +573,16 @@ def _requested_situation(lane: dict[str, Any]) -> dict[str, Any]:
     requested = {key: value for key, value in situation.items() if key != "shape"}
     return {"shape": situation["shape"], **({"requested": requested} if requested else {})}
 
+
+#: The product's per-turn budget (spec §16.1). A lane that exceeds it has
+#: failed the product goal even when the turn itself completes, so every lane
+#: result records the overrun rather than letting a slow success read as a
+#: pass.
+PRODUCT_TURN_BUDGET_SECONDS = 180
+#: Diagnostic ceiling. Measuring how far a turn overruns the budget is
+#: impossible while the harness truncates at the budget, so a diagnostic may
+#: ask for more — bounded, because an unbounded lane just hangs.
+MAX_DIAGNOSTIC_TIMEOUT_SECONDS = 1800
 
 #: Providers a diagnostic lane may run on. The gate exists so a lane cannot
 #: quietly run through a relay or a fallback whose behaviour is not the
@@ -1886,10 +1902,18 @@ class PiRpcLaneAdapter:
                     state_diff = {"changed_paths": paths}
                 except DebugExperimentError:
                     state_diff = {"status": "unavailable"}
+            elapsed_ms = round((time.monotonic() - started) * 1000)
             result = {
                 "status": status,
                 "resume_first": resume_first,
-                "duration_ms": round((time.monotonic() - started) * 1000),
+                "duration_ms": elapsed_ms,
+                # A lane granted a diagnostic budget larger than the product's
+                # can complete a turn and still have failed the product goal.
+                # Record that here so a slow success cannot read as a pass.
+                "product_budget_seconds": PRODUCT_TURN_BUDGET_SECONDS,
+                "exceeded_product_budget": (
+                    elapsed_ms > PRODUCT_TURN_BUDGET_SECONDS * 1000
+                ),
                 "abort_count": abort_count,
                 "abort_confirmed": abort_confirmed,
                 "events": events,

@@ -304,7 +304,7 @@ def test_dispatch_starts_reads_and_cancels_one_closed_experiment(tmp_path: Path)
     [
         '"seed":7,',
         '"unknown":true,',
-        '"timeout_seconds":181,',
+        '"timeout_seconds":1801,',
         '"concurrency":5,',
     ],
 )
@@ -1666,4 +1666,30 @@ def test_the_lane_launches_on_the_declared_provider(tmp_path: Path):
         }
         argv = adapter._command({"id": "lane", "profile": "production"}, run, {})
         assert expected in argv, (provider, model, argv)
+
+
+def test_a_diagnostic_may_outrun_the_product_budget_and_must_say_so(tmp_path: Path):
+    """Measuring how far a turn overruns the 180 s product budget is
+    impossible while the harness truncates at it. A diagnostic may therefore
+    ask for more, bounded — and a lane that used more has still failed the
+    product goal, so the result records the overrun rather than letting a slow
+    success read as a pass."""
+    module = _module()
+    assert module.PRODUCT_TURN_BUDGET_SECONDS == 180
+    assert module.MAX_DIAGNOSTIC_TIMEOUT_SECONDS > 180
+
+    spec = module._normalize_run_spec({
+        "player_input": "我转身就跑。",
+        "lanes": [{"id": "slow", "profile": "production"}],
+        "timeout_seconds": 900,
+    })
+    assert spec["timeout_seconds"] == 900
+
+    with pytest.raises(module.DebugExperimentError) as excinfo:
+        module._normalize_run_spec({
+            "player_input": "我转身就跑。",
+            "lanes": [{"id": "slow", "profile": "production"}],
+            "timeout_seconds": module.MAX_DIAGNOSTIC_TIMEOUT_SECONDS + 1,
+        })
+    assert excinfo.value.code == "debug_request_invalid"
 
