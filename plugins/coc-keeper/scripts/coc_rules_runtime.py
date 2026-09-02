@@ -70,7 +70,7 @@ import os
 from copy import deepcopy
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[2]
@@ -1338,12 +1338,62 @@ class RulesRuntime:
         return card
 
     # -- card grants (spec §8.5/§8.6 static recheck) ---------------------- #
-    def _grant_binding(self) -> dict[str, Any]:
+    def _gating_fact_paths(self, decision_refs: Iterable[str]) -> tuple[str, ...]:
+        """The fact paths whose value decides whether these cards are offered.
+
+        Read off the graph's own hard gates -- `applicability` consults nothing
+        else -- so the scope is derived, never a guess about which namespaces
+        look related.
+        """
+        paths: set[str] = set()
+
+        def walk(expression: Any) -> None:
+            if not isinstance(expression, Mapping):
+                return
+            children = _condition_children(expression)
+            if children is not None:
+                for child in children:
+                    walk(child)
+                return
+            path = expression.get("path")
+            if isinstance(path, str) and path:
+                paths.add(path)
+
+        for decision_ref in decision_refs:
+            for condition in self._conditions_for(str(decision_ref)):
+                if condition.get("hard_gate") is not True:
+                    continue
+                walk((condition.get("properties") or {}).get("expression"))
+        return tuple(sorted(paths - _CALL_SCOPED_FACT_KEYS))
+
+    def _grant_binding(
+        self, state_scope: Iterable[str] | None = None,
+    ) -> dict[str, Any]:
         """Current machine-owned grant binding (campaign + ruleset version +
-        graph generation + canonical state revision)."""
+        graph generation + canonical state revision).
+
+        With no separate state-revision provider the revision degrades to a
+        digest of the fact set. Taken over ALL facts that made every grant in
+        the turn die whenever anything moved anywhere: settling one Sanity
+        check voided the combat and chase cards the Keeper was holding, and it
+        had to re-ask for them. Measured 2026-09-02 r35, two of three lanes,
+        two or three wasted round trips each against a 180s turn budget.
+
+        Scoped to the paths the grant's own hard gates read, the binding still
+        says exactly what it always meant -- "the reason these cards were
+        offered still holds" -- and says it about the right facts. The turn
+        context keys are untouched, so a card still cannot outlive its turn,
+        phase or player-turn epoch; only same-turn cross-family noise stops
+        counting.
+        """
         facts = self._facts_provider() if self._facts_provider is not None else {}
         if self._state_revision_provider is not None:
             revision = self._state_revision_provider()
+        elif state_scope is not None:
+            scoped = {
+                key: facts.get(key) for key in sorted(state_scope)
+            }
+            revision = f"sha256:{_json_digest(scoped)}"
         else:
             state_facts = {
                 key: value for key, value in facts.items()
@@ -1379,13 +1429,18 @@ class RulesRuntime:
         ignored (fail closed)."""
         self._grant_sequence += 1
         family = str(cards[0].get("family") or "") if cards else ""
+        decision_refs = sorted({str(card["decision_ref"]) for card in cards})
+        scope = self._gating_fact_paths(decision_refs)
         grant_id = f"card-grant:{self._ruleset_id}:{family or 'unscoped'}:{self._grant_sequence}"
         grant = {
             "contract_id": CARD_GRANT_CONTRACT_ID,
             "schema_version": CARD_GRANT_SCHEMA_VERSION,
             "grant_id": grant_id,
-            "binding": self._grant_binding(),
-            "decision_refs": sorted({str(card["decision_ref"]) for card in cards}),
+            "binding": self._grant_binding(scope),
+            "decision_refs": decision_refs,
+            # Host-internal: the paths this grant's revision was taken over, so
+            # validation recomputes the same digest instead of the whole set.
+            "state_scope": list(scope),
         }
         if isinstance(source_decision_id, str) and source_decision_id:
             # Host-only continuation provenance. Public card projection never
@@ -1420,7 +1475,7 @@ class RulesRuntime:
                 "the grant was not issued by this runtime instance; "
                 "forged or expired grants are rejected",
             )
-        current = self._grant_binding()
+        current = self._grant_binding(stored.get("state_scope"))
         drifted = [
             key for key in sorted(stored["binding"])
             if stored["binding"].get(key) != current.get(key)
@@ -1702,7 +1757,6 @@ class RulesRuntime:
         need different answers — refresh this family, versus canonical state
         advanced mid-turn — and the runtime already holds both facts.
         """
-        current = self._grant_binding()
         covering = [
             grant for grant in self._grants.values()
             if decision_ref in (grant.get("decision_refs") or [])
@@ -1739,7 +1793,8 @@ class RulesRuntime:
             }
         live = [
             grant for grant in covering
-            if (grant.get("binding") or {}) == current
+            if (grant.get("binding") or {})
+            == self._grant_binding(grant.get("state_scope"))
         ]
         if live:
             # The caller only asks after its own lookup failed, so a covering
@@ -1757,6 +1812,7 @@ class RulesRuntime:
         drifted = sorted({
             key
             for grant in covering
+            for current in (self._grant_binding(grant.get("state_scope")),)
             for key in set(grant.get("binding") or {}) | set(current)
             if (grant.get("binding") or {}).get(key) != current.get(key)
         })
@@ -1770,12 +1826,11 @@ class RulesRuntime:
         }
 
     def latest_grant_covering(self, decision_ref: str) -> dict[str, Any] | None:
-        current = self._grant_binding()
         for grant_id in reversed(list(self._grants)):
             grant = self._grants[grant_id]
             if decision_ref not in (grant.get("decision_refs") or []):
                 continue
-            if grant.get("binding") != current:
+            if grant.get("binding") != self._grant_binding(grant.get("state_scope")):
                 continue
             return deepcopy(grant)
         return None
