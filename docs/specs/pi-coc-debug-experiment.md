@@ -70,6 +70,52 @@ Constraints:
   provider fallbacks, and unknown fields are rejected.
 - The host context must be idle play mode with the official `xai` provider.
 
+## Situation (optional, diagnostic-only)
+
+A checkpoint only affords what its scene already affords. To exercise a rule
+family that lives deep in a module (chase, combat, magic) without hand-playing
+to it, a run or a lane may carry one closed `situation`. A lane `situation`
+replaces the run-level one, like `player_input`. Two shapes:
+
+```json
+{"situation": {"scene_id": "corbitt-confrontation",
+               "npc_presence": ["npc-walter-corbitt"],
+               "clue_ids": ["clue-corbitt-body-found"],
+               "flags": {"basement-unlocked": true}}}
+```
+
+Structural seeding. Before the fixed resume prompt, the lane adapter applies
+the fields **inside the sandbox lane through the canonical toolbox gateway**
+(`coc_toolbox.py`, the same `run_tool` path the Pi MCP server uses, with the
+host variables play sets): `state.move_scene`, then `state.npc_presence`
+(`present`, per listed NPC; requires `scene_id`), then `state.record_clue`,
+then `state.set_flag`. Decision ids are semantic and lane-scoped
+(`debug-situation:<lane>:<op>:<id>`). Campaign state is therefore canonical
+and `session.resume` presents the seeded receipts as the open turn's context;
+the resume prompt names them as host seeding and still stops at
+awaiting-player. Scene, NPC, and clue ids are validated at planning against
+the sealed campaign's compiled `scenario/` tables; an unknown id fails closed
+with `situation_unknown_scene` / `situation_unknown_npc` /
+`situation_unknown_clue` before any lane spawns. Flags are only
+grammar-checked. A seeding call that does not return `ok` fails that lane
+with `situation_seed_failed`.
+
+```json
+{"situation": {"establish_from_prompt": true}}
+```
+
+Prompt-established situation. The lane sends the natural player message, but
+prepends a short host-owned diagnostic instruction on the same RPC prompt
+channel the resume prompt uses: the player's message describes the situation
+to be in; establish it through the canonical state operations before
+adjudicating; state moves only through tools and dice only through rules.
+Nothing in the Keeper prompt changes.
+
+Both shapes keep every refusal above (no seeds, results, tools, paths, env,
+provider fallbacks; `timeout_seconds` ≤ 180; profiles unchanged). Seeding
+counts against the lane's absolute budget. The shape cannot be mixed, and
+`establish_from_prompt` must be exactly `true`.
+
 ## Snapshot and lane isolation
 
 The MVP accepts only the active `tl-main` latest finalized turn. Historical
@@ -142,10 +188,21 @@ Only selected categories are materialized. Credential-like fields and common
 secret assignments in stderr are redacted, failures remain in comparison
 output, and no experiment or sandbox is automatically deleted.
 
+`final.json` always records `situation`: `{"shape": null}` for natural lanes;
+for structural seeding the requested fields, every applied toolbox call with
+its decision id, envelope `ok`, warnings, and error, and `seeded`; for the
+prompt shape the exact instruction text. `comparison.json` carries the same
+block per lane. Seeded toolbox calls also appear in `tools.jsonl` with
+`phase: "seed"` and are excluded from `canonical_operations`, which lists only
+what the Keeper itself called.
+
 ## Acceptance boundary
 
 A debug matrix is diagnostic evidence, not a whole-product natural-play or
 battle-report acceptance. It may show which lane finalized, timed out, called
 which canonical operations, or changed which state paths. It does not choose a
 winner, promote a RuleGraph candidate, merge a lane into production, or infer
-prose quality from keywords.
+prose quality from keywords. A lane with a seeded or prompt-established
+situation is doubly so: the situation was placed by the host, not reached by
+play, and `final.json` records which shape was applied so that evidence never
+passes as natural play.

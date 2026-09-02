@@ -799,6 +799,7 @@ def test_rpc_lane_enforces_resume_first_and_exact_final_delivery(tmp_path: Path)
         "rendered_text": "伤口已重新包扎。",
         "finalized": True,
         "exact_delivery": True,
+        "situation": {"shape": None},
     }
     operations = [
         row["operation"] for row in result["events"]
@@ -988,3 +989,480 @@ def test_cli_rejects_symlinked_debug_evidence_root(tmp_path: Path) -> None:
     assert completed.returncode == 2
     assert json.loads(completed.stdout)["error"]["code"] == "evidence_root_unsafe"
     assert list(outside.iterdir()) == []
+
+
+# ---------------------------------------------------------------------------
+# Situation: structural seeding and prompt-established shapes (diagnostic-only)
+# ---------------------------------------------------------------------------
+
+_STRUCTURAL_SITUATION = {
+    "scene_id": "corbitt-confrontation",
+    "npc_presence": ["npc-walter-corbitt"],
+    "clue_ids": ["clue-corbitt-body-found"],
+    "flags": {"basement-unlocked": True},
+}
+
+
+class CatalogCheckpointAdapter(CheckpointAdapter):
+    """Sealed checkpoint whose source campaign carries compiled scenario tables."""
+
+    def __init__(self, tmp_path: Path):
+        self.source_campaign = tmp_path / "catalog-source" / "campaign"
+        scenario = self.source_campaign / "scenario"
+        scenario.mkdir(parents=True)
+        (scenario / "story-graph.json").write_text(json.dumps({
+            "scenes": [
+                {"scene_id": "corbitt-confrontation"},
+                {"scene_id": "basement-rites"},
+            ],
+        }), encoding="utf-8")
+        (scenario / "clue-graph.json").write_text(json.dumps({
+            "conclusions": [{
+                "conclusion_id": "conclusion-corbitt",
+                "clues": [{"clue_id": "clue-corbitt-body-found"}],
+            }],
+        }), encoding="utf-8")
+        (scenario / "npc-agendas.json").write_text(json.dumps({
+            "npcs": [{"npc_id": "npc-walter-corbitt", "name": "Walter Corbitt"}],
+        }), encoding="utf-8")
+
+    def seal_latest(self, context):
+        return {
+            **super().seal_latest(context),
+            "source_campaign": str(self.source_campaign),
+        }
+
+
+def test_run_spec_normalizes_situation_shapes_and_lane_override() -> None:
+    module = _module()
+    spec = module._normalize_run_spec({
+        "player_input": "我举起提灯走向祭坛。",
+        "situation": _STRUCTURAL_SITUATION,
+        "lanes": [
+            {"id": "seeded", "profile": "production"},
+            {
+                "id": "prompted",
+                "profile": "rules-all-single-draft",
+                "situation": {"establish_from_prompt": True},
+            },
+            {
+                "id": "flag-only",
+                "situation": {"flags": {"basement-unlocked": False}},
+            },
+        ],
+    })
+    assert spec["situation"] == {"shape": "structural", **_STRUCTURAL_SITUATION}
+    assert spec["lanes"][0]["situation"] == {"shape": "structural", **_STRUCTURAL_SITUATION}
+    assert spec["lanes"][1]["situation"] == {"shape": "prompt"}
+    assert spec["lanes"][2]["situation"] == {
+        "shape": "structural",
+        "scene_id": None,
+        "npc_presence": [],
+        "clue_ids": [],
+        "flags": {"basement-unlocked": False},
+    }
+    natural = module._normalize_run_spec({
+        "player_input": "我检查伤口。",
+        "lanes": [{"id": "natural"}],
+    })
+    assert natural["situation"] is None
+    assert natural["lanes"][0]["situation"] is None
+    assert module._situation_operations(spec["lanes"][0], "haunting-debug-source") == [
+        {
+            "operation": "state.move_scene",
+            "arguments": {
+                "campaign": "haunting-debug-source",
+                "scene_id": "corbitt-confrontation",
+                "reason": "host debug situation seeding for lane seeded",
+                "decision_id": "debug-situation:seeded:move-scene:corbitt-confrontation",
+            },
+        },
+        {
+            "operation": "state.npc_presence",
+            "arguments": {
+                "campaign": "haunting-debug-source",
+                "npc_id": "npc-walter-corbitt",
+                "scene_id": "corbitt-confrontation",
+                "status": "present",
+                "reason": "host debug situation seeding for lane seeded",
+                "decision_id": "debug-situation:seeded:npc-presence:npc-walter-corbitt",
+            },
+        },
+        {
+            "operation": "state.record_clue",
+            "arguments": {
+                "campaign": "haunting-debug-source",
+                "clue_id": "clue-corbitt-body-found",
+                "method": "host debug situation seeding for lane seeded",
+                "decision_id": "debug-situation:seeded:record-clue:clue-corbitt-body-found",
+            },
+        },
+        {
+            "operation": "state.set_flag",
+            "arguments": {
+                "campaign": "haunting-debug-source",
+                "flag_id": "basement-unlocked",
+                "value": True,
+                "reason": "host debug situation seeding for lane seeded",
+                "decision_id": "debug-situation:seeded:set-flag:basement-unlocked",
+            },
+        },
+    ]
+    assert module._situation_operations(spec["lanes"][1], "haunting-debug-source") == []
+
+
+@pytest.mark.parametrize(
+    "situation",
+    [
+        {},
+        {"establish_from_prompt": False},
+        {"establish_from_prompt": "yes"},
+        {"establish_from_prompt": True, "scene_id": "corbitt-confrontation"},
+        {"scene_id": "corbitt-confrontation", "rng_seed": 7},
+        {"scene_id": "corbitt-confrontation", "desired_result": "success"},
+        {"scene_id": "corbitt-confrontation", "tools": ["rules.roll"]},
+        {"scene_id": "no spaces allowed"},
+        {"scene_id": ""},
+        {"npc_presence": ["npc-walter-corbitt"]},
+        {"scene_id": "corbitt-confrontation", "npc_presence": []},
+        {"scene_id": "corbitt-confrontation", "npc_presence": "npc-walter-corbitt"},
+        {"clue_ids": ["clue-a", "clue-a"]},
+        {"flags": {}},
+        {"flags": {"basement-unlocked": "true"}},
+        {"flags": {"basement-unlocked": 1}},
+        "corbitt-confrontation",
+    ],
+)
+def test_run_spec_rejects_malformed_situations(situation) -> None:
+    module = _module()
+    for placement in ("run", "lane"):
+        raw = {
+            "player_input": "我检查伤口。",
+            "lanes": [{"id": "production-1", "profile": "production"}],
+        }
+        if placement == "run":
+            raw["situation"] = situation
+        else:
+            raw["lanes"][0]["situation"] = situation
+        with pytest.raises(module.DebugExperimentError) as exc:
+            module._normalize_run_spec(raw)
+        assert exc.value.code == "debug_request_invalid", (placement, situation)
+
+
+def test_dispatch_validates_situation_ids_against_the_sealed_catalog(tmp_path: Path) -> None:
+    module = _module()
+    store_root = tmp_path / "debug-runs"
+    executor = ExecutorAdapter()
+    experiment = module.DebugExperiment(
+        store=module.FileRunStore(store_root),
+        checkpoint=CatalogCheckpointAdapter(tmp_path),
+        executor=executor,
+    )
+
+    def command(situation: dict) -> str:
+        return "run " + json.dumps({
+            "player_input": "我举起提灯走向祭坛。",
+            "situation": situation,
+            "lanes": [{"id": "seeded", "profile": "production"}],
+        }, ensure_ascii=False)
+
+    for situation, code in (
+        ({**_STRUCTURAL_SITUATION, "scene_id": "attic-of-nowhere"}, "situation_unknown_scene"),
+        ({**_STRUCTURAL_SITUATION, "npc_presence": ["npc-nobody"]}, "situation_unknown_npc"),
+        ({**_STRUCTURAL_SITUATION, "clue_ids": ["clue-invented"]}, "situation_unknown_clue"),
+    ):
+        with pytest.raises(module.DebugExperimentError) as exc:
+            experiment.dispatch(command(situation), _context(tmp_path))
+        assert exc.value.code == code
+        assert "seeded" in str(exc.value)
+    # Fail-closed at planning: nothing was allocated, created, or started.
+    assert executor.started == []
+    assert not any(store_root.glob("debug-*"))
+
+    started = experiment.dispatch(command(_STRUCTURAL_SITUATION), _context(tmp_path))
+    assert started["status"] == "started"
+    assert executor.started == [started["experiment_id"]]
+    status = experiment.dispatch("status current", _context(tmp_path))
+    assert status["spec"]["lanes"][0]["situation"] == {
+        "shape": "structural", **_STRUCTURAL_SITUATION,
+    }
+
+    # A checkpoint without a readable scenario catalog cannot vouch for ids.
+    blind = module.DebugExperiment(
+        store=module.FileRunStore(tmp_path / "blind-runs"),
+        checkpoint=CheckpointAdapter(),
+        executor=ExecutorAdapter(),
+    )
+    with pytest.raises(module.DebugExperimentError) as exc:
+        blind.dispatch(command(_STRUCTURAL_SITUATION), _context(tmp_path))
+    assert exc.value.code == "situation_catalog_unavailable"
+    # The prompt shape names no ids, so it needs no catalog.
+    prompted = blind.dispatch(command({"establish_from_prompt": True}), _context(tmp_path))
+    assert prompted["status"] == "started"
+
+
+class SituationReportingLaneAdapter:
+    """Reports application evidence for one lane and omits it for another."""
+
+    def run(self, *, lane, run, materialized, cancelled):
+        final = {
+            "player_input": lane["player_input"],
+            "rendered_text": "科比特从祭坛后站起。",
+            "finalized": True,
+            "exact_delivery": True,
+        }
+        if lane["id"] == "reported":
+            final["situation"] = {
+                "shape": "structural",
+                "requested": _STRUCTURAL_SITUATION,
+                "applied": [{
+                    "operation": "state.move_scene",
+                    "decision_id": "debug-situation:reported:move-scene:corbitt-confrontation",
+                    "ok": True,
+                    "warnings": [],
+                }],
+                "seeded": True,
+            }
+        return {
+            "status": "completed",
+            "resume_first": True,
+            "duration_ms": 900,
+            "events": [
+                {
+                    "category": "tools",
+                    "phase": "seed",
+                    "operation": "state.move_scene",
+                    "event": {"ok": True},
+                },
+                {"category": "tools", "phase": "start", "operation": "rules.context"},
+            ],
+            "final": final,
+        }
+
+
+class MaterializingCatalogCheckpointAdapter(CatalogCheckpointAdapter):
+    def materialize(self, checkpoint, lane_workspace):
+        lane = Path(lane_workspace)
+        lane.mkdir(parents=True)
+        return {"workspace_root": str(lane), "commit": checkpoint["commit"]}
+
+
+def test_coordinator_records_situation_shape_in_final_and_comparison(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    store = module.FileRunStore(tmp_path / "debug-runs")
+    checkpoint = MaterializingCatalogCheckpointAdapter(tmp_path)
+    coordinator = module.DebugRunCoordinator(
+        store=store, checkpoint=checkpoint, lane=SituationReportingLaneAdapter(),
+    )
+    experiment = module.DebugExperiment(
+        store=store, checkpoint=checkpoint, executor=coordinator,
+    )
+    started = experiment.dispatch(
+        "run " + json.dumps({
+            "player_input": "我举起提灯走向祭坛。",
+            "lanes": [
+                {"id": "reported", "situation": _STRUCTURAL_SITUATION},
+                {"id": "unreported", "situation": {"establish_from_prompt": True}},
+                {"id": "natural"},
+            ],
+            "record": ["tools"],
+            "concurrency": 1,
+        }, ensure_ascii=False),
+        _context(tmp_path),
+    )
+    lanes_root = tmp_path / "debug-runs" / started["experiment_id"] / "lanes"
+    reported = json.loads((lanes_root / "reported" / "final.json").read_text(encoding="utf-8"))
+    assert reported["situation"]["shape"] == "structural"
+    assert reported["situation"]["seeded"] is True
+    assert reported["situation"]["applied"][0]["decision_id"] == (
+        "debug-situation:reported:move-scene:corbitt-confrontation"
+    )
+    unreported = json.loads((lanes_root / "unreported" / "final.json").read_text(encoding="utf-8"))
+    assert unreported["situation"] == {"shape": "prompt", "reported": False}
+    natural = json.loads((lanes_root / "natural" / "final.json").read_text(encoding="utf-8"))
+    assert natural["situation"] == {"shape": None, "reported": False}
+
+    report = experiment.dispatch("report current", _context(tmp_path))["report"]
+    by_id = {row["id"]: row for row in report["lanes"]}
+    assert by_id["reported"]["situation"]["shape"] == "structural"
+    assert by_id["unreported"]["situation"]["shape"] == "prompt"
+    assert by_id["natural"]["situation"]["shape"] is None
+    # Host seeding never masquerades as the Keeper's own operations.
+    assert by_id["reported"]["canonical_operations"] == ["rules.context"]
+
+
+def _quick_started_workspace(tmp_path: Path, campaign_id: str) -> Path:
+    sys.path.insert(0, str(SCRIPTS))
+    import coc_toolbox  # noqa: E402
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True)
+    started = coc_toolbox.run_tool(
+        "setup.quick_start",
+        workspace,
+        None,
+        {
+            "scenario_id": "the-haunting",
+            "pregen_id": "thomas-hayes",
+            "campaign_id": campaign_id,
+        },
+    )
+    assert started["ok"] is True, started
+    return workspace
+
+
+def _rpc_situation_lane_run(
+    tmp_path: Path,
+    *,
+    situation: dict,
+    workspace: Path,
+    timeout: int = 60,
+) -> tuple[dict, list[dict]]:
+    module = _module()
+    source_home = tmp_path / "source-home"
+    source_home.mkdir()
+    (source_home / "settings.json").write_text(
+        json.dumps({"packages": [str(ROOT)]}) + "\n", encoding="utf-8",
+    )
+    prompt_log = tmp_path / "prompts.jsonl"
+    adapter = module.PiRpcLaneAdapter(
+        repo_root=ROOT,
+        private_root=tmp_path / "private",
+        command_builder=lambda _lane, _run, _materialized: [
+            sys.executable,
+            str(ROOT / "tests" / "pi" / "_lib" / "fake-debug-pi-rpc.py"),
+        ],
+        extra_env={
+            "FAKE_DEBUG_MODE": "success",
+            "FAKE_DEBUG_PROMPT_LOG": str(prompt_log),
+        },
+    )
+    run = {
+        "experiment_id": "debug-situation-r1",
+        "evidence_root": str(tmp_path / "evidence"),
+        "context": {
+            "campaign_id": "debug-rpc-campaign",
+            "provider": "xai",
+            "model": "grok-4.6",
+            "thinking": "low",
+            "agent_home": str(source_home),
+        },
+        "checkpoint": {"commit": "a" * 40},
+        "spec": {"timeout_seconds": timeout, "record": ["final", "tools"]},
+    }
+    lane = {
+        "id": "seeded-lane",
+        "profile": "production",
+        "player_input": "我举起提灯走向祭坛。",
+        "situation": module._normalize_situation(situation, label="situation"),
+    }
+    result = adapter.run(
+        lane=lane,
+        run=run,
+        materialized={"workspace_root": str(workspace), "repo": "", "commit": "a" * 40},
+        cancelled=lambda: False,
+    )
+    prompts = [
+        json.loads(line)
+        for line in prompt_log.read_text(encoding="utf-8").splitlines()
+    ] if prompt_log.is_file() else []
+    return result, prompts
+
+
+def test_rpc_lane_seeds_a_structural_situation_through_the_canonical_toolbox(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    workspace = _quick_started_workspace(tmp_path, "debug-rpc-campaign")
+    campaign = workspace / ".coc" / "campaigns" / "debug-rpc-campaign"
+    world_before = json.loads(
+        (campaign / "save" / "world-state.json").read_text(encoding="utf-8")
+    )
+    assert world_before.get("active_scene_id") != "corbitt-confrontation"
+
+    result, prompts = _rpc_situation_lane_run(
+        tmp_path, situation=_STRUCTURAL_SITUATION, workspace=workspace,
+    )
+    assert result["status"] == "completed", result.get("error")
+    situation = result["final"]["situation"]
+    assert situation["shape"] == "structural"
+    assert situation["requested"] == _STRUCTURAL_SITUATION
+    assert situation["seeded"] is True
+    assert [row["operation"] for row in situation["applied"]] == [
+        "state.move_scene", "state.npc_presence", "state.record_clue", "state.set_flag",
+    ]
+    assert all(row["ok"] is True for row in situation["applied"])
+    assert situation["applied"][0]["decision_id"] == (
+        "debug-situation:seeded-lane:move-scene:corbitt-confrontation"
+    )
+    # Canonical state moved through the toolbox, not by hand.
+    world = json.loads((campaign / "save" / "world-state.json").read_text(encoding="utf-8"))
+    assert world["active_scene_id"] == "corbitt-confrontation"
+    assert "clue-corbitt-body-found" in world["discovered_clue_ids"]
+    ledger_rows = [
+        json.loads(line)
+        for line in (campaign / "logs" / "toolbox-calls.jsonl")
+        .read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    seeded_tools = [row["tool"] for row in ledger_rows if row.get("ok") is True]
+    assert {"state.move_scene", "state.npc_presence", "state.record_clue", "state.set_flag"} <= set(
+        seeded_tools
+    )
+    # Seeding happened before the resume prompt, which names it as host seeding.
+    assert prompts[0]["id"] == "resume-seeded-lane"
+    assert "pre-established a situation" in prompts[0]["message"]
+    assert prompts[1]["message"] == "我举起提灯走向祭坛。"
+    seed_events = [
+        row for row in result["events"]
+        if row.get("category") == "tools" and row.get("phase") == "seed"
+    ]
+    assert [row["operation"] for row in seed_events] == [
+        "state.move_scene", "state.npc_presence", "state.record_clue", "state.set_flag",
+    ]
+    assert module._SITUATION_RESUME_NOTE.strip() in prompts[0]["message"]
+
+
+def test_rpc_lane_fails_closed_when_seeding_is_refused(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / ".coc").mkdir(parents=True)
+    result, prompts = _rpc_situation_lane_run(
+        tmp_path, situation={"scene_id": "corbitt-confrontation"}, workspace=workspace,
+    )
+    assert result["status"] == "failed"
+    assert result["error"] == {"code": "situation_seed_failed"}
+    assert result["resume_first"] is False
+    situation = result["final"]["situation"]
+    assert situation["seeded"] is False
+    assert len(situation["applied"]) == 1
+    assert situation["applied"][0]["ok"] is False
+    assert situation["applied"][0]["error"]["code"] == "unknown_campaign"
+    # No Pi process was spawned for a lane whose situation never landed.
+    assert prompts == []
+    assert not (tmp_path / "private").exists()
+
+
+def test_rpc_lane_prepends_the_host_instruction_for_a_prompt_situation(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    result, prompts = _rpc_situation_lane_run(
+        tmp_path, situation={"establish_from_prompt": True}, workspace=workspace,
+    )
+    assert result["status"] == "completed"
+    assert result["final"]["situation"] == {
+        "shape": "prompt",
+        "instruction": module._SITUATION_PROMPT_INSTRUCTION,
+    }
+    assert result["final"]["player_input"] == "我举起提灯走向祭坛。"
+    assert prompts[0]["id"] == "resume-seeded-lane"
+    assert "pre-established" not in prompts[0]["message"]
+    assert prompts[1]["message"] == (
+        module._SITUATION_PROMPT_INSTRUCTION + "\n\n我举起提灯走向祭坛。"
+    )
+    assert "state.move_scene" in module._SITUATION_PROMPT_INSTRUCTION
+    assert "never invented" in module._SITUATION_PROMPT_INSTRUCTION
