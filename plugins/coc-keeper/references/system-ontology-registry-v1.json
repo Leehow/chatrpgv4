@@ -52,6 +52,13 @@
   ],
   "references": [
     {
+      "ref_id": "ref:director:combat-flee-cast-intent",
+      "graph_id": "graph:director:production",
+      "semantic_id": "scoring-rule:subsystem:combat-flee-cast-intent",
+      "reference_kind": "artifact-node",
+      "node_kind": "scoring-rule"
+    },
+    {
       "ref_id": "ref:director:dying-clock-kind",
       "graph_id": "graph:director:production",
       "semantic_id": "craft-directive:dying-clock-kind",
@@ -64,6 +71,13 @@
       "semantic_id": "craft-directive:dying-forces-rescue-subsystem",
       "reference_kind": "artifact-node",
       "node_kind": "craft-directive"
+    },
+    {
+      "ref_id": "ref:director:pushed-fail-nudge",
+      "graph_id": "graph:director:production",
+      "semantic_id": "scoring-rule:pressure:pushed-fail-nudge",
+      "reference_kind": "artifact-node",
+      "node_kind": "scoring-rule"
     },
     {
       "ref_id": "ref:execution:coc7:check",
@@ -480,6 +494,13 @@
       "ref_id": "ref:rule:coc7:decision-coc7-chase-start",
       "graph_id": "graph:rule:coc7",
       "semantic_id": "decision:coc7:chase:start",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-combat-attack",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:combat:attack",
       "reference_kind": "artifact-node",
       "node_kind": "decision"
     },
@@ -990,6 +1011,24 @@
   ],
   "relations": [
     {
+      "relation_id": "relation:system:director-combat-flee-cast-grounded-cast-spell",
+      "relation_kind": "grounded-by",
+      "from_ref": "ref:director:combat-flee-cast-intent",
+      "to_ref": "ref:rule:coc7:decision-coc7-magic-cast-spell"
+    },
+    {
+      "relation_id": "relation:system:director-combat-flee-cast-grounded-combat-attack",
+      "relation_kind": "grounded-by",
+      "from_ref": "ref:director:combat-flee-cast-intent",
+      "to_ref": "ref:rule:coc7:decision-coc7-combat-attack"
+    },
+    {
+      "relation_id": "relation:system:director-combat-flee-cast-grounded-combat-flee",
+      "relation_kind": "grounded-by",
+      "from_ref": "ref:director:combat-flee-cast-intent",
+      "to_ref": "ref:rule:coc7:decision-coc7-combat-flee"
+    },
+    {
       "relation_id": "relation:system:director-dying-clock-grounded-hour",
       "relation_kind": "grounded-by",
       "from_ref": "ref:director:dying-clock-kind",
@@ -1006,6 +1045,12 @@
       "relation_kind": "grounded-by",
       "from_ref": "ref:director:dying-forces-rescue-subsystem",
       "to_ref": "ref:rule:coc7:dying-entry"
+    },
+    {
+      "relation_id": "relation:system:director-pushed-fail-nudge-grounded-pushed-roll",
+      "relation_kind": "grounded-by",
+      "from_ref": "ref:director:pushed-fail-nudge",
+      "to_ref": "ref:rule:coc7:decision-coc7-push-luck-pushed-roll"
     },
     {
       "relation_id": "relation:system:relation-coc7-chase-barrier-available-when:requires:chase-pending-kind",
@@ -1688,7 +1733,7 @@
       "graph_ids": [
         "graph:director:production"
       ],
-      "reason": "The production DirectorGraph carries the Director vocabulary and doctrine planes, and its dying-clock and dying-subsystem craft directives are grounded in the coc7 RuleGraph dying decisions and dying-entry rule. Grounding stops there on purpose: the Director's remaining doctrine reads pacing state and Scenario IR projections, not registered condition paths, and the push-luck and pacing rule families it would otherwise cite are still unresolved in the RuleGraph."
+      "reason": "The production DirectorGraph carries the Director vocabulary and doctrine planes. Dying-clock and dying-subsystem craft directives, the pushed-failure pressure nudge, and the combat/flee/cast subsystem handoff are grounded in coc7 RuleGraph decisions and the dying-entry rule; the pushed-failure nudge is additionally span-bound to Keeper Rulebook p.83-85 and the fair-warning ladder to p.209. The remaining doctrine reads pacing state, scene structure, or carries no rule source, so it stays unresolved by the RuleGraph; the per-node measurement with reason classes is the generated ledger docs/status/director-grounding-gap.md."
     },
     {
       "graph_kind": "text",

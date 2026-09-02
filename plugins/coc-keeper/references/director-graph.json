@@ -986,7 +986,10 @@
         "coc7-keeper-rulebook-40th:printed-p83-85"
       ],
       "rationale": "A legal pushed-roll failure nudges PRESSURE once by one tenth, capped at 0.95, realising the rulebook's consequence-follows-a-pushed-failure requirement as a pacing preference rather than a gate.",
-      "origin": "Keeper Rulebook 40th Anniversary p.83-85, cited in coc_story_director._base_score"
+      "origin": "Keeper Rulebook 40th Anniversary p.83-85, cited in coc_story_director._base_score",
+      "grounded_by": [
+        "decision:coc7:push-luck:pushed-roll"
+      ]
     },
     {
       "node_id": "scoring-rule:pressure:reckless-posture-adjust",
@@ -1082,7 +1085,12 @@
       "evidence_class": "authored-doctrine",
       "rationale": "Combat, flight or spellcasting intent scores level with investigate REVEAL, and SUBSYSTEM's first place in the tiebreak order resolves that tie in its favour.",
       "origin": "unknown-legacy-tuning",
-      "falsifiable_by": "Lanes on a checkpoint with both combat intent and an available clue; confirm the tiebreak resolves to SUBSYSTEM."
+      "falsifiable_by": "Lanes on a checkpoint with both combat intent and an available clue; confirm the tiebreak resolves to SUBSYSTEM.",
+      "grounded_by": [
+        "decision:coc7:combat:attack",
+        "decision:coc7:combat:flee",
+        "decision:coc7:magic:cast-spell"
+      ]
     },
     {
       "node_id": "storylet:arrival-predecessor-trace",
