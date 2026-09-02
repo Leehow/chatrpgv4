@@ -463,3 +463,29 @@ def test_the_declared_intent_does_not_invalidate_a_card_grant(campaign_ws):
     finally:
         kernel._facts_provider_for = original
     assert captured.get("intent.action_kind") == "flee"
+
+
+def test_the_play_prompt_names_settle_form_as_the_argument_authority():
+    """The host computes the exact arguments that settle each decision and
+    puts them on the card, and the prompt never mentioned them -- while a
+    120-row identifier-grammar table sat above, reading like a menu of fields
+    to attach.
+
+    Measured across r36-r39: the Keeper attached `source_ref` or `source` as
+    provenance to rules.settle five times, each a refused settlement and a
+    retry. The refusal names what the decision takes; the prompt now names
+    where to read it before calling.
+    """
+    # Whitespace-normalized: the prompt is hard-wrapped, so a literal search
+    # for a phrase that spans a line break finds nothing and passes for the
+    # wrong reason.
+    prompt = " ".join(
+        (ROOT / "plugins/coc-keeper/pi/prompts/host-system-play.md")
+        .read_text(encoding="utf-8").split()
+    )
+    assert "settle_form" in prompt
+    assert "missing_arguments" in prompt and "optional_arguments" in prompt
+    # and it says the grammar table is not a menu
+    assert "not a menu of fields to attach" in prompt
+    # naming the exact mistake, the way the intent block names its own
+    assert "source_ref: player_input:current" in prompt

@@ -344,6 +344,18 @@ visible `coc_session_resume` tool, then call visible
   from player wording. Do not skip the write because `scene.context` already
   listed the clue or the check already succeeded. `turn.finalize` renders
   the discovered-clue index; never leave a player-visible find only in narration.
+- Each rule card carries a `settle_form`, and it is the whole answer for what
+  to send: `prefilled_arguments` are already filled, `missing_arguments` are
+  the ones you must supply, `optional_arguments` are the only others accepted.
+  Send exactly those keys. Many cards -- every bout-tick and bout-end, for
+  instance -- list no model-owned argument at all, and take only a
+  `decision_id`: for those, adding anything is the error. The identifier table
+  above is grammar for fields an operation declares, not a menu of fields to
+  attach; a key that is legal in the flat `semantic_inputs` schema is still
+  rejected by the decision that never declared it. Observed repeatedly and
+  never worth repeating: `source_ref: player_input:current` and
+  `source: player_input:current` attached to `rules.settle` as provenance,
+  each costing a refused settlement and a retry.
 - Every `rules.context` call carries `player_intent`: the one class from its
   enum that names what the player's accepted action is **trying to do**, not
   what you plan to narrate and not the scene's mood. Read the action, then
