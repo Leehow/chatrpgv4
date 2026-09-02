@@ -6015,8 +6015,28 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         let coverageBindingFacts: ReviewedCoverageBindingFacts | null = null;
         try {
           coverageBindingFacts = buildReviewedCoverageBindingFacts(data);
-        } catch {
+        } catch (error) {
+          // Never silently. Null here means no finalize binding is armed,
+          // which leaves the Keeper in `review_ready` with only the producer
+          // to call and no way to advance -- an infinite loop that ends in a
+          // lost turn. Swallowing the reason turned a one-line diagnosis into
+          // a three-hour one on 2026-09-02 (campaign amaranthine-loop: the
+          // output context carried no `mechanics_summary`, so the binding
+          // builder refused it as an incomplete canonical context).
           coverageBindingFacts = null;
+          try {
+            pi.appendEntry("coc-coverage-binding-unavailable", {
+              schema_version: 1,
+              status: "rejected",
+              campaign_id: campaignId,
+              turn_id: typeof data.turn_id === "string" ? data.turn_id : null,
+              code: objectOrNull(error)?.code ?? "binding_context_invalid",
+              message: String(
+                (error as { message?: unknown } | null)?.message ?? error,
+              ).slice(0, 240),
+              consequence: "turn.finalize binding not armed for this turn",
+            });
+          } catch { /* audit is best effort */ }
         }
         const playerInput = objectOrNull(contractProjection?.player_input);
         const agencyAuthority = objectOrNull(

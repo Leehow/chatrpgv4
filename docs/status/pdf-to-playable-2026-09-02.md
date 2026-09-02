@@ -66,9 +66,22 @@ Each of these was invisible to the suites and fatal at the table.
 - The source-review gate above.
 - `amaranthine-loop` reaches `review_ready` with neither `narration.review`
   nor `turn.finalize` bound, so the only tool offered is the producer, and
-  calling it does not bind them. The observer has everything it needs
-  (`turn_id`, `source_digest`, `agency_review_required: false`,
-  `invoke_via: coc_turn_finalize`, `revision: 1`) and the binding still does
-  not reach the working set. Diagnosed to that point, not fixed.
+  calling it does not bind them. **Root cause found:**
+  `buildReviewedCoverageBindingFacts(data)` throws
+  `binding_context_invalid: coverage binding requires one complete canonical
+  output context` because the output context carries no `mechanics_summary`
+  — the wire projection keeps only `mechanics_bundle_sha256`, so
+  `_compact_output_context` sets `mechanics_summary` to null, and the binding
+  builder requires an object. The throw was swallowed by a bare `catch`,
+  which is why this took three hours instead of one look; that catch now
+  records `coc-coverage-binding-unavailable` with the reason and the
+  consequence.
+
+  Which side gives is a call for whoever owns the bundle projection: either
+  the wire view keeps a mechanics summary even when the bundle is stripped,
+  or the builder accepts an absent summary as "this turn had no mechanics".
+  The second is the tempting one and the dangerous one — absent-means-empty
+  is exactly the inference this codebase has been burned by. Not decided
+  here.
 - The loop acceptance (clock → fork → rewind → re-apply ageing) is untested:
   play never got past the turn above.
