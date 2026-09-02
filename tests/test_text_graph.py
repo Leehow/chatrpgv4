@@ -519,6 +519,8 @@ CENSUS: dict[str, dict[str, tuple[int, str, str]]] = {
         'review-rule': (1, 'model-facing-copy', 'host prompt names agency_violation'),
     },
     'plugins/coc-keeper/references/mcp-operation-contracts.json': {
+        'play-register': (2, 'model-facing-copy', "campaign.create's description names both registers so the Keeper knows what it may pass. The validator reads them from the graph; only the prose that teaches the choice repeats them, and a description that cannot name the options is not a description"),
+
         'beat-type': (3, 'usage-only', "`question` is an ordinary English word and three operation descriptions use it as one. Laws' beat vocabulary carries four such words -- question, reveal, commentary, pipe -- which is the real cost of citing an outside taxonomy instead of coining private tokens: the scanner cannot tell the beat from the noun, and per SCANNER_LIMITS it counts rather than filters"),
 
         'agency-claim-type': (8, 'reads-from-graph', 'generated archive: the enum is built from the migrated frozenset and rebuilds byte-identically'),
