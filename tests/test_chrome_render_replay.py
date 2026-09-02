@@ -174,30 +174,26 @@ def test_the_three_built_in_languages_render_every_effect_kind(language):
         assert "】" in text, (language, kind, text)
 
 
-# The chrome table's own keys resolve per language, so `scalar` renders
-# `【変化】幸運：55 → 50（-5）` correctly. The effect kinds whose labels live in
-# inline `if language == "zh-Hans": ... else: ...` branches do not: Japanese
-# falls into the English arm and gets a Japanese TAG over an English BODY.
-JAPANESE_MIXED_LANGUAGE_KINDS = ("condition", "loaded_ammunition", "rest")
+# Every effect kind's labels now resolve through the chrome table, so ja-JP
+# gets Japanese instead of the English arm of an inline branch. These were
+# strict xfails until the migration landed; they are real assertions now.
+JAPANESE_BODY_KINDS = ("condition", "loaded_ammunition", "rest")
 
 
-@pytest.mark.parametrize("kind", JAPANESE_MIXED_LANGUAGE_KINDS)
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "known defect: these labels are inline `if zh: ... else: ...` branches, "
-        "so ja-JP takes the English arm. Fixed by migrating them into the "
-        "chrome table; this flips to xpass when it is."
-    ),
-)
+@pytest.mark.parametrize("kind", JAPANESE_BODY_KINDS)
 def test_japanese_bodies_are_not_english(kind):
-    """Japanese is a SUPPORTED language today and is already broken.
+    """Japanese is a supported language and used to render English bodies.
 
-    This is the case for consolidating chrome, and it needs no fourth language
-    to make it: a ja-JP table gets `【変化】condition: added "prone"` right now.
+    Before the chrome consolidation a ja-JP table got a Japanese TAG over an
+    English BODY -- `【変化】condition: added "prone"` -- because these labels
+    lived in `if language == "zh-Hans": ... else: ...` branches and Japanese
+    took the else. This needed no fourth language to be a live defect.
+
+    The check is that Japanese and English differ. It deliberately does NOT
+    scan for Latin characters: `prone` and `revolver` are data values carried
+    by the effect, and a check that cannot tell chrome from data would fail on
+    correct output.
     """
-    import re
-
     fixtures = {
         "condition": {
             "effect_kind": "condition", "action": "added",
@@ -211,17 +207,16 @@ def test_japanese_bodies_are_not_english(kind):
             "effect_kind": "rest", "sanity_day_reset": True, "effect_id": "e",
         },
     }
-    japanese = coc_turn._render_state_delta(
-        dict(fixtures[kind]), play_language="ja-JP"
+    bodies = {
+        language: coc_turn._render_state_delta(
+            dict(fixtures[kind]), play_language=language
+        ).split("】", 1)[1]
+        for language in ("zh-Hans", "en-US", "ja-JP")
+    }
+    assert bodies["ja-JP"] != bodies["en-US"], (
+        f"ja-JP body is byte-identical to en-US: {bodies['ja-JP']!r}"
     )
-    english = coc_turn._render_state_delta(
-        dict(fixtures[kind]), play_language="en-US"
+    assert bodies["ja-JP"] != bodies["zh-Hans"], (
+        f"ja-JP body is byte-identical to zh-Hans: {bodies['ja-JP']!r}"
     )
-    body_ja = japanese.split("】", 1)[1]
-    body_en = english.split("】", 1)[1]
-    assert body_ja != body_en, (
-        f"ja-JP body is byte-identical to en-US: {japanese!r}"
-    )
-    assert not re.search(r"[A-Za-z]{4,}", body_ja), (
-        f"ja-JP body carries English words: {japanese!r}"
-    )
+    assert len(set(bodies.values())) == 3, bodies
