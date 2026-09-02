@@ -507,6 +507,53 @@ one player (this session), one turn at a time through the repo's own
     already runs for entity handles. That is a design change, not a table
     edit, and it is left unstarted rather than half-done.
 
+27. **The player's evidence cannot reach the difficulty adjudicator.** Three
+    consecutive rescue attempts on the forked worldline came back Extreme
+    (Brawl at Hard, Persuade at Extreme twice), and the third one is the
+    diagnostic case: the player brought a concrete, earned clue -- the crypt
+    slab with East Anglian arms and three crowns -- and the adjudication
+    recorded `leverage: []`, `leverage_delta: 0`, `motive_delta: 2`,
+    `final_difficulty: extreme`. The opposition was computed at full weight
+    from `npc_agenda:npc-william-levett`, whose own receipt says
+    `player_known: false`, while everything the player actually knew counted
+    for nothing.
+
+    Nothing was corrupted and no rule was violated. `supporting_action.level`
+    defaults to `0` -- "conduct described, no leverage claimed" -- and only
+    `level: 1` with a canonical `source_ref` builds a leverage row, which is
+    the sole input that grants the one-level reduction
+    (`leverage_one_level = True if leverage else None`). The Keeper sent
+    `{kind, clue_id, physical_prop, audience, changed_method}`: a reasonable
+    shape, and level 0 to the resolver.
+
+    The card is where this fails. `decision:coc7:social:adjudicate-difficulty`
+    is named "…and one-level support", and the slot it offers for that support
+    is projected to the Keeper as `{name: supporting_action, owner:
+    keeper-semantic, type: object}` -- an untyped object. The card's `type`
+    comes from `_scalar_type_from_guess(slot_name)`, a guess from the slot's
+    name, so it carries no contract at all. `level` and `source_ref` exist
+    only inside `_validate_social_provenance` and the leverage builder. The
+    half-right call is loud (`level: 1` without `source_ref` raises
+    `invalid_semantic_input` naming the requirement); the entirely-wrong shape
+    is silent.
+
+    This is finding 23 again in a different subsystem: a capability the Keeper
+    cannot name is one it does not have. Here a leverage level the Keeper
+    cannot express is one the player cannot earn -- and the module's rescue
+    ending is the thing on the other side of it.
+
+    The fix is legibility, not rules: the card must carry the slot's real
+    shape. It is not a one-file change, and the sizing is why it is recorded
+    rather than started. `_card` in `coc_rules_runtime.py` projects
+    `{name, owner, type}`; the shape's authoritative home is the ruleset
+    adapter's `semantic_inputs` schema, and the generic runtime is deliberately
+    ruleset-agnostic, so where the shape crosses that line is a real design
+    decision. Downstream, `_closed_rule_required_inputs` matches
+    `set(raw) != RULE_DECISION_INPUT_FIELDS` exactly, so an unregistered extra
+    key does not degrade -- it returns `None` and drops every card in the
+    block, the same whitelist-gating shape as the NPC mechanics defect. Four
+    layers and a test, with one genuine design call inside it.
+
 ## 5. Open defect that stopped deeper play (not owned by this work)
 
 On a fumbled STR roll the turn could not settle:
