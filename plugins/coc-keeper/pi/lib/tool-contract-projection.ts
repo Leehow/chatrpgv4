@@ -8233,7 +8233,11 @@ const RAW_VOCABULARY_FIELDS: ReadonlyMap<string, {
   ["rule_id", {
     acceptedForm:
       "one of the published narration.review rule ids in the operation schema's enum",
-    right: "agency_violation",
+    // The enum sits on this same field in the same schema, so the model can
+    // already read every accepted value. Naming one here would put a second
+    // copy of a TextGraph-owned vocabulary in TypeScript -- which the
+    // TextGraph residue gate flags, correctly.
+    right: "an id copied verbatim from this field's enum",
     wrong: "prose_feels_off",
   }],
 ]);
