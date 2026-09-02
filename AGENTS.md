@@ -175,6 +175,40 @@ launch, observe structured progress or state, steer or follow up, or request a
 protocol-level abort. Every mode choice requires executable evidence for the
 needed behavior; terminology such as “multi-turn” is not evidence by itself.
 
+### Counting Calls In Playtest Evidence (Binding)
+
+A string count over `rpc-events.jsonl` counts MENTIONS, not calls. Operation
+names appear in tool catalogs, discovery payloads, JSON schemas, prompt prose
+and error messages, so `grep -c '"turn.finalize"'` can report a hundred for an
+operation that was called once.
+
+Count calls from `tool_execution_start` events, reading `toolName` and
+`args.operation`:
+
+```python
+name = row.get("toolName") or ""
+op = (row.get("args") or {}).get("operation")
+called = op or name
+```
+
+**The Keeper mostly uses the direct tool names, not the generic envelope**, so
+an operation invoked as `coc_turn_finalize` is invisible to a search for
+`turn.finalize`. Count both spellings or you will under-count the direct path
+and over-count the generic one.
+
+This was violated three times in one session, each time producing a decision:
+`agency_review_operation` "1111 occurrences" (mostly prompt prose),
+`turn.output_context` "58 calls" (4 real), `turn.finalize` "109 calls" (9
+real). One feature was built onto an operation with zero real calls, then
+migrated onto another believed to have 58 and actually having 4.
+
+Before building anything the Keeper is meant to receive, count its host
+operation's REAL calls in preserved evidence first. An unreachable operation
+is a feature that does not exist, and this repository has now found four:
+`output_instruction` (no readers), `localized_terms` (no writer),
+`narration.review` (not offered in normal play), `narration.brief` (never
+called).
+
 ## COC Plugin Single-Track Law
 
 `plugins/coc-keeper/` is the sole plugin for every host. Never create a
@@ -530,6 +564,44 @@ Pi-Coc 验收/体验测试的唯一方法：
 
 此方法替代已删除的 `coc-playtest` skill。任何声称"测完"或"体验等价"
 的工作必须匹配上述流程，否则标记 `invalid-for-acceptance`。
+
+## GLM / Z.AI Thinking Control (measured 2026-09-02)
+
+任何在本仓库里用 GLM（zai / zai-coding-cn）跑 Keeper 回合、造景诊断或长任务
+的 agent，先读这一节。**传 `--thinking low` 不会减少思考，等于没省额度。**
+
+Pi 对 `thinkingFormat: "zai"` 的实现（`pi-ai/dist/api/openai-completions.js`）：
+
+```js
+thinking = reasoningEffort ? { type: "enabled", clear_thinking: false }
+                           : { type: "disabled" }
+```
+
+`reasoningEffort` 只要有值（`low` 也算）就走 **enabled** 分支。Z.AI 官方文档里
+关闭思考的唯一参数是 `thinking: {"type": "disabled"}`，对应 Pi 的
+**`--thinking off`**。
+
+同一条造景 lane、同一个 180 秒预算的实测：
+
+| 配置 | 思考字符 | 工具调用 |
+| --- | --- | --- |
+| glm-5.3 + `low` | 26,818 | 2 |
+| glm-5.2 + `low` | 26,977 | 5 |
+| **glm-5.2 + `off`** | **4,076** | **13** |
+
+推理量降到 1/6.6，可用的工具调用翻 2.6 倍。
+
+**模型差异（Z.AI 官方文档）**：**GLM-5.3 与 GLM-5.3-FLASH 是强制思考，无法
+关闭**；GLM-5.2、GLM-5.1、GLM-5、GLM-4.7 及更早可以关。所以省额度要用 5.2，
+不要用 5.3——5.3 无论怎么设都会烧掉那两万多字符。
+`models-store.json` 里五个模型只有 `glm-5.2` 的
+`compat.supportsReasoningEffort` 为 `true`。
+
+**边界**：`thinking off` 只解决「单次思考太长」，不解决「一个回合往返太多次」。
+glm-5.2 + off 那条 lane 仍然把预算花在四次 `transcript.locate` 和四次
+`discover` 上，回合没跑完。两者是不同的问题，别用前者的结论掩盖后者。
+
+来源：<https://docs.z.ai/guides/capabilities/thinking-mode>
 
 ## Pi-Coc 双专职会话（setup / play）
 
