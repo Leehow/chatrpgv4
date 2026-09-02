@@ -562,7 +562,26 @@ one player (this session), one turn at a time through the repo's own
     block, the same whitelist-gating shape as the NPC mechanics defect. Four
     layers and a test, with one genuine design call inside it.
 
-    The smaller half is done. `_settle_social` now returns a hint whenever a
+    **Both halves are done.** The card now carries the slot's real shape,
+    asked of the ruleset adapter by duck typing -- the channel the runtime
+    already uses for `augment_facts` and `context_lookup` -- so the runtime
+    stays ruleset-agnostic and the ruleset never learns the card format. The
+    published shape is exactly the contract: `level` (0|1, with what each
+    means) and `source_ref` (required at level 1), plus the sentence saying
+    that pair is the only path to the one-level reduction. `leverage_id`,
+    `independence_group` and `type` are accepted but not published -- the host
+    defaults all three from `source_ref`, one `supporting_action` yields one
+    leverage row so grouping decides nothing, and an identity-shaped name in a
+    model-owned schema obliges a declaration in the identity inventory for no
+    gain. The boundary guard caught that and is why they stay unpublished.
+
+    Two things fell out. Enum slots now carry their members: `approach`
+    reached the Keeper as bare `type: "enum"` with charm/fast_talk/intimidate/
+    persuade nowhere on the card. And because `settle_schema` is also the
+    operation's input schema, `rules.settle` itself now states the contract,
+    so it is legible from the tool schema as well as the card.
+
+    The earlier, smaller half also stands. `_settle_social` now returns a hint whenever a
     `supporting_action` arrives with no `level` at all and no leverage was
     granted, naming both halves of the contract (`level: 1` plus a canonical
     `source_ref`). It changes no rule -- level 0 stays the default, and a
