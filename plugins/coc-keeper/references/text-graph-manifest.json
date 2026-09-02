@@ -2,7 +2,7 @@
   "contract_id": "coc.text-graph-build-manifest.v1",
   "schema_version": 1,
   "graph_id": "graph:text:production",
-  "graph_content_digest": "cadfc911863e0367592ed78eed180b2405576abf5adb0bf45bfc89b80f1caccc",
+  "graph_content_digest": "b1432808166d336e2c6ebe7c2e30c28f89dd4a75107dabf946bfdf951e99cc7e",
   "shards": [
     "shard:text:craft-doctrine",
     "shard:text:obligation-vocabulary"

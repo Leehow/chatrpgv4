@@ -1815,6 +1815,24 @@
       "to_node_id": "review-rule:passive-translation-ese"
     },
     {
+      "relation_id": "relation:text:segment-type-state-delta:renders-effect-coc7-healing-first-aid-stabilization",
+      "relation_kind": "renders-settled-output",
+      "from_node_id": "segment-type:state-delta",
+      "to_node_id": "effect:coc7:healing:first-aid-stabilization"
+    },
+    {
+      "relation_id": "relation:text:segment-type-state-delta:renders-effect-coc7-healing-medicine-stabilization",
+      "relation_kind": "renders-settled-output",
+      "from_node_id": "segment-type:state-delta",
+      "to_node_id": "effect:coc7:healing:medicine-stabilization"
+    },
+    {
+      "relation_id": "relation:text:segment-type-state-delta:renders-effect-coc7-healing-weekly-hp-recovery",
+      "relation_kind": "renders-settled-output",
+      "from_node_id": "segment-type:state-delta",
+      "to_node_id": "effect:coc7:healing:weekly-hp-recovery"
+    },
+    {
       "relation_id": "relation:text:source-kind-amount:part-of",
       "relation_kind": "part-of",
       "from_node_id": "obligation-source-kind:amount",

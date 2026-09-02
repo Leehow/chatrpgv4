@@ -196,16 +196,25 @@ def test_coverage_ledger_states_real_director_and_text_availability_gap():
     assert rows["director"]["composition_status"] == "instance-linked"
     # The reason must keep naming why grounding stops where it does.
     assert "unresolved" in rows["director"]["reason"].lower()
-    # TextGraph T0-T5 (5427bd26) made the text layer a production artifact.
-    # Its measured outcome is that no RuleGraph effect has a rendering path,
-    # so it is production-linked with no proven instance — not absent.
+    # TextGraph T0-T5 (5427bd26) made the text layer a production artifact;
+    # slice W1 bridged the three healing effects whose settlements carry a
+    # rendered player_state_receipt, so text is instance-linked — naming the
+    # bridged set and the ledger that measures the unbridged remainder.
     assert rows["text"]["status"] == "production-linked"
-    assert rows["text"]["composition_status"] == "no-proven-instance"
+    assert rows["text"]["composition_status"] == "instance-linked"
     assert rows["module"]["composition_status"] == "no-proven-instance"
     assert not any(
         row["relation_kind"] == "uses-rule" for row in REGISTRY["relations"]
     )
-    assert "no rendering path" in rows["text"]["reason"].lower()
+    assert "text-grounding-gap.md" in rows["text"]["reason"]
+    renders = [
+        row for row in REGISTRY["relations"]
+        if row["relation_kind"] == "renders-settled-output"
+    ]
+    assert len(renders) == 3
+    assert all(
+        row["from_ref"] == "ref:text:segment-type-state-delta" for row in renders
+    )
 
 
 # --- the recorded Module-to-Rule alignment gap (slice W3) ---------------

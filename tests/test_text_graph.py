@@ -159,19 +159,34 @@ def test_the_only_relations_are_the_load_bearing_ones():
 
     T1 shipped zero. T2 adds exactly five: obligation-source-kind part-of
     obligation-kind, which the derivation reads to know which source_kind each
-    namespace may write.
+    namespace may write. W1 adds exactly three renders-settled-output edges,
+    one per public healing effect whose settlement carries a rendered
+    player_state_receipt (consumer chains recorded on
+    coc_text_graph.RENDERED_RULE_EFFECTS).
     """
     relations = ARTIFACT["relations"]
-    assert len(relations) == 20
-    assert {r["relation_kind"] for r in relations} == {"part-of", "advises"}
+    assert len(relations) == 23
+    assert {r["relation_kind"] for r in relations} == {
+        "part-of", "advises", "renders-settled-output"
+    }
     part_of = [r for r in relations if r["relation_kind"] == "part-of"]
     advises = [r for r in relations if r["relation_kind"] == "advises"]
+    renders = [r for r in relations if r["relation_kind"] == "renders-settled-output"]
     # 5 source kinds -> obligation kinds, 10 budget triggers -> budget rungs.
     assert len(part_of) == 15
     # Each rewrite directive advises the rule whose matcher it replaced.
     assert len(advises) == 5
     assert all(r["from_node_id"].startswith("craft-directive:") for r in advises)
     assert all(r["to_node_id"].startswith("review-rule:") for r in advises)
+    # The state-delta mechanics segment renders exactly the three healing
+    # effects with a live receipt -> projection -> rendering chain.
+    assert len(renders) == 3
+    assert all(r["from_node_id"] == "segment-type:state-delta" for r in renders)
+    assert {r["to_node_id"] for r in renders} == {
+        "effect:coc7:healing:first-aid-stabilization",
+        "effect:coc7:healing:medicine-stabilization",
+        "effect:coc7:healing:weekly-hp-recovery",
+    }
     assert "empty_relations_law" in CONTRACT
     assert ARTIFACT["coverage"] == {"obligation": "accepted", "craft": "accepted"}
 
@@ -433,8 +448,11 @@ def test_the_registry_promotes_the_text_graph():
 
     coverage = next(c for c in registry["coverage"] if c["graph_kind"] == "text")
     assert coverage["status"] == "production-linked"
-    # No renders-settled-output edge exists yet, so no instance is claimed.
-    assert coverage["composition_status"] == "no-proven-instance"
+    # W1 drew three renders-settled-output edges with live consumers, so the
+    # coverage now claims exactly those instances and names the ledger that
+    # measures the unbridged remainder.
+    assert coverage["composition_status"] == "instance-linked"
+    assert "text-grounding-gap.md" in coverage["reason"]
 
 
 def test_the_system_ontology_validator_is_clean():
@@ -1120,13 +1138,36 @@ def test_the_grounding_ledger_matches_the_artifacts():
     assert generator.render(generator.build()) == on_disk
 
 
-def test_zero_edges_is_the_measured_outcome_not_unfinished_work():
+def test_the_grounding_measurement_matches_the_artifacts_not_zero():
+    """Flipped by W1 (was test_zero_edges_is_the_measured_outcome_not_unfinished_work).
+
+    The assertion is no longer "zero edges": it is that the ledger's
+    measurement and the artifact agree on exactly which effects are bridged
+    and why the rest are not, so neither side can drift silently.
+    """
     data = _load(
         "gen_text_grounding_ledger_measure", "scripts/gen_text_grounding_ledger.py"
     ).build()
-    assert data["edges"] == 0
+    bridged = sorted(
+        r["effect"] for r in data["effects"] if r["reason"] == "rendered"
+    )
+    artifact_edges = {
+        (r["from_node_id"], r["to_node_id"])
+        for r in ARTIFACT["relations"]
+        if r["relation_kind"] == "renders-settled-output"
+    }
+    assert artifact_edges == {("segment-type:state-delta", e) for e in bridged}
+    assert len(artifact_edges) == data["edges"] == 3
+    assert bridged == [
+        "effect:coc7:healing:first-aid-stabilization",
+        "effect:coc7:healing:medicine-stabilization",
+        "effect:coc7:healing:weekly-hp-recovery",
+    ]
     assert len(data["effects"]) == 23
     assert data["public"] == 22 and data["keeper_only"] == 1
+    assert data["reasons"] == {
+        "rendered": 3, "no-consumer-yet": 19, "keeper-only": 1
+    }
     # The single vocabulary correspondence belongs to the keeper-only effect.
     assert data["token_matches"] == ["luck_spend"]
     matched = [r for r in data["effects"] if r["text_layer_token_match"]]
@@ -1135,13 +1176,36 @@ def test_zero_edges_is_the_measured_outcome_not_unfinished_work():
     assert "grounding_gap_law" in CONTRACT
 
 
-def test_the_registry_does_not_claim_an_instance_it_does_not_have():
+def test_the_registry_claims_only_the_instances_it_has():
+    """W1 flipped the text coverage: three healing effects are now bridged.
+
+    The claim stays bounded — instance-linked names the bridged set and
+    points at the ledger for the measured unbridged remainder.
+    """
     registry = json.loads(
         (REFERENCES / "system-ontology-registry-v1.json").read_text("utf-8")
     )
     coverage = next(c for c in registry["coverage"] if c["graph_kind"] == "text")
-    assert coverage["composition_status"] == "no-proven-instance"
+    assert coverage["composition_status"] == "instance-linked"
     assert "text-grounding-gap.md" in coverage["reason"]
+    for effect in (
+        "effect:coc7:healing:first-aid-stabilization",
+        "effect:coc7:healing:medicine-stabilization",
+        "effect:coc7:healing:weekly-hp-recovery",
+    ):
+        assert effect in coverage["reason"]
+    renders = [
+        r for r in registry["relations"]
+        if r["relation_kind"] == "renders-settled-output"
+    ]
+    assert {r["to_ref"] for r in renders} == {
+        "ref:rule:coc7:effect-first-aid-stabilization",
+        "ref:rule:coc7:effect-medicine-stabilization",
+        "ref:rule:coc7:effect-weekly-hp-recovery",
+    }
+    assert all(
+        r["from_ref"] == "ref:text:segment-type-state-delta" for r in renders
+    )
 
 
 # ===========================================================================
