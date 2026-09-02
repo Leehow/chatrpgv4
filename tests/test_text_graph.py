@@ -367,27 +367,22 @@ def test_the_model_visible_contract_archive_is_byte_identical():
     assert rebuilt == on_disk
 
 
-def test_the_operation_surface_grows_only_on_purpose():
+def test_textgraph_publishes_no_model_visible_operation():
     """surface_law: TextGraph adds no model-visible operation.
 
-    The count is 148, not TextGraph's 147. The one addition since is
-    `state.characteristic_delta`, and it is deliberate: no operation could
-    change a stat after chargen, so an authored consequence that costs one --
-    a spell's POW cost, a drain, time-loop ageing -- had no canonical path and
-    a live Keeper recorded a POW drain as HP damage instead.
-
-    The law this guards is that the surface does not grow by accident. Moving
-    the number is allowed; moving it without saying which operation arrived,
-    and why, is not.
+    This was written as `operation_count == 147`, which states the law only by
+    accident: it also fails whenever any other line adds an operation for a
+    good reason. `state.characteristic_delta` did exactly that, and the frozen
+    number turned red in three suites hours apart, each looking like an
+    unrelated regression. The law is about what TextGraph publishes, so that
+    is what it asserts now; `tests/test_generated_projections.py` keeps the
+    count self-consistent and keeps the constant from coming back.
     """
     contracts = json.loads(
         (REFERENCES / "mcp-operation-contracts.json").read_text("utf-8")
     )
-    assert contracts["operation_count"] == 148
-    assert len(contracts["operations"]) == 148
-    assert "state.characteristic_delta" in contracts["operations"]
-    # TextGraph itself still publishes nothing model-visible.
     assert not [op for op in contracts["operations"] if op.startswith("text.")]
+    assert contracts["operation_count"] == len(contracts["operations"])
 
 
 # ---------------------------------------------------------------------------

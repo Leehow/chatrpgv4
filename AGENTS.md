@@ -194,6 +194,44 @@ host-specific copy, alternate toolbox, reduced Pi facade, or forked path.
   route through another host. The gate is `HOST_NATIVE_IMAGEGEN` in
   `rulesets/coc7/skills/coc-character/SKILL.md`.
 
+## Parallel Lines And The Operation Surface
+
+Three lines develop against this repository at once — rules, director, text —
+and the operation surface is the seam all three touch. Two failure shapes come
+out of that seam. Both are mechanical; neither is a judgement call.
+
+**A conflict in a generated projection.** `references/mcp-operation-contracts.json`
+and `pi/lib/operation-policy.generated.ts` are derived from the canonical
+operation registry and committed. Any two lines that add an operation conflict
+on `operation_count` and `content_sha256`, every time. Both sides are equally
+wrong and equally right, because both are output. Resolve it the same way
+every time:
+
+```bash
+git checkout --ours plugins/coc-keeper/references/mcp-operation-contracts.json
+uv run --frozen python plugins/coc-keeper/scripts/coc_mcp_contract_archive.py build
+```
+
+Then stage both generated files. `tests/test_generated_projections.py` fails if
+you forget the second command, so a hand-resolved projection cannot reach a
+table.
+
+**A frozen count in someone else's suite.** Never assert the size of the
+operation surface against a literal. Four separate suites had done it, at three
+different values, and one deliberate addition turned them red hours apart in
+suites their authors were not editing — each looking like an unrelated
+regression. Assert what the test is about instead: self-consistency
+(`archive["operation_count"] == len(archive["operations"])`) or the membership
+the test actually needs. `test_no_test_hardcodes_the_operation_count` keeps the
+constant from coming back.
+
+**Sync direction matters more than either.** Merge the integration branch into
+your branch often, rather than saving it for the end. Five small merges during
+one session were all trivial; the one time the branch was left to drift 39
+commits, the generated projection conflicted. Layers are how the code is
+organized, not how branches should be: a long-lived branch per layer diverges
+by construction.
+
 ## Keeper Toolbox Architecture
 
 The live Keeper drives every turn, choosing semantically from canonical skills

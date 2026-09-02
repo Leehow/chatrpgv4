@@ -1519,8 +1519,12 @@ def test_delivery_replay_contract_projects_typed_keeper_context():
     archive = archive_mod.load_and_validate(ARCHIVE_PATH, server.toolbox)
 
     # module.context and the ruleset-bound magic pair extend the canonical
-    # registry; replay itself adds no additional operation.
-    assert archive["operation_count"] == 147
+    # registry; replay itself adds no additional operation. The claim is that
+    # `session.delivery_text` carries replay without a new operation, which the
+    # assertions below state directly — the total was a third copy of a
+    # constant that any other line's legitimate addition breaks, and did.
+    assert archive["operation_count"] == len(archive["operations"])
+    assert "session.delivery_replay" not in archive["operations"]
     assert "session.delivery_text" in archive["operations"]
     contract = archive["operations"]["session.delivery_text"]
 
