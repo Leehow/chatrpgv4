@@ -341,3 +341,93 @@ def test_chrome_overrides_do_not_collide_with_rulebook_terminology():
         "an unprefixed key must not reach chrome; the prefix is what keeps "
         "rulebook terms and render furniture from overwriting each other"
     )
+
+
+# ---------------------------------------------------------------------------
+# The writer: localized_terms had no entrance until now
+# ---------------------------------------------------------------------------
+
+def _fresh_campaign(language: str = "fr-FR") -> dict:
+    return {
+        "campaign_id": "chrome-writer",
+        "play_language": language,
+        "localized_terms": {language: {}},
+    }
+
+
+def test_the_writer_puts_chrome_where_the_renderer_reads_it():
+    """A round trip: what the writer stores is what the renderer resolves.
+
+    The two halves were built in separate commits and could easily disagree on
+    the key shape, which nothing else would catch -- a campaign would store
+    labels the renderer never looks at and stay silently English.
+    """
+    import coc_state
+
+    campaign = _fresh_campaign()
+    coc_state.set_campaign_player_vocabulary(
+        campaign, "fr-FR", {
+            "chrome.change_tag": "Changement",
+            "chrome.condition_delta": "état : {action} « {condition} »",
+            "chrome.condition_action_added": "ajouté",
+        },
+    )
+    stored = campaign["localized_terms"]["fr-FR"]
+    rendered = coc_turn._render_state_delta(
+        {
+            "effect_kind": "condition", "action": "added",
+            "condition": "prone", "effect_id": "e",
+        },
+        play_language="fr-FR",
+        terms=stored,
+    )
+    assert rendered == "【Changement】état : ajouté « prone »"
+
+
+def test_a_misspelled_chrome_key_is_rejected_not_ignored():
+    """Ignoring it leaves a campaign one label short of complete, forever.
+
+    That one label renders in English inside otherwise French output, which is
+    the mixed-language defect this work removed from ja-JP. Failing at write
+    time is how the author finds out; failing silently is how a table ships
+    broken.
+    """
+    import coc_state
+
+    campaign = _fresh_campaign()
+    with pytest.raises(ValueError, match="unknown chrome label"):
+        coc_state.set_campaign_player_vocabulary(
+            campaign, "fr-FR", {"chrome.chagne_tag": "Changement"},
+        )
+    assert campaign["localized_terms"]["fr-FR"] == {}, (
+        "a rejected write must leave nothing behind"
+    )
+
+
+def test_rulebook_terms_and_chrome_share_the_map_without_colliding():
+    """`Spot Hidden` and `chrome.change_tag` are both vocabulary, not the same kind."""
+    import coc_state
+
+    campaign = _fresh_campaign()
+    report = coc_state.set_campaign_player_vocabulary(
+        campaign, "fr-FR", {
+            "Spot Hidden": "Trouver objet caché",
+            "chrome.change_tag": "Changement",
+        },
+    )
+    assert report["written"] == 2
+    assert report["chrome_coverage"]["overridden"] == 1, (
+        "the rulebook term must not count toward chrome coverage"
+    )
+
+
+def test_the_writer_reports_incompleteness_rather_than_declaring_success():
+    """Three labels written is not a French table; the report has to say so."""
+    import coc_state
+
+    campaign = _fresh_campaign()
+    report = coc_state.set_campaign_player_vocabulary(
+        campaign, "fr-FR", {"chrome.change_tag": "Changement"},
+    )
+    assert report["chrome_coverage"]["complete"] is False
+    assert report["chrome_coverage"]["substituted"] is True
