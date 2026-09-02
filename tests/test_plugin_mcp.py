@@ -3805,11 +3805,13 @@ def _healing_rule_decision_card() -> dict:
             "rescuer_id",
             "skill_value",
         ],
-        "rule_refs": ["rule:coc7:healing:first-aid"],
-        "source_refs": [
-            "span-wounds-and-healing-page-131-block-18",
-            "span-wounds-and-healing-page-131-block-24",
-        ],
+        # 9f2d4b5a hoisted the refs onto the block's ref_table and left the
+        # card carrying indexes into it. A card still holding the inline
+        # `rule_refs` / `source_refs` fails the closed card field set, which
+        # drops the card, which empties the block, which drops the block --
+        # so the stale name surfaced as a missing key, not a wrong value.
+        "rule_ref_ids": [0],
+        "source_ref_ids": [0, 1],
         "capability_ref": "capability:coc7:first-aid",
         "effect_refs": [],
         "possible_continuations": [],
@@ -3832,6 +3834,19 @@ def _healing_rule_decision_block(cards: list[dict] | None = None) -> dict:
         "investigator_id": "opaque-canonical-investigator-id",
         "status": "ok",
         "cards": cards or [_healing_rule_decision_card()],
+        # `ref_table` joined the block's closed field set in 9f2d4b5a, which
+        # hoisted the rule and source refs off each card. The wire compactor
+        # requires the input field set to match exactly, so a block without it
+        # is dropped whole -- and a dropped block is a KeyError here rather
+        # than a visibly wrong projection.
+        "ref_table": {
+            "rule_refs": ["rule:coc7:healing:first-aid"],
+            "source_refs": [
+                "span-wounds-and-healing-page-131-block-18",
+                "span-wounds-and-healing-page-131-block-24",
+            ],
+            "resolution": "Regular First Aid",
+        },
         "authority": {
             "hard_gate": False,
             "role": "affordance",
@@ -4012,12 +4027,19 @@ def test_mcp_wire_rule_card_closed_schema_is_ruleset_neutral():
         "decision_ref": "decision:spark:restoration:stabilize-reactor",
         "family": "restoration",
         "label": "Stabilize the damaged reactor",
-        "rule_refs": ["rule:spark:restoration:reactor-stability"],
-        "source_refs": ["source:spark:core-manual:reactor-stability"],
+        # The refs live on the block's table now, so a foreign ruleset is
+        # retargeted there; the card only indexes it.
+        "rule_ref_ids": [0],
+        "source_ref_ids": [0],
         "capability_ref": "capability:spark:stabilize-reactor",
     })
     block = _healing_rule_decision_block([card])
     block["family"] = "restoration"
+    block["ref_table"] = {
+        "rule_refs": ["rule:spark:restoration:reactor-stability"],
+        "source_refs": ["source:spark:core-manual:reactor-stability"],
+        "resolution": "Stabilize check",
+    }
 
     projected = _project_scene_rule_cards(server, block)
 
@@ -5856,6 +5878,16 @@ def test_mcp_wire_projects_hot_turn_receipts_without_repeating_full_payloads():
                 "schema_version": 1,
                 "turn_id": "turn-a",
                 "journal_decision_id": "journal-a",
+                # The finalize and agency cards survive only alongside the
+                # closed actionable draft status; without it the projector
+                # pops them, which reads as a missing key rather than a
+                # suppressed card.
+                "pending_narration_draft_status": {
+                    "schema_version": 1,
+                    "secrecy": "keeper_only",
+                    "actionable": True,
+                    "status": "not_submitted",
+                },
                 "source_digest": "sha256:source",
                 "obligations": [],
                 "required_obligation_ids": [],
@@ -5990,6 +6022,16 @@ def test_mcp_wire_finalize_card_matches_archive_and_never_prefills_semantics():
             "tool": "turn.output_context",
             "data": {
                 "journal_decision_id": "journal-with-obligations",
+                # The finalize and agency cards survive only alongside the
+                # closed actionable draft status; without it the projector
+                # pops them, which reads as a missing key rather than a
+                # suppressed card.
+                "pending_narration_draft_status": {
+                    "schema_version": 1,
+                    "secrecy": "keeper_only",
+                    "actionable": True,
+                    "status": "not_submitted",
+                },
                 "contract_projection": {
                     "agency_review_required": False,
                 },
@@ -6094,6 +6136,12 @@ def test_mcp_wire_tight_output_context_preserves_explicit_review_mode():
             "settlement_snapshot_id": f"turn-settlement-v1:tight-{revision}",
             "mechanics_bundle_sha256": f"sha256:mechanics-tight-{revision}",
             "required_obligation_ids": [],
+            "pending_narration_draft_status": {
+                "schema_version": 1,
+                "secrecy": "keeper_only",
+                "actionable": True,
+                "status": "not_submitted",
+            },
             "contract_projection": {
                 "agency_review_required": agency_review_required,
                 "agency_authority": {
