@@ -6124,7 +6124,7 @@ def execute_setup_operation(
     if kind == "campaign.create":
         allowed = {
             "campaign_id", "title", "era", "play_language", "start_clock",
-            "ruleset_id",
+            "ruleset_id", "play_register",
         }
         if set(payload) - allowed or not {"campaign_id", "title"} <= set(payload):
             raise RuntimeOperationError(
@@ -6141,6 +6141,17 @@ def execute_setup_operation(
         path = root / ".coc" / "campaigns" / campaign_id / "campaign.json"
         if path.exists():
             raise FileExistsError(f"campaign already exists: {campaign_id}")
+        play_register = payload.get("play_register")
+        if play_register is not None:
+            import coc_text_runtime
+
+            known = set(coc_text_runtime.craft()["play_registers"])
+            if not isinstance(play_register, str) or play_register.strip() not in known:
+                raise RuntimeOperationError(
+                    "campaign.create play_register must be one of "
+                    f"{sorted(known)}; omit it to leave the register undeclared"
+                )
+            play_register = play_register.strip()
         ruleset_id = payload.get("ruleset_id")
         if ruleset_id is not None and (
             not isinstance(ruleset_id, str) or not ruleset_id.strip()
@@ -6158,6 +6169,10 @@ def execute_setup_operation(
                 # blocks character creation on a raw-PDF campaign.
                 era=payload.get("era"),
                 play_language=str(payload.get("play_language") or "zh-Hans"),
+                # Never defaulted to a pole. The core Keeper Rulebook supports
+                # the range between purist and pulp, so a table that did not
+                # choose stays undeclared rather than being told it picked one.
+                play_register=play_register,
                 start_clock=payload.get("start_clock"),
                 ruleset_id=(
                     ruleset_id.strip()

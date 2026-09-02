@@ -4,6 +4,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+
+import pytest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -263,3 +265,55 @@ def test_banter_signals_survive_the_wire_projection():
         "the field is not registered in the output_context projection; the "
         "operation will return it and the model will never see it"
     )
+
+
+def test_play_register_has_a_model_facing_entrance(tmp_path):
+    """A field only settable from Python is a field no table can choose.
+
+    `play_language` had exactly this gap and it blocked TextGraph T5's live
+    gate; `localized_terms` had it and stayed empty across 249 campaigns. The
+    register would have been the third: threaded through create_campaign,
+    delivered to the Keeper, and unreachable by anything the Keeper could call.
+    """
+    import coc_runtime_ops
+    import coc_state
+
+    coc_state.ensure_workspace(tmp_path)
+    coc_runtime_ops.execute_setup_operation(
+        tmp_path,
+        operation={
+            "schema_version": 1, "kind": "campaign.create",
+            "payload": {
+                "campaign_id": "pulp-table", "title": "T",
+                "play_register": "pulp",
+            },
+        },
+    )
+    stored = json.loads(
+        (tmp_path / ".coc" / "campaigns" / "pulp-table" / "campaign.json")
+        .read_text(encoding="utf-8")
+    )
+    assert stored["play_register"] == "pulp"
+
+
+def test_an_unknown_register_is_refused_with_the_choices_named(tmp_path):
+    """`gritty` is a reasonable-sounding register this game does not have.
+
+    Silently accepting it would persist a value nothing reads, and the Keeper
+    would be handed a register that means nothing. The error names the two real
+    ones and says omitting is allowed.
+    """
+    import coc_runtime_ops
+    import coc_state
+
+    coc_state.ensure_workspace(tmp_path)
+    with pytest.raises(Exception, match="play_register must be one of"):
+        coc_runtime_ops.execute_setup_operation(
+            tmp_path,
+            operation={
+                "schema_version": 1, "kind": "campaign.create",
+                "payload": {
+                    "campaign_id": "bad", "title": "T", "play_register": "gritty",
+                },
+            },
+        )
