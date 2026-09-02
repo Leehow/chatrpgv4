@@ -7685,6 +7685,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             "coc_discover",
             "subagent",
             "subagent_wait",
+            // Cold-start capabilities are how a setup-role Keeper learns the
+            // coordinator dispatch it is told to make: the opening source
+            // review advances through no Keeper operation, only through that
+            // subagent, and its task lives in
+            // `coc_capabilities.data.cold_start`. Telling the Keeper to call
+            // something absent from its own surface is why campaign
+            // too-many-1920 sat at that gate on 2026-09-02.
+            ...(role === "setup" ? ["coc_capabilities"] : []),
             ...(directFinalize ? ["coc_invoke"] : []),
             ...extraToolsForSessionRole(role),
           ],
