@@ -34,9 +34,17 @@ def main() -> int:
         )
         return 64
     resumed = False
+    prompt_log = os.environ.get("FAKE_DEBUG_PROMPT_LOG")
     for raw in sys.stdin:
         command = json.loads(raw)
         kind = command.get("type")
+        if kind == "prompt" and prompt_log:
+            # Tests read back exactly what the host sent on the prompt channel.
+            with open(prompt_log, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps({
+                    "id": command.get("id"),
+                    "message": command.get("message"),
+                }, ensure_ascii=False) + "\n")
         if kind == "prompt" and not resumed:
             emit({"type": "agent_start"})
             emit({
