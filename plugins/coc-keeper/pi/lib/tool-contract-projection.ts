@@ -3933,9 +3933,14 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   // semantic_identity_unavailable at the KP.
   ["state.move_scene", declaredIdentityTable(
     [
-      "asset_root_id", "from_location_id", "from_scene_id", "scene_id",
-      "to_location_id", "to_scene_id",
+      "asset_root_id", "campaign_id", "from_location_id", "from_scene_id",
+      "scene_id", "to_location_id", "to_scene_id",
       ...SCENE_SUPPLY_SEMANTIC_IDENTITY_FIELDS,
+      // A scene keeps the source's own mentions under
+      // `scene.source_context_mentions`, each an entity kind plus its
+      // `ref_id`; the module projection writes them on every source-bound
+      // scene, so an undeclared ref_id failed the whole move closed.
+      "ref_id",
     ],
     [],
   )],
