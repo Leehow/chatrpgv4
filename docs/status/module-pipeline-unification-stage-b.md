@@ -486,9 +486,15 @@ Keeper should have every parameter, tables run house rules", and
 ## 6. Honest boundary
 
 - Proven: graph → deterministic projection → complete install → live Keeper
-  opening and one investigation turn on the real product path.
-- Not proven: a full natural playthrough (the module's crossing into 1287, the
-  loop reset, clue discovery through play, the church climax). Blocked by §5.
+  play on the real product path, from the opening through the town to
+  `scene-church-climax`, five of the module's seven scenes. Clue discovery
+  through play is proven (`clue-henry-scott-testimony` from an NPC
+  conversation, `clue-crown-slab-heraldry` from searching the crypt), and
+  `clock-loop-doom` now stands at 2/6 — it had never left 0 before finding 17.
+- Not proven: the last two scenes (`scene-edge-of-the-world`,
+  `scene-epilogue-distant-shore`), the loop reset itself, and the ageing its
+  `on_full` prescribes. The doom clock is running now rather than stuck, so
+  this is remaining play rather than a blocked path.
 - Not claimed: the external `coc-pdf-pipeline` extract waves are not retired;
   per the spec's freeze rule they remain the operating route until Stage D.
 - Bundle note: the external producer's `source_id`
