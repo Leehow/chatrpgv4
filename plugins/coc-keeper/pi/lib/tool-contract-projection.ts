@@ -7,6 +7,7 @@
  * recovery metadata to an existing canonical failure envelope.
  */
 import type { JsonSchema } from "./operation-contracts.ts";
+import { OBLIGATION_ID_PREFIXES } from "./obligation-namespace.generated.ts";
 import type { SemanticProjectionView } from "./semantic-identity-registry.ts";
 
 export type StateJournalBindingCard = {
@@ -8018,8 +8019,8 @@ const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["presented_roll_ids", stringSet(["roll:"])],
   ["source_roll_id", stringSet(["roll:"])],
   ["source_ids", stringSet(["roll:"])],
-  ["obligation_id", stringSet(["roll:", "first-impression:", "sanity_bout:"])],
-  ["obligation_ids", stringSet(["roll:", "first-impression:", "sanity_bout:"])],
+  ["obligation_id", stringSet([...OBLIGATION_ID_PREFIXES])],
+  ["obligation_ids", stringSet([...OBLIGATION_ID_PREFIXES])],
   ["consuming_roll_id", stringSet(["roll:"])],
   ["resolution_roll_id", stringSet(["roll:"])],
   ["source_effect_id", stringSet(["roll:", "state:", "rule:", "check:", "narration_contract:", "effect:"])],
@@ -8854,9 +8855,8 @@ const RESTORE_ROLL_ARRAYS: ReadonlySet<string> = new Set([
 const OBLIGATION_ID_FIELDS: ReadonlySet<string> = new Set([
   "obligation_id", "obligation_ids", "required_obligation_ids",
 ]);
-const PYTHON_OBLIGATION_PREFIXES = [
-  "roll:", "first-impression:", "sanity_bout:",
-] as const;
+// Was a hand-copy of a TextGraph-owned vocabulary, under a name that said so.
+const PYTHON_OBLIGATION_PREFIXES = OBLIGATION_ID_PREFIXES;
 
 /** Coverage join keys must match Python's kind-prefixed obligation_id. */
 function toPythonObligationId(canonical: string): string {
