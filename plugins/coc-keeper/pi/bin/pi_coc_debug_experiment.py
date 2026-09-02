@@ -1687,6 +1687,12 @@ class PiRpcLaneAdapter:
             environment.update({
                 "COC_WORKSPACE": str(materialized["workspace_root"]),
                 "PI_COC_AGENT_DIR": str(private_home),
+                # This session is a diagnostic lane: it drives its own
+                # resume prompt, so the host must not also hand it the
+                # startup instruction (the two compete and the Keeper
+                # follows the host's, spending the lane budget on skill-doc
+                # reads and tool discovery before any rule).
+                "PI_COC_DEBUG_LANE": "1",
                 "PI_COC_SESSION_ID": (
                     f"{run['experiment_id']}-{lane['id']}"
                 ),

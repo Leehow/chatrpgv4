@@ -571,6 +571,80 @@ class Coc7RuleGraphAdapter:
         }
 
     @staticmethod
+    def effect_producer_index() -> dict[str, dict[str, str]]:
+        """Every effect kind the CoC7 graph may declare, and what produces it.
+
+        The graph's `effect` nodes carry a name and nothing else, and the
+        settle path never reads them, so a graph edit could declare an effect
+        no code produces and nothing would notice. This table is the closed
+        counterpart: it is maintained here, independent of the graph, so the
+        conformance test can compare the two and fail on either side drifting.
+
+        `via` says how the effect reaches the world:
+
+        - `capability` — the emitting decision invokes a graph capability
+          whose `resolver_capability` is this producer, and the executor
+          behind it writes the effect.
+        - `host_state` — the graph declares the effect on a pending choice
+          with no capability of its own; the Keeper records it through this
+          host state operation, and the kernel consumes it later (the
+          one-use social penalty die is the only such effect today).
+        """
+        chase = {"producer": "chase.execute", "via": "capability"}
+        return {
+            "barrier-resolved": chase,
+            "chase-ended": chase,
+            "chase-started": chase,
+            "conflict-resolved": chase,
+            "hazard-resolved": chase,
+            "position-changed": chase,
+            "development-settled": {
+                "producer": "state.end_session", "via": "capability",
+            },
+            "ending-recorded": {
+                "producer": "state.end_session", "via": "capability",
+            },
+            "luck-recovery": {
+                "producer": "development.settle", "via": "capability",
+            },
+            "san-reward": {
+                "producer": "development.settle", "via": "capability",
+            },
+            "skill-improvement": {
+                "producer": "development.settle", "via": "capability",
+            },
+            "first-aid-hp-or-temporary-stabilization": {
+                "producer": "first_aid", "via": "capability",
+            },
+            "medicine-hp-or-dying-stabilization": {
+                "producer": "medicine", "via": "capability",
+            },
+            "weekly-major-wound-hp-recovery": {
+                "producer": "weekly_recovery", "via": "capability",
+            },
+            "hp-overspill": {"producer": "magic.cast", "via": "capability"},
+            "mp-spent": {"producer": "magic.cast", "via": "capability"},
+            "san-spent": {"producer": "magic.cast", "via": "capability"},
+            "spell-cast": {"producer": "magic.cast", "via": "capability"},
+            "entity-san-cost": {
+                "producer": "magic.learn", "via": "capability",
+            },
+            "spell-learned": {
+                "producer": "magic.learn", "via": "capability",
+            },
+            "study-scheduled": {
+                "producer": "magic.learn", "via": "capability",
+            },
+            # The graph spells this one with an underscore while every other
+            # effect kind is hyphenated; the name is source-bound, so it is
+            # recorded as authored rather than silently normalized here.
+            "luck_spend": {"producer": "luck_spend", "via": "capability"},
+            "one-use-penalty-die": {
+                "producer": "state.exceptional_effect", "via": "host_state",
+            },
+        }
+
+    @staticmethod
     def augment_facts(
         runtime: Any,
         selected: Mapping[str, Any] | None,
