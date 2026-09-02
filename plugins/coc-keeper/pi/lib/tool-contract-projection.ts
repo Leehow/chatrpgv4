@@ -566,6 +566,15 @@ const PI_SCHEMA_CODES = new Set<string>([
   "missing_parameters",
   "invalid_arguments",
   "invalid_param_type",
+  // A model-authored semantic input key that is not a declared slot. The
+  // envelope names the offending key AND lists every declared slot, so the
+  // correction is always "resend this call without that key" -- the most
+  // recoverable failure there is. Without this entry it fell through to
+  // invariant_terminal / recoverable_by "none" / no next action, the same way
+  // `rule_decision_stale` did before its own entry: the Keeper is told the
+  // turn is over while the way out is in its hand. Seen live on 2026-09-02,
+  // settling a social difficulty adjudication with a stray `source_ref`.
+  "unknown_semantic_input",
 ]);
 
 /** Single schema-code policy shared by classification and schema attachment. */
