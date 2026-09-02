@@ -313,7 +313,10 @@ def test_generated_catalog_and_policy_projection_pick_up_the_slice():
     archive = coc_mcp_contract_archive.load_and_validate(ARCHIVE_PATH)
     assert STATUS_TOOL in archive["operations"]
     assert SETTLE_TOOL in archive["operations"]
-    assert archive["operation_count"] == len(coc_toolbox.TOOLS) == 141
+    # The law is that the generated archive matches the live registry. The
+    # trailing `== 141` was a frozen copy of a number three other suites also
+    # froze, at three different values; it had already rotted here.
+    assert archive["operation_count"] == len(coc_toolbox.TOOLS)
     projection = coc_mcp_contract_archive.validate_policy_projection(
         POLICY_TS_PATH, coc_toolbox
     )

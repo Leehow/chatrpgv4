@@ -31,10 +31,41 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 import coc_git_history  # noqa: E402
+import coc_npc_identity  # noqa: E402
 
 
 _LANE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 _CAMPAIGN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+# Scene / NPC / clue / flag ids are authored semantic tokens; the same safe
+# id grammar the kernel accepts for campaign-scoped identifiers.
+_SITUATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_SITUATION_STRUCTURAL_KEYS = frozenset({
+    "scene_id", "npc_presence", "clue_ids", "flags",
+})
+_SITUATION_KEYS = _SITUATION_STRUCTURAL_KEYS | {"establish_from_prompt"}
+_MAX_SITUATION_LIST = 20
+_TOOLBOX_SCRIPT = _SCRIPTS / "coc_toolbox.py"
+_SITUATION_SEED_REASON = "host debug situation seeding"
+_SITUATION_PROMPT_INSTRUCTION = (
+    "[Host diagnostic instruction — not a player action] For this diagnostic "
+    "lane the player's message below describes the situation the investigators "
+    "are to be in. Before adjudicating it, establish that situation through the "
+    "canonical state operations (state.move_scene, state.npc_presence, "
+    "state.record_clue, state.set_flag); the party moves only through those "
+    "tools. Do not fabricate mechanics: dice go through rules.* and results are "
+    "never invented. Then adjudicate the message as the player's action in that "
+    "situation."
+)
+# Structural seeding lands after session.resume settled at awaiting_player.
+# Seeding before the resume was tried on the real host: the seed rows read as
+# an interrupted turn (open_turn_recovery), the Pi host then refused to act
+# (acting_authorized=false, player input unbindable) and the lane deadlocked.
+_SITUATION_SEEDED_TURN_NOTE = (
+    "[Host diagnostic note — not a player action] After your resume, the host "
+    "pre-established a situation through canonical state operations (scene, NPC "
+    "presence, clues, flags). Re-read scene.context before adjudicating the "
+    "player's message below, and do not treat its situation as an unearned claim."
+)
 _PROFILE_IDS = frozenset({
     "production",
     "rules-all-single-draft",
@@ -60,6 +91,10 @@ _POST_FINALIZATION_AUDIT_PATHS = frozenset({
     "logs/canonical-events-sequence.json",
     "logs/canonical-events.jsonl",
     "logs/delivery-receipts.jsonl",
+    # session.resume's orphan-roll quarantine appends `turn_tail_abandoned`
+    # here after restoring save/ from the tip; the committed state is
+    # untouched, so this is audit drift like the canonical event log.
+    "logs/events.jsonl",
     "logs/toolbox-calls.jsonl",
 })
 _POST_FINALIZATION_OVERLAY_PATHS = frozenset({
@@ -191,16 +226,253 @@ def _write_lane_director_graph(
         json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     return destination
+def _situation_id(value: Any, *, label: str) -> str:
+    token = _nonempty_text(value, label=label)
+    if _SITUATION_ID.fullmatch(token) is None:
+        raise DebugExperimentError(
+            "debug_request_invalid", f"{label} must be a stable semantic id",
+        )
+    return token
+
+
+def _situation_id_list(value: Any, *, label: str) -> list[str]:
+    if not isinstance(value, list) or not 1 <= len(value) <= _MAX_SITUATION_LIST:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label} must be a list of 1 to {_MAX_SITUATION_LIST} ids",
+        )
+    ids = [_situation_id(item, label=f"{label}[{index}]") for index, item in enumerate(value)]
+    if len(set(ids)) != len(ids):
+        raise DebugExperimentError("debug_request_invalid", f"{label} contains duplicate ids")
+    return ids
+
+
+def _normalize_situation(raw: Any, *, label: str) -> dict[str, Any]:
+    """Closed diagnostic situation: structural seeding or prompt-established.
+
+    Both shapes are diagnostic-only. Structural seeding is applied in the
+    sandbox lane through canonical state operations before the resume prompt;
+    the prompt shape only prepends a host-owned instruction to the natural
+    player message. Neither carries seeds, results, tools, paths, or env.
+    """
+    situation = _strict_object(raw, label=label)
+    _exact_keys(situation, set(_SITUATION_KEYS), label=label)
+    if not situation:
+        raise DebugExperimentError("debug_request_invalid", f"{label} must not be empty")
+    if "establish_from_prompt" in situation:
+        if situation["establish_from_prompt"] is not True:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}.establish_from_prompt must be exactly true",
+            )
+        if len(situation) != 1:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label} cannot mix establish_from_prompt with structural seeding",
+            )
+        return {"shape": "prompt"}
+    scene_id = (
+        _situation_id(situation["scene_id"], label=f"{label}.scene_id")
+        if "scene_id" in situation
+        else None
+    )
+    npc_presence = (
+        _situation_id_list(situation["npc_presence"], label=f"{label}.npc_presence")
+        if "npc_presence" in situation
+        else []
+    )
+    if npc_presence and scene_id is None:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label}.npc_presence requires {label}.scene_id (presence is per scene)",
+        )
+    clue_ids = (
+        _situation_id_list(situation["clue_ids"], label=f"{label}.clue_ids")
+        if "clue_ids" in situation
+        else []
+    )
+    flags: dict[str, bool] = {}
+    if "flags" in situation:
+        raw_flags = _strict_object(situation["flags"], label=f"{label}.flags")
+        if not 1 <= len(raw_flags) <= _MAX_SITUATION_LIST:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}.flags must hold 1 to {_MAX_SITUATION_LIST} flags",
+            )
+        for key, value in raw_flags.items():
+            flag_id = _situation_id(key, label=f"{label}.flags key")
+            if not isinstance(value, bool):
+                raise DebugExperimentError(
+                    "debug_request_invalid", f"{label}.flags[{flag_id}] must be boolean",
+                )
+            flags[flag_id] = value
+    return {
+        "shape": "structural",
+        "scene_id": scene_id,
+        "npc_presence": npc_presence,
+        "clue_ids": clue_ids,
+        "flags": flags,
+    }
+
+
+def _situation_operations(lane: dict[str, Any], campaign_id: str) -> list[dict[str, Any]]:
+    """Canonical toolbox calls, in order, that seed one structural situation.
+
+    Decision ids are semantic and lane-scoped so a sandbox replay of the same
+    lane is idempotent and evidence names the exact seeded target.
+    """
+    situation = lane.get("situation") or {}
+    if situation.get("shape") != "structural":
+        return []
+    lane_id = lane["id"]
+    reason = f"{_SITUATION_SEED_REASON} for lane {lane_id}"
+    operations: list[dict[str, Any]] = []
+    scene_id = situation.get("scene_id")
+    if scene_id:
+        operations.append({
+            "operation": "state.move_scene",
+            "arguments": {
+                "campaign": campaign_id,
+                "scene_id": scene_id,
+                "reason": reason,
+                "decision_id": f"debug-situation:{lane_id}:move-scene:{scene_id}",
+            },
+        })
+    for npc_id in situation.get("npc_presence") or []:
+        operations.append({
+            "operation": "state.npc_presence",
+            "arguments": {
+                "campaign": campaign_id,
+                "npc_id": npc_id,
+                "scene_id": scene_id,
+                "status": "present",
+                "reason": reason,
+                "decision_id": f"debug-situation:{lane_id}:npc-presence:{npc_id}",
+            },
+        })
+    for clue_id in situation.get("clue_ids") or []:
+        operations.append({
+            "operation": "state.record_clue",
+            "arguments": {
+                "campaign": campaign_id,
+                "clue_id": clue_id,
+                "method": reason,
+                "decision_id": f"debug-situation:{lane_id}:record-clue:{clue_id}",
+            },
+        })
+    for flag_id, value in (situation.get("flags") or {}).items():
+        operations.append({
+            "operation": "state.set_flag",
+            "arguments": {
+                "campaign": campaign_id,
+                "flag_id": flag_id,
+                "value": value,
+                "reason": reason,
+                "decision_id": f"debug-situation:{lane_id}:set-flag:{flag_id}",
+            },
+        })
+    return operations
+
+
+def _load_scenario_file(scenario_dir: Path, name: str) -> dict[str, Any]:
+    path = scenario_dir / name
+    if not path.is_file() or path.is_symlink():
+        raise DebugExperimentError(
+            "situation_catalog_unavailable",
+            f"the sealed campaign has no readable scenario/{name}",
+        )
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise DebugExperimentError(
+            "situation_catalog_unavailable", f"scenario/{name} is unreadable",
+        ) from exc
+    if not isinstance(value, dict):
+        raise DebugExperimentError(
+            "situation_catalog_unavailable", f"scenario/{name} is not an object",
+        )
+    return value
+
+
+def _validate_lane_situations(spec: dict[str, Any], checkpoint: dict[str, Any]) -> None:
+    """Fail closed at planning on ids the sealed campaign does not author.
+
+    Reads the sealed campaign's compiled scenario tables (the same files the
+    kernel's ``Ctx.story_graph`` / ``clue_graph`` / ``npc_agendas`` load) so
+    no lane spawns for a scene, NPC, or clue the Keeper could never present.
+    Flags are free authored tokens and are only grammar-checked.
+    """
+    structural = [
+        lane for lane in spec["lanes"]
+        if (lane.get("situation") or {}).get("shape") == "structural"
+    ]
+    if not structural:
+        return
+    source_campaign = checkpoint.get("source_campaign")
+    if not isinstance(source_campaign, str) or not source_campaign:
+        raise DebugExperimentError(
+            "situation_catalog_unavailable",
+            "the sealed checkpoint names no source campaign for id validation",
+        )
+    scenario_dir = Path(source_campaign) / "scenario"
+    if not scenario_dir.is_dir() or scenario_dir.is_symlink():
+        raise DebugExperimentError(
+            "situation_catalog_unavailable",
+            "the sealed campaign has no scenario directory",
+        )
+    story_graph = _load_scenario_file(scenario_dir, "story-graph.json")
+    clue_graph = _load_scenario_file(scenario_dir, "clue-graph.json")
+    npc_agendas = _load_scenario_file(scenario_dir, "npc-agendas.json")
+    scene_ids = {
+        str(scene.get("scene_id"))
+        for scene in story_graph.get("scenes") or []
+        if isinstance(scene, dict) and scene.get("scene_id")
+    }
+    clue_ids = {
+        str(clue.get("clue_id"))
+        for conclusion in clue_graph.get("conclusions") or []
+        if isinstance(conclusion, dict)
+        for clue in conclusion.get("clues") or []
+        if isinstance(clue, dict) and clue.get("clue_id")
+    }
+    for lane in structural:
+        situation = lane["situation"]
+        scene_id = situation.get("scene_id")
+        if scene_id is not None and scene_id not in scene_ids:
+            raise DebugExperimentError(
+                "situation_unknown_scene",
+                f"lane {lane['id']}: scene {scene_id!r} is not in the sealed story graph",
+            )
+        for npc_id in situation.get("npc_presence") or []:
+            if coc_npc_identity.resolve_authored_npc(npc_agendas, npc_id) is None:
+                raise DebugExperimentError(
+                    "situation_unknown_npc",
+                    f"lane {lane['id']}: NPC {npc_id!r} is not authored in the sealed campaign",
+                )
+        for clue_id in situation.get("clue_ids") or []:
+            if clue_id not in clue_ids:
+                raise DebugExperimentError(
+                    "situation_unknown_clue",
+                    f"lane {lane['id']}: clue {clue_id!r} is not in the sealed clue graph",
+                )
 
 
 def _normalize_run_spec(raw: Any) -> dict[str, Any]:
     spec = _strict_object(raw, label="run spec")
     _exact_keys(
         spec,
-        {"player_input", "lanes", "record", "concurrency", "timeout_seconds"},
+        {
+            "player_input", "lanes", "record", "concurrency",
+            "timeout_seconds", "situation",
+        },
         label="run spec",
     )
     player_input = _nonempty_text(spec.get("player_input"), label="player_input")
+    run_situation = (
+        _normalize_situation(spec["situation"], label="situation")
+        if "situation" in spec
+        else None
+    )
     raw_lanes = spec.get("lanes")
     if not isinstance(raw_lanes, list) or not 1 <= len(raw_lanes) <= _MAX_LANES:
         raise DebugExperimentError(
@@ -213,7 +485,7 @@ def _normalize_run_spec(raw: Any) -> dict[str, Any]:
         lane = _strict_object(item, label=f"lanes[{index}]")
         _exact_keys(
             lane,
-            {"id", "profile", "player_input", "doctrine_overrides"},
+            {"id", "profile", "player_input", "doctrine_overrides", "situation"},
             label=f"lanes[{index}]",
         )
         semantic_id = _lane_id(lane.get("id"))
@@ -233,11 +505,19 @@ def _normalize_run_spec(raw: Any) -> dict[str, Any]:
         overrides = _normalize_doctrine_overrides(
             lane.get("doctrine_overrides"), label=f"lanes[{index}].doctrine_overrides"
         )
+        lane_situation = (
+            run_situation
+            if "situation" not in lane
+            else _normalize_situation(
+                lane["situation"], label=f"lanes[{index}].situation",
+            )
+        )
         lanes.append({
             "id": semantic_id,
             "profile": profile,
             "player_input": lane_input,
             "doctrine_overrides": overrides,
+            "situation": lane_situation,
         })
 
     timeout = spec.get("timeout_seconds", 180)
@@ -265,11 +545,21 @@ def _normalize_run_spec(raw: Any) -> dict[str, Any]:
     record = ["final", *(row for row in raw_record if row != "final")]
     return {
         "player_input": player_input,
+        "situation": run_situation,
         "lanes": lanes,
         "record": record,
         "concurrency": concurrency,
         "timeout_seconds": timeout,
     }
+
+
+def _requested_situation(lane: dict[str, Any]) -> dict[str, Any]:
+    """Evidence stub naming which situation shape (if any) a lane requested."""
+    situation = lane.get("situation")
+    if not isinstance(situation, dict) or not situation.get("shape"):
+        return {"shape": None}
+    requested = {key: value for key, value in situation.items() if key != "shape"}
+    return {"shape": situation["shape"], **({"requested": requested} if requested else {})}
 
 
 def _validate_context(raw: Any, *, require_run: bool = False) -> dict[str, Any]:
@@ -712,6 +1002,12 @@ class DebugRunCoordinator:
                 "finalized": False,
                 "exact_delivery": False,
             }
+        final = dict(final)
+        if not isinstance(final.get("situation"), dict):
+            # The lane adapter owns application evidence; when it reported
+            # none, record only what was requested so seeded evidence can
+            # never be mistaken for natural play.
+            final["situation"] = {**_requested_situation(lane), "reported": False}
         _atomic_json(lane_root / "final.json", _redact(final))
         selected = set(run["spec"]["record"])
         events = [
@@ -802,6 +1098,7 @@ class DebugRunCoordinator:
             **summary,
             "player_input": final.get("player_input"),
             "rendered_text": final.get("rendered_text"),
+            "situation": final.get("situation", {"shape": None}),
             "canonical_operations": operations,
             "state_diff": state_diff,
         }
@@ -855,6 +1152,7 @@ class DebugRunCoordinator:
                     "rendered_text": None,
                     "finalized": False,
                     "exact_delivery": False,
+                    "situation": {**_requested_situation(lane), "reported": False},
                 },
             }
             return self._record_lane(run, lane, result)
@@ -1072,6 +1370,99 @@ class PiRpcLaneAdapter:
         except subprocess.TimeoutExpired:
             pass
 
+    def _seed_situation(
+        self,
+        *,
+        lane: dict[str, Any],
+        run: dict[str, Any],
+        materialized: dict[str, Any],
+        deadline: float,
+        cancelled: Any,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Apply structural seeding through the canonical toolbox gateway.
+
+        Every write goes through ``coc_toolbox.py`` (the same ``run_tool``
+        gateway the Pi MCP server uses) inside the sandbox lane, with the
+        host variables play sets, so the campaign state is canonical and the
+        Keeper's next ``scene.context`` presents exactly what a real game
+        would after those moves. Runs after the resume settled.
+        Returns the applied rows and the failure kind, if any.
+        """
+        campaign_id = str(run["context"]["campaign_id"])
+        workspace = str(materialized["workspace_root"])
+        environment = self._safe_env()
+        environment.update({
+            "COC_HOST": "pi",
+            "COC_PROJECT_ROOT": workspace,
+            "COC_RUNTIME_ROOT": str(self.repo_root / "runtime"),
+            "COC_WORKSPACE": workspace,
+            "PYTHONDONTWRITEBYTECODE": "1",
+        })
+        applied: list[dict[str, Any]] = []
+        for step in _situation_operations(lane, campaign_id):
+            if cancelled():
+                return applied, "cancelled"
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return applied, "timeout"
+            row: dict[str, Any] = {
+                "operation": step["operation"],
+                "decision_id": step["arguments"]["decision_id"],
+                "arguments": step["arguments"],
+                "ok": False,
+            }
+            step_started = time.monotonic()
+            try:
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        str(_TOOLBOX_SCRIPT),
+                        step["operation"],
+                        "--root", workspace,
+                        "--campaign", campaign_id,
+                        "--json", json.dumps(step["arguments"], ensure_ascii=False),
+                    ],
+                    cwd=self.repo_root,
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    timeout=remaining,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                row["error"] = {"code": "situation_seed_timeout"}
+                row["duration_ms"] = round((time.monotonic() - step_started) * 1000)
+                applied.append(row)
+                return applied, "timeout"
+            row["duration_ms"] = round((time.monotonic() - step_started) * 1000)
+            envelope: Any = None
+            try:
+                envelope = json.loads(completed.stdout)
+            except json.JSONDecodeError:
+                envelope = None
+            if isinstance(envelope, dict):
+                row["ok"] = envelope.get("ok") is True
+                row["warnings"] = [
+                    str(item) for item in (envelope.get("warnings") or [])
+                ]
+                if not row["ok"]:
+                    row["error"] = (
+                        envelope.get("error")
+                        if isinstance(envelope.get("error"), dict)
+                        else {"code": "situation_seed_failed"}
+                    )
+            else:
+                row["error"] = {
+                    "code": "situation_seed_protocol_error",
+                    "message": _redact_free_text(
+                        (completed.stderr or completed.stdout).strip()[-2000:]
+                    ),
+                }
+            applied.append(row)
+            if not row["ok"]:
+                return applied, "situation_seed_failed"
+        return applied, None
+
     def run(
         self,
         *,
@@ -1082,25 +1473,28 @@ class PiRpcLaneAdapter:
     ) -> dict[str, Any]:
         started = time.monotonic()
         deadline = started + float(run["spec"]["timeout_seconds"])
-        private_home = self._private_home(run, lane)
-        environment = self._safe_env()
-        environment.update({
-            "COC_WORKSPACE": str(materialized["workspace_root"]),
-            "PI_COC_AGENT_DIR": str(private_home),
-            "PI_COC_SESSION_ID": (
-                f"{run['experiment_id']}-{lane['id']}"
-            ),
-            **self.extra_env,
-        })
-        if lane.get("profile") != "production":
-            environment["COC_PI_ACCEPTANCE_PROFILE"] = str(lane["profile"])
-        overrides = lane.get("doctrine_overrides") or {}
-        if overrides:
-            environment["COC_DIRECTOR_GRAPH"] = str(_write_lane_director_graph(
-                Path(materialized["workspace_root"]) / ".coc" / "director-graph.json",
-                overrides,
-            ))
-        command = self._command(lane, run, materialized)
+        situation_shape = (lane.get("situation") or {}).get("shape")
+        situation_evidence = _requested_situation(lane)
+        if situation_shape == "prompt":
+            situation_evidence["instruction"] = _SITUATION_PROMPT_INSTRUCTION
+        elif situation_shape == "structural":
+            situation_evidence["instruction"] = _SITUATION_SEEDED_TURN_NOTE
+            situation_evidence["applied"] = []
+            situation_evidence["seeded"] = False
+        turn_instruction = situation_evidence.get("instruction")
+
+        def final_payload(
+            rendered_text: str | None, *, finalized: bool, exact_delivery: bool,
+        ) -> dict[str, Any]:
+            return {
+                "player_input": lane["player_input"],
+                "rendered_text": rendered_text,
+                "finalized": finalized,
+                "exact_delivery": exact_delivery,
+                "situation": situation_evidence,
+            }
+
+        private_home: Path | None = None
         process: subprocess.Popen[str] | None = None
         stderr_thread: threading.Thread | None = None
         event_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -1288,6 +1682,25 @@ class PiRpcLaneAdapter:
 
         try:
             progress("launching")
+            private_home = self._private_home(run, lane)
+            environment = self._safe_env()
+            environment.update({
+                "COC_WORKSPACE": str(materialized["workspace_root"]),
+                "PI_COC_AGENT_DIR": str(private_home),
+                "PI_COC_SESSION_ID": (
+                    f"{run['experiment_id']}-{lane['id']}"
+                ),
+                **self.extra_env,
+            })
+            if lane.get("profile") != "production":
+                environment["COC_PI_ACCEPTANCE_PROFILE"] = str(lane["profile"])
+            overrides = lane.get("doctrine_overrides") or {}
+            if overrides:
+                environment["COC_DIRECTOR_GRAPH"] = str(_write_lane_director_graph(
+                    Path(materialized["workspace_root"]) / ".coc" / "director-graph.json",
+                    overrides,
+                ))
+            command = self._command(lane, run, materialized)
             process = subprocess.Popen(
                 command,
                 cwd=self.repo_root,
@@ -1333,18 +1746,58 @@ class PiRpcLaneAdapter:
                     "abort_confirmed": abort_confirmed,
                     "error": {"code": code},
                     "events": events,
-                    "final": {
-                        "player_input": lane["player_input"],
-                        "rendered_text": None,
-                        "finalized": False,
-                        "exact_delivery": False,
-                    },
+                    "final": final_payload(None, finalized=False, exact_delivery=False),
                 }
+            if situation_shape == "structural":
+                # The resume settled at awaiting_player; seed now so the seed
+                # rows belong to the player's turn window, not to a phantom
+                # interrupted turn the host would refuse to continue.
+                current_phase = "seeding"
+                progress("seeding")
+                applied, seed_failure = self._seed_situation(
+                    lane=lane,
+                    run=run,
+                    materialized=materialized,
+                    deadline=deadline,
+                    cancelled=cancelled,
+                )
+                situation_evidence["applied"] = applied
+                situation_evidence["seeded"] = seed_failure is None
+                for row in applied:
+                    events.append({
+                        "category": "tools",
+                        "phase": "seed",
+                        "operation": row["operation"],
+                        "event": row,
+                    })
+                if seed_failure is not None:
+                    if seed_failure == "timeout":
+                        status, code = "timed_out", "lane_absolute_budget_exceeded"
+                    elif seed_failure == "cancelled":
+                        status, code = "cancelled", "debug_cancelled"
+                    else:
+                        status, code = "failed", "situation_seed_failed"
+                    return {
+                        "status": status,
+                        "resume_first": resume_first,
+                        "duration_ms": round((time.monotonic() - started) * 1000),
+                        "abort_count": abort_count,
+                        "abort_confirmed": abort_confirmed,
+                        "error": {"code": code},
+                        "events": events,
+                        "final": final_payload(
+                            None, finalized=False, exact_delivery=False,
+                        ),
+                    }
             first_operation = None
             send({
                 "type": "prompt",
                 "id": f"turn-{lane['id']}",
-                "message": lane["player_input"],
+                "message": (
+                    f"{turn_instruction}\n\n{lane['player_input']}"
+                    if turn_instruction
+                    else lane["player_input"]
+                ),
             })
             settled, failure = wait_terminal(phase="turn")
             if failure == "timeout":
@@ -1382,12 +1835,11 @@ class PiRpcLaneAdapter:
                 "abort_confirmed": abort_confirmed,
                 "events": events,
                 "state_diff": state_diff,
-                "final": {
-                    "player_input": lane["player_input"],
-                    "rendered_text": visible_text or None,
-                    "finalized": finalized,
-                    "exact_delivery": bool(visible_text and rendered_text == visible_text),
-                },
+                "final": final_payload(
+                    visible_text or None,
+                    finalized=finalized,
+                    exact_delivery=bool(visible_text and rendered_text == visible_text),
+                ),
             }
             if code is not None:
                 result["error"] = {"code": code}
@@ -1401,12 +1853,7 @@ class PiRpcLaneAdapter:
                 "abort_confirmed": abort_confirmed,
                 "error": {"code": "rpc_spawn_failed", "message": str(exc)},
                 "events": events,
-                "final": {
-                    "player_input": lane["player_input"],
-                    "rendered_text": None,
-                    "finalized": False,
-                    "exact_delivery": False,
-                },
+                "final": final_payload(None, finalized=False, exact_delivery=False),
             }
         finally:
             if process is not None:
@@ -1421,10 +1868,11 @@ class PiRpcLaneAdapter:
             stderr_text = _redact_free_text("".join(stderr_parts).strip())
             if stderr_text:
                 events.append({"category": "stderr", "text": stderr_text})
-            try:
-                shutil.rmtree(private_home)
-            except OSError:
-                pass
+            if private_home is not None:
+                try:
+                    shutil.rmtree(private_home)
+                except OSError:
+                    pass
             current_phase = "terminal"
             progress("terminal")
 
@@ -1559,6 +2007,9 @@ class DebugExperiment:
                 raise DebugExperimentError("debug_request_invalid", "run spec is invalid JSON") from exc
             spec = _normalize_run_spec(raw_spec)
             checkpoint = self.checkpoint.seal_latest(context)
+            # Unknown scene/NPC/clue ids fail closed here, before any run
+            # directory, coordinator, or lane exists.
+            _validate_lane_situations(spec, checkpoint)
             experiment_id = self.store.allocate(context["campaign_id"])
             run = {
                 "schema_version": 1,

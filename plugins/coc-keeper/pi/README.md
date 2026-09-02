@@ -555,3 +555,14 @@ retained under `<workspace>/.coc/debug/runs/`, and never enters production
 campaign Git. See [the DebugExperiment specification](../../../docs/specs/pi-coc-debug-experiment.md).
 One run accepts 1–20 semantic lanes. Explicit `concurrency` is limited to
 1–`min(20, lane count)`; when omitted it remains `min(2, lane count)`.
+
+To test a rule family the checkpoint's scene does not afford, a run or lane may
+add one closed `situation` (diagnostic-only, recorded in each lane's
+`final.json`): structural seeding
+`{"scene_id":"corbitt-confrontation","npc_presence":["npc-walter-corbitt"],"clue_ids":["clue-corbitt-body-found"]}`
+is applied inside the sandbox lane through the canonical toolbox after the
+resume settled and before the player message (unknown ids fail closed at
+planning), or
+`{"establish_from_prompt":true}` prepends a host-owned instruction so the
+Keeper establishes the situation the player's message describes through the
+canonical state operations before adjudicating. Neither shape is natural play.
