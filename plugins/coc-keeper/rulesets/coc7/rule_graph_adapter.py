@@ -575,9 +575,15 @@ class Coc7RuleGraphAdapter:
             "magic.learn": {"adapter": "typed_operation"},
             "state.end_session": {"adapter": "typed_operation"},
             "development.settle": {"adapter": "typed_operation"},
-            **{kind: {"adapter": "chase.execute"} for kind in (
-                "chase_start", "chase_move", "chase_hazard", "chase_barrier", "chase_conflict", "chase_end"
-            )},
+            # Keyed by the capability the graph declares, because this index
+            # is merged into the resolver index the settle path checks a
+            # decision's `resolver_capability` against. Keyed by the
+            # compiler's command kinds instead, `chase.execute` was absent
+            # and every chase decision was refused with
+            # unsupported_ruleset_operation — after its candidate validation
+            # had already passed. Measured 2026-09-02.
+            "chase.execute": {"adapter": "typed_operation"},
+            "chase.context": {"adapter": "typed_operation"},
         }
 
     @staticmethod
@@ -1246,12 +1252,24 @@ class Coc7RuleGraphAdapter:
         elif capability == "development.settle":
             if payload.get("ending_id") is not None:
                 out["ending_id"] = payload.get("ending_id")
-        elif capability.startswith("chase_"):
+        elif capability == "chase.execute" or capability.startswith("chase_"):
+            # The graph gives the whole family one capability, `chase.execute`,
+            # and distinguishes the six moves by decision. The command kind
+            # therefore comes from the decision ref; matching on a
+            # `chase_<kind>` capability is the compiler's older shape, kept so
+            # a plan built that way still resolves.
+            kind = (
+                capability if capability.startswith("chase_")
+                else "chase_" + str(
+                    (selected or {}).get("decision_ref")
+                    or plan.get("decision_ref") or ""
+                ).rsplit(":", 1)[-1]
+            )
             command_id = f"{args['decision_id']}:command"
             command_payload = {"decision_id": str(args["decision_id"])}
             for key in ("chase_id", "participants", "locations", "actor_id", "action_id", "choice_id", "skill", "target", "difficulty", "roll_id", "revision", "target_actor_id", "combat_command_id", "outcome", "method"):
                 if payload.get(key) is not None: command_payload[key] = _thaw(payload[key])
-            out["command"] = {"command_id": command_id, "kind": capability, "phase": "start" if capability == "chase_start" else "resolve", "payload": command_payload}
+            out["command"] = {"command_id": command_id, "kind": kind, "phase": "start" if kind == "chase_start" else "resolve", "payload": command_payload}
         else:
             raise tool_error(
                 "unsupported_ruleset_operation",
