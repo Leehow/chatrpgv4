@@ -109,6 +109,30 @@ def _validate_chase_action_receipt(
         return value
 
     if action_type == "advance":
+        # An advance that did not advance. `_resolve_advance` returns two such
+        # receipts -- the chain ran out, or a live barrier blocks the next
+        # location -- and neither moved the actor or spent an action, so
+        # neither carries the position keys the moving contract requires. They
+        # were nevertheless validated against that contract and refused,
+        # failing the whole transaction: `chase snapshot turn action contract
+        # is invalid`. Every slot on decision:coc7:chase:move is host-locked,
+        # so the Keeper sends nothing and could do nothing about it -- a chase
+        # that reached the end of its chain, or a barrier, simply stopped
+        # being settleable. Measured 2026-09-02 r41, the first run in which a
+        # chase move got this far.
+        #
+        # Their key sets are pinned exactly, like every other branch here:
+        # this is an audit gate on reload, and widening it loosely would let a
+        # malformed receipt through in the name of a legitimate one.
+        outcome = action.get("result")
+        if outcome == "end_of_chain":
+            exact({"type", "result", "actions_spent"})
+            cost(0)
+            return roll_ids, new_position, position_before
+        if outcome == "blocked_by_barrier":
+            exact({"type", "result", "barrier_id", "actions_spent"})
+            cost(0)
+            return roll_ids, new_position, position_before
         exact(
             {"type", "position_before", "new_position", "location_label", "actions_spent"},
             {"escaped"},
