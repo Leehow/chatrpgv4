@@ -42,11 +42,29 @@ verbatim, and **the Keeper never called `coc_capabilities` in either
 campaign** — not refused, simply never done. So the one card that blocks the
 table points at a field from a different call the Keeper may never make.
 
-The fix that matches how this codebase has succeeded before is to give the
-Keeper the chain rather than another panel: the blocking card should carry
-the exact dispatch it is demanding, not a reference to fetch it from
-elsewhere. That is a change to the setup contract, so it is written down here
-rather than made at the end of a long night.
+The refusal now carries the dispatch instead of pointing at another call.
+
+**And underneath that, the tool was not there.** The Keeper's working set in
+this phase is:
+
+    coc_chargen_delegate, coc_discover, coc_evidence_table_opening,
+    coc_progressive_opening_bootstrap, coc_progressive_prepare_opening,
+    coc_rules_cash_assets, coc_rules_roll_dice, coc_session_resume,
+    coc_setup_inspect, coc_setup_phase, coc_source_assets, read
+
+No `subagent`. No `coc_capabilities`. The host asks for a dispatch the
+surface cannot make. `resolvedWorkingSetHostTools` does ask for `subagent`
+and `subagent_wait`, but it intersects with `pi.getAllTools()`, and
+`subagent` is not a Pi builtin -- it is a shipped example extension
+(`examples/extensions/subagent`) that this agent home never enabled, while
+the launcher runs with `--no-builtin-tools`.
+
+Enabling it in `.pi/coc-agent/settings.json` is an environment change, made
+here so the path could be exercised at all. Whether the launcher should
+provision it (rather than every workspace enabling it by hand) is a product
+question -- `pi-coc` already mirrors the bundled steward agents into
+`.pi/agents`, so provisioning the extension that reads them belongs beside
+that.
 
 This is the recurring family of the whole session: **two projections of one
 fact, and the one the Keeper is shown is not the one the host consults.**
