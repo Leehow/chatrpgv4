@@ -126,10 +126,17 @@ rejection costs one round trip. See spec §16.1.
    then refuses the whole package and the agent-loop replan hooks stay
    missing. Reinstall (`npm ci`) when no Keeper session runs from that
    checkout, or apply the missing hunks alone.
-10. The obligation namespace still has copies outside its owner, four of them
-   in the TypeScript projection. The TextGraph residue gate now counts them
-   cross-language and fails when a count moves, so they are pinned rather than
-   fixed.
+10. ~~The obligation namespace still has copies outside its owner.~~
+    **Partly repaired.** The TypeScript declarations are gone: `coc_text_graph.py
+    project` generates `obligation-namespace.generated.ts` from the graph and
+    the projection imports it, dropping that file's obligation-prefix count
+    63 -> 54, with a drift test forcing regeneration and the generated file
+    itself inside the scanned surface. What remains is not the same kind of
+    thing: three single-site Python usages that construct ids in the namespace,
+    and three model-facing copies in `host-system-play.md`, `SKILL.md` and
+    `turn-tooling-and-typed-ops.md` — prompts have to name the namespaces for
+    the Keeper, so those are documentation, not duplicate declarations.
+
 11. ~~The agency gate may have been retired by accident.~~ **Answered, and
     the premise was wrong.** `ab634acd` retired the second narration/rewrite
     pass deliberately and updated `test_turn_finalization.py` in the same
