@@ -126,6 +126,25 @@ class RuntimeOperationError(ValueError):
         self.details = details
 
 
+def _validated_play_register(value: Any) -> str | None:
+    """One validator for both creation paths, reading the graph's own registers.
+
+    Absent stays absent: the core Keeper Rulebook supports the range between
+    purist and pulp, so a table that did not choose is not given a pole.
+    """
+    if value is None:
+        return None
+    import coc_text_runtime
+
+    known = set(coc_text_runtime.craft()["play_registers"])
+    if not isinstance(value, str) or value.strip() not in known:
+        raise RuntimeOperationError(
+            f"play_register must be one of {sorted(known)}; "
+            "omit it to leave the register undeclared"
+        )
+    return value.strip()
+
+
 def validate_semantic_route(value: Any) -> dict[str, Any]:
     """Validate an LLM/host semantic route without inspecting player prose."""
     if not isinstance(value, dict) or set(value) != {
@@ -6068,6 +6087,7 @@ def execute_setup_operation(
     if kind == "campaign.quick_start":
         allowed = {
             "scenario_id", "pregen_id", "campaign_id", "title", "decision_id",
+            "play_register",
         }
         if set(payload) - allowed or "scenario_id" not in payload:
             raise RuntimeOperationError("campaign.quick_start has unsupported or missing fields")
@@ -6101,6 +6121,7 @@ def execute_setup_operation(
                 campaign_id=campaign_id,
                 title=(str(payload["title"]) if payload.get("title") else None),
                 decision_id=decision_id,
+                play_register=_validated_play_register(payload.get("play_register")),
             )
         except coc_starter.QuickStartIdempotencyConflict as exc:
             raise RuntimeOperationError(
@@ -6141,17 +6162,7 @@ def execute_setup_operation(
         path = root / ".coc" / "campaigns" / campaign_id / "campaign.json"
         if path.exists():
             raise FileExistsError(f"campaign already exists: {campaign_id}")
-        play_register = payload.get("play_register")
-        if play_register is not None:
-            import coc_text_runtime
-
-            known = set(coc_text_runtime.craft()["play_registers"])
-            if not isinstance(play_register, str) or play_register.strip() not in known:
-                raise RuntimeOperationError(
-                    "campaign.create play_register must be one of "
-                    f"{sorted(known)}; omit it to leave the register undeclared"
-                )
-            play_register = play_register.strip()
+        play_register = _validated_play_register(payload.get("play_register"))
         ruleset_id = payload.get("ruleset_id")
         if ruleset_id is not None and (
             not isinstance(ruleset_id, str) or not ruleset_id.strip()
