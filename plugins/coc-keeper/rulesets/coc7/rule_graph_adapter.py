@@ -1359,6 +1359,43 @@ class Coc7RuleGraphAdapter:
                 }
         return None
 
+    @staticmethod
+    def _support_level_hints(
+        payload: Mapping[str, Any],
+        adjudication: Mapping[str, Any],
+    ) -> list[str]:
+        """Say when a support claim was recorded at no level.
+
+        `supporting_action.level` defaults to 0 -- conduct described, no
+        leverage claimed -- and only `level: 1` with a canonical `source_ref`
+        builds the leverage row that grants the one-level reduction. The card
+        projects this slot to the Keeper as an untyped object, so a Keeper
+        holding a genuine one-level case can fill a reasonable shape, be
+        recorded at level 0, and never learn that it happened.
+
+        Seen live on 2026-09-02: three consecutive Extreme rescue checks with
+        the player holding an earned clue, every adjudication reading
+        `leverage: []` while the opposition counted at full weight. Nothing was
+        wrong with the arithmetic; the Keeper was never told what the slot
+        wanted.
+
+        Silent only when the Keeper said `level` outright -- writing `level: 0`
+        is a decision, and this does not second-guess it.
+        """
+        supporting = payload.get("supporting_action")
+        if not isinstance(supporting, Mapping) or not supporting:
+            return []
+        if "level" in supporting:
+            return []
+        if adjudication.get("leverage_delta"):
+            return []
+        return [
+            "supporting_action carried no `level`, so it was adjudicated as "
+            "level 0 and granted no leverage. To claim the one-level "
+            "reduction, send `level: 1` with the canonical `source_ref` of a "
+            "player-known source; anything else stays level 0."
+        ]
+
     def _settle_social(
         self,
         executor: Callable[..., Any],
@@ -1411,6 +1448,7 @@ class Coc7RuleGraphAdapter:
                 },
             }
         feasibility = str(data.get("feasibility") or "")
+        hints = list(hints) + self._support_level_hints(payload, data)
         result: dict[str, Any] = {"adjudication": _thaw(data)}
         if feasibility == "roll":
             # Machine-derived bound check; the model NEVER re-expresses skill,
