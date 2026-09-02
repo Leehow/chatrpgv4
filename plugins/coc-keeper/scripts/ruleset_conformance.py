@@ -443,6 +443,55 @@ def _check_rule_graph(package_dir: Path, manifest: dict | None, problems: list[s
         )
 
 
+def _check_optional_rules(
+    package_dir: Path, manifest: dict | None, problems: list[str]
+) -> None:
+    """``optional_rules`` (contract §2.3): unique ids, refs that resolve.
+
+    The schema already fixes the row shape. This check keeps a declaration
+    honest against the package graph: a rule or decision ref that names no
+    graph node would let a campaign patch "disable" nothing while reporting
+    success. Without a declared graph, refs are accepted as-is (there is no
+    node set to check them against).
+    """
+    rows = (manifest or {}).get("optional_rules")
+    if rows is None:
+        return
+    if not isinstance(rows, list):
+        problems.append("manifest.json: optional_rules must be an array")
+        return
+    graph_ref = ((manifest or {}).get("entry_points") or {}).get("rule_graph")
+    node_kinds: dict[str, str] | None = None
+    if isinstance(graph_ref, str) and (package_dir / graph_ref).is_file():
+        graph = _load_json(package_dir / graph_ref, [])
+        if isinstance(graph, dict) and isinstance(graph.get("nodes"), list):
+            node_kinds = {
+                str(node.get("node_id")): str(node.get("node_kind"))
+                for node in graph["nodes"]
+                if isinstance(node, dict)
+            }
+    seen: set[str] = set()
+    for index, row in enumerate(rows):
+        prefix = f"manifest.json: optional_rules[{index}]"
+        if not isinstance(row, dict):
+            problems.append(f"{prefix} must be an object")
+            continue
+        option_id = row.get("option_id")
+        if option_id in seen:
+            problems.append(f"{prefix}: duplicate option_id {option_id!r}")
+        seen.add(str(option_id))
+        if node_kinds is None:
+            continue
+        for field, kind in (("rule_refs", "rule"), ("decision_refs", "decision")):
+            for ref in row.get(field) or []:
+                found = node_kinds.get(str(ref))
+                if found != kind:
+                    problems.append(
+                        f"{prefix}.{field}: {ref!r} is not a {kind} node in "
+                        f"{graph_ref} (found {found!r})"
+                    )
+
+
 def validate_package(package_dir: Path) -> list[str]:
     """Check one ruleset package directory; return human-readable problems.
 
@@ -459,4 +508,5 @@ def validate_package(package_dir: Path) -> list[str]:
     _check_skills(package_dir, problems)
     _check_rule_graph(package_dir, manifest, problems)
     _check_rule_families(manifest, problems)
+    _check_optional_rules(package_dir, manifest, problems)
     return problems

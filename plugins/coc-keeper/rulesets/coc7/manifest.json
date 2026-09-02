@@ -69,6 +69,40 @@
       "legacy_surface": "hidden"
     }
   ],
+  "optional_rules": [
+    {
+      "option_id": "luck-spend",
+      "display": "Spending Luck",
+      "enabled_by_default": true,
+      "rule_refs": [
+        "rule:coc7:push-luck:luck-spend",
+        "rule:coc7:push-luck:luck-spend-limits"
+      ],
+      "decision_refs": [
+        "decision:coc7:push-luck:luck-spend"
+      ],
+      "operation_gates": [
+        "rules.luck_spend"
+      ],
+      "settlement_gates": [],
+      "source_note": "Keeper Rulebook p.99, Optional Rules: Spending Luck. Rulebook-optional; this package keeps it on by default because the promoted push-luck family and the Keeper guidance assume the option is in play. A table that does not use it records rules.patch DISABLES luck-spend."
+    },
+    {
+      "option_id": "luck-recovery",
+      "display": "Luck Recovery",
+      "enabled_by_default": true,
+      "rule_refs": [
+        "rule:coc7:development:luck-recovery",
+        "rule:coc7:push-luck:luck-recovery"
+      ],
+      "decision_refs": [],
+      "operation_gates": [],
+      "settlement_gates": [
+        "development.luck_recovery"
+      ],
+      "source_note": "Keeper Rulebook p.99, Optional Rules: Luck Recovery (after each session roll 1D100 over current Luck to gain 1D10, capped at 99). Rulebook-optional; on by default for the same reason as luck-spend. Disabling it makes the development settlement skip the recovery roll."
+    }
+  ],
   "resources": [
     {
       "key": "hp",

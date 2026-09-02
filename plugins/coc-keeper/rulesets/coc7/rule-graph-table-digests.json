@@ -74,7 +74,7 @@
       "node_ids": [
         "data-table:coc7:roll-modifiers"
       ],
-      "sha256": "sha256:cbc15fc9586970946a5cb63b53e8bef17f2683a7d836dcf40d1a32534d10ecbe"
+      "sha256": "sha256:1af2cd258ae100b1bd20c4a2dcfdfdcb4aa3148225f7db0324923e5b7c3226ec"
     },
     {
       "table_name": "sanity.json",

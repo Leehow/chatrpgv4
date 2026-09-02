@@ -79,6 +79,9 @@ Optional fields (absent means the documented default, never an error):
 - Per-resource `projected` (inside `resources` entries) — when `true`, the
   kernel projects `current_<key>` into the runtime player-safe investigator
   surface. Defaults to `false` when absent.
+- `optional_rules` — the package's rulebook-optional rules (§2.3). Default
+  when absent: the package declares none, and no house-rule patch can
+  switch anything.
 
 ### 2.1 RuleGraph artifacts (optional)
 
@@ -223,6 +226,61 @@ Rules:
   `tests/pi/normal-model-id-boundary.mjs`. A family that compiles, promotes and
   passes ownership agreement but fails either of these is promoted, not
   playable.
+
+### 2.3 Optional rules and house-rule patches (optional)
+
+A rulebook separates core rules from optional ones (coc7: Spending Luck and
+Luck Recovery, Keeper Rulebook p.99). A package declares each optional rule
+once, in `optional_rules`:
+
+```json
+{
+  "option_id": "luck-spend",
+  "display": "Spending Luck",
+  "enabled_by_default": true,
+  "rule_refs": ["rule:coc7:push-luck:luck-spend"],
+  "decision_refs": ["decision:coc7:push-luck:luck-spend"],
+  "operation_gates": ["rules.luck_spend"],
+  "settlement_gates": [],
+  "source_note": "Keeper Rulebook p.99 ... why the package default is on"
+}
+```
+
+- `rule_refs` / `decision_refs` must resolve to `rule` / `decision` nodes of
+  the package graph when one is declared (conformance item 6). They are also
+  the only patch targets that can switch the option.
+- A disabled option projects its `decision_refs` cards as `not_applicable`
+  with `disabled_by_optional_rule`, `rules.context` lists them under
+  `disabled_by_optional_rules`, and `rules.settle` on one of them fails
+  closed with `optional_rule_disabled`.
+- `operation_gates` name canonical operations a disabled option refuses;
+  `settlement_gates` name settlement steps it skips as a recorded skip row
+  (coc7: `development.luck_recovery`).
+- `enabled_by_default` is the package's product profile, not the rulebook's
+  word: when a rulebook-optional rule defaults to `true`, `source_note`
+  states why.
+
+What decides an option is a **confirmed house-rule patch**, and only that.
+Patches have one store and one path, `scripts/coc_house_rules.py`
+(`save/house-rules.json`; spec `pi-coc-rule-override-and-session-rulings`
+§5): the table's sentence is compiled through a semantic step into a
+`RulePatch` with positive, negative and boundary cases, and the user confirms
+the cases. `scripts/coc_rule_options.py` reads the confirmed patches back and
+enforces the subset it can:
+
+- relation `disables` / `enables` on a target inside a declared option's
+  `rule_refs` or `decision_refs`, at layer `house_rule` or `campaign_patch`,
+  scope `campaign`;
+- precedence is the `coc_house_rules.LAYERS` ladder; two confirmed toggles at
+  the winning layer that disagree are a `rule_conflict`, and every gate they
+  touch fails closed until one is superseded;
+- `overrides` / `augments`, non-campaign scopes and targets outside the
+  declared options are reported (`toggles_from_patches`, `applicable:
+  false`) and not enforced. Enforcing a replacement rule body is compiler
+  work (spec slice R2), not campaign state.
+
+A session ruling (`coc_session_rulings`) is precedent, never authority over
+results: it cannot switch an option.
 
 ## 3. L1 data — rules-json/
 
@@ -400,6 +458,8 @@ through `scripts/coc_rulesets.py` (`ruleset_resources`,
    run is clean for that package.
 5. Skill pack parses (frontmatter `name`/`description` present) and every
    kernel protocol skill that references the pack resolves its path.
+6. `optional_rules` ids are unique and every `rule_refs` / `decision_refs`
+   entry resolves to a node of that kind in the package graph (§2.3).
 
 A deliberately broken fixture package must fail the suite (vacuous-pass
 protection, same philosophy as the playtest-log validator).

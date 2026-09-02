@@ -2621,3 +2621,106 @@ def test_pi_opening_character_setup_allows_only_canonical_chargen_dice_recipes()
             },
             gate,
         ) is False
+
+
+def test_confirmed_house_rule_disables_luck_spend_and_hides_the_card(campaign_ws):
+    source = _run(campaign_ws, "rules.roll", {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use",
+        "target": 50,
+        "decision_id": "luck-source-off",
+        "seed": 88,
+    })
+    assert source["ok"] is True and source["data"]["passed"] is False
+    confirm_house_rule(
+        campaign_ws["campaign_dir"],
+        patch_id="patch:no-luck-spend",
+        relation="disables",
+        target="rule:coc7:push-luck:luck-spend",
+        reason="classic resource pressure",
+    )
+    refused = _run(campaign_ws, "rules.luck_spend", {
+        "investigator": campaign_ws["investigator_id"],
+        "points": 1,
+        "source_roll_id": source["data"]["roll_id"],
+        "decision_id": "luck-refused",
+    })
+    assert refused["ok"] is False
+    assert refused["error"]["code"] == "optional_rule_disabled"
+    assert "patch:no-luck-spend" in refused["error"]["message"]
+    context = _run(campaign_ws, "rules.context", {
+        "family": "push-luck",
+        "investigator": campaign_ws["investigator_id"],
+    })
+    assert context["ok"] is True, context
+    refs = [card["decision_ref"] for card in context["data"]["cards"]]
+    assert "decision:coc7:push-luck:luck-spend" not in refs
+    gates = context["data"]["disabled_by_optional_rules"]
+    assert [row["decision_ref"] for row in gates] == ["decision:coc7:push-luck:luck-spend"]
+    assert gates[0]["decided_by"] == "patch:no-luck-spend"
+    # A campaign patch does not outrank the house rule.
+    confirm_house_rule(
+        campaign_ws["campaign_dir"],
+        patch_id="patch:campaign-luck-back",
+        relation="enables",
+        target="rule:coc7:push-luck:luck-spend",
+        layer="campaign_patch",
+    )
+    still = _run(campaign_ws, "rules.luck_spend", {
+        "investigator": campaign_ws["investigator_id"],
+        "points": 1,
+        "source_roll_id": source["data"]["roll_id"],
+        "decision_id": "luck-refused-again",
+    })
+    assert still["ok"] is False and still["error"]["code"] == "optional_rule_disabled"
+
+
+def test_conflicting_confirmed_house_rules_refuse_luck_spend_as_rule_conflict(campaign_ws):
+    source = _run(campaign_ws, "rules.roll", {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use",
+        "target": 50,
+        "decision_id": "luck-source-conflict",
+        "seed": 88,
+    })
+    assert source["ok"] is True and source["data"]["passed"] is False
+    for patch_id, relation in (("patch:luck-off", "disables"), ("patch:luck-on", "enables")):
+        confirm_house_rule(
+            campaign_ws["campaign_dir"],
+            patch_id=patch_id,
+            relation=relation,
+            target="rule:coc7:push-luck:luck-spend",
+        )
+    refused = _run(campaign_ws, "rules.luck_spend", {
+        "investigator": campaign_ws["investigator_id"],
+        "points": 1,
+        "source_roll_id": source["data"]["roll_id"],
+        "decision_id": "luck-conflict",
+    })
+    assert refused["ok"] is False
+    assert refused["error"]["code"] == "rule_conflict"
+    assert "patch:luck-off" in refused["error"]["message"]
+
+
+def test_unenforced_house_rule_relation_leaves_luck_spend_available(campaign_ws):
+    source = _run(campaign_ws, "rules.roll", {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use",
+        "target": 50,
+        "decision_id": "luck-source-augment",
+        "seed": 88,
+    })
+    assert source["ok"] is True and source["data"]["passed"] is False
+    confirm_house_rule(
+        campaign_ws["campaign_dir"],
+        patch_id="patch:luck-costs-time",
+        relation="augments",
+        target="rule:coc7:push-luck:luck-spend",
+    )
+    spend = _run(campaign_ws, "rules.luck_spend", {
+        "investigator": campaign_ws["investigator_id"],
+        "points": 1,
+        "source_roll_id": source["data"]["roll_id"],
+        "decision_id": "luck-augment",
+    })
+    assert spend["ok"] is True, spend

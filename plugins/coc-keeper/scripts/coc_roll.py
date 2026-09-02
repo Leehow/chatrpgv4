@@ -146,7 +146,12 @@ def _net_roll_modifiers(bonus: int, penalty: int, modifier_rule: dict[str, Any])
     cancellation = modifier_rule["cancellation"]
     if cancellation["method"] != "one_for_one":
         raise ValueError(f"unsupported roll modifier cancellation: {cancellation['method']}")
-    return max(0, bonus - penalty), max(0, penalty - bonus)
+    # p.91: after one-for-one cancellation at most two bonus dice or two
+    # penalty dice apply to one roll. The cap is table data, never a literal.
+    maximum = modifier_rule["maximum_dice_per_roll"]
+    net_bonus = min(max(0, bonus - penalty), int(maximum["bonus"]))
+    net_penalty = min(max(0, penalty - bonus), int(maximum["penalty"]))
+    return net_bonus, net_penalty
 
 
 def _select_tens_value(tens_values: list[int], selected_tens: str) -> int:

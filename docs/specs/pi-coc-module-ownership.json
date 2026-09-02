@@ -155,6 +155,7 @@
         "rules.weekly_recovery"
       ],
       "implementation_dependencies": [
+        "plugins/coc-keeper/scripts/coc_rule_options.py",
         "plugins/coc-keeper/scripts/coc_rules.py",
         "plugins/coc-keeper/scripts/coc_rulesets.py"
       ],

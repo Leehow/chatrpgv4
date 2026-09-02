@@ -74,12 +74,17 @@ def roll_modifiers_rule() -> dict[str, Any]:
     cancellation = table["cancellation"]
     bonus_die = table["bonus_die"]
     penalty_die = table["penalty_die"]
+    maximum = table["maximum_dice_per_roll"]
     return {
         "applies_to": str(table["applies_to"]),
         "cancellation": {
             "method": str(cancellation["method"]),
             "net_bonus_formula": str(cancellation["net_bonus_formula"]),
             "net_penalty_formula": str(cancellation["net_penalty_formula"]),
+        },
+        "maximum_dice_per_roll": {
+            "bonus": int(maximum["bonus"]),
+            "penalty": int(maximum["penalty"]),
         },
         "bonus_die": {
             "extra_tens_dice_per_die": int(bonus_die["extra_tens_dice_per_die"]),

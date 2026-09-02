@@ -20,6 +20,7 @@ from coc_operation_kernel_runtime import (
     _load_roll_receipt_document,
     _load_sibling,
     _luck_source_reference,
+    _optional_rule_gate_for_operation,
     _luck_spend_data,
     _new_roll_receipt,
     _operation_event_id,
@@ -40,6 +41,7 @@ from coc_operation_kernel_runtime import (
     _validated_roll_document_collection,
     _verify_roll_receipt_prefixes,
     coc_roll,
+    coc_rule_options,
     coc_rulesets,
     coc_state,
     coc_turn_finalization,
@@ -1175,6 +1177,18 @@ def _tool_rules_luck_spend(ctx: Ctx, args: dict[str, Any]):
             "state_corrupt",
             "Luck ledger entry has no canonical adjustment receipt",
         )
+    # Spending Luck is a rulebook-optional rule (p.99). A confirmed house rule
+    # that disables it refuses the spend before any write (two confirmed
+    # patches that disagree refuse it as a rule_conflict); an already-recorded
+    # spend above still replays, because a later patch never rewrites a
+    # settled receipt.
+    gate = _optional_rule_gate_for_operation(ctx, "rules.luck_spend")
+    if gate is not None:
+        raise ToolError(
+            coc_rule_options.gate_code(gate),
+            coc_rule_options.gate_message(gate),
+            details={"optional_rule": gate},
+        )
     if any(
         receipt.get("source_receipt", {}).get("roll_id") == source_roll_id
         for receipt in document["luck_spends"].values()
@@ -1351,6 +1365,7 @@ def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
 
 def _tool_rules_context(ctx: Ctx, args: dict[str, Any]):
     return dispatch_rules_context(ctx, args)
+
 
 
 def _tool_rules_first_aid(ctx: Ctx, args: dict[str, Any]):

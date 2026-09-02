@@ -269,6 +269,7 @@ def test_percentile_bonus_dice_selection_uses_rules_json_roll_modifiers(monkeypa
                 "net_bonus_formula": "max(0, bonus - penalty)",
                 "net_penalty_formula": "max(0, penalty - bonus)",
             },
+            "maximum_dice_per_roll": {"bonus": 2, "penalty": 2},
             "bonus_die": {
                 "extra_tens_dice_per_die": 1,
                 "selected_tens": "highest",

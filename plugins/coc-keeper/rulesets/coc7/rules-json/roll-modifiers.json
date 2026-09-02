@@ -6,6 +6,11 @@
     "net_bonus_formula": "max(0, bonus - penalty)",
     "net_penalty_formula": "max(0, penalty - bonus)"
   },
+  "maximum_dice_per_roll": {
+    "bonus": 2,
+    "penalty": 2,
+    "source_note": "Keeper Rulebook p.91 (Bonus and Penalty Dice): after cancellation, no more than two bonus dice or two penalty dice apply to one roll. The kernel caps the net count; a Keeper who asks for more gets the capped count in the receipt, never an extra die."
+  },
   "bonus_die": {
     "extra_tens_dice_per_die": 1,
     "selected_tens": "lowest",

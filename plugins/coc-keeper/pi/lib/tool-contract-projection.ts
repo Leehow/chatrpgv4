@@ -4128,6 +4128,17 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       // `{level: 1, source_ref: "clue:clue-crown-slab-heraldry"}` correctly on
       // its first try and every settle collapsed here.
       "leverage_id", "source_ref",
+      // A chase settlement carries the session it opened and the features of
+      // the route it runs through. None were declared, so the first chase
+      // this system ever started — canonical state written, chase.json
+      // active, Corbitt as pursuer — reached the Keeper as
+      // semantic_identity_unavailable. It retried, went stale, and finalized
+      // a turn that had in fact begun a chase it could not see. Every value
+      // is composed of authored slugs: chase_id is
+      // `chase:<scene>:<quarry>-vs-<pursuer>`, and the vehicle refs are an
+      // actor id and a catalog key.
+      "chase_id", "vehicle_actor_id", "vehicle_key",
+      "barrier_id", "hazard_id", "action_id", "choice_id",
     ],
     ["request_digest"],
     ["command_id", "source_command_id", "state_refs"],
@@ -6377,6 +6388,9 @@ function projectEndSessionData(
               "planned_luck_before", "planned_luck_after", "planned_gained",
               "current_luck_before_apply", "applied_delta", "merge_policy",
               "rule_ref",
+              // A disabled luck-recovery option settles as a recorded skip;
+              // the Keeper must see why no recovery roll happened.
+              "skipped", "reason", "option_id", "decided_by", "layer",
             ]);
           }
           const endingEvidence = isPlainObject(result.ending_evidence)
@@ -8173,6 +8187,11 @@ const RAW_COMPOSED_FIELDS: ReadonlyMap<string, readonly string[]> = new Map([
   // `claim-` is the documented claim namespace; `agency-` is the semantic
   // claim namespace real campaigns author (attempt-02).
   ["claim_id", ["claim-", "agency-"]],
+  // The Keeper NAMES a ruling when recording it, rather than echoing one the
+  // host showed, so it is composed rather than echoed. Undeclared, its required
+  // `ruling_id` made the whole envelope fail closed as
+  // `semantic_identity_unavailable` -- on a mutation the rules surface offers.
+  ["ruling_id", ["ruling:"]],
   ["run_id", ["run-"]],
   ["run_segment_id", ["run-"]],
 ]);
@@ -8180,6 +8199,9 @@ const RAW_COMPOSED_FIELDS: ReadonlyMap<string, readonly string[]> = new Map([
 /** Echoed canonical entity refs: multi-token slug or field namespace. */
 const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["scene_id", stringSet(["scene:"])],
+  // `scope_id` is the scene a scene-scoped ruling applies to, copied from a
+  // scene the host already showed: the same namespace as scene_id.
+  ["scope_id", stringSet(["scene:"])],
   ["clue_id", stringSet(["clue:"])],
   ["clue_ids", stringSet(["clue:"])],
   ["committed_clue_ids", stringSet(["clue:"])],

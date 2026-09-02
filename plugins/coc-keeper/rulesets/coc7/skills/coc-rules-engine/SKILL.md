@@ -54,8 +54,69 @@ what pushing would risk, and how many Luck points a success would cost
 the player decide. After a spend, persist the new `current_luck` via the
 campaign-state helpers and note `luck_spent_last` for the director.
 
-At session end run `coc_roll.recover_luck(current_luck)` per investigator
-(1D100 > current Luck gains 1D10, capped at 99).
+Luck Recovery (optional rule, p.99: at session end 1D100 > current Luck
+gains 1D10, capped at 99) is settled by `development.settle`, never by a
+hand call. Both Luck rules are declared optional rules of this package and
+are on by default; see *Optional Rules and House Rules* below for how a
+table switches one off.
+
+## Optional Rules and House Rules
+
+The rulebook's optional rules are declared once in this package's
+`manifest.json` (`optional_rules`): `luck-spend` and `luck-recovery`, both
+on by default. `rules.context` reports any card a disabled option took off
+the table under `disabled_by_optional_rules`; `rules.settle` on such a card
+and `rules.luck_spend` fail with `optional_rule_disabled`, and a disabled
+`luck-recovery` makes the development settlement record a skip instead of
+rolling.
+
+What switches an option is a **confirmed house rule**, nothing else. A house
+rule is the table's own sentence compiled into a patch with positive,
+negative and boundary cases that the user confirms (`coc_house_rules`,
+`save/house-rules.json`); a confirmed patch whose relation is `disables` or
+`enables` and whose target is one of the option's rule or decision nodes
+decides it. `rules.context` hands confirmed house rules and live rulings
+back as `table_precedent` at the decision they bind.
+
+- A ruling you make at the table (`rules.record_ruling`) is precedent: it
+  comes back to you at the same decision, and it never changes dice, a
+  pool, or which cards are legal. A call that would change what a rule
+  *does* is a house rule and goes through confirmation.
+- Two confirmed house rules that disagree at the same layer are a
+  `rule_conflict`: the gate they touch refuses until one is superseded.
+  Say so at the table and play the printed rule meanwhile.
+- Rule questions the rulebook leaves to the Keeper (what a hazard deals,
+  how severe a wreck is) stay Keeper judgment and are neither rulings nor
+  patches.
+
+## Governance: Whether and What to Roll
+
+Before any dice:
+
+1. **Routine, uncontested, no real risk: it simply happens.** Driving to
+   the library, a professional's daily craft, opening an unlocked door.
+   Do not roll for it, and do not roll to "see how well".
+2. **The player states the goal first, then the method.** Ask when the
+   declaration lacks one. The goal decides which skill applies and what a
+   success delivers; the method and the opposition decide the difficulty.
+   "I search the study for anything about the will" is a Spot Hidden or
+   Library Use with a known payoff; "I look around" is not yet a roll.
+3. **You choose skill and difficulty from that goal**, never from a
+   keyword. Regular when only skill is at stake, Hard when the situation
+   works against them, Extreme when the rulebook or the fiction says so.
+4. **Obvious, essential clues are not lost to one failed roll.** A failed
+   perception roll costs time, noise, or the clean version of the clue; it
+   does not delete something the investigation cannot proceed without.
+5. **When the investigators are stuck, offer the Idea roll.** Success
+   delivers the missing lead cleanly; failure still delivers it, but in the
+   worst plausible way (time lost, danger closer, the wrong people
+   aware). Either way the story moves.
+6. **"Yes, and" or "yes, but" before "no".** An unplanned but sensible
+   action is allowed and the world answers with consequences; a meta refusal
+   ("the module doesn't cover that") is the last resort, after an NPC
+   objection, new information, or a physical limit.
+
+Once you do call for a roll, the `rules.*` result is authoritative.
 
 ## When to Call for a Check
 
