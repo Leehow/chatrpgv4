@@ -36,6 +36,18 @@ each, a transport the Keeper's own instructions tell it not to use.
 The real forward path is the `coc-opening-source-coordinator` lane, not a
 Keeper operation. Asked to dispatch it, the Keeper produced an empty settle.
 
+Why it cannot: dispatching requires copying
+`coc_capabilities.data.cold_start.opening_source_coordinator.task_static`
+verbatim, and **the Keeper never called `coc_capabilities` in either
+campaign** — not refused, simply never done. So the one card that blocks the
+table points at a field from a different call the Keeper may never make.
+
+The fix that matches how this codebase has succeeded before is to give the
+Keeper the chain rather than another panel: the blocking card should carry
+the exact dispatch it is demanding, not a reference to fetch it from
+elsewhere. That is a change to the setup contract, so it is written down here
+rather than made at the end of a long night.
+
 This is the recurring family of the whole session: **two projections of one
 fact, and the one the Keeper is shown is not the one the host consults.**
 
