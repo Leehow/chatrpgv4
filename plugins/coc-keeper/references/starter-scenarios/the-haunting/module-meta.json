@@ -9,8 +9,17 @@
   "one_liner": "In 1920 Boston, a landlord hires you to investigate the infamous Corbitt House—the former tenants went mad, neighbors say it is haunted, and someone who should never have been buried lies beneath the basement. Ready to play without the scenario PDF.",
   "structure_type": "branching_investigation",
   "era": "1920s",
-  "setting_tags": ["urban-civilian", "domestic", "1920s"],
-  "content_flags": ["supernatural_horror", "haunting", "undead", "cult_residue"],
+  "setting_tags": [
+    "urban-civilian",
+    "domestic",
+    "1920s"
+  ],
+  "content_flags": [
+    "supernatural_horror",
+    "haunting",
+    "undead",
+    "cult_residue"
+  ],
   "win_condition": "The investigators uncover the truth behind the phenomena at the Corbitt House, destroy Walter Corbitt's undead body in the basement confrontation (ideally reducing him to ash with his own ritual dagger), and leave the property in a state the landlord can manage again.",
   "source_pdf": null,
   "source_pdf_pages": null,

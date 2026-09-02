@@ -1,0 +1,56 @@
+{
+  "decision_ref": "decision:coc7:core-check:ordinary-check",
+  "family": "core-check",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:core-check:canonical-target-binding",
+    "rule:coc7:core-check:combined",
+    "rule:coc7:push-luck:luck-roll"
+  ],
+  "investigator_id": "thomas-hayes",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "bound_check": {
+        "base_target": 45,
+        "target": 45,
+        "required_level": "regular",
+        "difficulty": "regular",
+        "required_target": 45,
+        "effective_target": 45,
+        "achieved_level": "regular",
+        "passed": true,
+        "success": true,
+        "surplus_levels": 0,
+        "outcome": "regular",
+        "bonus": 0,
+        "penalty": 0,
+        "roll": 25,
+        "unmodified_roll": 25,
+        "tens_values": [],
+        "units": null,
+        "investigator_id": "thomas-hayes",
+        "skill": "Listen",
+        "target_source": "explicit",
+        "pushed": false,
+        "goal": "at the front door, catch whether anything is pursuing up from the basement",
+        "stakes": {
+          "on_success": "hear whether pursuit continues and from where",
+          "on_failure": "only the house's ordinary settling noise; no clear read on pursuit"
+        },
+        "difficulty_basis": "environment",
+        "roll_id": "toolbox-gate9-depth-10-000007"
+      },
+      "outcome": "regular",
+      "pushed": false,
+      "next_continuations": []
+    }
+  },
+  "next_decisions": [],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:1e157d7dcf2b6bfc7de799ceb4637b3da549309a26c19818ea7b87bdd234b57d"
+}

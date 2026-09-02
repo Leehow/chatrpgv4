@@ -117,6 +117,7 @@ import {
 } from "../lib/system-instruction.ts";
 import {
   clearOpenTurnPlayerInput,
+  validPreJournalWindow,
   createOpenTurnAnchor,
   loadOpenTurnPlayerInput,
   loadZeroToolOpenTurnPlayerInput,
@@ -13114,6 +13115,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           && typeof params.campaign === "string"
           && params.campaign.trim()
           && currentOpenTurnAnchor?.campaignId === params.campaign.trim()
+          // Clear ONLY when the open pre-journal window is genuinely gone.
+          // A resume can come back in a non-recovery mode for transient
+          // reasons — a delivery replay owning the turn, a pending
+          // finalization of the previous output — while the crashed turn is
+          // still open and pre-journal. Clearing the accepted-input cache on
+          // those resumes destroyed the one binding recovery can use, and a
+          // live table deadlocked exactly that way: fault turn, replay-lock
+          // resume wiped the cache, and every later recovery reported
+          // player_input_binding_unavailable with no way forward.
+          && !validPreJournalWindow(objectOrNull(openTurnData.current_turn))
         ) {
           openTurnRecoveryAuthorization = null;
           clearOpenTurnPlayerInput(

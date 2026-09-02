@@ -1,0 +1,166 @@
+{
+  "decision_ref": "decision:coc7:sanity:check",
+  "family": "sanity",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:sanity:failed-roll-involuntary-action",
+    "rule:coc7:sanity:fumble-maximum-loss",
+    "rule:coc7:sanity:getting-used-to-awfulness",
+    "rule:coc7:sanity:indefinite-daily-fraction",
+    "rule:coc7:sanity:max-san",
+    "rule:coc7:sanity:mythos-insanity-gain",
+    "rule:coc7:sanity:optional-multiple-san-rolls",
+    "rule:coc7:sanity:optional-mythos-hardened",
+    "rule:coc7:sanity:permanent-at-zero",
+    "rule:coc7:sanity:san-roll",
+    "rule:coc7:sanity:temporary-threshold-and-int"
+  ],
+  "investigator_id": "inv-thomas-hayes-096fee77",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "investigator_id": "inv-thomas-hayes-096fee77",
+      "source": "sealed-lair-wizened-corpse-first-sight",
+      "check": {
+        "skill": "SAN",
+        "target": 59,
+        "roll": 95,
+        "outcome": "failure",
+        "source": "sealed-lair-wizened-corpse-first-sight",
+        "trigger_id": "sealed-lair-corpse",
+        "san_loss": 2,
+        "san_before": 59,
+        "san_after": 57,
+        "involuntary_action": {
+          "kind": "freeze",
+          "summary": "Hand freezes on the torn board while staring at the pallet figure",
+          "source": "sealed-lair-wizened-corpse-first-sight",
+          "rule_ref": "core.sanity.failure_involuntary_action"
+        }
+      },
+      "success": false,
+      "san_loss": 2,
+      "loss_detail": {
+        "rolls": [
+          2
+        ],
+        "resolution": "rolled",
+        "raw_total": 2,
+        "expression": "1d3"
+      },
+      "san_before": 59,
+      "san_after": 57,
+      "trigger_id": "sealed-lair-corpse",
+      "sanity_check_skipped": false,
+      "bout_triggered": false,
+      "bout_active": false,
+      "active_bout_id": null,
+      "bout_rounds_remaining": 0,
+      "temporary_insane": false,
+      "indefinite_insane": false,
+      "permanently_insane": false,
+      "daily_san_lost": 3,
+      "day_start_san": 60,
+      "session_roll_ids": [
+        "toolbox-gate9-depth-09-000007"
+      ],
+      "session_events": [
+        {
+          "event_id": "se3",
+          "event_type": "sanity",
+          "source": "sealed-lair-wizened-corpse-first-sight",
+          "san_before": 59,
+          "san_loss": 2,
+          "san_after": 57,
+          "roll_outcome": "failure",
+          "mythos_hardened": false,
+          "creature_type": null,
+          "summary": "inv-thomas-hayes-096fee77 sealed-lair-wizened-corpse-first-sight: SAN 59->57 (lost 2).",
+          "involuntary_action": {
+            "kind": "freeze",
+            "summary": "Hand freezes on the torn board while staring at the pallet figure",
+            "source": "sealed-lair-wizened-corpse-first-sight",
+            "rule_ref": "core.sanity.failure_involuntary_action"
+          }
+        },
+        {
+          "event_id": "se4",
+          "event_type": "involuntary_action",
+          "kind": "freeze",
+          "summary": "inv-thomas-hayes-096fee77 freeze: Hand freezes on the torn board while staring at the pallet figure",
+          "source": "sealed-lair-wizened-corpse-first-sight",
+          "rule_ref": "core.sanity.failure_involuntary_action"
+        }
+      ],
+      "check_roll_id": "toolbox-gate9-depth-09-000007",
+      "involuntary_action": {
+        "kind": "freeze",
+        "summary": "Hand freezes on the torn board while staring at the pallet figure",
+        "source": "sealed-lair-wizened-corpse-first-sight",
+        "rule_ref": "core.sanity.failure_involuntary_action"
+      },
+      "loss_roll_id": "toolbox-gate9-depth-09-000008"
+    }
+  },
+  "next_decisions": [
+    {
+      "schema_version": 1,
+      "decision_ref": "decision:coc7:sanity:bout-tick",
+      "family": "sanity",
+      "label": "Sanity bout-tick through an existing resolver/subsystem phase",
+      "applicability": "not_applicable",
+      "required_inputs": [],
+      "locked_inputs": [
+        "bout_revision",
+        "investigator_id",
+        "origin_command_id",
+        "pending_choice_ref"
+      ],
+      "rule_refs": [
+        "rule:coc7:sanity:bout-real-time",
+        "rule:coc7:sanity:bout-summary",
+        "rule:coc7:sanity:phobia-and-mania",
+        "rule:coc7:sanity:underlying-repeat-bout"
+      ],
+      "source_refs": [
+        "span-sanity-complete-source-page-166-block-33",
+        "span-sanity-complete-source-page-167-block-39",
+        "span-sanity-complete-source-page-167-block-54",
+        "span-sanity-complete-source-page-168-block-60",
+        "span-sanity-complete-source-page-168-block-61",
+        "span-sanity-complete-source-page-168-block-81",
+        "span-sanity-complete-source-page-168-block-82",
+        "span-sanity-complete-source-page-169-block-83",
+        "span-sanity-complete-source-page-169-block-84",
+        "span-sanity-complete-source-page-169-block-89",
+        "span-sanity-complete-source-page-169-block-91",
+        "span-sanity-complete-source-page-170-block-104",
+        "span-sanity-complete-source-page-170-block-105",
+        "span-sanity-complete-source-page-170-block-108",
+        "span-sanity-complete-source-page-170-block-111",
+        "span-sanity-complete-source-page-170-block-112",
+        "span-sanity-complete-source-page-170-block-98",
+        "span-sanity-complete-source-page-171-block-114",
+        "span-sanity-complete-source-page-172-block-120",
+        "span-sanity-complete-source-page-175-block-139"
+      ],
+      "capability_ref": "capability:coc7:sanity-execute",
+      "effect_refs": [],
+      "possible_continuations": [
+        "decision:coc7:sanity:bout-end",
+        "decision:coc7:sanity:bout-tick"
+      ],
+      "authority": {
+        "selection": "keeper-semantic",
+        "execution": "current-ruleset-adapter",
+        "hard_gate": false
+      }
+    }
+  ],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:bf1d46a793e9e328ddb9692350d072021d46a393b09805bd04a110900a190aac"
+}

@@ -207,7 +207,7 @@ function validStored(value: unknown, campaignId: string): value is StoredOpenTur
     && validOpenTurnAnchor(value.anchor);
 }
 
-function validPreJournalWindow(currentTurn: unknown): boolean {
+export function validPreJournalWindow(currentTurn: unknown): boolean {
   if (!isPlainObject(currentTurn)) return false;
   if (
     !Number.isSafeInteger(currentTurn.meaningful_row_count)

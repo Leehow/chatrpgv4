@@ -7,15 +7,6 @@
     "rat-pack timing and mundane Macario household clutter",
     "epilogue details for survivors after Corbitt is destroyed or the house is resealed"
   ],
-  "never_invent": [
-    "that Knott already knows Corbitt is an undead sorcerer",
-    "pre-1878 Boston Globe clippings about the Corbitt House",
-    "that Corbitt was legally buried in a public cemetery instead of the basement",
-    "a second basement entrance that skips the sealed boards",
-    "that ordinary prayer or holy water alone permanently destroys Corbitt",
-    "a peaceful bargain that leaves Corbitt safely dormant forever without cost",
-    "that Vittorio can give a clear tactical briefing beyond the bible gesture"
-  ],
   "keeper_secrets": [
     {
       "id": "secret-corbitt-buried-alive-will",
@@ -47,5 +38,14 @@
       "category": "keeper_secret",
       "prose": "Pastor Michael Thomas of the Chapel of Contemplation executed Corbitt's will; the 1912 raid and Thomas's 1917 escape are cult residue, not required for the climax."
     }
+  ],
+  "never_invent": [
+    "that Knott already knows Corbitt is an undead sorcerer",
+    "pre-1878 Boston Globe clippings about the Corbitt House",
+    "that Corbitt was legally buried in a public cemetery instead of the basement",
+    "a second basement entrance that skips the sealed boards",
+    "that ordinary prayer or holy water alone permanently destroys Corbitt",
+    "a peaceful bargain that leaves Corbitt safely dormant forever without cost",
+    "that Vittorio can give a clear tactical briefing beyond the bible gesture"
   ]
 }

@@ -4273,6 +4273,13 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
             optional = {
                 "firearms_skill", "has_ready_firearm", "damage_bonus",
                 "magic_points", "armor", "armor_rule", "mechanics_revision_ref",
+                # Authored data-only passthrough from actor_combat_participant
+                # ("Attacks per round: 1" is printed in stat blocks); carried
+                # as data, no combat rule reads them yet. The builder emitted
+                # them before this contract accepted them, which made the
+                # first source-authored NPC unfightable: invalid participant
+                # contract on the very stat block authored to enable combat.
+                "attacks", "attacks_per_round",
             }
             for offset, participant in enumerate(participants):
                 ppath = f"{base}.participants[{offset}]"

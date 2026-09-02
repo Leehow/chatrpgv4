@@ -247,14 +247,6 @@ const OPEN_TURN_PRE_JOURNAL_FORBIDDEN = new Set([
   "turn.finalize",
 ]);
 
-/** Legacy healing operations retained while the family is shadow-owned. */
-export const SHADOW_HEALING_LEGACY_OPERATIONS = [
-  "rules.first_aid",
-  "rules.dying_check",
-  "rules.medicine",
-  "rules.weekly_recovery",
-] as const;
-
 const SETUP_ACTING_BASELINE = [
   "setup.inspect",
   "setup.phase",

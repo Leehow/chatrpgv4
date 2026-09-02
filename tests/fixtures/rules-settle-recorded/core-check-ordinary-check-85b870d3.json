@@ -1,0 +1,56 @@
+{
+  "decision_ref": "decision:coc7:core-check:ordinary-check",
+  "family": "core-check",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:core-check:canonical-target-binding",
+    "rule:coc7:core-check:combined",
+    "rule:coc7:push-luck:luck-roll"
+  ],
+  "investigator_id": "thomas-hayes",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "bound_check": {
+        "base_target": 55,
+        "target": 55,
+        "required_level": "regular",
+        "difficulty": "regular",
+        "required_target": 55,
+        "effective_target": 55,
+        "achieved_level": "hard",
+        "passed": true,
+        "success": true,
+        "surplus_levels": 1,
+        "outcome": "hard",
+        "bonus": 0,
+        "penalty": 0,
+        "roll": 25,
+        "unmodified_roll": 25,
+        "tens_values": [],
+        "units": null,
+        "investigator_id": "thomas-hayes",
+        "skill": "Spot Hidden",
+        "target_source": "explicit",
+        "pushed": false,
+        "goal": "thoroughly search sealed chamber corners recesses and uneven soil for hidden caches",
+        "stakes": {
+          "on_success": "notice anything genuinely anomalous in the chamber structure or contents beyond the figure",
+          "on_failure": "find only dirt dust and the same figure"
+        },
+        "difficulty_basis": "environment",
+        "roll_id": "toolbox-gate9-depth-08-000007"
+      },
+      "outcome": "hard",
+      "pushed": false,
+      "next_continuations": []
+    }
+  },
+  "next_decisions": [],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:d9939d2c30109a0df10fd6fdebdf712817ff9128fcdb0468b783101afda93bc6"
+}

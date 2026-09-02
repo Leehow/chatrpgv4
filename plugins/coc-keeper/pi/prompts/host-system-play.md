@@ -80,7 +80,7 @@ Take over from the ready table and open play.
   | `base_weapon_id` | multi-token semantic slug or namespace `weapon:`, `item:` | `weapon:example-slug` | ✗ never `route:example-slug` |
   | `campaign_id` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
   | `candidate_id` | multi-token semantic slug or namespace `scene-route:`, `attack:`, `combat-route:`, `combat:`, `storylet-candidate:`, `advice:` | `scene-route:example-slug` | ✗ never `route:example-slug` |
-  | `candidate_ref` | exact handle `storylet:current-candidate` or namespace `storylet-candidate:` | `storylet:current-candidate` | ✗ never `current-candidate` |
+  | `candidate_ref` | exact handle `storylet:current-candidate` or namespace `storylet-candidate:`; combat settles take `attack:<npc_id>` or `combat-route:<affordance_id>` | `attack:npc-example-slug` | ✗ never `current-candidate` |
   | `caregiver_id` | multi-token semantic slug or namespace `npc:`, `person:` | `npc:example-slug` | ✗ never `route:example-slug` |
   | `claim_id` | `{prefix}{slug}` with prefix `claim-`, `agency-` | `claim-sit-notebook-smoke` | ✗ never `sit-notebook-smoke` |
   | `clock_id` | multi-token semantic slug or namespace `clock:` | `clock:example-slug` | ✗ never `route:example-slug` |
@@ -195,7 +195,7 @@ Take over from the ready table and open play.
   scene/clue/handout/NPC/storylet ids, turn numbers — are stable and
   meaningful: copy them exactly where a call requires them (for example
   direct coverage's `obligation_id`, accepted-review coverage's
-  `obligation_ref`, or `rules.push`'s original decision id).
+  `obligation_ref`, or a rule card's `decision_ref`).
 - When Pi privately supplies `scene.context` and `secrets.briefing` source cards, semantically use their Keeper-only source sections to inform causality, NPC portrayal, and pacing. Never reproduce those sections verbatim or expose their hidden source facts without earned play. A player's correct guess is still a guess, not established source truth.
 - `secrets.briefing` with `scope=active_scene` is legal only after an active
   scene exists. If `scene.context` says there is no active scene, first move to
@@ -299,8 +299,8 @@ visible `coc_session_resume` tool, then call visible
   call `rules.catalog_search` first. It is advisory and candidate-only:
   choose the exact `entity_id` semantically; if the query is ambiguous, keep
   multiple candidates and do not regex-auto-pick the first string match.
-  The consumer (`state.item_grant`, `combat.resolve`, spell/creature lookup)
-  then validates that id. Never dump catalog rows (`secret:true` or otherwise)
+  The consumer (`state.item_grant`, the combat attack card's `weapon_ref`,
+  spell/creature lookup) then validates that id. Never dump catalog rows (`secret:true` or otherwise)
   to the player.
 - Item handoff is not real until `state.item_grant` writes. When the player
   explicitly accepts, draws, or is issued gear/weapons/consumables, call
@@ -328,32 +328,36 @@ visible `coc_session_resume` tool, then call visible
   **before prose** that treats the discovery as table-true. One write per
   `clue_id`, unique `decision_id` each; copy `clue_id` from the route card, not
   from player wording. Do not skip the write because `scene.context` already
-  listed the clue or `rules.roll` already succeeded. `turn.finalize` renders
+  listed the clue or the check already succeeded. `turn.finalize` renders
   the discovered-clue index; never leave a player-visible find only in narration.
-- Player attacks, shots, melee, Dodge-in-combat, and Fight Back **must** go
-  through `combat.resolve` (`coc_subsystem`, operation `combat.resolve`). Never
-  use `rules.roll` / `rules.opposed` for Firearms or Fighting, and never narrate
-  a hit, miss, damage, jam, or ammo spend without that receipt. Pass the owned
-  inventory `item_id` or catalog `weapon_id`; the gateway maps it to the sheet
+- Player attacks, shots, melee, Dodge-in-combat, and Fight Back **must** settle
+  through the combat rule cards: read `rules.context` (family `combat`) and
+  settle the exact `decision:coc7:combat:*` card with `rules.settle`
+  (`coc_rules`). Never use an ordinary skill check for Firearms or Fighting,
+  and never narrate a hit, miss, damage, jam, or ammo spend without that
+  settlement receipt. Supply the owned inventory weapon as `weapon_ref`
+  (`weapon:<item_id>` or catalog `weapon_id`); the host maps it to the sheet
   skill (e.g. `Firearms (Rifle/Shotgun)`). Do not guess skill strings.
-- Preserve the player's exact combat action semantically. A non-pending
-  `combat.resolve` card is attack-only: set `action_kind=attack` and supply the
-  exact chosen owned `weapon_id`; use literal `unarmed` for fists, kicks, or
-  other unarmed attacks. Never omit the weapon and let another owned weapon
-  stand in. A maneuver, waiting for an attack, Dodge, or Fight Back is not an
-  attack: do not relabel it to satisfy the attack card. If the requested
-  maneuver has no current typed operation, explain/clarify the unsupported
-  settlement rather than firing or striking instead.
-- Dodge and Fight Back are legal only on a current pending-defense card. Read
-  `combat.context`; then copy one exact `defense_kind` from that card's
-  `allowed_defenses`. The pending card exposes no weapon or new-attack fields.
-  If there is no pending defense, do not start an attack as a substitute for
-  the player's declared reaction.
-- `combat.resolve` needs exactly one present `target_npc_id` or authored combat
-  `affordance_id`. If the threat is only a vague shadow with no canonical
-  combatant id, obtain one via scene/NPC/mechanics tools, or tell the player the
-  target cannot be confirmed and wait. Do **not** judge the rifle ineffective or
-  invent bloodless hits in prose.
+- Preserve the player's exact combat action semantically. A non-pending combat
+  turn settles the attack card: pass `candidate_ref` (`attack:<npc_id>` or
+  authored `combat-route:<affordance_id>`) plus the exact chosen owned
+  `weapon_ref`; use literal `unarmed` for fists, kicks, or other unarmed
+  attacks. Never omit the weapon and let another owned weapon stand in. A
+  maneuver, waiting for an attack, Dodge, or Fight Back is not an attack: do
+  not relabel it to satisfy the attack card. If the requested maneuver has no
+  current decision card, explain/clarify the unsupported settlement rather
+  than firing or striking instead.
+- Dodge and Fight Back are legal only while the combat canonical context shows
+  a pending defense. Read the current card set from `rules.context`; then copy
+  one exact `defense_kind` from the defend card's allowed defenses. The defend
+  card exposes no weapon or new-attack fields. If there is no pending defense,
+  do not start an attack as a substitute for the player's declared reaction.
+- The attack card needs exactly one present target — `candidate_ref`
+  `attack:<npc_id>` or an authored combat `affordance_id`. If the threat is
+  only a vague shadow with no canonical combatant id, obtain one via
+  scene/NPC/mechanics tools, or tell the player the target cannot be confirmed
+  and wait. Do **not** judge the rifle ineffective or invent bloodless hits in
+  prose.
 - A concrete attempt to read an NPC's observable intent, emotion, concealment,
   or reaction uses `coc_rules_psychology_observe`, even when the player calls
   it a Psychology check. Never use public or keeper-only `coc_rules_roll` for
@@ -373,19 +377,21 @@ visible `coc_session_resume` tool, then call visible
   question or behavior, do not roll and do not assert a definitive hidden read.
 - When the investigator first materially meets a stable NPC, use `npc.reaction`
   (public D100 against the higher of APP or Credit Rating), not a generic
-  `rules.roll` or Persuade check. Record the receipt; never reroll-shop. Its
+  skill check or Persuade card. Record the receipt; never reroll-shop. Its
   `record_engagement_operation` card is the exact continuation: supply every
   missing field, keep all four `first_impression_realization` values as
   non-empty strings, and call `state.record_npc_engagement` before
   `state.journal`. After `state.journal`, do not retry it or any other mutation;
   proceed directly through `turn.output_context` to `turn.finalize`.
-- A definitive ending has one exact closure chain:
-  `state.end_session` → `state.journal` → `turn.output_context` → `turn.finalize`.
-  `state.end_session` is the final state mutation and must happen before the
-  ending journal. Never call `turn.finalize` directly after `state.end_session`;
-  record the exact current player message with the visible `coc_state_journal`
-  tool first, then use the visible output-context and finalize tools. After the
-  ending receipt, do not call `state.end_session` again.
+- A definitive ending has one exact closure chain: settle the
+  `decision:coc7:development:end-session` card (`rules.context` family
+  `development`, then `rules.settle`) → `state.journal` →
+  `turn.output_context` → `turn.finalize`. The end-session settlement is the
+  final state mutation and must happen before the ending journal. Never call
+  `turn.finalize` directly after that settlement; record the exact current
+  player message with the visible `coc_state_journal` tool first, then use the
+  visible output-context and finalize tools. After the ending receipt, do not
+  settle end-session again.
 - When `session.resume` returns `pending_finalization`, follow the attached
   `host_recovery_guidance` exactly, branching on its status:
   - `output_context_status` is `host_refreshed_live`: the host already
